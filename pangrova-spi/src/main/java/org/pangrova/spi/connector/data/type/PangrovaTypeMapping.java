@@ -80,6 +80,9 @@ public final class PangrovaTypeMapping {
      * @throws IllegalArgumentException if the type has no enum mapping
      */
     public static PangrovaType toPangrovaType(Type type) {
+        if (type instanceof NullOnlyType) {
+            return PangrovaType.UNKNOWN;
+        }
         PangrovaType mappedType = numericType(type);
         if (mappedType != null) {
             return mappedType;

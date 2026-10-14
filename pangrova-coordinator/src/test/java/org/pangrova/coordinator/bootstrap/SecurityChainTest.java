@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.common.http.HttpClientFactory;
+import org.pangrova.common.http.ManagedHttpClient;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.Arbitraries;
@@ -20,7 +22,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Instant;
@@ -47,9 +48,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SecurityChainTest extends ContainerTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
-
     private CoordinatorBootstrap bootstrap;
+    private ManagedHttpClient http;
 
     @AfterEach
     void tearDownJUnit() {
@@ -237,18 +237,24 @@ class SecurityChainTest extends ContainerTestBase {
         bootstrap.start();
         assertThat(bootstrap.isStarted()).isTrue();
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
+        http = HttpClientFactory.createDefault();
     }
 
     private void shutdownBootstrap() {
-        if (bootstrap != null) {
-            bootstrap.shutdown();
+        try {
+            if (bootstrap != null) bootstrap.shutdown();
+        } finally {
             bootstrap = null;
+            if (http != null) {
+                http.close();
+                http = null;
+            }
         }
     }
 
     // -- HTTP helpers --
 
-    private static HttpResponse<String> submitQuery(int port, String sql, String authHeader)
+    private HttpResponse<String> submitQuery(int port, String sql, String authHeader)
             throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -258,14 +264,16 @@ class SecurityChainTest extends ContainerTestBase {
         if (authHeader != null) {
             builder.header("Authorization", authHeader);
         }
-        return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        return java.util.Objects.requireNonNull(http).httpClient()
+                .send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
-    private static HttpResponse<String> sendGet(int port, String path) throws Exception {
+    private HttpResponse<String> sendGet(int port, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
                 .GET().build();
-        return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+        return java.util.Objects.requireNonNull(http).httpClient()
+                .send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private static org.pangrova.coordinator.http.CoordinatorHttpServer buildStandaloneServer(

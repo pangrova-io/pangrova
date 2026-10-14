@@ -11,7 +11,6 @@ import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
 import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.testing.ContainerTestBase;
-import org.pangrova.worker.ai.context.AiProviderCallContext;
 import org.pangrova.worker.ai.invocation.AiTransportTestAdmission;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -20,12 +19,11 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -91,7 +89,6 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
     void realScalarBatchAndTailKeepPurposeAndInputOrder() {
         List<String> texts = List.of("first", "second", "第三", "fourth", "fifth",
                 "sixth", "seventh", "eighth", "tail");
-        var actualProvider = provider(true);
         for (EmbeddingPurpose purpose : EmbeddingPurpose.values()) {
             List<float[]> batched = new ArrayList<>();
             batched.addAll(embed(true, request(purpose, texts.subList(0, 8))).vectors());
@@ -111,17 +108,17 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
     }
 
     @Test
-    void retriesTwoRealNetworkFailuresThenSucceedsOnThirdSend() throws IOException {
-        assertRecoverySendCount(3);
+    void twoFailedInvocationsRequireANewInvocationAfterRecovery() throws IOException {
+        assertNewInvocationAfterRecovery(2);
     }
 
     @Test
-    void retriesOneRealNetworkFailureThenSucceedsOnSecondSend() throws IOException {
-        assertRecoverySendCount(2);
+    void oneFailedInvocationRequiresANewInvocationAfterRecovery() throws IOException {
+        assertNewInvocationAfterRecovery(1);
     }
 
     @Test
-    void deniedRetryStopsBeforeSecondTransportSend() throws IOException {
+    void singleAttemptGrantDoesNotReplayAnUnknownPost() throws IOException {
         proxy.disable();
         var defaults = AiTransportTestAdmission.Limits.defaults();
         var limits = new AiTransportTestAdmission.Limits(defaults.concurrency(), defaults.items(), 1,
@@ -130,53 +127,70 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
                 384, 1, 1, limits, Instant.now().plusSeconds(20))) {
             assertThatThrownBy(() -> budget.call("deny-retry", () -> provider(true).embed(
                     request(EmbeddingPurpose.RAW, List.of("denied")))))
-                    .isInstanceOf(AiInvocationException.class).hasMessageContaining("remaining exact resource grant");
+                    .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
+                        assertThat(failure.category())
+                                .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                        assertThat(failure.retryable()).isFalse();
+                    });
             assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
         }
         assertThat(proxy.isEnabled()).isFalse();
     }
 
     @Test
-    void exhaustedNetworkRetriesStopAtFourSends() throws IOException {
+    void largerAttemptGrantDoesNotAuthorizeReplayOfAnUnknownPost() throws IOException {
         proxy.disable();
         try (var budget = AiTransportTestAdmission.embedding(384, 1, 1)) {
             assertThatThrownBy(() -> budget.call("exhaust-retries",
                     () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("exhausted")))))
-                    .isInstanceOf(AiInvocationException.class).hasMessageContaining("failed after 4 attempts");
-            assertThat(budget.usage().getProviderAttempts()).isEqualTo(4);
+                    .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
+                        assertThat(failure.category())
+                                .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                        assertThat(failure.retryable()).isFalse();
+                    });
+            assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
         }
     }
 
     @Test
-    void absoluteTaskDeadlineStopsBlockedTransportAndPreventsRetry() throws IOException {
+    void absoluteTaskDeadlineDoesNotReplayAnUnknownPost() throws IOException {
         proxy.toxics().timeout("blocked-response", ToxicDirection.DOWNSTREAM, 0);
         try (var budget = new AiTransportTestAdmission(org.pangrova.spi.ai.AiCapabilityDescriptor.Operation.EMBEDDING,
                 384, 1, 1, AiTransportTestAdmission.Limits.defaults(), Instant.now().plusSeconds(2))) {
             assertThatThrownBy(() -> budget.call("deadline",
                     () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("deadline")))))
-                    .isInstanceOf(AiInvocationException.class).extracting("category")
-                    .isEqualTo(AiInvocationException.Category.TIMEOUT);
+                    .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
+                        assertThat(failure.category())
+                                .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                        assertThat(failure.retryable()).isFalse();
+                        assertThat(failure).hasCauseInstanceOf(HttpTimeoutException.class);
+                    });
             assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
         }
     }
 
-    private void assertRecoverySendCount(int successfulSend) throws IOException {
+    private void assertNewInvocationAfterRecovery(int failedInvocations) throws IOException {
         proxy.disable();
+        for (int ordinal = 0; ordinal < failedInvocations; ordinal++) {
+            try (var budget = AiTransportTestAdmission.embedding(384, 1, 1)) {
+                int invocation = ordinal;
+                assertThatThrownBy(() -> budget.call("failed-" + invocation,
+                        () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("recovered")))))
+                        .isInstanceOfSatisfying(AiInvocationException.class, failure -> {
+                            assertThat(failure.category())
+                                    .isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                            assertThat(failure.retryable()).isFalse();
+                        });
+                assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
+            }
+        }
+        proxy.enable();
         try (var budget = AiTransportTestAdmission.embedding(384, 1, 1)) {
-            var result = budget.call("recover-" + successfulSend, () -> AiProviderCallContext.callWith(
-                    "recover-" + successfulSend, Instant.now().plusSeconds(20), bytes -> {
-                        var attempt = budget.openAttempt(bytes);
-                        try {
-                            if (budget.usage().getProviderAttempts() == successfulSend) proxy.enable();
-                            return attempt;
-                        } catch (IOException exception) {
-                            attempt.close();
-                            throw new UncheckedIOException(exception);
-                        }
-                    }, () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("recovered")))));
+            var result = budget.call("recovered-" + failedInvocations,
+                    () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("recovered"))));
             var expected = embed(false, request(EmbeddingPurpose.RAW, List.of("recovered")));
             assertCoordinates(result.vectors().get(0), expected.vectors().get(0));
-            assertThat(budget.usage().getProviderAttempts()).isEqualTo(successfulSend);
+            assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
         }
     }
 

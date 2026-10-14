@@ -40,7 +40,13 @@ public final class StatementClassifier {
     private StatementClassifier() {
     }
 
+    /** Returns whether a statement changes catalog, table, branch, or AI metadata. */
     public static boolean isDdl(Statement stmt) {
+        return isCoreDdl(stmt) || isSemanticViewDdl(stmt)
+                || isFeatureViewDdl(stmt) || isFeatureMaterializationDdl(stmt);
+    }
+
+    private static boolean isCoreDdl(Statement stmt) {
         return stmt instanceof CreateTableStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.CreateTableAsSelectStatement
                 || stmt instanceof DropTableStatement
@@ -52,14 +58,24 @@ public final class StatementClassifier {
                 || stmt instanceof org.pangrova.parser.ast.statement.CreateBranchStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.DropBranchStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.CreateTagStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.DropTagStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.CreateSemanticViewStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.PublishSemanticViewStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.CreateFeatureViewStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.PublishFeatureViewStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
+                || stmt instanceof org.pangrova.parser.ast.statement.DropTagStatement;
     }
 
+    private static boolean isSemanticViewDdl(Statement stmt) {
+        return stmt instanceof org.pangrova.parser.ast.statement.CreateSemanticViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.PublishSemanticViewStatement;
+    }
+
+    private static boolean isFeatureViewDdl(Statement stmt) {
+        return stmt instanceof org.pangrova.parser.ast.statement.CreateFeatureViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.PublishFeatureViewStatement;
+    }
+
+    private static boolean isFeatureMaterializationDdl(Statement stmt) {
+        return stmt instanceof org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
+    }
+
+    /** Returns whether a statement writes table rows. */
     public static boolean isDml(Statement stmt) {
         return stmt instanceof InsertStatement
                 || stmt instanceof InsertOverwriteStatement
@@ -69,6 +85,7 @@ public final class StatementClassifier {
                 || stmt instanceof MergeStatement;
     }
 
+    /** Returns whether a statement reads descriptive catalog metadata. */
     public static boolean isShow(Statement stmt) {
         return stmt instanceof ShowSchemasStatement
                 || stmt instanceof ShowTablesStatement
@@ -83,6 +100,7 @@ public final class StatementClassifier {
                 || stmt instanceof VacuumStatement;
     }
 
+    /** Returns whether a statement manages a dynamic table or continuous query. */
     public static boolean isDynamicTable(Statement stmt) {
         return stmt instanceof CreateDynamicTableStatement
                 || stmt instanceof CreateContinuousQueryStatement
@@ -98,6 +116,7 @@ public final class StatementClassifier {
                 || stmt instanceof CallStatement;
     }
 
+    /** Returns whether a statement manages an index. */
     public static boolean isIndex(Statement stmt) {
         return stmt instanceof org.pangrova.parser.ast.statement.CreateIndexStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.DropIndexStatement
@@ -116,6 +135,7 @@ public final class StatementClassifier {
                 || stmt instanceof org.pangrova.parser.ast.statement.RevokeTenantStatement;
     }
 
+    /** Returns whether a statement manages a stream. */
     public static boolean isStream(Statement stmt) {
         return stmt instanceof org.pangrova.parser.ast.statement.stream.CreateStreamStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.stream.AlterStreamStatement
@@ -165,6 +185,7 @@ public final class StatementClassifier {
                     Map.entry(AlterDynamicTableStatement.class, s -> ((AlterDynamicTableStatement) s).name())
             );
 
+    /** Extracts the affected table identifier when the statement names one. */
     public static Identifier extractTableName(Statement stmt) {
         if (stmt instanceof AlterTableStatement alter) {
             return alter.tableName();

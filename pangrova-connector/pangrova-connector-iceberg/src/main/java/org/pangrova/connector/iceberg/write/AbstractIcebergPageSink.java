@@ -50,7 +50,8 @@ import java.util.function.Consumer;
  * <p>Not thread-safe: instances are confined to a single writer thread.
  */
 @NotThreadSafe
-abstract class AbstractIcebergPageSink implements ColumnarPageSink {
+abstract sealed class AbstractIcebergPageSink implements ColumnarPageSink
+        permits IcebergPageSink, IcebergOverwritePageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(AbstractIcebergPageSink.class);
 
@@ -132,7 +133,10 @@ abstract class AbstractIcebergPageSink implements ColumnarPageSink {
             GenericRecord record = GenericRecord.create(parquetSafeSchema);
             for (int column = 0; column < fields.size(); column++) {
                 Object value = ordinals[column] < 0 ? null : batch.value(row, ordinals[column]);
-                record.set(column, IcebergValueCoercion.coerceValue(value, fields.get(column).type()));
+                Object coerced = IcebergValueCoercion.coerceValue(value, fields.get(column).type());
+                if (fields.get(column).type().typeId() != org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                    record.setField(fields.get(column).name(), coerced);
+                }
             }
             writeRecord(record);
         }
@@ -404,7 +408,10 @@ abstract class AbstractIcebergPageSink implements ColumnarPageSink {
             ColumnValue cv = row.containsColumn(field.name())
                     ? row.get(field.name()) : new ColumnValue.NullValue();
             Object value = ColumnValue.toRaw(cv);
-            record.setField(field.name(), IcebergValueCoercion.coerceValue(value, field.type()));
+            Object coerced = IcebergValueCoercion.coerceValue(value, field.type());
+            if (field.type().typeId() != org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                record.setField(field.name(), coerced);
+            }
         }
         return record;
     }

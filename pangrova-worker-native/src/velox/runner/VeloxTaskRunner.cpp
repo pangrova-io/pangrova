@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "jni/RuntimeInitializer.h"
+#include "index/IndexHintFilter.h"
 #include "observability/PangrovaLog.h"
 #include "observability/NativeProfiler.h"
 #include "shuffle/SerializedShuffleQueue.h"
@@ -102,6 +103,29 @@ void collectExchangeNodes(
   for (const auto& source : node->sources()) {
     collectExchangeNodes(source, node_ids);
   }
+}
+
+// Velox's scaled scan parks all but the first scan driver until a non-empty
+// split permits scale-up (or the scan operator closes). Join build operators
+// wait for every peer driver before closing their source operators. An empty
+// build-side scan therefore leaves parked drivers and the join waiting on
+// each other. Keep the optimization on scan pipelines without a join barrier.
+bool containsJoinBarrier(
+    const std::shared_ptr<const facebook::velox::core::PlanNode>& node) {
+  if (!node) {
+    return false;
+  }
+  if (std::dynamic_pointer_cast<const facebook::velox::core::HashJoinNode>(node) ||
+      std::dynamic_pointer_cast<const facebook::velox::core::NestedLoopJoinNode>(node) ||
+      std::dynamic_pointer_cast<const facebook::velox::core::SpatialJoinNode>(node)) {
+    return true;
+  }
+  for (const auto& source : node->sources()) {
+    if (containsJoinBarrier(source)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -241,25 +265,26 @@ void VeloxTaskRunner::start() {
 
   // Performance tuning knobs (Req 6): enable high-value Velox QueryConfig
   // settings that improve hash join, table scan, and filter performance.
-  if (config_.hash_probe_finish_early_on_empty_build) {
-    query_config_values[facebook::velox::core::QueryConfig::kHashProbeFinishEarlyOnEmptyBuild] = "true";
+  query_config_values[facebook::velox::core::QueryConfig::kHashProbeFinishEarlyOnEmptyBuild] =
+      config_.hash_probe_finish_early_on_empty_build ? "true" : "false";
+  query_config_values[facebook::velox::core::QueryConfig::kHashProbeStringDynamicFilterPushdownEnabled] =
+      config_.hash_probe_string_dynamic_filter_pushdown ? "true" : "false";
+  query_config_values[facebook::velox::core::QueryConfig::kAdaptiveFilterReorderingEnabled] =
+      config_.adaptive_filter_reordering ? "true" : "false";
+  query_config_values[facebook::velox::core::QueryConfig::kParallelOutputJoinBuildRowsEnabled] =
+      config_.parallel_output_join_build_rows ? "true" : "false";
+  const bool scaled_scan_eligible = !containsJoinBarrier(plan_);
+  query_config_values[facebook::velox::core::QueryConfig::kTableScanScaledProcessingEnabled] =
+      config_.table_scan_scaled_processing && scaled_scan_eligible ? "true" : "false";
+  if (config_.table_scan_scaled_processing && !scaled_scan_eligible) {
+    PANGROVA_LOG_INFO << "event=scaled_scan_ineligible reason=join_peer_barrier"
+                      << " task_id=" << config_.task_id;
   }
-  if (config_.hash_probe_string_dynamic_filter_pushdown) {
-    query_config_values[facebook::velox::core::QueryConfig::kHashProbeStringDynamicFilterPushdownEnabled] = "true";
+  if (config_.max_split_preload_per_driver < 0) {
+    throw std::invalid_argument("max_split_preload_per_driver must be non-negative");
   }
-  if (config_.adaptive_filter_reordering) {
-    query_config_values[facebook::velox::core::QueryConfig::kAdaptiveFilterReorderingEnabled] = "true";
-  }
-  if (config_.parallel_output_join_build_rows) {
-    query_config_values[facebook::velox::core::QueryConfig::kParallelOutputJoinBuildRowsEnabled] = "true";
-  }
-  if (config_.table_scan_scaled_processing) {
-    query_config_values[facebook::velox::core::QueryConfig::kTableScanScaledProcessingEnabled] = "true";
-  }
-  if (config_.max_split_preload_per_driver > 0) {
-    query_config_values[facebook::velox::core::QueryConfig::kMaxSplitPreloadPerDriver] =
-        std::to_string(config_.max_split_preload_per_driver);
-  }
+  query_config_values[facebook::velox::core::QueryConfig::kMaxSplitPreloadPerDriver] =
+      std::to_string(config_.max_split_preload_per_driver);
 
   // L1-1: Partial aggregation abandonment — stop building hash tables
   // when reduction ratio is poor (high-cardinality GROUP BY).
@@ -639,22 +664,27 @@ void VeloxTaskRunner::start() {
                     // blocking push with generous timeout as last resort.
                     if (!s->output_queue_->push(
                             retry_vector, std::chrono::milliseconds(30000))) {
-                      // Push timed out — cancel task to surface the error
-                      // instead of silently dropping the batch.
-                      s->cancelled_.store(true);
-                      {
-                        std::lock_guard<std::mutex> lock(s->error_mutex_);
-                        s->error_message_ =
-                            "OutputQueue push timed out during backpressure "
-                            "recovery (query_id=" + s->config_.query_id +
-                            ", task_id=" + s->config_.task_id + ")";
-                      }
+                      // A failed producer or writer closes the queue and wakes
+                      // this callback immediately. Preserve that original
+                      // failure; only an open queue can have timed out.
+                      if (!s->output_queue_->isClosed()) {
+                        s->cancelled_.store(true);
+                        {
+                          std::lock_guard<std::mutex> lock(s->error_mutex_);
+                          if (s->error_message_.empty()) {
+                            s->error_message_ =
+                                "OutputQueue push timed out during backpressure "
+                                "recovery (query_id=" + s->config_.query_id +
+                                ", task_id=" + s->config_.task_id + ")";
+                          }
+                        }
 #if __has_include(<glog/logging.h>)
-                      LOG(ERROR) << "output_queue_push_timeout"
-                                 << " query_id=" << s->config_.query_id
-                                 << " task_id=" << s->config_.task_id
-                                 << " error_type=backpressure_data_loss";
+                        LOG(ERROR) << "output_queue_push_timeout"
+                                   << " query_id=" << s->config_.query_id
+                                   << " task_id=" << s->config_.task_id
+                                   << " error_type=backpressure_data_loss";
 #endif
+                      }
                     }
                   }
                 }
@@ -789,6 +819,8 @@ void VeloxTaskRunner::start() {
   collectSplitLeafNodes(plan_, splitLeafNodes);
 
   std::unordered_set<std::string> overridden_nodes;
+  size_t index_split_total = 0;
+  size_t index_split_skipped = 0;
   for (const auto& leaf : splitLeafNodes) {
     auto override = scan_split_overrides_.find(leaf.nodeId);
     if (override == scan_split_overrides_.end()) {
@@ -796,6 +828,16 @@ void VeloxTaskRunner::start() {
     }
     overridden_nodes.emplace(leaf.nodeId);
     for (const auto& split_config : override->second) {
+      bool index_evaluated = false;
+      if (!index::IndexHintFilter::shouldKeepTypedSplit(
+              split_config.file_scan_detail, split_config.file_path, &index_evaluated)) {
+        ++index_split_total;
+        ++index_split_skipped;
+        continue;
+      }
+      if (index_evaluated) {
+        ++index_split_total;
+      }
       auto connector_split = std::make_shared<PangrovaConnectorSplit>(
           PangrovaVeloxConnector::kConnectorId, split_config);
       velox_task_->addSplit(
@@ -835,6 +877,16 @@ void VeloxTaskRunner::start() {
   // carry "schema.table" while the scan node only has "table").
   // If no match is found, broadcast to all leaf nodes as fallback.
   for (const auto& splitConfig : uniqueSplits) {
+    bool index_evaluated = false;
+    if (!index::IndexHintFilter::shouldKeepTypedSplit(
+            splitConfig.file_scan_detail, splitConfig.file_path, &index_evaluated)) {
+      ++index_split_total;
+      ++index_split_skipped;
+      continue;
+    }
+    if (index_evaluated) {
+      ++index_split_total;
+    }
     auto connectorSplit = std::make_shared<PangrovaConnectorSplit>(
         PangrovaVeloxConnector::kConnectorId, splitConfig);
 
@@ -864,6 +916,14 @@ void VeloxTaskRunner::start() {
       }
     }
   }
+
+  if (index_split_skipped > 0) {
+    PANGROVA_LOG_INFO << "event=native_index_split_filter task_id=" << config_.task_id
+                      << " total=" << index_split_total
+                      << " skipped=" << index_split_skipped;
+  }
+  index_splits_evaluated_.store(index_split_total, std::memory_order_release);
+  index_splits_skipped_.store(index_split_skipped, std::memory_order_release);
 
   for (const auto& leaf : splitLeafNodes) {
     velox_task_->noMoreSplits(leaf.nodeId);
@@ -1015,7 +1075,10 @@ folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
     return folly::makeSemiFuture(false);
   }
   try {
-    velox_task_->start(config_.max_drivers);
+    const int32_t effective_drivers = config_.max_drivers_override > 0
+        ? config_.max_drivers_override
+        : config_.max_drivers;
+    velox_task_->start(effective_drivers);
   } catch (const std::exception& e) {
     {
       std::lock_guard<std::mutex> lock(error_mutex_);
@@ -1115,7 +1178,10 @@ std::vector<uint8_t> VeloxTaskRunner::collectTaskStats() const {
   }
   // Delegate to shared serialization utility to avoid duplicate logic
   // with StatusSerializer::serializeNativeTaskStats().
-  return pangrova::jni::serializeNativeTaskStats(velox_task_->taskStats());
+  return pangrova::jni::serializeNativeTaskStats(
+      velox_task_->taskStats(),
+      index_splits_evaluated_.load(std::memory_order_acquire),
+      index_splits_skipped_.load(std::memory_order_acquire));
 }
 
 void VeloxTaskRunner::finalizeShuffleOutput() {

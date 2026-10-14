@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.index.lifecycle;
 
 import org.pangrova.indexing.build.DataFileInfo;
+import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.index.ddl.IndexSourceAuthority;
 import org.pangrova.metadata.event.MetadataEvent;
 import org.pangrova.metadata.event.MetadataEventListener;
 import org.pangrova.metadata.index.CommitEventRequest;
@@ -49,11 +51,13 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             durableCommitProcessors = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile boolean running = true;
 
+    /** Creates a commit handler without an external maintenance leader gate. */
     public IndexCommitHandler(IndexCommitContext deps, IndexLifecycleMetrics lifecycleMetrics,
                               int pollBatchSize) {
         this(deps, lifecycleMetrics, null, pollBatchSize);
     }
 
+    /** Creates a commit handler whose poller is gated by the maintenance leader lease. */
     public IndexCommitHandler(IndexCommitContext deps, IndexLifecycleMetrics lifecycleMetrics,
                               MaintenanceLeaderElection leaderElection,
                               int pollBatchSize) {
@@ -98,8 +102,9 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         boolean buildSucceeded = switch (files.eventType) {
             case APPEND -> refreshPublishedGenerations(store, files);
             case OVERWRITE, COMPACT -> {
-                deleteRemovedFileStatistics(store, files);
-                yield refreshPublishedGenerations(store, files);
+                boolean refreshed = refreshPublishedGenerations(store, files);
+                if (refreshed) deleteRemovedFileStatistics(store, files);
+                yield refreshed;
             }
             case DELETE -> {
                 markIndexesStale(store, files);
@@ -131,9 +136,6 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
 
     private boolean refreshPublishedGenerations(
             IndexMetadataStore store, MergedCommitFiles files) {
-        if (!files.addedFiles.isEmpty()) {
-            collectFileStatistics(store, files);
-        }
         List<IndexDescriptor> readyIndexes = store.findIndexesByTable(
                 files.tenantId, files.catalog, files.schema, files.table).stream()
                 .filter(descriptor -> descriptor.state() == IndexState.READY)
@@ -141,15 +143,21 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         if (readyIndexes.isEmpty()) {
             return true;
         }
-        SnapshotAwareMetadata snapshotMetadata = deps.connectorAccessorResolver()
-                .resolveSnapshotAwareMetadata(files.catalog, files.schema, files.table);
-        if (snapshotMetadata == null) {
-            markIndexesStale(store, readyIndexes, "snapshot_metadata_unavailable");
-            return true;
+        if (!files.addedFiles.isEmpty()) {
+            var firstAccessors = IndexSourceAuthority.forDescriptor(
+                    store, deps.buildServices(), deps.connectorAccessorResolver(), readyIndexes.get(0));
+            collectFileStatistics(store, files, firstAccessors);
         }
-        List<SnapshotDataFile> targetFiles =
-                snapshotMetadata.listFilesAtSnapshot(files.snapshotId);
         for (IndexDescriptor descriptor : readyIndexes) {
+            var accessors = IndexSourceAuthority.forDescriptor(
+                    store, deps.buildServices(), deps.connectorAccessorResolver(), descriptor);
+            SnapshotAwareMetadata snapshotMetadata = accessors.resolveSnapshotAwareMetadata(
+                    files.catalog, files.schema, files.table);
+            if (snapshotMetadata == null) {
+                markIndexStale(store, descriptor, "snapshot_metadata_unavailable");
+                continue;
+            }
+            List<SnapshotDataFile> targetFiles = snapshotMetadata.listFilesAtSnapshot(files.snapshotId);
             IndexRefreshInput input = resolveRefreshInput(
                     store, snapshotMetadata, descriptor, files, targetFiles);
             if (input == null) {
@@ -270,9 +278,14 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
      * to the metadata store for L0 pruning (Req 2.AC3).
      */
     void collectFileStatistics(IndexMetadataStore store, MergedCommitFiles files) {
+        collectFileStatistics(store, files, deps.connectorAccessorResolver());
+    }
+
+    private void collectFileStatistics(IndexMetadataStore store, MergedCommitFiles files,
+                                       ConnectorAccessorResolver accessors) {
         try {
             List<org.pangrova.spi.index.statistics.DataFileStatistics> statistics =
-                    deps.connectorAccessorResolver().resolveFileStatistics(
+                    accessors.resolveFileStatistics(
                             files.catalog, files.schema, files.table, files.addedFiles);
             if (statistics.isEmpty()) {
                 LOG.debug("action=no_file_statistics catalog={} schema={} table={} files={}",

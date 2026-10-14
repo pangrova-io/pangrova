@@ -343,6 +343,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         DAGQueryContext queryContext = lifecycle.queryContext(state.queryId());
         lifecycle.emitStageLineage(state.queryId(), plan, true);
         SerializedPlanFragment serialized = state.serializePlan(plan, queryContext);
+        if (queryContext != null && !queryContext.retrievalArtifacts().isEmpty()) {
+            LOG.info("event=retrieval_stage_hints queryId={} stageId={} hints={}",
+                    state.queryId(), plan.stageId(), serialized.retrievalTopKHints().stream()
+                            .map(hint -> hint.kind() + ":" + hint.sourceKey()).toList());
+        }
         List<SplitFetcher.SplitWithPaths> splits = stageSplitFetcher.fetch(
                 plan, state.dag(), state.queryId(), queryContext);
         BoundExecutionPlan boundPlan = stagePlanBinder.bind(new DAGStagePlanBinder.Input(
@@ -437,6 +442,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     @Override
     public boolean isQueryComplete(String queryId) {
         return lifecycle.isQueryComplete(queryId);
+    }
+
+    /** Completes deferred query finalization when the DAG reaches a terminal outcome. */
+    @Override
+    public void onQueryTerminal(String queryId, java.util.function.Consumer<Boolean> listener) {
+        lifecycle.onQueryTerminal(queryId, listener);
     }
 
     /** Routes a worker terminal task report to its owning stage. */

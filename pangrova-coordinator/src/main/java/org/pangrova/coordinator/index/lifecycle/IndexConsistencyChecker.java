@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.index.lifecycle;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.coordinator.index.ddl.IndexSourceAuthority;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.indexing.config.ConsistencyConfig;
 import org.pangrova.metadata.index.IndexMetadataStore;
@@ -42,6 +43,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
     private final ScheduledExecutorService scheduler;
     private volatile ScheduledFuture<?> scheduledTask;
 
+    /** Creates the leader-gated index consistency checker. */
     public IndexConsistencyChecker(IndexConsistencyContext deps,
                                    IndexLifecycleMetrics lifecycleMetrics) {
         this.deps = deps;
@@ -157,7 +159,8 @@ public final class IndexConsistencyChecker implements AutoCloseable {
     private void reconcileIndex(
             IndexDescriptor descriptor, ConsistencyConfig config, boolean fullReplacement) {
         try {
-            SnapshotAwareMetadata snapshotMetadata = deps.accessorResolver()
+            SnapshotAwareMetadata snapshotMetadata = IndexSourceAuthority.forDescriptor(
+                    deps.metadataStore(), deps.buildServices(), deps.accessorResolver(), descriptor)
                     .resolveSnapshotAwareMetadata(
                             descriptor.catalogName(), descriptor.schemaName(),
                             descriptor.tableName());

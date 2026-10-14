@@ -3,6 +3,10 @@ package org.pangrova.metadata.index.jdbc;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,10 +25,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class JdbcIndexGenerationPublicationTest {
 
     private JdbcIndexMetadataStore store;
+    private DataSource dataSource;
 
     @BeforeEach
     void setUp() throws Exception {
-        var dataSource = SharedPostgresContainer.migratedDataSource("index_publication");
+        dataSource = SharedPostgresContainer.migratedDataSource("index_publication");
         store = new JdbcIndexMetadataStore(dataSource);
     }
 
@@ -95,6 +100,70 @@ class JdbcIndexGenerationPublicationTest {
                 });
         assertThat(store.findActiveIndexGeneration(ready.indexId()).orElseThrow().generation())
                 .isZero();
+    }
+
+    @Test
+    void orphanRemovalTargetsExactFileGenerationAndObservedDescriptor() {
+        IndexDescriptor descriptor = descriptor();
+        store.registerIndex(descriptor);
+        IndexFileMapping oldFile = new IndexFileMapping(
+                descriptor.indexId(), "same-data", "v1/shared.idx",
+                10, 256, "a".repeat(64), 0,
+                "old", 0, Instant.EPOCH, 0);
+        IndexFileMapping currentFile = new IndexFileMapping(
+                descriptor.indexId(), "same-data", "v2/g2.idx",
+                10, 256, "b".repeat(64), 2,
+                "current", 0, Instant.EPOCH, 0);
+        store.registerIndexFile(oldFile);
+        store.registerIndexFile(currentFile);
+
+        assertThat(store.removeIndexFileMappingIfState(
+                oldFile, IndexState.READY, 2)).isFalse();
+        assertThat(store.getIndexFileMappings(descriptor.indexId())).hasSize(2);
+
+        store.updateIndexState(descriptor.indexId(), IndexState.READY.name(), Instant.EPOCH.plusSeconds(1));
+        assertThat(store.removeIndexFileMappingIfState(
+                oldFile, IndexState.READY, 0)).isTrue();
+        assertThat(store.getIndexFileMappings(descriptor.indexId()))
+                .extracting(IndexFileMapping::indexFilePath)
+                .containsExactly("v2/g2.idx");
+    }
+
+    @Test
+    void lifecycleLockSerializesIndependentMetadataConnections() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var competing = new CountDownLatch(1);
+        var acquired = new CountDownLatch(1);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var first = workers.submit(() -> store.withIndexLifecycleLock("same-index", () -> {
+                entered.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Lifecycle lock test timed out");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
+            }));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            var second = workers.submit(() -> {
+                competing.countDown();
+                new JdbcIndexMetadataStore(dataSource)
+                        .withIndexLifecycleLock("same-index", acquired::countDown);
+            });
+            assertThat(competing.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(acquired.await(200, TimeUnit.MILLISECONDS)).isFalse();
+            release.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+            assertThat(acquired.getCount()).isZero();
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+        }
     }
 
     @Test

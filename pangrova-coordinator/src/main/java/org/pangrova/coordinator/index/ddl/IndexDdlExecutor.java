@@ -21,6 +21,7 @@ import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.index.IndexType;
 import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -41,12 +43,14 @@ import java.util.concurrent.Future;
 public final class IndexDdlExecutor implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexDdlExecutor.class);
+    private static final java.time.Duration CALLBACK_SHUTDOWN_TIMEOUT = java.time.Duration.ofSeconds(30);
 
     private final IndexDdlContext deps;
     private final IndexCache indexCache;
     private final AccessControl accessControl;
     private final ExecutorService callbackExecutor;
 
+    /** Creates an index DDL executor with durable metadata and callback dependencies. */
     public IndexDdlExecutor(IndexDdlContext deps, IndexCache indexCache,
                      AccessControl accessControl) {
         this.deps = deps;
@@ -58,7 +62,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     @Override
     public void close() {
-        ResourceCloser.shutdownExecutor(callbackExecutor, java.time.Duration.ofSeconds(30));
+        ResourceCloser.shutdownExecutor(callbackExecutor, CALLBACK_SHUTDOWN_TIMEOUT);
     }
 
     /**
@@ -87,6 +91,28 @@ public final class IndexDdlExecutor implements AutoCloseable {
         }
     }
 
+    /** Index builders read physical source columns without query-time row filters or masks. */
+    private void checkRawBuildRead(QualifiedTableName tableRef, UserIdentity user, List<String> columns) {
+        if (accessControl == null) {
+            return;
+        }
+        if (user == null) {
+            throw new AccessDeniedException("Anonymous source read denied for index build on " + tableRef);
+        }
+        accessControl.checkCanSelectFromColumns(
+                user, tableRef.catalog(), tableRef.schema(), tableRef.table(), Set.copyOf(columns));
+        if (accessControl.getRowFilter(user, tableRef.catalog(), tableRef.schema(), tableRef.table()).isPresent()) {
+            throw new AccessDeniedException("Index build cannot bypass a source row filter on " + tableRef);
+        }
+        for (String column : columns) {
+            if (accessControl.getColumnMask(
+                    user, tableRef.catalog(), tableRef.schema(), tableRef.table(), column).isPresent()) {
+                throw new AccessDeniedException("Index build cannot bypass a source column mask on " + tableRef);
+            }
+        }
+    }
+
+    /** Validates and submits a CREATE INDEX request. */
     public List<TypedRow> executeCreateIndex(
             CreateIndexStatement stmt, CoordinatorSessionContext context) {
         String tenantId = context.tenantId();
@@ -98,20 +124,22 @@ public final class IndexDdlExecutor implements AutoCloseable {
         var accessors = deps.accessorResolver().forSession(session);
         IndexValidationHelper.validateTableExists(tableRef, deps.catalogRegistry(), session);
         IndexType indexType = parseIndexType(stmt.indexType());
-        IndexValidationHelper.validateColumns(tableRef, stmt.columnNames(), indexType, deps.catalogRegistry(), session);
-        IndexValidationHelper.validateMultiColumnConstraints(indexType, stmt.columnNames());
+        List<String> columns = IndexValidationHelper.validateColumns(
+                tableRef, stmt.columnNames(), indexType, deps.catalogRegistry(), session);
+        checkRawBuildRead(tableRef, user, columns);
+        IndexValidationHelper.validateMultiColumnConstraints(indexType, columns);
         IndexValidationHelper.checkNativeCapabilityOverlap(
-                tableRef.catalog(), stmt.columnNames(), indexType, stmt.force(), accessors);
+                tableRef.catalog(), columns, indexType, stmt.force(), accessors);
 
         boolean nativeArtifact = requiresNativeArtifact(indexType);
         IndexBuildInput buildInput = resolveBuildInput(tableRef, !nativeArtifact, context);
         IndexDescriptor descriptor = buildDescriptor(
-                stmt.indexName(), tableRef, stmt.columnNames(), indexType,
+                stmt.indexName(), tableRef, columns, indexType,
                 IndexBuildProperties.canonicalize(indexType, stmt.properties()),
                 buildInput.sourceSnapshot(), tenantId);
         requireNativeBuildSupport(descriptor);
 
-        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt);
+        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user);
         if (earlyResult != null) {
             return earlyResult;
         }
@@ -121,9 +149,17 @@ public final class IndexDdlExecutor implements AutoCloseable {
         return buildCreateResult(descriptor.indexId(), IndexState.BUILDING);
     }
 
-    private List<TypedRow> registerIndexOrSkip(IndexDescriptor descriptor, CreateIndexStatement stmt) {
+    private List<TypedRow> registerIndexOrSkip(
+            IndexDescriptor descriptor, CreateIndexStatement stmt, UserIdentity user) {
         try {
-            deps.indexMetadataStore().registerIndex(descriptor);
+            if (requiresNativeArtifact(descriptor.indexType())) {
+                deps.indexMetadataStore().registerIndex(descriptor);
+            } else {
+                if (user == null || user.principal() == null || user.principal().isBlank()) {
+                    throw new AccessDeniedException("Scalar index build requires an authenticated subject");
+                }
+                deps.indexMetadataStore().registerIndexWithBuildAuthority(descriptor, user.principal());
+            }
             return null;
         } catch (IndexAlreadyExistsException e) {
             if (stmt.ifNotExists()) {
@@ -135,6 +171,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
         }
     }
 
+    /** Drops the named index and schedules cleanup of its artifacts. */
     public List<TypedRow> executeDropIndex(
             DropIndexStatement stmt, CoordinatorSessionContext context) {
         String tenantId = context.tenantId();
@@ -206,6 +243,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
         }
     }
 
+    /** Returns visible index descriptors for the requested table. */
     public List<TypedRow> executeShowIndexes(
             ShowIndexesStatement stmt, CoordinatorSessionContext context) {
         String tenantId = context.tenantId();
@@ -223,6 +261,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 .toList();
     }
 
+    /** Submits a rebuild for an existing index. */
     public List<TypedRow> executeAlterIndex(
             AlterIndexStatement stmt, CoordinatorSessionContext context) {
         String tenantId = context.tenantId();
@@ -232,6 +271,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
         checkAccess(tableRef, user, true);
         IndexDescriptor target = findRebuildableIndex(
                 tableRef, stmt.indexName(), tenantId);
+        var session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
+        IndexValidationHelper.validateTableExists(tableRef, deps.catalogRegistry(), session);
+        List<String> columns = IndexValidationHelper.validateColumns(
+                tableRef, target.columnNames(), target.indexType(), deps.catalogRegistry(), session);
+        checkRawBuildRead(tableRef, user, columns);
 
         boolean nativeArtifact = requiresNativeArtifact(target.indexType());
         IndexBuildInput buildInput = resolveBuildInput(tableRef, !nativeArtifact, context);
@@ -331,7 +375,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 return;
             }
             if (dataFiles.isEmpty()) {
-                markIndexReadyForEmptyTable(descriptor, tableRef);
+                // An empty generation still depends on its source snapshot. Route it
+                // through the same pin-and-publication barrier as a nonempty build.
+                registerBuildCompletionHandler(descriptor,
+                        deps.buildServices().dataSkipping().submitBuildTask(
+                                descriptor, dataFiles, null, null));
                 return;
             }
             var fsAccessor = accessors.resolve(tableRef.catalog());
@@ -352,12 +400,6 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     "Index build could not be submitted for '" + descriptor.indexName() + "'",
                     e);
         }
-    }
-
-    private void markIndexReadyForEmptyTable(IndexDescriptor descriptor, QualifiedTableName tableRef) {
-        IndexGenerationPublisher.publish(deps.indexMetadataStore(), descriptor, 0);
-        LOG.info("action=create_index_empty_table indexId={} table={}",
-                descriptor.indexId(), tableRef);
     }
 
     /**

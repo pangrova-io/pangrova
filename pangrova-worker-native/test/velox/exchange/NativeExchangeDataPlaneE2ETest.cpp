@@ -447,6 +447,92 @@ TEST_F(NativeExchangeDataPlaneE2ETest, WaitBudgetDoesNotCancelSparseStream) {
   PendingEndpointRegistry::instance().discardExecutor(consumerHandle);
 }
 
+TEST_F(NativeExchangeDataPlaneE2ETest, TimedOutPollCanObserveLaterEndOfStream) {
+  constexpr int64_t consumerHandle = kConsumerHandle + 12;
+  PendingEndpointRegistry::instance().clear();
+  auto rootPool = pangrova::test::testRootPool("FlightPollEndRaceE2E");
+  auto leafPool = rootPool->addLeafChild("consumer");
+
+  shuffle::SerializedShuffleQueue producerQueue(8);
+  shuffle::FlightShuffleServerConfig serverConfig;
+  serverConfig.port = 0;
+  serverConfig.reuse_port = true;
+  shuffle::FlightShuffleServer server(serverConfig);
+  const int port = server.start();
+  ASSERT_GT(port, 0);
+  server.registerHandle(
+      kProducerHandle, &producerQueue, "query-native-e2e", 1, 1,
+      kPlanEpoch, kAttemptId, kFencingToken);
+
+  auto queue = std::make_shared<facebook::velox::exec::ExchangeQueue>(1, 0);
+  auto source = makeDirectSource(
+      consumerHandle, port, queue, leafPool.get());
+  ASSERT_TRUE(armRequest(source));
+  auto timedOut = source->requestDataSizes(std::chrono::milliseconds(25)).get();
+  EXPECT_FALSE(timedOut.atEnd);
+  ASSERT_TRUE(producerQueue.commit());
+
+  ASSERT_TRUE(armRequest(source));
+  auto terminal = source->requestDataSizes(std::chrono::seconds(2)).get();
+  EXPECT_TRUE(terminal.atEnd);
+  // ExchangeClient can queue the earlier empty timeout response after the
+  // in-flight read has already marked this source terminal.
+  ASSERT_TRUE(armRequest(source));
+  EXPECT_TRUE(source->requestDataSizes(std::chrono::seconds(2)).get().atEnd);
+
+  source->close();
+  server.unregisterHandle(kProducerHandle);
+  server.stop();
+  PendingEndpointRegistry::instance().discardExecutor(consumerHandle);
+}
+
+TEST_F(NativeExchangeDataPlaneE2ETest, ConcurrentFlightLongPollsDoNotStarveTimers) {
+  PendingEndpointRegistry::instance().clear();
+  auto rootPool = pangrova::test::testRootPool("FlightLongPollTimerE2E");
+  auto leafPool = rootPool->addLeafChild("consumer");
+
+  shuffle::SerializedShuffleQueue producerQueue(8);
+  shuffle::FlightShuffleServerConfig serverConfig;
+  serverConfig.port = 0;
+  serverConfig.reuse_port = true;
+  shuffle::FlightShuffleServer server(serverConfig);
+  const int port = server.start();
+  ASSERT_GT(port, 0);
+  server.registerHandle(
+      kProducerHandle, &producerQueue, "query-native-e2e", 1, 1,
+      kPlanEpoch, kAttemptId, kFencingToken);
+
+  std::vector<std::shared_ptr<PangrovaExchangeSource>> sources;
+  std::vector<folly::Future<facebook::velox::exec::ExchangeSource::Response>> waits;
+  for (int i = 0; i < 8; ++i) {
+    auto queue = std::make_shared<facebook::velox::exec::ExchangeQueue>(1, 0);
+    auto source = makeDirectSource(
+        kConsumerHandle + 100 + i, port, queue, leafPool.get());
+    ASSERT_TRUE(armRequest(source));
+    waits.push_back(source->requestDataSizes(std::chrono::milliseconds(25))
+                        .via(pangrova::jni::globalIoExecutor().get()));
+    sources.push_back(std::move(source));
+  }
+
+  // None of these streams has data yet. A blocked Flight Next() must not
+  // occupy the event-base threads responsible for completing the long polls.
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  for (auto& wait : waits) {
+    EXPECT_TRUE(wait.isReady());
+  }
+  ASSERT_TRUE(producerQueue.commit());
+  for (auto& wait : waits) {
+    EXPECT_FALSE(std::move(wait).get().atEnd);
+  }
+  for (int i = 0; i < 8; ++i) {
+    sources[i]->close();
+    PendingEndpointRegistry::instance().discardExecutor(
+        kConsumerHandle + 100 + i);
+  }
+  server.unregisterHandle(kProducerHandle);
+  server.stop();
+}
+
 TEST_F(
     NativeExchangeDataPlaneE2ETest,
     FlightDataSizeProbeRetainsOversizedBatchUntilAdmittedRequest) {

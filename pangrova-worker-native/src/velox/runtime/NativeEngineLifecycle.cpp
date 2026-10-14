@@ -260,6 +260,11 @@ std::shared_ptr<folly::Executor> NativeEngineLifecycle::ioExecutor() {
   return io_executor_;
 }
 
+std::shared_ptr<folly::Executor> NativeEngineLifecycle::blockingIoExecutor() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return blocking_io_executor_;
+}
+
 void NativeEngineLifecycle::initVeloxMemory(
     const NativeRuntimeConfig& config,
     JNIEnv* env, jobject allocationListener) {
@@ -507,6 +512,11 @@ void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
       std::make_shared<folly::CPUThreadPoolExecutor>(task_threads + driver_threads);
   io_executor_ = std::make_shared<folly::IOThreadPoolExecutor>(
       std::max(config.io_thread_count, 1));
+  // A multistage query can have dozens of exchange sources waiting for their
+  // producers. Keep these synchronous reads off the event-base pool and
+  // reserve enough workers for upstream stages to make forward progress.
+  blocking_io_executor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
+      std::max(std::min(config.io_thread_count, 16) * 16, 64));
 
   if (config.cache_enabled) {
     initAsyncDataCache(config);
@@ -526,6 +536,10 @@ void NativeEngineLifecycle::shutdownInternal(FunctionRetirement& retirement) {
   // Handle destruction closes exchange sources and cancels their Flight RPCs.
   // Drain the blocking-I/O pool before the CPU pool and memory bridge so no
   // late network callback can enqueue a page into a destroyed Velox task.
+  if (blocking_io_executor_) {
+    blocking_io_executor_->join();
+    blocking_io_executor_.reset();
+  }
   if (io_executor_) {
     io_executor_->join();
     io_executor_.reset();
@@ -553,6 +567,12 @@ void NativeEngineLifecycle::shutdownInternal(FunctionRetirement& retirement) {
 #if PANGROVA_HAS_VELOX_ASYNC_CACHE
   async_data_cache_ = nullptr;
   facebook::velox::cache::AsyncDataCache::setInstance(nullptr);
+  // Velox's allocator retains a strong reference from registerCache().
+  // Dropping our reference alone leaves its page allocations alive until the
+  // MemoryManager is destroyed, after the shutdown leak check.
+  if (async_data_cache_holder_) {
+    async_data_cache_holder_->shutdown();
+  }
   async_data_cache_holder_.reset();
   ssd_cache_.reset();
 #endif
@@ -568,7 +588,9 @@ void NativeEngineLifecycle::shutdownInternal(FunctionRetirement& retirement) {
     int64_t used = velox_memory_governor_->usedMemory();
     if (used > 0) {
       std::cerr << "level=WARN event=memory_leak_detected_on_shutdown"
-                << " used_bytes=" << used << std::endl;
+                << " used_bytes=" << used
+                << " pool_tree=" << velox_memory_governor_->veloxMemoryManager()->toString(true)
+                << std::endl;
     }
   }
 

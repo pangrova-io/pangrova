@@ -120,9 +120,11 @@ facebook::velox::cache::AsyncDataCache* globalAsyncDataCache();
 udf::NativeUdfRegistry* globalUdfRegistry();
 velox::TableFunctionRegistry* globalTableFunctionRegistry();
 std::shared_ptr<folly::Executor> globalExecutor();
-// Dedicated executor for blocking Native data-plane I/O. It is owned by the
-// runtime lifecycle and is drained before Velox memory is destroyed.
+// Event-base executor for Native I/O timers and nonblocking continuations.
 std::shared_ptr<folly::Executor> globalIoExecutor();
+// Dedicated pool for synchronous Native data-plane reads. Both executors are
+// drained before Velox memory is destroyed.
+std::shared_ptr<folly::Executor> globalBlockingIoExecutor();
 
 // Build a config properties map from NativeRuntimeConfig
 // for filesystem authentication (S3/HDFS/GCS).

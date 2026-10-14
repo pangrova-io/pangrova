@@ -7,6 +7,7 @@ import io.substrait.plan.ImmutableRoot;
 import io.substrait.plan.ImmutableExecutionBehavior;
 import io.substrait.plan.PlanProtoConverter;
 import io.substrait.relation.Rel;
+import io.substrait.relation.Join;
 import io.substrait.relation.Sort;
 import io.substrait.relation.physical.BroadcastExchange;
 import io.substrait.relation.physical.HashJoin;
@@ -249,6 +250,31 @@ class JoinSubstraitConversionTest {
                 .containsExactly(0, 1);
         assertThat(join.getKeys()).extracting(k -> keyOffset(k.getRight()))
                 .containsExactly(0, 1);
+    }
+
+    @Test
+    void outerJoinResidualStaysInsideJoinCondition() {
+        RelNode left = buildInput(2);
+        RelNode right = buildInput(2);
+        RexNode equality = buildEquiCondition(left, right, 0, 0);
+        RexNode leftValue = rexBuilder.makeInputRef(
+                left.getRowType().getFieldList().get(1).getType(), 1);
+        RexNode rightValue = rexBuilder.makeInputRef(
+                right.getRowType().getFieldList().get(1).getType(), 3);
+        RexNode residual = rexBuilder.makeCall(SqlStdOperatorTable.NOT_EQUALS,
+                leftValue, rightValue);
+        RexNode condition = rexBuilder.makeCall(SqlStdOperatorTable.AND,
+                equality, residual);
+        PangrovaHashJoin physical = new PangrovaHashJoin(new HashJoinConfig(
+                cluster, left.getTraitSet(), left, right,
+                condition, Set.of(), JoinRelType.LEFT));
+
+        Rel result = converter.visit(physical);
+
+        assertThat(result).isInstanceOf(Join.class);
+        assertThat(((Join) result).getJoinType()).isEqualTo(Join.JoinType.LEFT);
+        assertThat(((Join) result).getCondition()).isNotNull();
+        assertThat(((Join) result).getPostJoinFilter()).isEmpty();
     }
 
     private PangrovaHashJoin buildHashJoin(JoinRelType joinType) {

@@ -70,7 +70,9 @@ public final class IncrementalReadTask implements MetadataTask<IncrementalReadSt
 
         ConnectorSession session = TableResolver.buildSession(context.session(), ref.catalog(), ref.schema());
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(ref.catalog());
-        ConnectorMetadata metadata = catalogHandle.getMetadata(session);
+        ConnectorMetadata metadata = session.getQueryAuthority()
+                .map(authority -> authority.beginMetadata(ref.catalog(), () -> catalogHandle.getMetadata(session)))
+                .orElseGet(() -> catalogHandle.getMetadata(session));
         ConnectorTableHandle tableHandle = TableResolver.requireTableHandle(metadata, session, ref);
 
         if (fromSnapshot == toSnapshot) {

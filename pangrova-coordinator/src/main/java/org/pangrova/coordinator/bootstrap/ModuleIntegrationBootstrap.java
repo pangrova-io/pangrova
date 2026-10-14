@@ -45,6 +45,7 @@ import javax.sql.DataSource;
 final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ModuleIntegrationBootstrap.class);
+    private static final long INDEX_EVAL_TIMEOUT_MS = 5_000;
 
     private volatile boolean closed;
 
@@ -134,9 +135,9 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     void setMetadataSyncDeps(org.pangrova.metadata.sync.MetadataSyncService syncService,
-                             org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry) {
+                             org.pangrova.metadata.catalog.CatalogRegistry catalog) {
         this.metadataSyncService = syncService;
-        this.catalogRegistry = catalogRegistry;
+        this.catalogRegistry = catalog;
     }
 
     void setInvalidationPoller(org.pangrova.metadata.cache.JdbcInvalidationPoller poller) {
@@ -353,14 +354,15 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     IndexQueryBootstrap getIndexQueryBootstrap() { return indexQueryBootstrap; }
     org.pangrova.spi.coordination.DistributedLease getDistributedLease() { return distributedLease; }
 
-    void setDistributedLease(org.pangrova.spi.coordination.DistributedLease distributedLease) {
-        this.distributedLease = distributedLease;
+    void setDistributedLease(org.pangrova.spi.coordination.DistributedLease lease) {
+        this.distributedLease = lease;
     }
 
     void startIndexQuery(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
                          org.pangrova.spi.observability.MetricsProvider metricsProvider) {
         try {
-            indexQueryBootstrap = new IndexQueryBootstrap(metadataStore, metricsProvider, 5000, 0);
+            indexQueryBootstrap = new IndexQueryBootstrap(
+                    metadataStore, metricsProvider, INDEX_EVAL_TIMEOUT_MS, 0);
             LOG.info("Phase: index-query — initialized (query-only split filter)");
         } catch (Exception e) {
             LOG.warn("event=index_query_start_failed error={} action=skip_index_filtering",
@@ -370,53 +372,53 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
-                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalog,
                        org.pangrova.spi.observability.MetricsProvider metricsProvider,
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.spi.coordination.DistributedLease distributedLease) {
-        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
-                baseIndexPath, distributedLease, null);
+                       org.pangrova.spi.coordination.DistributedLease lease) {
+        startIndexing(metadataStore, catalog, metricsProvider, accessControl,
+                baseIndexPath, lease, null);
     }
 
     void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
-                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalog,
                        org.pangrova.spi.observability.MetricsProvider metricsProvider,
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.spi.coordination.DistributedLease distributedLease,
+                       org.pangrova.spi.coordination.DistributedLease lease,
                        org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore) {
-        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
-                baseIndexPath, distributedLease, artifactBuildStore, null);
+        startIndexing(metadataStore, catalog, metricsProvider, accessControl,
+                baseIndexPath, lease, artifactBuildStore, null);
     }
 
     void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
-                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalog,
                        org.pangrova.spi.observability.MetricsProvider metricsProvider,
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.spi.coordination.DistributedLease distributedLease,
+                       org.pangrova.spi.coordination.DistributedLease lease,
                        org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
                        org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore) {
-        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
-                baseIndexPath, distributedLease, artifactBuildStore,
+        startIndexing(metadataStore, catalog, metricsProvider, accessControl,
+                baseIndexPath, lease, artifactBuildStore,
                 artifactPublicationStore, null);
     }
 
     void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
-                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalog,
                        org.pangrova.spi.observability.MetricsProvider metricsProvider,
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.spi.coordination.DistributedLease distributedLease,
+                       org.pangrova.spi.coordination.DistributedLease lease,
                        org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
                        org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore,
                        org.pangrova.coordinator.index.lifecycle.MaintenanceLeaderElection leaderElection) {
         try {
             indexingBootstrap = new IndexingBootstrap(
-                    baseIndexPath, distributedLease, artifactBuildStore,
+                    baseIndexPath, lease, artifactBuildStore,
                     artifactPublicationStore, leaderElection);
-            indexingBootstrap.start(metadataStore, catalogRegistry, metricsProvider, accessControl);
+            indexingBootstrap.start(metadataStore, catalog, metricsProvider, accessControl);
             LOG.info("Phase: indexing — initialized");
         } catch (Exception e) {
             LOG.warn("event=indexing_start_failed error={} action=skip_index_filtering",

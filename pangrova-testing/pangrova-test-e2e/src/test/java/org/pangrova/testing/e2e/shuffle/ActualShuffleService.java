@@ -76,7 +76,13 @@ final class ActualShuffleService implements AutoCloseable {
                     .keyManager(backend.certificate().toFile(), backend.privateKey().toFile())
                     .trustManager(backend.certificate().toFile()).build();
             channels.add(Grpc.newChannelBuilderForAddress("localhost", endpoint.port(), credentials).build());
-            relays.add(new ShuffleWireRelay(backend, channels.get(channels.size() - 1)));
+            var workerCredentials = TlsChannelCredentials.newBuilder()
+                    .keyManager(backend.workerCertificate().toFile(), backend.workerPrivateKey().toFile())
+                    .trustManager(backend.certificate().toFile()).build();
+            var workerChannel = Grpc.newChannelBuilderForAddress(
+                    "localhost", endpoint.port(), workerCredentials).build();
+            channels.add(workerChannel);
+            relays.add(new ShuffleWireRelay(backend, workerChannel));
         }
     }
 
@@ -92,7 +98,8 @@ final class ActualShuffleService implements AutoCloseable {
     RemoteShuffleClientPool clientPool(org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission admission) {
         return new RemoteShuffleClientPool(5_000, 5_000,
                 RemoteShuffleClientPool.PoolOptions.mutualTls(new RemoteShuffleClientPool.PemTlsConfig(
-                        backend.certificate(), backend.privateKey(), backend.certificate())), admission);
+                        backend.workerCertificate(), backend.workerPrivateKey(),
+                        backend.certificate())), admission);
     }
 
     RemoteShuffleClientPool shortIdleClientPool() {
@@ -104,7 +111,8 @@ final class ActualShuffleService implements AutoCloseable {
         return new RemoteShuffleClientPool(5_000, 5_000,
                 new RemoteShuffleClientPool.PoolOptions(100, TimeUnit.MILLISECONDS, 100, true, null,
                         new RemoteShuffleClientPool.PemTlsConfig(
-                                backend.certificate(), backend.privateKey(), backend.certificate())),
+                                backend.workerCertificate(), backend.workerPrivateKey(),
+                                backend.certificate())),
                 admission);
     }
 

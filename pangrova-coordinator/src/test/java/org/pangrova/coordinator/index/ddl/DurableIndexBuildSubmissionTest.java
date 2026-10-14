@@ -25,8 +25,9 @@ class DurableIndexBuildSubmissionTest {
 
     @Test
     void canonicalMetricSurvivesDurableDispatchAndEmptySnapshotPolicy() throws Exception {
-        for (String algorithm : List.of("HNSW", "IVF_PQ")) {
-            for (String metric : List.of("L2", "COSINE", "INNER_PRODUCT")) {
+        for (String algorithm : List.of("HNSW", "IVF_PQ", "DISK_ANN")) {
+            for (String metric : algorithm.equals("DISK_ANN")
+                    ? List.of("L2") : List.of("L2", "COSINE", "INNER_PRODUCT")) {
                 for (boolean empty : List.of(true, false)) {
                     Instant now = Instant.parse("2026-01-01T00:00:00Z");
                     var properties = IndexBuildProperties.canonicalize(IndexType.VECTOR,

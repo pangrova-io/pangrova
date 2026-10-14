@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.admission.QueryRejectedException;
+
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +46,7 @@ class PipelineIntegrationTest {
 
     private static final String QUERY_ID = "q1";
     private static final String WORKER_ID = "worker-1";
+    private static final String LOOPBACK_HOST = "127.0.0.1";
     private static final int TRANSPORT_PORT = 0;
     private static final TracingProvider TRACING = TestObservability.TRACING;
     private static final TracingHttpFilter TRACING_FILTER = new TracingHttpFilter(TRACING);
@@ -321,8 +324,9 @@ class PipelineIntegrationTest {
     // --- factories ---
 
     private static WorkerHttpServer createWorkerHttpServer(TaskManager taskManager) {
-        var config = new WorkerHttpServer.WorkerHttpConfig(0, "localhost", TRANSPORT_PORT);
-        return new WorkerHttpServer(config, taskManager, TestExchangeTransport.INSTANCE);
+        var config = new WorkerHttpServer.WorkerHttpConfig(0, LOOPBACK_HOST, TRANSPORT_PORT);
+        return new WorkerHttpServer(config, taskManager, TestExchangeTransport.INSTANCE,
+                null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
     }
 
     private static WorkerManager createWorkerManagerWithPort(int httpPort) {
@@ -338,7 +342,7 @@ class PipelineIntegrationTest {
     }
 
     private static WorkerInfo workerWithPort(int httpPort) {
-        return TestWorkerInfoBuilder.active(WORKER_ID, "localhost", httpPort, TRANSPORT_PORT);
+        return TestWorkerInfoBuilder.active(WORKER_ID, LOOPBACK_HOST, httpPort, TRANSPORT_PORT);
     }
 
     private TaskStatusReport finishedReport(String taskId) {

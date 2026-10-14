@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg.type;
 
 import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.NullOnlyType;
 import org.pangrova.spi.connector.data.type.RowType;
 import org.pangrova.spi.connector.data.type.VectorType;
 import org.pangrova.spi.connector.data.type.primitive.DecimalType;
@@ -230,6 +231,9 @@ public final class IcebergTypeMapper {
      * @return the corresponding parameterized Type
      */
     public static org.pangrova.spi.connector.data.type.Type toParameterizedType(Type icebergType) {
+        if (icebergType.typeId() == Type.TypeID.UNKNOWN) {
+            return NullOnlyType.INSTANCE;
+        }
         PangrovaType special = mapSpecialType(icebergType);
         if (special != null) {
             return PangrovaTypeMapping.toType(special);
@@ -237,7 +241,23 @@ public final class IcebergTypeMapper {
         if (icebergType.isPrimitiveType()) {
             return mapPrimitiveToParameterized(icebergType.asPrimitiveType());
         }
+        if (containsNestedUnknown(icebergType)) {
+            throw new IllegalArgumentException(
+                    "Nested Iceberg unknown requires recursive null-only Native projection");
+        }
         return mapComplexToParameterized(icebergType.asNestedType());
+    }
+
+    private static boolean containsNestedUnknown(Type type) {
+        return switch (type.typeId()) {
+            case UNKNOWN -> true;
+            case LIST -> containsNestedUnknown(type.asListType().elementType());
+            case MAP -> containsNestedUnknown(type.asMapType().keyType())
+                    || containsNestedUnknown(type.asMapType().valueType());
+            case STRUCT -> type.asStructType().fields().stream()
+                    .anyMatch(field -> containsNestedUnknown(field.type()));
+            default -> false;
+        };
     }
 
     private static org.pangrova.spi.connector.data.type.Type mapPrimitiveToParameterized(

@@ -17,6 +17,12 @@ public final class SortMergeJoinRule extends RelOptRule {
     }
 
     @Override
+    public boolean matches(RelOptRuleCall call) {
+        LogicalJoin join = call.rel(0);
+        return !join.analyzeCondition().leftKeys.isEmpty();
+    }
+
+    @Override
     public void onMatch(RelOptRuleCall call) {
         LogicalJoin join = call.rel(0);
         PangrovaSortMergeJoin sortMergeJoin = new PangrovaSortMergeJoin(

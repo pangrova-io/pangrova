@@ -7,7 +7,7 @@ import org.pangrova.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.http.CoordinatorHttpServerContext;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.AsyncSubmitConfig;
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -220,13 +220,14 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
-        // A live cleanup callback still owns the task and its HTTP reporter; retain both on failed join.
-        stopCleanup();
-        if (queries != null) queries.setAcceptingQueries(false);
-        recoverAndDrain();
-        stopQueryExecutor();
-        if (worker != null) worker.close();
         var failures = new java.util.ArrayList<Exception>();
+        // Stop callbacks before closing their reporter, but keep releasing every owned resource
+        // if a query failed to drain. Otherwise one failed assertion poisons later Native tests.
+        cleanup(failures, this::stopCleanup);
+        if (queries != null) queries.setAcceptingQueries(false);
+        cleanup(failures, this::recoverAndDrain);
+        cleanup(failures, () -> { if (worker != null) worker.close(); });
+        cleanup(failures, this::stopQueryExecutor);
         cleanup(failures, () -> { if (reporter != null) reporter.close(); });
         cleanup(failures, () -> { if (relay != null) relay.close(); });
         cleanup(failures, () -> { if (coordinator != null) coordinator.stop(); });

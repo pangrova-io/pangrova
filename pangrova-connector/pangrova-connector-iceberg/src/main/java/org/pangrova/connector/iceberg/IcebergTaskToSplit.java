@@ -61,9 +61,24 @@ final class IcebergTaskToSplit {
                 .fromSnapshotId(fromSnapshotId)
                 .toSnapshotId(toSnapshotId)
                 .deleteFiles(extractTypedDeleteFiles(task))
-                .columnMappings(columnMappings)
+                .columnMappings(withNullOnlyColumns(tableSchema, columnMappings))
                 .residualPredicate(residualPredicate)
                 .build();
+    }
+
+    /**
+     * Iceberg v3 unknown has no readable physical value. A missing-source mapping
+     * keeps the Native reader from projecting even a malformed physical column
+     * with the same name and makes schema evolution synthesize NULL instead.
+     */
+    static List<ColumnMapping> withNullOnlyColumns(Schema schema, List<ColumnMapping> mappings) {
+        List<ColumnMapping> result = new ArrayList<>(mappings);
+        for (Types.NestedField field : schema.columns()) {
+            if (field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN) {
+                result.add(new ColumnMapping(-1, field.fieldId(), field.name(), field.name()));
+            }
+        }
+        return List.copyOf(result);
     }
 
     /**

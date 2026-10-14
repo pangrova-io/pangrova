@@ -19,8 +19,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -34,6 +32,13 @@ import java.util.concurrent.TimeUnit;
 final class SelfIntelligenceBootstrap {
 
     private static final Logger LOG = LoggerFactory.getLogger(SelfIntelligenceBootstrap.class);
+    private static final int PATTERN_CAPACITY = 10_000;
+    private static final long LAYOUT_INITIAL_DELAY_MINUTES = 10;
+    private static final long LAYOUT_INTERVAL_MINUTES = 60;
+    private static final long INDEX_HEALTH_INITIAL_DELAY_MINUTES = 15;
+    private static final long INDEX_HEALTH_INTERVAL_MINUTES = 30;
+    private static final long INDEX_RECOMMENDATION_INITIAL_DELAY_MINUTES = 20;
+    private static final long INDEX_RECOMMENDATION_INTERVAL_MINUTES = 60;
 
     private final CoordinatorBootstrapConfig config;
     private final ModuleIntegrationBootstrap moduleWiring;
@@ -63,7 +68,7 @@ final class SelfIntelligenceBootstrap {
     }
 
     void initialize(QueryExecutionBootstrap executionWiring) {
-        patternRecorder = new org.pangrova.planner.advisor.QueryPatternRecorder(10_000);
+        patternRecorder = new org.pangrova.planner.advisor.QueryPatternRecorder(PATTERN_CAPACITY);
         layoutAdvisor = new org.pangrova.coordinator.ai.layout.DataLayoutAdvisor(patternRecorder);
         vectorIndexHealthAssessor = new VectorIndexHealthAssessor();
         indexRecommendationEngine = new org.pangrova.coordinator.ai.index.lifecycle.IndexRecommendationEngine();
@@ -74,7 +79,7 @@ final class SelfIntelligenceBootstrap {
         }
         scheduleLayoutAdvisor();
         scheduleIndexLifecycle();
-        LOG.info("event=self_intelligence_initialized patternCapacity={}", 10_000);
+        LOG.info("event=self_intelligence_initialized patternCapacity={}", PATTERN_CAPACITY);
     }
 
     void wireIntoQueryDispatcher(
@@ -119,7 +124,7 @@ final class SelfIntelligenceBootstrap {
             } catch (Exception e) {
                 LOG.debug("event=layout_advisor_cycle_error", e);
             }
-        }, 10, 60, TimeUnit.MINUTES);
+        }, LAYOUT_INITIAL_DELAY_MINUTES, LAYOUT_INTERVAL_MINUTES, TimeUnit.MINUTES);
     }
 
     private void runLayoutAdvisorCycle() {
@@ -152,7 +157,7 @@ final class SelfIntelligenceBootstrap {
             } catch (Exception e) {
                 LOG.debug("event=index_health_assessment_error", e);
             }
-        }, 15, 30, TimeUnit.MINUTES);
+        }, INDEX_HEALTH_INITIAL_DELAY_MINUTES, INDEX_HEALTH_INTERVAL_MINUTES, TimeUnit.MINUTES);
 
         recommendationFuture = schedulerExecutor.scheduleWithFixedDelay(() -> {
             try {
@@ -160,7 +165,8 @@ final class SelfIntelligenceBootstrap {
             } catch (Exception e) {
                 LOG.debug("event=index_recommendation_error", e);
             }
-        }, 20, 60, TimeUnit.MINUTES);
+        }, INDEX_RECOMMENDATION_INITIAL_DELAY_MINUTES,
+                INDEX_RECOMMENDATION_INTERVAL_MINUTES, TimeUnit.MINUTES);
     }
 
     /** Stops periodic admission; the shared scheduler must still join its entered callbacks. */

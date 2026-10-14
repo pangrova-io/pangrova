@@ -655,25 +655,74 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
   config.file_scan_detail = detail.SerializeAsString();
   if (detail.has_system_table()) {
     if (config.file_format != split::FileFormatType::METADATA_JSON ||
-        split.connector_id() != "iceberg" ||
-        split.source_snapshot() != split.opaque_location() ||
-        split.data_object_id() != split.opaque_location() ||
         split.start_offset() != 0 || split.length() == 0) {
       throw std::runtime_error(
-          "System table split requires pinned Iceberg metadata JSON object");
+          "System table split requires a pinned metadata JSON object");
     }
     switch (detail.system_table().kind()) {
       case proto::SystemTableSplitDetail::ICEBERG_SNAPSHOTS:
-        if (!split.source_id().ends_with("$snapshots")) {
+        if (split.connector_id() != "iceberg" ||
+            split.source_snapshot() != split.opaque_location() ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() != 0 ||
+            !split.source_id().ends_with("$snapshots")) {
           throw std::runtime_error("Iceberg snapshots split source_id kind mismatch");
         }
         config.system_table = split::SystemTableKind::ICEBERG_SNAPSHOTS;
         break;
       case proto::SystemTableSplitDetail::ICEBERG_HISTORY:
-        if (!split.source_id().ends_with("$history")) {
+        if (split.connector_id() != "iceberg" ||
+            split.source_snapshot() != split.opaque_location() ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() != 0 ||
+            !split.source_id().ends_with("$history")) {
           throw std::runtime_error("Iceberg history split source_id kind mismatch");
         }
         config.system_table = split::SystemTableKind::ICEBERG_HISTORY;
+        break;
+      case proto::SystemTableSplitDetail::PAIMON_SNAPSHOTS:
+        if (split.connector_id() != "paimon" ||
+            !split.source_id().ends_with("$snapshots") ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() == 0 ||
+            !detail.system_table().tag_name().empty() ||
+            detail.system_table().object_sha256().size() != 32) {
+          throw std::runtime_error("Paimon snapshot split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::PAIMON_SNAPSHOTS;
+        config.system_table_snapshot_id = detail.system_table().snapshot_id();
+        config.system_table_object_sha256 = detail.system_table().object_sha256();
+        break;
+      case proto::SystemTableSplitDetail::PAIMON_TAGS:
+        if (split.connector_id() != "paimon" ||
+            !split.source_id().ends_with("$tags") ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() != 0 ||
+            detail.system_table().tag_name().empty() ||
+            !split.opaque_location().ends_with(
+                "/tag-" + detail.system_table().tag_name()) ||
+            detail.system_table().object_sha256().size() != 32) {
+          throw std::runtime_error("Paimon tag split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::PAIMON_TAGS;
+        config.system_table_tag_name = detail.system_table().tag_name();
+        config.system_table_object_sha256 = detail.system_table().object_sha256();
+        break;
+      case proto::SystemTableSplitDetail::PAIMON_OPTIONS:
+        if (split.connector_id() != "paimon" ||
+            !split.source_id().ends_with("$options") ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() != 0 ||
+            !detail.system_table().tag_name().empty() ||
+            !split.opaque_location().ends_with(
+                "/schema/schema-" +
+                std::to_string(detail.system_table().schema_id())) ||
+            detail.system_table().object_sha256().size() != 32) {
+          throw std::runtime_error("Paimon options split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::PAIMON_OPTIONS;
+        config.system_table_schema_id = detail.system_table().schema_id();
+        config.system_table_object_sha256 = detail.system_table().object_sha256();
         break;
       default:
         throw std::runtime_error("Unsupported system table split kind");

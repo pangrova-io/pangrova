@@ -100,6 +100,38 @@ This boundary prevents accidental ServiceLoader registration from creating a
 second ANN implementation with different distance, row-identity, filtering or
 failure semantics.
 
+## Scalar file-pruning query path
+
+The Coordinator evaluates connector file statistics and native connector
+capabilities, then attaches snapshot-bound `IndexEvalHintDetail` values to
+surviving canonical v2 file splits. It does not load scalar index artifacts.
+The Native Worker validates the hint's data-file identity, reads the mapped
+artifact through its configured filesystem, checks the versioned index envelope
+and CRC, and tests Bloom membership **before** enqueuing the split for scan.
+Only a proven negative result skips a split; missing, corrupt, incompatible or
+unsupported indexes retain it. Equality and `IN` on canonical string,
+integer and boolean keys currently participate in this Native Bloom path.
+Calcite's [string literal wrapper](https://calcite.apache.org/javadocAggregate/org/apache/calcite/util/NlsString.html)
+literals are unwrapped with `getValue()` before creating a hint: its
+`toString()` returns quoted SQL with charset notation, not the stored value. Native
+membership is checked against a Java-generated positive/negative byte fixture.
+DATE, TIMESTAMP, DECIMAL, floating-point keys and other index types retain the
+split until their cross-language value and artifact contracts are verified.
+Multi-scan plans do not receive scalar hints until predicate provenance is
+bound to a specific scan, because matching columns by name across joined
+tables is insufficient to justify pruning either table.
+
+`NativeTaskStats.index_splits_evaluated` and `index_splits_skipped` report
+actual Worker decisions. An index-performance claim must use these counters
+or scan I/O, not the Coordinator's earlier split-filter counters or Iceberg's
+own manifest pruning statistics. The E2E regression uses overlapping file
+min/max ranges to distinguish Bloom pruning from connector pruning.
+This placement follows [Velox's split queue contract](https://facebookincubator.github.io/velox/develop/task.html):
+the application decides which splits to add before the scan operator reads
+them. [Iceberg's planning statistics](https://iceberg.apache.org/docs/nightly/performance/)
+can independently remove data files using upper and lower bounds, so those
+connector decisions must be measured separately.
+
 ## Distributed correctness invariants
 
 - Every query and build uses one immutable source snapshot.

@@ -19,12 +19,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * with and without bloom filter index, asserts >50% reduction.
  *
  * <p>Creates a table with 8 separate INSERT batches to force 8 distinct
- * data files with non-overlapping value ranges. A bloom filter index on
- * the partition column enables the coordinator's IndexSplitFilter to skip
- * files that cannot contain the queried value.
+ * data files. The measured case gives them overlapping min/max ranges so
+ * connector statistics cannot mask the bloom filter index's own pruning.
  *
- * <p>Split reduction is measured by comparing EXPLAIN plan output and
- * query result correctness between indexed and non-indexed paths.
+ * <p>Split reduction is measured from the Native Worker's actual pre-scan
+ * split decisions for the indexed query; result correctness is checked
+ * against the unindexed query.
  *
  * <p>Validates: Requirements R12.6
  */
@@ -65,6 +65,18 @@ class IndexDataSkippingPerformanceE2ETest extends SqlE2ETestBase {
 
             sqlRunner.executeDdl("CREATE TABLE " + fqn
                     + " (user_id BIGINT, category VARCHAR, amount DOUBLE)");
+
+            if ("splitReduction_indexReducesScannedDataByMoreThan50Percent".equals(method)) {
+                // Every file's min/max encloses 1, so Iceberg statistics cannot
+                // pre-prune the seven files that omit the exact target value.
+                for (int batch = 0; batch < 8; batch++) {
+                    int low = batch == 0 ? 1 : 0;
+                    int high = (batch + 1) * 1000;
+                    sqlRunner.execute("INSERT INTO " + fqn + " VALUES (" + low
+                            + ", 'P', " + low + ".0), (" + high + ", 'P', " + high + ".0)");
+                }
+                return;
+            }
 
             // 8 separate INSERT batches → 8 data files with non-overlapping user_id ranges
             sqlRunner.execute("INSERT INTO " + fqn
@@ -165,6 +177,7 @@ class IndexDataSkippingPerformanceE2ETest extends SqlE2ETestBase {
             // Phase 2: Create bloom filter index
             sqlRunner.executeDdl("CREATE INDEX idx_bf_split ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_bf_split");
 
             // Verify index is BUILT
             List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
@@ -174,30 +187,26 @@ class IndexDataSkippingPerformanceE2ETest extends SqlE2ETestBase {
             assertThat(indexRow.getRaw("index_type").toString()).isEqualTo("BLOOM_FILTER");
 
             // Phase 3: Query WITH index — correctness invariant
+            var before = nativeIndexSplitTotals();
             List<TypedRow> withIndex = sqlRunner.execute(
                     "SELECT * FROM " + fqn() + " WHERE user_id = 1");
+            var after = nativeIndexSplitTotals();
             assertThat(withIndex).containsAll(baselineFiltered);
             assertThat(withIndex).hasSize(baselineMatchCount);
 
-            // Phase 4: Verify data skipping effectiveness
-            // The bloom filter index on user_id with 8 files containing non-overlapping
-            // ranges means only 1 of 8 files (12.5%) needs to be scanned for user_id=1.
-            // This represents >50% split reduction (87.5% reduction).
-            //
-            // We verify this indirectly: the index was built across 8 files,
-            // and the query correctly returns only the matching row without
-            // false negatives — proving the index evaluation path is active.
-            int totalFiles = 8;
-            int expectedFilesScanned = 1; // Only the file containing user_id=1
-            double reductionPercent = 100.0 * (totalFiles - expectedFilesScanned) / totalFiles;
-            assertThat(reductionPercent).isGreaterThan(50.0);
+            // Phase 4: Measure the actual split decisions made for this query.
+            long evaluated = after.evaluated() - before.evaluated();
+            long skipped = after.skipped() - before.skipped();
+            assertThat(evaluated).as("actual Native pre-scan splits").isGreaterThanOrEqualTo(8);
+            assertThat(skipped * 2).as("more than half of Native splits must be skipped")
+                    .isGreaterThan(evaluated);
 
             // Additional verification: query for a value in the last file
             List<TypedRow> lastFileQuery = sqlRunner.execute(
-                    "SELECT * FROM " + fqn() + " WHERE user_id = 200000000");
+                    "SELECT * FROM " + fqn() + " WHERE user_id = 8000");
             assertThat(lastFileQuery).hasSize(1);
             assertThat(((Number) lastFileQuery.get(0).getRaw("user_id")).longValue())
-                    .isEqualTo(200000000L);
+                    .isEqualTo(8000L);
         }
 
         @Test
@@ -215,6 +224,27 @@ class IndexDataSkippingPerformanceE2ETest extends SqlE2ETestBase {
             List<TypedRow> withIndex = sqlRunner.execute(
                     "SELECT * FROM " + fqn() + " WHERE user_id = 10000");
             assertThat(withIndex).containsAll(baseline);
+        }
+
+        @Test
+        @DisplayName("Join filter cannot prune another table's same-named indexed column")
+        void join_filterOnOneTableDoesNotPruneOtherTable() {
+            String peer = FQN_PREFIX + "t_index_peer_" + System.nanoTime();
+            sqlRunner.executeDdl("CREATE TABLE " + peer
+                    + " (user_id BIGINT, category VARCHAR)");
+            sqlRunner.execute("INSERT INTO " + peer + " VALUES (999, 'A')");
+            String query = "SELECT b.user_id AS peer_id FROM " + fqn()
+                    + " a JOIN " + peer + " b ON a.category = b.category"
+                    + " WHERE a.user_id = 1";
+            List<TypedRow> baseline = sqlRunner.execute(query);
+            assertThat(baseline).hasSize(1);
+            assertThat(((Number) baseline.get(0).getRaw("peer_id")).longValue())
+                    .isEqualTo(999L);
+
+            sqlRunner.executeDdl("CREATE INDEX idx_peer_guard ON " + peer
+                    + "(user_id) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, peer, "idx_peer_guard");
+            assertThat(sqlRunner.execute(query)).containsExactlyElementsOf(baseline);
         }
 
         @Test

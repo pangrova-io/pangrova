@@ -1,23 +1,27 @@
 package org.pangrova.testing.e2e;
 
-import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 
-/** Canonical capability inventory for E2E workers that advertise no optional capability. */
+import java.io.IOException;
+import java.util.Objects;
+
+/** Complete Native-exported inventory for registry tests without an executing Worker. */
 public final class CanonicalWorkerInventory {
 
     private CanonicalWorkerInventory() {}
 
-    public static CapabilityInventory empty() {
-        return CapabilityInventory.newBuilder()
-                .setProtocol(CanonicalTaskRequests.protocolVersion())
-                .setResultEnvelopeVersion(1)
-                .setNativeEngineVersion("e2e-native")
-                .build();
+    public static CapabilityInventory actual() {
+        try (var input = Objects.requireNonNull(CanonicalWorkerInventory.class
+                .getResourceAsStream("/function-contracts/actual-native-catalogue.bin"),
+                "Actual Native catalogue resource is required")) {
+            return CapabilityInventory.parseFrom(input);
+        } catch (IOException failure) {
+            throw new IllegalStateException("Actual Native catalogue resource could not be read", failure);
+        }
     }
 
-    public static String encodedEmpty() {
-        return CapabilityInventoryCodec.encode(empty());
+    public static String encodedActual() {
+        return CapabilityInventoryCodec.encode(actual());
     }
 }

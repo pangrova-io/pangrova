@@ -3,7 +3,7 @@ package org.pangrova.coordinator.testinfra;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
-import org.pangrova.coordinator.query.AsyncSubmitConfig;
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;

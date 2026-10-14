@@ -374,14 +374,13 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
     // Schema setup helpers
     // -----------------------------------------------------------------------
 
-    /**
-     * Ensures the FK parent rows (catalog_definitions + schema_metadata) exist
-     * so that table_metadata INSERT succeeds. Idempotent via ON CONFLICT.
-     */
+    /** Ensures the FK parent rows exist without rewriting a live catalog revision. */
     private void ensureStoreParentRows(MetadataStore store, String catalogName, String schemaName) {
-        store.saveCatalogDescriptor(new CatalogDescriptor(
-                catalogName, CatalogType.CONNECTOR, "iceberg", CatalogState.ACTIVE,
-                Map.of(), null, Set.of()));
+        if (store.getCatalogDescriptor(catalogName).isEmpty()) {
+            store.saveCatalogDescriptor(new CatalogDescriptor(
+                    catalogName, CatalogType.CONNECTOR, "iceberg", CatalogState.ACTIVE,
+                    Map.of(), null, Set.of()));
+        }
         store.saveSchemas(catalogName, List.of(schemaName));
     }
 

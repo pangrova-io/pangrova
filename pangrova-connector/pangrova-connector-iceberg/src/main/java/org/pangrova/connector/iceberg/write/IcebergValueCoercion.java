@@ -44,7 +44,8 @@ final class IcebergValueCoercion {
             case STRUCT -> coerceStruct(value, icebergType.asStructType());
             case VARIANT -> coerceToString(value);
             case BINARY, GEOMETRY, GEOGRAPHY -> coerceToBinary(value);
-            case UNKNOWN -> null;
+            case UNKNOWN -> throw new IllegalArgumentException(
+                    "Iceberg v3 unknown column accepts only NULL");
             default -> value;
         };
     }
@@ -158,7 +159,8 @@ final class IcebergValueCoercion {
                 positional = map.containsKey(FunctionBindingDeclarations.anonymousComputedField(i));
             }
             if (!named && !positional) {
-                throw new IllegalArgumentException("STRUCT source fields do not match target names or canonical positions");
+                throw new IllegalArgumentException(
+                        "STRUCT source fields do not match target names or canonical positions");
             }
             GenericRecord record = GenericRecord.create(structType);
             for (int i = 0; i < structFields.size(); i++) {
@@ -182,8 +184,8 @@ final class IcebergValueCoercion {
     /**
      * Creates a Parquet-compatible schema by replacing Iceberg v3 special types
      * that GenericParquetWriter does not support.
-     * VARIANT → STRING (JSON text), GEOMETRY/GEOGRAPHY → BINARY (WKB),
-     * UNKNOWN → STRING (always null).
+     * VARIANT → STRING (JSON text), GEOMETRY/GEOGRAPHY → BINARY (WKB).
+     * Iceberg v3 UNKNOWN columns are omitted from physical Parquet files.
      */
     static Schema sanitizeSchemaForParquet(Schema schema) {
         boolean needsSanitization = schema.columns().stream()
@@ -193,7 +195,9 @@ final class IcebergValueCoercion {
         }
         List<Types.NestedField> sanitized = new ArrayList<>();
         for (Types.NestedField field : schema.columns()) {
-            sanitized.add(sanitizeField(field));
+            if (field.type().typeId() != Type.TypeID.UNKNOWN) {
+                sanitized.add(sanitizeField(field));
+            }
         }
         return new Schema(sanitized);
     }
@@ -211,7 +215,7 @@ final class IcebergValueCoercion {
      */
     private static Types.NestedField sanitizeField(Types.NestedField field) {
         Type.TypeID typeId = field.type().typeId();
-        if (typeId == Type.TypeID.VARIANT || typeId == Type.TypeID.UNKNOWN) {
+        if (typeId == Type.TypeID.VARIANT) {
             return Types.NestedField.optional(
                     field.fieldId(), field.name(), Types.StringType.get());
         }

@@ -50,7 +50,7 @@ public final class IndexFileReadResult {
     /** Creates a {@link Status#PRESENT} result wrapping the read bytes. */
     public static IndexFileReadResult present(byte[] bytes) {
         Objects.requireNonNull(bytes, "bytes");
-        return new IndexFileReadResult(Status.PRESENT, bytes);
+        return new IndexFileReadResult(Status.PRESENT, bytes.clone());
     }
 
     /** Returns the canonical {@link Status#MISSING} result. */
@@ -76,7 +76,7 @@ public final class IndexFileReadResult {
         if (status != Status.PRESENT) {
             throw new IllegalStateException("bytes() requires PRESENT status, got " + status);
         }
-        return bytes;
+        return bytes.clone();
     }
 
     public boolean isPresent() {

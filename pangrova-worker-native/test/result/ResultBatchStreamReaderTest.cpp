@@ -10,6 +10,7 @@
 #include <atomic>
 #include <barrier>
 #include <chrono>
+#include <exception>
 #include <memory>
 #include <future>
 #include <thread>
@@ -40,6 +41,11 @@ namespace pangrova::result::test {
 namespace {
 using namespace facebook::velox;
 namespace declared = pangrova::velox::schema;
+
+class ActualProducerFailure final : public std::exception {
+ public:
+  const char* what() const noexcept override { return "actual producer failure"; }
+};
 
 // Actual task/output-buffer/reader integration, not distributed SQL E2E.
 class ResultBatchStreamReaderTest : public ::testing::Test {
@@ -358,7 +364,7 @@ TEST_F(ResultBatchStreamReaderTest, ActualSdkFailureAfterRouteRemovalWakesPendin
   // This invokes SDK Task::terminate/maybeRemoveFromOutputBufferManager, not
   // a fabricated result callback. Defer the real runner completion until the
   // actual SDK route is already gone, reproducing the production failure race.
-  runner_->veloxTask()->setError(std::make_exception_ptr(std::runtime_error("actual producer failure")));
+  runner_->veloxTask()->setError(std::make_exception_ptr(ActualProducerFailure{}));
   EXPECT_FALSE(buffers_->stats(task_id_).has_value());
   EXPECT_EQ(read.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
   auto joined = std::move(completion).via(pangrova::jni::globalExecutor().get());

@@ -10,15 +10,24 @@ import org.pangrova.common.concurrent.ThreadSafe;
 /** One-shot process admission and retryable, actual-return shutdown ownership. No callback runs under its lock. */
 @ThreadSafe
 public final class CoordinatorLifecycleAdmission {
-    @GuardedBy("this") private boolean startEntered;
-    @GuardedBy("this") private boolean running;
-    @GuardedBy("this") private boolean stopping;
-    @GuardedBy("this") private boolean stopped;
-    @GuardedBy("this") private Thread starter;
-    @GuardedBy("this") private Thread closer;
-    @GuardedBy("this") private CompletableFuture<Void> startExit;
-    @GuardedBy("this") private CompletableFuture<Void> closeExit;
-    @GuardedBy("this") private final Map<String, Step> steps = new HashMap<>();
+    @GuardedBy("this")
+    private boolean startEntered;
+    @GuardedBy("this")
+    private boolean running;
+    @GuardedBy("this")
+    private boolean stopping;
+    @GuardedBy("this")
+    private boolean stopped;
+    @GuardedBy("this")
+    private Thread starter;
+    @GuardedBy("this")
+    private Thread closer;
+    @GuardedBy("this")
+    private CompletableFuture<Void> startExit;
+    @GuardedBy("this")
+    private CompletableFuture<Void> closeExit;
+    @GuardedBy("this")
+    private final Map<String, Step> steps = new HashMap<>();
 
     /** Claims the sole start attempt; a stopped or failed-start process cannot be restarted. */
     public synchronized void beginStart() {
@@ -71,19 +80,30 @@ public final class CoordinatorLifecycleAdmission {
             if (stopped) return;
             if (closer == Thread.currentThread()) throw new IllegalStateException("Shutdown cannot join itself");
             claimed = closeExit == null;
-            if (claimed) { closeExit = new CompletableFuture<>(); closer = Thread.currentThread(); }
+            if (claimed) {
+                closeExit = new CompletableFuture<>();
+                closer = Thread.currentThread();
+            }
             attempt = closeExit;
         }
-        if (!claimed) { attempt.join(); return; }
+        if (!claimed) {
+            attempt.join();
+            return;
+        }
         try {
             cleanup.run();
-            synchronized (this) { stopped = true; }
+            synchronized (this) {
+                stopped = true;
+            }
             attempt.complete(null);
         } catch (RuntimeException | Error failure) {
             attempt.completeExceptionally(failure);
             throw failure;
         } finally {
-            synchronized (this) { closeExit = null; closer = null; }
+            synchronized (this) {
+                closeExit = null;
+                closer = null;
+            }
         }
     }
 
@@ -107,11 +127,22 @@ public final class CoordinatorLifecycleAdmission {
                 throw new IllegalStateException("Shutdown dependency cannot join itself: " + name);
             }
             claimed = step == null || step.exit.isCompletedExceptionally();
-            if (claimed) { step = new Step(Thread.currentThread(), new CompletableFuture<>()); steps.put(name, step); }
+            if (claimed) {
+                step = new Step(Thread.currentThread(), new CompletableFuture<>());
+                steps.put(name, step);
+            }
         }
-        if (!claimed) { step.exit.join(); return; }
-        try { operation.run(); step.exit.complete(null); }
-        catch (RuntimeException | Error failure) { step.exit.completeExceptionally(failure); throw failure; }
+        if (!claimed) {
+            step.exit.join();
+            return;
+        }
+        try {
+            operation.run();
+            step.exit.complete(null);
+        } catch (RuntimeException | Error failure) {
+            step.exit.completeExceptionally(failure);
+            throw failure;
+        }
     }
 
     private record Step(Thread owner, CompletableFuture<Void> exit) { }

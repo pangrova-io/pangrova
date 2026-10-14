@@ -46,6 +46,7 @@ class PublishedArtifactBindingResolverTest {
 
         var resolved = resolver.resolveTemplate(intent(), List.of(split)).orElseThrow();
         assertThat(resolved.bindingTemplate().getSplitObjectsCount()).isZero();
+        assertThat(resolved.sourceObjectCount()).isOne();
         assertThat(resolved.bindingTemplate().hasBindingChecksum()).isFalse();
 
         OperatorBinding taskBinding = resolver.materializeForTask(

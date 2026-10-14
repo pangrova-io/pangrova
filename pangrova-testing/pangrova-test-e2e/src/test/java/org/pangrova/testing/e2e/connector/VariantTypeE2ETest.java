@@ -186,6 +186,8 @@ class VariantTypeE2ETest extends SqlE2ETestBase {
                     + "(1, '{\"name\":\"alice\",\"age\":30}'),"
                     + "(2, '{\"name\":\"bob\",\"age\":25}')");
 
+
+
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT id, variant_get(payload, 'name') AS vname"
                     + " FROM " + iceFqn() + " ORDER BY id");

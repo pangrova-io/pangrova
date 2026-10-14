@@ -27,7 +27,7 @@ import java.util.Map;
  * <p>Preferred output is columnar {@link NativePage} via {@link #getNextNativePage()}.
  * Both page formats consume the same selected SDK reader.</p>
  */
-public class PaimonPageSource implements ConnectorPageSource {
+public final class PaimonPageSource implements ConnectorPageSource {
 
     /** Default read batch size. Configurable via constructor. */
     public static final int DEFAULT_BATCH_SIZE = 1024;

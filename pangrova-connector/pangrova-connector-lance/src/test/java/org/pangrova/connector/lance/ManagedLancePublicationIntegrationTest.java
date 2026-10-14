@@ -283,7 +283,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
-    void actualObjectPageHoleAndConflictingReplayRollBackBeforeVisibility() throws Exception {
+    void unissuedObjectPageAndConflictingReplayRollBackBeforeVisibility() throws Exception {
         var fixture = new LanceManagedSourceFixture("pages_" + UUID.randomUUID(), directory);
         var sdk = new LanceNativeSdkFixture(fixture, directory);
         String uri = directory.resolve("pages.lance").toString();
@@ -292,8 +292,10 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         var pages = sdk.prepare(allocation, List.of(sdk.write(input, allocation)));
         assertThat(pages).hasSize(1);
         var first = pages.get(0);
-        var hole = first.toBuilder().setObjectPage(first.getObjectPage().toBuilder().setPageIndex(1)).build();
-        assertThatThrownBy(() -> fixture.registerObjects(allocation.executionId(), hole)).hasMessageContaining("hole");
+        var unissuedPage = first.toBuilder().setObjectPage(first.getObjectPage().toBuilder()
+                .setPageIndex(1).setAfterPath("!")).build();
+        assertThatThrownBy(() -> fixture.registerObjects(allocation.executionId(), unissuedPage))
+                .hasMessageContaining("sequence or cursor differs");
         try (var connection = fixture.dataSource().getConnection();
              var statement = connection.prepareStatement("SELECT registered_count,manifest_sha256 FROM managed_source_publications WHERE fingerprint=?")) {
             statement.setString(1, first.getCommitFingerprint());

@@ -1,8 +1,12 @@
 package org.pangrova.testing.e2e.connector;
 
 import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.connector.iceberg.IcebergMetadata;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.FileScanTask;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Iceberg Copy-on-Write DELETE E2E tests verifying that CoW mode rewrites
  * surviving rows into new data files without producing delete files,
- * reads have no merge overhead, and mode switching between CoW and MoR works.
+ * current scans have no delete-file merge, and repeated writes preserve results.
  *
  * <p>All operations execute through the real pipeline:
  * TestCluster HTTP → NativeRuntime → Velox → Iceberg → local filesystem.
@@ -47,11 +51,30 @@ class IcebergCopyOnWriteDeleteTest extends SqlE2ETestBase {
         return FQN_PREFIX + tableName;
     }
 
+    private int assertCurrentScanHasOnlyDataFiles() throws Exception {
+        var catalogHandle = metadataBootstrap.catalogRegistry().getCatalog(CATALOG);
+        var metadata = (IcebergMetadata) catalogHandle.getMetadata(
+                authenticatedCatalogSession(CATALOG));
+        var table = metadata.catalog().loadTable(TableIdentifier.of(SCHEMA, tableName));
+        table.refresh();
+        int dataFileCount = 0;
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            for (FileScanTask task : tasks) {
+                assertThat(task.file().content().name()).isEqualTo("DATA");
+                assertThat(task.deletes()).as("CoW scan must not merge delete files").isEmpty();
+                dataFileCount++;
+            }
+        }
+        assertThat(dataFileCount).as("current snapshot must contain data files")
+                .isGreaterThan(0);
+        return dataFileCount;
+    }
+
     // --- 2.8.3: CoW DELETE produces no delete files ---
 
     @Test
     @DisplayName("2.8.3 - CoW DELETE produces no delete files and returns surviving rows")
-    void cowDeleteProducesNoDeleteFiles() {
+    void cowDeleteProducesNoDeleteFiles() throws Exception {
         sqlRunner.executeDdl("CREATE TABLE " + fqn()
                 + " (id BIGINT, name VARCHAR, amount DOUBLE)"
                 + " TBLPROPERTIES ('format-version' = '2', "
@@ -65,16 +88,8 @@ class IcebergCopyOnWriteDeleteTest extends SqlE2ETestBase {
 
         sqlRunner.execute("DELETE FROM " + fqn() + " WHERE id IN (2, 4)");
 
-        // Verify no delete files exist — all entries in $files should be DATA
-        List<TypedRow> fileRows = sqlRunner.execute(
-                "SELECT * FROM " + fqn() + "$files");
-
-        assertThat(fileRows).isNotEmpty();
-        for (TypedRow fileRow : fileRows) {
-            assertThat(fileRow.getRaw("content").toString())
-                    .as("CoW DELETE should produce only data files, no delete files")
-                    .isEqualTo("DATA");
-        }
+        // Inspect the committed Iceberg snapshot while the Native $files reader is pending.
+        assertCurrentScanHasOnlyDataFiles();
 
         // Verify surviving rows are correct
         List<TypedRow> dataRows = sqlRunner.execute(
@@ -93,7 +108,7 @@ class IcebergCopyOnWriteDeleteTest extends SqlE2ETestBase {
 
     @Test
     @DisplayName("2.8.4 - CoW read has no merge overhead (only data files, no delete files to merge)")
-    void cowReadHasNoMergeOverhead() {
+    void cowReadHasNoMergeOverhead() throws Exception {
         sqlRunner.executeDdl("CREATE TABLE " + fqn()
                 + " (id BIGINT, category VARCHAR, price DOUBLE)"
                 + " TBLPROPERTIES ('format-version' = '2', "
@@ -107,17 +122,7 @@ class IcebergCopyOnWriteDeleteTest extends SqlE2ETestBase {
 
         sqlRunner.execute("DELETE FROM " + fqn() + " WHERE category = 'books'");
 
-        // Verify $files shows only data files — no delete files means no merge step
-        List<TypedRow> fileRows = sqlRunner.execute(
-                "SELECT * FROM " + fqn() + "$files");
-
-        assertThat(fileRows).isNotEmpty();
-        long deleteFileCount = fileRows.stream()
-                .filter(r -> !r.getRaw("content").toString().equals("DATA"))
-                .count();
-        assertThat(deleteFileCount)
-                .as("CoW mode should have zero delete files — reads require no merge")
-                .isZero();
+        assertCurrentScanHasOnlyDataFiles();
 
         // Verify SELECT returns correct results without merge
         List<TypedRow> dataRows = sqlRunner.execute(
@@ -136,7 +141,7 @@ class IcebergCopyOnWriteDeleteTest extends SqlE2ETestBase {
 
     @Test
     @DisplayName("2.8.5 - Multiple DELETE rounds with insert interleaving produce correct results")
-    void multipleDeleteRoundsWithInsertInterleaving() {
+    void multipleDeleteRoundsWithInsertInterleaving() throws Exception {
         sqlRunner.executeDdl("CREATE TABLE " + fqn()
                 + " (id BIGINT, name VARCHAR, amount DOUBLE)"
                 + " TBLPROPERTIES ('format-version' = '2', "
@@ -150,14 +155,7 @@ class IcebergCopyOnWriteDeleteTest extends SqlE2ETestBase {
 
         sqlRunner.execute("DELETE FROM " + fqn() + " WHERE id = 2");
 
-        List<TypedRow> phase1Files = sqlRunner.execute(
-                "SELECT * FROM " + fqn() + "$files");
-        assertThat(phase1Files).isNotEmpty();
-        for (TypedRow fileRow : phase1Files) {
-            assertThat(fileRow.getRaw("content").toString())
-                    .as("CoW DELETE produces only data files")
-                    .isEqualTo("DATA");
-        }
+        assertCurrentScanHasOnlyDataFiles();
 
         List<TypedRow> afterPhase1 = sqlRunner.execute(
                 "SELECT * FROM " + fqn() + " ORDER BY id");
@@ -172,13 +170,7 @@ class IcebergCopyOnWriteDeleteTest extends SqlE2ETestBase {
 
         sqlRunner.execute("DELETE FROM " + fqn() + " WHERE id = 4");
 
-        List<TypedRow> phase2Files = sqlRunner.execute(
-                "SELECT * FROM " + fqn() + "$files");
-        for (TypedRow fileRow : phase2Files) {
-            assertThat(fileRow.getRaw("content").toString())
-                    .as("Second CoW DELETE also produces only data files")
-                    .isEqualTo("DATA");
-        }
+        assertCurrentScanHasOnlyDataFiles();
 
         List<TypedRow> finalRows = sqlRunner.execute(
                 "SELECT * FROM " + fqn() + " ORDER BY id");

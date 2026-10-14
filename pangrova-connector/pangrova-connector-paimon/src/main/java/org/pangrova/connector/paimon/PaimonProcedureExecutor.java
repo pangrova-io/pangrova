@@ -14,6 +14,7 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.utils.TimeUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -161,7 +162,26 @@ final class PaimonProcedureExecutor {
         }
         Table table = loadFreshTableByName(tableName);
         String tagName = args.get("arg1");
-        table.createTag(tagName);
+        if (args.size() > 4 || (args.containsKey("arg3") && !args.containsKey("arg2"))) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "create_tag accepts table_name, tag_name, optional snapshot_id and time_retained");
+        }
+        try {
+            java.time.Duration retention = args.containsKey("arg3")
+                    ? TimeUtils.parseDuration(args.get("arg3")) : null;
+            if (args.containsKey("arg2")) {
+                long snapshotId = Long.parseLong(args.get("arg2"));
+                if (snapshotId <= 0) {
+                    throw new IllegalArgumentException("snapshot_id must be positive");
+                }
+                table.createTag(tagName, snapshotId, retention);
+            } else {
+                table.createTag(tagName);
+            }
+        } catch (IllegalArgumentException invalid) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Invalid create_tag snapshot_id or time_retained", invalid);
+        }
         LOG.info("event=procedure_create_tag table={} tag={}", tableName, tagName);
         return List.of(TypedRow.builder()
                 .putString("result", "create_tag succeeded")

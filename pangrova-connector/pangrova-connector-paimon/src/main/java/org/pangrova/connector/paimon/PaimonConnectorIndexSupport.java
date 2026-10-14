@@ -6,6 +6,8 @@ import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.pangrova.spi.connector.index.NativeIndexCapability;
 import org.pangrova.spi.connector.index.NativeIndexEvaluator;
 import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.apache.paimon.catalog.Catalog;
 
 import java.util.List;
 import java.util.Optional;
@@ -17,9 +19,11 @@ import java.util.Optional;
 final class PaimonConnectorIndexSupport implements ConnectorIndexSupport {
 
     private final PaimonMetadata metadata;
+    private final Catalog catalog;
 
-    PaimonConnectorIndexSupport(PaimonMetadata metadata) {
+    PaimonConnectorIndexSupport(PaimonMetadata metadata, Catalog catalog) {
         this.metadata = metadata;
+        this.catalog = catalog;
     }
 
     @Override
@@ -46,6 +50,11 @@ final class PaimonConnectorIndexSupport implements ConnectorIndexSupport {
     public Optional<SnapshotAwareMetadata> getSnapshotAwareMetadata(
             String schemaName, String tableName) {
         return metadata.getSnapshotAwareMetadata(schemaName, tableName);
+    }
+
+    @Override
+    public Optional<SnapshotPinProvider> getSnapshotPinProvider() {
+        return Optional.of(new PaimonSnapshotPinProvider(catalog));
     }
 
     @Override

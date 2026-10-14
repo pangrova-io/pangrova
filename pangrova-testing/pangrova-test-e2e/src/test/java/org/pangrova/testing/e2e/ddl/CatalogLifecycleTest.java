@@ -3,6 +3,7 @@ package org.pangrova.testing.e2e.ddl;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
+import org.pangrova.testing.e2e.CatalogDdlGrantFixture;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -88,23 +89,35 @@ class CatalogLifecycleTest extends PangrovaE2ETestBase {
         @DisplayName("CREATE CATALOG registers a new catalog")
         void createCatalog() {
             String catName = "test_cat_" + System.nanoTime();
-            executeDdl("CREATE CATALOG " + catName
-                    + " WITH ('connector' = 'iceberg', "
-                    + "'warehouse' = '" + icebergWarehouse().toString() + "')");
-
-            List<TypedRow> catalogs = executeQuery("SHOW CATALOGS");
-            assertThat(catalogs).isNotEmpty();
+            CatalogDdlGrantFixture.withCatalogLifecycleGrants(
+                    stateStoreDataSource(), authenticatedCatalogSession(CATALOG).getUser(),
+                    catName, () -> {
+                        executeDdl("CREATE CATALOG " + catName
+                                + " WITH ('connector' = 'iceberg', "
+                                + "'warehouse' = '" + icebergWarehouse() + "')");
+                        try {
+                            assertThat(executeQuery("SHOW CATALOGS"))
+                                    .anySatisfy(row -> assertThat(row.toString()).contains(catName));
+                        } finally {
+                            executeDdl("DROP CATALOG " + catName);
+                        }
+                    });
         }
 
         @Test
         @DisplayName("DROP CATALOG removes catalog")
         void dropCatalog() {
             String catName = "test_cat_drop_" + System.nanoTime();
-            executeDdl("CREATE CATALOG " + catName
-                    + " WITH ('connector' = 'iceberg', "
-                    + "'warehouse' = '" + icebergWarehouse().toString() + "')");
-            executeDdl("DROP CATALOG " + catName);
-            // Should not appear in SHOW CATALOGS
+            CatalogDdlGrantFixture.withCatalogLifecycleGrants(
+                    stateStoreDataSource(), authenticatedCatalogSession(CATALOG).getUser(),
+                    catName, () -> {
+                        executeDdl("CREATE CATALOG " + catName
+                                + " WITH ('connector' = 'iceberg', "
+                                + "'warehouse' = '" + icebergWarehouse() + "')");
+                        executeDdl("DROP CATALOG " + catName);
+                        assertThat(executeQuery("SHOW CATALOGS"))
+                                .noneSatisfy(row -> assertThat(row.toString()).contains(catName));
+                    });
         }
     }
 }

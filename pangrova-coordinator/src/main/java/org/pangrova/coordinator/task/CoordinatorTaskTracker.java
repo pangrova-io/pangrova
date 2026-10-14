@@ -46,6 +46,7 @@ public class CoordinatorTaskTracker {
         this.taskFailureCallback = callback;
     }
 
+    /** Registers a logical task under the query issuance authority. */
     public void registerTask(String queryId, String taskId) {
         taskIdentityStore.registerLogicalTask(queryId, () -> {
             var tasks = queryTasks.computeIfAbsent(queryId, k -> new ConcurrentHashMap<>());
@@ -89,6 +90,7 @@ public class CoordinatorTaskTracker {
         }
     }
 
+    /** Records the Worker selected for a task. */
     public void assignWorker(String taskId, String workerId) {
         taskWorkerAssignment.put(taskId, workerId);
         // Maintain reverse index: find queryId from timing tracker and add to worker index
@@ -132,6 +134,7 @@ public class CoordinatorTaskTracker {
         return accepted;
     }
 
+    /** Completes the task future after an accepted terminal state. */
     public void signalTaskTerminal(String queryId, String taskId) {
         TaskStateMachine sm = findStateMachine(queryId, taskId);
         if (sm != null) {
@@ -144,6 +147,7 @@ public class CoordinatorTaskTracker {
         return tasks != null ? tasks.get(taskId) : null;
     }
 
+    /** Returns whether every registered task has finished successfully. */
     public boolean allTasksFinished(String queryId) {
         ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
         if (tasks == null || tasks.isEmpty()) {
@@ -157,6 +161,7 @@ public class CoordinatorTaskTracker {
         return true;
     }
 
+    /** Returns whether the query has a failed task. */
     public boolean hasFailedTask(String queryId) {
         ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
         if (tasks == null) {
@@ -174,6 +179,7 @@ public class CoordinatorTaskTracker {
         return getStateMachine(queryId, taskId).getState();
     }
 
+    /** Returns queries with active tasks assigned to a Worker. */
     public Set<String> getQueriesForWorker(String workerId) {
         Set<String> indexed = workerQueryIndex.get(workerId);
         if (indexed != null && !indexed.isEmpty()) {
@@ -198,6 +204,7 @@ public class CoordinatorTaskTracker {
         return affected;
     }
 
+    /** Returns the task identities currently tracked for a query. */
     public Set<String> getTaskIds(String queryId) {
         ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
         if (tasks == null) {
@@ -206,6 +213,7 @@ public class CoordinatorTaskTracker {
         return Set.copyOf(tasks.keySet());
     }
 
+    /** Returns the most recently started task identity, when available. */
     public String getLatestStartedTaskId(String queryId) {
         Set<String> taskIds = getTaskIds(queryId);
         if (taskIds.isEmpty()) {
@@ -225,6 +233,7 @@ public class CoordinatorTaskTracker {
                 .orElse(null);
     }
 
+    /** Groups a Worker's active task identities by query. */
     public Map<String, Set<String>> getActiveTasksByQueryForWorker(String workerId) {
         Map<String, Set<String>> result = new HashMap<>();
         for (Map.Entry<String, ConcurrentHashMap<String, TaskStateMachine>> queryEntry : queryTasks.entrySet()) {
@@ -281,20 +290,26 @@ public class CoordinatorTaskTracker {
 
     /** Retires a settled logical task without losing retained physical-exit evidence. */
     public void unregisterSettledTask(String queryId, String taskId) {
-        taskIdentityStore.remove(taskId);
-        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
-        if (tasks != null) {
-            TaskStateMachine state = tasks.get(taskId);
-            if (state != null && !state.isTerminal()) {
-                throw new IllegalStateException("cannot unregister a non-terminal task: " + taskId);
+        synchronized (drainRetirementLock) {
+            ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+            if (tasks != null) {
+                TaskStateMachine state = tasks.get(taskId);
+                if (state != null && !state.isTerminal()) {
+                    throw new IllegalStateException("cannot unregister a non-terminal task: " + taskId);
+                }
             }
-            tasks.remove(taskId);
-            if (tasks.isEmpty()) {
-                queryTasks.remove(queryId, tasks);
+            // Settled-task compaction and exact drain retirement share one lock;
+            // otherwise the latter can read a request that this call discards.
+            taskIdentityStore.remove(taskId);
+            if (tasks != null) {
+                tasks.remove(taskId);
+                if (tasks.isEmpty()) {
+                    queryTasks.remove(queryId, tasks);
+                }
             }
+            taskWorkerAssignment.remove(taskId);
+            timingTracker.clearTaskTracking(taskId);
         }
-        taskWorkerAssignment.remove(taskId);
-        timingTracker.clearTaskTracking(taskId);
     }
 
     /** Retires execution resources without awarding rejected durable publication a DAG win. */
@@ -343,7 +358,7 @@ public class CoordinatorTaskTracker {
         }
         taskWorkerAssignment.remove(taskId);
         timingTracker.clearTaskTracking(taskId);
-        taskIdentityStore.compactDrainedTask(taskId, request);
+        taskIdentityStore.compactDrainedTask(taskId, request, receipt);
     }
 
     // --- Task identity store (status fencing and speculative cloning) ---
@@ -360,13 +375,15 @@ public class CoordinatorTaskTracker {
 
     public void markRecoveredIssuanceUnresolved(String queryId) { taskIdentityStore.markRecoveryUnresolved(queryId); }
 
+    /** Enters a query issuance operation and notifies listeners when it exits. */
     public QueryIssuanceOperation enterQueryOperation(String queryId) {
         Runnable exited = taskIdentityStore.enterQueryOperation(queryId);
-        try { return new QueryIssuanceOperation(() -> {
-            exited.run();
-            notifyQueryOperationExit(queryId);
-        }); }
-        catch (RuntimeException | Error failure) {
+        try {
+            return new QueryIssuanceOperation(() -> {
+                exited.run();
+                notifyQueryOperationExit(queryId);
+            });
+        } catch (RuntimeException | Error failure) {
             exited.run();
             throw failure;
         }
@@ -375,11 +392,15 @@ public class CoordinatorTaskTracker {
     /** Enters an already issued scope for a state transition, including terminal cleanup metadata. */
     public QueryIssuanceOperation enterQueryMetadataOperation(String queryId) {
         Runnable exited = taskIdentityStore.enterMetadataOperation(queryId);
-        try { return new QueryIssuanceOperation(() -> {
+        try {
+            return new QueryIssuanceOperation(() -> {
+                exited.run();
+                notifyQueryOperationExit(queryId);
+            });
+        } catch (RuntimeException | Error failure) {
             exited.run();
-            notifyQueryOperationExit(queryId);
-        }); }
-        catch (RuntimeException | Error failure) { exited.run(); throw failure; }
+            throw failure;
+        }
     }
 
     private final java.util.concurrent.CopyOnWriteArrayList<java.util.function.Consumer<String>>
@@ -415,6 +436,7 @@ public class CoordinatorTaskTracker {
 
     public List<IssuedTask> sealQueryIssuance(String queryId) { return taskIdentityStore.sealQuery(queryId); }
 
+    /** Requires exact physical drain receipts for every retained task. */
     public void requireQueryExecutionDrained(String queryId) {
         taskIdentityStore.requireQueryDrained(queryId);
         var tasks = queryTasks.get(queryId);
@@ -434,10 +456,12 @@ public class CoordinatorTaskTracker {
             // interleave with a loser cleanup that has read one of those requests.
             taskIdentityStore.retireQuery(queryId);
             var removed = queryTasks.remove(queryId);
-            if (removed != null) removed.keySet().forEach(taskId -> {
-                taskWorkerAssignment.remove(taskId);
-                timingTracker.clearTaskTracking(taskId);
-            });
+            if (removed != null) {
+                removed.keySet().forEach(taskId -> {
+                    taskWorkerAssignment.remove(taskId);
+                    timingTracker.clearTaskTracking(taskId);
+                });
+            }
             workerQueryIndex.values().forEach(index -> index.remove(queryId));
             queryRetirementListeners.forEach(listener -> listener.accept(queryId));
         }

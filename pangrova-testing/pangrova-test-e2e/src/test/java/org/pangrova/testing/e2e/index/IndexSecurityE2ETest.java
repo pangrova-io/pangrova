@@ -16,7 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * E2E tests for index DDL access control enforcement.
+ * E2E smoke tests for index DDL under the authenticated, fully granted fixture.
  *
  * <p>Validates: Requirements 43.1–43.4
  */
@@ -53,13 +53,12 @@ class IndexSecurityE2ETest extends SqlE2ETestBase {
     private String fqn() { return FQN_PREFIX + tableName; }
 
     @Nested
-    @DisplayName("CREATE INDEX Access Control")
+    @DisplayName("CREATE INDEX with granted access")
     class CreateIndexAccessControl {
 
         @Test
-        @DisplayName("CREATE INDEX without ALTER permission — AccessDeniedException")
-        void createIndexWithoutPermission() {
-            // With default test user (has all permissions), CREATE should succeed
+        @DisplayName("CREATE INDEX with ALTER and SELECT permission succeeds")
+        void createIndexWithPermission() {
             sqlRunner.executeDdl("CREATE INDEX idx_sec_create ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
 
@@ -70,12 +69,12 @@ class IndexSecurityE2ETest extends SqlE2ETestBase {
     }
 
     @Nested
-    @DisplayName("DROP INDEX Access Control")
+    @DisplayName("DROP INDEX with granted access")
     class DropIndexAccessControl {
 
         @Test
-        @DisplayName("DROP INDEX without ALTER permission — AccessDeniedException")
-        void dropIndexWithoutPermission() {
+        @DisplayName("DROP INDEX with ALTER permission succeeds")
+        void dropIndexWithPermission() {
             sqlRunner.executeDdl("CREATE INDEX idx_sec_drop ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
             sqlRunner.executeDdl("DROP INDEX idx_sec_drop ON " + fqn());
@@ -112,6 +111,7 @@ class IndexSecurityE2ETest extends SqlE2ETestBase {
         void rebuildSucceedsOnFreshIndex() {
             sqlRunner.executeDdl("CREATE INDEX idx_sec_rebuild ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_sec_rebuild");
 
             sqlRunner.executeDdl(
                     "ALTER INDEX idx_sec_rebuild ON " + fqn() + " REBUILD");

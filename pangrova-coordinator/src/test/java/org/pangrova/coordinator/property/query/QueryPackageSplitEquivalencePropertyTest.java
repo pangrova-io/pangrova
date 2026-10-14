@@ -8,6 +8,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
+import net.jqwik.api.Example;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -103,6 +104,12 @@ class QueryPackageSplitEquivalencePropertyTest {
         assertThat(check.satisfied())
                 .as(check.description())
                 .isTrue();
+    }
+
+    @Example
+    void everyStructuralBoundaryIsCheckedDeterministically() {
+        assertThat(CHECKS).allSatisfy(check -> assertThat(check.satisfied())
+                .as(check.description()).isTrue());
     }
 
     // -----------------------------------------------------------------------

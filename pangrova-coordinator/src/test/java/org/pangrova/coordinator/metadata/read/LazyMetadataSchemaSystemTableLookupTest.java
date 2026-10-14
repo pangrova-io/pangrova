@@ -46,12 +46,19 @@ class LazyMetadataSchemaSystemTableLookupTest {
 
         var snapshots = lookup.getIgnoreCase("ORDERS$SNAPSHOTS");
         var history = lookup.getIgnoreCase("orders$HiStOrY");
+        var tags = lookup.getIgnoreCase("ORDERS$TAGS");
+        var options = lookup.getIgnoreCase("orders$OpTiOnS");
 
         assertThat(snapshots).isNotNull();
         assertThat(snapshots.name()).isEqualTo("Orders$snapshots");
         assertThat(history).isNotNull();
         assertThat(history.name()).isEqualTo("Orders$history");
-        assertThat(metadata.lookups).contains("Orders$snapshots", "Orders$history");
+        assertThat(tags).isNotNull();
+        assertThat(tags.name()).isEqualTo("Orders$tags");
+        assertThat(options).isNotNull();
+        assertThat(options.name()).isEqualTo("Orders$options");
+        assertThat(metadata.lookups).contains("Orders$snapshots", "Orders$history",
+                "Orders$tags", "Orders$options");
         assertThat(lookup.getNames(LikePattern.any())).containsExactly("Orders");
     }
 
@@ -62,6 +69,52 @@ class LazyMetadataSchemaSystemTableLookupTest {
         assertThat(lookup.getIgnoreCase("ORDERS").name()).isEqualTo("Orders");
         assertThat(lookup.get("Orders")).isNotNull();
         assertThat(lookup.get("Orders$history")).isNotNull();
+    }
+
+    @Test
+    void namedTableLookupListsNamesButDoesNotLoadUnrelatedTableMetadata() {
+        TestMetadata metadata = new TestMetadata();
+        for (int i = 0; i < 1_000; i++) {
+            metadata.tableNames.add("Unrelated" + i);
+        }
+        var lookup = schema(metadata).tables();
+
+        assertThat(lookup.getIgnoreCase("Orders").name()).isEqualTo("Orders");
+        assertThat(lookup.get("Orders")).isNotNull();
+        assertThat(metadata.listCalls).isEqualTo(1);
+        assertThat(metadata.lookups).containsExactly("Orders", "Orders");
+    }
+
+    @Test
+    void nameEnumerationDoesNotLoadTableMetadataAndHonorsDdlInvalidation() {
+        TestMetadata metadata = new TestMetadata();
+        var lazySchema = schema(metadata);
+        var lookup = lazySchema.tables();
+
+        assertThat(lookup.getNames(LikePattern.any())).containsExactly("Orders");
+        assertThat(metadata.listCalls).isEqualTo(1);
+        assertThat(metadata.lookups).isEmpty();
+
+        metadata.tableNames.add("Fresh");
+        assertThat(lookup.getNames(new LikePattern("F%"))).isEmpty();
+        assertThat(metadata.listCalls).isEqualTo(1);
+
+        lazySchema.invalidateCache();
+        assertThat(lookup.getNames(new LikePattern("F%"))).containsExactly("Fresh");
+        assertThat(metadata.listCalls).isEqualTo(2);
+        assertThat(metadata.lookups).isEmpty();
+    }
+
+    @Test
+    void externallyDroppedTableDoesNotResolveFromCachedName() {
+        TestMetadata metadata = new TestMetadata();
+        var lookup = schema(metadata).tables();
+
+        assertThat(lookup.getIgnoreCase("ORDERS")).isNotNull();
+        metadata.tableNames.remove("Orders");
+
+        assertThat(lookup.getIgnoreCase("ORDERS")).isNull();
+        assertThat(metadata.listCalls).isEqualTo(1);
     }
 
     @Test
@@ -92,6 +145,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
         TestMetadata metadata = new TestMetadata();
         var lookup = schema(metadata).tables();
         assertThat(lookup.getIgnoreCase("ORDERS")).isNotNull();
+        assertThat(lookup.getNames(LikePattern.any())).containsExactly("Orders");
 
         // This simulates a second coordinator creating a table while this
         // coordinator still holds its cached physical names.
@@ -147,6 +201,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
     private static final class TestMetadata implements ConnectorMetadata {
         private final List<String> lookups = new ArrayList<>();
         private final List<String> tableNames = new ArrayList<>(List.of("Orders"));
+        private int listCalls;
         private boolean failSystemLookup;
         private boolean failListTables;
 
@@ -157,6 +212,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
 
         @Override
         public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schema) {
+            listCalls++;
             if (failListTables) {
                 throw new IllegalStateException("catalog listing unavailable");
             }
@@ -172,7 +228,9 @@ class LazyMetadataSchemaSystemTableLookupTest {
             String base = table.table().split("\\$", 2)[0];
             boolean supported = table.table().equals(base)
                     || table.table().equals(base + "$snapshots")
-                    || table.table().equals(base + "$history");
+                    || table.table().equals(base + "$history")
+                    || table.table().equals(base + "$tags")
+                    || table.table().equals(base + "$options");
             return tableNames.contains(base) && supported ? new TestHandle(table.table()) : null;
         }
 
@@ -180,7 +238,9 @@ class LazyMetadataSchemaSystemTableLookupTest {
         public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
             String name = ((TestHandle) table).name();
             String column = name.endsWith("$snapshots") ? "snapshot_id"
-                    : name.endsWith("$history") ? "made_current_at" : "id";
+                    : name.endsWith("$history") ? "made_current_at"
+                    : name.endsWith("$tags") ? "tag_name"
+                    : name.endsWith("$options") ? "key" : "id";
             return new ConnectorTableMetadata(new SchemaTableName(SCHEMA, name),
                     List.of(column), List.of(new ConnectorTableMetadata.Column(column, PangrovaType.BIGINT)),
                     Map.of());

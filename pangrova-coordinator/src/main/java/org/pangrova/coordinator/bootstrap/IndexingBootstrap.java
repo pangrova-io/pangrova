@@ -256,7 +256,12 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
                 metadataStore, buildServices, accessorResolver);
 
         IndexGcContext gcDeps = new IndexGcContext(
-                metadataStore, storageManager, accessorResolver, config);
+                metadataStore, storageManager,
+                descriptor -> org.pangrova.coordinator.index.ddl.IndexSourceAuthority
+                        .forDescriptor(metadataStore, buildServices, accessorResolver, descriptor)
+                        .resolve(descriptor.catalogName()), config,
+                new org.pangrova.coordinator.index.ddl.DeferredSnapshotPinProvider(
+                        metadataStore, artifactBuildStore, accessorResolver));
 
         String coordinatorId = configuredLeaderElection != null
                 ? configuredLeaderElection.holderId()

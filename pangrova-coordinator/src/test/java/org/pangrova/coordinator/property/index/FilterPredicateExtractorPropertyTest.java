@@ -89,6 +89,18 @@ class FilterPredicateExtractorPropertyTest {
     }
 
     @Test
+    void equalTo_stringLiteralUsesUnquotedValue() {
+        RexNode condition = REX.makeCall(SqlStdOperatorTable.EQUALS,
+                REX.makeInputRef(ROW_TYPE.getFieldList().get(3).getType(), 3),
+                REX.makeLiteral("ACTIVE"));
+        List<IndexPredicate> result = extract(condition);
+        assertThat(result).hasSize(1);
+        EqualTo eq = (EqualTo) result.get(0);
+        assertThat(eq.column()).isEqualTo("status");
+        assertThat(eq.value()).isEqualTo("ACTIVE");
+    }
+
+    @Test
     void rangeQuery_lessThan() {
         RexNode condition = REX.makeCall(SqlStdOperatorTable.LESS_THAN,
                 REX.makeInputRef(ROW_TYPE.getFieldList().get(2).getType(), 2),
@@ -402,6 +414,21 @@ class FilterPredicateExtractorPropertyTest {
         InList inList = (InList) result.get(0);
         assertThat(inList.column()).isEqualTo("user_id");
         assertThat(inList.values()).containsExactlyInAnyOrder(1L, 2L);
+    }
+
+    @Test
+    void sameColumnStringOrUsesUnquotedValues() {
+        RexNode status = REX.makeInputRef(ROW_TYPE.getFieldList().get(3).getType(), 3);
+        RexNode active = REX.makeCall(SqlStdOperatorTable.EQUALS,
+                status, REX.makeLiteral("ACTIVE"));
+        RexNode inactive = REX.makeCall(SqlStdOperatorTable.EQUALS,
+                status, REX.makeLiteral("INACTIVE"));
+        List<IndexPredicate> result = extract(REX.makeCall(SqlStdOperatorTable.OR, active, inactive));
+
+        assertThat(result).hasSize(1);
+        InList inList = (InList) result.get(0);
+        assertThat(inList.column()).isEqualTo("status");
+        assertThat(inList.values()).containsExactlyInAnyOrder("ACTIVE", "INACTIVE");
     }
 
     @Test

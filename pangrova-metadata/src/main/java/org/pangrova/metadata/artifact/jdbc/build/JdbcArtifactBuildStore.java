@@ -40,6 +40,16 @@ import static org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildPageSel
 @org.pangrova.spi.annotation.Internal
 public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport implements ArtifactBuildStore {
 
+    private static final String LIVE_PUBLICATION_ANCHOR =
+            "EXISTS (SELECT 1 FROM artifact_execution_routes route "
+                    + "JOIN execution_anchor anchor ON anchor.execution_id=route.execution_id "
+                    + "WHERE route.tenant_id=artifact_build_jobs.tenant_id "
+                    + "AND route.job_id=artifact_build_jobs.job_id "
+                    + "AND anchor.owner_id=artifact_build_jobs.publication_execution_owner_id "
+                    + "AND anchor.owner_incarnation=artifact_build_jobs.publication_execution_owner_incarnation "
+                    + "AND anchor.fencing_token=artifact_build_jobs.publication_execution_owner_token "
+                    + "AND anchor.expires_at>clock_timestamp())";
+
     private final JdbcArtifactBuildReader reader;
 
     public JdbcArtifactBuildStore(DataSource dataSource) {
@@ -173,7 +183,7 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
                      "SELECT tenant_id,job_id FROM artifact_build_jobs "
                              + "WHERE state='READY_TO_PUBLISH' AND "
                              + "(publication_lease_expires_at IS NULL "
-                             + "OR publication_lease_expires_at<=?) "
+                             + "OR publication_lease_expires_at<=? OR NOT " + LIVE_PUBLICATION_ANCHOR + ") "
                              + "ORDER BY updated_at,tenant_id,job_id LIMIT ?")) {
             setInstant(statement, 1, now);
             statement.setInt(2, limit);
@@ -372,8 +382,9 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
                 return Optional.empty();
             }
             PublicationLease current = loadPublicationLease(connection, tenantId, jobId);
-            if (current.expiresAt() != null && !current.expiresAt().isBefore(now)
-                    && (!owner.equals(current.owner()) || ownerEpoch != current.ownerEpoch())) {
+            if (current.expiresAt() != null && current.expiresAt().isAfter(now)
+                    && (!owner.equals(current.owner()) || ownerEpoch != current.ownerEpoch())
+                    && hasLivePublicationAnchor(connection, tenantId, jobId)) {
                 return Optional.empty();
             }
             long nextFence = Math.addExact(job.publicationFencingToken(), 1L);
@@ -403,6 +414,22 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
             }
             return findJob(connection, tenantId, jobId, false);
         });
+    }
+
+    private static boolean hasLivePublicationAnchor(Connection connection, String tenantId, String jobId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT " + LIVE_PUBLICATION_ANCHOR + " FROM artifact_build_jobs "
+                        + "WHERE tenant_id=? AND job_id=?")) {
+            statement.setString(1, tenantId);
+            statement.setString(2, jobId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException("artifact job disappeared during publication claim");
+                }
+                return result.getBoolean(1);
+            }
+        }
     }
 
     @Override

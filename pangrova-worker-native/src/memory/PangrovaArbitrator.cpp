@@ -147,8 +147,10 @@ void PangrovaArbitrator::commitCapacity(
     listener_->allocationChanged(-granted);
     grow_failures_.fetch_add(1, std::memory_order_relaxed);
     VELOX_MEM_POOL_CAP_EXCEEDED(fmt::format(
-        "Task pool rejected capacity growth: pool={} granted_bytes={} requested_bytes={}",
-        pool->name(), granted, requested));
+        "Task pool rejected capacity growth: pool={} granted_bytes={} requested_bytes={} "
+        "capacity_bytes={} max_capacity_bytes={} used_bytes={} reserved_bytes={}",
+        pool->name(), granted, requested, pool->capacity(), pool->maxCapacity(),
+        pool->usedBytes(), pool->reservedBytes()));
   }
   grow_successes_.fetch_add(1, std::memory_order_relaxed);
   total_grown_bytes_.fetch_add(granted, std::memory_order_relaxed);

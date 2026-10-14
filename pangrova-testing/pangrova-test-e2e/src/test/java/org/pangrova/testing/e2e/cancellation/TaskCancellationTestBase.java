@@ -21,6 +21,10 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -115,36 +119,54 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
     protected final class Scenario implements AutoCloseable {
         private final WorkerInfo original = java.util.Objects.requireNonNull(workerManager.getWorker(WORKER_ID));
         final TaskHttpTransport transport = new TaskHttpTransport(workerUri());
-        SubmitQueryResponse query;
+        private final ExecutorService submitter = Executors.newSingleThreadExecutor();
+        private Future<SubmitQueryResponse> submittedQuery;
+        private String queryId;
         TaskHttpTransport.Submission submission;
 
         private Scenario(String sql) throws Exception {
             try {
                 registerActualWorker(original, transport.port());
-                query = submitQueryViaHttp(sql);
+                submittedQuery = submitter.submit(() -> submitQueryViaHttp(sql));
                 submission = transport.awaitSubmission();
-                assertThat(submission.request().taskRequest().getAttempt().getQueryOrJobId()).isEqualTo(query.queryId());
+                queryId = submission.request().taskRequest().getAttempt().getQueryOrJobId();
             } catch (Exception | Error failure) {
                 try { close(); } catch (Throwable cleanup) { failure.addSuppressed(cleanup); }
                 throw failure;
             }
         }
 
+        String queryId() { return queryId; }
+
+        SubmitQueryResponse awaitSubmittedQuery() throws Exception {
+            SubmitQueryResponse query = submittedQuery.get(30, TimeUnit.SECONDS);
+            assertThat(query.queryId()).isEqualTo(queryId);
+            return query;
+        }
+
         @Override
         public void close() throws Exception {
             transport.reconnectAllDeletes();
             Throwable failure = null;
-            if (query != null) {
+            if (queryId != null) {
                 try {
-                    assertThat(cancelQuery(query.queryId()).statusCode()).isIn(200, 202);
+                    assertThat(cancelQuery(queryId).statusCode()).isIn(200, 202);
                 } catch (Throwable cleanup) { failure = cleanup; }
             }
             transport.releasePost();
-            if (query != null) {
-                try { pollUntilTerminal(query.queryId()); }
+            if (queryId != null) {
+                try { pollUntilTerminal(queryId); }
                 catch (Throwable cleanup) {
                     if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
                 }
+            }
+            submitter.shutdown();
+            try {
+                if (!submitter.awaitTermination(30, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Actual query submission has not drained");
+                }
+            } catch (Throwable cleanup) {
+                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
             }
             try { registerActualWorker(original, original.httpPort()); }
             catch (Throwable cleanup) {

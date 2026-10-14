@@ -27,6 +27,7 @@ import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
 import org.pangrova.planner.substrait.SubstraitProtocolVersion;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,6 +46,9 @@ class TabularExportPlanBuilderTest {
         Plan plan = Plan.parseFrom(export.planBytes());
         SubstraitProtocolVersion.validate(plan);
         var sink = plan.getRelations(0).getRoot().getInput().getExtensionSingle();
+        assertThat(plan.getRelations(0).getRoot().getNamesCount()).isZero();
+        assertThat(SubstraitRelationLayout.rootSchema(plan.getRelations(0).getRoot())
+                .getStruct().getTypesCount()).isZero();
         RelationDetailEnvelope detail = sink.getDetail().unpack(
                 RelationDetailEnvelope.class);
         assertThat(detail.getArtifactBuild().getInputFieldsList())

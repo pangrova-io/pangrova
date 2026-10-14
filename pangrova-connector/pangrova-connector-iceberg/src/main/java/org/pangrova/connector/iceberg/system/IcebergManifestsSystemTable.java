@@ -32,7 +32,7 @@ public final class IcebergManifestsSystemTable implements ConnectorSystemTable {
 
     @Override
     public List<String> columns() {
-        return COLUMNS;
+        return List.copyOf(COLUMNS);
     }
 
     @Override

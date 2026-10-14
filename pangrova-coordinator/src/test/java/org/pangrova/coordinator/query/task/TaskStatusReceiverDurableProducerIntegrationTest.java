@@ -11,6 +11,7 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
+import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTerminalRegistry;
 import org.pangrova.coordinator.query.stage.Stage;
@@ -121,8 +122,20 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 committedAtStageFinish.set(builds.findJob(KEY.tenantId(), KEY.jobId()).orElseThrow().completedPages() == 1);
             }
         });
+        StageCompletionCallback callback = new StageCompletionCallback() {
+            @Override
+            public void onTaskTerminal(String queryId, String taskId, String state,
+                    org.pangrova.protocol.rest.error.ErrorDetail error) {
+                terminal.onTerminal(queryId, taskId, state, error);
+            }
+
+            @Override
+            public void onQueryTerminal(String queryId, java.util.function.Consumer<Boolean> listener) {
+                listener.accept(true);
+            }
+        };
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queries, tracker, workers,
-                null, null, null, null, null, null, terminal::onTerminal, null, null,
+                null, null, null, null, null, null, callback, null, null,
                 new DurableArtifactWorkReportSink(builds, stages)));
         request = request(7);
         registerTask(request);

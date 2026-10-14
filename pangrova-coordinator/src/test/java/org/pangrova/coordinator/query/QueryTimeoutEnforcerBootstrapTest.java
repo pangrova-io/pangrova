@@ -3,7 +3,6 @@ package org.pangrova.coordinator.query;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.QueryTimeoutEnforcer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

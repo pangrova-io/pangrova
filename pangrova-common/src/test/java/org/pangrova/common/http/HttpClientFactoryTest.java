@@ -1,8 +1,9 @@
 package org.pangrova.common.http;
 
+import java.net.Proxy;
+import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.URI;
 import java.time.Duration;
 
 import org.eclipse.jetty.server.Server;
@@ -46,6 +47,16 @@ class HttpClientFactoryTest {
         assertThat(managed).isNotNull();
         assertThat(managed.httpClient()).isNotNull();
         managed.close();
+    }
+
+    @Test
+    void internalClientAlwaysSelectsDirectConnectionForWorkerAddress() {
+        try (ManagedHttpClient managed = HttpClientFactory.createDefault()) {
+            assertThat(managed.httpClient().proxy()).isPresent();
+            assertThat(managed.httpClient().proxy().orElseThrow()
+                    .select(URI.create("http://192.168.1.15:59457/v1/task")))
+                    .containsExactly(Proxy.NO_PROXY);
+        }
     }
 
     @Test

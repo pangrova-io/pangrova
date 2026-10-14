@@ -1,10 +1,12 @@
 # System-table SQL: Native scan implementation contract
 
-Status: **IN PROGRESS — not production-ready** (2026-09-28). The current
-worktree implements a proposed Iceberg `$snapshots`/`$history` typed v2 split
-and Worker Native reader, but Java/full E2E gates have not passed. This is an
-implementation specification and failure record, not a production-readiness
-assertion.
+Status: **IN PROGRESS — not production-ready** (2026-10-14). Iceberg
+`$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options` have typed
+v2 splits, Worker Native readers, and focused SQL E2E coverage. Iceberg
+`$files`/`$entries`/`$manifests`/`$partitions` still lack Native readers;
+Paimon `$schemas`/`$branches`/`$files` and the final full-chain gate remain
+open. This is an implementation specification and failure record, not a
+production-readiness assertion.
 
 ## Observed break
 
@@ -44,12 +46,32 @@ declared public schema.
   `SELECT * FROM base$snapshots` distributed query, preserving original SQL
   for audit. The former Coordinator `ConnectorSystemTable.rows()` task is
   removed. SHOW FILES/MANIFESTS/PARTITIONS fail closed because their Native
-  readers are not yet implemented; direct SELECT for those kinds and Paimon
-  system tables also remain open. The whole family is **not** closed.
-- Worker Native checks the pinned metadata object's length. A distributed
+  readers are not yet implemented; direct SELECT for those Iceberg kinds and
+  other Paimon system-table kinds also remain open. Paimon `$snapshots`,
+  `$tags`, and `$options` use typed splits over pinned JSON objects and a
+  Native reader. Their declared 14, 7, and 2 columns follow the fixed Paimon
+  1.4.1 `SnapshotsTable.TABLE_TYPE`, `TagsTable.TABLE_TYPE`, and
+  `OptionsTable.TABLE_TYPE`, respectively. Source epoch
+  milliseconds become a deterministic UTC SQL timestamp, with millisecond
+  source precision. Nullable snapshot and tag fields remain SQL NULL. The whole
+  family is **not** closed.
+  The rewrite accepts ordinary ASCII identifier parts, including mixed case,
+  and rejects names requiring quoting until relation identity is typed end to
+  end. Thus generated mixed-case table names use the same Native reader as
+  direct `SELECT`, without interpolating punctuation into SQL.
+- Worker Native checks the pinned metadata object's length and, for Paimon
+  `$snapshots`, `$tags`, and `$options`, the SHA-256 of its exact JSON bytes. A distributed
   deployment requires immutable shared storage reachable from every Worker;
   node-local catalog paths are development-only. A stronger storage version or
-  ETag check is needed if same-length overwrites are possible.
+  ETag/content check remains needed for Iceberg if same-length overwrites are possible.
+- The [Iceberg specification](https://iceberg.apache.org/spec/) places each
+  snapshot's manifest list in a separate Avro object; each manifest is another
+  immutable Avro object containing data or delete-file entries. A Native
+  `$files`/`$entries` reader must pin and verify that object graph, apply entry
+  status and sequence-number inheritance correctly, and preserve partition-spec
+  evolution. Parsing only the table metadata JSON or forwarding Java
+  `ConnectorSystemTable.rows()` cannot supply the standard rows or the required
+  Native execution boundary.
 - The parser now rejects quoted table names containing `$` explicitly. This
   prevents a quoted literal name from being reinterpreted as a system table,
   but is not full quoted-name support: the current `Identifier`, Calcite
@@ -167,8 +189,10 @@ ambiguous response and verify no same-cycle retry or subsequent ref deletion.
 - SQL E2E: `SystemTableE2ETest`, `IcebergShowMetadataTest`,
   `MutationHistoryAuditTest`, `IncrementalReadTest` and Paimon snapshot tests
   must use actual INSERT/UPDATE/DELETE writes, a packaged JNI library, and
-  assert exact metadata columns/values. Fix the `committed_at` vs
-  `timestamp_ms` expectation explicitly. Multi-worker E2E must use distinct
+  assert exact metadata columns/values. The incremental-read Iceberg fixture
+  now uses the currently declared `timestamp_ms` column; Paimon snapshot SQL
+  now has nonempty and empty SQL E2E evidence, but mutation, projection,
+  filtering and multi-split coverage remain to be validated. Multi-worker E2E must use distinct
   Worker processes/endpoints and verify complete split coverage.
 - Run `.pangrova/rules/build-pipeline.md` Step 0–8 in order after protocol or
   Native edits. Existing parser-only and connector-object unit tests are not

@@ -7,7 +7,6 @@ import org.pangrova.spi.index.IndexCoverageStats;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.predicate.IndexPredicate;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.TableScan;
 
 import java.util.ArrayList;
@@ -23,7 +22,8 @@ import java.util.stream.Collectors;
  * predicate-index compatibility analysis.
  *
  * <p>Returns a map of table key ("{catalog}.{schema}.{table}") to index hints.
- * Empty map means no applicable indexes were found.</p>
+ * Empty map means no applicable indexes were found. Until predicate extraction
+ * tracks scan provenance, multi-scan plans receive no scalar hints.</p>
  */
 public final class IndexHintGenerator {
 
@@ -90,6 +90,13 @@ public final class IndexHintGenerator {
         List<TableScanInfo> tableScans = extractTableScanInfo(relNode);
         LOG.debug("event=hint_gen_table_scans count={}", tableScans.size());
         if (tableScans.isEmpty()) {
+            return Map.of();
+        }
+        // FilterPredicateExtractor currently returns an unscoped predicate list.
+        // A same-named column in a second scan cannot safely inherit that
+        // predicate: a negative Bloom result would drop valid join rows.
+        if (tableScans.size() != 1) {
+            LOG.debug("event=index_hint_multi_scan_unscoped scanCount={}", tableScans.size());
             return Map.of();
         }
         Map<String, List<IndexHint>> result = new LinkedHashMap<>();
@@ -166,13 +173,7 @@ public final class IndexHintGenerator {
     }
 
     private static void collectTableScanInfo(RelNode node, List<TableScanInfo> out) {
-        TableScan scan = null;
-        if (node instanceof Filter filter && filter.getInput() instanceof TableScan ts) {
-            scan = ts;
-        } else if (node instanceof TableScan ts) {
-            scan = ts;
-        }
-        if (scan != null) {
+        if (node instanceof TableScan scan) {
             List<String> qn = scan.getTable().getQualifiedName();
             Set<String> cols = scan.getRowType().getFieldNames().stream()
                     .collect(Collectors.toSet());

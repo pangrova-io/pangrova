@@ -287,12 +287,18 @@ VeloxPlanConverter::convertArtifactBuild(
       hnsw.dimension = value.int64_value();
       ivf_pq.dimension = value.int64_value();
       has_dimension = true;
-    } else if ((is_hnsw || is_ivf_pq) && property.name() == "metric") {
+    } else if (is_vector && property.name() == "metric") {
       if (!value.has_string_value()) {
         throw std::runtime_error("ANN metric must be VARCHAR");
       }
-      hnsw.metric = vector::distanceMetricFromName(value.string_value());
-      ivf_pq.metric = hnsw.metric;
+      if (is_diskann) {
+        if (value.string_value() != "L2") {
+          throw std::runtime_error("DiskANN metric must be L2");
+        }
+      } else {
+        hnsw.metric = vector::distanceMetricFromName(value.string_value());
+        ivf_pq.metric = hnsw.metric;
+      }
       has_ann_metric = true;
     } else if (is_diskann && property.name() == "max_degree") {
       if (!value.has_int64_value()) {
@@ -408,7 +414,8 @@ VeloxPlanConverter::convertArtifactBuild(
           "VeloxPlanConverter: unsupported artifact property: " + property.name());
     }
   }
-  if (is_diskann && (!has_dimension || diskann.dimension <= 0 || diskann.dimension > 65'536 ||
+  if (is_diskann && (!has_dimension || !has_ann_metric ||
+      diskann.dimension <= 0 || diskann.dimension > 65'536 ||
       diskann.maxDegree <= 0 || diskann.maxDegree > 512 ||
       diskann.searchListSize < diskann.maxDegree ||
       diskann.searchListSize > 100'000 || diskann.alpha < 1.0 ||

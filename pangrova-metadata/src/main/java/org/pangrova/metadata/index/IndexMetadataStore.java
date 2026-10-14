@@ -34,6 +34,36 @@ public interface IndexMetadataStore {
      */
     void registerIndex(IndexDescriptor descriptor);
 
+    /** Atomically registers a scalar descriptor with its real deferred build subject. */
+    default void registerIndexWithBuildAuthority(IndexDescriptor descriptor, String principal) {
+        throw new UnsupportedOperationException("Durable scalar index authority is unavailable");
+    }
+
+    /** Rechecks current tenant, roles, raw column read and table alter grants before deferred access. */
+    default String loadAuthorizedBuildPrincipal(IndexDescriptor descriptor) {
+        throw new UnsupportedOperationException("Durable scalar index authority is unavailable");
+    }
+
+    /**
+     * Loads the persisted scalar subject only for a DROPPED index's cleanup.
+     * Implementations must verify the exact durable index scope and DROPPED state;
+     * cleanup must remain possible after the subject's source-read grant is revoked.
+     */
+    default String loadDroppedIndexCleanupPrincipal(IndexDescriptor descriptor) {
+        throw new UnsupportedOperationException("Durable scalar index cleanup authority is unavailable");
+    }
+
+    /**
+     * Serializes external snapshot pin publication against final index cleanup.
+     * The lock must survive nested metadata calls and remain held through the
+     * connector mutation; implementations without a durable cross-process lock
+     * must fail closed.
+     */
+    default void withIndexLifecycleLock(String indexId, Runnable action) {
+        throw new UnsupportedOperationException("Durable index lifecycle lock is unavailable");
+    }
+
+
     /**
      * Updates the state of an existing index.
      * Validates state transition via {@link IndexDescriptor#withState}.
@@ -136,6 +166,11 @@ public interface IndexMetadataStore {
                 .filter(descriptor -> descriptor.state() == IndexState.BUILDING)
                 .filter(descriptor -> descriptor.generation() == generation)
                 .isPresent();
+    }
+
+    /** Confirms that the exact snapshot is reserved by a currently building generation. */
+    default boolean isIndexSnapshotBuildable(String indexId, String snapshotId) {
+        return false;
     }
 
     /** Atomically validates and activates one complete immutable generation. */
@@ -309,15 +344,15 @@ public interface IndexMetadataStore {
      * Removes a file mapping only if the index is in the expected state.
      * Prevents TOCTOU race between GC and concurrent state transitions.
      *
-     * @param indexId       the index identifier
-     * @param dataFilePath  the data file path to remove
+     * @param mapping       the exact file and generation to remove
      * @param expectedState the state the index must be in for removal to proceed
+     * @param expectedGeneration the observed active index generation
      * @return true if the mapping was removed, false if the index was not in the expected state
      */
-    default boolean removeIndexFileMappingIfState(String indexId, String dataFilePath,
-                                                   IndexState expectedState) {
-        removeIndexFileMapping(indexId, dataFilePath);
-        return true;
+    default boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
+                                                   IndexState expectedState,
+                                                   int expectedGeneration) {
+        throw new UnsupportedOperationException("Exact generation-fenced mapping removal is required");
     }
 
     /** Returns data file paths not yet indexed for the given index. */

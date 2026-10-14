@@ -17,8 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Paimon Iceberg compatibility mode E2E tests.
  *
  * <p>Validates that Paimon tables configured with {@code metadata.iceberg.storage = hadoop-catalog}
- * produce Iceberg-compatible metadata that can be read by an Iceberg engine, and that
- * primary key tables with Iceberg compatibility generate correct Iceberg metadata after compaction.
+ * persist the compatibility setting and remain readable through the Paimon connector.
  *
  * <p>Full pipeline: SQL → Parser → Planner → Substrait → Native → transport → Client.
  *
@@ -39,7 +38,7 @@ class PaimonIcebergCompatibilityTest extends SqlE2ETestBase {
                 ConnectorTestConfig.paimon(
                         PAIMON_CATALOG, SCHEMA, paimonWarehouse().toString()),
                 ConnectorTestConfig.icebergLocal(
-                        ICEBERG_CATALOG, SCHEMA, paimonWarehouse().toString()));
+                        ICEBERG_CATALOG, SCHEMA, paimonWarehouse().resolve("iceberg").toString()));
     }
 
     private String tableName;
@@ -54,14 +53,25 @@ class PaimonIcebergCompatibilityTest extends SqlE2ETestBase {
         return PAIMON_FQN_PREFIX + tableName;
     }
 
-    // --- 2.14.1: Paimon table with metadata.iceberg.storage=hadoop-catalog readable by Iceberg ---
+    private String icebergFqn() {
+        return ICEBERG_FQN_PREFIX + tableName;
+    }
+
+    private String persistedIcebergStorage() {
+        return sqlRunner.execute("SELECT * FROM " + paimonFqn() + "$options").stream()
+                .filter(row -> "metadata.iceberg.storage".equals(row.getString("key")))
+                .map(row -> row.getString("value"))
+                .findFirst().orElse(null);
+    }
+
+    // --- 2.14.1: Paimon read after Iceberg compatibility option is set ---
 
     @Nested
     @DisplayName("2.14.1 - Iceberg Compatibility Append Table")
     class IcebergCompatAppendTable {
 
         @Test
-        @DisplayName("Paimon append table with iceberg.storage=hadoop-catalog is queryable via Paimon")
+        @DisplayName("Paimon append table is readable through its published Iceberg catalog")
         void appendTableWithIcebergStorageIsQueryable() {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, amount DOUBLE)"
@@ -83,11 +93,25 @@ class PaimonIcebergCompatibilityTest extends SqlE2ETestBase {
             assertThat(rows.get(0).getString("name")).isEqualTo("alice");
             assertThat(rows.get(1).getLong("id")).isEqualTo(2L);
             assertThat(rows.get(2).getLong("id")).isEqualTo(3L);
+
+            List<TypedRow> icebergRows = sqlRunner.execute(
+                    "SELECT id, name, amount FROM " + icebergFqn() + " ORDER BY id");
+            assertThat(icebergRows).hasSize(3);
+            assertThat(icebergRows.get(0).getString("name")).isEqualTo("alice");
+            assertThat(icebergRows.get(1).getString("name")).isEqualTo("bob");
+            assertThat(icebergRows.get(2).getString("name")).isEqualTo("carol");
+
+            sqlRunner.execute("INSERT INTO " + paimonFqn()
+                    + " (id, name, amount) VALUES (4, 'dana', 400.0)");
+            List<TypedRow> refreshed = sqlRunner.execute(
+                    "SELECT id, name FROM " + icebergFqn() + " ORDER BY id");
+            assertThat(refreshed).hasSize(4);
+            assertThat(refreshed.get(3).getString("name")).isEqualTo("dana");
         }
 
         @Test
-        @DisplayName("Paimon append table with iceberg.storage generates Iceberg metadata")
-        void appendTableGeneratesIcebergMetadata() {
+        @DisplayName("Paimon append table remains readable with Iceberg compatibility enabled")
+        void appendTableRemainsReadableWithCompatibilityEnabled() {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, value VARCHAR)"
                     + " WITH ("
@@ -106,15 +130,15 @@ class PaimonIcebergCompatibilityTest extends SqlE2ETestBase {
         }
     }
 
-    // --- 2.14.2: PK table Iceberg compat compaction generates Iceberg metadata ---
+    // --- 2.14.2: PK table stays readable after compaction ---
 
     @Nested
     @DisplayName("2.14.2 - PK Table Iceberg Compat Compaction")
     class PkTableIcebergCompatCompaction {
 
         @Test
-        @DisplayName("PK table with iceberg compat generates metadata after compaction")
-        void pkTableCompactionGeneratesIcebergMetadata() {
+        @DisplayName("PK table with Iceberg compatibility remains readable after compaction")
+        void pkTableRemainsReadableAfterCompaction() {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, score DOUBLE,"
                     + "  PRIMARY KEY (id) NOT ENFORCED)"
@@ -144,11 +168,17 @@ class PaimonIcebergCompatibilityTest extends SqlE2ETestBase {
             assertThat(rows.get(0).getDouble("score")).isEqualTo(95.0);
             assertThat(rows.get(1).getLong("id")).isEqualTo(2L);
             assertThat(rows.get(2).getLong("id")).isEqualTo(3L);
+
+            List<TypedRow> icebergRows = sqlRunner.execute(
+                    "SELECT id, name, score FROM " + icebergFqn() + " ORDER BY id");
+            assertThat(icebergRows).hasSize(3);
+            assertThat(icebergRows.get(0).getString("name")).isEqualTo("alice_v2");
+            assertThat(icebergRows.get(0).getDouble("score")).isEqualTo(95.0);
         }
 
         @Test
-        @DisplayName("PK table with iceberg compat options are visible in $options system table")
-        void pkTableIcebergCompatOptionsVisible() {
+        @DisplayName("PK table persists Iceberg compatibility option")
+        void pkTableIcebergCompatOptionsVisible() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, data VARCHAR,"
                     + "  PRIMARY KEY (id) NOT ENFORCED)"
@@ -156,17 +186,7 @@ class PaimonIcebergCompatibilityTest extends SqlE2ETestBase {
                     + "   'metadata.iceberg.storage' = 'hadoop-catalog'"
                     + " )");
 
-            List<TypedRow> options = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$options");
-
-            boolean hasIcebergOption = options.stream()
-                    .anyMatch(row -> {
-                        Object key = row.get("key");
-                        return key != null && key.toString().contains("metadata.iceberg.storage");
-                    });
-            assertThat(hasIcebergOption)
-                    .as("$options should contain metadata.iceberg.storage setting")
-                    .isTrue();
+            assertThat(persistedIcebergStorage()).isEqualTo("hadoop-catalog");
         }
     }
 }

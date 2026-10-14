@@ -76,8 +76,7 @@ public final class TabularExportPlanBuilder {
         Plan.Builder result = source.toBuilder()
                 .clearRelations()
                 .addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
-                        .setInput(sink)
-                        .addAllNames(root.getNamesList())));
+                        .setInput(sink)));
         SubstraitProtocolVersion.stamp(result);
         return new ArtifactBuildPlan(
                 result.build().toByteArray(), PLAN_NODE_ID,

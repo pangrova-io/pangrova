@@ -288,21 +288,26 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 });
     }
 
-    boolean removeIndexFileMappingIfState(String indexId, String dataFilePath,
-                                           IndexState expectedState) {
+    boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
+                                           IndexState expectedState,
+                                           int expectedGeneration) {
         String sql = """
                 DELETE FROM index_file_mappings
                 WHERE index_id = ? AND data_file_path = ?
+                AND index_file_path = ? AND generation = ?
                 AND index_id IN (
                     SELECT index_id FROM index_descriptors
-                    WHERE index_id = ? AND state = ?
+                    WHERE index_id = ? AND state = ? AND generation = ?
                 )
                 """;
         int affected = executeUpdateCount(sql, ps -> {
-            ps.setString(1, indexId);
-            ps.setString(2, dataFilePath);
-            ps.setString(3, indexId);
-            ps.setString(4, expectedState.name());
+            ps.setString(1, mapping.indexId());
+            ps.setString(2, mapping.dataFilePath());
+            ps.setString(3, mapping.indexFilePath());
+            ps.setInt(4, mapping.generation());
+            ps.setString(5, mapping.indexId());
+            ps.setString(6, expectedState.name());
+            ps.setInt(7, expectedGeneration);
         });
         return affected > 0;
     }

@@ -48,7 +48,7 @@ final class CatalogDeploymentTransport implements AutoCloseable {
             }
             URI target = coordinator.resolve(exchange.getRequestURI().toString());
             HttpRequest request = HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(10))
-                    .header("X-Internal-Auth", exchange.getRequestHeaders().getFirst("X-Internal-Auth"))
+                    .header("Authorization", exchange.getRequestHeaders().getFirst("Authorization"))
                     .GET().build();
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
             response.headers().firstValue("Content-Type")

@@ -33,6 +33,9 @@ public final class BroadcastJoinRule extends RelOptRule {
     @Override
     public boolean matches(RelOptRuleCall call) {
         Join join = call.rel(0);
+        if (join.analyzeCondition().leftKeys.isEmpty()) {
+            return false;
+        }
         RelMetadataQuery mq = call.getMetadataQuery();
         // The native HashJoin build input is the right side. Do not admit a
         // join because the *left* is small and then broadcast a large right.

@@ -75,10 +75,11 @@ class JwksKeyResolverTest {
     @Test
     void maximumSizeEvictsOldestEntries() throws Exception {
         long maxSize = JwksKeyResolver.MAXIMUM_SIZE;
+        PublicKey publicKey = generateRsaPublicKey();
 
         // Fill cache to maximum + 1
         for (int i = 0; i <= maxSize; i++) {
-            resolver.jwksCache.put("kid-" + i, generateRsaPublicKey());
+            resolver.jwksCache.put("kid-" + i, publicKey);
         }
         resolver.jwksCache.cleanUp();
 

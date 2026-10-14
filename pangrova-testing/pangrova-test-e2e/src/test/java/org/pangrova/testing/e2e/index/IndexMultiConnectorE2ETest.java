@@ -3,6 +3,11 @@ package org.pangrova.testing.e2e.index;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.apache.paimon.catalog.CatalogContext;
+import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.table.FileStoreTable;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -95,9 +101,24 @@ class IndexMultiConnectorE2ETest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("BTREE index on Paimon — create, query, drop")
-        void paimonBtreeLifecycle() {
+        void paimonBtreeLifecycle() throws Exception {
             sqlRunner.executeDdl("CREATE INDEX idx_pmn ON " + pmnFqn()
                     + "(amount) USING BTREE");
+
+            org.awaitility.Awaitility.await("Paimon index READY")
+                    .atMost(Duration.ofSeconds(45))
+                    .untilAsserted(() -> assertThat(sqlRunner.execute("SHOW INDEXES FROM " + pmnFqn())
+                            .stream().filter(row -> "idx_pmn".equals(row.getRaw("index_name").toString()))
+                            .findFirst().orElseThrow().getRaw("state").toString()).isEqualTo("READY"));
+            var options = new Options();
+            options.set("warehouse", paimonWarehouse().toUri().toString());
+            try (var catalog = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+                var table = (FileStoreTable) catalog.getTable(Identifier.create(SCHEMA, pmnTable));
+                assertThat(table.tagManager().tags().values().stream()
+                        .flatMap(List::stream)
+                        .filter(tag -> tag.startsWith("pangrova_index_")))
+                        .hasSize(1);
+            }
 
             List<TypedRow> result = sqlRunner.execute(
                     "SELECT * FROM " + pmnFqn() + " WHERE amount BETWEEN 50 AND 150");

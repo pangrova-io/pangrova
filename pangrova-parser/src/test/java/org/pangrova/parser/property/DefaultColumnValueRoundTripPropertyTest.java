@@ -4,6 +4,7 @@ import net.jqwik.api.*;
 import org.pangrova.parser.AstPrinter;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.statement.AlterTableStatement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,6 +20,15 @@ class DefaultColumnValueRoundTripPropertyTest {
 
     private final SqlParser parser = new SqlParser();
     private final AstPrinter printer = new AstPrinter();
+
+    @Example
+    void addColumnRetainsDefaultLiteral() {
+        var statement = (AlterTableStatement.AddColumn) parser.parse(
+                "ALTER TABLE t ADD COLUMN col BIGINT DEFAULT 'not_a_number'");
+
+        assertThat(statement.defaultValue()).isPresent();
+        assertThat(printer.print(statement)).contains("DEFAULT 'not_a_number'");
+    }
 
     @Property(tries = 10)
     void alterTableAddColumnDefaultRoundTrip(

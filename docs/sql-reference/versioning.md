@@ -126,6 +126,11 @@ SELECT * FROM prod.analytics.events FOR SYSTEM_VERSION AS OF 1234567890;
 SELECT * FROM prod.analytics.events FOR SYSTEM_TIME AS OF 123456789;
 ```
 
+For Paimon tables, `VERSION AS OF TAG` resolves an existing Paimon tag to its
+fixed snapshot before planning the scan. An unknown tag fails the query; it
+does not read the current table state. Paimon branch references are not
+supported by this connector.
+
 ---
 
 ## Metadata Queries

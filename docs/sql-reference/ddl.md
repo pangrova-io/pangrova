@@ -119,6 +119,11 @@ DROP TABLE IF EXISTS prod.analytics.events_staging;
 ALTER TABLE prod.analytics.orders ADD COLUMN discount DECIMAL(10, 2) DEFAULT 0.00;
 ```
 
+The default literal must be castable to the declared column type. An
+incompatible literal is rejected before the schema change is committed.
+Iceberg stores the default in schema metadata; automatic read-time and
+write-time default injection is not yet implemented.
+
 **DROP COLUMN:**
 
 ```sql

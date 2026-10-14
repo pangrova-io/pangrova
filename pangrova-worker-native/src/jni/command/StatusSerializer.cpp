@@ -169,8 +169,12 @@ std::vector<uint8_t> serializeTaskStatus(
 }
 
 std::vector<uint8_t> serializeNativeTaskStats(
-    const facebook::velox::exec::TaskStats& task_stats) {
+    const facebook::velox::exec::TaskStats& task_stats,
+    uint64_t index_splits_evaluated,
+    uint64_t index_splits_skipped) {
   pangrova::protocol::v2::NativeTaskStats proto;
+  proto.set_index_splits_evaluated(index_splits_evaluated);
+  proto.set_index_splits_skipped(index_splits_skipped);
 
 #if PANGROVA_HAS_VELOX_TASK_STATS
   const auto consumer_blocked = task_stats.numBlockedDrivers.find(

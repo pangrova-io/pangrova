@@ -1,14 +1,12 @@
-// FileIndexFilter: Paimon file-level index evaluation.
+// FileIndexFilter: file-level index membership evaluation.
 //
-// Paimon file indexes are serialized per-column within data file metadata.
-// The binary format encodes:
+// The caller passes a validated, unwrapped index payload. Supported payloads:
 //   - Bloom filter: Split Block Bloom Filter (SBBF) — Parquet-compatible
 //   - Bitmap: value-to-bit mapping for low-cardinality columns
 //   - BSI: bit-sliced representation of numeric column min/max bounds
 //
-// The index_data parameter contains the raw bytes extracted from Paimon's
-// DataFileMeta.fileIndexFilterBytes(). The column_name identifies which
-// column's index to evaluate within the serialized structure.
+// For Bloom evaluation, index_data is the SBBF byte array written by Java's
+// SplitBlockBloomFilter. The caller must bind it to the exact data file.
 
 #include "index/FileIndexFilter.h"
 
@@ -87,12 +85,6 @@ inline uint32_t getBigEndianUint32(const uint8_t* p) {
       (static_cast<uint32_t>(p[1]) << 16) |
       (static_cast<uint32_t>(p[2]) << 8) |
       static_cast<uint32_t>(p[3]);
-}
-
-/// Read a big-endian int32 from a byte pointer (for block words).
-inline int32_t getBigEndianInt32(const uint8_t* p) {
-  uint32_t v = getBigEndianUint32(p);
-  return static_cast<int32_t>(v);
 }
 
 inline uint64_t xxRound(uint64_t acc, uint64_t input) {
@@ -207,18 +199,18 @@ bool evaluateBloomFilter(
   }
 
   // Read header fields (big-endian).
-  // uint32_t version = getBigEndianUint32(raw + 4); // unused, validated below
+  uint32_t version = getBigEndianUint32(raw + 4);
   uint32_t numBlocks = getBigEndianUint32(raw + 8);
   // uint32_t insertedCount = getBigEndianUint32(raw + 12); // unused for probing
 
-  if (numBlocks == 0 || (numBlocks & (numBlocks - 1)) != 0) {
+  if (version != 1 || numBlocks == 0 || (numBlocks & (numBlocks - 1)) != 0) {
     return true; // numBlocks must be a positive power of 2.
   }
 
   size_t totalWords = static_cast<size_t>(numBlocks) * WORDS_PER_BLOCK;
   size_t expectedSize = SBBF_HEADER_SIZE + totalWords * 4;
-  if (index_data.size() < expectedSize) {
-    return true; // Truncated data — do not skip.
+  if (index_data.size() != expectedSize) {
+    return true; // Malformed data — do not skip.
   }
 
   // Hash the value using xxHash64 (seed=0).
@@ -237,9 +229,9 @@ bool evaluateBloomFilter(
       raw + SBBF_HEADER_SIZE + static_cast<size_t>(blockIndex) * WORDS_PER_BLOCK * 4;
 
   for (int i = 0; i < WORDS_PER_BLOCK; ++i) {
-    int32_t word = getBigEndianInt32(blockStart + i * 4);
+    uint32_t word = getBigEndianUint32(blockStart + i * 4);
     int bitIndex = saltedBitIndex(key, i);
-    if ((word & (1 << bitIndex)) == 0) {
+    if ((word & (1U << bitIndex)) == 0) {
       return false; // Definitely not present — skip file.
     }
   }

@@ -368,9 +368,11 @@ class CoordinatorWorkerProtocolPropertyTest {
             releaseRetryCommit.countDown();
 
             assertThat(retry.get(5, TimeUnit.SECONDS)).isTrue();
-            // Once the winning report is published, its exact drain evidence
-            // can be reacknowledged without repeating the durable commit.
-            assertThat(stale.get(5, TimeUnit.SECONDS)).isTrue();
+            // A different sequence is not the published fact, even when its
+            // Native payload is identical. The exact original can be ACKed
+            // after a lost response without repeating the durable commit.
+            assertThat(stale.get(5, TimeUnit.SECONDS)).isFalse();
+            assertThat(receiver.onTaskStatus(terminal)).isTrue();
             assertThat(commitAttempts).hasValue(2);
             assertThat(tracker.getTaskState("job-1", "page-1"))
                     .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED);

@@ -119,6 +119,31 @@ class TaskIdentityRegistryDrainContractTest {
     }
 
     @Test
+    void alreadyCompactedDrainSurvivesPublicationFactClearingItsRequest() {
+        var registry = new TaskIdentityRegistry();
+        var request = request();
+        issue(registry, request);
+        registry.enterDispatch(request);
+        registry.sealQuery("query");
+        TaskReport actual = receipt(request);
+        registry.recordExecutionDrain(request, actual);
+        var report = projection(request, actual);
+        var publication = registry.enterReport(request, report, false, () -> { }, () -> { });
+        registry.remove("task");
+        assertThat(registry.request("task")).isEqualTo(request);
+        publication.accepted();
+        publication.close();
+        assertThat(registry.request("task")).isNull();
+
+        registry.compactDrainedTask("task", request, actual);
+        assertThat(registry.executionDrainReceipt("task")).contains(
+                org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(actual));
+        assertThatThrownBy(() -> registry.compactDrainedTask("task", request,
+                actual.toBuilder().setAttempt(actual.getAttempt().toBuilder().setTaskId("other")).build()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void undrainedScopeIsNotPurgedAfterItsExecutionDeadline() {
         AtomicLong clock = new AtomicLong(1000);
         var registry = new TaskIdentityRegistry(clock::get);

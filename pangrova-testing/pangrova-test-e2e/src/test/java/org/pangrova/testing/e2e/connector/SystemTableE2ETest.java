@@ -11,14 +11,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * System table E2E tests for both Iceberg and Paimon connectors.
  *
- * <p>Verifies that {@code table$systemTable} syntax correctly routes to
- * connector system table implementations and returns expected metadata rows.
+ * <p>Verifies that {@code table$systemTable} syntax routes through the
+ * connector split and Native scan path and returns expected metadata rows.
  *
  * <p>Covers: B2 (Iceberg Metadata Tables), C7 (Paimon System Tables),
  * D2 (System Table unified syntax).
@@ -149,7 +154,7 @@ class SystemTableE2ETest extends SqlE2ETestBase {
     class PaimonSnapshots {
 
         @Test
-        @DisplayName("SELECT FROM table$snapshots returns snapshot rows with snapshot_id and commit_kind")
+        @DisplayName("SELECT FROM table$snapshots returns the Paimon 1.4 snapshot schema")
         void selectFromPaimonSnapshots() {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR,"
@@ -162,11 +167,49 @@ class SystemTableE2ETest extends SqlE2ETestBase {
 
             assertThat(rows).isNotEmpty();
             TypedRow first = rows.get(0);
-            assertThat(first.containsColumn("snapshot_id")).isTrue();
-            assertThat(first.containsColumn("commit_kind")).isTrue();
+            assertThat(first.columnNames()).containsExactly(
+                    "snapshot_id", "schema_id", "commit_user", "commit_identifier",
+                    "commit_kind", "commit_time", "base_manifest_list", "delta_manifest_list",
+                    "changelog_manifest_list", "total_record_count", "delta_record_count",
+                    "changelog_record_count", "watermark", "next_row_id");
             assertThat(first.getLong("snapshot_id"))
                     .isGreaterThan(0);
+            assertThat(first.getString("commit_user")).isNotBlank();
             assertThat(first.getString("commit_kind")).isNotNull();
+            assertThat(first.getString("base_manifest_list")).isNotBlank();
+            assertThat(first.getString("delta_manifest_list")).isNotBlank();
+            LocalDateTime nowUtc = LocalDateTime.ofInstant(Instant.now(), ZoneOffset.UTC);
+            assertThat(first.getTimestamp("commit_time"))
+                    .isBetween(nowUtc.minusMinutes(5), nowUtc.plusMinutes(5));
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(queryManager.getActiveQueryIds())
+                            .as("Paimon metadata query and its writes physically drain")
+                            .isEmpty());
+        }
+
+        @Test
+        @DisplayName("Paimon snapshot metadata obeys SQL filtering, ordering and limit")
+        void filterOrderAndLimitPaimonSnapshots() {
+            sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
+                    + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
+            sqlRunner.execute("INSERT INTO " + paimonFqn() + " VALUES (1, 'alice')");
+            sqlRunner.execute("INSERT INTO " + paimonFqn() + " VALUES (2, 'bob')");
+
+            List<TypedRow> all = sqlRunner.execute(
+                    "SELECT snapshot_id FROM " + paimonFqn() + "$snapshots");
+            assertThat(all).hasSizeGreaterThanOrEqualTo(2);
+            long latest = all.stream().mapToLong(row -> row.getLong("snapshot_id"))
+                    .max().orElseThrow();
+
+            List<TypedRow> selected = sqlRunner.execute(
+                    "SELECT snapshot_id, commit_time FROM " + paimonFqn()
+                            + "$snapshots WHERE snapshot_id > 0"
+                            + " ORDER BY snapshot_id DESC LIMIT 1");
+            assertThat(selected).hasSize(1);
+            assertThat(selected.get(0).getLong("snapshot_id")).isEqualTo(latest);
+            assertThat(selected.get(0).getTimestamp("commit_time")).isNotNull();
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(queryManager.getActiveQueryIds()).isEmpty());
         }
     }
 
@@ -197,9 +240,76 @@ class SystemTableE2ETest extends SqlE2ETestBase {
                     .findFirst()
                     .orElseThrow(() -> new AssertionError(
                             "Expected tag 'v1' not found in $tags result"));
-            assertThat(tagRow.containsColumn("snapshot_id")).isTrue();
+            assertThat(tagRow.columnNames()).containsExactly(
+                    "tag_name", "snapshot_id", "schema_id", "commit_time",
+                    "record_count", "create_time", "time_retained");
             assertThat(tagRow.getLong("snapshot_id"))
                     .isGreaterThan(0);
+            assertThat(tagRow.getTimestamp("commit_time")).isNotNull();
+            assertThat(tagRow.getLong("record_count")).isEqualTo(1);
+            assertThat(tagRow.getTimestamp("create_time")).isNull();
+            assertThat(tagRow.getString("time_retained")).isNull();
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(queryManager.getActiveQueryIds()).isEmpty());
+        }
+
+        @Test
+        void emptyPaimonTagsReturnsTypedEmptyRows() {
+            sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
+                    + " (id BIGINT, name VARCHAR,"
+                    + " PRIMARY KEY (id) NOT ENFORCED)");
+
+            assertThat(sqlRunner.execute("SELECT * FROM " + paimonFqn() + "$tags"))
+                    .isEmpty();
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(queryManager.getActiveQueryIds()).isEmpty());
+        }
+
+        @Test
+        void ttlTagCreatedBySqlExposesSdkRetentionAndCreationTime() {
+            sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
+                    + " (id BIGINT, name VARCHAR,"
+                    + " PRIMARY KEY (id) NOT ENFORCED)");
+            sqlRunner.execute("INSERT INTO " + paimonFqn()
+                    + " (id, name) VALUES (1, 'alice')");
+            long snapshotId = sqlRunner.execute("SELECT snapshot_id FROM "
+                    + paimonFqn() + "$snapshots ORDER BY snapshot_id DESC LIMIT 1")
+                    .get(0).getLong("snapshot_id");
+
+            sqlRunner.execute("CALL " + PAI_CATALOG + ".create_tag('"
+                    + tableName + "', 'retained', " + snapshotId + ", '2 d')");
+
+            List<TypedRow> rows = sqlRunner.execute("SELECT * FROM "
+                    + paimonFqn() + "$tags WHERE tag_name = 'retained'");
+            assertThat(rows).hasSize(1);
+            TypedRow tag = rows.get(0);
+            assertThat(tag.getLong("snapshot_id")).isEqualTo(snapshotId);
+            assertThat(tag.getTimestamp("create_time")).isNotNull();
+            assertThat(tag.getString("time_retained")).isEqualTo("PT48H");
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(queryManager.getActiveQueryIds()).isEmpty());
+        }
+    }
+
+    @Nested
+    @DisplayName("Paimon table$options")
+    class PaimonOptions {
+
+        @Test
+        void persistedOptionsAreReadThroughNativeSql() {
+            sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
+                    + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)"
+                    + " WITH ('bucket' = '1')");
+
+            List<TypedRow> rows = sqlRunner.execute("SELECT * FROM " + paimonFqn() + "$options");
+            assertThat(rows).isNotEmpty();
+            assertThat(rows.get(0).columnNames()).containsExactly("key", "value");
+            assertThat(rows).anySatisfy(row -> {
+                assertThat(row.getString("key")).isEqualTo("bucket");
+                assertThat(row.getString("value")).isEqualTo("1");
+            });
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(queryManager.getActiveQueryIds()).isEmpty());
         }
     }
 
@@ -244,18 +354,12 @@ class SystemTableE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + icebergFqn()
                     + " (id, val) VALUES (3, 'c')");
 
-            List<TypedRow> allRows = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots");
-            assertThat(allRows).hasSizeGreaterThanOrEqualTo(3);
-            List<TypedRow> sorted = allRows.stream()
-                    .sorted((a, b) -> Long.compare(
-                            a.getLong("snapshot_id"),
-                            b.getLong("snapshot_id")))
-                    .toList();
-            for (int i = 1; i < sorted.size(); i++) {
-                assertThat(sorted.get(i).getLong("snapshot_id"))
-                        .isGreaterThan(sorted.get(i - 1).getLong("snapshot_id"));
-            }
+            List<TypedRow> sorted = sqlRunner.execute(
+                    "SELECT * FROM " + icebergFqn()
+                            + "$snapshots ORDER BY snapshot_id ASC LIMIT 2");
+            assertThat(sorted).hasSize(2);
+            assertThat(sorted.get(1).getLong("snapshot_id"))
+                    .isGreaterThan(sorted.get(0).getLong("snapshot_id"));
         }
 
         @Test
@@ -270,14 +374,10 @@ class SystemTableE2ETest extends SqlE2ETestBase {
 
             List<TypedRow> result = sqlRunner.execute(
                     "SELECT * FROM " + icebergFqn() + "$snapshots"
-                            + " WHERE operation = 'append'");
-            assertThat(result).hasSizeGreaterThanOrEqualTo(1);
-            TypedRow first = result.stream()
-                    .min((a, b) -> Long.compare(
-                            a.getLong("snapshot_id"),
-                            b.getLong("snapshot_id")))
-                    .orElseThrow();
-            assertThat(first.getString("operation")).isEqualTo("append");
+                            + " WHERE operation = 'append'"
+                            + " ORDER BY snapshot_id DESC LIMIT 1");
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getString("operation")).isEqualTo("append");
         }
     }
 

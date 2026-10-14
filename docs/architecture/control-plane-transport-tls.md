@@ -12,4 +12,11 @@ SpillDiskMonitor now reports the actual configured directory's FileStore usable 
 
 The owning Maven run enables Arrow allocator checks and exposed that calling `close()` with live memory closes the allocator before throwing. The server now rejects close before calling the allocator when actual allocated bytes remain, so the original buffer can still release and shutdown can retry. Earlier standalone runs without allocator checks did not qualify this failure-recovery boundary; the failed owning run is preserved.
 
+Coordinator-to-Worker task dispatch and cancellation, Worker registration, heartbeats,
+and status reports use managed internal HTTP clients with an explicit direct proxy
+selector. JVM or desktop HTTP proxy settings must not reroute these cluster control
+messages. JDK 17 specifies `ProxySelector.of(null)` as the selector that disables
+proxying; an absent selector can still inherit a default one. The selected Worker
+address remains subject to the normal connection and identity checks.
+
 An owning integration test starts the actual Coordinator acknowledgement bootstrap with JDK-generated trust material, verifies its encrypted endpoint and allocator limit, performs an authenticated Flight RPC, and rejects a missing client certificate. This verifies the configured bootstrap boundary; distributed query-plane and deployment-wide TLS remain separate qualification requirements.

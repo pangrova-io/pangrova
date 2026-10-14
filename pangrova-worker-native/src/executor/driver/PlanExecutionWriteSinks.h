@@ -22,7 +22,7 @@ struct PhysicalWriterOwner {
 };
 
 void drainOutputToWriter(OutputQueue* queue, const WriteConfigInfo& config,
-    const std::string& taskId,
+    const std::string& taskId, const facebook::velox::RowTypePtr& outputType,
     std::shared_ptr<facebook::velox::memory::MemoryPool> pool,
     const WriteProducerOutcomeRef& outcome);
 void drainOutputToLance(OutputQueue* queue, const WriteConfigInfo& config,

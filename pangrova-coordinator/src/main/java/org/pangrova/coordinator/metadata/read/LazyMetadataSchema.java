@@ -16,7 +16,9 @@ import org.apache.calcite.schema.lookup.Named;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -46,6 +48,9 @@ final class LazyMetadataSchema extends AbstractSchema {
     private final PlanningReadBindings readBindings;
     private volatile Map<String, Table> cachedTableMap;
     private volatile Map<String, Table> fallbackTableMap;
+    private volatile Set<String> cachedTableNames;
+    private volatile long namesTimestamp;
+    private volatile long namesGeneration;
     private volatile long cacheTimestamp;
     private volatile long cacheGeneration;
 
@@ -65,45 +70,110 @@ final class LazyMetadataSchema extends AbstractSchema {
     }
 
     /**
-     * Calcite's case-insensitive lookup consults table names before calling
-     * getTable. Virtual system tables are deliberately not enumerated in the
-     * physical table list, so resolve only supported suffixes on demand.
+     * Resolve named tables directly. Calcite's default lookup materializes every
+     * table and its columns even when a query names only one table. Enumeration
+     * remains available for callers that explicitly request table names.
      */
     @Override
     public Lookup<Table> tables() {
-        Lookup<Table> physical = super.tables();
-        return new Lookup<>() {
-            @Override
-            public Table get(String name) {
-                Optional<String> suffix = systemTableSuffix(name);
-                if (suffix.isPresent()) {
-                    return resolveTableDirect(name);
-                }
-                return name.contains("$") ? null : physical.get(name);
-            }
+        return new TableLookup();
+    }
 
-            @Override
-            public Named<Table> getIgnoreCase(String name) {
-                Optional<String> suffix = systemTableSuffix(name);
-                if (suffix.isEmpty()) {
-                    return name.contains("$") ? null : physical.getIgnoreCase(name);
-                }
-                String baseName = name.substring(0, name.lastIndexOf('$'));
-                Named<Table> base = physical.getIgnoreCase(baseName);
-                String canonicalBase = base == null ? findUncachedBaseName(baseName) : base.name();
-                if (canonicalBase == null) {
+    private final class TableLookup implements Lookup<Table> {
+        @Override
+        public Table get(String name) {
+            Optional<String> suffix = systemTableSuffix(name);
+            if (suffix.isPresent()) {
+                return resolveTableDirect(name);
+            }
+            return name.contains("$") ? null : resolveTableDirect(name);
+        }
+
+        @Override
+        public Named<Table> getIgnoreCase(String name) {
+            Optional<String> suffix = systemTableSuffix(name);
+            if (suffix.isEmpty()) {
+                if (name.contains("$")) {
                     return null;
                 }
-                String canonicalName = canonicalBase + "$" + suffix.get();
-                Table table = resolveTableDirect(canonicalName);
+                String canonicalName = listedBaseName(name);
+                if (canonicalName == null) {
+                    canonicalName = findUncachedBaseName(name);
+                }
+                Table table = canonicalName == null ? null : resolveTableDirect(canonicalName);
                 return table == null ? null : new Named<>(canonicalName, table);
             }
-
-            @Override
-            public Set<String> getNames(LikePattern pattern) {
-                return physical.getNames(pattern);
+            String baseName = name.substring(0, name.lastIndexOf('$'));
+            String canonicalBase = listedBaseName(baseName);
+            if (canonicalBase == null) {
+                canonicalBase = findUncachedBaseName(baseName);
             }
-        };
+            if (canonicalBase == null) {
+                return null;
+            }
+            String canonicalName = canonicalBase + "$" + suffix.get();
+            Table table = resolveTableDirect(canonicalName);
+            return table == null ? null : new Named<>(canonicalName, table);
+        }
+
+        @Override
+        public Set<String> getNames(LikePattern pattern) {
+            Set<String> matches = new LinkedHashSet<>();
+            var matchesPattern = pattern.matcher();
+            for (String name : tableNames()) {
+                if (matchesPattern.apply(name)) {
+                    matches.add(name);
+                }
+            }
+            return matches;
+        }
+    }
+
+    private String listedBaseName(String requestedName) {
+        String match = null;
+        for (String name : tableNames()) {
+            if (name.equals(requestedName)) {
+                return name;
+            }
+            if (name.equalsIgnoreCase(requestedName)) {
+                if (match != null && !match.equals(name)) {
+                    throw new MetadataResolutionException(catalog, schema, requestedName,
+                            new IllegalStateException("ambiguous case-insensitive table name: " + requestedName));
+                }
+                match = name;
+            }
+        }
+        return match;
+    }
+
+    /** List names without loading the schema and column metadata of every table. */
+    private synchronized Set<String> tableNames() {
+        if (catalogRegistry == null) {
+            return Set.of();
+        }
+        long generation = DDL_GENERATION.get();
+        if (cachedTableNames != null && namesGeneration == generation
+                && System.currentTimeMillis() - namesTimestamp <= CACHE_TTL_MS) {
+            return cachedTableNames;
+        }
+        try {
+            CatalogHandle handle = catalogRegistry.getCatalog(catalog);
+            ConnectorMetadata metadata = handle.getMetadata(session);
+            Set<String> names = new LinkedHashSet<>();
+            for (SchemaTableName table : metadata.listTables(session, Optional.of(schema))) {
+                if (table.schema().equals(schema)) {
+                    names.add(table.table());
+                }
+            }
+            cachedTableNames = Collections.unmodifiableSet(names);
+            namesTimestamp = System.currentTimeMillis();
+            namesGeneration = generation;
+            return cachedTableNames;
+        } catch (MetadataResolutionException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new MetadataResolutionException(catalog, schema, e);
+        }
     }
 
     private static Optional<String> systemTableSuffix(String name) {
@@ -116,6 +186,7 @@ final class LazyMetadataSchema extends AbstractSchema {
         }
         String suffix = name.substring(separator + 1).toLowerCase(Locale.ROOT);
         return "snapshots".equals(suffix) || "history".equals(suffix)
+                || "tags".equals(suffix) || "options".equals(suffix)
                 ? Optional.of(suffix) : Optional.empty();
     }
 
@@ -221,6 +292,8 @@ final class LazyMetadataSchema extends AbstractSchema {
         cachedTableMap = null;
         fallbackTableMap = null;
         cacheTimestamp = 0;
+        cachedTableNames = null;
+        namesTimestamp = 0;
     }
 
     /**
@@ -287,12 +360,12 @@ final class LazyMetadataSchema extends AbstractSchema {
     }
 
     private Map<String, Table> buildTableMap(
-            ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorMetadata metadata, ConnectorSession connectorSession,
             List<SchemaTableName> tables) {
         Map<String, Table> tableMap = new LinkedHashMap<>();
         Map<String, Throwable> tableErrors = new LinkedHashMap<>();
         for (SchemaTableName stn : tables) {
-            Table calciteTable = resolveOneTable(metadata, session, stn, tableErrors);
+            Table calciteTable = resolveOneTable(metadata, connectorSession, stn, tableErrors);
             if (calciteTable != null) {
                 tableMap.put(stn.table(), calciteTable);
             }
@@ -311,14 +384,14 @@ final class LazyMetadataSchema extends AbstractSchema {
     }
 
     private Table resolveOneTable(
-            ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorMetadata metadata, ConnectorSession connectorSession,
             SchemaTableName stn, Map<String, Throwable> tableErrors) {
         try {
-            ConnectorTableHandle tableHandle = metadata.getTableHandle(session, stn);
+            ConnectorTableHandle tableHandle = metadata.getTableHandle(connectorSession, stn);
             if (tableHandle == null) {
                 return null;
             }
-            ConnectorTableMetadata tableMeta = metadata.getTableMetadata(session, tableHandle);
+            ConnectorTableMetadata tableMeta = metadata.getTableMetadata(connectorSession, tableHandle);
             return resolvedTable(tableMeta);
         } catch (Exception e) {
             LOG.warn("event=table_resolution_failed catalog={} schema={} table={} error={}",

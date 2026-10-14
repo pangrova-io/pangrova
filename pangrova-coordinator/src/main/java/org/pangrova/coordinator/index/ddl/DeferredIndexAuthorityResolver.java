@@ -44,6 +44,13 @@ final class DeferredIndexAuthorityResolver {
         return new Resolved(tenant, table, new DeferredIndexSession(authority.principal(), tenant, table));
     }
 
+    static Resolved resolveScalar(IndexDescriptor descriptor, String principal) {
+        var table = new QualifiedTableName(
+                descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
+        return new Resolved(descriptor.tenantId(), table,
+                new DeferredIndexSession(principal, descriptor.tenantId(), table));
+    }
+
     record Resolved(String tenantId, QualifiedTableName table, ConnectorSession session) {}
 
     static String tenantScope(String tenantId) {

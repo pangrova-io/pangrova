@@ -108,6 +108,26 @@ class IndexCommitHandlerLeaderGateTest {
     }
 
     @Test
+    void readyIndexWithoutMaintenanceAuthorityLeavesCommitPending() {
+        var env = createEnv(true);
+        handler = env.handler;
+        poller = env.poller;
+        env.store.readyIndexes = List.of(new IndexDescriptor(
+                "index-1", "test-index", "cat", "sch", "tbl", List.of("col1"),
+                org.pangrova.spi.index.IndexType.BLOOM_FILTER, Map.of(), IndexState.READY,
+                null, 0, "snap-0", "snap-0", Instant.now(), Instant.now(), "tenant-a"));
+        env.store.seedCommitLogEntry(new CommitLogEntry(
+                1L, "tenant-a", "cat", "sch", "tbl", "snap-1",
+                "[\"file1.parquet\"]", "[]", "APPEND", Instant.now(), null));
+
+        env.poller.pollCommitLog();
+
+        assertThat(env.store.processedEventIds).isEmpty();
+        assertThat(env.store.pollUnprocessedCommitEvents(8, 1L))
+                .extracting(CommitLogEntry::eventId).containsExactly(1L);
+    }
+
+    @Test
     @DisplayName("onCommit + pollCommitLog skips processing when not leader (F-COORD-FEAT-07)")
     void processLoopSkipsWhenNotLeader() {
         var env = createEnv(false);
@@ -249,6 +269,7 @@ class IndexCommitHandlerLeaderGateTest {
         final CopyOnWriteArrayList<Long> processedEventIds = new CopyOnWriteArrayList<>();
         final AtomicInteger findIndexesByTableCallCount = new AtomicInteger();
         final AtomicInteger commitLogWriteCount = new AtomicInteger();
+        volatile List<IndexDescriptor> readyIndexes = List.of();
         private final CopyOnWriteArrayList<CommitLogEntry> commitLogEntries =
                 new CopyOnWriteArrayList<>();
 
@@ -284,7 +305,7 @@ class IndexCommitHandlerLeaderGateTest {
         @Override
         public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) {
             findIndexesByTableCallCount.incrementAndGet();
-            return List.of();
+            return readyIndexes;
         }
 
         // ── Remaining no-op implementations ──

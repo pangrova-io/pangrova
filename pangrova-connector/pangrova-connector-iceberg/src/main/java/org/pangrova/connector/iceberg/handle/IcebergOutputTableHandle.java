@@ -61,6 +61,11 @@ public record IcebergOutputTableHandle(
         declarationProperties = IcebergDeclarationProperties.requireCanonical(declarationProperties);
     }
 
+    @Override
+    public Map<String, String> declarationProperties() {
+        return Map.copyOf(declarationProperties);
+    }
+
     private static void requireNonBlank(String value, String fieldName) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");

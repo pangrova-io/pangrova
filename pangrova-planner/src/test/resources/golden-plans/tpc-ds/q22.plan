@@ -1,6 +1,6 @@
 LogicalSort(sort0=[$4], sort1=[$0], sort2=[$1], sort3=[$2], sort4=[$3], dir0=[ASC], dir1=[ASC], dir2=[ASC], dir3=[ASC], dir4=[ASC], fetch=[100])
-  LogicalProject(i_product_name=[$0], i_brand=[$1], i_class=[$2], i_category=[$3], qoh=[CAST(/($4, $5)):INTEGER])
-    LogicalProject(i_product_name=[$0], i_brand=[$1], i_class=[$2], i_category=[$3], $f4=[CASE(=($5, 0), null:INTEGER, $4)], $f5=[$5])
+  LogicalProject(i_product_name=[$0], i_brand=[$1], i_class=[$2], i_category=[$3], qoh=[CAST(/(CAST($4):INTEGER, $5)):INTEGER])
+    LogicalProject(i_product_name=[$0], i_brand=[$1], i_class=[$2], i_category=[$3], $f4=[CASE(=($5, 0), null:BIGINT, $4)], $f5=[$5])
       LogicalProject(i_product_name=[$3], i_brand=[$0], i_class=[$1], i_category=[$2], $f4=[$4], $f5=[$5])
         LogicalAggregate(group=[{4, 5, 6, 7}], groups=[[{4, 5, 6, 7}, {4, 5, 7}, {4, 7}, {7}, {}]], agg#0=[$SUM0($1)], agg#1=[COUNT()])
           LogicalFilter(condition=[SEARCH($2, Sarg[[1200..1211]])])

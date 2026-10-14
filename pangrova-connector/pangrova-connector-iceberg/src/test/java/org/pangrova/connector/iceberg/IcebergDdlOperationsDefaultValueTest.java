@@ -131,6 +131,18 @@ class IcebergDdlOperationsDefaultValueTest {
                 .hasMessageContaining("Unsupported default value type");
     }
 
+    @Test
+    void incompatibleDefault_doesNotAddColumn() {
+        IcebergTableHandle handle = buildHandle("db", "test_table");
+
+        assertThatThrownBy(() -> IcebergDdlOperations.addColumn(
+                catalog, handle, "bad_col", PangrovaType.BIGINT, "not_a_number"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot be cast");
+        assertThat(catalog.loadTable(TableIdentifier.of("db", "test_table"))
+                .schema().findField("bad_col")).isNull();
+    }
+
     private Catalog createHadoopCatalog() {
         Map<String, String> props = Map.of(
                 "type", "hadoop",

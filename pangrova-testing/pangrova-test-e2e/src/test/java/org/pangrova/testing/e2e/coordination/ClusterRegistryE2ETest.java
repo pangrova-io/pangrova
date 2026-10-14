@@ -411,6 +411,6 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 4L * 1024 * 1024 * 1024,
                 Instant.now(), 0.0, null,
-                2, null, List.of(), null, CanonicalWorkerInventory.empty());
+                2, null, List.of(), null, CanonicalWorkerInventory.actual());
     }
 }

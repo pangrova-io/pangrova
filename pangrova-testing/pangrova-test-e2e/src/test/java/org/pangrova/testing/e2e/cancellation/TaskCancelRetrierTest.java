@@ -88,6 +88,7 @@ class TaskCancelRetrierTest extends TaskCancellationTestBase {
     @Test
     void multipleTasks_partialRetrySuccess() throws Exception {
         try (var first = scenario(); var second = scenario(); var control = new CancellationControl(first)) {
+            control.tracker.openQueryIssuance(second.queryId());
             control.tracker.registerTaskRequest(taskId(second), second.submission.request());
             first.transport.disconnectDeletes(taskId(first));
             second.transport.disconnectDeletes(taskId(second));
@@ -132,7 +133,7 @@ class TaskCancelRetrierTest extends TaskCancellationTestBase {
         try (var scenario = scenario(); var control = new CancellationControl(scenario)) {
             URI coordinator = URI.create("http://localhost:" + coordinatorHttpServer.getPort());
             assertThat(sealAt(scenario.submission.request(), coordinator).statusCode()).isEqualTo(404);
-            control.retrier.cancelWithRetry(scenario.query.queryId(), taskId(scenario),
+            control.retrier.cancelWithRetry(scenario.queryId(), taskId(scenario),
                     coordinator.getHost(), coordinator.getPort());
             assertPending(control, scenario);
             assertThat(control.tracker.executionDrainReceipt(taskId(scenario))).isEmpty();
@@ -169,11 +170,12 @@ class TaskCancelRetrierTest extends TaskCancellationTestBase {
         private final TaskCancelRetrier retrier = new TaskCancelRetrier(dispatcher, tracker);
 
         private CancellationControl(Scenario scenario) {
+            tracker.openQueryIssuance(scenario.queryId());
             tracker.registerTaskRequest(taskId(scenario), scenario.submission.request());
         }
 
         private void cancel(Scenario scenario) {
-            retrier.cancelWithRetry(scenario.query.queryId(), taskId(scenario),
+            retrier.cancelWithRetry(scenario.queryId(), taskId(scenario),
                     workerAdvertisedHost(), scenario.transport.port());
         }
 

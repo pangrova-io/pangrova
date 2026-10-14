@@ -111,6 +111,11 @@ public final class DurableIndexBuildService {
         return submitScoped(replacement, resolved.table(), resolved.tenantId(), resolved.session());
     }
 
+    /** Reauthorizes the durable Native submitter for connector metadata maintenance. */
+    public ConnectorSession authorizedSession(IndexDescriptor descriptor) {
+        return DeferredIndexAuthorityResolver.resolveExisting(store, descriptor).session();
+    }
+
     private String submitScoped(IndexDescriptor descriptor, QualifiedTableName table,
                                 String tenantId, ConnectorSession session) {
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
@@ -325,7 +330,7 @@ public final class DurableIndexBuildService {
         } else if (BuiltInCapabilityCatalog.IVF_PQ_ARTIFACT_BUILD_ID.equals(capabilityId)) {
             result = new ArrayList<>(ivfPqProperties(properties, dimension));
         } else if (BuiltInCapabilityCatalog.DISKANN_ARTIFACT_BUILD_ID.equals(capabilityId)) {
-            return diskAnnProperties(properties, dimension);
+            result = new ArrayList<>(diskAnnProperties(properties, dimension));
         } else {
             throw validation("Unknown Native artifact build capability");
         }

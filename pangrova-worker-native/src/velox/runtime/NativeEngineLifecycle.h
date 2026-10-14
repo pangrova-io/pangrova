@@ -92,6 +92,7 @@ class NativeEngineLifecycle {
   pangrova::velox::TableFunctionRegistry* tableFunctionRegistry();
   std::shared_ptr<folly::Executor> executor();
   std::shared_ptr<folly::Executor> ioExecutor();
+  std::shared_ptr<folly::Executor> blockingIoExecutor();
   std::shared_ptr<capability::FunctionCatalogStartup> functionCatalogStartup();
 
  private:
@@ -118,9 +119,11 @@ class NativeEngineLifecycle {
   std::shared_ptr<capability::FunctionCatalogStartup> function_catalog_startup_;
   std::unique_ptr<pangrova::velox::TableFunctionRegistry> table_function_registry_;
   std::shared_ptr<folly::CPUThreadPoolExecutor> executor_;
-  // Dedicated blocking-I/O pool. Flight, filesystem and other potentially
-  // blocking data-plane operations must never consume Velox driver capacity.
+  // Event-base threads only run timers and nonblocking continuations.
   std::shared_ptr<folly::IOThreadPoolExecutor> io_executor_;
+  // Synchronous Flight Next() and filesystem reads must not occupy an event
+  // base, or its timers and other exchange reads cannot make progress.
+  std::shared_ptr<folly::CPUThreadPoolExecutor> blocking_io_executor_;
 
   bool velox_connector_registered_ = false;
   bool dwio_factories_registered_ = false;

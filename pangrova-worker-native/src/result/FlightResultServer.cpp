@@ -277,7 +277,11 @@ void FlightResultServer::stop() {
   // DoGet may be blocked in an SDK fetch whose route disappeared on failure.
   // Wake those exact readers before gRPC waits for their exit.
   if (!transport_stopped_) {
-    const auto status = Shutdown();
+    // Revocation has already made every in-flight read invalid. A graceful
+    // Flight shutdown can wait forever for an idle client to close its RPC;
+    // cancel remaining transport calls after the revocation barrier instead.
+    const auto deadline = std::chrono::system_clock::now();
+    const auto status = Shutdown(&deadline);
     if (!status.ok()) throw std::runtime_error("Flight result shutdown failed: " + status.ToString());
     if (server_thread_.joinable()) server_thread_.join();
     transport_stopped_ = true;

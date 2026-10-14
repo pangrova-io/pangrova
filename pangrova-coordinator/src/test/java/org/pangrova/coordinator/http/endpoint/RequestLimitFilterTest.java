@@ -8,6 +8,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -78,6 +79,27 @@ class RequestLimitFilterTest {
         otherMethod.setContentLength(bodyBytes);
         filter.filter(otherMethod);
         assertThat(otherMethod.getAbortedStatus()).isEqualTo(413);
+    }
+
+    @Test
+    void terminalReportEnvelopeHasItsOwnBoundWhilePublicRoutesKeepTheDefault() throws IOException {
+        int bodyBytes = RequestLimitConfig.DEFAULT_MAX_REQUEST_SIZE_BYTES + 24_071;
+        StubRequestContext status = new StubRequestContext("/v1/task/status-report");
+        status.setContentLength(bodyBytes);
+        status.setEntityStream(new ByteArrayInputStream(new byte[bodyBytes]));
+        filter.filter(status);
+        assertThat(status.isAborted()).isFalse();
+        assertThat(status.getEntityStream().readAllBytes()).hasSize(bodyBytes);
+
+        StubRequestContext publicRequest = new StubRequestContext("/v1/query/submit");
+        publicRequest.setContentLength(bodyBytes);
+        filter.filter(publicRequest);
+        assertThat(publicRequest.getAbortedStatus()).isEqualTo(413);
+
+        StubRequestContext oversized = new StubRequestContext("/v1/task/status-report");
+        oversized.setContentLength(TaskStatusReport.MAX_HTTP_BODY_BYTES + 1);
+        filter.filter(oversized);
+        assertThat(oversized.getAbortedStatus()).isEqualTo(413);
     }
 
     @Test

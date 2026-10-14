@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,9 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * E2E tests for Paimon file-level indexes: bloom filter, bitmap, and BSI.
  *
  * <p>Validates that:
- * 1. Tables with bloom-filter.columns enable point query filtering
- * 2. Tables with bitmap.columns enable low-cardinality column filtering
- * 3. Tables with bsi.columns enable numeric range filtering
+ * 1. Tables persist bloom-filter.columns and return correct point queries
+ * 2. Tables persist bitmap.columns and return correct low-cardinality filters
+ * 3. Tables persist bsi.columns and return correct numeric range filters
  * 4. rewrite_file_index procedure rebuilds indexes on existing tables
  *
  * <p>Requirements: C10 (File Index Bloom/Bitmap/BSI)
@@ -48,6 +49,12 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
 
     private String fqn() {
         return FQN_PREFIX + tableName;
+    }
+
+    private Map<String, String> persistedOptions() {
+        return sqlRunner.execute("SELECT * FROM " + fqn() + "$options").stream()
+                .collect(Collectors.toMap(row -> row.getString("key"),
+                        row -> row.getString("value")));
     }
 
     // --- 2.12.4: bloom-filter.columns point query filtering ---
@@ -78,20 +85,13 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Bloom filter index property visible in $options")
-        void bloomFilterPropertyInOptions() {
+        @DisplayName("Bloom filter index property persists in table metadata")
+        void bloomFilterPropertyInOptions() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + fqn()
                     + " (id BIGINT, email VARCHAR, PRIMARY KEY (id) NOT ENFORCED)"
                     + " WITH ('bloom-filter.columns' = 'email')");
 
-            List<TypedRow> allOptions = sqlRunner.execute(
-                    "SELECT * FROM " + fqn() + "$options");
-            List<TypedRow> options = allOptions.stream()
-                    .filter(r -> "bloom-filter.columns".equals(
-                            String.valueOf(r.getRaw("key"))))
-                    .collect(Collectors.toList());
-            assertThat(options).hasSize(1);
-            assertThat(options.get(0).getRaw("value")).isEqualTo("email");
+            assertThat(persistedOptions()).containsEntry("bloom-filter.columns", "email");
         }
     }
 
@@ -131,20 +131,13 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Bitmap index property visible in $options")
-        void bitmapPropertyInOptions() {
+        @DisplayName("Bitmap index property persists in table metadata")
+        void bitmapPropertyInOptions() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + fqn()
                     + " (id BIGINT, category VARCHAR, PRIMARY KEY (id) NOT ENFORCED)"
                     + " WITH ('bitmap.columns' = 'category')");
 
-            List<TypedRow> allOptions = sqlRunner.execute(
-                    "SELECT * FROM " + fqn() + "$options");
-            List<TypedRow> options = allOptions.stream()
-                    .filter(r -> "bitmap.columns".equals(
-                            String.valueOf(r.getRaw("key"))))
-                    .collect(Collectors.toList());
-            assertThat(options).hasSize(1);
-            assertThat(options.get(0).getRaw("value")).isEqualTo("category");
+            assertThat(persistedOptions()).containsEntry("bitmap.columns", "category");
         }
     }
 
@@ -180,20 +173,13 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("BSI index property visible in $options")
-        void bsiPropertyInOptions() {
+        @DisplayName("BSI index property persists in table metadata")
+        void bsiPropertyInOptions() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + fqn()
                     + " (id BIGINT, score INT, PRIMARY KEY (id) NOT ENFORCED)"
                     + " WITH ('bsi.columns' = 'score')");
 
-            List<TypedRow> allOptions = sqlRunner.execute(
-                    "SELECT * FROM " + fqn() + "$options");
-            List<TypedRow> options = allOptions.stream()
-                    .filter(r -> "bsi.columns".equals(
-                            String.valueOf(r.getRaw("key"))))
-                    .collect(Collectors.toList());
-            assertThat(options).hasSize(1);
-            assertThat(options.get(0).getRaw("value")).isEqualTo("score");
+            assertThat(persistedOptions()).containsEntry("bsi.columns", "score");
         }
     }
 

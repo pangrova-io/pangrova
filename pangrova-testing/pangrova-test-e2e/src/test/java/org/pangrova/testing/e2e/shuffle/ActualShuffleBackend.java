@@ -15,8 +15,10 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.sql.DriverManager;
 import java.time.Duration;
@@ -90,12 +92,35 @@ final class ActualShuffleBackend implements AutoCloseable {
                 Files.copy(input, directory.resolve(name));
             }
         }
+        generateWorkerIdentity();
+        Files.writeString(directory.resolve("trusted-peers.pem"),
+                Files.readString(certificate()) + Files.readString(workerCertificate()));
+    }
+
+    private void generateWorkerIdentity() throws Exception {
+        var privateMode = PosixFilePermissions.fromString("rw-------");
+        Files.createFile(workerPrivateKey(), PosixFilePermissions.asFileAttribute(privateMode));
+        var process = new ProcessBuilder("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-sha256", "-days", "1", "-subj", "/CN=shuffle-worker",
+                "-keyout", workerPrivateKey().toString(), "-out", workerCertificate().toString())
+                .redirectErrorStream(true).start();
+        String output;
+        try (var stream = process.getInputStream()) {
+            output = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        if (process.waitFor() != 0) {
+            throw new IllegalStateException("Failed to generate ephemeral shuffle worker TLS identity: " + output);
+        }
+        Files.setPosixFilePermissions(workerPrivateKey(), privateMode);
     }
 
     HikariDataSource jdbc() { return jdbc; }
     JdbcExecutionAnchorStore anchors() { return new JdbcExecutionAnchorStore(jdbc); }
     Path certificate() { return directory.resolve("localhost-cert.pem"); }
     Path privateKey() { return directory.resolve("localhost-key.pem"); }
+    Path workerCertificate() { return directory.resolve("worker-cert.pem"); }
+    Path workerPrivateKey() { return directory.resolve("worker-key.pem"); }
+    Path trustedPeers() { return directory.resolve("trusted-peers.pem"); }
 
     ShuffleServiceConfig.Database databaseConfig() {
         return new ShuffleServiceConfig.Database(jdbc.getJdbcUrl(), jdbc.getUsername(),
@@ -108,7 +133,7 @@ final class ActualShuffleBackend implements AutoCloseable {
     }
 
     ShuffleServiceConfig.Security securityConfig() {
-        return new ShuffleServiceConfig.Security(certificate(), privateKey(), certificate(),
+        return new ShuffleServiceConfig.Security(certificate(), privateKey(), trustedPeers(),
                 directory.resolve("capability-secret"), java.util.List.of("localhost"), Duration.ofMinutes(5));
     }
 

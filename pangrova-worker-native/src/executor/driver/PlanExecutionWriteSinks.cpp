@@ -210,11 +210,13 @@ std::shared_ptr<arrow::RecordBatch> exportWriteBatch(
 class JavaWriteSession {
  public:
   JavaWriteSession(JNIEnv* env, jobject writer, const WriteConfigInfo& config,
-                   std::string taskId,
+                   std::string taskId, facebook::velox::RowTypePtr outputType,
                    std::shared_ptr<facebook::velox::memory::MemoryPool> pool)
       : executor_(env, writer), task_id_(std::move(taskId)),
         descriptor_(makeWriteDescriptor(config, task_id_)),
+        output_type_(std::move(outputType)),
         pool_(std::make_shared<memory::ColumnarMemoryPool>(std::move(pool))) {
+    if (!output_type_) throw std::invalid_argument("Write task requires its plan output schema");
     PANGROVA_LOG_INFO << "drain_output_start task_id=" << task_id_
                      << " target=" << config.target_table << " pool=valid";
   }
@@ -258,7 +260,7 @@ class JavaWriteSession {
     PANGROVA_LOG_INFO << "drain_output_complete task_id=" << task_id_
                      << " batches=" << batches_ << " total_rows=" << rows_
                      << " total_bytes=" << bytes_;
-    if (handle_ < 0) return;
+    if (handle_ < 0) begin(*output_type_);
     PANGROVA_LOG_INFO << "drain_output_commit task_id=" << task_id_;
     executor_.commitWrite(handle_);
     committed_ = true;
@@ -287,6 +289,7 @@ class JavaWriteSession {
   write::NativeWriteExecutor executor_;
   std::string task_id_;
   write::WriteDescriptor descriptor_;
+  facebook::velox::RowTypePtr output_type_;
   std::shared_ptr<memory::ColumnarMemoryPool> pool_;
   std::shared_ptr<arrow::Schema> schema_;
   int64_t handle_{-1};
@@ -301,16 +304,17 @@ void drainOutputToWriter(
     OutputQueue* output_queue,
     const WriteConfigInfo& write_config,
     const std::string& task_id,
+    const facebook::velox::RowTypePtr& output_type,
     std::shared_ptr<facebook::velox::memory::MemoryPool> pool,
     const WriteProducerOutcomeRef& producer_outcome) {
-  if (task_id.empty() || !pool) {
-    throw std::invalid_argument("Write task requires its canonical task identity and actual pool");
+  if (task_id.empty() || !output_type || !pool) {
+    throw std::invalid_argument("Write task requires its canonical task identity, output schema and actual pool");
   }
   auto lease = jni::GlobalWriterRegistry::instance().writerForTask(task_id);
   if (!lease) throw std::runtime_error("Write task requires registered NativeWriter: task_id=" + task_id);
   auto [env, detach] = acquireJniEnv();
   JniDetachGuard guard{jni::globalJavaVM(), detach};
-  JavaWriteSession session(env, lease.get(), write_config, task_id, std::move(pool));
+  JavaWriteSession session(env, lease.get(), write_config, task_id, output_type, std::move(pool));
   std::exception_ptr operationFailure;
   bool finalized = false;
   try {

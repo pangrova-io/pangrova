@@ -232,6 +232,17 @@
     </dependencies>
 
     <build>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+            </testResource>
+            <testResource>
+                <directory>${project.basedir}/../../pangrova-protocol/src/test/resources</directory>
+                <includes>
+                    <include>function-contracts/actual-native-catalogue.bin</include>
+                </includes>
+            </testResource>
+        </testResources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

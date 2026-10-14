@@ -14,15 +14,22 @@ final class CanonicalExecutionDrainReports {
         switch (status.getReportOrigin()) {
             case TASK_REPORT_ORIGIN_NATIVE -> { }
             case TASK_REPORT_ORIGIN_WORKER_RECONCILED -> {
-                if (!unsuccessful(status)) throw invalid("Worker-reconciled TaskReport cannot claim success");
-                if (!status.hasError()) throw invalid("Worker-reconciled TaskReport needs a structured error");
+                if (!unsuccessful(status)) {
+                    throw invalid("Worker-reconciled TaskReport cannot claim success");
+                }
+                if (!status.hasError()) {
+                    throw invalid("Worker-reconciled TaskReport needs a structured error");
+                }
             }
             case TASK_REPORT_ORIGIN_UNSPECIFIED, UNRECOGNIZED -> throw invalid("terminal TaskReport has no valid report origin");
+            default -> throw invalid("terminal TaskReport has no valid report origin");
         }
         switch (status.getExecutionDrainState()) {
             case EXECUTION_DRAIN_STATE_UNSPECIFIED -> { }
             case EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED -> {
-                if (!terminal(status)) throw invalid("Released Native owner has a nonterminal receipt");
+                if (!terminal(status)) {
+                    throw invalid("Released Native owner has a nonterminal receipt");
+                }
             }
             case EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER -> {
                 if (status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED
@@ -31,6 +38,7 @@ final class CanonicalExecutionDrainReports {
                 }
             }
             case UNRECOGNIZED -> throw invalid("Unknown execution drain state");
+            default -> throw invalid("Unknown execution drain state");
         }
     }
 
@@ -44,7 +52,8 @@ final class CanonicalExecutionDrainReports {
         validateOrigin(status);
         validateErrorAndStatistics(status);
         if (status.hasCoverage() || status.hasUsage() || status.hasApproximation() || status.hasArtifactWork()
-                || status.hasNativeTaskStats() || status.hasOutputManifestChecksum() || !status.getWinningAttemptId().isEmpty()
+                || status.hasNativeTaskStats() || status.hasOutputManifestChecksum()
+                || !status.getWinningAttemptId().isEmpty()
                 || status.getError().getFailedPartitionIdsCount() != 0) {
             throw invalid("Compact execution drain receipt cannot claim execution/output payload");
         }

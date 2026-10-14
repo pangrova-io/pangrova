@@ -6,6 +6,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.BinaryVector;
 import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.FileStoreTable;
@@ -17,6 +18,7 @@ import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 
 import java.util.List;
 import java.util.UUID;
+import java.nio.file.Files;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -47,8 +49,8 @@ class PaimonLanceNativeReadE2ETest extends PangrovaE2ETestBase {
         assertThat(rows.get(0).getRaw("label")).isEqualTo("café");
         assertThat(rows.get(1).getRaw("label")).isNull();
         assertThat(rows.get(1).getRaw("embedding")).isNull();
-        assertThat(rows.get(0).getRaw("embedding")).isEqualTo(List.of(1.0f, -2.0f, 3.5f));
-        assertThat(rows.get(2).getRaw("embedding")).isEqualTo(List.of(0.0f, 4.0f, -5.0f));
+        assertThat((float[]) rows.get(0).getRaw("embedding")).containsExactly(1.0f, -2.0f, 3.5f);
+        assertThat((float[]) rows.get(2).getRaw("embedding")).containsExactly(0.0f, 4.0f, -5.0f);
     }
 
     private static void writeSdkFile(String table) throws Exception {
@@ -101,8 +103,13 @@ class PaimonLanceNativeReadE2ETest extends PangrovaE2ETestBase {
                     .option("file.format", "lance")
                     .option("deletion-vectors.enabled", Boolean.toString(deletionVectors))
                     .option("deletion-vectors.bitmap64", Boolean.toString(bitmap64)).build(), false);
-            writeBatch((FileStoreTable) catalog.getTable(id), GenericRow.of(1L, BinaryString.fromString("old")),
-                    GenericRow.of(2L, BinaryString.fromString("deleted")));
+            if (deletionVectors) {
+                writeLargeDvBase((FileStoreTable) catalog.getTable(id));
+            } else {
+                writeBatch((FileStoreTable) catalog.getTable(id),
+                        GenericRow.of(1L, BinaryString.fromString("old")),
+                        GenericRow.of(2L, BinaryString.fromString("deleted")));
+            }
             writeBatch((FileStoreTable) catalog.getTable(id), GenericRow.of(1L, BinaryString.fromString("new")),
                     GenericRow.of(3L, BinaryString.fromString("last")),
                     GenericRow.ofKind(org.apache.paimon.types.RowKind.DELETE, 2L, null));
@@ -110,15 +117,32 @@ class PaimonLanceNativeReadE2ETest extends PangrovaE2ETestBase {
                 assertRealDeletionVectors((FileStoreTable) catalog.getTable(id), bitmap64);
             }
         }
-        var rows = executeQuery("SELECT id, label FROM " + CATALOG + "." + DATABASE + "." + table + " ORDER BY id");
+        var rows = executeQuery("SELECT id, label FROM " + CATALOG + "." + DATABASE + "." + table
+                + " WHERE id < 100 ORDER BY id");
         assertThat(rows).extracting(row -> List.of(row.getLong("id"), row.getString("label")))
                 .containsExactly(List.of(1L, "new"), List.of(3L, "last"));
-        assertThat(executeQuery("SELECT label FROM " + CATALOG + "." + DATABASE + "." + table + " ORDER BY label"))
+        assertThat(executeQuery("SELECT label FROM " + CATALOG + "." + DATABASE + "." + table
+                + " WHERE id < 100 ORDER BY label"))
                 .extracting(row -> row.getString("label")).containsExactly("last", "new");
+    }
+
+    private static void writeLargeDvBase(FileStoreTable table) throws Exception {
+        GenericRow[] rows = new GenericRow[10_002];
+        rows[0] = GenericRow.of(1L, BinaryString.fromString("old"));
+        rows[1] = GenericRow.of(2L, BinaryString.fromString("deleted"));
+        for (int index = 2; index < rows.length; index++) {
+            long key = index + 98L;
+            rows[index] = GenericRow.of(key, BinaryString.fromString(
+                    "seed-" + key + "-" + Long.toHexString(key * 7919L)));
+        }
+        writeBatch(table, rows);
     }
 
     private static void assertRealDeletionVectors(FileStoreTable table, boolean bitmap64) throws Exception {
         var scan = table.newReadBuilder().newScan().plan();
+        assertThat(scan.splits().stream().map(org.apache.paimon.table.source.DataSplit.class::cast)
+                .flatMap(split -> split.dataFiles().stream()).count())
+                .as("DV fixture must retain multiple physical data files").isGreaterThan(1);
         var vectors = scan.splits().stream().map(org.apache.paimon.table.source.DataSplit.class::cast)
                 .flatMap(split -> split.deletionFiles().orElse(List.of()).stream())
                 .filter(java.util.Objects::nonNull).filter(vector -> vector.length() > 0).toList();
@@ -133,7 +157,10 @@ class PaimonLanceNativeReadE2ETest extends PangrovaE2ETestBase {
 
     private static void writeBatch(FileStoreTable source, GenericRow... rows) throws Exception {
         var write = source.newBatchWriteBuilder();
-        try (var writer = write.newWrite(); var commit = write.newCommit()) {
+        var lookupDir = Files.createTempDirectory(tempDir, "paimon-lookup-");
+        try (var ioManager = IOManager.create(lookupDir.toString());
+             var writer = write.newWrite().withIOManager(ioManager);
+             var commit = write.newCommit()) {
             for (var row : rows) writer.write(row);
             commit.commit(writer.prepareCommit());
         }

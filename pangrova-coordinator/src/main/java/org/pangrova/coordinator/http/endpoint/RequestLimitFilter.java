@@ -11,6 +11,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.protocol.rest.error.ErrorDetail;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
     private static final String HEALTH_PATH = "v1/health";
     private static final String REGISTRATION_PATH = "v1/workers/register";
+    private static final String STATUS_REPORT_PATH = "v1/task/status-report";
     private static final String UNKNOWN_IP = "unknown";
 
     private static final int HTTP_STATUS_PAYLOAD_TOO_LARGE = 413;
@@ -98,6 +100,10 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         if ("POST".equals(requestContext.getMethod())
                 && (REGISTRATION_PATH.equals(path) || ("/" + REGISTRATION_PATH).equals(path))) {
             return WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES;
+        }
+        if ("POST".equals(requestContext.getMethod())
+                && (STATUS_REPORT_PATH.equals(path) || ("/" + STATUS_REPORT_PATH).equals(path))) {
+            return TaskStatusReport.MAX_HTTP_BODY_BYTES;
         }
         return maxRequestSizeBytes;
     }

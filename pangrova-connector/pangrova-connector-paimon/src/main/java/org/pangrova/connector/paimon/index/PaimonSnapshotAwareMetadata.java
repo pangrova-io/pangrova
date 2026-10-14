@@ -14,7 +14,6 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.utils.SnapshotManager;
-import org.apache.paimon.Snapshot;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -131,8 +130,7 @@ public final class PaimonSnapshotAwareMetadata implements SnapshotAwareMetadata 
             throw new IllegalStateException("Snapshot file listing requires a FileStoreTable");
         }
         try {
-            Table snapshotView = fileStoreTable.copy(
-                    Map.of("scan.snapshot-id", snapshotId));
+            Table snapshotView = retainedSnapshotView(fileStoreTable, snapshotId);
             ReadBuilder readBuilder = snapshotView.newReadBuilder();
             Map<String, SnapshotDataFile> files = new LinkedHashMap<>();
             for (Split split : readBuilder.newScan().plan().splits()) {
@@ -190,10 +188,29 @@ public final class PaimonSnapshotAwareMetadata implements SnapshotAwareMetadata 
         }
         long snapId = Long.parseLong(snapshotId);
         SnapshotManager snapshotManager = fst.snapshotManager();
-        Snapshot snapshot = snapshotManager.snapshot(snapId);
-        if (snapshot == null) {
+        if (!snapshotManager.snapshotExists(snapId) && retainedTag(fst, snapId) == null) {
             throw new SnapshotExpiredException(snapshotId,
                     "Paimon snapshot " + snapshotId + " no longer exists");
         }
+    }
+
+    private static Table retainedSnapshotView(FileStoreTable table, String snapshotId) {
+        long id = Long.parseLong(snapshotId);
+        if (table.snapshotManager().snapshotExists(id)) {
+            return table.copy(Map.of("scan.snapshot-id", snapshotId));
+        }
+        String tag = retainedTag(table, id);
+        if (tag == null) {
+            throw new SnapshotExpiredException(snapshotId,
+                    "Paimon snapshot " + snapshotId + " no longer exists");
+        }
+        return table.copy(Map.of("scan.tag-name", tag));
+    }
+
+    private static String retainedTag(FileStoreTable table, long snapshotId) {
+        return table.tagManager().tags().entrySet().stream()
+                .filter(entry -> entry.getKey().id() == snapshotId)
+                .flatMap(entry -> entry.getValue().stream())
+                .sorted().findFirst().orElse(null);
     }
 }

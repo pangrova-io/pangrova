@@ -140,14 +140,22 @@ class QueryDispatcherUnifiedPathTest {
     }
 
     @Test
-    void resultEndpointTicketMatchesWorkerTaskId() {
+    void resultEndpointTicketScopesTheWorkerTaskId() throws Exception {
         String queryId = "ticket-match";
         QueryStateMachine sm = new QueryStateMachine();
         CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "default");
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
-        assertThat(result.resultEndpoint().ticket()).isEqualTo(result.taskId());
+        String ticket = result.resultEndpoint().ticket();
+        String prefix = "pangrova.result.read.v1:";
+        assertThat(ticket).startsWith(prefix);
+        int signatureSeparator = ticket.indexOf('|');
+        var grant = org.pangrova.protocol.v2.ResultReadGrant.parseFrom(
+                java.util.Base64.getDecoder().decode(ticket.substring(prefix.length(), signatureSeparator)));
+        assertThat(grant.getAttempt().getTaskId()).isEqualTo(result.taskId());
+        assertThat(grant.getScope()).isEqualTo(
+                org.pangrova.protocol.v2.ResultReadScope.RESULT_READ_SCOPE_RESULT_STREAM);
         assertOneValue(result, 1L);
     }
 

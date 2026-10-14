@@ -3,6 +3,12 @@ package org.pangrova.testing.e2e.connector;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.apache.paimon.catalog.CatalogContext;
+import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.source.DataSplit;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>Verifies that {@code CALL catalog.procedure_name(args)} correctly routes
  * to connector procedure implementations and executes expected operations.
+ * Published system-table SQL is validated separately by {@link SystemTableE2ETest}.
  *
  * <p>Covers: C4 (Tag Management), C5 (Branch Management), C8 (CALL Procedures),
  * D5 (CALL Procedure unified framework).
@@ -59,15 +67,51 @@ class ProcedureE2ETest extends SqlE2ETestBase {
         return PAI_CATALOG + "." + SCHEMA + "." + tableName;
     }
 
-    // --- 2.2.13: CALL sys.create_tag then $tags verification ---
+    private <T> T inspectCommittedTable(Function<FileStoreTable, T> inspect) throws Exception {
+        Options options = new Options();
+        options.setString("warehouse", paimonWarehouse().toString());
+        try (var catalog = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            return inspect.apply((FileStoreTable) catalog.getTable(
+                    Identifier.create(SCHEMA, tableName)));
+        }
+    }
+
+    private int committedSnapshotCount() throws Exception {
+        return inspectCommittedTable(table -> {
+            var snapshots = table.snapshotManager();
+            Long earliest = snapshots.earliestSnapshotId();
+            Long latest = snapshots.latestSnapshotId();
+            if (earliest == null || latest == null) {
+                return 0;
+            }
+            int count = 0;
+            for (long id = earliest; id <= latest; id++) {
+                if (snapshots.snapshotExists(id)) {
+                    count++;
+                }
+            }
+            return count;
+        });
+    }
+
+    private long currentDataFileCount() throws Exception {
+        return inspectCommittedTable(table -> table.newReadBuilder().newScan().plan()
+                .splits().stream()
+                .filter(DataSplit.class::isInstance)
+                .map(DataSplit.class::cast)
+                .mapToLong(split -> split.dataFiles().size())
+                .sum());
+    }
+
+    // --- 2.2.13: CALL create_tag then SDK metadata verification ---
 
     @Nested
-    @DisplayName("2.2.13 - CALL create_tag then $tags verification")
+    @DisplayName("2.2.13 - CALL create_tag then persisted metadata verification")
     class CreateTagVerification {
 
         @Test
-        @DisplayName("CALL create_tag creates tag visible in $tags system table")
-        void createTagThenVerifyInSystemTable() {
+        @DisplayName("CALL create_tag persists a named tag in Paimon metadata")
+        void createTagThenVerifyPersistedMetadata() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
@@ -76,19 +120,18 @@ class ProcedureE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("CALL " + PAI_CATALOG
                     + ".create_tag('" + tableName + "', 'v1.0')");
 
-            List<TypedRow> tags = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$tags WHERE tag_name = 'v1.0'");
-
-            assertThat(tags).hasSize(1);
-            TypedRow tagRow = tags.get(0);
-            assertThat(tagRow.getRaw("tag_name")).isEqualTo("v1.0");
-            assertThat(((Number) tagRow.getRaw("snapshot_id")).longValue())
-                    .isGreaterThan(0);
+            List<Long> tagSnapshots = inspectCommittedTable(table -> table.tagManager()
+                    .tags().entrySet().stream()
+                    .filter(entry -> entry.getValue().contains("v1.0"))
+                    .map(entry -> entry.getKey().id())
+                    .toList());
+            assertThat(tagSnapshots).hasSize(1);
+            assertThat(tagSnapshots.get(0)).isGreaterThan(0);
         }
 
         @Test
-        @DisplayName("Multiple tags created via CALL all visible in $tags")
-        void multipleTagsCreation() {
+        @DisplayName("Multiple tags created via CALL persist in Paimon metadata")
+        void multipleTagsCreation() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, val VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
@@ -101,12 +144,12 @@ class ProcedureE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("CALL " + PAI_CATALOG
                     + ".create_tag('" + tableName + "', 'v2')");
 
-            List<TypedRow> tags = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$tags ORDER BY tag_name");
-
-            assertThat(tags).hasSize(2);
-            assertThat(tags.get(0).getRaw("tag_name")).isEqualTo("v1");
-            assertThat(tags.get(1).getRaw("tag_name")).isEqualTo("v2");
+            List<String> tags = inspectCommittedTable(table -> table.tagManager()
+                    .tags().values().stream()
+                    .flatMap(List::stream)
+                    .sorted()
+                    .toList());
+            assertThat(tags).containsExactly("v1", "v2");
         }
     }
 
@@ -145,15 +188,15 @@ class ProcedureE2ETest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("CALL rollback_to with snapshot_id restores to specific snapshot")
-        void rollbackToSnapshotIdRestoresData() {
+        void rollbackToSnapshotIdRestoresData() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, val VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, val) VALUES (1, 'a')");
 
-            List<TypedRow> snapshots = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$snapshots ORDER BY snapshot_id");
-            long firstSnapshotId = ((Number) snapshots.get(0).getRaw("snapshot_id")).longValue();
+            Long firstSnapshotId = inspectCommittedTable(table ->
+                    table.snapshotManager().latestSnapshotId());
+            assertThat(firstSnapshotId).isNotNull();
 
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, val) VALUES (2, 'b')");
@@ -168,15 +211,15 @@ class ProcedureE2ETest extends SqlE2ETestBase {
         }
     }
 
-    // --- 2.2.15: CALL sys.compact then compaction verification ---
+    // --- 2.2.15: CALL compact then physical file verification ---
 
     @Nested
     @DisplayName("2.2.15 - CALL compact then compaction verification")
     class CompactVerification {
 
         @Test
-        @DisplayName("CALL compact reduces file count in $files system table")
-        void compactReducesFileCount() {
+        @DisplayName("CALL compact preserves data and does not increase current file count")
+        void compactReducesFileCount() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
 
@@ -185,16 +228,13 @@ class ProcedureE2ETest extends SqlE2ETestBase {
                         + " (id, name) VALUES (" + i + ", 'user" + i + "')");
             }
 
-            List<TypedRow> filesBeforeCompact = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$files");
-            int fileCountBefore = filesBeforeCompact.size();
+            long fileCountBefore = currentDataFileCount();
+            assertThat(fileCountBefore).isGreaterThan(0);
 
             sqlRunner.execute("CALL " + PAI_CATALOG
                     + ".compact('" + tableName + "')");
 
-            List<TypedRow> filesAfterCompact = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$files");
-            int fileCountAfter = filesAfterCompact.size();
+            long fileCountAfter = currentDataFileCount();
 
             assertThat(fileCountAfter).isLessThanOrEqualTo(fileCountBefore);
 
@@ -204,15 +244,15 @@ class ProcedureE2ETest extends SqlE2ETestBase {
         }
     }
 
-    // --- 2.2.16: CALL sys.expire_snapshots then snapshot expiration verification ---
+    // --- 2.2.16: CALL expire_snapshots then SDK snapshot verification ---
 
     @Nested
     @DisplayName("2.2.16 - CALL expire_snapshots then snapshot expiration verification")
     class ExpireSnapshotsVerification {
 
         @Test
-        @DisplayName("CALL expire_snapshots removes old snapshots from $snapshots")
-        void expireSnapshotsRemovesOldSnapshots() {
+        @DisplayName("CALL expire_snapshots reduces retained Paimon snapshots")
+        void expireSnapshotsRemovesOldSnapshots() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
 
@@ -221,32 +261,28 @@ class ProcedureE2ETest extends SqlE2ETestBase {
                         + " (id, name) VALUES (" + i + ", 'user" + i + "')");
             }
 
-            List<TypedRow> snapshotsBefore = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$snapshots");
-            int snapshotCountBefore = snapshotsBefore.size();
+            int snapshotCountBefore = committedSnapshotCount();
             assertThat(snapshotCountBefore).isGreaterThanOrEqualTo(5);
 
             sqlRunner.execute("CALL " + PAI_CATALOG
                     + ".expire_snapshots('" + tableName + "', 1)");
 
-            List<TypedRow> snapshotsAfter = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$snapshots");
-            int snapshotCountAfter = snapshotsAfter.size();
+            int snapshotCountAfter = committedSnapshotCount();
 
-            assertThat(snapshotCountAfter).isLessThanOrEqualTo(snapshotCountBefore);
+            assertThat(snapshotCountAfter).isLessThan(snapshotCountBefore);
             assertThat(snapshotCountAfter).isGreaterThanOrEqualTo(1);
         }
     }
 
-    // --- 2.2.17: CALL sys.create_branch then $branches verification ---
+    // --- 2.2.17: CALL create_branch then SDK metadata verification ---
 
     @Nested
-    @DisplayName("2.2.17 - CALL create_branch then $branches verification")
+    @DisplayName("2.2.17 - CALL create_branch then persisted metadata verification")
     class CreateBranchVerification {
 
         @Test
-        @DisplayName("CALL create_branch creates branch visible in $branches system table")
-        void createBranchThenVerifyInSystemTable() {
+        @DisplayName("CALL create_branch persists a branch in Paimon metadata")
+        void createBranchThenVerifyPersistedMetadata() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
@@ -255,12 +291,9 @@ class ProcedureE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("CALL " + PAI_CATALOG
                     + ".create_branch('" + tableName + "', 'dev')");
 
-            List<TypedRow> branches = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$branches WHERE branch_name = 'dev'");
-
-            assertThat(branches).hasSize(1);
-            TypedRow branchRow = branches.get(0);
-            assertThat(branchRow.getRaw("branch_name")).isEqualTo("dev");
+            List<String> branches = inspectCommittedTable(table -> table.branchManager()
+                    .branches());
+            assertThat(branches).contains("dev");
         }
     }
 

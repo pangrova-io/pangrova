@@ -41,6 +41,19 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class IcebergSplitManagerTest {
 
+    @Test
+    void nullOnlyColumnOverridesPhysicalColumnEvenAfterRename() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "future", Types.UnknownType.get()));
+        var mappings = IcebergTaskToSplit.withNullOnlyColumns(schema,
+                List.of(new org.pangrova.spi.connector.metadata.table.ColumnMapping(
+                        2, 2, "old_future", "future")));
+        assertThat(mappings).hasSize(2);
+        assertThat(mappings.get(1).sourceFieldId()).isEqualTo(-1);
+        assertThat(mappings.get(1).targetName()).isEqualTo("future");
+    }
+
     @TempDir
     Path warehouse;
 

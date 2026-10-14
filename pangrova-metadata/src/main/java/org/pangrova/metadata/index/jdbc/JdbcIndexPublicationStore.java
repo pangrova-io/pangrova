@@ -22,6 +22,7 @@ import org.pangrova.metadata.index.model.IndexFileMapping;
 import org.pangrova.metadata.index.model.IndexGenerationManifest;
 import org.pangrova.metadata.index.model.IndexPublicationRequest;
 import org.pangrova.spi.index.IndexState;
+import org.pangrova.security.store.AuthorizationTransactionGate;
 
 import static org.pangrova.metadata.store.JdbcSupport.canonicalInstant;
 import static org.pangrova.metadata.store.JdbcSupport.getInstant;
@@ -38,7 +39,10 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
         try (Connection connection = dataSource().getConnection()) {
             connection.setAutoCommit(false);
             try {
+                AuthorizationTransactionGate.lockPublication(connection);
                 DescriptorFence descriptor = lockDescriptor(connection, request.indexId());
+                JdbcIndexDescriptorStore.requireCurrentScalarPublicationAuthority(
+                        connection, request.indexId());
                 List<IndexFileMapping> mappings = loadMappings(connection, request);
                 Optional<IndexGenerationManifest> existing =
                         loadGeneration(connection, request.indexId(), request.generation());

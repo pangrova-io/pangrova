@@ -60,7 +60,9 @@ public final class PublishedArtifactBindingResolver {
                 intent.tenantId(), intent.artifactId(),
                 intent.artifactType(), intent.generation(),
                 intent.sourceId(), intent.sourceSnapshot(), SourceCoverage.COMPLETE_GENERATION), serializedSplits)
-                .map(binding -> new ResolvedRetrievalArtifact(intent, binding));
+                // resolveTemplate already required one unique source object per split.
+                .map(binding -> new ResolvedRetrievalArtifact(intent, binding,
+                        serializedSplits.size()));
     }
 
     /**
@@ -317,11 +319,15 @@ public final class PublishedArtifactBindingResolver {
 
     /** Query-scoped immutable metadata; physical objects remain task-scoped. */
     public record ResolvedRetrievalArtifact(
-            RetrievalArtifactIntent intent, ArtifactBinding bindingTemplate) {
+            RetrievalArtifactIntent intent, ArtifactBinding bindingTemplate,
+            int sourceObjectCount) {
         public ResolvedRetrievalArtifact {
             Objects.requireNonNull(intent, "intent must not be null");
             Objects.requireNonNull(bindingTemplate,
                     "bindingTemplate must not be null");
+            if (sourceObjectCount <= 0) {
+                throw new IllegalArgumentException("resolved retrieval requires source objects");
+            }
             if (bindingTemplate.getSplitObjectsCount() != 0
                     || bindingTemplate.hasBindingChecksum()) {
                 throw new IllegalArgumentException(

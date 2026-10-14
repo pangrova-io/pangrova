@@ -21,6 +21,9 @@ class DeclaredSqlBindingsTest {
         assertThat(FunctionBindingDeclarations.sqlBinding(FunctionKind.FUNCTION_KIND_WINDOW, "$sum0", ""))
                 .contains(new DeclaredFunctionReference(FunctionKind.FUNCTION_KIND_WINDOW, "window", "sum0",
                         "extension:org.pangrova:functions_window"));
+        assertThat(FunctionBindingDeclarations.sqlBinding(FunctionKind.FUNCTION_KIND_SCALAR, "variant_get", ""))
+                .contains(new DeclaredFunctionReference(FunctionKind.FUNCTION_KIND_SCALAR, "variant", "variant_get",
+                        "extension:org.pangrova:functions_variant"));
     }
 
     @Test

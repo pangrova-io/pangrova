@@ -170,6 +170,29 @@ class SubstraitRoundTripTest {
         verifyByteLevelStability(sql);
     }
 
+    @Test
+    void correlatedExistsRetainsItsEqualityInTheSemiJoin() {
+        String sql = "SELECT o_orderkey FROM orders o WHERE EXISTS ("
+                + "SELECT * FROM lineitem l WHERE l.l_orderkey = o.o_orderkey "
+                + "AND l.l_quantity > 0)";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        assertThat(summary.joinTypes).contains("JOIN_TYPE_LEFT_SEMI");
+        assertThat(summary.hasJoinCondition).isTrue();
+        assertThat(summary.tableNames).contains("orders", "lineitem");
+    }
+
+    @Test
+    void correlatedNotExistsKeepsNullableMarkerAcrossLeftJoin() {
+        String sql = "SELECT c_custkey FROM customer c WHERE NOT EXISTS ("
+                + "SELECT * FROM orders o WHERE o.o_custkey = c.c_custkey)";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        assertThat(summary.joinTypes).contains("JOIN_TYPE_LEFT");
+        assertThat(summary.hasJoinCondition).isTrue();
+        assertThat(summary.tableNames).contains("customer", "orders");
+    }
+
     // -----------------------------------------------------------------------
     // 6. UNION ALL
     // -----------------------------------------------------------------------
@@ -229,6 +252,16 @@ class SubstraitRoundTripTest {
         assertThat(row.getFields(0).getLiteral().getI32()).isEqualTo(42);
         assertThat(row.getFields(1).getLiteral().hasString()).isTrue();
         assertThat(row.getFields(1).getLiteral().getString()).isEqualTo("hello");
+    }
+
+    @Test
+    void variantPathRetainsTheDeclaredNativeSyntax() throws Exception {
+        var plan = planAndConvert("SELECT variant_get(o_orderstatus, 'name') FROM orders");
+        var proto = io.substrait.proto.Plan.parseFrom(serializer.serialize(plan));
+        var project = proto.getRelations(0).getRoot().getInput().getProject();
+        var function = project.getExpressions(0).getScalarFunction();
+        assertThat(function.getArguments(1).getValue().getLiteral().getString())
+                .isEqualTo("name");
     }
 
     @Test
@@ -425,6 +458,7 @@ class SubstraitRoundTripTest {
             case JOIN -> {
                 io.substrait.proto.JoinRel join = rel.getJoin();
                 summary.joinTypes.add(join.getType().name());
+                summary.hasJoinCondition |= join.hasExpression();
                 walkRel(join.getLeft(), summary);
                 walkRel(join.getRight(), summary);
             }
@@ -470,6 +504,7 @@ class SubstraitRoundTripTest {
         List<String> rootNames = List.of();
         boolean hasFilterInRead;
         boolean hasStandaloneFilter;
+        boolean hasJoinCondition;
         int aggregateMeasureCount;
     }
 

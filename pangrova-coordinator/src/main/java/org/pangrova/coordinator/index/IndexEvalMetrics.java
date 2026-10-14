@@ -13,6 +13,12 @@ import java.util.List;
  * {@link IndexSplitFilter} during query execution.</p>
  */
 public final class IndexEvalMetrics {
+    private static final List<Double> EVAL_DURATION_BUCKETS =
+            List.of(1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0);
+    private static final List<Double> METADATA_BATCH_BUCKETS =
+            List.of(1.0, 5.0, 10.0, 50.0, 100.0, 500.0);
+    private static final List<Double> PARALLEL_TASK_BUCKETS =
+            List.of(1.0, 10.0, 50.0, 100.0, 500.0, 1000.0);
 
     private final DoubleHistogram evalDuration;
     private final LongCounter skippedSplits;
@@ -29,11 +35,12 @@ public final class IndexEvalMetrics {
     private final LongCounter evalWithDeleteFiles;
     private final LongCounter nativeEvalFailures;
 
+    /** Registers index evaluation counters and histograms with the metrics provider. */
     public IndexEvalMetrics(MetricsProvider metricsProvider) {
         this.evalDuration = metricsProvider.createHistogram(
                 "pangrova.index.eval.duration_ms",
                 "Per-query index evaluation duration in milliseconds", "ms",
-                List.of(1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0));
+                EVAL_DURATION_BUCKETS);
         this.skippedSplits = metricsProvider.createCounter(
                 "pangrova.index.eval.skipped_splits",
                 "Splits skipped by index evaluation", "splits");
@@ -49,11 +56,11 @@ public final class IndexEvalMetrics {
         this.metadataBatchMs = metricsProvider.createHistogram(
                 "pangrova.index.eval.metadata_batch_ms",
                 "batchGetIndexFileMappings latency in milliseconds", "ms",
-                List.of(1.0, 5.0, 10.0, 50.0, 100.0, 500.0));
+                METADATA_BATCH_BUCKETS);
         this.parallelTasks = metricsProvider.createHistogram(
                 "pangrova.index.eval.parallel_tasks",
                 "Parallel evaluation task count per query", "tasks",
-                List.of(1.0, 10.0, 50.0, 100.0, 500.0, 1000.0));
+                PARALLEL_TASK_BUCKETS);
         this.l0Prunes = metricsProvider.createCounter(
                 "pangrova.index.eval.l0_prunes",
                 "Splits pruned by L0 file column statistics", "splits");

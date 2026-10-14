@@ -286,6 +286,25 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
         private static final String SOURCE = ICE_CATALOG + "." + SCHEMA + ".mor_filter_source";
         private static final String DT = ICE_CATALOG + "." + SCHEMA + ".mor_filter_dt";
 
+        private void insertRows(int first, int last, int categoryCount, double amountFactor) {
+            // The filter test needs the same rows and snapshot boundary, not
+            // one transaction per row. Keep batches bounded for the SQL and
+            // connector write paths while avoiding thousands of setup queries.
+            for (int batchStart = first; batchStart <= last; batchStart += 100) {
+                int batchEnd = Math.min(batchStart + 99, last);
+                StringBuilder sql = new StringBuilder("INSERT INTO ").append(SOURCE).append(" VALUES ");
+                for (int id = batchStart; id <= batchEnd; id++) {
+                    if (id > batchStart) {
+                        sql.append(", ");
+                    }
+                    sql.append('(').append(id).append(", 'cat_")
+                            .append((id - 1) % categoryCount + 1).append("', ")
+                            .append(id * amountFactor).append(')');
+                }
+                sqlRunner.execute(sql.toString());
+            }
+        }
+
         @BeforeAll
         static void createSource() {
             isDockerReady();
@@ -313,12 +332,7 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
                 + "and delta legs → correct filtered count")
         void filterPushdownOnBothLegs() {
             // Insert 1000 rows with 5 categories (200 per category)
-            for (int i = 1; i <= 1000; i++) {
-                String category = "cat_" + ((i - 1) % 5 + 1);
-                double amount = i * 0.5;
-                sqlRunner.execute("INSERT INTO " + SOURCE
-                        + " VALUES (" + i + ", '" + category + "', " + amount + ")");
-            }
+            insertRows(1, 1000, 5, 0.5);
 
             // CREATE DT — initial refresh materializes all 1000 rows
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT
@@ -328,12 +342,7 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
             assertThat(initialAll).hasSize(1000);
 
             // Insert 100 more rows (20 per category) — NOT refreshed
-            for (int i = 1001; i <= 1100; i++) {
-                String category = "cat_" + ((i - 1) % 5 + 1);
-                double amount = i * 0.5;
-                sqlRunner.execute("INSERT INTO " + SOURCE
-                        + " VALUES (" + i + ", '" + category + "', " + amount + ")");
-            }
+            insertRows(1001, 1100, 5, 0.5);
 
             // Query DT with WHERE filter — merge-on-read should apply filter
             // to both the materialized leg and the delta leg
@@ -377,22 +386,14 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
         @DisplayName("Merge-on-read with range filter on amount column")
         void rangeFilterOnMergeOnRead() {
             // Insert 100 rows
-            for (int i = 1; i <= 100; i++) {
-                String category = "cat_" + ((i - 1) % 3 + 1);
-                sqlRunner.execute("INSERT INTO " + SOURCE
-                        + " VALUES (" + i + ", '" + category + "', " + (i * 10.0) + ")");
-            }
+            insertRows(1, 100, 3, 10.0);
 
             // CREATE DT — refresh
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT
                     + " TARGET_LAG = 'PT1H' AS SELECT * FROM " + SOURCE);
 
             // Insert 50 more rows — NOT refreshed
-            for (int i = 101; i <= 150; i++) {
-                String category = "cat_" + ((i - 1) % 3 + 1);
-                sqlRunner.execute("INSERT INTO " + SOURCE
-                        + " VALUES (" + i + ", '" + category + "', " + (i * 10.0) + ")");
-            }
+            insertRows(101, 150, 3, 10.0);
 
             // Range filter: amount > 500 AND amount <= 1000
             // Rows with amount > 500: id > 50 (amount = id * 10)

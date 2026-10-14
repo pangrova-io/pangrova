@@ -3,12 +3,13 @@ package org.pangrova.coordinator.index.ddl;
 import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
 import org.pangrova.metadata.index.IndexMetadataStore;
 import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.List;
 import java.util.Objects;
 
-/** Process lifecycle adapter; connector access is resolved only after current exact index authorization. */
+/** Process lifecycle adapter with current-grant build access and persisted-scope DROPPED cleanup. */
 public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
     private final IndexMetadataStore indexes;
     private final ArtifactBuildStore builds;
@@ -24,14 +25,25 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
 
     @Override
     public void pinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {
-        var provider = requireProvider(catalog, schema, table, snapshot, indexId);
-        provider.pinSnapshot(catalog, schema, table, snapshot, indexId);
+        indexes.withIndexLifecycleLock(indexId, () -> {
+            if (!indexes.isIndexSnapshotBuildable(indexId, Long.toString(snapshot))) {
+                throw new AccessDeniedException("Snapshot is not reserved by an exact building index generation");
+            }
+            var provider = requireProvider(catalog, schema, table, indexId);
+            provider.pinSnapshot(catalog, schema, table, snapshot, indexId);
+        });
     }
 
     @Override
     public void unpinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {
-        var provider = requireProvider(catalog, schema, table, snapshot, indexId);
+        var provider = requireProvider(catalog, schema, table, indexId);
         provider.unpinSnapshot(catalog, schema, table, snapshot, indexId);
+    }
+
+    @Override
+    public List<Long> getPinnedSnapshotsForIndex(String catalog, String schema, String table, String indexId) {
+        return requireProvider(catalog, schema, table, indexId)
+                .getPinnedSnapshotsForIndex(catalog, schema, table, indexId);
     }
 
     @Override
@@ -40,18 +52,22 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
     }
 
     private SnapshotPinProvider requireProvider(
-            String catalog, String schema, String table, long snapshot, String indexId) {
-        if (builds == null) {
-            throw new AccessDeniedException("Snapshot maintenance requires a persisted current authorization scope");
-        }
+            String catalog, String schema, String table, String indexId) {
         var descriptor = indexes.findIndex(indexId).orElseThrow(() ->
                 new AccessDeniedException("Snapshot maintenance index no longer exists"));
+        if (builds == null && IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
+            throw new AccessDeniedException("Snapshot maintenance requires a persisted current authorization scope");
+        }
         if (!descriptor.catalogName().equals(catalog) || !descriptor.schemaName().equals(schema)
-                || !descriptor.tableName().equals(table)
-                || !Long.toString(snapshot).equals(descriptor.buildSnapshotId())) {
+                || !descriptor.tableName().equals(table)) {
             throw new AccessDeniedException("Snapshot maintenance differs from its exact index scope");
         }
-        var authority = DeferredIndexAuthorityResolver.resolveExisting(builds, descriptor);
+        var authority = IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())
+                ? DeferredIndexAuthorityResolver.resolveExisting(builds, descriptor)
+                : DeferredIndexAuthorityResolver.resolveScalar(
+                        descriptor, descriptor.state() == IndexState.DROPPED
+                                ? indexes.loadDroppedIndexCleanupPrincipal(descriptor)
+                                : indexes.loadAuthorizedBuildPrincipal(descriptor));
         var provider = accessors.forSession(authority.session()).resolveSnapshotPinProvider();
         if (provider == null) {
             throw new IllegalStateException("Authorized catalog does not support snapshot pinning");

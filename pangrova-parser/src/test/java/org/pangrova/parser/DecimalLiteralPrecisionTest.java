@@ -64,4 +64,11 @@ class DecimalLiteralPrecisionTest {
         assertThat(parsed.toPlainString()).isEqualTo(text);
         assertThat(parsed.signum()).isEqualTo(-1);
     }
+
+    @Test
+    void scientificNotationPreservesExactDecimalValue() {
+        for (String text : new String[] {"3.3283234E-4", "-6.222725e-5", "1E+3", ".25e2", "4."}) {
+            assertThat(parseDecimal(text)).isEqualByComparingTo(new BigDecimal(text));
+        }
+    }
 }

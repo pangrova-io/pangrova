@@ -23,6 +23,7 @@ import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
+import org.pangrova.spi.index.IndexType;
 import org.pangrova.spi.index.statistics.DataFileStatistics;
 import org.pangrova.spi.index.statistics.FileColumnStatistics;
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,13 +70,31 @@ class IndexCommitHandlerStatisticsTest {
 
     @Test
     void unscopedMaintenanceCannotSilentlyAcceptCommit() {
-        var env = createEnv(statsFor("f1.parquet"));
-        var files = merged(CommitEventType.APPEND, List.of("f1.parquet"), List.of());
+        var env = createUnscopedEnv(statsFor("f1.parquet"));
+        env.store.indexesForTable = List.of(new IndexDescriptor(
+                "index-1", "test-index", "cat", "sch", "tbl", List.of("col1"),
+                IndexType.BLOOM_FILTER, Map.of(), IndexState.READY, null, 0,
+                "snap-0", "snap-0", Instant.now(), Instant.now(), "tenant-a"));
+        var files = merged(CommitEventType.OVERWRITE, List.of("f1.parquet"), List.of("old.parquet"));
 
         assertThatThrownBy(() -> env.handler.processTableCommit(files))
                 .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("trusted authorization scope");
         assertThat(env.store.insertedStats).isEmpty();
+        assertThat(env.store.deletedStatsPaths).isEmpty();
+    }
+
+    @Test
+    void commitWithoutReadyIndexesSkipsConnectorLookup() {
+        var env = createEnv(statsFor("f1.parquet"));
+        var files = merged(CommitEventType.APPEND, List.of("f1.parquet"), List.of());
+        var processed = new AtomicInteger();
+        env.handler.registerDurableCommitProcessor(event -> processed.incrementAndGet());
+
+        env.handler.processTableCommit(files);
+
+        assertThat(env.store.insertedStats).isEmpty();
+        assertThat(processed.get()).isEqualTo(1);
     }
 
     @Test
@@ -114,7 +134,7 @@ class IndexCommitHandlerStatisticsTest {
 
     @Test
     void preservesCatalogSchemaTableContext() {
-        var env = createEnv(statsFor("f1.parquet"));
+        var env = createEnv(statsFor("f1.parquet"), "my_sch");
         var files = new IndexCommitHandler.MergedCommitFiles(
                 "tenant-a", "cat", "my_sch", "my_tbl",
                 new ArrayList<>(List.of("f1.parquet")), new ArrayList<>(),
@@ -128,9 +148,7 @@ class IndexCommitHandlerStatisticsTest {
     }
 
     @Test
-    void appendOverwriteCompactAllTriggerStatisticsInProcessTableCommit() {
-        // Verify event type routing: APPEND/OVERWRITE/COMPACT have addedFiles
-        // and should trigger collectFileStatistics in processTableCommit.
+    void appendOverwriteCompactWithoutReadyIndexesDoNotReadSourceStatistics() {
         for (CommitEventType type : List.of(
                 CommitEventType.APPEND, CommitEventType.OVERWRITE, CommitEventType.COMPACT)) {
             var env = createEnv(statsFor("f.parquet"));
@@ -139,8 +157,8 @@ class IndexCommitHandlerStatisticsTest {
             env.handler.processTableCommit(files);
 
             assertThat(env.store.insertedStats)
-                    .as("Event type %s should collect statistics", type)
-                    .isNotEmpty();
+                    .as("Event type %s must not read source statistics without a READY index", type)
+                    .isEmpty();
             tearDown();
         }
     }
@@ -218,15 +236,24 @@ class IndexCommitHandlerStatisticsTest {
             IndexBuildCoordinator buildCoordinator) {}
 
     private TestEnv createEnv(List<DataFileStatistics> connectorStats) {
-        return buildTestEnv(new StatisticsConnectorMetadata(connectorStats));
+        return createEnv(connectorStats, "sch");
+    }
+
+    private TestEnv createEnv(List<DataFileStatistics> connectorStats, String schema) {
+        return buildTestEnv(new StatisticsConnectorMetadata(connectorStats), schema, true);
+    }
+
+    private TestEnv createUnscopedEnv(List<DataFileStatistics> connectorStats) {
+        return buildTestEnv(new StatisticsConnectorMetadata(connectorStats), "sch", false);
     }
 
     private TestEnv createEnvWithFailingConnector() {
-        return buildTestEnv(new FailingConnectorMetadata());
+        return buildTestEnv(new FailingConnectorMetadata(), "sch", true);
     }
 
-    private TestEnv buildTestEnv(ConnectorMetadata connectorMetadata) {
+    private TestEnv buildTestEnv(ConnectorMetadata connectorMetadata, String schema, boolean scoped) {
         var store = new RecordingMetadataStore();
+        store.authorizedFixture = scoped;
         var connector = new MinimalConnector(connectorMetadata);
         var catDesc = new CatalogDescriptor(
                 "cat", CatalogType.CONNECTOR, "test-provider",
@@ -239,6 +266,21 @@ class IndexCommitHandlerStatisticsTest {
         registry.initialize();
 
         var resolver = new ConnectorAccessorResolver(registry);
+        if (scoped) {
+            // This is a connector statistics unit fixture. It binds a concrete
+            // operation identity; production maintenance still requires a
+            // persisted subject and current security reauthorization.
+            resolver = resolver.forSession(new ConnectorSession() {
+                @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
+                        getQueryAuthority() { return Optional.empty(); }
+                @Override public String getUser() { return "statistics-fixture-reader"; }
+                @Override public Optional<String> getCatalog() { return Optional.of("cat"); }
+                @Override public Optional<String> getSchema() { return Optional.of(schema); }
+                @Override public Map<String, String> getProperties() {
+                    return Map.of("tenant_id", "tenant-a");
+                }
+            });
+        }
 
         // Create minimal IndexBuildCoordinator (required non-null by IndexCommitContext)
         var config = new IndexingConfig("/tmp/test-index", false, null, null);
@@ -270,6 +312,15 @@ class IndexCommitHandlerStatisticsTest {
         volatile String deleteSchema;
         volatile String deleteTable;
         List<IndexDescriptor> indexesForTable = List.of();
+        boolean authorizedFixture;
+
+        @Override public String loadAuthorizedBuildPrincipal(IndexDescriptor descriptor) {
+            if (!authorizedFixture) {
+                throw new org.pangrova.spi.security.AccessDeniedException(
+                        "Index connector access requires a trusted authorization scope");
+            }
+            return "statistics-fixture-reader";
+        }
 
         @Override
         public void batchInsertFileStatistics(String catalog, String schema,

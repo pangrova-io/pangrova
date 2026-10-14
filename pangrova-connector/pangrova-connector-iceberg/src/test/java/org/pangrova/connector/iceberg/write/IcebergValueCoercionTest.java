@@ -17,6 +17,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 class IcebergValueCoercionTest {
 
     @Test
+    void unknownAcceptsOnlyNull() {
+        assertThat(IcebergValueCoercion.coerceValue(null, Types.UnknownType.get())).isNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> IcebergValueCoercion.coerceValue("unexpected", Types.UnknownType.get()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("only NULL");
+    }
+
+    @Test
+    void unknownIsAbsentFromPhysicalParquetSchema() {
+        var schema = new org.apache.iceberg.Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "future", Types.UnknownType.get()),
+                Types.NestedField.optional(3, "value", Types.StringType.get()));
+        var physical = IcebergValueCoercion.sanitizeSchemaForParquet(schema);
+        assertThat(physical.columns()).extracting(Types.NestedField::name)
+                .containsExactly("id", "value");
+        assertThat(physical.findField(3).fieldId()).isEqualTo(3);
+    }
+
+    @Test
     void binaryBytesBecomeBufferWhileFixedBytesRemainArray() {
         byte[] bytes = {0, 1, -1};
 

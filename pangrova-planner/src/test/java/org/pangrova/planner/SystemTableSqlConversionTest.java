@@ -40,4 +40,24 @@ class SystemTableSqlConversionTest {
         assertThat(((SqlIdentifier) calcite.getFrom()).names)
                 .containsExactly("lake", "analytics", "orders$history");
     }
+
+    @Test
+    void tagsIdentifierRetainsSystemTableSuffix() {
+        var ast = new SqlParser().parse("SELECT tag_name FROM lake.analytics.orders$tags");
+
+        var calcite = (SqlSelect) new AstToSqlNodeConverter().convert(ast);
+
+        assertThat(((SqlIdentifier) calcite.getFrom()).names)
+                .containsExactly("lake", "analytics", "orders$tags");
+    }
+
+    @Test
+    void optionsIdentifierRetainsSystemTableSuffix() {
+        var ast = new SqlParser().parse("SELECT * FROM lake.analytics.orders$options");
+
+        var calcite = (SqlSelect) new AstToSqlNodeConverter().convert(ast);
+
+        assertThat(((SqlIdentifier) calcite.getFrom()).names)
+                .containsExactly("lake", "analytics", "orders$options");
+    }
 }

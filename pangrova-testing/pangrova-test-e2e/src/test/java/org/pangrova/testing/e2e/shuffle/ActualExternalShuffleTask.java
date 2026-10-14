@@ -12,7 +12,6 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
-import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.ExchangeDistribution;
 import org.pangrova.protocol.v2.ExchangeInputDetail;
@@ -54,7 +53,7 @@ final class ActualExternalShuffleTask {
     }
 
     static byte[] arrowBatch(int rows) throws Exception {
-        var field = new Field(SubstraitRelationLayout.physicalAlias(0),
+        var field = new Field("value",
                 FieldType.notNullable(new ArrowType.Int(64, true)), List.of());
         try (var allocator = new RootAllocator(ActualNativeTaskFixture.TASK_MEMORY_BYTES);
              var root = VectorSchemaRoot.create(new org.apache.arrow.vector.types.pojo.Schema(List.of(field)), allocator);

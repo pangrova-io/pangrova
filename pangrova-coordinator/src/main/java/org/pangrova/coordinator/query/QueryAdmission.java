@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.admission.QueryRejectedException;
+
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,7 +28,8 @@ final class QueryAdmission {
     static org.pangrova.coordinator.query.tenant.TenantQueryGuard tenantGuard(
             QueryManagerContext context, java.util.Collection<QueryStateMachine> queries) {
         if (context.tenantResolver() == null || context.quotaChecker() == null) return null;
-        return new org.pangrova.coordinator.query.tenant.TenantQueryGuard(context.tenantResolver(), context.quotaChecker(),
+        return new org.pangrova.coordinator.query.tenant.TenantQueryGuard(
+                context.tenantResolver(), context.quotaChecker(),
                 tenantId -> {
                     int concurrent = 0;
                     int queued = 0;
@@ -62,8 +65,11 @@ final class QueryAdmission {
         if (!decision.isAdmitted()) {
             QueryRejectedException rejected = new QueryRejectedException(
                     "Cluster admission denied for tenant " + tenantId + ": " + decision.reason());
-            try { state.releaseAdmission(); }
-            catch (RuntimeException | Error cleanup) { rejected.addSuppressed(cleanup); }
+            try {
+                state.releaseAdmission();
+            } catch (RuntimeException | Error cleanup) {
+                rejected.addSuppressed(cleanup);
+            }
             throw rejected;
         }
     }

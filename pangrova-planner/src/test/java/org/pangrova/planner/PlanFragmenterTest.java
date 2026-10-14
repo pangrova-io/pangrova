@@ -11,7 +11,10 @@ import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalWindow;
+import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.core.Window;
+import org.apache.calcite.rel.core.TableModify;
+import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
@@ -48,6 +51,190 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlanFragmenterTest {
+
+    @Test
+    void vectorTopKHintRetainsSourceThroughValidatedArrayCast() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("vectors", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT)
+                        .add("embedding", factory.createArrayType(
+                                factory.createSqlType(SqlTypeName.REAL), -1)).build();
+            }
+        });
+        var plan = new PangrovaPlanner(schema).plan(
+                "SELECT id, l2_distance(embedding, ARRAY[1.0, 0.0]) AS dist "
+                        + "FROM vectors ORDER BY l2_distance(embedding, ARRAY[1.0, 0.0]) LIMIT 5").plan();
+
+        var conversion = new SubstraitConverter().convertWithResult(plan, List.of());
+
+        assertThat(conversion.retrievalTopKHints()).singleElement().satisfies(hint -> {
+            assertThat(hint.kind()).isEqualTo(RetrievalTopKPlanHint.Kind.VECTOR);
+            assertThat(hint.sourceKey()).isEqualTo("VECTOR:embedding");
+        });
+    }
+
+    @Test
+    void projectedNonEquiJoinKeepsBothScanInputsInOneTask() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("region", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("r_regionkey", SqlTypeName.BIGINT)
+                        .add("r_name", SqlTypeName.VARCHAR, 25).build();
+            }
+        });
+        schema.add("nation", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("n_regionkey", SqlTypeName.BIGINT)
+                        .add("n_name", SqlTypeName.VARCHAR, 25).build();
+            }
+        });
+        var plan = new PangrovaPlanner(schema).plan(
+                "SELECT r.r_name, n.n_name FROM region r, nation n "
+                + "WHERE r.r_regionkey < n.n_regionkey").plan();
+
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+
+        assertThat(fragmented.transfers()).isEmpty();
+        assertThat(fragmented.stages()).singleElement().satisfies(stage ->
+                assertThat(stage.parallelism()).isOne());
+    }
+
+    @Test
+    void lateralCountStageSchemasMatchTheirProducer() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("orders", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("o_orderkey", SqlTypeName.BIGINT).build();
+            }
+        });
+        schema.add("lineitem", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("l_orderkey", SqlTypeName.BIGINT).build();
+            }
+        });
+        var planner = new PangrovaPlanner(schema);
+        var plan = planner.plan("SELECT o.o_orderkey, sub.item_count FROM orders o, "
+                + "LATERAL (SELECT COUNT(*) AS item_count FROM lineitem l "
+                + "WHERE l.l_orderkey = o.o_orderkey) AS sub "
+                + "ORDER BY o.o_orderkey LIMIT 5").plan();
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+        var compiler = new SqlCompiler(planner, new SubstraitConverter(),
+                new SubstraitPlanSerializer());
+        assertThat(AuthorizedStageGraph.compile(fragmented, compiler,
+                List.of("o_orderkey", "item_count"),
+                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT).stages()).isNotEmpty();
+    }
+
+    @Test
+    void correlatedScalarAggregateKeepsOuterBindingInOneStage() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("orders", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT)
+                        .add("amount", SqlTypeName.DOUBLE)
+                        .add("region", SqlTypeName.VARCHAR, 20).build();
+            }
+        });
+        var plan = new PangrovaPlanner(schema).plan(
+                "SELECT id FROM orders o WHERE amount > "
+                + "(SELECT AVG(amount) FROM orders i WHERE i.region = o.region)").plan();
+
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+
+        assertThat(fragmented.transfers()).isEmpty();
+        assertThat(fragmented.stages()).singleElement().satisfies(stage -> {
+            assertThat(stage.parallelism()).isEqualTo(1);
+            assertThat(new SubstraitConverter().convert(stage.fragment().planNode)
+                    .getRoots()).hasSize(1);
+        });
+    }
+
+    @Test
+    void correlatedExistsKeepsItsFilterAndOuterBindingInOneStage() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("orders", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT).build();
+            }
+        });
+        schema.add("lineitem", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("order_id", SqlTypeName.BIGINT)
+                        .add("quantity", SqlTypeName.BIGINT).build();
+            }
+        });
+        var plan = new PangrovaPlanner(schema).plan(
+                "SELECT id FROM orders o WHERE EXISTS (SELECT * FROM lineitem l "
+                + "WHERE l.order_id = o.id AND l.quantity > 0)").plan();
+
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+
+        assertThat(fragmented.transfers()).isEmpty();
+        assertThat(fragmented.stages()).singleElement().satisfies(stage -> {
+            assertThat(stage.parallelism()).isOne();
+            assertThat(new SubstraitConverter().convert(stage.fragment().planNode)
+                    .getRoots()).hasSize(1);
+        });
+    }
+
+    @Test
+    void correlatedExistsWithAggregateKeepsOrderAndLineFilters() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("orders", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("o_orderkey", SqlTypeName.BIGINT)
+                        .add("o_orderpriority", SqlTypeName.VARCHAR, 20)
+                        .add("o_orderdate", SqlTypeName.DATE).build();
+            }
+        });
+        schema.add("lineitem", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("l_orderkey", SqlTypeName.BIGINT)
+                        .add("l_commitdate", SqlTypeName.DATE)
+                        .add("l_receiptdate", SqlTypeName.DATE).build();
+            }
+        });
+        var plan = new PangrovaPlanner(schema).plan(
+                "SELECT o_orderpriority, COUNT(*) AS order_count FROM orders "
+                + "WHERE o_orderdate >= DATE '1993-07-01' AND EXISTS ("
+                + "SELECT * FROM lineitem WHERE l_orderkey = o_orderkey "
+                + "AND l_commitdate < l_receiptdate) GROUP BY o_orderpriority").plan();
+
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+
+        assertThat(fragmented.transfers()).isEmpty();
+        assertThat(fragmented.stages()).singleElement().satisfies(stage -> {
+            assertThat(stage.parallelism()).isOne();
+            assertThat(new SubstraitConverter().convert(stage.fragment().planNode)
+                    .getRoots()).hasSize(1);
+        });
+    }
+
+    @Test
+    void tableModifyKeepsOneWriteStageAndPhysicalTargetColumns() {
+        var schema = org.apache.calcite.tools.Frameworks.createRootSchema(true);
+        schema.add("documents", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT)
+                        .add("amount", SqlTypeName.DOUBLE).build();
+            }
+        });
+        var builder = org.apache.calcite.tools.RelBuilder.create(
+                org.apache.calcite.tools.Frameworks.newConfigBuilder().defaultSchema(schema).build());
+        TableScan scan = (TableScan) builder.scan("documents").build();
+        var modify = LogicalTableModify.create(scan.getTable(), null, scan,
+                TableModify.Operation.DELETE, null, null, false);
+
+        var fragmented = PlanFragmenter.fragment(modify, 8);
+        assertThat(fragmented.transfers()).isEmpty();
+        assertThat(fragmented.stages()).singleElement().satisfies(stage -> {
+            assertThat(stage.parallelism()).isEqualTo(1);
+            assertThat(stage.taskType()).isEqualTo("OUTPUT");
+            assertThat(new SubstraitConverter().convert(stage.fragment().planNode)
+                    .getRoots().get(0).getNames()).containsExactly("id", "amount");
+        });
+    }
 
     @Test
     void unknownDeclaredSourceDoesNotTreatCalciteDefault100AsObservedRows() {
@@ -108,6 +295,22 @@ class PlanFragmenterTest {
         assertThat(input.downstreamStageId()).isEqualTo(consumer.stageId());
         assertThat(input.partitionCount()).isEqualTo(8);
         assertThat(input.requireComplete()).isTrue();
+    }
+
+    @Test
+    void clusterLimitCapsExchangeCohortBeforePartitionIdentityIsAllocated() {
+        FragmentedPlan fragmented = PlanFragmenter.fragment(hashExchange(), 8,
+                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT, 4);
+
+        assertThat(fragmented.stages()).allSatisfy(stage ->
+                assertThat(stage.parallelism()).isLessThanOrEqualTo(4));
+        assertThat(fragmented.transfers()).filteredOn(transfer ->
+                transfer.shuffleType() == ShuffleType.HASH).singleElement().satisfies(transfer -> {
+                    assertThat(transfer.partitionCount()).isEqualTo(4);
+                    assertThat(findExchangeInput(stage(fragmented,
+                            transfer.downstreamStageId()).fragment().relNode())
+                            .partitionCount()).isEqualTo(4);
+                });
     }
 
     @Test
@@ -257,6 +460,7 @@ class PlanFragmenterTest {
         assertThat(conversion.retrievalTopKHints()).hasSize(1);
         assertThat(conversion.retrievalTopKHints().get(0).candidateLimit()).isEqualTo(2);
     }
+
 
     @Test
     void hashPartitionsRawRowsBeforeGroupedNativeAggregation() {

@@ -218,6 +218,7 @@ void PangrovaVeloxDataSource::addSplit(
   // Reset merge reader from any previous split.
   merge_reader_.reset();
   metadata_reader_.reset();
+  paimon_snapshot_reader_.reset();
   lance_reader_.reset();
 #if PANGROVA_HAS_VELOX_DWIO
   velox_row_reader_.reset();
@@ -232,9 +233,20 @@ void PangrovaVeloxDataSource::addSplit(
     if (splitConfig.file_format != split::FileFormatType::METADATA_JSON) {
       throw std::runtime_error("System table split requires metadata JSON format");
     }
-    metadata_reader_ = std::make_unique<IcebergMetadataJsonReader>(
-        splitConfig.file_path, splitConfig.length, *splitConfig.system_table,
-        output_type_, pool_);
+    if (*splitConfig.system_table == split::SystemTableKind::PAIMON_SNAPSHOTS ||
+        *splitConfig.system_table == split::SystemTableKind::PAIMON_TAGS ||
+        *splitConfig.system_table == split::SystemTableKind::PAIMON_OPTIONS) {
+      paimon_snapshot_reader_ = std::make_unique<PaimonSnapshotJsonReader>(
+          splitConfig.file_path, splitConfig.length,
+          splitConfig.system_table_snapshot_id,
+          splitConfig.system_table_object_sha256, output_type_, pool_,
+          splitConfig.system_table_tag_name,
+          splitConfig.system_table_schema_id);
+    } else {
+      metadata_reader_ = std::make_unique<IcebergMetadataJsonReader>(
+          splitConfig.file_path, splitConfig.length, *splitConfig.system_table,
+          output_type_, pool_);
+    }
     return;
   }
 
@@ -478,6 +490,10 @@ void PangrovaVeloxDataSource::createReaderPair(
     }
   }
   facebook::velox::dwio::common::RowReaderOptions rowOpts;
+  // Velox defaults Parquet timestamps to millisecond output precision. Keep
+  // the file's microsecond and nanosecond fractions through scans and sorts.
+  rowOpts.setTimestampPrecision(
+      facebook::velox::TimestampPrecision::kNanoseconds);
 
   // Schema evolution: when column mappings are present, build a "reader type"
   // that uses source (physical) column names from the file schema. The Parquet
@@ -970,6 +986,17 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     checkCancelled();
     if (!rowVector) {
       metadata_reader_.reset();
+      return facebook::velox::RowVectorPtr(nullptr);
+    }
+    completed_rows_ += rowVector->size();
+    completed_bytes_ += rowVector->estimateFlatSize();
+    return rowVector;
+  }
+  if (paimon_snapshot_reader_) {
+    auto rowVector = paimon_snapshot_reader_->next(batchSize);
+    checkCancelled();
+    if (!rowVector) {
+      paimon_snapshot_reader_.reset();
       return facebook::velox::RowVectorPtr(nullptr);
     }
     completed_rows_ += rowVector->size();

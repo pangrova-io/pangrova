@@ -4,11 +4,10 @@ import javax.sql.DataSource;
 import java.util.concurrent.ExecutorService;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.coordinator.query.AsyncSubmitConfig;
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.coordination.JdbcWorkerRegistry;
 import org.pangrova.observability.audit.LogAuditStore;
 import org.pangrova.observability.audit.QueryAuditService;
@@ -27,6 +26,7 @@ import org.slf4j.LoggerFactory;
 final class QueryRuntimeWiring {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryRuntimeWiring.class);
+    private static final double DEFAULT_THROTTLE_BURST = 50.0;
 
     private final Dependencies dependencies;
 
@@ -47,7 +47,9 @@ final class QueryRuntimeWiring {
         if (dependencies.metadataDataSource() == null) {
             return new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
         }
-        var config = new StateJournalConfig("JDBC", null, 100, 50, 24, StateJournalConfig.NONE.maxResidentEvents());
+        var config = new StateJournalConfig("JDBC", null, StateJournalConfig.NONE.flushIntervalMs(),
+                StateJournalConfig.NONE.batchSize(), StateJournalConfig.NONE.retentionHours(),
+                StateJournalConfig.NONE.maxResidentEvents());
         return org.pangrova.coordinator.query.state.QueryStateJournalFactory.create(
                 config, dependencies.metadataDataSource());
     }
@@ -76,7 +78,7 @@ final class QueryRuntimeWiring {
                 dependencies.moduleWiring().getLineageEmitter(), auditEmitter,
                 new QueryAuditService(LogAuditStore.shared()),
                 dependencies.moduleWiring().getResilienceRegistry(),
-                new org.pangrova.planner.throttle.QueryThrottlingService(1000, 100.0, 50.0),
+                new org.pangrova.planner.throttle.QueryThrottlingService(1000, 100.0, DEFAULT_THROTTLE_BURST),
                 stateJournal, null, null, asyncConfig, asyncExecutor);
         LOG.info("event=async_submit_wired enabled={} submitTimeoutMs={}",
                 asyncConfig.enabled(), asyncConfig.submitTimeoutMs());

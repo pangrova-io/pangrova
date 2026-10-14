@@ -260,8 +260,7 @@ public final class RetrievalPlanBinder {
             long perSource = artifact.intent().invocationOptions().stream()
                     .filter(option -> option.getName().equals("search_list_size"))
                     .findFirst().orElseThrow().getValue().getInt64Value();
-            long sourceObjects = artifact.bindingTemplate().getSplitObjectsList().stream()
-                    .map(org.pangrova.protocol.v2.ArtifactObject::getSourceObjectId).distinct().count();
+            long sourceObjects = artifact.sourceObjectCount();
             candidateLimit = Math.toIntExact(Math.multiplyExact(perSource, sourceObjects));
             if (candidateLimit < outputLimit || candidateLimit > 100_000) {
                 throw validationFailure("Filtered retrieval work exceeds the bounded task contract");

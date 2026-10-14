@@ -34,6 +34,7 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryDurableRecoveryWiring.class);
     private static final int CLEANUP_PAGE_SIZE = 256;
+    private static final long CALLBACK_DRAIN_TIMEOUT_MS = 5_000;
 
     private final CoordinatorBootstrapConfig config;
     private final DataSource metadataDataSource;
@@ -151,7 +152,7 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
         if (future != null) {
             future.cancel(false);
         }
-        callbacks.close(5000);
+        callbacks.close(CALLBACK_DRAIN_TIMEOUT_MS);
     }
 
     ShuffleExecutionOwner resolveShuffleOwner(String queryId) {
@@ -172,7 +173,8 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
             return Set.of();
         }
         try (var operation = callbacks.enter()) {
-            java.util.concurrent.atomic.AtomicReference<Set<String>> result = new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicReference<Set<String>> result =
+                    new java.util.concurrent.atomic.AtomicReference<>();
             operation.run(() -> result.set(recoverEntered(claimed, service, writeCommitRecoveryService)));
             return result.get();
         }
@@ -218,14 +220,18 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
         }
         try {
             var operation = callbacks.enter();
-            try { cleanupExecutor.execute(() -> operation.run(() -> {
-                try {
-                    retryOwnedShuffleCleanups(cleanupExecutor);
-                } finally {
-                    scanRunning.set(false);
-                }
-            })); }
-            catch (RuntimeException | Error failure) { operation.close(); throw failure; }
+            try {
+                cleanupExecutor.execute(() -> operation.run(() -> {
+                    try {
+                        retryOwnedShuffleCleanups(cleanupExecutor);
+                    } finally {
+                        scanRunning.set(false);
+                    }
+                }));
+            } catch (RuntimeException | Error failure) {
+                operation.close();
+                throw failure;
+            }
         } catch (RejectedExecutionException rejected) {
             scanRunning.set(false);
             LOG.warn("event=shuffle_cleanup_scan_rejected error={}", rejected.getMessage());
@@ -257,8 +263,12 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
         }
         try {
             var operation = callbacks.enter();
-            try { cleanupExecutor.execute(() -> operation.run(() -> runShuffleCleanup(queryId))); }
-            catch (RuntimeException | Error failure) { operation.close(); throw failure; }
+            try {
+                cleanupExecutor.execute(() -> operation.run(() -> runShuffleCleanup(queryId)));
+            } catch (RuntimeException | Error failure) {
+                operation.close();
+                throw failure;
+            }
             return true;
         } catch (RejectedExecutionException rejected) {
             cleanupInFlight.remove(queryId);

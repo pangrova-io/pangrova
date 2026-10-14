@@ -1,15 +1,26 @@
 package org.pangrova.testing.e2e.connector;
 
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.testing.e2e.SqlE2ETestBase;
-import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.hadoop.HadoopInputFile;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.data.parquet.GenericParquetReaders;
+import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.parquet.Parquet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
-
-import java.util.List;
-import java.time.LocalDateTime;
+import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.testing.e2e.SqlE2ETestBase;
+import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,6 +60,14 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
     }
 
     @Test
+    @DisplayName("Timestamp literals retain fractional precision before storage")
+    void timestampLiteralPreservesPrecisionBeforeWrite() {
+        var rows = sqlRunner.execute("SELECT TIMESTAMP '2025-01-01 00:00:00.123456789' AS event_time");
+        assertThat(rows).extracting(row -> row.getTimestamp("event_time"))
+                .containsExactly(LocalDateTime.parse("2025-01-01T00:00:00.123456789"));
+    }
+
+    @Test
     @DisplayName("CTAS preserves nanos and creates a suitable v3 destination without explicit properties")
     void timestampNsCtasPreservesPrecision() {
         sqlRunner.executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, event_time TIMESTAMP_NS)");
@@ -59,7 +78,7 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
         String destination = fqn() + "_ctas";
         sqlRunner.executeDdl("CREATE TABLE " + destination + " AS SELECT id, event_time FROM " + fqn());
         var rows = sqlRunner.execute("SELECT event_time FROM " + destination + " ORDER BY id");
-        assertThat(rows).extracting(row -> LocalDateTime.parse(row.getString("event_time")))
+        assertThat(rows).extracting(row -> row.getTimestamp("event_time"))
                 .containsExactly(LocalDateTime.parse("2025-01-01T00:00:00.123456789"),
                         LocalDateTime.parse("2025-01-01T00:00:00.123456788"),
                         LocalDateTime.parse("1969-12-31T23:59:59.999999999"));
@@ -100,9 +119,9 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
 
         assertThat(rows).hasSize(3);
 
-        String ts1 = rows.get(0).getString("event_time");
-        String ts2 = rows.get(1).getString("event_time");
-        String ts3 = rows.get(2).getString("event_time");
+        LocalDateTime ts1 = rows.get(0).getTimestamp("event_time");
+        LocalDateTime ts2 = rows.get(1).getTimestamp("event_time");
+        LocalDateTime ts3 = rows.get(2).getTimestamp("event_time");
 
         assertThat(ts1).isNotEqualTo(ts2);
         assertThat(ts1).isNotEqualTo(ts3);
@@ -134,7 +153,7 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
 
     @Test
     @DisplayName("VALUES writes retain epoch sign and nanosecond fractions")
-    void timestampValuesPreserveEpochAndFraction() {
+    void timestampValuesPreserveEpochAndFraction() throws Exception {
         sqlRunner.executeDdl("CREATE TABLE " + fqn()
                 + " (id BIGINT, event_time TIMESTAMP_NS)"
                 + " TBLPROPERTIES ('format-version' = '3')");
@@ -144,16 +163,48 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
                 + "(3, TIMESTAMP '1970-01-01 00:00:00'), "
                 + "(4, TIMESTAMP '2025-01-01 00:00:00.123456788')");
 
+        assertThat(readStoredTimestamps()).containsEntry(1L,
+                LocalDateTime.parse("2025-01-01T00:00:00.123456789"))
+                .containsEntry(4L, LocalDateTime.parse("2025-01-01T00:00:00.123456788"));
+
+        var idOrdered = sqlRunner.execute("SELECT id, event_time FROM " + fqn() + " ORDER BY id");
+        assertThat(idOrdered).extracting(row -> row.getTimestamp("event_time"))
+                .containsExactly(LocalDateTime.parse("2025-01-01T00:00:00.123456789"),
+                        LocalDateTime.parse("1969-12-31T23:59:59.999999999"),
+                        LocalDateTime.parse("1970-01-01T00:00:00"),
+                        LocalDateTime.parse("2025-01-01T00:00:00.123456788"));
+
         List<TypedRow> rows = sqlRunner.execute(
                 "SELECT id, event_time FROM " + fqn() + " ORDER BY event_time");
 
         assertThat(rows).extracting(row -> row.getLong("id")).containsExactly(2L, 3L, 4L, 1L);
-        assertThat(rows).extracting(row -> LocalDateTime.parse(row.getString("event_time")))
+        assertThat(rows).extracting(row -> row.getTimestamp("event_time"))
                 .containsExactly(
                         LocalDateTime.parse("1969-12-31T23:59:59.999999999"),
                         LocalDateTime.parse("1970-01-01T00:00:00"),
                         LocalDateTime.parse("2025-01-01T00:00:00.123456788"),
                         LocalDateTime.parse("2025-01-01T00:00:00.123456789"));
+    }
+
+    private Map<Long, LocalDateTime> readStoredTimestamps() throws Exception {
+        Path tablePath = icebergWarehouse().resolve(SCHEMA).resolve(tableName);
+        var schema = new HadoopTables(new Configuration()).load(tablePath.toString()).schema();
+        Map<Long, LocalDateTime> values = new HashMap<>();
+        try (var files = Files.list(tablePath.resolve("data"))) {
+            for (Path path : files.filter(file -> file.toString().endsWith(".parquet")).toList()) {
+                var input = HadoopInputFile.fromPath(new org.apache.hadoop.fs.Path(path.toUri()),
+                        new Configuration());
+                try (CloseableIterable<Record> rows = Parquet.read(input).project(schema)
+                        .createReaderFunc(fileSchema -> GenericParquetReaders.buildReader(schema, fileSchema))
+                        .build()) {
+                    for (Record row : rows) {
+                        values.put(((Number) row.getField("id")).longValue(),
+                                (LocalDateTime) row.getField("event_time"));
+                    }
+                }
+            }
+        }
+        return values;
     }
 
     @Test
@@ -169,7 +220,7 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
         List<TypedRow> rows = sqlRunner.execute(
                 "SELECT event_time FROM " + fqn() + " ORDER BY id");
 
-        assertThat(rows).extracting(row -> LocalDateTime.parse(row.getString("event_time")))
+        assertThat(rows).extracting(row -> row.getTimestamp("event_time"))
                 .containsExactly(
                         LocalDateTime.parse("1969-12-31T23:59:59.999999"),
                         LocalDateTime.parse("1970-01-01T00:00:00.000001"),

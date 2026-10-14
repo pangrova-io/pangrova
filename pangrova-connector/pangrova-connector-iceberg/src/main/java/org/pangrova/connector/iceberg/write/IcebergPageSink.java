@@ -18,7 +18,7 @@ import java.util.StringJoiner;
  * tables, buffers records and writes one data file per partition so that
  * each file carries correct partition metadata for pruning and overwrite.
  */
-public class IcebergPageSink extends AbstractIcebergPageSink {
+public final class IcebergPageSink extends AbstractIcebergPageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergPageSink.class);
 

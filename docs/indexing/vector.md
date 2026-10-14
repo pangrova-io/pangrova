@@ -114,11 +114,11 @@ FROM embeddings
 ORDER BY l2_distance(embedding, ARRAY[0.1, 0.2, ...])
 LIMIT 10;
 
--- Pre-filter + ANN hybrid
+-- Pre-filtered DiskANN (L2)
 SELECT id, content
 FROM embeddings
 WHERE category = 'tech' AND created_at > '2024-01-01'
-ORDER BY cosine_distance(embedding, ARRAY[0.1, 0.2, ...])
+ORDER BY l2_distance(embedding, ARRAY[0.1, 0.2, ...])
 LIMIT 10;
 
 ```
@@ -129,5 +129,15 @@ coverage, checksums, row-locator contract, and generation. Workers that do not
 advertise the exact capability and format are ineligible. Missing or incomplete
 artifacts cannot silently return an empty or partial Top-K; behavior follows the
 explicit execution policy.
+
+Filtered DiskANN requires a complete published source-object generation for
+the task's scan. If file pruning leaves only part of that generation, the
+query uses the exact Native scan. A supported full-source predicate executes
+the filtered Native ANN operator; predicates outside its typed plan shape also
+use the exact scan. `search_list_size` bounds graph exploration per source
+object. A selective filter can need more exploration to fill `LIMIT k`; when
+the bound is insufficient, the task reports an error rather than returning a
+short or silently substituted result. Size this bound for the workload and
+verify Recall and latency on the intended data distribution.
 
 **See Also:** [Vector Search](../sql-reference/functions/vector-search.md) for the full query-side guide, [Vector Functions](../sql-reference/functions/vector.md), [Indexing Architecture](../architecture/indexing.md) for the design

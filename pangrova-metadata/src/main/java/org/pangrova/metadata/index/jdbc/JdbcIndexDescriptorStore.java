@@ -4,6 +4,14 @@ import org.pangrova.metadata.exception.IndexAlreadyExistsException;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
+import org.pangrova.spi.index.IndexType;
+import org.pangrova.security.authz.DeferredAuthorizationScope;
+import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
+import org.pangrova.security.store.PersistentDeferredAuthorization;
+import org.pangrova.security.store.AuthorizationTransactionGate;
+import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -13,6 +21,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.pangrova.metadata.index.IndexMetadataMapper.bindDescriptor;
 import static org.pangrova.metadata.index.IndexMetadataMapper.mapDescriptor;
@@ -28,21 +37,38 @@ import org.pangrova.metadata.index.IndexMetadataMapper;
  * and state queries.
  */
 final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
+    private static final int BUILD_PRINCIPAL_PARAMETER = 17;
+    private static final int BUILD_SCOPE_PARAMETER = 18;
 
     JdbcIndexDescriptorStore(DataSource dataSource) {
         super(dataSource);
     }
 
     void registerIndex(IndexDescriptor descriptor) {
-        purgeDroppedByName(descriptor.tenantId(), descriptor.catalogName(), descriptor.schemaName(),
-                descriptor.tableName(), descriptor.indexName());
+        registerIndex(descriptor, null, null);
+    }
+
+    void registerIndexWithBuildAuthority(IndexDescriptor descriptor, String principal) {
+        if (principal == null || principal.isBlank()) {
+            throw new AccessDeniedException("Scalar index build requires its authenticated subject");
+        }
+        registerIndex(descriptor, principal, exactScope(descriptor));
+    }
+
+    private void registerIndex(IndexDescriptor descriptor, String principal, DeferredAuthorizationScope scope) {
         String sql = "INSERT INTO index_descriptors "
                 + "(index_id, index_name, catalog_name, schema_name, table_name, "
                 + "column_names, index_type, properties, state, stale_reason, "
                 + "generation, build_snapshot_id, last_indexed_snapshot_id, created_at, updated_at, "
-                + "tenant_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                + "tenant_id, build_principal, build_authorization_scope) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try {
-            executeUpdate(sql, ps -> bindDescriptor(ps, descriptor));
+            executeUpdate(sql, ps -> {
+                bindDescriptor(ps, descriptor);
+                ps.setString(BUILD_PRINCIPAL_PARAMETER, principal);
+                ps.setBytes(BUILD_SCOPE_PARAMETER,
+                        scope == null ? null : DeferredAuthorizationScopeCodec.encode(scope));
+            });
         } catch (MetastoreException e) {
             if (isUniqueConstraintViolation(e)) {
                 throw new IndexAlreadyExistsException(descriptor.indexName(), descriptor.tableName());
@@ -51,31 +77,152 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         }
     }
 
-    private void purgeDroppedByName(
-            String tenantId, String catalog, String schema, String table, String name) {
-        executeUpdate("DELETE FROM index_file_mappings WHERE index_id IN "
-                        + "(SELECT index_id FROM index_descriptors "
-                        + "WHERE tenant_id=? AND catalog_name=? AND schema_name=? AND table_name=? "
-                        + "AND index_name=? AND state=?)",
-                ps -> {
-                    ps.setString(1, tenantId);
-                    ps.setString(2, catalog);
-                    ps.setString(3, schema);
-                    ps.setString(4, table);
-                    ps.setString(5, name);
-                    ps.setString(6, IndexState.DROPPED.name());
-                });
-        executeUpdate("DELETE FROM index_descriptors "
-                        + "WHERE tenant_id=? AND catalog_name=? AND schema_name=? AND table_name=? "
-                        + "AND index_name=? AND state=?",
-                ps -> {
-                    ps.setString(1, tenantId);
-                    ps.setString(2, catalog);
-                    ps.setString(3, schema);
-                    ps.setString(4, table);
-                    ps.setString(5, name);
-                    ps.setString(6, IndexState.DROPPED.name());
-                });
+    String loadAuthorizedBuildPrincipal(IndexDescriptor descriptor) {
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                AuthorizationTransactionGate.lockPublication(connection);
+                String principal = readAndAuthorizeBuildPrincipal(connection, descriptor, true);
+                connection.commit();
+                return principal;
+            } catch (SQLException | RuntimeException failure) {
+                connection.rollback();
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to authorize scalar index build", failure);
+        }
+    }
+
+    String loadDroppedIndexCleanupPrincipal(IndexDescriptor descriptor) {
+        if (descriptor.state() != IndexState.DROPPED) {
+            throw new AccessDeniedException("Cleanup authority requires a DROPPED index");
+        }
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                AuthorizationTransactionGate.lockPublication(connection);
+                String principal = readAndAuthorizeBuildPrincipal(connection, descriptor, false);
+                connection.commit();
+                return principal;
+            } catch (SQLException | RuntimeException failure) {
+                connection.rollback();
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to authorize scalar index cleanup", failure);
+        }
+    }
+
+    void withIndexLifecycleLock(String indexId, Runnable action) {
+        if (indexId == null || indexId.isBlank() || action == null) {
+            throw new IllegalArgumentException("Index lifecycle lock requires an index ID and action");
+        }
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement lock = connection.prepareStatement(
+                    "SELECT pg_advisory_xact_lock(17001, hashtext(?))")) {
+                lock.setString(1, indexId);
+                lock.executeQuery().close();
+                action.run();
+                connection.commit();
+            } catch (SQLException | RuntimeException failure) {
+                connection.rollback();
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to hold index lifecycle lock", failure);
+        }
+    }
+
+    private static String readAndAuthorizeBuildPrincipal(Connection connection,
+                                                          IndexDescriptor descriptor,
+                                                          boolean requireCurrentGrant)
+            throws SQLException {
+        String sql = "SELECT tenant_id, catalog_name, schema_name, table_name, column_names, "
+                + "index_type, state, build_principal, build_authorization_scope "
+                + "FROM index_descriptors WHERE index_id=? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, descriptor.indexId());
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    throw new AccessDeniedException("Scalar index no longer exists");
+                }
+                String principal = row.getString("build_principal");
+                byte[] bytes = row.getBytes("build_authorization_scope");
+                if (principal == null || principal.isBlank() || bytes == null) {
+                    throw new AccessDeniedException("Scalar index has no durable build authority");
+                }
+                DeferredAuthorizationScope actual = decodeScope(bytes);
+                if (!descriptor.tenantId().equals(row.getString("tenant_id"))
+                        || !descriptor.catalogName().equals(row.getString("catalog_name"))
+                        || !descriptor.schemaName().equals(row.getString("schema_name"))
+                        || !descriptor.tableName().equals(row.getString("table_name"))
+                        || !descriptor.columnNames().equals(
+                                IndexMetadataMapper.fromJsonList(row.getString("column_names")))
+                        || !descriptor.indexType().name().equals(row.getString("index_type"))
+                        || !actual.equals(exactScope(descriptor))) {
+                    throw new AccessDeniedException("Scalar index differs from its durable build authority");
+                }
+                if (!requireCurrentGrant && !IndexState.DROPPED.name().equals(row.getString("state"))) {
+                    throw new AccessDeniedException("Index is no longer DROPPED for cleanup");
+                }
+                if (requireCurrentGrant) {
+                    JdbcTenantStore.requireDeferredTenant(connection, principal, descriptor.tenantId(), actual);
+                    PersistentDeferredAuthorization.requireCurrent(connection, principal, actual);
+                }
+                return principal;
+            }
+        }
+    }
+
+    static void requireCurrentScalarPublicationAuthority(Connection connection, String indexId)
+            throws SQLException {
+        IndexDescriptor descriptor;
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT * FROM index_descriptors WHERE index_id=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    throw new AccessDeniedException("Index no longer exists before publication");
+                }
+                descriptor = mapDescriptor(row);
+            }
+        }
+        if (descriptor.indexType() == IndexType.VECTOR || descriptor.indexType() == IndexType.INVERTED) {
+            return;
+        }
+        readAndAuthorizeBuildPrincipal(connection, descriptor, true);
+    }
+
+    private static DeferredAuthorizationScope decodeScope(byte[] bytes) {
+        try {
+            return DeferredAuthorizationScopeCodec.decode(bytes);
+        } catch (IllegalArgumentException corrupt) {
+            throw new AccessDeniedException("Scalar index build authority is corrupt");
+        }
+    }
+
+    private static DeferredAuthorizationScope exactScope(IndexDescriptor descriptor) {
+        var table = new QualifiedTableName(
+                descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
+        return DeferredAuthorizationScope.raw(table, Set.copyOf(descriptor.columnNames()), table);
+    }
+
+    boolean isIndexSnapshotBuildable(String indexId, String snapshotId) {
+        if (snapshotId == null || snapshotId.isBlank()) {
+            return false;
+        }
+        String sql = "SELECT 1 FROM index_descriptors WHERE index_id=? "
+                + "AND state='BUILDING' AND build_snapshot_id=? "
+                + "UNION ALL SELECT 1 FROM index_generation_builds WHERE index_id=? "
+                + "AND state='BUILDING' AND source_snapshot=? LIMIT 1";
+        return executeQuery(sql, statement -> {
+            statement.setString(1, indexId);
+            statement.setString(2, snapshotId);
+            statement.setString(3, indexId);
+            statement.setString(4, snapshotId);
+        }, ResultSet::next);
     }
 
     void updateIndexState(String indexId, String newState, Instant timestamp) {
@@ -401,10 +548,12 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
     }
 
     void purgeIndex(String indexId) {
-        executeUpdate("DELETE FROM index_file_mappings WHERE index_id=?",
+        int deleted = executeUpdateCount(
+                "DELETE FROM index_descriptors WHERE index_id=? AND state='DROPPED'",
                 ps -> ps.setString(1, indexId));
-        executeUpdate("DELETE FROM index_descriptors WHERE index_id=?",
-                ps -> ps.setString(1, indexId));
+        if (deleted == 0 && findIndex(indexId).isPresent()) {
+            throw new IllegalStateException("Only a dropped index may be purged: " + indexId);
+        }
     }
 
     // --- Schema evolution ---

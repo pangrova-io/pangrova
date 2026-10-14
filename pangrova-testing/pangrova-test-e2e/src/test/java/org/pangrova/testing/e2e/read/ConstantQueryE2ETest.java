@@ -80,17 +80,18 @@ class ConstantQueryE2ETest extends SqlE2ETestBase {
     void nativeResultIsNotFinishedBeforeDoGet() throws Exception {
         var submitted = submitQueryViaHttp("SELECT CAST(42 AS BIGINT)");
         String queryId = submitted.queryId();
-        String canonicalTaskId = submitted.resultEndpoint() == null
-                ? null : submitted.resultEndpoint().ticket();
-        String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
+        var endpoint = awaitResultEndpoint(queryId, submitted.resultEndpoint());
+        String canonicalTaskId = requireNativeResultTaskId(endpoint, queryId, taskTracker);
+        String workerTaskId = null;
         boolean finished = false;
         try {
             assertThat(submitted.state()).isEqualTo("RUNNING");
-            assertThat(submitted.resultEndpoint()).isNotNull();
+            assertThat(endpoint).isNotNull();
+            workerTaskId = awaitWorkerTaskId(canonicalTaskId);
             assertThat(workerTaskId).isNotBlank();
 
             List<TypedRow> rows = fetchResultsViaTransport(
-                    submitted.resultEndpoint(), queryId);
+                    endpoint, queryId);
             assertThat(rows).hasSize(1);
             assertThat(((Number) firstColumnValue(rows.get(0))).longValue())
                     .isEqualTo(42L);

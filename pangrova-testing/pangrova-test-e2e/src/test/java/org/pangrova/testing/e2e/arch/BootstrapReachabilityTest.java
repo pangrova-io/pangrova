@@ -44,7 +44,8 @@ class BootstrapReachabilityTest {
     /** Top-level process entry points whose dependency graph defines "reachable". */
     private static final List<String> BOOTSTRAP_MAINS = List.of(
             "org.pangrova.coordinator.bootstrap.PangrovaCoordinatorMain",
-            "org.pangrova.worker.bootstrap.PangrovaWorkerMain"
+            "org.pangrova.worker.bootstrap.PangrovaWorkerMain",
+            "org.pangrova.shuffle.deployment.PangrovaShuffleServer"
     );
 
     private static final String DEAD_CODE_ANNOTATION =
@@ -79,8 +80,6 @@ class BootstrapReachabilityTest {
             "org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshCoordinator",
             "org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshLockCoordinator",
             "org.pangrova.coordinator.dynamictable.schedule.RefreshScheduler",
-            "org.pangrova.coordinator.coordination.ElectionScheduler",
-            "org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService",
             "org.pangrova.coordinator.query.cache.CacheWarmupService",
             "org.pangrova.coordinator.scheduler.StageScheduler",
             "org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler",

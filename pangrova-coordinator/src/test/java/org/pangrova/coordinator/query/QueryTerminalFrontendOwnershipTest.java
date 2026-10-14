@@ -108,6 +108,7 @@ class QueryTerminalFrontendOwnershipTest {
         manager.retryPendingTerminalCompletions();
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
         operations.forEach(org.pangrova.coordinator.task.QueryIssuanceOperation::close);
+        drainRetries();
         assertThat(manager.getActiveQueryCount()).isZero();
     }
 
@@ -151,11 +152,12 @@ class QueryTerminalFrontendOwnershipTest {
         }
         assertThat(manager.getActiveQueryCount()).isEqualTo(12);
         operations.forEach(org.pangrova.coordinator.task.QueryIssuanceOperation::close);
+        drainRetries();
         assertThat(manager.getActiveQueryCount()).isZero();
     }
 
     @Test
-    void stoppedSchedulerStillReleasesOnOperationExit() throws Exception {
+    void stoppedSchedulerStillReleasesOnExplicitRetryAfterOperationExit() throws Exception {
         String id = registerRunningQuery();
         var operation = enter(id);
         manager.onAllTasksFinished(id);
@@ -165,11 +167,37 @@ class QueryTerminalFrontendOwnershipTest {
             manager.stopPeriodicCleanup();
             operation.close();
             scheduler.submit(() -> { }).get(3, TimeUnit.SECONDS);
+            assertThat(manager.getActiveQueryCount()).isEqualTo(1);
+            advanceRetry();
             assertThat(manager.getActiveQueryCount()).isZero();
         } finally {
             manager.stopPeriodicCleanup();
             scheduler.shutdownNow();
             assertThat(scheduler.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void drainedFrontendReleasesAdmissionBeforePeriodicSweep() throws Exception {
+        String id = registerRunningQuery();
+        var operation = enter(id);
+        var timer = Executors.newSingleThreadScheduledExecutor();
+        var cleanupWorker = Executors.newSingleThreadExecutor();
+        try {
+            manager.startPeriodicCleanup(timer, cleanupWorker,
+                    Duration.ZERO, Duration.ofHours(1));
+            manager.onAllTasksFinished(id);
+            assertThat(manager.getActiveQueryCount()).isEqualTo(1);
+            operation.close();
+            org.awaitility.Awaitility.await("drained frontend admission release")
+                    .atMost(Duration.ofSeconds(3))
+                    .untilAsserted(() -> assertThat(manager.getActiveQueryCount()).isZero());
+        } finally {
+            manager.stopPeriodicCleanup();
+            timer.shutdownNow();
+            cleanupWorker.shutdownNow();
+            assertThat(timer.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
+            assertThat(cleanupWorker.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
         }
     }
 
@@ -192,6 +220,11 @@ class QueryTerminalFrontendOwnershipTest {
     private void advanceRetry() {
         clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100));
         manager.retryPendingTerminalCompletions();
+    }
+
+    private void drainRetries() {
+        clock.addAndGet(TimeUnit.SECONDS.toNanos(31));
+        for (int i = 0; i < 4; i++) manager.retryPendingTerminalCompletions();
     }
 
     private static void await(CountDownLatch latch) {

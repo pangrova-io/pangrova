@@ -78,7 +78,7 @@ public final class OAuth2TokenResource {
         }
 
         AuthenticationRequest authRequest = new AuthenticationRequest(
-                clientId, clientSecret != null ? clientSecret.toCharArray() : null, null, null, Map.of(), null);
+                clientId, clientSecret.toCharArray(), null, null, Map.of(), null);
         AuthenticationResult result = authenticationManager.authenticate(authRequest);
 
         if (!result.success()) {

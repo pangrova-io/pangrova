@@ -133,7 +133,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.coordinator.clustering.ClusteringConnectorSession",
             "org.pangrova.coordinator.coordination.inmemory.InMemoryCoordinatorRegistry",
             "org.pangrova.coordinator.index.lifecycle.IndexCommitHandler",
-            "org.pangrova.coordinator.query.CoordinatorQueryLifecycle",
+            "org.pangrova.coordinator.query.lifecycle.CoordinatorQueryLifecycle",
             "org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager",
             "org.pangrova.coordinator.result.CoordinatorDataProducer",
             "org.pangrova.coordinator.streaming.ConnectorPageSinkCdcWriter",

@@ -42,6 +42,7 @@ class QueryDispatcherOwnershipReleaseTest {
 
     private HighAvailabilityCoordinationService haService;
     private QueryDispatcher dispatcher;
+    private CoordinatorTaskTracker taskTracker;
     private RemoteTaskDispatcher httpDispatcher;
     private org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture worker;
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path nativeDirectory;
@@ -61,18 +62,18 @@ class QueryDispatcherOwnershipReleaseTest {
         TaskScheduler taskScheduler = new TaskScheduler(new WorkerPerformanceScorer());
         WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
-        var tracker = new CoordinatorTaskTracker();
+        taskTracker = new CoordinatorTaskTracker();
 
         var deps = new QueryDispatcherContext(
                 compiler,
                 new org.pangrova.coordinator.query.execution.SecurityContextBundle(null, null, null),
                 new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
-                        httpDispatcher, taskScheduler, workerManager, tracker,
+                        httpDispatcher, taskScheduler, workerManager, taskTracker,
                         null, null, null, null),
                 null, null, 0L,
                 null, null, null, null, haService, COORDINATOR_ID, null, null, null);
         dispatcher = new QueryDispatcher(withPolicies(deps), null, null);
-        worker.connect(dispatcher, tracker, workerManager);
+        worker.connect(dispatcher, taskTracker, workerManager);
     }
 
     @AfterEach
@@ -92,6 +93,7 @@ class QueryDispatcherOwnershipReleaseTest {
         // Acquire ownership
         boolean acquired = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
         assertTrue(acquired, "ownership should be acquired");
+        taskTracker.openQueryIssuance(queryId);
 
         // cleanupQuery should release it
         dispatcher.cleanupQuery(queryId);
@@ -103,7 +105,8 @@ class QueryDispatcherOwnershipReleaseTest {
 
     @Test
     void cleanupQuery_toleratesNoOwnership() {
-        // cleanupQuery on a query that was never owned should not throw
+        // A locally admitted query need not have acquired HA execution ownership.
+        taskTracker.openQueryIssuance("q-never-owned");
         dispatcher.cleanupQuery("q-never-owned");
     }
 
@@ -111,14 +114,16 @@ class QueryDispatcherOwnershipReleaseTest {
     void cleanupQuery_withoutHaService_doesNotThrow() {
         try (var remote = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING)) {
         // Dispatcher without HA wiring should still clean up without error
+        var noHaTracker = new CoordinatorTaskTracker();
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null,
                 remote,
                 new TaskScheduler(new WorkerPerformanceScorer()),
-                new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()), new CoordinatorTaskTracker(),
+                new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()), noHaTracker,
                 null, null, null, 0L);
         QueryDispatcher noHaDispatcher = new QueryDispatcher(deps, null, null);
         // No enableOwnershipTracking called — haService is null
+        noHaTracker.openQueryIssuance("q-no-ha");
         noHaDispatcher.cleanupQuery("q-no-ha");
         }
     }
@@ -135,6 +140,10 @@ class QueryDispatcherOwnershipReleaseTest {
         QueryStateMachine sm = new QueryStateMachine();
         var result = worker.execute(dispatcher, sm, "SELECT 1", session);
         assertNotNull(result);
+        worker.taskManager().cleanupTerminalTasks(java.time.Duration.ofHours(1));
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
+                org.junit.jupiter.api.Assertions.assertTrue(
+                        taskTracker.executionDrainReceipt(result.taskId()).isPresent()));
 
         // Simulate query completion cleanup
         dispatcher.cleanupQuery(queryId);

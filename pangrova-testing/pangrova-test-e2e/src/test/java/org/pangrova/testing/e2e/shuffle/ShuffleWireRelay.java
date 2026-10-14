@@ -50,7 +50,7 @@ final class ShuffleWireRelay implements AutoCloseable {
             addForwardedMethod(definition, method, upstream);
         }
         var ssl = GrpcSslContexts.forServer(backend.certificate().toFile(), backend.privateKey().toFile())
-                .trustManager(backend.certificate().toFile()).clientAuth(ClientAuth.REQUIRE).build();
+                .trustManager(backend.trustedPeers().toFile()).clientAuth(ClientAuth.REQUIRE).build();
         server = NettyServerBuilder.forPort(0).sslContext(ssl)
                 .maxInboundMessageSize(2 * 1024 * 1024).addService(definition.build()).build().start();
     }

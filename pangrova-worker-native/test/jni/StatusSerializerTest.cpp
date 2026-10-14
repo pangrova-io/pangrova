@@ -86,6 +86,16 @@ TEST_F(StatusSerializerTest, SerializeEmptyTaskStats) {
   EXPECT_EQ(proto.consumer_blocked_drivers(), 0);
 }
 
+TEST_F(StatusSerializerTest, SerializesActualPreScanIndexSplitDecisions) {
+  facebook::velox::exec::TaskStats taskStats;
+  auto bytes = serializeNativeTaskStats(taskStats, 8, 7);
+
+  pangrova::protocol::v2::NativeTaskStats proto;
+  ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+  EXPECT_EQ(proto.index_splits_evaluated(), 8);
+  EXPECT_EQ(proto.index_splits_skipped(), 7);
+}
+
 TEST_F(StatusSerializerTest, LiveConsumerDriverCountIsDistinctFromCompletedWaitMetrics) {
   facebook::velox::exec::TaskStats taskStats;
   taskStats.numBlockedDrivers.emplace(

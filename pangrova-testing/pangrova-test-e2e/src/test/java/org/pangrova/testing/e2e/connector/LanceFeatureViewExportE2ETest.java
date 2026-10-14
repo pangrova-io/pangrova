@@ -64,6 +64,18 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         }
     }
 
+    @Test void consecutiveNativeWritesKeepTheTaskPoolEmptyUntilDriversStart() {
+        String schema = "write_start_" + UUID.randomUUID().toString().replace("-", "");
+        String source = CATALOG + "." + schema + ".customers";
+        executeDdl("CREATE SCHEMA " + CATALOG + "." + schema);
+        executeDdl("CREATE TABLE " + source + " (customer_id BIGINT, secret VARCHAR)");
+        for (int id = 1; id <= 16; id++) {
+            executeDml("INSERT INTO " + source + " VALUES (" + id + ", 'customer-" + id + "')");
+        }
+        assertThat(executeQuery("SELECT COUNT(*) AS cnt FROM " + source).get(0).getLong("cnt"))
+                .isEqualTo(16L);
+    }
+
     @Test void materializationRecompilesCurrentPoliciesAndExportsOnlyTheExactHistoricalSnapshot() throws Exception {
         sourceSchema = "source_" + UUID.randomUUID().toString().replace("-", "");
         String source = CATALOG + "." + sourceSchema + ".customers";
@@ -96,7 +108,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
                 + definition.replace("\"source_query\":", "\"source_plan_base64\":\"AQID\",\"source_query\":") + "'"))
                 .contains("source_plan_base64");
         executeDdl("CREATE FEATURE VIEW " + view + "_limit VERSION 1 AS '"
-                + definition.replace("FROM customers", "FROM customers LIMIT 1") + "'");
+                + definition.replace("FROM " + source, "FROM " + source + " LIMIT 1") + "'");
         var limited = org.pangrova.metadata.ai.AiInfrastructureStores.jdbc(stateStoreDataSource()).features()
                 .findFeatureView(new org.pangrova.metadata.feature.FeatureCatalogStore.FeatureViewId(
                         tenant, CATALOG, "default", view.substring(view.lastIndexOf('.') + 1) + "_limit"), 1)
@@ -105,7 +117,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         assertThat(limited.definitionJson()).doesNotContain("source_plan_base64");
         corruptHistoricalManifest(snapshot);
         assertThat(executeExpectingError("MATERIALIZE FEATURE VIEW " + view + " VERSION 1 SNAPSHOT '" + snapshot + "'"))
-                .contains("historical publication evidence");
+                .contains("Native publication cannot be inferred from the failed response");
     }
 
     private void configurePolicies(int minimum, String mask) {
@@ -196,7 +208,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
 
     private static String definition(String source) {
         return "{\"entity_keys\":[\"customer_id\"],\"event_time\":\"event_ts\",\"source_table\":\"" + source
-                + "\",\"source_query\":\"SELECT customer_id,event_ts,secret FROM customers\","
+                + "\",\"source_query\":\"SELECT customer_id,event_ts,secret FROM " + source + "\","
                 + "\"transform_version\":\"v1\",\"schema\":{\"customer_id\":\"BIGINT\",\"event_ts\":\"TIMESTAMP\",\"secret\":\"VARCHAR\"},"
                 + "\"freshness_target_ms\":60000,\"lineage\":[\"" + source + "\"]}";
     }

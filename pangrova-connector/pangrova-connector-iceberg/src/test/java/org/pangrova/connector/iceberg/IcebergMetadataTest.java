@@ -141,6 +141,25 @@ class IcebergMetadataTest {
     }
 
     @Test
+    void getTableHandle_observesExternalDropAndRecreateImmediately() {
+        createNamespace("db");
+        TableIdentifier id = TableIdentifier.of("db", "orders");
+        SchemaTableName name = new SchemaTableName("db", "orders");
+        catalog.createTable(id, TEST_SCHEMA);
+        IcebergTableHandle original = (IcebergTableHandle) metadata.getTableHandle(SESSION, name);
+        assertThat(original).isNotNull();
+
+        assertThat(catalog.dropTable(id)).isTrue();
+        assertThat(metadata.getTableHandle(SESSION, name)).isNull();
+
+        catalog.createTable(id, new Schema(
+                Types.NestedField.required(1, "replacement_id", Types.LongType.get())));
+        IcebergTableHandle replacement = (IcebergTableHandle) metadata.getTableHandle(SESSION, name);
+        assertThat(replacement).isNotNull();
+        assertThat(replacement.schemaJson()).isNotEqualTo(original.schemaJson());
+    }
+
+    @Test
     void getTableMetadata_returnsTypedColumns() {
         createNamespace("db");
         catalog.createTable(TableIdentifier.of("db", "orders"), TEST_SCHEMA);

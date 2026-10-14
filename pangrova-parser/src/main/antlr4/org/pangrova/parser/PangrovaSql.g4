@@ -498,7 +498,7 @@ property
 // --- ALTER TABLE ---
 
 alterTable
-    : ALTER TABLE qualifiedName ADD COLUMN? columnDefinition (DEFAULT defaultVal=literal)?  #alterTableAddColumn
+    : ALTER TABLE qualifiedName ADD COLUMN? columnDefinition                          #alterTableAddColumn
     | ALTER TABLE qualifiedName DROP COLUMN? identifier                          #alterTableDropColumn
     | ALTER TABLE qualifiedName RENAME TO newName=qualifiedName                  #alterTableRename
     | ALTER TABLE qualifiedName RENAME COLUMN? old=identifier TO new_=identifier #alterTableRenameColumn
@@ -1366,8 +1366,13 @@ INTEGER_LITERAL
     ;
 
 DECIMAL_LITERAL
-    : DIGIT+ DOT DIGIT+
-    | DOT DIGIT+
+    : DIGIT+ DOT DIGIT* EXPONENT?
+    | DOT DIGIT+ EXPONENT?
+    | DIGIT+ EXPONENT
+    ;
+
+fragment EXPONENT
+    : [eE] [+-]? DIGIT+
     ;
 
 STRING_LITERAL

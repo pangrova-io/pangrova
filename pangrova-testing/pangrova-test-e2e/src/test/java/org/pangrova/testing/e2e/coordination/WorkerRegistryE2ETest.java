@@ -301,7 +301,7 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
             ps.setString(2, host);
             ps.setInt(3, httpPort);
             ps.setInt(4, transportPort);
-            ps.setString(5, CanonicalWorkerInventory.encodedEmpty());
+            ps.setString(5, CanonicalWorkerInventory.encodedActual());
             ps.setLong(6, heartbeatMs);
             ps.setLong(7, heartbeatMs);
             ps.executeUpdate();
@@ -326,6 +326,6 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 4L * 1024 * 1024 * 1024,
                 Instant.now(), 0.0, null,
-                2, null, List.of(), null, CanonicalWorkerInventory.empty());
+                2, null, List.of(), null, CanonicalWorkerInventory.actual());
     }
 }

@@ -92,6 +92,54 @@ public final class ImmutableFilterBoundary {
         verifyImmutableAccessors(args[7], args[6]);
         verifyImmutableAccessors(args[8], args[6]);
         verifyImmutableAccessors(args[9], args[6]);
+        verifyIndexingBorrowed(args[6]);
+    }
+
+    private static void verifyIndexingBorrowed(String fullFilterPath) throws Exception {
+        Filter full = Filter.parseFilter(fullFilterPath);
+        String manager = "org.pangrova.indexing.storage.IndexStorageManager";
+        String context = "org.pangrova.indexing.build.IndexBuildContext";
+        String evaluation = "org.pangrova.indexing.eval.IndexEvaluationService";
+        String cached = "org.pangrova.indexing.storage.CachedBloomFilterIndexData";
+        String bloom = "org.pangrova.common.bloom.SplitBlockBloomFilter";
+        verifyIndexingMatch(full, context, "storageManager", "", manager,
+                "storageManager", manager, "EI_EXPOSE_REP");
+        verifyIndexingMatch(full, context, "<init>",
+                "org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.IndexEngineRegistry,"
+                + manager + ",org.pangrova.indexing.serde.IndexSerializer,"
+                + "org.pangrova.indexing.build.BuildClaimHandler,"
+                + "org.pangrova.indexing.build.GenerationChecker,"
+                + "org.pangrova.spi.connector.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
+                "void", "storageManager", manager, "EI_EXPOSE_REP2");
+        String evaluationParams = "org.pangrova.indexing.IndexEngineRegistry,"
+                + "org.pangrova.indexing.storage.IndexCache," + manager + ","
+                + "org.pangrova.indexing.serde.IndexSerializer,"
+                + "org.pangrova.indexing.eval.IndexEvalCircuitBreaker";
+        verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
+                "storageManager", manager, "EI_EXPOSE_REP2");
+        verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
+                "cache", "org.pangrova.indexing.storage.IndexCache", "EI_EXPOSE_REP2");
+        verifyIndexingMatch(full, cached, "filter", "", bloom,
+                "deserializedFilter", bloom, "EI_EXPOSE_REP");
+        verifyIndexingMatch(full, cached, "<init>",
+                "org.pangrova.spi.index.data.BloomFilterIndexData," + bloom,
+                "void", "deserializedFilter", bloom, "EI_EXPOSE_REP2");
+    }
+
+    private static void verifyIndexingMatch(Filter full, String owner, String method,
+            String params, String result, String field, String type, String bug) {
+        String signature = SignatureUtil.createMethodSignature(params, result);
+        int end = signature.indexOf(')');
+        String arguments = signature.substring(1, end);
+        String returnType = signature.substring(end + 1);
+        String fieldType = SignatureUtil.createFieldSignature(type);
+        check(full, owner, method, arguments, returnType, field, fieldType, bug, true);
+        check(full, owner + "Other", method, arguments, returnType, field, fieldType, bug, false);
+        check(full, owner, method + "Other", arguments, returnType, field, fieldType, bug, false);
+        check(full, owner, method, arguments, returnType, field + "Other", fieldType, bug, false);
+        check(full, owner, method, arguments, returnType, field, "Ljava/lang/Object;", bug, false);
+        check(full, owner, method, arguments, returnType, field, fieldType,
+                "NP_BOOLEAN_RETURN_NULL", false);
     }
 
     private static void verifyImmutableAccessors(String manifest, String fullFilterPath) throws Exception {
@@ -262,7 +310,8 @@ def main():
         ET.ElementTree(jitter_filter).write(jitter_classification, encoding='utf-8', xml_declaration=True)
         borrowed_matches = [match for match in full_filter.getroot()
                             if any(child.tag.endswith('Class') and child.get('name', '').startswith(
-                                'org.pangrova.connector.paimon.') for child in match)]
+                                'org.pangrova.connector.paimon.') for child in match)
+                            and any(child.tag.endswith('Field') for child in match)]
         if len(borrowed_matches) != 19:
             raise RuntimeError('Expected 19 exact borrowed Paimon service classifications')
         borrowed_cases = []
@@ -444,6 +493,7 @@ def main():
     print('PASS: complete filter does not exclude obsolete PreparedStatement identity getter findings.')
     print('PASS: 11 immutable metadata collection getters classified; isolated/full filters each reject 12 changed boundaries.')
     print('PASS: canonical immutable VECTOR getter classified; isolated/full filters reject 12 changed boundaries.')
+    print('PASS: six exact indexing ownership classifications each reject changed owner/method/field/type/bug.')
 
 
 if __name__ == '__main__':

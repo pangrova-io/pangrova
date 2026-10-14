@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.coordinator.PangrovaCoordinator;
+import org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission;
 import org.pangrova.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
@@ -27,6 +28,7 @@ import javax.sql.DataSource;
  * Extracted from CoordinatorBootstrap to keep class size within 500-line limit.
  */
 final class CoordinatorShutdownSequence {
+    private static final long DRAIN_TIMEOUT_MS = 5_000;
 
     record ShutdownOwners(QueryBootstrap query, HighAvailabilityBootstrap ha,
             MaintenanceLeadershipBootstrap maintenanceLeadership,
@@ -38,13 +40,14 @@ final class CoordinatorShutdownSequence {
             DataSource metadataDataSource, SecurityBootstrap security, ObservabilityBootstrap observability,
             org.pangrova.metadata.coordination.ZooKeeperLeaseProvider zkLeaseProvider) {}
 
-    static void closeOwnedResources(org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle,
+    static void closeOwnedResources(CoordinatorLifecycleAdmission lifecycle,
             ShutdownOwners owners) {
         drainIndependentOwners(lifecycle, owners);
         lifecycle.step("http", present(owners.http(), HttpBootstrap::shutdown));
         Throwable semanticFailure = closeQueryOwners(lifecycle, owners.query());
-        try { closeDrainedDependencies(lifecycle, owners, semanticFailure); }
-        catch (RuntimeException | Error failure) {
+        try {
+            closeDrainedDependencies(lifecycle, owners, semanticFailure);
+        } catch (RuntimeException | Error failure) {
             if (semanticFailure == null) throw failure;
             if (semanticFailure != failure) semanticFailure.addSuppressed(failure);
         }
@@ -53,28 +56,32 @@ final class CoordinatorShutdownSequence {
     }
 
     private static void drainIndependentOwners(
-            org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle, ShutdownOwners owners) {
+            CoordinatorLifecycleAdmission lifecycle, ShutdownOwners owners) {
         if (owners.query() != null) owners.query().sealAdmission();
         if (owners.ha() != null) owners.ha().stopQueryScheduling();
         CoordinatorResourceRelease.close(null,
-                () -> lifecycle.step("maintenance", present(owners.maintenanceLeadership(), MaintenanceLeadershipBootstrap::close)),
-                () -> lifecycle.step("branch", present(owners.branchTtlCleanupTask(), CoordinatorShutdownSequence::closeBranchCleanup)),
-                () -> lifecycle.step("streaming", present(owners.streamingBootstrap(), CoordinatorShutdownSequence::closeStreamingBootstrap)),
+                () -> lifecycle.step("maintenance",
+                        present(owners.maintenanceLeadership(), MaintenanceLeadershipBootstrap::close)),
+                () -> lifecycle.step("branch",
+                        present(owners.branchTtlCleanupTask(), CoordinatorShutdownSequence::closeBranchCleanup)),
+                () -> lifecycle.step("streaming",
+                        present(owners.streamingBootstrap(), CoordinatorShutdownSequence::closeStreamingBootstrap)),
                 () -> lifecycle.step("query-drain", present(owners.query(), QueryBootstrap::drainQueries)));
         if (owners.query() != null) owners.query().joinSchedulingOwners();
     }
 
     private static Throwable closeQueryOwners(
-            org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle, QueryBootstrap query) {
-        try { lifecycle.step("query", present(query, QueryBootstrap::shutdown)); }
-        catch (RuntimeException | Error failure) {
+            CoordinatorLifecycleAdmission lifecycle, QueryBootstrap query) {
+        try {
+            lifecycle.step("query", present(query, QueryBootstrap::shutdown));
+        } catch (RuntimeException | Error failure) {
             if (query == null || !query.isDrained()) throw failure;
             return failure;
         }
         return null;
     }
 
-    private static void closeDrainedDependencies(org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle,
+    private static void closeDrainedDependencies(CoordinatorLifecycleAdmission lifecycle,
             ShutdownOwners owners, Throwable primary) {
         // All query writers/readers and HTTP entries have actually exited before any shared backend retires.
         lifecycle.step("ha", present(owners.ha(), HighAvailabilityBootstrap::shutdown));
@@ -84,15 +91,15 @@ final class CoordinatorShutdownSequence {
         lifecycle.step("connectors", present(owners.connectorHandleFactory(), PluginConnectorHandleFactory::shutdown));
         lifecycle.step("execution-authority", present(owners.executionAuthority(),
                 org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority::close));
-        lifecycle.step("datasource", present(owners.metadataDataSource(), CoordinatorShutdownSequence::closeDataSource));
+        lifecycle.step("datasource",
+                present(owners.metadataDataSource(), CoordinatorShutdownSequence::closeDataSource));
         CoordinatorResourceRelease.close(primary,
                 () -> lifecycle.step("security", present(owners.security(), SecurityBootstrap::shutdown)),
-                () -> lifecycle.step("observability", present(owners.observability(), ObservabilityBootstrap::shutdown)),
+                () -> lifecycle.step("observability",
+                        present(owners.observability(), ObservabilityBootstrap::shutdown)),
                 () -> lifecycle.step("quorum", present(owners.zkLeaseProvider(),
                         org.pangrova.metadata.coordination.ZooKeeperLeaseProvider::close)));
     }
-
-
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorShutdownSequence.class);
 
@@ -140,7 +147,7 @@ final class CoordinatorShutdownSequence {
         if (executor == null) {
             return;
         }
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, 5000);
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, DRAIN_TIMEOUT_MS);
         LOG.info("event=scheduler_executor_actually_terminated");
     }
 
@@ -150,7 +157,7 @@ final class CoordinatorShutdownSequence {
             scheduler.stop();
         }
         if (executor != null) {
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, 5000);
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, DRAIN_TIMEOUT_MS);
         }
     }
 
@@ -173,9 +180,13 @@ final class CoordinatorShutdownSequence {
 
     static void closeQueryResultCache(org.pangrova.planner.cache.QueryResultCache cache) {
         if (cache == null) return;
-        try { cache.close(); }
-        catch (RuntimeException | Error failure) { throw failure; }
-        catch (Exception failure) { throw new IllegalStateException("Query cache has not closed", failure); }
+        try {
+            cache.close();
+        } catch (RuntimeException | Error failure) {
+            throw failure;
+        } catch (Exception failure) {
+            throw new IllegalStateException("Query cache has not closed", failure);
+        }
     }
 
     static void closeStreamingBootstrap(StreamingBootstrap streaming) {

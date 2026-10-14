@@ -34,7 +34,6 @@ import org.slf4j.LoggerFactory;
 final class LeafStageDispatcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(LeafStageDispatcher.class);
-    private static final int MAX_TASKS_PER_WORKER = 4;
     private static final long MAX_DML_MEMORY_BYTES = 256L * 1024 * 1024;
 
     private final org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher;
@@ -81,7 +80,9 @@ final class LeafStageDispatcher {
             org.pangrova.protocol.rest.config.WriteConfig writeConfig,
             boolean distributedRetrieval,
             long planEpoch, DurableStageRuntime durable) {
-        org.pangrova.coordinator.query.session.CoordinatorSessionContext session() { return execution.requireLiveSession(); }
+        org.pangrova.coordinator.query.session.CoordinatorSessionContext session() {
+            return execution.requireLiveSession();
+        }
     }
 
     private record PreparedDispatch(
@@ -150,8 +151,8 @@ final class LeafStageDispatcher {
                     "No available worker for task dispatch: no schedulable capacity for this stage");
         }
         int rawParallelism = rawParallelism(input, leafStage, workerCount);
-        int clusterCap = workerCount > Integer.MAX_VALUE / MAX_TASKS_PER_WORKER
-                ? Integer.MAX_VALUE : workerCount * MAX_TASKS_PER_WORKER;
+        int clusterCap = workerCount > Integer.MAX_VALUE / WorkerSelector.MAX_TASKS_PER_WORKER
+                ? Integer.MAX_VALUE : workerCount * WorkerSelector.MAX_TASKS_PER_WORKER;
         int taskCount = taskCountForGraph(input.plan(), input.dag(), remoteShuffle, rawParallelism, clusterCap);
         if (hasArtifactBindings) taskCount = artifactTaskCount(input, splits, taskCount);
         boolean outputStage = input.dag().findDownstreamEdge(

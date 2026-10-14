@@ -3,6 +3,7 @@ package org.pangrova.planner.substrait;
 import io.substrait.expression.Expression;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableExpression;
+import io.substrait.expression.ExpressionCreator;
 import io.substrait.relation.ImmutableJoin;
 import io.substrait.relation.ImmutableProject;
 import io.substrait.relation.Join;
@@ -11,6 +12,7 @@ import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.CorrelationId;
+import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.core.Uncollect;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalCorrelate;
@@ -21,8 +23,12 @@ import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexCorrelVariable;
 import org.apache.calcite.rex.RexFieldAccess;
 import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
+import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,13 +67,8 @@ final class CorrelateConverter {
      * <p>Calcite decorrelation (FILTER_SUB_QUERY_TO_CORRELATE etc.) rewrites
      * correlated subqueries into LogicalCorrelate nodes where the correlation
      * variable is embedded in the right-side plan as RexCorrelVariable references.
-     * The right-side plan already contains the correlation condition (e.g., a
-     * Filter with {@code $cor0.id = t2.id}), so the Substrait Join does not need
-     * an explicit join condition — the native engine resolves correlation variables
-     * during execution by binding the left-side row to the right-side plan.</p>
-     *
-     * <p>We log the correlation ID and required columns for observability so that
-     * plan debugging can trace which correlation variables are in play.</p>
+     * Native joins have no per-row correlation binding, so supported forms must
+     * be decorrelated into an explicit join condition before serialization.</p>
      */
     Rel convert(LogicalCorrelate correlate) {
         // Detect UNNEST pattern: LogicalCorrelate with Uncollect on the right side.
@@ -94,14 +95,18 @@ final class CorrelateConverter {
         if (decorrelated != null) {
             return decorrelated;
         }
+        decorrelated = tryDecorrelateExistenceSubquery(correlate);
+        if (decorrelated != null) {
+            return decorrelated;
+        }
 
-        // Fallback: non-UNNEST correlate without recognizable pattern.
-        // The native NestedLoopJoinNode handles simple cross-join cases.
+        if (!correlate.getRequiredColumns().isEmpty()) {
+            throw new IllegalArgumentException("Unsupported correlated subquery: "
+                    + correlate.getCorrelationId());
+        }
+        // A non-correlated lateral relation can be converted as an ordinary join.
         Rel left = relVisitor.apply(correlate.getLeft());
-        int leftFieldCount = correlate.getLeft().getRowType().getFieldCount();
-        rexConverter.setCorrelateOuterFieldOffset(leftFieldCount);
         Rel right = relVisitor.apply(correlate.getRight());
-        rexConverter.setCorrelateOuterFieldOffset(0);
         Join.JoinType joinType = PlanNodeConverter.mapJoinType(correlate.getJoinType());
         LOG.debug("event=convert_correlate correlationId={} requiredColumns={} joinType={}",
                 correlate.getCorrelationId(), correlate.getRequiredColumns(), correlate.getJoinType());
@@ -111,6 +116,132 @@ final class CorrelateConverter {
                 .joinType(joinType)
                 .build();
     }
+
+    private Rel tryDecorrelateExistenceSubquery(LogicalCorrelate correlate) {
+        boolean explicitSemi = correlate.getJoinType() == JoinRelType.SEMI
+                || correlate.getJoinType() == JoinRelType.ANTI;
+        int rightOutputFields = correlate.getRight().getRowType().getFieldCount();
+        boolean projectedExistence = correlate.getJoinType() == JoinRelType.INNER
+                && (rightOutputFields == 0 || rightOutputFields == 1
+                        && correlate.getRight().getRowType().getFieldList().get(0)
+                                .getType().getSqlTypeName() == SqlTypeName.BOOLEAN);
+        boolean projectedAbsence = correlate.getJoinType() == JoinRelType.LEFT
+                && rightOutputFields == 1
+                && correlate.getRight().getRowType().getFieldList().get(0)
+                        .getType().getSqlTypeName() == SqlTypeName.BOOLEAN;
+        if (!explicitSemi && !projectedExistence && !projectedAbsence) {
+            return null;
+        }
+        RelNode right = correlate.getRight();
+        // SELECT-list expressions do not affect EXISTS/NOT EXISTS membership.
+        while (right instanceof LogicalProject project) {
+            right = project.getInput();
+        }
+        if (projectedExistence || projectedAbsence) {
+            if (!(right instanceof LogicalAggregate aggregate)
+                    || !aggregate.getAggCallList().isEmpty()
+                    || aggregate.getGroupCount() != 1
+                    || !(aggregate.getInput() instanceof LogicalProject keys)
+                    || !(keys.getProjects().get(aggregate.getGroupSet().nth(0))
+                            instanceof RexLiteral)) {
+                return null;
+            }
+            right = keys.getInput();
+        }
+        if (!(right instanceof LogicalFilter filter)) {
+            return null;
+        }
+        List<int[]> equalities = extractCorrelationEqualities(
+                filter.getCondition(), correlate.getCorrelationId());
+        if (equalities.isEmpty()) {
+            return null;
+        }
+        RexNode remaining = removeCorrelationFromCondition(
+                filter.getCondition(), correlate.getCorrelationId());
+        if (remaining != null && RexUtil.containsCorrelation(remaining)) {
+            throw new IllegalArgumentException("Unsupported residual correlated EXISTS predicate");
+        }
+        RelNode rightInput = remaining == null ? filter.getInput()
+                : LogicalFilter.create(filter.getInput(), remaining);
+        if (projectedAbsence) {
+            return decorrelateNullableExistenceMarker(correlate, rightInput, equalities);
+        }
+        int rightFields = rightInput.getRowType().getFieldCount();
+        Expression condition = buildCorrelationJoinCondition(equalities,
+                correlate.getLeft().getRowType().getFieldCount(),
+                ImmutableBitSet.range(rightFields),
+                correlate.getLeft().getRowType(), rightInput.getRowType());
+        Rel joined = ImmutableJoin.builder()
+                .left(relVisitor.apply(correlate.getLeft()))
+                .right(relVisitor.apply(rightInput))
+                .joinType(projectedExistence ? Join.JoinType.SEMI
+                        : PlanNodeConverter.mapJoinType(correlate.getJoinType()))
+                .condition(condition)
+                .build();
+        if (!projectedExistence || rightOutputFields == 0) {
+            return joined;
+        }
+        List<Expression> output = new ArrayList<>();
+        for (int i = 0; i < joined.getRecordType().fields().size(); i++) {
+            output.add(FieldReference.newRootStructReference(i,
+                    joined.getRecordType().fields().get(i)));
+        }
+        output.add(ExpressionCreator.bool(false, true));
+        return ImmutableProject.builder()
+                .input(joined)
+                .expressions(output)
+                .remap(Rel.Remap.offset(joined.getRecordType().fields().size(), output.size()))
+                .build();
+    }
+
+    private Rel decorrelateNullableExistenceMarker(LogicalCorrelate correlate,
+                                                   RelNode rightInput,
+                                                   List<int[]> equalities) {
+        // Calcite represents NOT EXISTS as LEFT correlate to a grouped TRUE
+        // marker followed by IS NULL(marker). Deduplicate matching right keys,
+        // then leave the marker nullable across the LEFT join so the outer
+        // filter distinguishes absence from presence without multiplying rows.
+        ImmutableBitSet groupSet = buildGroupSetFromEqualities(equalities);
+        LogicalAggregate grouped = LogicalAggregate.create(
+                rightInput, List.of(), groupSet, null, List.of());
+        Rel groupedRel = relVisitor.apply(grouped);
+        List<Expression> markedFields = new ArrayList<>();
+        for (int i = 0; i < groupedRel.getRecordType().fields().size(); i++) {
+            markedFields.add(FieldReference.newRootStructReference(i,
+                    groupedRel.getRecordType().fields().get(i)));
+        }
+        markedFields.add(ExpressionCreator.bool(false, true));
+        Rel markedRight = ImmutableProject.builder()
+                .input(groupedRel)
+                .expressions(markedFields)
+                .remap(Rel.Remap.offset(groupedRel.getRecordType().fields().size(),
+                        markedFields.size()))
+                .build();
+
+        int leftFieldCount = correlate.getLeft().getRowType().getFieldCount();
+        Expression condition = buildCorrelationJoinCondition(equalities,
+                leftFieldCount, groupSet, correlate.getLeft().getRowType(), grouped.getRowType());
+        Rel joined = ImmutableJoin.builder()
+                .left(relVisitor.apply(correlate.getLeft()))
+                .right(markedRight)
+                .joinType(Join.JoinType.LEFT)
+                .condition(condition)
+                .build();
+        List<Expression> output = new ArrayList<>();
+        for (int i = 0; i < leftFieldCount; i++) {
+            output.add(FieldReference.newRootStructReference(i,
+                    joined.getRecordType().fields().get(i)));
+        }
+        int markerIndex = leftFieldCount + grouped.getRowType().getFieldCount();
+        output.add(FieldReference.newRootStructReference(markerIndex,
+                joined.getRecordType().fields().get(markerIndex)));
+        return ImmutableProject.builder()
+                .input(joined)
+                .expressions(output)
+                .remap(Rel.Remap.offset(joined.getRecordType().fields().size(), output.size()))
+                .build();
+    }
+
 
     /**
      * Manually decorrelates scalar subquery pattern:
@@ -126,9 +257,11 @@ final class CorrelateConverter {
         var corId = correlate.getCorrelationId();
         int leftFieldCount = correlate.getLeft().getRowType().getFieldCount();
 
-        // Strip optional LogicalProject wrapper (Calcite adds this for LATERAL
-        // subqueries to alias the output column, e.g., SELECT COUNT(*) AS item_count).
-        if (rightNode instanceof LogicalProject proj) {
+        // Scalar expressions such as AVG can produce several projects above the
+        // aggregate. Keep them so the grouped aggregate can be reconstructed.
+        List<LogicalProject> projects = new ArrayList<>();
+        while (rightNode instanceof LogicalProject proj) {
+            projects.add(proj);
             rightNode = proj.getInput();
         }
 
@@ -152,6 +285,7 @@ final class CorrelateConverter {
 
         Rel left = relVisitor.apply(correlate.getLeft());
         Rel right = relVisitor.apply(newAgg);
+        int groupKeyCount = newGroupSet.cardinality();
         Expression joinCondition = buildCorrelationJoinCondition(
                 equalities, leftFieldCount, newGroupSet,
                 correlate.getLeft().getRowType(), newAgg.getRowType());
@@ -169,16 +303,79 @@ final class CorrelateConverter {
                 .condition(joinCondition)
                 .build();
 
-        List<Expression> projections = buildDecorrelationProjections(
-                correlate, newAgg, leftFieldCount, newGroupSet.cardinality());
+        // Evaluate scalar projections after the LEFT join. A missing grouped
+        // row makes COUNT null at this boundary; restore its empty-input zero
+        // before evaluating expressions such as COUNT(*) + 1.
+        Rel projected = restoreCountDefaults(joinRel, newAgg, leftFieldCount, groupKeyCount);
+        for (int p = projects.size() - 1; p >= 0; p--) {
+            projected = restoreScalarProject(projects.get(p), projected,
+                    leftFieldCount + groupKeyCount);
+        }
 
-        LOG.debug("event=manual_decorrelation correlationId={} groupKeys={} joinType={}",
-                corId, newGroupSet, correlate.getJoinType());
+        List<Expression> projections = buildDecorrelationProjections(
+                correlate, leftFieldCount, groupKeyCount);
+
+        LOG.debug("event=manual_decorrelation correlationId={} groupKeys={} projects={} joinType={}",
+                corId, newGroupSet, projects.size(), correlate.getJoinType());
 
         return ImmutableProject.builder()
-                .input(joinRel)
+                .input(projected)
                 .expressions(projections)
-                .remap(Rel.Remap.offset(joinRel.getRecordType().fields().size(), projections.size()))
+                .remap(Rel.Remap.offset(projected.getRecordType().fields().size(), projections.size()))
+                .build();
+    }
+
+    private Rel restoreCountDefaults(Rel joined, LogicalAggregate aggregate,
+                                     int leftFieldCount, int groupKeyCount) {
+        int prefixCount = leftFieldCount + groupKeyCount;
+        List<Expression> expressions = new ArrayList<>();
+        for (int i = 0; i < prefixCount; i++) {
+            expressions.add(FieldReference.newRootStructReference(i,
+                    joined.getRecordType().fields().get(i)));
+        }
+        for (int i = 0; i < aggregate.getAggCallList().size(); i++) {
+            int fieldIndex = prefixCount + i;
+            Expression value = FieldReference.newRootStructReference(fieldIndex,
+                    joined.getRecordType().fields().get(fieldIndex));
+            if (aggregate.getAggCallList().get(i).getAggregation().getKind() == SqlKind.COUNT) {
+                Type type = typeMapper.map(aggregate.getRowType().getFieldList()
+                        .get(groupKeyCount + i).getType());
+                value = ImmutableExpression.ScalarFunctionInvocation.builder()
+                        .declaration(functionMapper.resolveScalarVariant(
+                                new FunctionReference("boolean", "coalesce")))
+                        .outputType(type)
+                        .arguments(List.of(value, ExpressionCreator.i64(false, 0)))
+                        .build();
+            }
+            expressions.add(value);
+        }
+        return ImmutableProject.builder()
+                .input(joined)
+                .expressions(expressions)
+                .remap(Rel.Remap.offset(joined.getRecordType().fields().size(), expressions.size()))
+                .build();
+    }
+
+    private Rel restoreScalarProject(LogicalProject project, Rel input, int prefixCount) {
+        List<Expression> expressions = new ArrayList<>();
+        for (int i = 0; i < prefixCount; i++) {
+            expressions.add(FieldReference.newRootStructReference(i,
+                    input.getRecordType().fields().get(i)));
+        }
+        RexShuttle shift = new RexShuttle() {
+            @Override
+            public RexNode visitInputRef(RexInputRef ref) {
+                return project.getCluster().getRexBuilder().makeInputRef(
+                        ref.getType(), ref.getIndex() + prefixCount);
+            }
+        };
+        for (RexNode expression : project.getProjects()) {
+            expressions.add(rexConverter.convert(expression.accept(shift)));
+        }
+        return ImmutableProject.builder()
+                .input(input)
+                .expressions(expressions)
+                .remap(Rel.Remap.offset(input.getRecordType().fields().size(), expressions.size()))
                 .build();
     }
 
@@ -211,19 +408,19 @@ final class CorrelateConverter {
      * on the right side are projected out.
      */
     private List<Expression> buildDecorrelationProjections(
-            LogicalCorrelate correlate, LogicalAggregate newAgg,
+            LogicalCorrelate correlate,
             int leftFieldCount, int groupKeyCount) {
-        int rightAggCount = newAgg.getAggCallList().size();
+        int rightFieldCount = correlate.getRight().getRowType().getFieldCount();
         List<Expression> projections = new ArrayList<>();
         for (int i = 0; i < leftFieldCount; i++) {
             Type type = typeMapper.map(
                     correlate.getLeft().getRowType().getFieldList().get(i).getType());
             projections.add(FieldReference.newRootStructReference(i, type));
         }
-        for (int i = 0; i < rightAggCount; i++) {
+        for (int i = 0; i < rightFieldCount; i++) {
             int fieldIdx = leftFieldCount + groupKeyCount + i;
             Type type = typeMapper.map(
-                    newAgg.getRowType().getFieldList().get(groupKeyCount + i).getType());
+                    correlate.getRight().getRowType().getFieldList().get(i).getType());
             projections.add(FieldReference.newRootStructReference(fieldIdx, type));
         }
         return projections;

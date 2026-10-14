@@ -71,12 +71,18 @@ final class TaskReportSequences {
     @ThreadSafe
     private final class ReportSequenceGate {
         private final String taskId;
-        @GuardedBy("this") private long acceptedSequence = -1L;
-        @GuardedBy("this") private long highestSeenSequence = -1L;
-        @GuardedBy("this") private long activeSequence = -1L;
-        @GuardedBy("this") private CompletableFuture<Void> activeCompletion;
-        @GuardedBy("this") private Thread activeOwner;
-        @GuardedBy("this") private boolean retired;
+        @GuardedBy("this")
+        private long acceptedSequence = -1L;
+        @GuardedBy("this")
+        private long highestSeenSequence = -1L;
+        @GuardedBy("this")
+        private long activeSequence = -1L;
+        @GuardedBy("this")
+        private CompletableFuture<Void> activeCompletion;
+        @GuardedBy("this")
+        private Thread activeOwner;
+        @GuardedBy("this")
+        private boolean retired;
 
         private ReportSequenceGate(String taskId) {
             this.taskId = taskId;

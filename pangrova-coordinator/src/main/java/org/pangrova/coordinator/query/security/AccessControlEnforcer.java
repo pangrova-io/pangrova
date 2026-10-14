@@ -178,7 +178,9 @@ public final class AccessControlEnforcer {
     private static String authorizedReadTable(String table) {
         int suffix = table.lastIndexOf('$');
         if (suffix > 0 && (table.substring(suffix + 1).equalsIgnoreCase("snapshots")
-                || table.substring(suffix + 1).equalsIgnoreCase("history"))) {
+                || table.substring(suffix + 1).equalsIgnoreCase("history")
+                || table.substring(suffix + 1).equalsIgnoreCase("tags")
+                || table.substring(suffix + 1).equalsIgnoreCase("options"))) {
             return table.substring(0, suffix);
         }
         return table;

@@ -1,7 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
-import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
-
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.v2.StageResourceGrant;
 
@@ -11,6 +9,8 @@ import org.pangrova.protocol.v2.StageResourceGrant;
  * depending on the engine class.
  */
 public interface WorkerSelector {
+
+    int MAX_TASKS_PER_WORKER = 4;
 
     /** Selects a Worker for the given tenant. */
     WorkerInfo select(String tenantId);

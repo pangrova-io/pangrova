@@ -18,6 +18,10 @@ public final class NativeWriteBindings {
     public static TaskRequest bindAttempt(TaskRequest request) {
         var output = request.getExecutionOptions().getWrite().getOutputBinding();
         if (output.hasPhysical()) {
+            if (!output.getPhysical().getAttemptPrefix().isEmpty()) {
+                requireExactBoundPhysical(output.getPhysical(), request.getAttempt());
+                return request;
+            }
             return request.toBuilder().setExecutionOptions(request.getExecutionOptions().toBuilder()
                     .setWrite(request.getExecutionOptions().getWrite().toBuilder()
                             .setOutputBinding(output.toBuilder().setPhysical(
@@ -54,6 +58,31 @@ public final class NativeWriteBindings {
                     .setFileName(attemptName).setOpaqueLocation(template.getAllocationPrefix() + "/" + attemptName)));
         }
         return bound.build();
+    }
+
+    private static void requireExactBoundPhysical(PhysicalFileWriteBinding bound, TaskAttemptId attempt) {
+        String prefix = attemptPrefix(bound.getAllocationPrefix(), attempt);
+        if (!bound.getAttemptPrefix().equals(prefix)) {
+            throw new IllegalArgumentException("Physical allocation is bound to a different task attempt");
+        }
+        String marker = "." + prefix.substring(prefix.lastIndexOf('/') + 1) + ".lance";
+        var template = bound.toBuilder().clearAttemptPrefix().clearFiles();
+        for (var file : bound.getFilesList()) {
+            String name = file.getFileName();
+            if (!file.hasTaskAttempt() || !file.getTaskAttempt().equals(attempt)
+                    || !name.endsWith(marker) || name.length() <= marker.length()
+                    || name.indexOf('/') >= 0
+                    || !file.getOpaqueLocation().equals(bound.getAllocationPrefix() + "/" + name)) {
+                throw new IllegalArgumentException("Physical file is bound to a different task attempt");
+            }
+            String originalName = name.substring(0, name.length() - marker.length()) + ".lance";
+            template.addFiles(PhysicalFileWriteBindings.sealed(file.toBuilder().clearTaskAttempt()
+                    .setFileName(originalName)
+                    .setOpaqueLocation(bound.getAllocationPrefix() + "/" + originalName)));
+        }
+        if (!bindPhysical(template.build(), attempt).equals(bound)) {
+            throw new IllegalArgumentException("Physical allocation differs from its sealed task attempt");
+        }
     }
 
     /** Derives the identical path used by Java admission and Native parsing. */

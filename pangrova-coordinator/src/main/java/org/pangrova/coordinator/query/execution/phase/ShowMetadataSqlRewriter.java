@@ -11,7 +11,7 @@ import org.pangrova.parser.ast.statement.ShowMetadataStatement;
 /** Routes SHOW metadata through the ordinary authorized distributed scan. */
 final class ShowMetadataSqlRewriter {
 
-    private static final Pattern SIMPLE_NAME = Pattern.compile("[a-z_][a-z0-9_]*");
+    private static final Pattern SIMPLE_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
     private ShowMetadataSqlRewriter() {}
 
@@ -28,7 +28,7 @@ final class ShowMetadataSqlRewriter {
         if (parts.isEmpty() || parts.stream().anyMatch(
                 part -> !SIMPLE_NAME.matcher(part).matches())) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "SHOW SNAPSHOTS requires an unquoted lowercase table name until typed relation identity is available");
+                    "SHOW SNAPSHOTS requires a simple ASCII table name until typed relation identity is available");
         }
         return "SELECT * FROM " + String.join(".", parts) + "$snapshots";
     }

@@ -173,6 +173,14 @@ public interface ConnectorPageSinkProvider {
 }
 ```
 
+For planning, a named table lookup calls the connector's `getTableHandle` and
+`getTableMetadata` for that table only. Calcite table-name enumeration calls
+`listTables` without loading each table's columns; the name cache is invalidated
+after local DDL and expires for changes made by other coordinators. A failed
+connector metadata call propagates as a resolution error rather than being
+reported as a missing table. Iceberg table-handle lookup loads current catalog
+state so an external drop or recreation is visible immediately.
+
 ---
 
 ## 2. ClassLoader Isolation Design
@@ -319,6 +327,12 @@ public class PluginManager {
 > **Authoritative definition**: The full `CatalogRegistry` implementation (PostgreSQL persistence, ZooKeeper synchronization, health monitoring, dynamic catalog lifecycle management) is defined in [metadata.md §3.2](./metadata.md). This section describes only the Connector-side integration points.
 
 Note: Catalog registration and lifecycle management are handled uniformly by `MetadataService`/`CatalogRegistry` (see [metadata.md §3.2](./metadata.md)). This section describes the target-state implementation of the Connector-side Catalog registration, table-reference resolution, and plugin loading.
+
+Iceberg table-handle lookup reads the current catalog state for each resolution. A
+process-wide time-based table cache cannot make `DROP TABLE` followed immediately by
+`CREATE TABLE IF NOT EXISTS` correct when another catalog owner changes the table:
+the cached handle could outlive the drop and suppress the create. A selected read
+still pins its own immutable metadata and source identity through the query lifecycle.
 
 ```java
 /**

@@ -61,6 +61,8 @@ class NativeCapabilityRegistryTest {
         assertThat(registry.isFunctionSupported("equal")).isTrue();
         assertThat(registry.isFunctionSupported("gt")).isTrue();
         assertThat(registry.isFunctionSupported("lt")).isTrue();
+        assertThat(registry.isFunctionSupported("is_distinct_from")).isTrue();
+        assertThat(registry.isFunctionSupported("is_not_distinct_from")).isTrue();
         assertThat(registry.isFunctionSupported("add")).isTrue();
         assertThat(registry.isFunctionSupported("round")).isTrue();
         assertThat(registry.isFunctionSupported("year")).isTrue();
@@ -70,6 +72,7 @@ class NativeCapabilityRegistryTest {
         assertThat(registry.isFunctionSupported("minute")).isTrue();
         assertThat(registry.isFunctionSupported("subscript")).isTrue();
         assertThat(registry.isFunctionSupported("contains")).isTrue();
+        assertThat(registry.isFunctionSupported("variant_get")).isTrue();
         assertThat(registry.isFunctionSupported("array_contains")).isFalse();
         assertThat(registry.isFunctionSupported("sum")).isTrue();
         assertThat(registry.isFunctionSupported("count")).isTrue();

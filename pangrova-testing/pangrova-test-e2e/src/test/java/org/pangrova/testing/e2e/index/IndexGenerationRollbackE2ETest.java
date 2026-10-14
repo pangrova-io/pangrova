@@ -13,7 +13,11 @@ import org.junit.jupiter.api.TestInfo;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.Duration;
 import java.util.List;
+
+import static org.awaitility.Awaitility.await;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -80,6 +84,7 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             // Create index (gen 1)
             sqlRunner.executeDdl("CREATE INDEX idx_rb ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_rb");
 
             // Verify gen 1 exists and works
             List<TypedRow> beforeRebuild = sqlRunner.execute(
@@ -96,10 +101,11 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
 
             // Verify via metadata store: gen 1 files still exist (N-1 kept for rollback)
             // GC policy: only delete generation N-2 and older, keep N-1
-            int generationCount = countIndexGenerations(tableName, "idx_rb");
-            assertThat(generationCount)
-                    .as("Both gen 1 (rollback) and gen 2 (active) should exist")
-                    .isGreaterThanOrEqualTo(1);
+            await("both physical index generations")
+                    .atMost(Duration.ofSeconds(30))
+                    .untilAsserted(() -> assertThat(countIndexGenerations(tableName, "idx_rb"))
+                            .as("Both gen 1 (rollback) and gen 2 (active) should exist")
+                            .isGreaterThanOrEqualTo(2));
 
             // Verify SHOW INDEXES still lists the index as active
             List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
@@ -119,6 +125,7 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             // Create index (gen 1)
             sqlRunner.executeDdl("CREATE INDEX idx_rb2 ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_rb2");
 
             // Verify gen 1 query
             List<TypedRow> gen1Result = sqlRunner.execute(
@@ -179,9 +186,9 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
                     .isFalse();
 
             // Verify all generations are marked DROPPED in metadata store
-            int activeGenerations = countActiveIndexGenerations(tableName, "idx_drop");
-            assertThat(activeGenerations)
-                    .as("No active generations should remain after DROP INDEX")
+            int activeDescriptors = countActiveIndexDescriptors(tableName, "idx_drop");
+            assertThat(activeDescriptors)
+                    .as("No active index descriptor should remain after DROP INDEX")
                     .isZero();
 
             // Query should still work correctly without index
@@ -200,6 +207,7 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             // Create index (gen 1)
             sqlRunner.executeDdl("CREATE INDEX idx_drop2 ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_drop2");
 
             // Rebuild → gen 2
             sqlRunner.executeDdl("ALTER INDEX idx_drop2 ON " + fqn() + " REBUILD");
@@ -221,9 +229,9 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
                     .isFalse();
 
             // Verify via metadata: no non-DROPPED generations remain
-            int activeGenerations = countActiveIndexGenerations(tableName, "idx_drop2");
-            assertThat(activeGenerations)
-                    .as("Both gen 1 and gen 2 should be DROPPED")
+            int activeDescriptors = countActiveIndexDescriptors(tableName, "idx_drop2");
+            assertThat(activeDescriptors)
+                    .as("No active index descriptor should remain after DROP INDEX")
                     .isZero();
 
             // Query correctness without index
@@ -233,8 +241,8 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("No stale index files remain after DROP and data continues to be queryable")
-        void noStaleIndexFilesAfterDrop() {
+        @DisplayName("DROP retires the index after a real file build and data remains queryable")
+        void dropRetiresIndexAfterRealFileBuild() {
             // Seed substantial data
             sqlRunner.execute("INSERT INTO " + fqn()
                     + " (id, value, status) VALUES (1, 100, 'ACTIVE'), (2, 200, 'ACTIVE')");
@@ -243,15 +251,19 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + fqn()
                     + " (id, value, status) VALUES (5, 500, 'ACTIVE'), (6, 600, 'PENDING')");
 
-            // Create and drop index
+            // Verify a real physical build before checking the DROP state.
             sqlRunner.executeDdl("CREATE INDEX idx_stale ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_stale");
+            assertThat(countIndexFileMappings(tableName, "idx_stale"))
+                    .as("the index has persisted file mappings before DROP")
+                    .isPositive();
             sqlRunner.executeDdl("DROP INDEX idx_stale ON " + fqn());
 
-            // Verify no index file mappings remain for this index
-            int fileMappingCount = countIndexFileMappings(tableName, "idx_stale");
-            assertThat(fileMappingCount)
-                    .as("No stale index file mappings should remain after DROP")
+            // Physical mappings are retained until GC safely releases the
+            // snapshot pin; DROP must retire the published descriptor now.
+            assertThat(countActiveIndexDescriptors(tableName, "idx_stale"))
+                    .as("the dropped index is no longer active")
                     .isZero();
 
             // All data should still be queryable
@@ -273,37 +285,35 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
     private int countIndexGenerations(String table, String indexName) {
         try (Connection conn = stateStoreDataSource().getConnection();
              PreparedStatement ps = conn.prepareStatement(
-                     "SELECT COUNT(DISTINCT generation) FROM index_metadata "
-                             + "WHERE table_name = ? AND index_name = ?")) {
-            ps.setString(1, table);
-            ps.setString(2, indexName);
+                     "SELECT COUNT(DISTINCT mappings.generation) FROM index_file_mappings mappings "
+                             + "JOIN index_descriptors descriptors ON mappings.index_id = descriptors.index_id "
+                             + "WHERE descriptors.tenant_id = ? AND descriptors.catalog_name = ? "
+                             + "AND descriptors.schema_name = ? AND descriptors.table_name = ? "
+                             + "AND descriptors.index_name = ?")) {
+            bindIndexIdentity(ps, table, indexName);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
             }
-        } catch (Exception e) {
-            // Fallback: if direct metadata query fails (schema mismatch, etc.),
-            // return 1 to indicate at least the current generation exists
-            return 1;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Cannot inspect persisted index generations", e);
         }
     }
 
     /**
-     * Counts non-DROPPED generations for a given index.
+     * Counts non-DROPPED descriptors for the exact tenant and table.
      */
-    private int countActiveIndexGenerations(String table, String indexName) {
+    private int countActiveIndexDescriptors(String table, String indexName) {
         try (Connection conn = stateStoreDataSource().getConnection();
              PreparedStatement ps = conn.prepareStatement(
-                     "SELECT COUNT(*) FROM index_metadata "
-                             + "WHERE table_name = ? AND index_name = ? AND state != 'DROPPED'")) {
-            ps.setString(1, table);
-            ps.setString(2, indexName);
+                     "SELECT COUNT(*) FROM index_descriptors "
+                             + "WHERE tenant_id = ? AND catalog_name = ? AND schema_name = ? "
+                             + "AND table_name = ? AND index_name = ? AND state != 'DROPPED'")) {
+            bindIndexIdentity(ps, table, indexName);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
             }
-        } catch (Exception e) {
-            // Fallback: if direct metadata query fails, return 0
-            // (DROP INDEX should have removed all active entries)
-            return 0;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Cannot inspect persisted index state", e);
         }
     }
 
@@ -313,17 +323,26 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
     private int countIndexFileMappings(String table, String indexName) {
         try (Connection conn = stateStoreDataSource().getConnection();
              PreparedStatement ps = conn.prepareStatement(
-                     "SELECT COUNT(*) FROM index_file_mapping ifm "
-                             + "JOIN index_metadata im ON ifm.index_id = im.index_id "
-                             + "WHERE im.table_name = ? AND im.index_name = ?")) {
-            ps.setString(1, table);
-            ps.setString(2, indexName);
+                     "SELECT COUNT(*) FROM index_file_mappings mappings "
+                             + "JOIN index_descriptors descriptors ON mappings.index_id = descriptors.index_id "
+                             + "WHERE descriptors.tenant_id = ? AND descriptors.catalog_name = ? "
+                             + "AND descriptors.schema_name = ? AND descriptors.table_name = ? "
+                             + "AND descriptors.index_name = ?")) {
+            bindIndexIdentity(ps, table, indexName);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
             }
-        } catch (Exception e) {
-            // Fallback: if join query fails, try simpler approach
-            return 0;
+        } catch (SQLException e) {
+            throw new IllegalStateException("Cannot inspect persisted index file mappings", e);
         }
+    }
+
+    private void bindIndexIdentity(PreparedStatement statement, String table, String indexName)
+            throws SQLException {
+        statement.setString(1, authenticatedCatalogSession(CATALOG).getProperties().get("tenant_id"));
+        statement.setString(2, CATALOG);
+        statement.setString(3, SCHEMA);
+        statement.setString(4, table);
+        statement.setString(5, indexName);
     }
 }

@@ -82,7 +82,7 @@ public final class NativeCapabilityRegistry {
         Set<String> defaultFunctions = Set.of(
                 // comparison
                 "equal", "not_equal", "lt", "gt", "lte", "gte",
-                "is_null", "is_not_null",
+                "is_null", "is_not_null", "is_distinct_from", "is_not_distinct_from",
                 // arithmetic
                 "add", "subtract", "multiply", "divide",
                 "abs", "modulus", "power", "sqrt",
@@ -101,6 +101,9 @@ public final class NativeCapabilityRegistry {
                 "st_geomfromtext", "st_geographyfromtext",
                 // Exact canonical names emitted from sql-bindings.json.
                 "subscript", "contains", "array_contains_all",
+                // Pangrova Variant path semantics use the registered Native
+                // vector function, not Presto's JSONPath scalar extraction.
+                "variant_get",
                 // vector distance
                 "l2_distance", "cosine_distance", "inner_product", "pangrova_cosine_similarity",
                 // packaged Native scalar callbacks registered by the Worker function catalogue

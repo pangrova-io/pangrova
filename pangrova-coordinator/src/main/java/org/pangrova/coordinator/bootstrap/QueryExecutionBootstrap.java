@@ -239,7 +239,7 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
                         dmlDispatch, writeCallback,
                         (sql, sess) -> securityApplier.compileAndApplyPolicies(sql, sess).toString(),
-                        metadataBootstrap != null ? metadataBootstrap.catalogRegistry() : null,
+                        catalog,
                         generatedValueMaterialization));
 
         var factories = new ArrayList<

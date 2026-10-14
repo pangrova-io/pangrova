@@ -14,11 +14,16 @@ public final class TaskReportPublication implements AutoCloseable {
     private final Runnable accept;
     private final Runnable exit;
     private final AtomicBoolean closed = new AtomicBoolean();
+
     TaskReportPublication(TaskStatusReport report, boolean resourceOnly, boolean publicationCompleted,
             Runnable accept, Runnable exit) {
-        this.report = report; this.resourceOnly = resourceOnly; this.publicationCompleted = publicationCompleted;
-        this.accept = accept; this.exit = exit;
+        this.report = report;
+        this.resourceOnly = resourceOnly;
+        this.publicationCompleted = publicationCompleted;
+        this.accept = accept;
+        this.exit = exit;
     }
+
     /** Returns the original frozen report, not a newly timestamped retry. */
     public TaskStatusReport report() { return report; }
     /** Returns the first validated disposition, never one recomputed after partial side effects. */
@@ -26,7 +31,12 @@ public final class TaskReportPublication implements AutoCloseable {
     /** Completed publication need not be repeated when only a required drain observer failed. */
     public boolean publicationCompleted() { return publicationCompleted; }
     /** Marks actual required journal and publication work complete before releasing the operation. */
-    public void accepted() { if (closed.get()) throw new IllegalStateException("Report operation already exited"); accept.run(); }
+    public void accepted() {
+        if (closed.get()) {
+            throw new IllegalStateException("Report operation already exited");
+        }
+        accept.run();
+    }
     @Override public void close() { if (closed.compareAndSet(false, true)) exit.run(); }
 
     /** A single retained publication fact; mutable fields are guarded by its TaskIdentityRegistry owner. */
@@ -55,6 +65,7 @@ public final class TaskReportPublication implements AutoCloseable {
         final int stageId;
         final int partitionId;
         final TaskAttemptDescriptor attempt;
+
         Fact(SubmitTaskRequest request,
                 org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly) {
             this.request = request;
@@ -62,28 +73,45 @@ public final class TaskReportPublication implements AutoCloseable {
             this.resourceOnly = resourceOnly;
             sequence = report.reportSequence();
             timestamp = report.timestampMs();
-            taskId = report.taskId(); queryId = report.queryId(); workerId = report.workerId();
-            state = report.state(); taskType = report.taskType(); stageId = report.stageId();
-            partitionId = report.partitionId(); attempt = report.attempt();
-            stats = report.stats(); error = report.error(); writeResult = report.writeResult();
-            errorCode = report.errorCode(); errorMetadata = report.errorMetadata();
+            taskId = report.taskId();
+            queryId = report.queryId();
+            workerId = report.workerId();
+            state = report.state();
+            taskType = report.taskType();
+            stageId = report.stageId();
+            partitionId = report.partitionId();
+            attempt = report.attempt();
+            stats = report.stats();
+            error = report.error();
+            writeResult = report.writeResult();
+            errorCode = report.errorCode();
+            errorMetadata = report.errorMetadata();
             byte[] canonical = report.canonicalTaskReport();
             canonicalDigest = canonical == null ? null
                     : org.pangrova.common.util.DigestUtils.sha256().digest(canonical);
         }
+
         boolean matches(org.pangrova.protocol.rest.task.TaskStatusReport retry) {
+            return matchesIdentity(retry) && matchesPayload(retry)
+                    && matchesCanonical(retry.canonicalTaskReport());
+        }
+
+        private boolean matchesIdentity(TaskStatusReport retry) {
             return sequence == retry.reportSequence() && timestamp == retry.timestampMs()
                     && taskId.equals(retry.taskId()) && queryId.equals(retry.queryId())
                     && workerId.equals(retry.workerId()) && state.equals(retry.state())
                     && java.util.Objects.equals(taskType, retry.taskType()) && stageId == retry.stageId()
-                    && partitionId == retry.partitionId() && attempt.equals(retry.attempt())
-                    && java.util.Objects.equals(stats, retry.stats())
+                    && partitionId == retry.partitionId() && attempt.equals(retry.attempt());
+        }
+
+        private boolean matchesPayload(TaskStatusReport retry) {
+            return java.util.Objects.equals(stats, retry.stats())
                     && java.util.Objects.equals(error, retry.error())
                     && java.util.Objects.equals(writeResult, retry.writeResult())
                     && java.util.Objects.equals(errorCode, retry.errorCode())
-                    && java.util.Objects.equals(errorMetadata, retry.errorMetadata())
-                    && matchesCanonical(retry.canonicalTaskReport());
+                    && java.util.Objects.equals(errorMetadata, retry.errorMetadata());
         }
+
         private boolean matchesCanonical(byte[] canonical) {
             if (canonicalDigest == null || canonical == null) return canonicalDigest == null && canonical == null;
             return java.security.MessageDigest.isEqual(canonicalDigest,

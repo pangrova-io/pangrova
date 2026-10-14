@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.worker.ClusterResourcePressureMonitor;
 import org.pangrova.governance.lineage.LineageEventEmitter;

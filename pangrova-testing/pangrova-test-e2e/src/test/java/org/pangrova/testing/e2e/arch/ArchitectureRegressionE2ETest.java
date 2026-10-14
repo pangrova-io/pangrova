@@ -32,7 +32,7 @@ class ArchitectureRegressionE2ETest extends SqlE2ETestBase {
     private static final String SCHEMA = "default";
     // 20 = 19 lifecycle/control methods + nativeRegisterEgress0 (egress routing
     // registration added with the prod shuffle fix, commit 12ff16c5).
-    private static final int EXPECTED_NATIVE_METHOD_COUNT = 20;
+    private static final int EXPECTED_NATIVE_METHOD_COUNT = 21;
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -373,7 +373,7 @@ class ArchitectureRegressionE2ETest extends SqlE2ETestBase {
             List<String> required = List.of(
                     "nativeInitInternal", "nativeShutdownInternal",
                     "nativeCreateTaskExecutor0", "nativeStartTask0",
-                    "nativeCancelTask0", "nativeReleaseExecutor0");
+                    "nativeCancelTask0", "nativeReleaseExecutor0", "nativeRequestReclaim");
             List<String> actual = Arrays.stream(NativeRuntime.class.getDeclaredMethods())
                     .filter(m -> Modifier.isNative(m.getModifiers()))
                     .map(Method::getName).collect(Collectors.toList());

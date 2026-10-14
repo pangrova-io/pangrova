@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.testing.ContainerTestBase;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.HttpWaitStrategy;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
 import java.net.URI;
@@ -30,7 +30,7 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
 
     @Test
     void realHttpPullFreezesBothExactInventoryDigestsBeforePublishingConfiguration() throws Exception {
-        try (var provider = new SharedAiProvider()) {
+        try (var provider = new SharedAiProvider(true)) {
             var config = provider.prepare();
             HttpRequest request = HttpRequest.newBuilder(URI.create(provider.endpoint("/api/tags")))
                     .timeout(Duration.ofSeconds(10)).GET().build();
@@ -65,8 +65,15 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
         var pausedId = new AtomicReference<String>();
         var container = new GenericContainer<>(DockerImageName.parse("ollama/ollama:0.6.2"))
                 .withExposedPorts(11434)
-                .waitingFor(new PauseAfterReadiness(pausedId));
-        try (var provider = new SharedAiProvider(container, Duration.ofSeconds(20))) {
+                .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200));
+        Runnable pauseBeforePull = () -> {
+            String id = container.getContainerId();
+            DockerClientFactory.instance().client().pauseContainerCmd(id).exec();
+            assertThat(DockerClientFactory.instance().client().inspectContainerCmd(id).exec()
+                    .getState().getPaused()).isTrue();
+            pausedId.set(id);
+        };
+        try (var provider = new SharedAiProvider(container, Duration.ofSeconds(20), pauseBeforePull)) {
             long started = System.nanoTime();
             assertThatThrownBy(provider::prepare)
                     .isInstanceOfAny(TimeoutException.class, HttpTimeoutException.class)
@@ -82,27 +89,6 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
             assertThatThrownBy(() -> provider.endpoint("/api/tags"))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("not running");
-        }
-    }
-
-    /** Pauses the actual Docker process only after the real inventory endpoint has returned HTTP 200. */
-    private static final class PauseAfterReadiness extends HttpWaitStrategy {
-        private final AtomicReference<String> pausedId;
-
-        private PauseAfterReadiness(AtomicReference<String> pausedId) {
-            this.pausedId = pausedId;
-            forPath("/api/tags");
-            forStatusCode(200);
-        }
-
-        @Override
-        protected void waitUntilReady() {
-            super.waitUntilReady();
-            String id = waitStrategyTarget.getContainerId();
-            DockerClientFactory.instance().client().pauseContainerCmd(id).exec();
-            assertThat(DockerClientFactory.instance().client().inspectContainerCmd(id).exec()
-                    .getState().getPaused()).isTrue();
-            pausedId.set(id);
         }
     }
 }

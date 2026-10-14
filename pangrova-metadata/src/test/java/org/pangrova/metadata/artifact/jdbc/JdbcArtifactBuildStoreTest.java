@@ -244,7 +244,7 @@ class JdbcArtifactBuildStoreTest {
     }
 
     @Test
-    void publicationLeaseFencesDemotedCoordinator() {
+    void publicationLeaseFencesDemotedCoordinatorAndAllowsImmediateTakeover() {
         store.createJob(job(1), dispatchSpec(TENANT, pages(1)), pages(1));
         var page = store.claimNextPage(
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "coordinator-a", 2), 2, Duration.ofMinutes(1), START)
@@ -258,21 +258,17 @@ class JdbcArtifactBuildStoreTest {
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "coordinator-a", 2), 2,
                 Duration.ofSeconds(10), START.plusSeconds(2))
                 .orElseThrow();
-        assertThat(store.claimReadyForPublication(
-                TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "coordinator-b", 3), 3,
-                Duration.ofSeconds(10), START.plusSeconds(3)))
-                .isEmpty();
         var current = store.claimReadyForPublication(
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "coordinator-b", 3), 3,
-                Duration.ofSeconds(10), START.plusSeconds(13))
+                Duration.ofSeconds(10), START.plusSeconds(3))
                 .orElseThrow();
 
         assertThat(store.markPublished(
                 TENANT, "job-1", "coordinator-a", 2,
-                stale.publicationFencingToken(), START.plusSeconds(14))).isFalse();
+                stale.publicationFencingToken(), START.plusSeconds(4))).isFalse();
         assertThat(store.markPublished(
                 TENANT, "job-1", "coordinator-b", 3,
-                current.publicationFencingToken(), START.plusSeconds(14))).isTrue();
+                current.publicationFencingToken(), START.plusSeconds(4))).isTrue();
         assertThat(store.findJob(TENANT, "job-1").orElseThrow().state())
                 .isEqualTo(ArtifactBuildJobState.PUBLISHED);
     }

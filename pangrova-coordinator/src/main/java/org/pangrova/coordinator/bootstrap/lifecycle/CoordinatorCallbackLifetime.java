@@ -11,10 +11,14 @@ import org.pangrova.common.concurrent.ThreadSafe;
 /** Accepted callback ownership; cancellation of a scheduling future is not a callback's exit. */
 @ThreadSafe
 public final class CoordinatorCallbackLifetime {
-    @GuardedBy("this") private boolean sealed;
-    @GuardedBy("this") private int operations;
-    @GuardedBy("this") private final Map<Thread, Integer> entered = new HashMap<>();
-    @GuardedBy("this") private CompletableFuture<Void> exit;
+    @GuardedBy("this")
+    private boolean sealed;
+    @GuardedBy("this")
+    private int operations;
+    @GuardedBy("this")
+    private final Map<Thread, Integer> entered = new HashMap<>();
+    @GuardedBy("this")
+    private CompletableFuture<Void> exit;
 
     /**
      * Claims an actual accepted callback before submitting it to an executor.
@@ -46,8 +50,9 @@ public final class CoordinatorCallbackLifetime {
             if (exit == null) exit = new CompletableFuture<>();
             completion = exit;
         }
-        try { completion.get(timeoutMs, TimeUnit.MILLISECONDS); }
-        catch (InterruptedException interrupted) {
+        try {
+            completion.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted joining actual coordinator callbacks", interrupted);
         } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failure) {
@@ -59,6 +64,7 @@ public final class CoordinatorCallbackLifetime {
     @ThreadSafe
     public final class Operation implements AutoCloseable {
         private final AtomicInteger state = new AtomicInteger();
+
         private Operation() {}
 
         /**
@@ -75,13 +81,16 @@ public final class CoordinatorCallbackLifetime {
             Thread thread = Thread.currentThread();
             boolean published = false;
             try {
-                synchronized (CoordinatorCallbackLifetime.this) { entered.merge(thread, 1, Integer::sum); }
+                synchronized (CoordinatorCallbackLifetime.this) {
+                    entered.merge(thread, 1, Integer::sum);
+                }
                 published = true;
                 body.run();
-            }
-            finally {
-                if (published) synchronized (CoordinatorCallbackLifetime.this) {
-                    entered.compute(thread, (key, count) -> count == 1 ? null : count - 1);
+            } finally {
+                if (published) {
+                    synchronized (CoordinatorCallbackLifetime.this) {
+                        entered.compute(thread, (key, count) -> count == 1 ? null : count - 1);
+                    }
                 }
                 if (state.compareAndSet(1, 2)) exited();
             }
@@ -89,7 +98,10 @@ public final class CoordinatorCallbackLifetime {
 
         /** Returns an operation rejected before executor transfer or exited from its actual callback. */
         @Override public void close() {
-            if (state.compareAndSet(0, 2)) { exited(); return; }
+            if (state.compareAndSet(0, 2)) {
+                exited();
+                return;
+            }
             if (state.get() == 1) throw new IllegalStateException("Running callback has not exited");
         }
 

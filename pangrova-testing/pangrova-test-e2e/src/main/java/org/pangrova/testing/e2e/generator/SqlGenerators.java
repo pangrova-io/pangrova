@@ -12,6 +12,9 @@ import java.util.List;
  */
 public final class SqlGenerators {
 
+    private static final int NUMERIC_EQUALITY_MAX = 10000;
+    private static final int NUMERIC_RANGE_MAX = 5000;
+
     private static final List<String> ORDERS_STRING_COLUMNS =
             List.of("o_orderstatus", "o_orderpriority", "o_clerk", "o_comment");
 
@@ -23,6 +26,7 @@ public final class SqlGenerators {
 
     private SqlGenerators() {}
 
+    /** Generates predicates for property-based SQL tests. */
     @Provide
     public static Arbitrary<String> wherePredicates() {
         return Arbitraries.oneOf(
@@ -35,6 +39,7 @@ public final class SqlGenerators {
         );
     }
 
+    /** Generates a column name from the requested TPC-H table. */
     @Provide
     public static Arbitrary<String> tpchColumnNames(String tableName) {
         List<String> columns = TestDataGenerator.getSchemas()
@@ -70,14 +75,14 @@ public final class SqlGenerators {
 
     private static Arbitrary<String> numericEqualityPredicate() {
         return Arbitraries.of(ORDERS_NUMERIC_COLUMNS).flatMap(col ->
-                Arbitraries.integers().between(1, 10000).map(val ->
+                Arbitraries.integers().between(1, NUMERIC_EQUALITY_MAX).map(val ->
                         col + " = " + val));
     }
 
     private static Arbitrary<String> rangePredicate() {
         return Arbitraries.of(ORDERS_NUMERIC_COLUMNS).flatMap(col ->
-                Arbitraries.integers().between(1, 5000).flatMap(lo ->
-                        Arbitraries.integers().between(lo + 1, lo + 5000).map(hi ->
+                Arbitraries.integers().between(1, NUMERIC_RANGE_MAX).flatMap(lo ->
+                        Arbitraries.integers().between(lo + 1, lo + NUMERIC_RANGE_MAX).map(hi ->
                                 col + " > " + lo + " AND " + col + " < " + hi)));
     }
 

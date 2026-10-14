@@ -3,7 +3,9 @@ package org.pangrova.protocol.retrieval;
 import org.pangrova.protocol.BoundExecutionPlan;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors.FieldDescriptor;
@@ -120,6 +122,18 @@ public final class RetrievalTopKPlanBinder {
         Rel retrievalInput = sort.getInput();
         NamedStruct boundSchema = candidateSchema(retrievalInput, binding);
         List<String> names = SubstraitRelationLayout.topLevelNames(boundSchema);
+        List<String> requestedNames = SubstraitRelationLayout.topLevelNames(
+                NamedStruct.parseFrom(binding.candidateSchema()));
+        boolean ambiguousIdentity = hasAmbiguousIdentity(names, binding);
+        if (ambiguousIdentity && !binding.exact()) {
+            throw new IllegalArgumentException("Artifact-backed Top-K requires distinct candidate identity fields");
+        }
+        if (binding.exact() && (ambiguousIdentity || !names.equals(requestedNames))) {
+            // The ordinary Sort/Fetch handles SQL ORDER BY without inventing an
+            // identity from two columns that resolve to the same field name.
+            cursor.retainExactSortFetch();
+            return rel;
+        }
         if (binding.capability().getCapabilityId().equals(
                 BuiltInCapabilityCatalog.BM25_RETRIEVAL_ID)) {
             retrievalInput = Bm25MaterializedScoreBinder.bind(
@@ -135,6 +149,18 @@ public final class RetrievalTopKPlanBinder {
         extension.setCommon(SubstraitRelationLayout.compose(sort.getCommon(), fetch.getCommon(), names.size()));
         cursor.advance(detail);
         return Rel.newBuilder().setExtensionSingle(extension).build();
+    }
+
+    private static boolean hasAmbiguousIdentity(
+            List<String> names, RetrievalTopKBinding binding) {
+        Set<String> used = new HashSet<>();
+        used.add(names.get(binding.scoreFieldIndex()));
+        for (int stableKey : binding.stableKeyFieldIndexes()) {
+            if (stableKey < 0 || stableKey >= names.size() || !used.add(names.get(stableKey))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static NamedStruct candidateSchema(Rel input, RetrievalTopKBinding binding)

@@ -236,9 +236,35 @@ VeloxPlanConverter::convertTopKRetrieval(
           contract.score_direction() ==
               pangrova::protocol::v2::SCORE_DIRECTION_LOWER_IS_BETTER,
           true)};
+  std::vector<size_t> exact_value_ordinals;
+  if (exact && contract.identity_kind() ==
+          pangrova::protocol::v2::CANDIDATE_IDENTITY_KIND_VALUE_FIELDS &&
+      static_cast<size_t>(contract.stable_key_fields_size()) + 1 ==
+          logical_input->size()) {
+    const auto score_ordinal = input_type->getChildIdxIfExists(score_field->name());
+    if (!score_ordinal) {
+      throw std::runtime_error("Exact Top-K score has no input ordinal");
+    }
+    size_t key = 0;
+    for (size_t ordinal = 0; ordinal < logical_input->size(); ++ordinal) {
+      if (ordinal == *score_ordinal) continue;
+      if (logical_input->nameOf(ordinal) !=
+          contract.stable_key_fields(static_cast<int>(key))) {
+        exact_value_ordinals.clear();
+        break;
+      }
+      exact_value_ordinals.push_back(ordinal);
+      ++key;
+    }
+  }
+  size_t stable_ordinal = 0;
   for (const auto& stable_key : contract.stable_key_fields()) {
-    auto index = logical_input->getChildIdxIfExists(stable_key);
-    if (!index.has_value() || input_type->nameOf(index.value()) == score_field->name()) {
+    std::optional<uint32_t> index = exact_value_ordinals.empty()
+        ? logical_input->getChildIdxIfExists(stable_key)
+        : std::make_optional(
+              static_cast<uint32_t>(exact_value_ordinals[stable_ordinal]));
+    if (!index.has_value() ||
+        input_type->nameOf(index.value()) == score_field->name()) {
       throw std::runtime_error(
           "VeloxPlanConverter: invalid candidate stable key: " + stable_key);
     }
@@ -246,6 +272,14 @@ VeloxPlanConverter::convertTopKRetrieval(
         std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(
             input_type->childAt(index.value()), input_type->nameOf(index.value())));
     sorting_orders.emplace_back(true, true);
+    ++stable_ordinal;
+  }
+  std::unordered_set<std::string> resolved_keys;
+  for (const auto& key : sorting_keys) {
+    if (!resolved_keys.insert(key->name()).second) {
+      throw std::runtime_error(
+          "Retrieval candidate ordering resolves multiple keys to one physical column");
+    }
   }
 
   if (filtered) {

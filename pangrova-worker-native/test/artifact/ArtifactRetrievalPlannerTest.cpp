@@ -6,11 +6,13 @@
 
 #include <array>
 #include <bit>
-#include <chrono>
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <unordered_map>
 #include <vector>
 
@@ -63,10 +65,17 @@ proto::ArtifactFormatRef annFormat(AnnAlgorithm algorithm) {
 class TestDirectory final {
  public:
   TestDirectory() {
-    path_ = std::filesystem::temp_directory_path() /
-        ("pangrova-artifact-retrieval-" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(path_);
+    const auto pattern = (std::filesystem::temp_directory_path() /
+                          "pangrova-artifact-retrieval-XXXXXX")
+                             .string();
+    std::vector<char> mutable_pattern(pattern.begin(), pattern.end());
+    mutable_pattern.push_back('\0');
+    const auto* created = ::mkdtemp(mutable_pattern.data());
+    if (created == nullptr) {
+      throw std::system_error(errno, std::generic_category(),
+                              "Cannot create artifact retrieval test directory");
+    }
+    path_ = created;
   }
   ~TestDirectory() {
     ImmutableArtifactCache::instance().shutdown();

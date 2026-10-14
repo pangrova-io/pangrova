@@ -323,8 +323,18 @@ final class QuerySchedulingEngine {
             PlannedQuery plannedQuery,
             DispatchQueryContext ctx) {
         var artifactIntents = retrievalIntents.collectRetrievalArtifactIntents(ctx, session.tenantId());
-        var fragments = artifactIntents.isEmpty() ? plannedQuery.fragment()
-                : plannedQuery.fragmentWithPhysicalRetrievalIdentity();
+        int workerCount = deps.workerSelector().activeWorkerCount();
+        int tasksPerWorker = org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector
+                .MAX_TASKS_PER_WORKER;
+        int clusterParallelismLimit = workerCount > Integer.MAX_VALUE / tasksPerWorker
+                ? Integer.MAX_VALUE : Math.max(1, workerCount * tasksPerWorker);
+        var fragments = artifactIntents.isEmpty()
+                ? plannedQuery.fragmentForCluster(clusterParallelismLimit)
+                : plannedQuery.fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit);
+        ctx.vectorSearchNode().ifPresent(vector -> LOG.info(
+                "event=vector_retrieval_plan queryId={} indexId={} intentCount={} stageCount={}",
+                session.queryId(), vector.indexId(), artifactIntents.size(),
+                fragments.stages().size()));
         StageDAG rawDag = StageDAG.fromFragmentedPlan(fragments);
         StageDAG dag = rawDag.withStages(session.queryId());
         registerStageListeners(dag, sm);

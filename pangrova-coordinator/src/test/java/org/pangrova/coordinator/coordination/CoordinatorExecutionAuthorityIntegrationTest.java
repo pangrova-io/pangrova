@@ -32,7 +32,8 @@ class CoordinatorExecutionAuthorityIntegrationTest {
                 await().atMost(Duration.ofSeconds(5)).until(() -> {
                     try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                             "SELECT COUNT(*) FROM pg_stat_activity WHERE application_name=? "
-                                    + "AND wait_event_type='Lock' AND query LIKE 'UPDATE execution_anchor SET expires_at=%'")) {
+                                    + "AND wait_event_type='Lock' "
+                                    + "AND query LIKE 'SELECT execution_id FROM execution_anchor WHERE owner_id=%'")) {
                         statement.setString(1, application);
                         try (var result = statement.executeQuery()) { result.next(); return result.getInt(1) == 1; }
                     }

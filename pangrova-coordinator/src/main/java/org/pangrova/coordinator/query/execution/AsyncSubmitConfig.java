@@ -1,4 +1,6 @@
-package org.pangrova.coordinator.query;
+package org.pangrova.coordinator.query.execution;
+
+import org.pangrova.coordinator.query.QueryManager;
 
 /**
  * Configuration for asynchronous query submission behavior.

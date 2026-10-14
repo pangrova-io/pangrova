@@ -8,6 +8,7 @@ import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.spi.connector.data.type.ArrayType;
 import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.NullOnlyType;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.data.type.RowField;
 import org.pangrova.spi.connector.data.type.RowType;
@@ -40,6 +41,22 @@ class ConnectorColumnTypeMapperTest {
         assertThatThrownBy(() -> ConnectorColumnTypeMapper.rowType(
                 List.of(column(type, BigIntType.INSTANCE)), new PlannerTypeFactory()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(type.name());
+    }
+
+    @Test
+    void explicitNullOnlyDeclarationIsNullableButBareUnknownRemainsRejected() {
+        var sql = ConnectorColumnTypeMapper.rowType(
+                List.of(column(PangrovaType.UNKNOWN, NullOnlyType.INSTANCE)),
+                new PlannerTypeFactory()).getFieldList().get(0).getType();
+        assertThat(sql.getSqlTypeName()).isEqualTo(SqlTypeName.VARCHAR);
+        assertThat(sql.isNullable()).isTrue();
+        var compiled = NativeDatasetSchemaCompiler.compile(
+                List.of(column(PangrovaType.UNKNOWN, NullOnlyType.INSTANCE)));
+        assertThat(compiled.schema().getStruct().getTypes(0).hasString()).isTrue();
+        assertThatThrownBy(() -> ConnectorColumnTypeMapper.rowType(
+                List.of(column(PangrovaType.UNKNOWN, VarcharType.UNBOUNDED)),
+                new PlannerTypeFactory()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("UNKNOWN");
     }
 
     @Test

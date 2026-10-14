@@ -307,13 +307,17 @@ public final class LanceManagedSourceFixture {
         var invocation = Optional.ofNullable(invocations.get(result.getInvocationId())).orElseThrow(
                 () -> new IllegalArgumentException("SDK fixture has no matching durable issuance"));
         if (!result.getSdkJoined()) throw new IllegalArgumentException("SDK future did not actually join");
+        var page = result.getObjectPage();
+        if (page.getPageIndex() != invocation.pageIndex()
+                || !page.getAfterPath().equals(invocation.afterPath())) {
+            throw new IllegalArgumentException("SDK object page sequence or cursor differs");
+        }
         authority.acknowledgePreparation(reservation, invocation,
                 CatalogDeploymentFingerprint.sha256(result.toByteArray()).getDigest().toByteArray());
         var header = result.getPublication();
         var publication = new org.pangrova.spi.connector.metadata.PreparedSourcePublication(
                 SourceSnapshotBindings.decode(header.getCandidate(), catalog), header.getRowCount(), header.getObjectsCount(),
                 sha(header.getObjectsSha256()), header.getInheritedMembership());
-        var page = result.getObjectPage();
         authority.registerObjects(reservation, publication, new SourceObjectPage(page.getPageIndex(), page.getAfterPath(),
                 page.getObjectsList().stream().map(object -> new SourceObjectPage.ObjectReference(
                         object.getRelativePath(), object.getSizeBytes(), objectPurpose(object.getPurpose()))).toList(), sha(page.getSha256()), page.getIsLast()));

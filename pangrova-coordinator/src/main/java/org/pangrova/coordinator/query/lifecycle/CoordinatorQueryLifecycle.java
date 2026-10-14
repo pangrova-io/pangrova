@@ -1,4 +1,7 @@
-package org.pangrova.coordinator.query;
+package org.pangrova.coordinator.query.lifecycle;
+
+import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.coordinator.query.QueryStateMachine;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;

@@ -2,7 +2,6 @@ package org.pangrova.testing.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
@@ -11,7 +10,6 @@ import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.QueryStateEvent;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.spi.coordination.TaskStateEvent;
-import org.pangrova.testing.TestObservability;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
@@ -147,9 +145,8 @@ class FailoverE2ETest extends SqlE2ETestBase {
             leaderElection.tryAcquire("coordinator-2", LEASE_MS);
 
             // New leader recovers from journal
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
             JournalRecoveryService recovery = new JournalRecoveryService(
                     journal, recoveredManager, recoveredTracker);
             int recovered = recovery.recover();
@@ -176,9 +173,8 @@ class FailoverE2ETest extends SqlE2ETestBase {
             leaderElection.release("coordinator-1");
             leaderElection.tryAcquire("coordinator-2", LEASE_MS);
 
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
             new JournalRecoveryService(journal, recoveredManager, recoveredTracker)
                     .recover();
 
@@ -205,9 +201,8 @@ class FailoverE2ETest extends SqlE2ETestBase {
             leaderElection.release("coordinator-1");
             leaderElection.tryAcquire("coordinator-2", LEASE_MS);
 
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
             int recovered = new JournalRecoveryService(
                     journal, recoveredManager, recoveredTracker).recover();
 

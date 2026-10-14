@@ -9,6 +9,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Combinators;
+import org.junit.jupiter.api.Test;
 
 import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
 import org.pangrova.parser.ast.Identifier;
@@ -30,6 +31,21 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Validates: Requirement 3.1</b></p>
  */
 class TableNameExtractorPropertyTest {
+
+    @Test
+    void everyAlterTableVariantRetainsItsTargetTable() {
+        Identifier target = Identifier.of("Catalog", "Schema", "Table");
+        List<Statement> statements = List.of(
+                new AlterTableStatement.SetSortOrder(target, List.of()),
+                new AlterTableStatement.CreateBranch(target, "dev"),
+                new AlterTableStatement.DropBranch(target, "dev"),
+                new AlterTableStatement.CreateTag(target, "v1"),
+                new AlterTableStatement.DropTag(target, "v1"),
+                new AlterTableStatement.SetColumnTag(target, "col", "key", "value"),
+                new AlterTableStatement.UnsetColumnTag(target, "col", "key"));
+        assertThat(statements).allSatisfy(statement ->
+                assertThat(TableNameExtractor.extract(statement)).isEqualTo("catalog.schema.table"));
+    }
 
     /**
      * Property 8: Table name extraction consistency.

@@ -39,6 +39,9 @@ public final class HashJoinRule extends RelOptRule {
     @Override
     public boolean matches(RelOptRuleCall call) {
         Join join = call.rel(0);
+        if (join.analyzeCondition().leftKeys.isEmpty()) {
+            return false;
+        }
         RelMetadataQuery mq = call.getMetadataQuery();
         double rightRows = join.getRight().estimateRowCount(mq);
         double leftRows = join.getLeft().estimateRowCount(mq);

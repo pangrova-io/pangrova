@@ -135,6 +135,16 @@
          §3 PROTOCOL / DTO PATTERNS
          ================================================================ -->
 
+    <!-- PaimonMetadata borrows the live SDK Catalog from PaimonConnector. The connector
+         owns and closes that same instance; copying it would create a different catalog
+         lifetime and break metadata/split/write consistency. The public constructor is
+         also used by connector integration tests with their own catalog owner. -->
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonMetadata"/>
+        <Method name="&lt;init&gt;"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- ByteString.copyFrom owns immutable bytes. FunctionBindingDeclarationsTest proves the
          canonical digest, defensive byte-array exports and read-only buffer contract. SpotBugs
          4.8.3 MutableClasses treats ByteString.writeTo(...):void as a mutable write-prefix setter.
@@ -1813,5 +1823,124 @@
         <Class name="org.pangrova.resource.memory.MemoryPool" />
         <Method name="&lt;init&gt;" params="java.lang.String,long" returns="void" />
         <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+    <!-- Iceberg Catalog/Connector owns these live Table, FileIO, and metadata
+         collaborators. The readers and system tables borrow the exact objects;
+         copying them would detach catalog state and I/O configuration. Match
+         only the observed field in each holder, never mutable row payloads. -->
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.IcebergConnector" />
+        <Field name="metadata" type="org.pangrova.connector.iceberg.IcebergMetadata" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.fs.IcebergCatalogColumnValueReader" />
+        <Field name="fileIO" type="org.apache.iceberg.io.FileIO" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.fs.IcebergColumnValueReader" />
+        <Field name="fileIO" type="org.apache.iceberg.io.FileIO" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.fs.IcebergFileSystemAccessor" />
+        <Field name="fileIO" type="org.apache.iceberg.io.FileIO" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.system.IcebergEntriesSystemTable" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.system.IcebergFilesSystemTable" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.system.IcebergHistorySystemTable" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.system.IcebergManifestsSystemTable" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.system.IcebergPartitionsSystemTable" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.system.IcebergRefsSystemTable" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.system.IcebergSnapshotsSystemTable" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.write.IcebergWriteContext" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.write.IcebergWriteContext" />
+        <Field name="table" type="org.apache.iceberg.Table" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <!-- This base class is sealed; its only permitted concrete sinks are final.
+         SpotBugs 4.8.3 does not account for PermittedSubclasses here. -->
+    <Match>
+        <Class name="org.pangrova.connector.iceberg.write.AbstractIcebergPageSink" />
+        <Method name="&lt;init&gt;" params="org.pangrova.connector.iceberg.write.IcebergWriteContext" returns="void" />
+        <Bug pattern="CT_CONSTRUCTOR_THROW" />
+    </Match>
+
+    <!-- IndexStorageManager is final and holds only an immutable size limit. Its two
+         collaborators share the same read/write service; copying it has no value. -->
+    <Match>
+        <Class name="org.pangrova.indexing.build.IndexBuildContext" />
+        <Method name="storageManager" params="" returns="org.pangrova.indexing.storage.IndexStorageManager" />
+        <Field name="storageManager" type="org.pangrova.indexing.storage.IndexStorageManager" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.indexing.build.IndexBuildContext" />
+        <Method name="&lt;init&gt;" params="org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.IndexEngineRegistry,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.serde.IndexSerializer,org.pangrova.indexing.build.BuildClaimHandler,org.pangrova.indexing.build.GenerationChecker,org.pangrova.spi.connector.index.SnapshotPinProvider,java.util.concurrent.ExecutorService" returns="void" />
+        <Field name="storageManager" type="org.pangrova.indexing.storage.IndexStorageManager" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.indexing.eval.IndexEvaluationService" />
+        <Method name="&lt;init&gt;" params="org.pangrova.indexing.IndexEngineRegistry,org.pangrova.indexing.storage.IndexCache,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.serde.IndexSerializer,org.pangrova.indexing.eval.IndexEvalCircuitBreaker" returns="void" />
+        <Field name="storageManager" type="org.pangrova.indexing.storage.IndexStorageManager" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <!-- The evaluator is deliberately bound to its owner-managed live cache, so
+         invalidation and admission are shared with the coordinator's write path. -->
+    <Match>
+        <Class name="org.pangrova.indexing.eval.IndexEvaluationService" />
+        <Method name="&lt;init&gt;" params="org.pangrova.indexing.IndexEngineRegistry,org.pangrova.indexing.storage.IndexCache,org.pangrova.indexing.storage.IndexStorageManager,org.pangrova.indexing.serde.IndexSerializer,org.pangrova.indexing.eval.IndexEvalCircuitBreaker" returns="void" />
+        <Field name="cache" type="org.pangrova.indexing.storage.IndexCache" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <!-- SplitBlockBloomFilter is final, has a private constructor, and exposes only
+         read-only probes and serialization; its builder cannot mutate a built filter. -->
+    <Match>
+        <Class name="org.pangrova.indexing.storage.CachedBloomFilterIndexData" />
+        <Method name="filter" params="" returns="org.pangrova.common.bloom.SplitBlockBloomFilter" />
+        <Field name="deserializedFilter" type="org.pangrova.common.bloom.SplitBlockBloomFilter" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.indexing.storage.CachedBloomFilterIndexData" />
+        <Method name="&lt;init&gt;" params="org.pangrova.spi.index.data.BloomFilterIndexData,org.pangrova.common.bloom.SplitBlockBloomFilter" returns="void" />
+        <Field name="deserializedFilter" type="org.pangrova.common.bloom.SplitBlockBloomFilter" />
+        <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
 </FindBugsFilter>

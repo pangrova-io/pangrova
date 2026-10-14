@@ -81,4 +81,11 @@ final class RetrievalTopKBindingCursor {
                 .build());
         index++;
     }
+
+    void retainExactSortFetch() {
+        if (!bindings.get(index).exact()) {
+            throw new IllegalArgumentException("Only exact Top-K may retain ordinary Sort/Fetch");
+        }
+        index++;
+    }
 }

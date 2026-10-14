@@ -199,7 +199,7 @@ class VeloxTaskRunner
   bool waitForCompletion();
 
   // Non-blocking alternative to waitForCompletion(). Calls
-  // velox_task_->start(max_drivers) and returns a SemiFuture that resolves
+  // velox_task_->start(effective_drivers) and returns a SemiFuture that resolves
   // to true on success, false on failure, when the task reaches a terminal
   // state. The calling thread returns immediately; resolution is driven by
   // Velox's internal executor. Use .via(executor).thenValue(cb) to schedule
@@ -264,6 +264,8 @@ class VeloxTaskRunner
   const VeloxTaskRunnerConfig config_;
   std::shared_ptr<const facebook::velox::core::PlanNode> plan_;
   std::vector<split::SplitConfig> splits_;
+  std::atomic<uint64_t> index_splits_evaluated_{0};
+  std::atomic<uint64_t> index_splits_skipped_{0};
   std::unordered_map<std::string, std::vector<split::SplitConfig>>
       scan_split_overrides_;
   // Declared before Task so the SDK buffer owner outlives Task destruction.

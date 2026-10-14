@@ -1,5 +1,5 @@
-LogicalProject(i_item_id=[$0], s_state=[$1], g_state=[$2], agg1=[CAST(/($3, $4)):INTEGER], agg2=[CAST(/(CAST($5):DECIMAL(7, 2), $4)):DECIMAL(7, 2)], agg3=[CAST(/(CAST($6):DECIMAL(7, 2), $4)):DECIMAL(7, 2)], agg4=[CAST(/(CAST($7):DECIMAL(7, 2), $4)):DECIMAL(7, 2)])
-  LogicalProject(i_item_id=[$0], s_state=[$1], g_state=[$2], $f3=[CASE(=($4, 0), null:INTEGER, $3)], $f4=[$4], $f5=[CASE(=($4, 0), null:DECIMAL(38, 2), $5)], $f6=[CASE(=($4, 0), null:DECIMAL(38, 2), $6)], $f7=[CASE(=($4, 0), null:DECIMAL(38, 2), $7)])
+LogicalProject(i_item_id=[$0], s_state=[$1], g_state=[$2], agg1=[CAST(/(CAST($3):INTEGER, $4)):INTEGER], agg2=[CAST(/(CAST($5):DECIMAL(7, 2), $4)):DECIMAL(7, 2)], agg3=[CAST(/(CAST($6):DECIMAL(7, 2), $4)):DECIMAL(7, 2)], agg4=[CAST(/(CAST($7):DECIMAL(7, 2), $4)):DECIMAL(7, 2)])
+  LogicalProject(i_item_id=[$0], s_state=[$1], g_state=[$2], $f3=[CASE(=($4, 0), null:BIGINT, $3)], $f4=[$4], $f5=[CASE(=($4, 0), null:DECIMAL(38, 2), $5)], $f6=[CASE(=($4, 0), null:DECIMAL(38, 2), $6)], $f7=[CASE(=($4, 0), null:DECIMAL(38, 2), $7)])
     LogicalSort(sort0=[$0], sort1=[$1], dir0=[ASC], dir1=[ASC], fetch=[100])
       LogicalAggregate(group=[{0, 1}], groups=[[{0, 1}, {0}, {}]], g_state=[GROUPING($1)], agg#1=[$SUM0($2)], agg#2=[COUNT()], agg#3=[$SUM0($3)], agg#4=[$SUM0($4)], agg#5=[$SUM0($5)])
         LogicalProject(i_item_id=[$9], s_state=['TN':VARCHAR], ss_quantity=[$0], ss_list_price=[$1], ss_coupon_amt=[$3], ss_sales_price=[$2])

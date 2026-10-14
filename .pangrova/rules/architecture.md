@@ -187,7 +187,7 @@ Within `pangrova-worker-native/src/`, C++ components follow layered dependencies
 | `jni/` | `compat/` only — JNI layer must be THIN |
 | `jni/bridge/` | `executor/`, `result/`, `shuffle/`, `write/`, `lance/`, `vector/` |
 | `jni/command/` | `executor/`, `jni/bridge/`, `jni/registry/`, `compat/` |
-| `velox/` | Velox SDK, Arrow, Protobuf, `columnar/` — NO direct JNI includes |
+| `velox/` | Velox SDK, Arrow, Protobuf, `columnar/`; `velox/runner/` may invoke `index/` for validated pre-scan split pruning — NO direct JNI includes |
 | `executor/` | `velox/`, `memory/`, `shuffle/`, `result/`, `observability/` |
 | `shuffle/` | Arrow Flight, `velox/serde/` public VectorSerde boundary only, `columnar/`, `memory/`, `observability/` |
 | `memory/` | Velox memory SDK, Arrow allocation API, `observability/` |

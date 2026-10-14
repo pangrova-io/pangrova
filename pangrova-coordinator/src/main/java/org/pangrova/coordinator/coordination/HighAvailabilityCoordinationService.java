@@ -44,6 +44,8 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
                                      int maxQueryOwnershipEntries) {
         /** Default upper bound on tracked query-ownership entries (A-OWN-01). */
         public static final int DEFAULT_MAX_QUERY_OWNERSHIP_ENTRIES = 100_000;
+        private static final long DEFAULT_LEASE_TIMEOUT_MS = 30_000;
+        private static final long DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 
         public CoordinationConfig {
             if (leaseTimeoutMs <= 0) {
@@ -66,7 +68,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         }
 
         public static CoordinationConfig defaults() {
-            return new CoordinationConfig(30_000, 10_000);
+            return new CoordinationConfig(DEFAULT_LEASE_TIMEOUT_MS, DEFAULT_HEARTBEAT_INTERVAL_MS);
         }
     }
 
@@ -92,6 +94,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         this(lease, CoordinationConfig.defaults());
     }
 
+    /** Creates coordination using the supplied durable lease and HA timing configuration. */
     public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config) {
         Objects.requireNonNull(lease, "lease must not be null");
         this.leaseElection = new LeaseBackedLeaderElection(lease);
@@ -130,6 +133,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return coordinatorRegistryRef;
     }
 
+    /** Tries to acquire the cluster-control lease for this Coordinator. */
     public boolean tryBecomeLeader(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
         Optional<LeaseEntry> acquired = leaseElection.tryAcquire(
@@ -162,6 +166,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         }
     }
 
+    /** Renews only the lease currently held by this Coordinator. */
     public boolean renewLease(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
         LeaseEntry held = localLease.get();
@@ -197,6 +202,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return ownership.acquire(queryId, coordinatorId, requireLocalIncarnation());
     }
 
+    /** Releases a durable query anchor held by this Coordinator incarnation. */
     public boolean releaseQueryOwnership(String queryId, String coordinatorId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
@@ -392,10 +398,10 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         String nodeId = localNodeId.get();
         String incarnation = localIncarnation.get();
         if (nodeId != null && incarnation != null) {
-                int yielded = yieldLocalExecutions();
-                LOG.info("event=execution_anchors_yielded coordinatorId={} "
-                                + "incarnation={} count={}",
-                        nodeId, incarnation, yielded);
+            int yielded = yieldLocalExecutions();
+            LOG.info("event=execution_anchors_yielded coordinatorId={} "
+                            + "incarnation={} count={}",
+                    nodeId, incarnation, yielded);
         }
         if (nodeId != null) {
             LeaseEntry held = localLease.get();

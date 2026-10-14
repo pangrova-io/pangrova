@@ -16,9 +16,11 @@ import org.pangrova.spi.index.statistics.FileColumnStatistics;
 
 import javax.sql.DataSource;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * JDBC-backed implementation of {@link IndexMetadataStore}.
@@ -45,6 +47,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     private final JdbcIndexGcStore gcStore;
     private final JdbcIndexCommitQueue commitQueue;
     private final JdbcIndexPublicationStore publicationStore;
+    private final ThreadLocal<Set<String>> heldLifecycleLocks = ThreadLocal.withInitial(HashSet::new);
 
     /** Creates the facade over the focused JDBC sub-stores backed by the given data source. */
     public JdbcIndexMetadataStore(DataSource dataSource) {
@@ -63,6 +66,40 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     @Override
     public void registerIndex(IndexDescriptor descriptor) {
         descriptorStore.registerIndex(descriptor);
+    }
+
+    @Override
+    public void registerIndexWithBuildAuthority(IndexDescriptor descriptor, String principal) {
+        descriptorStore.registerIndexWithBuildAuthority(descriptor, principal);
+    }
+
+    @Override
+    public String loadAuthorizedBuildPrincipal(IndexDescriptor descriptor) {
+        return descriptorStore.loadAuthorizedBuildPrincipal(descriptor);
+    }
+
+    @Override
+    public String loadDroppedIndexCleanupPrincipal(IndexDescriptor descriptor) {
+        return descriptorStore.loadDroppedIndexCleanupPrincipal(descriptor);
+    }
+
+    @Override
+    public void withIndexLifecycleLock(String indexId, Runnable action) {
+        if (heldLifecycleLocks.get().contains(indexId)) {
+            action.run();
+            return;
+        }
+        descriptorStore.withIndexLifecycleLock(indexId, () -> {
+            heldLifecycleLocks.get().add(indexId);
+            try {
+                action.run();
+            } finally {
+                heldLifecycleLocks.get().remove(indexId);
+                if (heldLifecycleLocks.get().isEmpty()) {
+                    heldLifecycleLocks.remove();
+                }
+            }
+        });
     }
 
     @Override
@@ -135,6 +172,11 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public boolean isIndexSnapshotBuildable(String indexId, String snapshotId) {
+        return descriptorStore.isIndexSnapshotBuildable(indexId, snapshotId);
+    }
+
+    @Override
     public IndexGenerationManifest publishIndexGeneration(
             IndexPublicationRequest request) {
         return publicationStore.publish(request);
@@ -178,7 +220,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
 
     @Override
     public void purgeIndex(String indexId) {
-        descriptorStore.purgeIndex(indexId);
+        withIndexLifecycleLock(indexId, () -> descriptorStore.purgeIndex(indexId));
     }
 
     @Override
@@ -288,9 +330,11 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
-    public boolean removeIndexFileMappingIfState(String indexId, String dataFilePath,
-                                                  IndexState expectedState) {
-        return fileMappingStore.removeIndexFileMappingIfState(indexId, dataFilePath, expectedState);
+    public boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
+                                                  IndexState expectedState,
+                                                  int expectedGeneration) {
+        return fileMappingStore.removeIndexFileMappingIfState(
+                mapping, expectedState, expectedGeneration);
     }
 
     @Override

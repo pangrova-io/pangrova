@@ -8,7 +8,8 @@ import java.nio.charset.StandardCharsets;
 /**
  * Computes deterministic file paths for index data files.
  *
- * <p>Pattern: {@code {baseIndexPath}/{catalogName}/{schemaName}/{tableName}/{indexId}/{dataFileHash}.idx}
+ * <p>Pattern:
+ * {@code {baseIndexPath}/v2/{catalog}/{schema}/{table}/{indexId}/g{generation}/{dataFileHash}.idx}
  * where {@code dataFileHash} is the first 32 hex characters (128 bits) of the SHA-256 hash
  * of the data file path. 128 bits provides collision resistance up to ~2^64 files
  * (birthday bound), far exceeding practical table sizes.</p>
@@ -19,7 +20,7 @@ public final class IndexStorageLayout {
     private static final String INDEX_FILE_EXTENSION = ".idx";
 
     /** Storage layout version. Embedded in the path to allow future path scheme migration. */
-    static final int LAYOUT_VERSION = 1;
+    static final int LAYOUT_VERSION = 2;
 
     private final String baseIndexPath;
 
@@ -45,6 +46,7 @@ public final class IndexStorageLayout {
                 + sanitizePathComponent(descriptor.schemaName()) + "/"
                 + sanitizePathComponent(descriptor.tableName()) + "/"
                 + sanitizePathComponent(descriptor.indexId()) + "/"
+                + "g" + descriptor.generation() + "/"
                 + hash + INDEX_FILE_EXTENSION;
     }
 

@@ -31,6 +31,7 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     private final Supplier<ArtifactExecutionOwner> currentOwner;
     private final ArtifactBuildJobKey job;
 
+    /** Binds a durable artifact job to its real shuffle allocation and finalization store. */
     public DurableStageShuffleEvidence(JdbcArtifactStageExchangeStore store, ArtifactBuildDispatchSpec spec,
             String sourceSnapshot, Supplier<ArtifactExecutionOwner> currentOwner) {
         this.store = java.util.Objects.requireNonNull(store, "store");
@@ -52,7 +53,9 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     public void registered(ShuffleRegistration registration, ShuffleHandle handle, ShuffleExecutionOwner owner) {
         var edge = requireStage(registration);
         var issued = new ArtifactExecutionOwner(owner.ownerId(), owner.ownerIncarnation(), owner.fencingToken());
-        if (!issued.equals(currentOwner.get())) throw new IllegalStateException("Shuffle registration has a stale owner");
+        if (!issued.equals(currentOwner.get())) {
+            throw new IllegalStateException("Shuffle registration has a stale owner");
+        }
         var allocation = new ArtifactExchangeRegistration(edge.exchangeId(), job.executionId(), handle.shuffleId(),
                 registration.stageId(), registration.planEpoch(), spec.stageGraph().sha256(),
                 spec.stageGraph().requireStage(registration.stageId()).planSha256(), sourceSnapshot,
@@ -67,7 +70,8 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         if (old.isPresent()) {
             var unchanged = old.orElseThrow();
             allocation = new ArtifactExchangeRegistration(allocation.exchangeId(), allocation.executionId(),
-                    allocation.shuffleId(), allocation.producerStageId(), allocation.planEpoch(), allocation.graphSha256(),
+                    allocation.shuffleId(), allocation.producerStageId(), allocation.planEpoch(),
+                    allocation.graphSha256(),
                     allocation.stagePlanSha256(), allocation.sourceSnapshot(), allocation.producerCount(),
                     allocation.producerSetSha256(), allocation.partitionCount(), allocation.endpoints(),
                     allocation.commitAddress(), unchanged.registeredOwner());
@@ -86,23 +90,30 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         byte[] bytes = response.toByteArray();
         List<ArtifactExchangeFinalization.Partition> partitions = response.getPartitionsList().stream().map(value ->
                 new ArtifactExchangeFinalization.Partition(value.getPartitionId(), value.getTotalBytes(),
-                        value.getTotalRows(), value.getCommittedLastSequence(), sha(value.getOutputChecksum()))).toList();
-        var proof = new ArtifactExchangeFinalization(allocation.exchangeId(), allocation.sha256(), handle.shuffleId(),
-                request.getPlanEpoch(), owner, response.getCommittedProducerCount(), sha(response.getProducerSetChecksum()),
-                partitions, response.getTotalBytes(), response.getTotalRows(), Base64.getEncoder().encodeToString(bytes),
+                        value.getTotalRows(), value.getCommittedLastSequence(),
+                        sha(value.getOutputChecksum()))).toList();
+        var proof = new ArtifactExchangeFinalization(
+                allocation.exchangeId(), allocation.sha256(), handle.shuffleId(),
+                request.getPlanEpoch(), owner, response.getCommittedProducerCount(),
+                sha(response.getProducerSetChecksum()),
+                partitions, response.getTotalBytes(), response.getTotalRows(),
+                Base64.getEncoder().encodeToString(bytes),
                 DigestUtils.sha256Hex(bytes));
         proof.requireRegistration(allocation);
         store.finalizeExchange(job, owner, proof);
     }
 
-    private org.pangrova.metadata.artifact.build.ArtifactStageGraph.Exchange requireStage(ShuffleRegistration registration) {
+    private org.pangrova.metadata.artifact.build.ArtifactStageGraph.Exchange requireStage(
+            ShuffleRegistration registration) {
         var edges = spec.stageGraph().exchanges().stream().filter(edge ->
                 edge.upstreamStageId() == registration.stageId()).toList();
         if (edges.size() != 1 || !registration.queryId().equals(job.executionId())
-                || registration.expectedProducerCount() != spec.stageGraph().requireStage(registration.stageId()).parallelism()
+                || registration.expectedProducerCount()
+                        != spec.stageGraph().requireStage(registration.stageId()).parallelism()
                 || registration.numPartitions() != edges.get(0).partitionCount()
                 || !java.util.Arrays.equals(registration.expectedProducerSetChecksum(),
-                        ShuffleProducerSetChecksum.forContiguousPartitions(registration.queryId(), registration.stageId(),
+                        ShuffleProducerSetChecksum.forContiguousPartitions(
+                                registration.queryId(), registration.stageId(),
                                 registration.planEpoch(), registration.expectedProducerCount()))) {
             throw new IllegalArgumentException("Live shuffle request differs from the immutable durable stage cohort");
         }
@@ -110,20 +121,25 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     }
 
     private Optional<ArtifactExchangeRegistration> persisted(int stageId) {
-        return store.load(job, currentOwner.get()).stream().map(JdbcArtifactStageExchangeStore.ExchangeEvidence::registration)
+        return store.load(job, currentOwner.get()).stream()
+                .map(JdbcArtifactStageExchangeStore.ExchangeEvidence::registration)
                 .filter(value -> value.producerStageId() == stageId).findFirst();
     }
 
     private static void requireFinalizeIdentity(ArtifactExchangeRegistration allocation, ArtifactExecutionOwner owner,
             FinalizeShuffleRequest request, FinalizeShuffleResponse response) {
         var requestedOwner = request.getExecutionOwner();
-        if (!request.getShuffleId().equals(allocation.shuffleId()) || request.getPlanEpoch() != allocation.planEpoch()
-                || !owner.equals(new ArtifactExecutionOwner(requestedOwner.getOwnerId(), requestedOwner.getOwnerIncarnation(),
-                        requestedOwner.getFencingToken())) || request.getExpectedProducerPartitions() != allocation.producerCount()
+        if (!request.getShuffleId().equals(allocation.shuffleId())
+                || request.getPlanEpoch() != allocation.planEpoch()
+                || !owner.equals(new ArtifactExecutionOwner(
+                        requestedOwner.getOwnerId(), requestedOwner.getOwnerIncarnation(),
+                        requestedOwner.getFencingToken()))
+                || request.getExpectedProducerPartitions() != allocation.producerCount()
                 || !sha(request.getExpectedProducerSetChecksum()).equals(allocation.producerSetSha256())
                 || response.getCommittedProducerCount() != allocation.producerCount()
                 || !sha(response.getProducerSetChecksum()).equals(allocation.producerSetSha256())) {
-            throw new IllegalStateException("External finalize RPC changed allocation, owner, epoch or producer cohort");
+            throw new IllegalStateException(
+                    "External finalize RPC changed allocation, owner, epoch or producer cohort");
         }
     }
 

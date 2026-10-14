@@ -1,4 +1,4 @@
-package org.pangrova.coordinator.query;
+package org.pangrova.coordinator.query.session;
 
 import java.util.Collections;
 import java.util.HashMap;

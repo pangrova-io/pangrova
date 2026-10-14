@@ -65,9 +65,9 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
 
         @BeforeEach
         void createAndPopulate() {
-            dataSetup.createTestTable(CATALOG, SCHEMA, ordersTable,
+            setupData().createTestTable(CATALOG, SCHEMA, ordersTable,
                     "id BIGINT, customer_id BIGINT, amount BIGINT, region VARCHAR");
-            dataSetup.createTestTable(CATALOG, SCHEMA, customersTable,
+            setupData().createTestTable(CATALOG, SCHEMA, customersTable,
                     "id BIGINT, name VARCHAR, tier VARCHAR");
             insertOrders(ORDER_COUNT);
             insertCustomers(CUSTOMER_COUNT);
@@ -166,9 +166,9 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
 
         @BeforeEach
         void createAndPopulate() {
-            dataSetup.createTestTable(CATALOG, SCHEMA, ordersTable,
+            setupData().createTestTable(CATALOG, SCHEMA, ordersTable,
                     "id BIGINT, customer_id BIGINT, amount BIGINT, region VARCHAR");
-            dataSetup.createTestTable(CATALOG, SCHEMA, customersTable,
+            setupData().createTestTable(CATALOG, SCHEMA, customersTable,
                     "id BIGINT, name VARCHAR, tier VARCHAR");
             insertOrders(ORDER_COUNT);
             insertCustomers(CUSTOMER_COUNT);
@@ -288,7 +288,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
 
         @BeforeEach
         void createAndPopulateLargeTable() {
-            dataSetup.createTestTable(CATALOG, SCHEMA, ordersTable,
+            setupData().createTestTable(CATALOG, SCHEMA, ordersTable,
                     "id BIGINT, customer_id BIGINT, amount BIGINT, region VARCHAR");
             insertOrders(LARGE_ROW_COUNT);
         }
@@ -369,7 +369,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
             if (i > 0) sb.append(", ");
             sb.append(String.format("(%d, %d, %d, '%s')", id, customerId, amount, region));
         }
-        sqlRunner.execute(sb.toString());
+        setupRunner().execute(sb.toString());
     }
 
     private void insertCustomers(int count) {
@@ -382,7 +382,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
             if (i > 0) sb.append(", ");
             sb.append(String.format("(%d, 'customer_%d', '%s')", cid, cid, tier));
         }
-        sqlRunner.execute(sb.toString());
+        setupRunner().execute(sb.toString());
     }
 
     // -----------------------------------------------------------------------

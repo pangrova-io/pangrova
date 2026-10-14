@@ -10,10 +10,14 @@ import org.pangrova.common.concurrent.ThreadSafe;
 /** Process authority entry/exit barrier. Backend work and joining both occur outside this monitor. */
 @ThreadSafe
 final class ExecutionAuthorityOperations {
-    @GuardedBy("this") private boolean sealed;
-    @GuardedBy("this") private int active;
-    @GuardedBy("this") private final Map<Thread, Integer> entered = new HashMap<>();
-    @GuardedBy("this") private CompletableFuture<Void> exit;
+    @GuardedBy("this")
+    private boolean sealed;
+    @GuardedBy("this")
+    private int active;
+    @GuardedBy("this")
+    private final Map<Thread, Integer> entered = new HashMap<>();
+    @GuardedBy("this")
+    private CompletableFuture<Void> exit;
 
     synchronized Operation enter() {
         if (sealed) throw new IllegalStateException("Coordinator execution authority is closed");
@@ -37,8 +41,9 @@ final class ExecutionAuthorityOperations {
             if (exit == null) exit = new CompletableFuture<>();
             completion = exit;
         }
-        try { completion.get(timeoutMs, TimeUnit.MILLISECONDS); }
-        catch (InterruptedException interrupted) {
+        try {
+            completion.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted awaiting actual authority operations", interrupted);
         } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException failure) {
@@ -48,7 +53,9 @@ final class ExecutionAuthorityOperations {
 
     final class Operation implements AutoCloseable {
         private final Thread thread;
-        @GuardedBy("ExecutionAuthorityOperations.this") private boolean returned;
+        @GuardedBy("ExecutionAuthorityOperations.this")
+        private boolean returned;
+
         private Operation(Thread thread) { this.thread = thread; }
 
         @Override public void close() {

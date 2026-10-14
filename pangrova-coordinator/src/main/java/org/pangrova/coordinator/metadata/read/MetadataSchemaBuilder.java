@@ -39,8 +39,8 @@ public final class MetadataSchemaBuilder {
      * default caching variant. The caching variant snapshots table names on first
      * access and never re-queries the underlying Schema, which prevents newly created
      * tables from being visible to subsequent queries. With the non-caching variant,
-     * every table lookup delegates to {@link LazyMetadataSchema#getTableMap()} which
-     * checks the DDL generation counter and refreshes when needed.</p>
+     * named lookups use the connector's direct table API; explicit table enumeration
+     * uses {@link LazyMetadataSchema#getTableMap()} and honors DDL invalidation.</p>
      */
     public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession) {
         return buildRootSchema(authenticatedSession, catalogRegistry == null ? null

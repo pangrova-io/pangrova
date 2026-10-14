@@ -255,7 +255,32 @@ SQL: SELECT c.name, SUM(o.amount)
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+Correlated subqueries that remain as Calcite's
+`org.apache.calcite.rel.logical.LogicalCorrelate` after
+optimization execute in one task until their outer-row binding is converted.
+Splitting their right-side input into an upstream stage would separate the
+correlated filter from that binding. Native UNNEST retains its separate
+single-input conversion and can still use the ordinary stage layout.
+The Substrait conversion rewrites supported equality-correlated scalar
+aggregates into a grouped aggregate and left join, preserving computed
+projections such as `AVG`'s sum/count division. This correctness path does not
+provide distributed parallelism for those queries; distributed decorrelation
+before fragmentation remains necessary for scalable execution.
+For supported equality-correlated existence shapes, the filter becomes an
+explicit semi/anti join condition. A constant-grouped existence marker is
+reconstructed after the semi join when the parent plan references it. Other
+correlated forms fail explicitly instead of emitting an unbound cross join.
+For scalar `COUNT`, the left join restores zero when the grouped side has no
+matching row, before evaluating computed projections such as `COUNT(*) + 1`.
+LATERAL `COUNT` is decorrelated by Calcite with an explicit `CASE ... ELSE 0`; its
+declared non-null result type is preserved across stage exchange schemas.
+
 ### 3.2 Exchange Types
+
+Live query fragmentation caps exchange partition cohorts by the schedulable
+worker count and the per-worker task limit before assigning partition IDs.
+This keeps the plan's exchange identity aligned with dispatch capacity; a
+later dispatcher cannot safely shrink an already allocated cohort.
 
 | Exchange Type | Description | Use Case |
 |--------------|------|----------|
@@ -286,6 +311,13 @@ single Arrow binary cell; the consumer extracts and deserializes that page into
 Velox. Flight's Arrow IPC framing must not be confused with the shuffle
 payload's PrestoVectorSerde format.
 
+The current Arrow Flight reader exposes synchronous `Next()` calls. Native
+exchange reads therefore run on a dedicated blocking-I/O CPU pool; Flight
+long-poll timers and completion continuations run on separate event-base
+threads. A blocked upstream stream must not occupy the event base that wakes
+other exchange sources. The blocking pool is drained before the timer pool
+during runtime shutdown, after task cancellation closes the streams.
+
 At the Velox-to-Arrow IPC boundary, the exported C Data array's `null_count`
 is recomputed from its validity bitmap, including nested children. Velox
 expression results can retain a cached count from an earlier nullable input;
@@ -297,6 +329,14 @@ The Java SDK may also emit deprecated `left_keys` and `right_keys` for an
 equijoin; the serializer removes those duplicate fields only when each entry
 matches its current key. Native rejects plans that still contain deprecated
 join key lists.
+
+For a join with an ON predicate that contains both equijoin keys and residual
+conditions, the planner serializes the complete predicate inside `JoinRel`.
+The native join evaluates the residual while matching rows. A filter placed
+above a LEFT or RIGHT join would instead remove the null-padded row and change
+the outer join into an inner join for that row. Physical hash, broadcast, and
+merge join rules require at least one equijoin key; a non-equijoin predicate
+continues through the supported logical join conversion path.
 
 Format conversion paths:
 ```
@@ -706,6 +746,9 @@ The REST body projects the fenced attempt identity from the canonical v2
 protobuf bytes in JSON). REST state, task ID, attempt, control epoch, execution
 owner, coverage, and resource usage must agree with the Coordinator's retained
 request; REST fields alone are not completion evidence.
+This POST has an 8 MiB HTTP body limit to carry the bounded 4 MiB canonical
+report after JSON/Base64 encoding. Other task and public routes retain the
+generic 1 MiB request limit.
 
 Request:
 ```json
@@ -1397,6 +1440,16 @@ as canonical v2 write tasks on ordinary Workers. The Worker alone opens the
 connector page sink; the Coordinator only registers the write intent, validates
 the canonical task report, fences the attempt, and commits returned fragments.
 There is no Coordinator JVM `Page`/`ConnectorPageSink` fallback.
+The Coordinator records the terminal task state before notifying the Stage DAG.
+When the task set appears finished but an asynchronous downstream stage remains,
+the query finalizer holds its metadata-operation permit and subscribes to the
+DAG's terminal event. Only successful DAG completion with all tasks finished
+can publish the logical query result; failure or cancellation releases the
+permit without committing the query. No per-query polling thread is used.
+For INSERT, Calcite's `UNION ALL` of single-row literal projects is packed into
+one values relation when every field is already a literal or has only a
+nullability cast. Value-changing casts and dynamic expressions keep their
+ordinary plan so the planner does not evaluate them outside the query session.
 
 #### 3.3.11 Client SDK Wrapper
 
@@ -1487,6 +1540,21 @@ worker:
 Design rationale: the Coordinator belongs to the control plane; its sole responsibility is SQL parsing, optimization, and scheduling. All data processing is pushed down to the Workers, ensuring full isolation of the control plane and data plane. The Output Worker has full Velox execution capability, is not restricted by operator type, and has production-grade fault tolerance such as Spill and memory arbitration.
 
 ## 4. Velox Pipeline Execution Model
+
+The Worker passes every session performance option to Velox explicitly, including
+`false` and zero values. Scaled table-scan processing is eligible only when the
+native plan contains no join: on an empty join build side, Velox can park scan
+drivers waiting for scale-up while the join build waits for those same drivers
+to finish. The Worker records `scaled_scan_ineligible` for this plan shape and
+runs the join with ordinary scan scheduling. Other requested Velox options remain
+in effect. This guard is specific to the pinned Velox execution behavior and
+must be reconsidered with a tested upstream fix.
+
+A local join whose inputs are table scans without exchange distribution
+contracts executes in one stage task. Splitting the scans across independent
+tasks would leave each task with only part of the join inputs and could silently
+return incomplete results. Explicitly partitioned or broadcast joins retain
+their exchange-defined parallelism.
 
 ### 4.1 Pipeline Structure
 

@@ -1140,11 +1140,11 @@
                 </plugins>
             </build>
         </profile>
-        <!-- Explicit release regression: do not inherit daily filename/tag exclusions. -->
+        <!-- Explicit release regression: process-owning Native tests run in isolated JVMs. -->
         <profile>
             <id>full-regression</id>
             <properties>
-                <pangrova.e2e.excludedGroups>none</pangrova.e2e.excludedGroups>
+                <pangrova.e2e.excludedGroups>native-runtime-owner</pangrova.e2e.excludedGroups>
                 <pangrova.worker.excludedTestGroups>none</pangrova.worker.excludedTestGroups>
                 <pangrova.coordinator.excludedTestGroups>none</pangrova.coordinator.excludedTestGroups>
                 <pangrova.metadata.excludedTestGroups>none</pangrova.metadata.excludedTestGroups>

@@ -34,3 +34,7 @@ the relevant boundary.
 
 Connector-specific behavior takes precedence over generic examples. When adding a statement,
 update its dispatch implementation and tests before documenting it as end-to-end supported.
+
+Numeric literals accept decimal and scientific notation, such as `4.`, `.25e2`,
+and `3.3283234E-4`. The parser preserves their decimal value exactly before
+the planner coerces it to the expression or target column type.

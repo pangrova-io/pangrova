@@ -33,6 +33,10 @@ public final class E2ETestFramework {
             boolean success,
             String errorMessage) {
 
+        public QueryResult {
+            rows = List.copyOf(Objects.requireNonNull(rows, "rows"));
+        }
+
         /** Convenience constructor for successful results (no error message). */
         public QueryResult(List<TypedRow> rows, long latencyMs, boolean success) {
             this(rows, latencyMs, success, null);

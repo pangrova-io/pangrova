@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,8 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Validates that:
  * 1. Tables created with SORTED BY have sort-compaction.columns set
- * 2. Compaction sorts data files for better data skipping
- * 3. Z-Order sorting enables multi-column filter data skipping
+ * 2. SQL reads remain correct with sort-compaction configuration
+ * 3. Z-Order configuration persists and multi-column filters remain correct
  *
  * <p>Requirements: C11 (Z-Order / Sort Compact), D7 (Sort Order Unified)
  */
@@ -48,9 +49,15 @@ class PaimonSortCompactTest extends SqlE2ETestBase {
         return FQN_PREFIX + tableName;
     }
 
+    private Map<String, String> persistedOptions() {
+        return sqlRunner.execute("SELECT * FROM " + fqn() + "$options").stream()
+                .collect(Collectors.toMap(row -> row.getString("key"),
+                        row -> row.getString("value")));
+    }
+
     @Test
     @DisplayName("CREATE TABLE with SORTED BY sets sort-compaction.columns property")
-    void sortedBySetsSortCompactionColumns() {
+    void sortedBySetsSortCompactionColumns() throws Exception {
         sqlRunner.executeDdl("CREATE TABLE " + fqn()
                 + " (id INT, region VARCHAR, amount BIGINT, PRIMARY KEY (id))"
                 + " SORTED BY (region ASC, amount DESC)");
@@ -63,15 +70,7 @@ class PaimonSortCompactTest extends SqlE2ETestBase {
         sqlRunner.execute("INSERT INTO " + fqn()
                 + " (id, region, amount) VALUES (3, 'US', 100)");
 
-        // Verify sort-compaction.columns is set via $options system table
-        List<TypedRow> allOptions = sqlRunner.execute(
-                "SELECT * FROM " + fqn() + "$options");
-        List<TypedRow> options = allOptions.stream()
-                .filter(r -> "sort-compaction.columns".equals(
-                        String.valueOf(r.getRaw("key"))))
-                .collect(Collectors.toList());
-        assertThat(options).hasSize(1);
-        assertThat(options.get(0).getRaw("value")).isEqualTo("region,amount");
+        assertThat(persistedOptions()).containsEntry("sort-compaction.columns", "region,amount");
     }
 
     @Test
@@ -100,7 +99,7 @@ class PaimonSortCompactTest extends SqlE2ETestBase {
 
     @Test
     @DisplayName("Z-Order sorting with USING ZORDER enables multi-column data skipping")
-    void zOrderSortingMultiColumnFilter() {
+    void zOrderSortingMultiColumnFilter() throws Exception {
         sqlRunner.executeDdl("CREATE TABLE " + fqn()
                 + " (id INT, x INT, y INT, payload VARCHAR, PRIMARY KEY (id))"
                 + " SORTED BY (x ASC, y ASC) USING ZORDER");
@@ -122,14 +121,6 @@ class PaimonSortCompactTest extends SqlE2ETestBase {
         assertThat(((Number) rows.get(0).getRaw("x")).intValue()).isEqualTo(5);
         assertThat(((Number) rows.get(0).getRaw("y")).intValue()).isEqualTo(1);
 
-        // Verify z-order strategy is set
-        List<TypedRow> allOpts = sqlRunner.execute(
-                "SELECT * FROM " + fqn() + "$options");
-        List<TypedRow> strategyOpts = allOpts.stream()
-                .filter(r -> "sort-compaction.sort-strategy".equals(
-                        String.valueOf(r.getRaw("key"))))
-                .collect(Collectors.toList());
-        assertThat(strategyOpts).hasSize(1);
-        assertThat(strategyOpts.get(0).getRaw("value")).isEqualTo("zorder");
+        assertThat(persistedOptions()).containsEntry("sort-compaction.sort-strategy", "zorder");
     }
 }

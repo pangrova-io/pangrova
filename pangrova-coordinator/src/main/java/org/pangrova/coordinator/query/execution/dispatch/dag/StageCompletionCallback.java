@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import java.util.function.Consumer;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 
 /**
@@ -33,4 +34,12 @@ public interface StageCompletionCallback {
     default boolean isQueryComplete(String queryId) {
         return true;
     }
+
+    /**
+     * Notifies a deferred finalizer exactly once when the query DAG terminates.
+     * An observer registered after termination but before query cleanup receives
+     * the outcome immediately.
+     * The value is true only for successful completion; failure and cancellation report false.
+     */
+    void onQueryTerminal(String queryId, Consumer<Boolean> listener);
 }

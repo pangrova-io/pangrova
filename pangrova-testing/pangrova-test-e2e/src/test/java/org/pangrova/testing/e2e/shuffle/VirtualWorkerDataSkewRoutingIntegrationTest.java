@@ -129,12 +129,12 @@ class VirtualWorkerDataSkewRoutingIntegrationTest extends VirtualWorkerRoutingIn
     // -----------------------------------------------------------------------
 
     private void createSkewTable() {
-        dataSetup.createTestTable(CATALOG, SCHEMA, skewTable,
+        setupData().createTestTable(CATALOG, SCHEMA, skewTable,
                 "id BIGINT, customer_id BIGINT, amount BIGINT");
     }
 
     private void createBoundaryTable() {
-        dataSetup.createTestTable(CATALOG, SCHEMA, boundaryTable,
+        setupData().createTestTable(CATALOG, SCHEMA, boundaryTable,
                 "id BIGINT, partition_key BIGINT");
     }
 
@@ -152,7 +152,7 @@ class VirtualWorkerDataSkewRoutingIntegrationTest extends VirtualWorkerRoutingIn
             if (i > 0) sb.append(", ");
             sb.append(String.format("(%d, 1, %d)", id, amount));
         }
-        sqlRunner.execute(sb.toString());
+        setupRunner().execute(sb.toString());
     }
 
     private int insertBoundaryData() {
@@ -168,7 +168,7 @@ class VirtualWorkerDataSkewRoutingIntegrationTest extends VirtualWorkerRoutingIn
             if (i > 0) sb.append(", ");
             sb.append(String.format("(%d, %d)", (long) (i + 1), boundaryValues[i]));
         }
-        sqlRunner.execute(sb.toString());
+        setupRunner().execute(sb.toString());
         return boundaryValues.length;
     }
 

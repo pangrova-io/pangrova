@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;

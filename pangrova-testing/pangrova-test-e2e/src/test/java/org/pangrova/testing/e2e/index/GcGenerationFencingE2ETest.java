@@ -71,6 +71,7 @@ class GcGenerationFencingE2ETest extends SqlE2ETestBase {
 
             sqlRunner.executeDdl("CREATE INDEX idx_status ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_status");
 
             // Verify index exists
             List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
@@ -96,6 +97,7 @@ class GcGenerationFencingE2ETest extends SqlE2ETestBase {
 
             sqlRunner.executeDdl("CREATE INDEX idx_val ON " + fqn()
                     + "(value) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_val");
 
             sqlRunner.executeDdl("ALTER INDEX idx_val ON " + fqn() + " REBUILD");
 
@@ -121,6 +123,7 @@ class GcGenerationFencingE2ETest extends SqlE2ETestBase {
 
             sqlRunner.executeDdl("CREATE INDEX idx_status ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_status");
 
             // Rebuild cycle
             sqlRunner.executeDdl("ALTER INDEX idx_status ON " + fqn() + " REBUILD");

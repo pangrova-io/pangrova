@@ -4,9 +4,16 @@ import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.io.DataWriter;
+import org.apache.iceberg.parquet.Parquet;
+import org.apache.parquet.hadoop.ParquetFileReader;
+import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.apache.iceberg.types.Types;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.BeforeAll;
@@ -82,8 +89,52 @@ class IcebergUnknownTypeTest extends SqlE2ETestBase {
     class UnknownTypeQueryReturnsNull {
 
         @Test
+        @DisplayName("Physical values under an UNKNOWN field ID are ignored")
+        void physicalUnknownFieldIsIgnored() throws Exception {
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "id", Types.LongType.get()),
+                    Types.NestedField.optional(2, "future", Types.UnknownType.get()));
+            var table = icebergCatalog.createTable(tableId(), schema, null, Map.of("format-version", "3"));
+            Schema malformedPhysicalSchema = new Schema(
+                    Types.NestedField.required(1, "id", Types.LongType.get()),
+                    Types.NestedField.optional(2, "future", Types.StringType.get()));
+            String path = table.location() + "/data/physical-unknown.parquet";
+            DataWriter<Record> writer = Parquet.writeData(table.io().newOutputFile(path))
+                    .schema(malformedPhysicalSchema)
+                    .withSpec(table.spec())
+                    .createWriterFunc(GenericParquetWriter::create)
+                    .build();
+            try (writer) {
+                GenericRecord row = GenericRecord.create(malformedPhysicalSchema);
+                row.setField("id", 1L);
+                row.setField("future", "must_be_ignored");
+                writer.write(row);
+            }
+            table.newAppend().appendFile(writer.toDataFile()).commit();
+
+            List<TypedRow> rows = sqlRunner.execute("SELECT id, future FROM " + fqn());
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
+            assertThat(rows.get(0).getString("future")).isNull();
+        }
+
+        @Test
+        @DisplayName("Non-NULL writes to an UNKNOWN column are rejected")
+        void nonNullUnknownWriteIsRejected() {
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "id", Types.LongType.get()),
+                    Types.NestedField.optional(2, "future", Types.UnknownType.get()));
+            icebergCatalog.createTable(tableId(), schema, null, Map.of("format-version", "3"));
+
+            var error = sqlRunner.executeExpectingError(
+                    "INSERT INTO " + fqn() + " (id, future) VALUES (1, 'unexpected')");
+            assertThat(error.message()).contains("only NULL");
+            assertThat(icebergCatalog.loadTable(tableId()).currentSnapshot()).isNull();
+        }
+
+        @Test
         @DisplayName("Query table with UNKNOWN type column returns NULL for that column")
-        void unknownTypeColumnReturnsNull() {
+        void unknownTypeColumnReturnsNull() throws Exception {
             Schema schema = new Schema(
                     Types.NestedField.required(1, "id", Types.LongType.get()),
                     Types.NestedField.required(2, "name", Types.StringType.get()),
@@ -98,6 +149,18 @@ class IcebergUnknownTypeTest extends SqlE2ETestBase {
 
             sqlRunner.execute("INSERT INTO " + fqn()
                     + " (id, name) VALUES (1, 'alice'), (2, 'bob')");
+
+            try (var tasks = icebergCatalog.loadTable(tableId()).newScan().planFiles()) {
+                for (var task : tasks) {
+                    try (var reader = ParquetFileReader.open(HadoopInputFile.fromPath(
+                            new org.apache.hadoop.fs.Path(task.file().path().toString()),
+                            new Configuration()))) {
+                        assertThat(reader.getFooter().getFileMetaData().getSchema().getFields())
+                                .extracting(org.apache.parquet.schema.Type::getName)
+                                .containsExactly("id", "name");
+                    }
+                }
+            }
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT id, name, unknown_col FROM " + fqn() + " ORDER BY id");

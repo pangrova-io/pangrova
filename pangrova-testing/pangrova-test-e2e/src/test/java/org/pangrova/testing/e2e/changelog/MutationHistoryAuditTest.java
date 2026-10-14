@@ -139,7 +139,7 @@ class MutationHistoryAuditTest extends PangrovaE2ETestBase {
             assertThat(snapshots).isNotEmpty();
             String snapshotId = snapshots.get(0).getRaw("snapshot_id").toString();
             List<TypedRow> historical = executeQuery(
-                    "SELECT * FROM " + tableName
+                    "SELECT * FROM default.default." + tableName
                     + " FOR VERSION AS OF " + snapshotId);
             assertThat(historical).isNotEmpty();
         }

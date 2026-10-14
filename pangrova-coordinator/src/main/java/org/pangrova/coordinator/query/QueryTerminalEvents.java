@@ -13,7 +13,8 @@ final class QueryTerminalEvents {
     private final LongCounter completed;
     private final LongCounter failed;
 
-    QueryTerminalEvents(QueryAuditDispatcher audit, QueryAdmission admission, LongCounter completed, LongCounter failed) {
+    QueryTerminalEvents(QueryAuditDispatcher audit, QueryAdmission admission,
+            LongCounter completed, LongCounter failed) {
         this.audit = audit;
         this.admission = admission;
         this.completed = completed;
@@ -48,11 +49,16 @@ final class QueryTerminalEvents {
         }
     }
 
-    private static void increment(LongCounter counter) { if (counter != null) counter.add(1); }
+    private static void increment(LongCounter counter) {
+        if (counter != null) {
+            counter.add(1);
+        }
+    }
 
     private static void effect(String queryId, String name, Runnable operation) {
-        try { operation.run(); }
-        catch (RuntimeException failure) {
+        try {
+            operation.run();
+        } catch (RuntimeException failure) {
             LOG.warn("event=query_terminal_effect_failed queryId={} effect={}", queryId, name, failure);
         }
     }

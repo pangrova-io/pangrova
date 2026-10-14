@@ -66,6 +66,13 @@ class TimeTravelSqlClausesTest {
     }
 
     @Test
+    void vectorInsertWithScientificCoordinatesRemainsValidSql() {
+        String sql = "INSERT INTO vectors VALUES (1, ARRAY[3.3283234E-4,-6.222725e-5,1E+3])";
+        assertThat(TimeTravelSqlClauses.extract(sql).strippedSql()).isEqualTo(sql);
+        assertThat(new SqlParser().parse(sql)).isNotNull();
+    }
+
+    @Test
     void quotedCteSpellingIsPreservedWhileCurrentPlannerMatchingIsCaseInsensitive() {
         var refs = TimeTravelSqlClauses.extract("WITH \"Rows\" AS (SELECT id FROM source) "
                 + "SELECT id FROM \"Rows\" UNION ALL SELECT id FROM rows").references();

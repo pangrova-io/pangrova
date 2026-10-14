@@ -6,6 +6,8 @@ import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
+import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.ConnectorSession;
@@ -22,12 +24,14 @@ import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.FileStoreTable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Paimon metadata implementation delegating to real Paimon Catalog API.
@@ -46,7 +50,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     private final org.pangrova.connector.paimon.index.PaimonNativeIndexEvaluator nativeIndexEvaluator =
             new org.pangrova.connector.paimon.index.PaimonNativeIndexEvaluator();
 
-    /** Creates a metadata instance bound to the given Paimon catalog. */
+    /** Creates a metadata instance with a catalog borrowed from its owning connector. */
     public PaimonMetadata(Catalog catalog, String catalogName, PaimonSplitRegistry splitRegistry) {
         this.catalog = catalog;
         this.splitRegistry = java.util.Objects.requireNonNull(splitRegistry, "splitRegistry");
@@ -88,6 +92,28 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
+        int separator = tableName.table().lastIndexOf('$');
+        String systemSuffix = separator > 0 ? tableName.table().substring(separator + 1) : "";
+        if (systemSuffix.equalsIgnoreCase("snapshots") || systemSuffix.equalsIgnoreCase("tags")
+                || systemSuffix.equalsIgnoreCase("options")) {
+            String baseName = tableName.table().substring(0, separator);
+            try {
+                Table base = catalog.getTable(Identifier.create(tableName.schema(), baseName));
+                if (!(base instanceof FileStoreTable)) {
+                    throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                            "Paimon system tables require a physical base table");
+                }
+                return PaimonSystemTableHandle.selector(PaimonTableHandleFactory.fromTable(
+                        tableName.schema(), baseName, base),
+                        systemSuffix.equalsIgnoreCase("tags")
+                                ? PaimonSystemTableHandle.Kind.TAGS
+                                : systemSuffix.equalsIgnoreCase("options")
+                                        ? PaimonSystemTableHandle.Kind.OPTIONS
+                                        : PaimonSystemTableHandle.Kind.SNAPSHOTS);
+            } catch (Catalog.TableNotExistException missing) {
+                return null;
+            }
+        }
         Identifier id = Identifier.create(tableName.schema(), tableName.table());
         try {
             Table table = catalog.getTable(id);
@@ -99,7 +125,39 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public OptionalLong resolveRefSnapshotId(
+            ConnectorSession session, SchemaTableName tableName, String refType, String refName) {
+        if (!"TAG".equals(refType) || refName == null || refName.isBlank()) {
+            return OptionalLong.empty();
+        }
+        try {
+            Table table = catalog.getTable(Identifier.create(tableName.schema(), tableName.table()));
+            if (!(table instanceof FileStoreTable fileStore)) {
+                return OptionalLong.empty();
+            }
+            long[] matches = fileStore.tagManager().tags().entrySet().stream()
+                    .filter(entry -> entry.getValue().contains(refName))
+                    .mapToLong(entry -> entry.getKey().id())
+                    .limit(2)
+                    .toArray();
+            if (matches.length > 1) {
+                throw new IllegalStateException("Paimon tag resolves to multiple snapshots: " + refName);
+            }
+            return matches.length == 0 ? OptionalLong.empty() : OptionalLong.of(matches[0]);
+        } catch (Catalog.TableNotExistException missing) {
+            return OptionalLong.empty();
+        }
+    }
+
+    @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof PaimonSystemTableHandle system) {
+            var columns = system.typedColumns();
+            return new ConnectorTableMetadata(
+                    new SchemaTableName(system.baseTable().schemaName(), system.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(),
+                    columns, Map.of());
+        }
         PaimonTableHandle handle = (PaimonTableHandle) table;
         var schema = readSchema(handle);
         var typedColumns = PaimonTypeMapper.toPangrovaColumns(schema.rowType(), schema.options());
@@ -119,6 +177,15 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof PaimonSystemTableHandle system) {
+            Map<String, ColumnHandle> columns = new java.util.LinkedHashMap<>();
+            int fieldId = 1;
+            for (var column : system.typedColumns()) {
+                columns.put(column.name(), new PaimonColumnHandle(
+                        fieldId++, column.name(), column.type()));
+            }
+            return Map.copyOf(columns);
+        }
         PaimonTableHandle handle = (PaimonTableHandle) table;
         return readSchema(handle).columnHandles();
     }
@@ -130,6 +197,9 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof PaimonSystemTableHandle system) {
+            return PaimonSystemReadBindings.bind(catalog, system);
+        }
         var selector = (PaimonTableHandle) table;
         return session.getQueryAuthority().map(authority -> splitRegistry.bindRead(authority, selector,
                 () -> PaimonReadBindings.bind(catalog, selector)))
@@ -139,6 +209,10 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public void validateReadBinding(ConnectorSession session,
             ConnectorReadBinding binding) {
+        if (binding.handle() instanceof PaimonSystemTableHandle) {
+            PaimonSystemReadBindings.validate(catalog, binding);
+            return;
+        }
         PaimonReadBindings.validate(catalog, binding);
     }
 
@@ -376,7 +450,7 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public java.util.Optional<org.pangrova.spi.connector.index.ConnectorIndexSupport> getIndexSupport() {
-        return java.util.Optional.of(new PaimonConnectorIndexSupport(this));
+        return java.util.Optional.of(new PaimonConnectorIndexSupport(this, catalog));
     }
 
     @Override
@@ -460,6 +534,9 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> applyLimit(
             ConnectorSession session, ConnectorTableHandle table, long limit) {
+        if (table instanceof PaimonSystemTableHandle) {
+            return Optional.empty();
+        }
         PaimonTableHandle handle = (PaimonTableHandle) table;
         if (handle.hasLimit() && handle.pushedLimit() <= limit) {
             return Optional.empty();

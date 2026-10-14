@@ -126,8 +126,9 @@ public final class SubstraitConverter {
             throw new SubstraitConversionException(
                     org.pangrova.common.exception.PangrovaErrorCode
                             .SUBSTRAIT_TYPE_MAPPING_FAILURE,
-                    "Output names do not match the emitted relation: calcite="
-                            + names.size() + " emitted=" + emittedNameCount);
+                    "Output names do not match the emitted relation: rel="
+                            + relNode.getRelTypeName() + " calcite=" + names.size()
+                            + " emitted=" + emittedNameCount);
         }
         return names;
     }

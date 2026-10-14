@@ -152,6 +152,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
         var attempt = TaskAttemptId.newBuilder().setQueryOrJobId(execution).setTaskId("task-1")
                 .setControlEpoch(1).setExecutionOwner(original).setPlanEpoch(1).setFencingToken(original.getFencingToken());
         return PrepareDistributedWriteRequest.newBuilder().setExecutionId(execution)
+                .setInvocationId("b".repeat(32))
                 .setExecutionOwner(current).setIntentExecutionOwner(original).setControlEpoch(2)
                 .setCommitFingerprint("a".repeat(64)).setSecurity(schema.getSecurity())
                 .setDeadlineEpochMs(schema.getDeadlineEpochMs()).setOutputBinding(WriteOutputBinding.newBuilder()

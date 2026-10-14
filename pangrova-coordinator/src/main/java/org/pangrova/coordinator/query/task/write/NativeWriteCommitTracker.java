@@ -217,7 +217,7 @@ public class NativeWriteCommitTracker {
 
     private static WriteCommitState completedState(ReservationEntry entry) {
         return entry == null || !entry.result.isDone() || entry.result.isCompletedExceptionally()
-                ? null : entry.result.getNow(null);
+                ? null : entry.result.join();
     }
 
     private static final class ReservationEntry {

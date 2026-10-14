@@ -55,6 +55,7 @@ class MetadataBorrowedOwnershipIntegrationTest {
         source = new PostgresFederationInventory(inventorySource, "cat");
         store = new JdbcMetadataStore(SharedPostgresContainer.migratedDataSource("borrow_directory"));
         store.saveCatalogDescriptor(descriptor("cat", CatalogType.FEDERATION));
+        store.saveSchemas("cat", List.of("sch"));
         cache = new TieredMetadataCache();
         dispatcher = new MetadataEventDispatcher();
         dispatcher.addListener(cache);
@@ -84,7 +85,8 @@ class MetadataBorrowedOwnershipIntegrationTest {
             assertThat(pool.isClosed()).isFalse();
             pool.close();
             assertThatThrownBy(() -> borrowed.getCatalogDescriptor("pooled"))
-                    .hasRootCauseInstanceOf(SQLException.class).hasMessageContaining("pooled");
+                    .hasRootCauseInstanceOf(SQLException.class)
+                    .hasRootCauseMessage("HikariDataSource HikariDataSource (pangrova-metadata-pool) has been closed.");
         } finally {
             pool.close();
         }
@@ -112,6 +114,7 @@ class MetadataBorrowedOwnershipIntegrationTest {
     void registryDispatchesToTheOriginalLiveCacheNotADetachedBus() {
         var peer = descriptor("peer", CatalogType.INTERNAL);
         registry.register(peer);
+        store.saveSchemas("peer", List.of("sch"));
         var metadata = table("peer", "cached", "original");
         store.saveTable(metadata);
         cache.putTable("peer", "sch", "cached", metadata);

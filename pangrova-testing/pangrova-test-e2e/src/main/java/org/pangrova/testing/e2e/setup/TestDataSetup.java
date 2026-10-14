@@ -51,16 +51,16 @@ public final class TestDataSetup {
     /**
      * Load TPC-H data by writing real data files via Connector SPI.
      *
-     * @param connector   the connector instance to use for metadata and data writing
+     * @param sourceConnector the connector instance to use for metadata and data writing
      * @param scaleFactor multiplier for row count per table
      */
-    public void loadTpcHDataViaConnector(Connector connector, int scaleFactor) {
-        this.connector = Objects.requireNonNull(connector, "connector must not be null");
+    public void loadTpcHDataViaConnector(Connector sourceConnector, int scaleFactor) {
+        this.connector = Objects.requireNonNull(sourceConnector, "connector must not be null");
         if (scaleFactor <= 0) {
             throw new IllegalArgumentException("scaleFactor must be positive, got: " + scaleFactor);
         }
         ConnectorSession session = new TestConnectorSession();
-        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorMetadata metadata = sourceConnector.getMetadata(session);
         createDefaultSchema(metadata, session);
         Map<String, TableSchema> schemas = TestDataGenerator.getSchemas();
         for (String tableName : schemas.keySet().stream().sorted().toList()) {
@@ -80,6 +80,7 @@ public final class TestDataSetup {
 
     // --- SQL-based loading ---
 
+    /** Loads TPC-H fixtures through SQL into the named catalog and schema. */
     public void loadTpcHData(String catalog, String schema, int scaleFactor) {
         Objects.requireNonNull(catalog, "catalog must not be null");
         Objects.requireNonNull(schema, "schema must not be null");
@@ -92,6 +93,7 @@ public final class TestDataSetup {
         }
     }
 
+    /** Creates a table through the SQL runner if it does not yet exist. */
     public void createTestTable(String catalog, String schema,
                                 String tableName, String columnDefs) {
         Objects.requireNonNull(catalog, "catalog must not be null");

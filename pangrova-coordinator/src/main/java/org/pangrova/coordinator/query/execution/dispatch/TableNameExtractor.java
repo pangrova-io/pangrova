@@ -82,6 +82,13 @@ public final class TableNameExtractor {
         put(map, AlterTableStatement.ChangeColumnType.class, AlterTableStatement.ChangeColumnType::tableName);
         put(map, AlterTableStatement.RenameTable.class, AlterTableStatement.RenameTable::tableName);
         put(map, AlterTableStatement.SetPartitionSpec.class, AlterTableStatement.SetPartitionSpec::tableName);
+        put(map, AlterTableStatement.SetSortOrder.class, AlterTableStatement.SetSortOrder::tableName);
+        put(map, AlterTableStatement.CreateBranch.class, AlterTableStatement.CreateBranch::tableName);
+        put(map, AlterTableStatement.DropBranch.class, AlterTableStatement.DropBranch::tableName);
+        put(map, AlterTableStatement.CreateTag.class, AlterTableStatement.CreateTag::tableName);
+        put(map, AlterTableStatement.DropTag.class, AlterTableStatement.DropTag::tableName);
+        put(map, AlterTableStatement.SetColumnTag.class, AlterTableStatement.SetColumnTag::tableName);
+        put(map, AlterTableStatement.UnsetColumnTag.class, AlterTableStatement.UnsetColumnTag::tableName);
         put(map, InsertStatement.class, InsertStatement::tableName);
         put(map, InsertOverwriteStatement.class, InsertOverwriteStatement::tableName);
         put(map, InsertSelectStatement.class, InsertSelectStatement::tableName);

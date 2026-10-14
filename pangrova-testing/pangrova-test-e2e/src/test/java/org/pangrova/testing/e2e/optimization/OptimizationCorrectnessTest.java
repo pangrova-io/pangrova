@@ -150,7 +150,8 @@ class OptimizationCorrectnessTest extends SqlE2ETestBase {
                     + "  SELECT AVG(amount) FROM " + T1 + " o2 "
                     + "  WHERE o2.region = o.region"
                     + ")");
-            assertThat(rows).isNotEmpty();
+            assertThat(rows).extracting(row -> ((Number) row.getRaw("order_id")).longValue())
+                    .containsExactlyInAnyOrder(1L, 5L);
         }
 
         @Test

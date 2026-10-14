@@ -90,9 +90,13 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
                     row.getRaw("category").toString(), ((ColumnValue.VectorValue) value).value());
         }).toList();
         assertThat(stored.stream().map(StoredVector::id)).doesNotHaveDuplicates();
+        assertThat(stored.stream().map(row -> java.util.Arrays.toString(row.coordinates()))
+                .distinct().count()).as("seeded Native vector rows retain distinct coordinates")
+                .isGreaterThan(900);
 
         sqlRunner.executeDdl("CREATE INDEX " + indexName + " ON " + fqn
-                + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+                + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2',"
+                + " 'search_list_size'='" + COUNT + "')");
         var published = awaitPublishedVectorIndex(indexName, fqn);
         var baselineSnapshots = dataset.tasks().stream().flatMap(task -> task.request().getSplitsList().stream())
                 .filter(split -> split.getSourceId().equals(fqn)).map(split -> split.getSourceSnapshot())
@@ -173,6 +177,10 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
                 + " 'search_list_size'='200')");
         var published = awaitPublishedVectorIndex(indexName, fqn);
         assertDatasetSnapshot(dataset, published);
+        long publishedSourceObjects = published.outputs().stream()
+                .filter(output -> output.objectRole().equals("RAW_VECTORS"))
+                .map(output -> output.sourceObjectId()).distinct().count();
+        assertThat(publishedSourceObjects).isPositive();
         float[] point = midpoint(stored.get(11).coordinates(), stored.get(79).coordinates());
         List<EligibilityCase> cases = List.of(
                 new EligibilityCase("category IS NULL", row -> row.category() == null),
@@ -187,13 +195,34 @@ class NativeAnnRecallE2ETest extends VectorIndexE2ETestBase {
                 new EligibilityCase("CASE WHEN category IS NULL THEN TRUE"
                         + " WHEN category = 'cat_3' THEN id >= 50 ELSE FALSE END",
                         row -> row.category() == null || ("cat_3".equals(row.category()) && row.id() >= 50)));
+        int annCases = 0;
         for (EligibilityCase eligibility : cases) {
             var evidence = executeObserved(searchSql(fqn, point, " WHERE " + eligibility.sql()));
+            long taskSourceObjects = evidence.tasks().stream()
+                    .flatMap(task -> task.request().getSplitsList().stream())
+                    .filter(split -> split.getSourceId().equals(fqn))
+                    .map(org.pangrova.protocol.v2.DataSplit::getDataObjectId).distinct().count();
+            assertThat(taskSourceObjects).isLessThanOrEqualTo(publishedSourceObjects);
+            var eligible = stored.stream().filter(eligibility.accepts()).toList();
+            // Calcite's OR normalization is outside the current indexed
+            // filter chain; CASE remains an indexed Native predicate.
+            boolean exactPredicate = eligibility.sql().contains(" OR ");
+            if (taskSourceObjects < publishedSourceObjects || exactPredicate) {
+                assertThat(evidence.tasks().stream()
+                        .flatMap(task -> task.request().getOperatorBindingsList().stream())
+                        .filter(binding -> binding.getCapability().getCapabilityId().equals(
+                                org.pangrova.protocol.BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID))
+                        .toList()).as("unsupported indexed scope must keep the exact scan").isEmpty();
+                assertEligiblePopulation(eligible, point, evidence.rows(), 1.0);
+                continue;
+            }
             double required = assertFilteredAnn(published, evidence);
+            annCases++;
             assertDatasetSnapshot(evidence, published);
-            assertEligiblePopulation(stored.stream().filter(eligibility.accepts()).toList(),
-                    point, evidence.rows(), required);
+            assertEligiblePopulation(eligible, point, evidence.rows(), required);
         }
+        assertThat(annCases).as("full source coverage exercises the filtered Native ANN owner")
+                .isGreaterThan(0);
         sqlRunner.executeDdl("DROP INDEX " + indexName + " ON " + fqn);
         sqlRunner.executeDdl("DROP TABLE " + fqn);
     }

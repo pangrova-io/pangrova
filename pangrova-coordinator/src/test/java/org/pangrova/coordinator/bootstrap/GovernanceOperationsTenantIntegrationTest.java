@@ -192,8 +192,8 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
 
     @Test
     void healthCheckEndpointIntegratedInBootstrap() throws Exception {
-        bootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-health", 0));
+        bootstrap = new CoordinatorBootstrap(org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures
+                .withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-health", 0)));
         bootstrap.start();
 
         int port = bootstrap.getHttpPort();

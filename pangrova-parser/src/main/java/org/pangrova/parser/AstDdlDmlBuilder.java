@@ -176,8 +176,8 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
         PangrovaSqlParser.ColumnDefinitionContext cd = ctx.columnDefinition();
         String colName = extractIdentifierText(cd.identifier());
         DataTypeSpec colType = buildDataTypeSpec(cd.columnType());
-        Optional<Literal> defaultValue = ctx.defaultVal != null
-                ? Optional.of((Literal) parent.visit(ctx.defaultVal))
+        Optional<Literal> defaultValue = cd.defaultVal != null
+                ? Optional.of((Literal) parent.visit(cd.defaultVal))
                 : Optional.empty();
         Optional<AutoEmbeddingColumnSpec> embeddingSpec = buildAutoEmbeddingSpec(
                 cd.autoEmbeddingClause());

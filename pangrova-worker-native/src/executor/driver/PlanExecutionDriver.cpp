@@ -41,7 +41,6 @@ void PlanExecutionDriver::executeVeloxPlan() {
     execution = prepareExecution(span.get());
     if (!execution || !publishRunner(execution)) return;
     execution->runner->start();
-    startOutputDrains(execution);
     if (dispatchExecution(execution)) completion.dismiss();
   } catch (...) {
     auto failure = std::current_exception();
@@ -168,17 +167,22 @@ void PlanExecutionDriver::drainWriteOutput(const std::shared_ptr<Execution>& exe
         write_producer_outcome_, dataset_writer_);
   } else {
     drainOutputToWriter(output_queue_, config_.write_config, config_.task_id,
+        execution->writeOutputType,
         pool, write_producer_outcome_);
   }
 }
 
 bool PlanExecutionDriver::dispatchExecution(const std::shared_ptr<Execution>& execution) {
+  // Velox requires an empty task pool while initializing its drivers. Start
+  // them before the write drain can allocate from a child of that pool.
+  auto taskCompletion = execution->runner->startAsync();
+  startOutputDrains(execution);
   auto executor = jni::NativeEngineLifecycle::instance().executor();
   if (!executor) {
-    completeExecution(execution, execution->runner->waitForCompletion());
+    completeExecution(execution, std::move(taskCompletion).get());
     return false;
   }
-  execution->runner->startAsync().via(executor.get()).thenTry(
+  std::move(taskCompletion).via(executor.get()).thenTry(
       [this, execution](folly::Try<bool>&& outcome) {
         auto completion = folly::makeGuard([this] { signalCompletion(); });
         try {

@@ -274,8 +274,20 @@ message SystemTableSplitDetail {
     KIND_UNSPECIFIED = 0;
     ICEBERG_SNAPSHOTS = 1;
     ICEBERG_HISTORY = 2;
+    PAIMON_SNAPSHOTS = 3;
+    PAIMON_TAGS = 4;
+    PAIMON_OPTIONS = 5;
   }
   Kind kind = 1;
+  // Positive only for a Paimon snapshot object; the Native reader verifies it
+  // against the JSON content before emitting a row.
+  uint64 snapshot_id = 2;
+  // SHA-256 of the exact pinned Paimon metadata JSON bytes.
+  bytes object_sha256 = 3;
+  // Tag name pinned by the Paimon connector; nonempty only for PAIMON_TAGS.
+  string tag_name = 4;
+  // Latest schema ID pinned for PAIMON_OPTIONS; zero is a valid first schema.
+  uint64 schema_id = 5;
 }
 
 // Immutable identity of the exact catalog deployment authorized by the

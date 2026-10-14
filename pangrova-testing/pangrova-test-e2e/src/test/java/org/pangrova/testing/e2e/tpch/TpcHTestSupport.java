@@ -10,8 +10,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Compares complete results with an independent engine on identical input rows. */
 final class TpcHTestSupport {
+    // Q15 orders only by supplier key; duplicate supplier rows with the same
+    // key have no specified order, so compare their complete row multiset.
     private static final Set<String> UNORDERED_QUERIES = Set.of(
-            "q06.sql", "q14.sql", "q17.sql", "q19.sql");
+            "q06.sql", "q14.sql", "q15.sql", "q17.sql", "q19.sql");
     private static final double NUMERIC_TOLERANCE = 1e-6;
 
     private TpcHTestSupport() {}
@@ -24,6 +26,14 @@ final class TpcHTestSupport {
                     .as("%s columns at row %s", queryFile, i)
                     .containsExactlyInAnyOrderElementsOf(expected.get(i).columnNames())
                     .contains(expectedColumns);
+        }
+        if ("q15.sql".equals(queryFile)) {
+            long previousKey = Long.MIN_VALUE;
+            for (TypedRow row : actual) {
+                long key = ((Number) row.getRaw("s_suppkey")).longValue();
+                assertThat(key).as("Q15 supplier key order").isGreaterThanOrEqualTo(previousKey);
+                previousKey = key;
+            }
         }
         if (UNORDERED_QUERIES.contains(queryFile)) {
             ResultValidator.assertEqualsUnorderedWithTolerance(expected, actual, NUMERIC_TOLERANCE);

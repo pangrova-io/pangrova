@@ -153,6 +153,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
             }
         };
         CoordinatorTaskTracker tasks = new CoordinatorTaskTracker();
+        tasks.openQueryIssuance(queryId);
         QueryOwnershipTracker tracker = new QueryOwnershipTracker(
                 tasks, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 null, null, new TaskCancelRetrier((request, worker) -> null, tasks));

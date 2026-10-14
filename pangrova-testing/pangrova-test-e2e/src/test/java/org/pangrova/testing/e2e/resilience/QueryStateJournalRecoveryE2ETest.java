@@ -1,7 +1,6 @@
 package org.pangrova.testing.e2e.resilience;
 
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
@@ -9,7 +8,6 @@ import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.QueryStateEvent;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.spi.coordination.TaskStateEvent;
-import org.pangrova.testing.TestObservability;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
@@ -194,9 +192,8 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), q2, "SELECT * FROM t2", "{}", "QUEUED"));
             journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), q2, null, null, "SCHEDULING"));
 
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recoveryService = new JournalRecoveryService(
                     journal, recoveredManager, recoveredTracker);
@@ -218,9 +215,8 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "RUNNING"));
             journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, taskId, "worker-1", "RUNNING", 0, 1));
 
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recoveryService = new JournalRecoveryService(
                     journal, recoveredManager, recoveredTracker);
@@ -245,9 +241,8 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), finished, "SELECT 2", "{}", "QUEUED"));
             journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), finished, null, null, "FINISHED"));
 
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recoveryService = new JournalRecoveryService(
                     journal, recoveredManager, recoveredTracker);

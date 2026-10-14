@@ -114,11 +114,14 @@ final class IcebergDdlOperations {
         Literal raw = toIcebergLiteral(value);
         if (targetType instanceof Type.PrimitiveType primitive) {
             Literal casted = raw.to(primitive);
-            if (casted != null) {
-                return casted;
+            if (casted == null) {
+                throw new IllegalArgumentException(
+                        "Default value " + value + " cannot be cast to " + targetType);
             }
+            return casted;
         }
-        return raw;
+        throw new IllegalArgumentException(
+                "Default values for non-primitive column type " + targetType + " are unsupported");
     }
 
     private static Literal<?> numericToLiteral(Number value) {

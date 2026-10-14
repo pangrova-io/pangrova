@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * execution mode; full-regression must execute these tests.</p>
  */
 @Tag("native-required")
+@Tag("native-runtime-owner")
 @ResourceLock("pangrova-packaged-native-runtime")
 class WorkerBootstrapE2ETest extends ContainerTestBase {
 
@@ -168,6 +169,7 @@ class WorkerBootstrapE2ETest extends ContainerTestBase {
                 org.pangrova.worker.jni.NativeFunctionConfig.DEFAULT,
                 WorkerBootstrapConfig.TransportSecurityConfig.disabled());
         worker = new WorkerBootstrap(config);
+        worker.installProductionCatalogRuntime();
         worker.start();
         return worker;
     }

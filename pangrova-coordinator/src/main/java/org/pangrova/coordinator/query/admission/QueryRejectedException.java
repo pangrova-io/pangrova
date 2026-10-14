@@ -1,4 +1,4 @@
-package org.pangrova.coordinator.query;
+package org.pangrova.coordinator.query.admission;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;

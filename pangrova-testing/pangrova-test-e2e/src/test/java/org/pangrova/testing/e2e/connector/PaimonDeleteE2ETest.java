@@ -58,6 +58,16 @@ class PaimonDeleteE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void zeroRowInsertSelectDoesNotCreateRowsOrBlockTheNextWrite() {
+        createTable(false);
+        sqlRunner.execute("INSERT INTO " + fqn()
+                + " SELECT id, score, region FROM " + fqn() + " WHERE id < 0");
+        assertRows();
+        insertRows("(1, 100, 'us')");
+        assertRows(tuple(1L, 100L, "us"));
+    }
+
+    @Test
     @DisplayName("Metadata partition equality removes only the exact VARCHAR partition")
     void partitionEqualityDeletesOnlyMatchingPartition() {
         createTable(true);

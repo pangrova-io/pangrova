@@ -7,8 +7,10 @@ import org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink;
 
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
+import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -29,6 +31,7 @@ import org.pangrova.metadata.sync.SyncResult;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
+import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
@@ -58,6 +61,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -81,6 +85,8 @@ class TaskStatusReceiverWriteCommitTest {
     private RecordingConnectorMetadata recordingMetadata;
     private InMemoryWriteCommitJournal writeCommitJournal;
     private CatalogRegistry catalogRegistry;
+    private QueryManager queryManager;
+    private WorkerManager workerManager;
     private TaskStatusReceiver receiver;
 
     private long sequenceCounter = 100;
@@ -88,7 +94,8 @@ class TaskStatusReceiverWriteCommitTest {
     @BeforeEach
     void setUp() {
         tracker = new CoordinatorTaskTracker();
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
+        workerManager = new WorkerManager(20_000, 60_000,
+                new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
         workerManager.registerWorker(workerInfo(WORKER_ID));
         writeCommitTracker = new NativeWriteCommitTracker();
         recordingMetadata = new RecordingConnectorMetadata();
@@ -98,13 +105,84 @@ class TaskStatusReceiverWriteCommitTest {
                 CATALOG_NAME, recordingMetadata);
         catalogRegistry.initialize();
 
-        QueryManager qm = buildQueryManager(workerManager, tracker);
+        queryManager = buildQueryManager(workerManager, tracker);
         TaskStatusReceiverContext deps = new TaskStatusReceiverContext(
-                qm, tracker, workerManager,
+                queryManager, tracker, workerManager,
                 null, null, null, null,
                 catalogRegistry, writeCommitTracker, null, null, writeCommitJournal,
                 ArtifactWorkReportSink.rejecting());
         receiver = new TaskStatusReceiver(deps);
+    }
+
+    @Test
+    void deferredDagCompletionFinalizesOnTerminalEvent() {
+        DeferredStageCompletion callback = new DeferredStageCompletion();
+        receiver = receiverWithStageCallback(callback);
+        registerRunningQuery();
+        registerTwoTasks();
+
+        receiver.onTaskStatus(finishedWithoutWriteResult("t-1"));
+        receiver.onTaskStatus(finishedWithoutWriteResult("t-2"));
+
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.RUNNING);
+        assertThat(callback.listener).isNotNull();
+        callback.complete(true);
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.FINISHED);
+    }
+
+    @Test
+    void failedDagTerminalEventCannotFinalizeQueryAsSuccess() {
+        DeferredStageCompletion callback = new DeferredStageCompletion();
+        receiver = receiverWithStageCallback(callback);
+        registerRunningQuery();
+        registerTwoTasks();
+
+        receiver.onTaskStatus(finishedWithoutWriteResult("t-1"));
+        receiver.onTaskStatus(finishedWithoutWriteResult("t-2"));
+        callback.complete(false);
+
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.RUNNING);
+    }
+
+    private TaskStatusReceiver receiverWithStageCallback(StageCompletionCallback callback) {
+        return new TaskStatusReceiver(new TaskStatusReceiverContext(
+                queryManager, tracker, workerManager,
+                null, null, null, null,
+                catalogRegistry, writeCommitTracker, callback, null, writeCommitJournal,
+                ArtifactWorkReportSink.rejecting()));
+    }
+
+    private void registerRunningQuery() {
+        QueryStateMachine state = new QueryStateMachine();
+        state.tryTransition(QueryStateMachine.State.PLANNING);
+        state.tryTransition(QueryStateMachine.State.SCHEDULING);
+        state.tryTransition(QueryStateMachine.State.RUNNING);
+        queryManager.registerStateMachine(QUERY_ID, state);
+    }
+
+    private static final class DeferredStageCompletion implements StageCompletionCallback {
+        private Consumer<Boolean> listener;
+        private boolean complete;
+
+        @Override
+        public void onTaskTerminal(String queryId, String taskId, String state, ErrorDetail error) {
+            // The test controls the later DAG outcome explicitly.
+        }
+
+        @Override
+        public boolean isQueryComplete(String queryId) {
+            return complete;
+        }
+
+        @Override
+        public void onQueryTerminal(String queryId, Consumer<Boolean> observer) {
+            listener = observer;
+        }
+
+        private void complete(boolean successful) {
+            complete = successful;
+            listener.accept(successful);
+        }
     }
 
     @Test

@@ -3,6 +3,7 @@ package org.pangrova.testing.e2e.metadata;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
+import org.pangrova.testing.e2e.CatalogDdlGrantFixture;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.e2e.runner.QueryError;
 import org.junit.jupiter.api.BeforeEach;
@@ -206,18 +207,24 @@ class MetadataQueryTest extends SqlE2ETestBase {
         @DisplayName("Newly created catalog appears in SHOW CATALOGS")
         void newCatalogVisibleInShowCatalogs() {
             String newCatalog = "cat_new_" + System.nanoTime();
-
-            sqlRunner.executeDdl("CREATE CATALOG " + newCatalog
-                    + " USING iceberg"
-                    + " WITH ("
-                    + " 'iceberg.catalog-type' = 'hadoop',"
-                    + " 'iceberg.warehouse' = '" + icebergWarehouse().resolve(newCatalog) + "'"
-                    + ")");
-
-            List<TypedRow> rows = sqlRunner.execute("SHOW CATALOGS");
-            List<String> names = extractColumnValues(rows,
-                    "catalog_name", "catalog", "Catalog", "CATALOG_NAME");
-            assertThat(names).contains(newCatalog);
+            CatalogDdlGrantFixture.withCatalogLifecycleGrants(
+                    stateStoreDataSource(), authenticatedCatalogSession(CATALOG).getUser(),
+                    newCatalog, () -> {
+                        sqlRunner.executeDdl("CREATE CATALOG " + newCatalog
+                                + " USING iceberg"
+                                + " WITH ("
+                                + " 'iceberg.catalog-type' = 'hadoop',"
+                                + " 'iceberg.warehouse' = '" + icebergWarehouse().resolve(newCatalog) + "'"
+                                + ")");
+                        try {
+                            List<TypedRow> rows = sqlRunner.execute("SHOW CATALOGS");
+                            List<String> names = extractColumnValues(rows,
+                                    "catalog_name", "catalog", "Catalog", "CATALOG_NAME");
+                            assertThat(names).contains(newCatalog);
+                        } finally {
+                            sqlRunner.executeDdl("DROP CATALOG " + newCatalog);
+                        }
+                    });
         }
     }
 

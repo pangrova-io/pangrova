@@ -27,11 +27,14 @@ class ShowMetadataSqlRewriterTest {
     }
 
     @Test
-    void namesThatCannotBeLosslesslyRewrittenFailClosed() {
-        assertThatThrownBy(() -> ShowMetadataSqlRewriter.rewrite(
+    void mixedCaseAsciiNameRetainsItsIdentity() {
+        assertThat(ShowMetadataSqlRewriter.rewrite(
                 new ShowMetadataStatement.ShowSnapshots(List.of("db", "Orders"))))
-                .isInstanceOf(PangrovaException.class)
-                .hasMessageContaining("unquoted lowercase table name");
+                .isEqualTo("SELECT * FROM db.Orders$snapshots");
+    }
+
+    @Test
+    void namesThatCannotBeLosslesslyRewrittenFailClosed() {
         assertThatThrownBy(() -> ShowMetadataSqlRewriter.rewrite(
                 new ShowMetadataStatement.ShowSnapshots(List.of("db", "orders;drop"))))
                 .isInstanceOf(PangrovaException.class);

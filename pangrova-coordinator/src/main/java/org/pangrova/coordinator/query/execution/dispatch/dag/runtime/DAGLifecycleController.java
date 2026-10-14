@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -49,6 +50,8 @@ public final class DAGLifecycleController {
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, StageDAG> queryDags =
             new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<Boolean>> terminalSignals =
+            new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, DAGExecutionState> liveExecutions =
             new ConcurrentHashMap<>();
 
@@ -69,6 +72,7 @@ public final class DAGLifecycleController {
     /** Registers the DAG and optional immutable context before dispatch. */
     public void registerQuery(
             String queryId, StageDAG dag, DAGQueryContext context) {
+        terminalSignals.putIfAbsent(queryId, new CompletableFuture<>());
         queryDags.put(queryId, dag);
         if (context != null) {
             queryContexts.put(queryId, context);
@@ -77,7 +81,18 @@ public final class DAGLifecycleController {
 
     /** Registers the DAG only when it has not already been registered. */
     public void registerDagIfAbsent(String queryId, StageDAG dag) {
+        terminalSignals.putIfAbsent(queryId, new CompletableFuture<>());
         queryDags.putIfAbsent(queryId, dag);
+    }
+
+    /** Registers a terminal observer without polling the dispatch state. */
+    public void onQueryTerminal(String queryId, Consumer<Boolean> listener) {
+        CompletableFuture<Boolean> signal = terminalSignals.get(queryId);
+        if (signal == null) {
+            listener.accept(false);
+            return;
+        }
+        signal.thenAccept(listener);
     }
 
     /** Owns a live dispatch wait before scheduling; durable passes have their own control owner. */
@@ -212,6 +227,10 @@ public final class DAGLifecycleController {
         }
         queryContexts.remove(queryId);
         terminalRegistry.clear(queryId);
+        CompletableFuture<Boolean> signal = terminalSignals.remove(queryId);
+        if (signal != null) {
+            signal.complete(false);
+        }
     }
 
     private static void cancelExecution(DAGExecutionState state) {
@@ -286,6 +305,7 @@ public final class DAGLifecycleController {
             return;
         }
         handlers.forEach(handler -> invokeQueryHandler(handler, queryId, true));
+        completeTerminalSignal(queryId, true);
     }
 
     private void fireQueryFailed(String queryId) {
@@ -300,6 +320,14 @@ public final class DAGLifecycleController {
             return;
         }
         handlers.forEach(handler -> invokeQueryHandler(handler, queryId, false));
+        completeTerminalSignal(queryId, false);
+    }
+
+    private void completeTerminalSignal(String queryId, boolean successful) {
+        CompletableFuture<Boolean> signal = terminalSignals.get(queryId);
+        if (signal != null) {
+            signal.complete(successful);
+        }
     }
 
     /** Completes a durable graph without manufacturing a client row/result endpoint. */

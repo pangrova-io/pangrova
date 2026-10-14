@@ -54,6 +54,9 @@ struct IcebergConfig {
 enum class SystemTableKind : uint8_t {
   ICEBERG_SNAPSHOTS,
   ICEBERG_HISTORY,
+  PAIMON_SNAPSHOTS,
+  PAIMON_TAGS,
+  PAIMON_OPTIONS,
 };
 
 struct ColumnMappingConfig {
@@ -139,6 +142,10 @@ struct SplitConfig {
   std::optional<IcebergConfig> iceberg;
   std::optional<PaimonConfig> paimon;
   std::optional<SystemTableKind> system_table;
+  uint64_t system_table_snapshot_id = 0;
+  std::string system_table_object_sha256;
+  std::string system_table_tag_name;
+  std::optional<uint64_t> system_table_schema_id;
 
   // Schema evolution
   std::vector<ColumnMappingConfig> column_mappings;

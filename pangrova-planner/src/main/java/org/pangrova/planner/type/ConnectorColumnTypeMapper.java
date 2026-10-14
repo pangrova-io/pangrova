@@ -4,6 +4,7 @@ import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.data.type.PangrovaTypeMapping;
 import org.pangrova.spi.connector.data.type.ArrayType;
 import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.NullOnlyType;
 import org.pangrova.spi.connector.data.type.RowField;
 import org.pangrova.spi.connector.data.type.RowType;
 import org.pangrova.spi.connector.data.type.Type;
@@ -37,6 +38,9 @@ public final class ConnectorColumnTypeMapper {
                                             Type parameterizedType,
                                             RelDataTypeFactory factory) {
         requireConcreteDeclaration(type, parameterizedType);
+        if (type == PangrovaType.UNKNOWN) {
+            return factory.createTypeWithNullability(factory.createSqlType(SqlTypeName.VARCHAR), true);
+        }
         if (type == PangrovaType.VECTOR) {
             var vector = (VectorType) parameterizedType;
             var logical = VectorLogicalType.create(vector.dimension(),
@@ -133,7 +137,7 @@ public final class ConnectorColumnTypeMapper {
 
     private static void requireConcreteDeclaration(PangrovaType type, Type parameters) {
         boolean complete = switch (type) {
-            case UNKNOWN -> false;
+            case UNKNOWN -> parameters instanceof NullOnlyType;
             case ARRAY -> parameters instanceof ArrayType;
             case VECTOR -> parameters instanceof VectorType;
             case MAP -> parameters instanceof MapType;

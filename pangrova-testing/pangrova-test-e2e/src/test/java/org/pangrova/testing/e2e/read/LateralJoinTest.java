@@ -99,18 +99,38 @@ class LateralJoinTest extends SqlE2ETestBase {
                 long scalarKey = ((Number) scalarRows.get(i).getRaw("o_orderkey")).longValue();
                 assertThat(lateralKey).isEqualTo(scalarKey);
 
-                // After decorrelation, COUNT on empty input may produce NULL
-                // (GROUP BY eliminates groups with no input rows).  Both paths
-                // use the same decorrelation strategy, so NULL-vs-NULL is valid.
                 Object lateralCountObj = lateralRows.get(i).getRaw("item_count");
                 Object scalarCountObj = scalarRows.get(i).getRaw("item_count");
-                if (lateralCountObj == null && scalarCountObj == null) {
-                    continue;
-                }
+                assertThat(lateralCountObj).isNotNull();
+                assertThat(scalarCountObj).isNotNull();
                 long lateralCount = ((Number) lateralCountObj).longValue();
                 long scalarCount = ((Number) scalarCountObj).longValue();
                 assertThat(lateralCount).isEqualTo(scalarCount);
             }
+        }
+
+        @Test
+        @DisplayName("LATERAL COUNT returns zero when no rows match")
+        void lateralCountOnEmptyInputReturnsZero() {
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT sub.item_count FROM (SELECT CAST(-1 AS BIGINT) AS o_orderkey) o, "
+                    + "LATERAL (SELECT COUNT(*) AS item_count FROM lineitem l "
+                    + "WHERE l.l_orderkey = o.o_orderkey) AS sub");
+            List<TypedRow> scalarRows = sqlRunner.execute(
+                    "SELECT (SELECT COUNT(*) FROM lineitem l "
+                    + "WHERE l.l_orderkey = o.o_orderkey) AS item_count "
+                    + "FROM (SELECT CAST(-1 AS BIGINT) AS o_orderkey) o");
+            List<TypedRow> computedRows = sqlRunner.execute(
+                    "SELECT (SELECT COUNT(*) + 1 FROM lineitem l "
+                    + "WHERE l.l_orderkey = o.o_orderkey) AS count_plus_one "
+                    + "FROM (SELECT CAST(-1 AS BIGINT) AS o_orderkey) o");
+
+            assertThat(rows).singleElement().satisfies(row ->
+                    assertThat(((Number) row.getRaw("item_count")).longValue()).isZero());
+            assertThat(scalarRows).singleElement().satisfies(row ->
+                    assertThat(((Number) row.getRaw("item_count")).longValue()).isZero());
+            assertThat(computedRows).singleElement().satisfies(row ->
+                    assertThat(((Number) row.getRaw("count_plus_one")).longValue()).isEqualTo(1));
         }
     }
 }

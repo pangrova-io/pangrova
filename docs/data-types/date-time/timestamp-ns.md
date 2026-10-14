@@ -19,7 +19,9 @@ CREATE TABLE high_freq_events (id BIGINT, event_time TIMESTAMP_NS);
 timestamp literals retain up to nine digits, including values before 1970;
 `INSERT VALUES`, projections and comparisons preserve this precision through the
 Native Worker. Ordinary `TIMESTAMP` and timezone timestamp columns default to
-microsecond precision.
+microsecond precision. The Native file scan requests nanosecond timestamp
+precision from Velox so that reading a Parquet timestamp does not truncate its
+fractional part before filtering, sorting, or returning rows.
 
 CTAS derives `TIMESTAMP_NS` for timestamp outputs with more than six fractional
 digits, rather than creating a microsecond destination. New Iceberg tables whose

@@ -1,8 +1,8 @@
 // IndexHintFilter: Native-side L2 index evaluation for split skipping.
 //
-// Evaluates IndexEvalHintInfo proto messages attached to splits by the
-// coordinator. For each hint, loads the .idx file from storage, parses
-// the predicate JSON, and delegates to FileIndexFilter for evaluation.
+// Evaluates canonical v2 IndexEvalHintDetail messages attached to splits by
+// the coordinator. Validated Bloom artifacts can prune splits before scan;
+// the older JSON helpers remain for their standalone compatibility tests.
 //
 // Thread-safe: all methods are stateless static functions.
 //
@@ -41,10 +41,17 @@ struct ParsedPredicate {
 /// predicates before reading data files. This avoids full-file I/O when
 /// the index proves no rows match.
 ///
-/// Integration point: called by PlanExecutionDriver after receiving split
-/// configuration and before scheduling file reads.
+/// Integration point: called by VeloxTaskRunner before scheduling file reads.
 class IndexHintFilter {
  public:
+  /// Evaluates canonical v2 index hints against the immutable data object
+  /// before its Velox split is enqueued. Unsupported or unreadable artifacts
+  /// retain the split; only a validated negative membership test may prune it.
+  static bool shouldKeepTypedSplit(
+      const std::string& file_scan_detail,
+      const std::string& data_file_path,
+      bool* evaluated = nullptr);
+
   /// Evaluate all index hints for a split. Returns true if the split
   /// should be kept (at least one data file may match), false if ALL
   /// hints indicate the data file can be skipped.

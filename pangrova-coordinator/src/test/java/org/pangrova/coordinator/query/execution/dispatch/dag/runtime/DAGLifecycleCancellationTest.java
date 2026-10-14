@@ -17,7 +17,9 @@ import org.pangrova.testing.TestObservability;
 
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -26,6 +28,79 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Exercises real lifecycle state without dispatching or manufacturing task success. */
 class DAGLifecycleCancellationTest {
+    @Test
+    void successfulTerminalEventReachesEarlyAndLateObservers() {
+        try (var remote = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING)) {
+            var lifecycle = lifecycle(remote);
+            var state = state();
+            lifecycle.registerQuery(state.queryId(), state.dag(), null);
+            var outcomes = new CopyOnWriteArrayList<Boolean>();
+            lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
+
+            lifecycle.completeDurable(state.queryId(), new CompletableFuture<>());
+            lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
+
+            assertThat(outcomes).containsExactly(true, true);
+            lifecycle.clearQuery(state.queryId());
+        }
+    }
+
+    @Test
+    void failureAndCancellationReleasePendingTerminalObservers() {
+        try (var remote = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING)) {
+            var lifecycle = lifecycle(remote);
+            var state = state();
+            lifecycle.registerQuery(state.queryId(), state.dag(), null);
+            var outcomes = new CopyOnWriteArrayList<Boolean>();
+            lifecycle.onQueryTerminal(state.queryId(), outcomes::add);
+
+            lifecycle.failQuery(state.queryId());
+            lifecycle.clearQuery(state.queryId());
+
+            assertThat(outcomes).containsExactly(false);
+
+            String cancelledQuery = "cancelled-terminal-observer";
+            lifecycle.registerQuery(cancelledQuery, state.dag(), null);
+            var cancelledOutcomes = new CopyOnWriteArrayList<Boolean>();
+            lifecycle.onQueryTerminal(cancelledQuery, cancelledOutcomes::add);
+            lifecycle.clearQuery(cancelledQuery);
+            assertThat(cancelledOutcomes).containsExactly(false);
+        }
+    }
+
+    @Test
+    void completionRacingObserverRegistrationNeverLosesTheTerminalSignal() throws Exception {
+        var threads = Executors.newFixedThreadPool(2);
+        try (var remote = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING)) {
+            var lifecycle = lifecycle(remote);
+            var dag = state().dag();
+            for (int i = 0; i < 40; i++) {
+                String queryId = "terminal-race-" + i;
+                lifecycle.registerQuery(queryId, dag, null);
+                var start = new CountDownLatch(1);
+                var outcomes = new CopyOnWriteArrayList<Boolean>();
+                var observer = threads.submit(() -> {
+                    start.await();
+                    lifecycle.onQueryTerminal(queryId, outcomes::add);
+                    return null;
+                });
+                var completion = threads.submit(() -> {
+                    start.await();
+                    lifecycle.completeDurable(queryId, new CompletableFuture<>());
+                    return null;
+                });
+                start.countDown();
+                observer.get(5, TimeUnit.SECONDS);
+                completion.get(5, TimeUnit.SECONDS);
+                assertThat(outcomes).containsExactly(true);
+                lifecycle.clearQuery(queryId);
+            }
+        } finally {
+            threads.shutdownNow();
+            assertThat(threads.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     @Property(tries = 30, seed = "20261002")
     void registrationRacingCleanupAlwaysSettlesTheWait(
             @ForAll @IntRange(min = 0, max = 8) int contextReads) throws Exception {

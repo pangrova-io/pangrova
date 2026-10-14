@@ -9,6 +9,7 @@ import org.pangrova.planner.type.PlannerTypeFactory;
 import org.pangrova.planner.type.StorageVectorRelDataType;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.NullOnlyType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 import java.util.HashSet;
@@ -45,7 +46,9 @@ public final class NativeDatasetSchemaCompiler {
         }
         HashSet<String> names = new HashSet<>();
         for (var column : columns) {
-            if (column.name().isBlank() || !names.add(column.name()) || column.type() == PangrovaType.UNKNOWN) {
+            if (column.name().isBlank() || !names.add(column.name())
+                    || (column.type() == PangrovaType.UNKNOWN
+                            && !(column.parameterizedType() instanceof NullOnlyType))) {
                 throw new IllegalArgumentException("Native schema requires unique names and concrete types");
             }
             if (column.parameterizedType() == null && requiresParameters(column.type())) {

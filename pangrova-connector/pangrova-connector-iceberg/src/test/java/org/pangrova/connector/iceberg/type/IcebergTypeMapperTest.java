@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg.type;
 
 import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.NullOnlyType;
 import org.pangrova.spi.connector.data.type.VectorType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.apache.iceberg.Schema;
@@ -23,6 +24,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * between Iceberg types and PangrovaType, plus schema-to-column conversion.
  */
 class IcebergTypeMapperTest {
+
+    @Test
+    void icebergV3UnknownHasAnExplicitNullOnlyDeclaration() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "future", Types.UnknownType.get()));
+        ConnectorTableMetadata.Column column = IcebergTypeMapper.toPangrovaColumns(schema).get(0);
+        assertThat(column.type()).isEqualTo(PangrovaType.UNKNOWN);
+        assertThat(column.parameterizedType()).isEqualTo(NullOnlyType.INSTANCE);
+    }
+
+    @Test
+    void nestedUnknownFailsClosedUntilNativeCanSynthesizeNestedNulls() {
+        Type nested = Types.StructType.of(
+                Types.NestedField.optional(2, "future", Types.UnknownType.get()));
+        assertThatThrownBy(() -> IcebergTypeMapper.toParameterizedType(nested))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("recursive null-only Native projection");
+    }
 
     @Test
     void timezoneNanoTimestampFailsClosedInsteadOfLosingTimezone() {

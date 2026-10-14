@@ -40,10 +40,12 @@ public final class IndexGarbageCollector implements AutoCloseable {
     private final ScheduledExecutorService scheduler;
     private volatile ScheduledFuture<?> scheduledTask;
 
+    /** Creates a collector without a leader election gate. */
     public IndexGarbageCollector(IndexGcContext deps, IndexLifecycleMetrics lifecycleMetrics) {
         this(deps, lifecycleMetrics, null);
     }
 
+    /** Creates a collector that runs only while holding the maintenance lease. */
     public IndexGarbageCollector(IndexGcContext deps, IndexLifecycleMetrics lifecycleMetrics,
                                  MaintenanceLeaderElection leaderElection) {
         this.deps = deps;
@@ -156,10 +158,18 @@ public final class IndexGarbageCollector implements AutoCloseable {
     private boolean tryRemoveOrphan(IndexMetadataStore store, IndexFileMapping mapping,
                                     IndexDescriptor descriptor) {
         IndexState observedState = descriptor.state();
+        int observedGeneration = descriptor.generation();
+        // Older v1 layouts can refer to one physical path from several generations.
+        // Never delete a file while another mapping still owns that path.
+        boolean sharedFile = store.getIndexFileMappings(mapping.indexId()).stream()
+                .anyMatch(other -> other.generation() != mapping.generation()
+                        && other.indexFilePath().equals(mapping.indexFilePath()));
+        if (!sharedFile && !deleteIndexFile(mapping.indexFilePath(), descriptor)) {
+            return false;
+        }
         boolean removed = store.removeIndexFileMappingIfState(
-                mapping.indexId(), mapping.dataFilePath(), observedState);
+                mapping, observedState, observedGeneration);
         if (removed) {
-            deleteIndexFile(mapping.indexFilePath(), mapping.indexId(), descriptor.catalogName());
             return true;
         }
         LOG.info("action=gc_skip_state_changed indexId={} file={} observedState={}",
@@ -184,6 +194,7 @@ public final class IndexGarbageCollector implements AutoCloseable {
     }
 
     private int purgeDropped() {
+        IndexMetadataStore store = deps.metadataStore();
         long gracePeriodMs = TimeUnit.MINUTES.toMillis(deps.config().gcGracePeriodMinutes());
         long cutoffMs = System.currentTimeMillis() - gracePeriodMs;
         Instant cutoff = Instant.ofEpochMilli(cutoffMs);
@@ -195,8 +206,23 @@ public final class IndexGarbageCollector implements AutoCloseable {
         List<IndexDescriptor> allDropped = findDroppedIndexesPastGrace(cutoff);
 
         for (IndexDescriptor descriptor : allDropped) {
-            purgeIndex(descriptor);
-            purgedCount++;
+            try {
+                boolean[] purged = {false};
+                store.withIndexLifecycleLock(descriptor.indexId(), () -> {
+                    IndexDescriptor current = store.findIndex(descriptor.indexId()).orElse(null);
+                    if (current != null && current.state() == IndexState.DROPPED
+                            && current.updatedAt() != null && current.updatedAt().isBefore(cutoff)) {
+                        purgeIndex(current);
+                        purged[0] = true;
+                    }
+                });
+                if (purged[0]) {
+                    purgedCount++;
+                }
+            } catch (RuntimeException failure) {
+                LOG.error("action=index_purge_deferred indexId={} error={}",
+                        descriptor.indexId(), failure.getMessage(), failure);
+            }
         }
 
         return purgedCount;
@@ -213,11 +239,14 @@ public final class IndexGarbageCollector implements AutoCloseable {
         IndexMetadataStore store = deps.metadataStore();
         List<IndexFileMapping> mappings = store.getIndexFileMappings(descriptor.indexId());
 
-        // Unpin snapshot before deleting index generation to allow compaction to reclaim it
-        unpinSnapshotIfAvailable(descriptor);
+        // Keep the durable descriptor for a later retry if the snapshot ref cannot be released.
+        unpinSnapshot(descriptor);
 
         for (IndexFileMapping mapping : mappings) {
-            deleteIndexFile(mapping.indexFilePath(), descriptor.indexId(), descriptor.catalogName());
+            if (!deleteIndexFile(mapping.indexFilePath(), descriptor)) {
+                throw new IllegalStateException("Index file deletion failed; retaining dropped index "
+                        + descriptor.indexId());
+            }
         }
 
         store.purgeIndex(descriptor.indexId());
@@ -229,60 +258,41 @@ public final class IndexGarbageCollector implements AutoCloseable {
      * Unpins the snapshot previously pinned by this index, allowing compaction
      * to reclaim it if no other pins remain.
      */
-    private void unpinSnapshotIfAvailable(IndexDescriptor descriptor) {
+    private void unpinSnapshot(IndexDescriptor descriptor) {
         SnapshotPinProvider pinProvider = deps.snapshotPinProvider();
         if (pinProvider == null) {
+            if (descriptor.buildSnapshotId() != null && !descriptor.buildSnapshotId().isEmpty()
+                    || descriptor.lastIndexedSnapshotId() != null
+                    && !descriptor.lastIndexedSnapshotId().isEmpty()) {
+                throw new IllegalStateException("Snapshot pin provider is required to purge index "
+                        + descriptor.indexId());
+            }
             return;
         }
-        String snapshotIdStr = descriptor.lastIndexedSnapshotId();
-        if (snapshotIdStr == null || snapshotIdStr.isEmpty()) {
-            return;
-        }
-        try {
-            long snapshotId = Long.parseLong(snapshotIdStr);
+        List<Long> snapshots = pinProvider.getPinnedSnapshotsForIndex(
+                descriptor.catalogName(), descriptor.schemaName(),
+                descriptor.tableName(), descriptor.indexId());
+        for (long snapshotId : snapshots) {
             pinProvider.unpinSnapshot(
                     descriptor.catalogName(), descriptor.schemaName(),
                     descriptor.tableName(), snapshotId, descriptor.indexId());
             LOG.info("action=snapshot_unpinned indexId={} snapshotId={}",
                     descriptor.indexId(), snapshotId);
-        } catch (NumberFormatException e) {
-            LOG.warn("action=snapshot_unpin_skipped indexId={} snapshotId={} reason=non_numeric",
-                    descriptor.indexId(), snapshotIdStr);
-        } catch (Exception e) {
-            LOG.warn("action=snapshot_unpin_failed indexId={} snapshotId={} error={}",
-                    descriptor.indexId(), snapshotIdStr, e.getMessage());
         }
     }
 
-    private void deleteIndexFile(String indexFilePath, String indexId, String catalog) {
+    private boolean deleteIndexFile(String indexFilePath, IndexDescriptor descriptor) {
         try {
-            String resolvedCatalog = (catalog != null && !catalog.isEmpty())
-                    ? catalog : resolveIndexCatalog(indexFilePath);
-            FileSystemAccessor fsAccessor = deps.accessorResolver()
-                    .resolve(resolvedCatalog);
-            fsAccessor.deleteFile(indexFilePath);
+            FileSystemAccessor fsAccessor = deps.fileAccessor().apply(descriptor);
+            if (fsAccessor.exists(indexFilePath)) {
+                fsAccessor.deleteFile(indexFilePath);
+            }
+            return true;
         } catch (Exception e) {
             LOG.warn("action=gc_delete_failed indexId={} file={} error={}",
-                    indexId, indexFilePath, e.getMessage());
+                    descriptor.indexId(), indexFilePath, e.getMessage());
+            return false;
         }
-    }
-
-    /**
-     * Extracts catalog name from index file path.
-     * Path pattern: {base}/{catalog}/{schema}/{table}/{indexId}/{hash}.idx
-     */
-    private String resolveIndexCatalog(String indexFilePath) {
-        String base = deps.config().baseIndexPath();
-        String relative = indexFilePath.substring(base.length());
-        if (relative.startsWith("/")) {
-            relative = relative.substring(1);
-        }
-        int firstSlash = relative.indexOf('/');
-        if (firstSlash <= 0) {
-            throw new IllegalStateException(
-                    "Cannot extract catalog from index path: " + indexFilePath);
-        }
-        return relative.substring(0, firstSlash);
     }
 
     @Override

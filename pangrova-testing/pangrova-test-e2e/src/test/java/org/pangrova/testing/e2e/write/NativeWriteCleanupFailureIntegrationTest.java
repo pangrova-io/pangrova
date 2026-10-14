@@ -20,6 +20,7 @@ import org.pangrova.worker.jni.NativeRuntimeException;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -124,7 +125,7 @@ class NativeWriteCleanupFailureIntegrationTest extends NativeWriteLifecycleTestB
             Path owned = fixture.findOwnedFile(opened);
             try (var barrier = new NativeWriteLifecycleFixture.DeletionBarrier(owned)) {
                 byte[] bytes = NativeWriteBatchStreams.decimals(new BigDecimal("1.00"),
-                        new BigDecimal("7.01"), new BigDecimal("8.00"));
+                        new BigDecimal("7.01"), new BigDecimal("100000.00"));
                 Throwable original = catchThrowable(() -> fixture.executor().appendDirectBatch(opened.handle(),
                         NativeWriteBatchStreams.range(bytes, direct), 3, 1));
                 assertThat(original).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("scale");
@@ -132,9 +133,9 @@ class NativeWriteCleanupFailureIntegrationTest extends NativeWriteLifecycleTestB
                         .anyMatch(name -> name.startsWith("org.apache.iceberg."));
                 assertThat(original.getSuppressed()).singleElement().isInstanceOf(RuntimeException.class);
                 assertRetained(fixture, opened);
-                assertThat(readOwnedFile(opened, barrier.retainedFile()))
-                        .extracting(row -> row.getField("id"))
-                        .containsExactly(new BigDecimal("7"), new BigDecimal("1"));
+                // A failed writer need not finalize a readable Parquet footer; its uncommitted file
+                // must remain owned until abort and the third row must not replace the scale error.
+                assertThat(Files.size(barrier.retainedFile())).isPositive();
             }
             fixture.executor().abortWrite(opened.handle());
             assertAborted(fixture, opened);

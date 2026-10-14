@@ -1,5 +1,7 @@
 package org.pangrova.testing.e2e;
 
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
@@ -10,7 +12,6 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.result.CoordinatorResultBuffer;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.result.CoordinatorResultWriter;
@@ -197,6 +198,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static WorkerManager workerManager;
     protected static MetadataBootstrap metadataBootstrap;
     private static RemoteTaskStatusReporter statusReporter;
+    private static volatile java.util.function.Consumer<org.pangrova.protocol.rest.task.TaskStatusReport>
+            statusReportDelivery;
     private static org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker;
 
     /** Default schema path for Calcite table resolution (e.g. ["iceberg_catalog", "default"]). */
@@ -220,6 +223,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static volatile CoordinatorResultBuffer coordinatorResultBuffer;
     protected static volatile CoordinatorResultService coordinatorResultService;
     private static ScheduledExecutorService resultBufferExecutor;
+    private static ScheduledExecutorService terminalCleanupTimer;
+    private static ExecutorService terminalCleanupWorker;
     private static ScheduledExecutorService controlEpochObserver;
     private static volatile ExecutorService asyncQueryExecutor;
 
@@ -585,6 +590,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         sharedDatasetControlClient = null;
         stopCoordinatorTransportQuietly();
         stopQuietly(coordinatorHttpServer);
+        if (queryManager != null) queryManager.stopPeriodicCleanup();
+        if (terminalCleanupTimer != null) terminalCleanupTimer.shutdownNow();
+        if (terminalCleanupWorker != null) terminalCleanupWorker.shutdownNow();
         if (resultBufferExecutor != null) resultBufferExecutor.shutdownNow();
         if (asyncQueryExecutor != null) asyncQueryExecutor.shutdownNow();
         if (coordinatorResultBuffer != null) coordinatorResultBuffer.close();
@@ -606,7 +614,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         closeQuietly(sharedStatusReporter, "status_reporter");
         closeQuietly(sharedTaskDispatcher, "task_dispatcher");
         closeQuietly(e2eAuthenticationManager, "authentication_manager");
-        if (queryManager != null) queryManager.stopPeriodicCleanup();
         // Flight may retain IPC batches after a task exits. Only release its
         // process-lifetime NodePool/arbitrator lease after Native confirms stop.
         NativeRuntime.shutdownNativeRuntime();
@@ -797,28 +804,23 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         QueryDispatcher dispatcher = buildQueryDispatcher();
         queryManager = new QueryManager(queryManagerContext(dispatcher));
+        if (terminalCleanupTimer == null) {
+            terminalCleanupTimer = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newSingleThreadScheduledExecutor("e2e-terminal-cleanup-timer");
+            terminalCleanupWorker = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newBoundedThreadPool("e2e-terminal-cleanup", 2, 32);
+        }
+        queryManager.startPeriodicCleanup(terminalCleanupTimer, terminalCleanupWorker,
+                Duration.ofMinutes(5), Duration.ofSeconds(1));
         if (e2eCoordinationService != null) {
             queryManager.setLocalCoordinatorId(E2E_COORDINATOR_ID);
         }
-        var dagEngine = dispatcher.dagEngine();
-        StageCompletionCallback stageCallback = new StageCompletionCallback() {
-            @Override
-            public void onTaskTerminal(String queryId, String taskId, String state,
-                                       org.pangrova.protocol.rest.error.ErrorDetail error) {
-                dagEngine.onTaskTerminal(queryId, taskId, state, error);
-            }
-
-            @Override
-            public boolean isQueryComplete(String queryId) {
-                return dagEngine.isQueryComplete(queryId);
-            }
-        };
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 new TaskStatusReceiverContext(queryManager, taskTracker, workerManager,
                         null, null, null,
                         queryManager.getStateJournal(),
                         metadataBootstrap.catalogRegistry(), writeCommitTracker,
-                        stageCallback, null, sharedWriteCommitJournal, artifactWorkReportSink()));
+                        dispatcher.dagEngine(), null, sharedWriteCommitJournal, artifactWorkReportSink()));
         receiver.setWriteCommitFencer(E2E_WRITE_COMMIT_FENCER);
         sharedTaskStatusReceiver = receiver;
         // Coordinator HTTP server already running — QueryManager is referenced by resources
@@ -850,7 +852,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(),
                 null,
                 null,
-                org.pangrova.coordinator.query.AsyncSubmitConfig.defaultEnabled(),
+                org.pangrova.coordinator.query.execution.AsyncSubmitConfig.defaultEnabled(),
                 sharedAsyncQueryExecutor());
     }
 
@@ -1030,6 +1032,24 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return stateStoreDataSource;
     }
 
+    /** Authenticated policy authority shared by the real and virtual routing harnesses. */
+    protected static org.pangrova.spi.security.AccessControl e2eAccessControl() {
+        return java.util.Objects.requireNonNull(currentAccessControl,
+                "E2E access control must be initialized before routing");
+    }
+
+    protected static org.pangrova.spi.security.UserIdentity e2eUserIdentity() {
+        return new org.pangrova.spi.security.UserIdentity(E2E_USER_PRINCIPAL,
+                java.util.Set.of(), Map.of("tenant_id", E2E_TENANT_ID), Instant.now());
+    }
+
+    protected static String e2eTenantId() { return E2E_TENANT_ID; }
+
+    protected static org.pangrova.protocol.v2.CapabilityInventory e2eNativeCapabilityInventory() {
+        return java.util.Objects.requireNonNull(e2eCapabilityAdvertisement,
+                "E2E Native advertisement must be initialized before Worker registration").inventory();
+    }
+
     // -----------------------------------------------------------------------
     // Real pipeline execution
     // -----------------------------------------------------------------------
@@ -1133,7 +1153,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return MAPPER.readValue(respBody, SubmitQueryResponse.class);
     }
 
-    private static ResultEndpoint awaitResultEndpoint(
+    protected static ResultEndpoint awaitResultEndpoint(
             String queryId, ResultEndpoint submittedEndpoint) throws Exception {
         if (submittedEndpoint != null) {
             return submittedEndpoint;
@@ -1495,6 +1515,29 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 ? null : workerTaskManagerRef.resolveWorkerTaskId(coordinatorTaskId);
     }
 
+    /** Actual Native split decisions, captured before scan scheduling. */
+    protected static TaskManager.IndexSplitTotals nativeIndexSplitTotals() {
+        return java.util.Objects.requireNonNull(workerTaskManagerRef,
+                "Worker task manager has not started").getNativeIndexSplitTotals();
+    }
+
+    /** Waits for asynchronous Worker registration of an issued result task. */
+    protected static String awaitWorkerTaskId(String coordinatorTaskId) {
+        if (coordinatorTaskId == null || coordinatorTaskId.isBlank()) {
+            throw new IllegalArgumentException("Result task ticket is absent");
+        }
+        String[] workerTaskId = new String[1];
+        org.awaitility.Awaitility.await("worker-result-task: " + coordinatorTaskId)
+                .atMost(java.time.Duration.ofMillis(POLL_TIMEOUT_MS))
+                .pollInterval(java.time.Duration.ofMillis(POLL_INTERVAL_MS))
+                .pollDelay(java.time.Duration.ZERO)
+                .until(() -> {
+                    workerTaskId[0] = resolveWorkerTaskId(coordinatorTaskId);
+                    return workerTaskId[0] != null && !workerTaskId[0].isBlank();
+                });
+        return workerTaskId[0];
+    }
+
     /**
      * Awaits the next batch from a Flight stream with per-batch idle timeout.
      *
@@ -1656,13 +1699,17 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         if (value instanceof org.apache.arrow.vector.util.Text text) {
             return stripTrailing(text.toString());
         }
-        // Arrow DateDayVector returns epoch days as Integer → LocalDate string
+        // Preserve the SQL DATE type when adapting Arrow epoch days.
         if (vector instanceof org.apache.arrow.vector.DateDayVector) {
-            return java.time.LocalDate.ofEpochDay(((Number) value).longValue()).toString();
+            return java.time.LocalDate.ofEpochDay(((Number) value).longValue());
         }
-        // Arrow TimestampVector returns epoch millis/micros → Instant string
+        // Preserve Arrow's decoded timestamp as a typed SQL value.
         if (vector instanceof org.apache.arrow.vector.TimeStampVector) {
-            return value.toString();
+            if (!(value instanceof java.time.LocalDateTime)) {
+                throw new IllegalStateException("Arrow timestamp has unexpected Java type: "
+                        + value.getClass().getName());
+            }
+            return value;
         }
         return org.pangrova.transport.ArrowBatchDecoder.normalizeComplexValue(
                 value, vector.getField());
@@ -1918,10 +1965,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 "http://localhost:" + coordPort,
                 TRACING_PROVIDER,
                 E2E_INTERNAL_AUTH_SECRET);
+        statusReportDelivery = statusReporter::report;
         sharedStatusReporter = statusReporter;
         TransportRefs transportDeps = createTestTransportRefs(executor);
         TaskManagerContext deps = new TaskManagerContext(
-                statusReporter, executor,
+                report -> statusReportDelivery.accept(report), executor,
                 new MemoryRefs(resourceManager, sharedWorkerNodePool, null),
                 transportDeps,
                 java.util.concurrent.Executors.newCachedThreadPool(r -> {
@@ -2085,16 +2133,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         queryDispatcher.setWriteCommitTracker(writeCommitTracker);
         queryDispatcher.setGeneratedWriteAuthoritySupplier(sharedWriteAuthoritySupplier);
         sharedQueryDispatcher = queryDispatcher;
-        if (e2eCoordinationService != null) {
-            queryDispatcher.setOwnershipTracking(e2eCoordinationService,
-                    E2E_COORDINATOR_ID);
-        }
+        wireE2EOwnership(queryDispatcher);
         queryDispatcherRef.set(queryDispatcher);
         return queryDispatcher;
     }
 
     /** Uses the same fenced control identity contract as production HA wiring. */
-    static RemoteTaskDispatcher createE2ETaskDispatcher() {
+    protected static void wireE2EOwnership(QueryDispatcher dispatcher) {
+        if (e2eCoordinationService != null) {
+            dispatcher.setOwnershipTracking(e2eCoordinationService, E2E_COORDINATOR_ID);
+        }
+    }
+
+    protected static RemoteTaskDispatcher createE2ETaskDispatcher() {
         RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(),
                 TRACING_PROVIDER,
@@ -2202,7 +2253,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     new org.pangrova.metadata.coordination.JdbcDistributedLease(stateStoreDataSource),
                     sharedArtifactBuildStore, E2eArtifactPublications.router(stateStoreDataSource));
             sharedIndexingBootstrap.start(indexMetadataStore, metadataBootstrap.catalogRegistry(),
-                    null, currentAccessControl);
+                    METRICS_PROVIDER, currentAccessControl);
             sharedGeneratedValueCoordinator.activateCatalogs(
                     sharedIndexingBootstrap.registerDurableCommitProcessor(sharedGeneratedValueCoordinator));
             sharedIndexingBootstrap.onLeaderElected();
@@ -2729,6 +2780,18 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         registerWorker(workerHttpServer.getPort(), sharedResultServerPort);
     }
 
+    /** Restores only the Worker control endpoint after a simulated HTTP outage.
+     * Keeping the same TaskManager and port preserves the issued task's admission
+     * authority, so a later cancellation can obtain its actual drain receipt. */
+    protected static void restartWorkerHttpServerAfterOutage() {
+        int workerPort = sharedWorkerHttpPort;
+        if (workerPort <= 0) throw new IllegalStateException("E2E Worker HTTP port is not initialized");
+        workerHttpServer = startWorkerHttpServer(
+                java.util.Objects.requireNonNull(workerTaskManagerRef, "Worker task manager"),
+                java.util.Objects.requireNonNull(sharedWorkerTaskExecutor, "Worker task executor"),
+                sharedResultServerPort, createWorkerHealthEndpoint(), workerPort);
+    }
+
     private static final class E2eWriteCommitFencer implements org.pangrova.coordinator.query.task.write.WriteCommitFencer {
         @Override
         public org.pangrova.spi.coordination.ExecutionAnchor currentAnchor(String executionId) {
@@ -2766,17 +2829,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         statusReporter.updateTarget("http://localhost:" + coordinatorHttpServer.getPort());
     }
 
-    /**
-     * Redirects the worker's status reporter to a specific port.
-     * Used by {@code VirtualWorkerRoutingIntegrationTestBase} to point the shared
-     * worker at the routing-test coordinator without overwriting
-     * {@link #coordinatorHttpServer}.
-     */
-    protected static void configureStatusReporterForPort(int port) {
-        if (statusReporter == null) {
-            return;
-        }
-        statusReporter.updateTarget("http://localhost:" + port);
+    /** Test-only status transport for routing aliases sharing one physical Worker. */
+    protected static void configureVirtualRoutingStatusDelivery(
+            java.util.function.Consumer<org.pangrova.protocol.rest.task.TaskStatusReport> delivery) {
+        statusReportDelivery = java.util.Objects.requireNonNull(delivery);
+    }
+
+    protected static void restoreSharedStatusDelivery() {
+        statusReportDelivery = statusReporter::report;
+    }
+
+    protected static void reportToSharedCoordinator(
+            org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        statusReporter.report(report);
     }
 
     // -----------------------------------------------------------------------

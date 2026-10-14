@@ -367,7 +367,7 @@ class IcebergAdvancedTest extends SqlE2ETestBase {
      */
     private long currentSnapshotId() {
         var catalogHandle = metadataBootstrap.catalogRegistry().getCatalog(CATALOG);
-        var session = new org.pangrova.coordinator.query.statement.StatementConnectorSession(CATALOG, SCHEMA);
+        var session = authenticatedCatalogSession(CATALOG);
         var metadata = (org.pangrova.connector.iceberg.IcebergMetadata) catalogHandle.getMetadata(session);
         org.apache.iceberg.Table icebergTable = metadata.catalog().loadTable(
                 org.apache.iceberg.catalog.TableIdentifier.of(SCHEMA, tableName));

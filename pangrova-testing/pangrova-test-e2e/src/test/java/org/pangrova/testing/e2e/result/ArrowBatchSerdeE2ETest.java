@@ -81,13 +81,13 @@ class ArrowBatchSerdeE2ETest extends SqlE2ETestBase {
             SubmitQueryResponse submitResponse = MAPPER.readValue(
                     resp.body(), SubmitQueryResponse.class);
             String queryId = submitResponse.queryId();
-            String canonicalTaskId = submitResponse.resultEndpoint() == null
-                    ? null : submitResponse.resultEndpoint().ticket();
-            String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
+            var endpoint = awaitResultEndpoint(queryId, submitResponse.resultEndpoint());
+            String canonicalTaskId = requireNativeResultTaskId(endpoint, queryId, taskTracker);
+            String workerTaskId = null;
             List<TypedRow> rows;
             try {
-                rows = fetchResultsViaTransport(
-                        submitResponse.resultEndpoint(), queryId);
+                workerTaskId = awaitWorkerTaskId(canonicalTaskId);
+                rows = fetchResultsViaTransport(endpoint, queryId);
                 var terminal = MAPPER.readTree(pollUntilTerminal(queryId));
                 if (!"FINISHED".equals(terminal.path("state").asText())) {
                     throw new IllegalStateException(

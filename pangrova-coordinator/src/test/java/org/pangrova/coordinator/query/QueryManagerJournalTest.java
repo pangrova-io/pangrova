@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.admission.QueryRejectedException;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;

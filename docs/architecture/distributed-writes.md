@@ -41,14 +41,24 @@ Index connector accessor resources are process-owned but cannot perform metadata
 lookups until bound with `forSession`. Their bound scopes are immutable and reject
 catalog/schema drift; they never construct a system session. User index validation,
 build submission and query-time pruning bind the authenticated operation scope.
+CREATE INDEX and ALTER INDEX REBUILD require current SELECT on the connector-resolved
+indexed source columns as well as target ALTER; raw builds reject active source row
+filters and indexed-column masks before reading source files or submitting a build.
 Background index maintenance is **not yet authorization-complete**: bootstrap pin
 and listener acquisition, commit-triggered refresh, consistency checks and garbage
 collection still require a trusted service/descriptor authority from the security
 assembly. An unbound accessor explicitly rejects these operations. Scheduled Native
 generation/rebuild entry points also reject missing current authorization; persisted
 DDL-era groups, bearer tokens or synthetic system principals are not a substitute.
+The Java index builder now fails the build when snapshot pinning fails, so that
+generation cannot publish READY. A durable connector pin implementation and
+persisted, currently reauthorized maintenance identity are still required before
+an index generation is durable across source snapshot expiration. Iceberg's
+query-scoped in-memory read pin is not an index-lifetime snapshot reference.
 Commit-triggered file statistics now propagate authorization denial so the durable
 commit-log entry remains pending instead of being acknowledged without statistics.
+When a table has no READY index, the index processor does not read connector
+statistics and lets unrelated durable commit processors advance the event.
 The remaining design must persist the maintenance subject and exact table/column
 scope, recheck current grants and row/column policy before connector access, then
 bind the resulting session to the accessor. Administrative and table operations
@@ -100,7 +110,7 @@ Current implementation anchors:
 | Recoverable commit journal | Implemented for Iceberg and Paimon, including retryable index-event publication | The redo record includes tenant, original base snapshot, exact Worker-dispatched v2 write binding, immutable fragments, execution fence and canonical commit fingerprint |
 | Connector atomic commit | Implemented for Iceberg and Paimon | `IcebergMetadata.finishDistributedWrite()`, `PaimonMetadata.finishDistributedWrite()` |
 | Protected DELETE routing | Implemented; full-chain verification pending | `PlanExecutionFactory` passes the original DELETE to the Native compiler. No-WHERE DELETE retains policy-hidden rows, or emits no survivors when unrestricted; it cannot bypass authenticated admission and the journal |
-| Copy-on-write mutation policies | Targeted planner tests passed; distributed verification pending | Target policies restrict UPDATE/DELETE/MERGE matches, while original physical survivor values remain intact. Predicate/assignment masks never become replacement values for untouched target columns |
+| Copy-on-write mutation policies | Planner and single-worker Iceberg/Paimon E2E passed; distributed verification pending | Target policies restrict UPDATE/DELETE/MERGE matches, while original physical survivor values remain intact. Predicate/assignment masks never become replacement values for untouched target columns. A conditional matched-only MERGE adds the action predicate to target matching; conditional matched+insert, conditional insert, and repeated actions of one kind fail before lowering because their full clause semantics are not implemented. |
 | Full relational distributed UPDATE/DELETE/MERGE execution | In progress | Multi-worker row preservation, failure recovery and final-source release gates remain required |
 | CDC ingestion | Not distributed/atomic yet | `StreamingBootstrap` wires `ConnectorPageSinkCdcWriter` with no Native dispatcher; its DELETE and INSERT phases commit separately |
 

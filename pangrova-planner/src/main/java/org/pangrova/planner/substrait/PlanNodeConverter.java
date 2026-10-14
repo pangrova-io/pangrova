@@ -360,15 +360,24 @@ public final class PlanNodeConverter {
             return RetrievalSemantic.EXACT;
         }
         String column = call.getOperands().stream()
-                .filter(RexInputRef.class::isInstance)
-                .map(RexInputRef.class::cast)
-                .map(ref -> project.getInput().getRowType().getFieldList().get(
-                        ref.getIndex()).getName())
+                .map(PlanNodeConverter::castColumnReference)
+                .filter(java.util.Objects::nonNull)
+                .filter(ref -> ref.getIndex() < project.getInput().getRowType().getFieldCount())
+                .map(ref -> project.getInput().getRowType().getFieldList().get(ref.getIndex()).getName())
                 .findFirst()
                 .orElse("");
         return column.isBlank()
                 ? RetrievalSemantic.EXACT
                 : new RetrievalSemantic(kind, kind.name() + ":" + column);
+    }
+
+    private static RexInputRef castColumnReference(RexNode expression) {
+        RexNode current = expression;
+        while (current instanceof RexCall cast && cast.getKind() == org.apache.calcite.sql.SqlKind.CAST
+                && cast.getOperands().size() == 1) {
+            current = cast.getOperands().get(0);
+        }
+        return current instanceof RexInputRef ref ? ref : null;
     }
 
     private record RetrievalSemantic(

@@ -34,10 +34,18 @@ class RegressionSelectionTest {
     @Test
     void e2eModuleConsumesTheReleaseExclusionPolicy() throws Exception {
         var project = read(ROOT.resolve("pom.xml"));
-        assertThat(value(project, PROFILE + "/properties/pangrova.e2e.excludedGroups")).isEqualTo("none");
+        assertThat(value(project, PROFILE + "/properties/pangrova.e2e.excludedGroups"))
+                .isEqualTo("native-runtime-owner");
         var e2e = read(ROOT.resolve("pangrova-testing/pangrova-test-e2e/pom.xml"));
         assertThat(value(e2e, "/project/build/plugins/plugin[artifactId='maven-surefire-plugin']"
                 + "/configuration/excludedGroups")).isEqualTo("${pangrova.e2e.excludedGroups}");
+        var workflow = Files.readString(ROOT.resolve(".github/workflows/ci.yml"));
+        assertThat(workflow).contains("-Dpangrova.e2e.excludedGroups=none -Dtest=\"$suite\" test");
+        for (var owner : List.of("WorkerBootstrapE2ETest",
+                "NativeExchangeTransportExternalIntegrationTest",
+                "WorkerShuffleChannelAdmissionIntegrationTest")) {
+            assertThat(workflow).contains(owner);
+        }
     }
 
     @Test
@@ -103,7 +111,7 @@ class RegressionSelectionTest {
         assertThat(production.indexOf("stage-production-regression-native")).isLessThan(production.indexOf("full-regression,coverage verify"));
         for (var property : List.of("-Dpangrova.e2e.image=\"$PANGROVA_E2E_IMAGE\"",
                 "-Dpangrova.e2e.image-id=\"$PANGROVA_E2E_IMAGE_ID\"")) {
-            assertThat(production.split(java.util.regex.Pattern.quote(property), -1).length - 1).isEqualTo(3);
+            assertThat(production.split(java.util.regex.Pattern.quote(property), -1).length - 1).isEqualTo(4);
         }
     }
 

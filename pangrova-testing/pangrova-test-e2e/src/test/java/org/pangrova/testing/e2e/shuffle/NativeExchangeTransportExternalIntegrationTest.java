@@ -34,6 +34,7 @@ import static org.awaitility.Awaitility.await;
 
 /** Actual durable service → JNI ExchangeNode → Flight. Network faults never synthesize business ACKs. */
 @Tag("native-required")
+@Tag("native-runtime-owner")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 @ResourceLock(ActualShuffleBackend.CREDENTIAL_LOCK)
 class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
@@ -122,7 +123,10 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         long handle = nativeRuntime.createPending(request);
         transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding)));
         nativeRuntime.executor().startTask(handle);
-        var report = nativeRuntime.awaitFinished(handle);
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                assertThat(TaskReport.parseFrom(nativeRuntime.executor().getTaskStatus(handle)).getState())
+                        .isEqualTo(TaskState.TASK_STATE_FAILED));
+        var report = TaskReport.parseFrom(nativeRuntime.executor().getTaskStatus(handle));
         assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
         assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
         assertThat(report.getAttempt()).isEqualTo(request.getAttempt());

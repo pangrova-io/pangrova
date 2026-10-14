@@ -49,6 +49,7 @@ WITH (
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Schema evolution | Supported | ADD/DROP/RENAME COLUMN |
+| Iceberg v3 `unknown` | Supported for optional top-level columns | Reads return NULL, writes omit the physical Parquet column, and ALTER COLUMN TYPE can introduce a concrete type. Non-NULL writes are rejected. |
 | Partition evolution | Supported | SET PARTITION SPEC |
 | Time travel | Supported | FOR SYSTEM_TIME AS OF / FOR SYSTEM_VERSION AS OF |
 | MERGE INTO | Supported | Row-level deletes via position delete files |

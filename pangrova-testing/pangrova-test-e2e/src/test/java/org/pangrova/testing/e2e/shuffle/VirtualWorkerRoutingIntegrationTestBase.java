@@ -1,5 +1,7 @@
 package org.pangrova.testing.e2e.shuffle;
 
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+
 import org.pangrova.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
@@ -9,7 +11,6 @@ import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.HealthState;
@@ -22,11 +23,11 @@ import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.TestCluster;
-import org.pangrova.testing.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.e2e.E2ETestFramework;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.runner.SqlTestRunner;
 import org.pangrova.testing.e2e.setup.TestDataSetup;
+import org.pangrova.worker.task.RemoteTaskStatusReporter;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -59,6 +60,19 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     private static CoordinatorTaskTracker routingTaskTracker;
     private static RemoteTaskDispatcher routingDispatcher;
     private static ExecutorService routingAsyncExecutor;
+    private static RemoteTaskStatusReporter routingStatusReporter;
+    private static TestCluster sharedCluster;
+    private static E2ETestFramework sharedFramework;
+    private static SqlTestRunner sharedSqlRunner;
+    private static TestDataSetup sharedDataSetup;
+
+    protected static SqlTestRunner setupRunner() {
+        return java.util.Objects.requireNonNull(sharedSqlRunner, "Shared SQL setup runner is absent");
+    }
+
+    protected static TestDataSetup setupData() {
+        return java.util.Objects.requireNonNull(sharedDataSetup, "Shared table setup is absent");
+    }
 
     // -----------------------------------------------------------------------
     // Lifecycle: overlay a virtual-worker routing coordinator on the shared worker
@@ -67,6 +81,10 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     @BeforeAll
     static void initVirtualWorkerRoutingHarness() {
         isDockerReady();
+        sharedCluster = testCluster;
+        sharedFramework = framework;
+        sharedSqlRunner = sqlRunner;
+        sharedDataSetup = dataSetup;
         testCluster = createRoutingHarness();
         framework = new E2ETestFramework(
                 testCluster, VirtualWorkerRoutingIntegrationTestBase::executeViaRoutingPipeline);
@@ -77,23 +95,32 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
 
     @AfterAll
     static void stopVirtualWorkerRoutingHarness() {
-        if (framework != null) {
-            framework.teardown();
-        }
-        if (routingDispatcher != null) {
-            routingDispatcher.close();
+        try {
+            if (framework != null) framework.teardown();
+            if (routingDispatcher != null) routingDispatcher.close();
+            if (routingAsyncExecutor != null) routingAsyncExecutor.shutdownNow();
+            if (routingStatusReporter != null) routingStatusReporter.close();
+            stopCoordinatorQuietly(coordinatorServer);
+        } finally {
+            coordinatorServer = null;
             routingDispatcher = null;
-        }
-        if (routingAsyncExecutor != null) {
-            routingAsyncExecutor.shutdownNow();
             routingAsyncExecutor = null;
+            routingStatusReporter = null;
+            routingQueryManager = null;
+            routingWorkerManager = null;
+            routingTaskTracker = null;
+            routingPipelineRefreshed = false;
+            testCluster = sharedCluster;
+            framework = sharedFramework;
+            sqlRunner = sharedSqlRunner;
+            dataSetup = sharedDataSetup;
+            sharedCluster = null;
+            sharedFramework = null;
+            sharedSqlRunner = null;
+            sharedDataSetup = null;
+            restoreSharedStatusDelivery();
+            configureStatusReporter();
         }
-        stopCoordinatorQuietly(coordinatorServer);
-        coordinatorServer = null;
-        routingQueryManager = null;
-        routingWorkerManager = null;
-        routingTaskTracker = null;
-        routingPipelineRefreshed = false;
     }
 
     // -----------------------------------------------------------------------
@@ -111,38 +138,22 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         QueryDispatcher dispatcher = buildRoutingDispatcher();
         routingQueryManager = new QueryManager(routingQueryManagerContext(dispatcher));
 
-        // Wire stageCompletionCallback so TaskStatusReceiver routes terminal
-        // events to DAGDispatchEngine — required for DAG completion in E2E.
-        var dagEngine = dispatcher.dagEngine();
-        org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback stageCallback =
-                new org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback() {
-                    @Override
-                    public void onTaskTerminal(String queryId, String taskId, String state,
-                                               org.pangrova.protocol.rest.error.ErrorDetail error) {
-                        dagEngine.onTaskTerminal(queryId, taskId, state, error);
-                    }
-
-                    @Override
-                    public boolean isQueryComplete(String queryId) {
-                        return dagEngine.isQueryComplete(queryId);
-                    }
-                };
+        // Use the same DAG owner for task reports and terminal finalization.
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 new TaskStatusReceiverContext(
                         routingQueryManager, routingTaskTracker, routingWorkerManager,
                         null, null, null,
                         routingQueryManager.getStateJournal(),
-                        null, null, stageCallback, null, null));
+                        null, null, dispatcher.dagEngine(), null, null));
         coordinatorServer = new CoordinatorHttpServer(
                 0, receiver, routingQueryManager, null);
         startHttpServer(coordinatorServer);
 
-        // Point the worker's status reporter to this routing-test coordinator
-        // so task completion reports reach the correct DAGDispatchEngine instance.
-        // We must NOT overwrite the parent's coordinatorHttpServer — that would
-        // break the parent's rebuildQueryPipeline lifecycle. Instead, call
-        // updateTarget directly on the shared status reporter.
-        configureStatusReporterForPort(coordinatorServer.getPort());
+        routingStatusReporter = new RemoteTaskStatusReporter(
+                "http://localhost:" + coordinatorServer.getPort(),
+                TestObservability.TRACING, E2E_INTERNAL_AUTH_SECRET);
+        configureVirtualRoutingStatusDelivery(
+                VirtualWorkerRoutingIntegrationTestBase::deliverStatusToOwningCoordinator);
 
         return () -> stopCoordinatorQuietly(coordinatorServer);
     }
@@ -168,25 +179,23 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
 
     private static QueryDispatcher buildRoutingDispatcher() {
         routingWorkerManager = new WorkerManager();
-        RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
+        RemoteTaskDispatcher dispatcher = createE2ETaskDispatcher();
         routingDispatcher = dispatcher;
         SqlCompiler compiler = buildSqlCompiler();
-        // Late-bound NativeDmlCompileFunction for native DML execution.
-        // In E2E tests, completes QueryStateMachine lifecycle directly.
+        // Routing assertions exercise SELECT. Setup DML runs through the shared
+        // authenticated pipeline; this branch must never report an unwritten row as committed.
         var queryDispatcherRef = new java.util.concurrent.atomic.AtomicReference<QueryDispatcher>();
         org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch =
                 (sm, session, stmt) -> {
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.SCHEDULING);
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.RUNNING);
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.FINISHING);
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.FINISHED);
-                    return new org.pangrova.coordinator.query.execution.dispatch.DispatchResult(
-                            "localhost", session.queryId(),
-                            new org.pangrova.protocol.rest.query.ResultEndpoint(
-                                    "localhost", 0, "dml-noop", "grpc"));
+                    throw new UnsupportedOperationException(
+                            "Virtual routing harness accepts reads only; prepare data through the shared pipeline");
                 };
+        var authority = e2eAccessControl();
         var deps = QueryDispatcherContext.withDefaults(
-                compiler, null, null, null,
+                compiler,
+                new org.pangrova.coordinator.query.security.AccessControlEnforcer(authority),
+                new org.pangrova.planner.security.ColumnMaskApplier(authority),
+                new org.pangrova.planner.security.RowFilterApplier(authority),
                 dispatcher,
                 new TaskScheduler(new WorkerPerformanceScorer()),
                 routingWorkerManager,
@@ -202,6 +211,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             sd.updateCompiler(compiler);
         }
         var queryDispatcher = new QueryDispatcher(deps, sd);
+        wireE2EOwnership(queryDispatcher);
         queryDispatcherRef.set(queryDispatcher);
         return queryDispatcher;
     }
@@ -224,42 +234,59 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             routingWorkerManager.registerWorker(w);
         }
         routingQueryManager = new QueryManager(routingQueryManagerContext(freshDispatcher));
-        var dagEngine = freshDispatcher.dagEngine();
-        org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback stageCallback =
-                new org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback() {
-                    @Override
-                    public void onTaskTerminal(String queryId, String taskId, String state,
-                                               org.pangrova.protocol.rest.error.ErrorDetail error) {
-                        dagEngine.onTaskTerminal(queryId, taskId, state, error);
-                    }
-
-                    @Override
-                    public boolean isQueryComplete(String queryId) {
-                        return dagEngine.isQueryComplete(queryId);
-                    }
-                };
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 new TaskStatusReceiverContext(
                         routingQueryManager, routingTaskTracker, routingWorkerManager,
                         null, null, null,
                         routingQueryManager.getStateJournal(),
-                        null, null, stageCallback, null, null));
+                        null, null, freshDispatcher.dagEngine(), null, null));
         int prevPort = coordinatorServer.getPort();
         try { coordinatorServer.stop(); } catch (Exception ignored) {}
         coordinatorServer = new CoordinatorHttpServer(prevPort, receiver, routingQueryManager, null);
         startHttpServer(coordinatorServer);
-        configureStatusReporterForPort(coordinatorServer.getPort());
+        routingStatusReporter.updateTarget("http://localhost:" + coordinatorServer.getPort());
     }
 
     private static void registerWorkerNode(
             int httpPort, int transportPort, String workerId) {
         WorkerInfo info = new WorkerInfo(
-                workerId, "localhost", httpPort, transportPort, sharedResultServerPort,
+                workerId, workerAdvertisedHost(), httpPort, transportPort, sharedResultServerPort,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, WORKER_MEMORY_BYTES,
                 Instant.now(), 1.0, null, 2,
-                null, List.of(), null, CanonicalWorkerInventory.empty());
+                null, List.of(), null,
+                java.util.Objects.requireNonNull(workerManager.getWorker(WORKER_ID)).capabilityInventory());
         routingWorkerManager.registerWorker(info);
+    }
+
+    /**
+     * This suite deliberately routes two logical identities to one physical Worker.
+     * Project only the REST worker label for tasks owned by this routing coordinator;
+     * all canonical Native attempt and coverage evidence is left intact. It does not
+     * prove worker identity authentication or cross-process execution.
+     */
+    private static void deliverStatusToOwningCoordinator(
+            org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        if (routingTaskTracker.getWorkerForTask(report.taskId()) == null) {
+            reportToSharedCoordinator(report);
+        } else {
+            routingStatusReporter.report(projectVirtualWorkerIdentity(report));
+        }
+    }
+
+    private static org.pangrova.protocol.rest.task.TaskStatusReport projectVirtualWorkerIdentity(
+            org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        var tracker = routingTaskTracker;
+        String assignedWorker = tracker == null ? null : tracker.getWorkerForTask(report.taskId());
+        if (assignedWorker == null || assignedWorker.equals(report.workerId())) {
+            return report;
+        }
+        return new org.pangrova.protocol.rest.task.TaskStatusReport(
+                report.taskId(), report.queryId(), report.stageId(), report.partitionId(),
+                report.taskType(), assignedWorker, report.state(), report.stats(),
+                report.error(), report.writeResult(), report.reportSequence(),
+                report.timestampMs(), report.errorCode(), report.errorMetadata(),
+                report.attempt(), report.canonicalTaskReport());
     }
 
     // -----------------------------------------------------------------------
@@ -268,17 +295,23 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
 
     private static volatile boolean routingPipelineRefreshed = false;
 
+    private static void ensureRoutingPipelineRefreshed() {
+        if (routingPipelineRefreshed) return;
+        synchronized (VirtualWorkerRoutingIntegrationTestBase.class) {
+            if (routingPipelineRefreshed) return;
+            refreshRoutingPipeline();
+            routingPipelineRefreshed = true;
+        }
+    }
+
     private static List<TypedRow> executeViaRoutingPipeline(String sql) {
         // Lazy refresh: rebuild the routing pipeline after connector
         // registration. ensureConnectorsRegistered runs in @BeforeEach (parent),
         // but the initial dispatcher was built in @BeforeAll with empty catalogs.
-        if (!routingPipelineRefreshed) {
-            refreshRoutingPipeline();
-            routingPipelineRefreshed = true;
-        }
+        ensureRoutingPipelineRefreshed();
         String queryId = "e2e-multi-" + UUID.randomUUID();
         var session = new org.pangrova.coordinator.query.session.CoordinatorSessionContext(
-                queryId, Map.of(), null, null);
+                queryId, Map.of(), e2eUserIdentity(), e2eTenantId());
         var response = routingQueryManager.submitQuery(queryId, sql, session);
         ResultEndpoint endpoint = response.resultEndpoint();
         if (endpoint == null) {
@@ -323,7 +356,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         }
         return QueryManagerContext.minimalAsync(
                 dispatcher, TestObservability.TRACING,
-                org.pangrova.coordinator.query.AsyncSubmitConfig.defaultEnabled(),
+                org.pangrova.coordinator.query.execution.AsyncSubmitConfig.defaultEnabled(),
                 routingAsyncExecutor);
     }
 

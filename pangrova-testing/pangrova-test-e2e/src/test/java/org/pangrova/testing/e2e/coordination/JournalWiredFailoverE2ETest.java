@@ -2,7 +2,6 @@ package org.pangrova.testing.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -12,8 +11,6 @@ import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.QueryStateEvent;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.spi.coordination.TaskStateEvent;
-import org.pangrova.testing.TestObservability;
-import org.pangrova.testing.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
@@ -232,9 +229,8 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             // Phase 4: Recovery — WorkerManager has no registered workers,
             // so "worker-crash-1" is UNKNOWN → query should be marked FAILED
             WorkerManager workerManager = new WorkerManager();
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recovery = new JournalRecoveryService(
                     journal, recoveredManager, recoveredTracker, workerManager);
@@ -245,11 +241,13 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
                     .as("No queries should survive recovery when worker is dead/unknown")
                     .isEqualTo(0);
 
-            // Journal should be purged for the failed query
+            // Worker disappearance is not proof of Native execution drain.
+            assertThat(recoveredManager.getQueryState(queryId))
+                    .contains(org.pangrova.coordinator.query.QueryStateMachine.State.FAILED);
             List<QueryStateEvent> remaining = journal.replayActiveQueries();
             assertThat(remaining.stream().map(QueryStateEvent::queryId))
-                    .as("Failed query should be purged from journal")
-                    .doesNotContain(queryId);
+                    .as("Failed query journal remains until an exact execution-drain receipt")
+                    .contains(queryId);
         }
 
         @Test
@@ -284,11 +282,10 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
                     0.0, 0, 4L * 1024 * 1024 * 1024,
                     Instant.now(), 0.0, null,
                     2, null, List.of(), null,
-                    CanonicalWorkerInventory.empty()));
+                    e2eNativeCapabilityInventory()));
 
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
 
             JournalRecoveryService recovery = new JournalRecoveryService(
                     journal, recoveredManager, recoveredTracker, workerManager);
@@ -301,12 +298,14 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
 
             Set<String> activeIds = recoveredManager.getActiveQueryIds();
             assertThat(activeIds).contains(q1);
-            assertThat(activeIds).doesNotContain(q2);
+            assertThat(activeIds).contains(q2);
+            assertThat(recoveredManager.getQueryState(q2))
+                    .contains(org.pangrova.coordinator.query.QueryStateMachine.State.FAILED);
 
-            // q2 should be purged from journal
+            // q2 retains physical ownership until its issued task is proven drained.
             List<QueryStateEvent> remaining = journal.replayActiveQueries();
             assertThat(remaining.stream().map(QueryStateEvent::queryId))
-                    .doesNotContain(q2);
+                    .contains(q2);
         }
 
         @Test
@@ -324,17 +323,18 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             leaderElection.release("coordinator-1");
             leaderElection.tryAcquire("coordinator-2", LEASE_MS);
 
-            // Recovery cleans up old queries
+            // Recovery records failure but preserves unknown physical ownership.
             WorkerManager workerManager = new WorkerManager();
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
             new JournalRecoveryService(journal, recoveredManager, recoveredTracker, workerManager)
                     .recover();
 
-            // Old query should be cleaned up
+            // New admission can proceed while the unresolved old task remains fenced.
             assertThat(recoveredManager.getActiveQueryIds())
-                    .doesNotContain(oldQueryId);
+                    .contains(oldQueryId);
+            assertThat(recoveredManager.getQueryState(oldQueryId))
+                    .contains(org.pangrova.coordinator.query.QueryStateMachine.State.FAILED);
 
             // New queries should work via the real pipeline
             String tableName = "t_post_recovery_" + System.nanoTime();
@@ -395,9 +395,8 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
 
             // Recovery (no in-flight queries in journal since real queries completed)
             WorkerManager workerManager = new WorkerManager();
-            QueryManager recoveredManager = new QueryManager(
-                    QueryManagerContext.minimal(null, TestObservability.TRACING));
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
+            QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);
             new JournalRecoveryService(journal, recoveredManager, recoveredTracker, workerManager)
                     .recover();
 

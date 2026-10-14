@@ -53,6 +53,9 @@ public record TaskStatusReport(
     @JsonProperty("canonical_task_report") byte[] canonicalTaskReport
 ) {
 
+    /** Bounded JSON envelope for a 4 MiB canonical report after Base64 encoding. */
+    public static final int MAX_HTTP_BODY_BYTES = 8 * 1024 * 1024;
+
     /** Source-compatible constructor for callers without a Native status. */
     public TaskStatusReport(
             String taskId, String queryId, int stageId, int partitionId,

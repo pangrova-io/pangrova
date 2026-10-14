@@ -131,6 +131,36 @@ class DurableArtifactPublisherTest {
                 .isEqualTo(ArtifactBuildJobState.READY_TO_PUBLISH);
     }
 
+    @Test
+    void stalePublicationAnchorCanBeReclaimedBeforeLeaseTimeout() {
+        createReadyJob();
+        var buildAnchor = executions.takeOwnership(TENANT, "job-1", "maintenance-a", 1);
+        assertThat(store.claimReadyForPublication(
+                TENANT, "job-1", buildAnchor, buildAnchor.fencingToken(),
+                Duration.ofSeconds(30), START)).isPresent();
+        assertThat(store.listReadyForPublication(10, START.plusSeconds(1))).isEmpty();
+
+        executions.ownership("maintenance-a").yield(buildAnchor);
+        assertThat(store.listReadyForPublication(10, START.plusSeconds(1)))
+                .containsExactly(new org.pangrova.metadata.artifact.build.ArtifactBuildJobKey(TENANT, "job-1"));
+
+        AtomicInteger calls = new AtomicInteger();
+        ArtifactPublicationStore adapter = (claim, owner, epoch, now) -> {
+            calls.incrementAndGet();
+            assertThat(store.markPublished(
+                    TENANT, claim.jobId(), owner, epoch,
+                    claim.publicationFencingToken(), now)).isTrue();
+            return manifest(claim, now);
+        };
+        try (DurableArtifactPublisher publisher = publisher(
+                "maintenance-b", Map.of(TYPE, adapter))) {
+            publisher.publishAvailable();
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(store.findJob(TENANT, "job-1").orElseThrow().state())
+                .isEqualTo(ArtifactBuildJobState.PUBLISHED);
+    }
+
     private DurableArtifactPublisher publisher(
             String owner, Map<String, ArtifactPublicationStore> adapters) {
         return new DurableArtifactPublisher(

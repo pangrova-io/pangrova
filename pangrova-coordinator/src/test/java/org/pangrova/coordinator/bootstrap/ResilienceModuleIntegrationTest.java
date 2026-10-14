@@ -167,7 +167,8 @@ class ResilienceModuleIntegrationTest {
 
     private CoordinatorBootstrap startWithResilience() {
         CoordinatorBootstrapConfig config = buildResilienceConfig();
-        CoordinatorBootstrap bs = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bs = new CoordinatorBootstrap(org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures
+                .withAuthority(config));
         bs.start();
         return bs;
     }
@@ -175,7 +176,8 @@ class ResilienceModuleIntegrationTest {
     private CoordinatorBootstrap startWithoutResilience() {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-no-res", 0);
-        CoordinatorBootstrap bs = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bs = new CoordinatorBootstrap(org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures
+                .withAuthority(config));
         bs.start();
         return bs;
     }

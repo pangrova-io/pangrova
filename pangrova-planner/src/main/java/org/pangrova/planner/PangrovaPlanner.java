@@ -399,8 +399,9 @@ public final class PangrovaPlanner {
                     SqlToRelConverter.config()
                             .addRelBuilderConfigTransform(config -> config.withBloat(-1)));
             RelNode rel = converter.convertQuery(validated, false, true).rel;
-            return org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(
-                    DecorrelationSupport.safeDecorrelate(rel), validated, operatorTable);
+            return InlineInsertValuesNormalizer.normalize(
+                    org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(
+                            DecorrelationSupport.safeDecorrelate(rel), validated, operatorTable));
         } catch (Exception e) {
             throw new PlannerException(
                     PangrovaErrorCode.PLANNER_OPTIMIZATION_FAILURE,

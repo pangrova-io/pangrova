@@ -271,9 +271,7 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         void validSignedJwt_authenticatesViaMockIdp() throws Exception {
             String issuerUri = "http://localhost:" + mockIdpPort;
             try (OAuth2Authenticator authenticator = new OAuth2Authenticator()) {
-                authenticator.init(Map.of(
-                        "issuerUri", issuerUri,
-                        "requireSignatureVerification", "true"));
+                authenticator.init(Map.of("issuerUri", issuerUri));
 
                 String jwt = buildSignedJwt(issuerUri, "test-user", 3600);
                 AuthenticationRequest request = new AuthenticationRequest(
@@ -291,11 +289,9 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         void wrongIssuer_rejectedByMockIdp() throws Exception {
             String issuerUri = "http://localhost:" + mockIdpPort;
             try (OAuth2Authenticator authenticator = new OAuth2Authenticator()) {
-                authenticator.init(Map.of(
-                        "issuerUri", issuerUri,
-                        "requireSignatureVerification", "false"));
+                authenticator.init(Map.of("issuerUri", issuerUri));
 
-                String jwt = buildUnsignedJwt("https://wrong-issuer.example.com", "hacker", 3600);
+                String jwt = buildSignedJwt("https://wrong-issuer.example.com", "hacker", 3600);
                 AuthenticationRequest request = new AuthenticationRequest(
                         null, null, jwt, null, Map.of(), "127.0.0.1");
 
@@ -309,11 +305,9 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         void jwtWithGroups_populatesUserGroups() throws Exception {
             String issuerUri = "http://localhost:" + mockIdpPort;
             try (OAuth2Authenticator authenticator = new OAuth2Authenticator()) {
-                authenticator.init(Map.of(
-                        "issuerUri", issuerUri,
-                        "requireSignatureVerification", "false"));
+                authenticator.init(Map.of("issuerUri", issuerUri));
 
-                String jwt = buildUnsignedJwtWithGroups(issuerUri, "group-user", 3600,
+                String jwt = buildSignedJwtWithGroups(issuerUri, "group-user", 3600,
                         "engineers", "admins");
                 AuthenticationRequest request = new AuthenticationRequest(
                         null, null, jwt, null, Map.of(), "127.0.0.1");
@@ -496,31 +490,25 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
     class ExpiredTokenHandling {
 
         @Test
-        @DisplayName("Expired JWT token is rejected by OAuth2 authenticator")
-        void expiredToken_rejected() {
+        @DisplayName("Signature bypass configuration is rejected")
+        void signatureBypassConfiguration_rejected() {
             try (OAuth2Authenticator authenticator = new OAuth2Authenticator()) {
-                authenticator.init(Map.of(
-                        "issuerUri", "https://auth.example.com",
-                        "requireSignatureVerification", "false"));
-
-                String expiredJwt = buildExpiredJwtToken();
-                AuthenticationRequest request = new AuthenticationRequest(
-                        null, null, expiredJwt, null, Map.of(), "127.0.0.1");
-
-                AuthenticationResult result = authenticator.authenticate(request);
-                assertThat(result.success()).isFalse();
+                assertThatThrownBy(() -> authenticator.init(Map.of(
+                        "issuerUri", "http://localhost:" + mockIdpPort,
+                        "requireSignatureVerification", "false")))
+                        .isInstanceOf(IllegalArgumentException.class)
+                        .hasMessageContaining("signatures are mandatory");
             }
         }
 
         @Test
         @DisplayName("Token with missing subject claim is rejected")
-        void missingSubject_rejected() {
+        void missingSubject_rejected() throws Exception {
+            String issuerUri = "http://localhost:" + mockIdpPort;
             try (OAuth2Authenticator authenticator = new OAuth2Authenticator()) {
-                authenticator.init(Map.of(
-                        "issuerUri", "https://auth.example.com",
-                        "requireSignatureVerification", "false"));
+                authenticator.init(Map.of("issuerUri", issuerUri));
 
-                String noSubJwt = buildJwtWithoutSubject();
+                String noSubJwt = buildSignedJwtWithoutSubject(issuerUri);
                 AuthenticationRequest request = new AuthenticationRequest(
                         null, null, noSubJwt, null, Map.of(), "127.0.0.1");
 
@@ -534,9 +522,7 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         void expiredSignedJwt_rejectedByMockIdp() throws Exception {
             String issuerUri = "http://localhost:" + mockIdpPort;
             try (OAuth2Authenticator authenticator = new OAuth2Authenticator()) {
-                authenticator.init(Map.of(
-                        "issuerUri", issuerUri,
-                        "requireSignatureVerification", "true"));
+                authenticator.init(Map.of("issuerUri", issuerUri));
 
                 // Build a signed JWT that expired 1 hour ago
                 String expiredJwt = buildSignedJwt(issuerUri, "expired-user", -3600);
@@ -606,21 +592,10 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         }
     }
 
-    /** Builds a structurally valid but expired JWT (unsigned, exp=0). */
-    private static String buildExpiredJwtToken() {
-        String header = encodeJson("{\"alg\":\"none\",\"typ\":\"JWT\"}");
-        String payload = encodeJson(
-                "{\"sub\":\"test\",\"iss\":\"https://auth.example.com\",\"exp\":0}");
-        return header + "." + payload + ".";
-    }
-
-    /** Builds a JWT without a subject claim. */
-    private static String buildJwtWithoutSubject() {
-        String header = encodeJson("{\"alg\":\"none\",\"typ\":\"JWT\"}");
+    /** Signs a valid token envelope without the required subject claim. */
+    private static String buildSignedJwtWithoutSubject(String issuer) throws Exception {
         long futureExp = Instant.now().plusSeconds(3600).getEpochSecond();
-        String payload = encodeJson(
-                "{\"iss\":\"https://auth.example.com\",\"exp\":" + futureExp + "}");
-        return header + "." + payload + ".";
+        return signJwtPayload("{\"iss\":\"" + issuer + "\",\"exp\":" + futureExp + "}");
     }
 
     private static String encodeJson(String json) {
@@ -637,32 +612,14 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
      */
     private static String buildSignedJwt(String issuer, String subject, long ttlSeconds)
             throws Exception {
-        String header = encodeJson("{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"test-key-1\"}");
         long exp = Instant.now().plusSeconds(ttlSeconds).getEpochSecond();
-        String payload = encodeJson(
-                "{\"sub\":\"" + subject + "\",\"iss\":\"" + issuer + "\",\"exp\":" + exp + "}");
-        String signingInput = header + "." + payload;
-        java.security.Signature sig = java.security.Signature.getInstance("SHA256withRSA");
-        sig.initSign(rsaKeyPair.getPrivate());
-        sig.update(signingInput.getBytes(StandardCharsets.UTF_8));
-        byte[] signature = sig.sign();
-        String encodedSig = Base64.getUrlEncoder().withoutPadding().encodeToString(signature);
-        return signingInput + "." + encodedSig;
+        return signJwtPayload("{\"sub\":\"" + subject + "\",\"iss\":\"" + issuer
+                + "\",\"exp\":" + exp + "}");
     }
 
-    /** Builds an unsigned JWT with the given issuer and subject. */
-    private static String buildUnsignedJwt(String issuer, String subject, long ttlSeconds) {
-        String header = encodeJson("{\"alg\":\"none\",\"typ\":\"JWT\"}");
-        long exp = Instant.now().plusSeconds(ttlSeconds).getEpochSecond();
-        String payload = encodeJson(
-                "{\"sub\":\"" + subject + "\",\"iss\":\"" + issuer + "\",\"exp\":" + exp + "}");
-        return header + "." + payload + ".";
-    }
-
-    /** Builds an unsigned JWT with groups claim. */
-    private static String buildUnsignedJwtWithGroups(
-            String issuer, String subject, long ttlSeconds, String... groups) {
-        String header = encodeJson("{\"alg\":\"none\",\"typ\":\"JWT\"}");
+    /** Signs a token with groups so the group projection is tested after verification. */
+    private static String buildSignedJwtWithGroups(
+            String issuer, String subject, long ttlSeconds, String... groups) throws Exception {
         long exp = Instant.now().plusSeconds(ttlSeconds).getEpochSecond();
         StringBuilder groupsJson = new StringBuilder("[");
         for (int i = 0; i < groups.length; i++) {
@@ -670,9 +627,16 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
             groupsJson.append("\"").append(groups[i]).append("\"");
         }
         groupsJson.append("]");
-        String payload = encodeJson(
-                "{\"sub\":\"" + subject + "\",\"iss\":\"" + issuer
-                        + "\",\"exp\":" + exp + ",\"groups\":" + groupsJson + "}");
-        return header + "." + payload + ".";
+        return signJwtPayload("{\"sub\":\"" + subject + "\",\"iss\":\"" + issuer
+                + "\",\"exp\":" + exp + ",\"groups\":" + groupsJson + "}");
+    }
+
+    private static String signJwtPayload(String claimsJson) throws Exception {
+        String header = encodeJson("{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"test-key-1\"}");
+        String signingInput = header + "." + encodeJson(claimsJson);
+        java.security.Signature sig = java.security.Signature.getInstance("SHA256withRSA");
+        sig.initSign(rsaKeyPair.getPrivate());
+        sig.update(signingInput.getBytes(StandardCharsets.UTF_8));
+        return signingInput + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(sig.sign());
     }
 }

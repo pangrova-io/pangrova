@@ -57,6 +57,10 @@ class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
     private static final String FQN_PREFIX = CATALOG + "." + SCHEMA + ".";
     private static final int BATCHES = 50;
     private static final int ROWS_PER_BATCH = 200;
+    // These 200-row source pages need far less than the production 1 GiB
+    // default. A bounded 256 MiB grant admits concurrent pages on the 2 GiB
+    // fixture Worker while making the per-task memory assertion stricter.
+    private static final String VECTOR_PAGE_MEMORY_BYTES = "268435456";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -621,7 +625,8 @@ class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
             assertThat(baseline).hasSizeLessThanOrEqualTo(5);
 
             sqlRunner.executeDdl("CREATE INDEX idx_hnsw ON " + fqn()
-                    + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
+                    + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2',"
+                    + " 'max_memory_bytes'='" + VECTOR_PAGE_MEMORY_BYTES + "')");
             waitForIndexReady("idx_hnsw", fqn());
             var publication = awaitPublishedVectorIndex("idx_hnsw", fqn());
             assertDatasetSnapshot(exactEvidence, publication);
@@ -678,7 +683,8 @@ class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
 
             sqlRunner.executeDdl("CREATE INDEX idx_ivfpq ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='IVFPQ', 'metric'='L2',"
-                    + " 'ivfpq.nlist'='4', 'ivfpq.m'='2', 'ivfpq.nbits'='8')");
+                    + " 'ivfpq.nlist'='4', 'ivfpq.m'='2', 'ivfpq.nbits'='8',"
+                    + " 'max_memory_bytes'='" + VECTOR_PAGE_MEMORY_BYTES + "')");
             waitForIndexReady("idx_ivfpq", fqn());
             var publication = awaitPublishedVectorIndex("idx_ivfpq", fqn());
             assertDatasetSnapshot(exactEvidence, publication);
@@ -726,7 +732,8 @@ class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
             assertThat(baseline).isNotEmpty();
 
             sqlRunner.executeDdl("CREATE INDEX idx_cos ON " + fqn()
-                    + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='COSINE')");
+                    + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='COSINE',"
+                    + " 'max_memory_bytes'='" + VECTOR_PAGE_MEMORY_BYTES + "')");
             waitForIndexReady("idx_cos", fqn());
             var publication = awaitPublishedVectorIndex("idx_cos", fqn());
             assertDatasetSnapshot(exactEvidence, publication);

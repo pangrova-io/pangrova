@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.admission.QueryRejectedException;
+
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 
 import java.util.concurrent.CountDownLatch;
@@ -35,12 +39,15 @@ final class QueryAsyncSubmission {
         this.resultHandler = resultHandler;
     }
 
-    SubmitQueryResponse execute(String queryId, String sql, CoordinatorSessionContext session, QueryStateMachine state) {
+    SubmitQueryResponse execute(
+            String queryId, String sql, CoordinatorSessionContext session, QueryStateMachine state) {
         Context context = new Context(queryId, sql, session, state, new CountDownLatch(1), new AtomicReference<>());
         state.resultEndpointReady().thenRun(context.ready()::countDown);
         state.addStateChangeListener((previous, current) -> {
-            if (current == QueryStateMachine.State.FAILED && state.getError().isPresent()
-                    || current == QueryStateMachine.State.CANCELLED) context.ready().countDown();
+            if ((current == QueryStateMachine.State.FAILED && state.getError().isPresent())
+                    || current == QueryStateMachine.State.CANCELLED) {
+                context.ready().countDown();
+            }
         });
         Future<?> dispatch = submit(context);
         awaitReady(context, dispatch);
@@ -59,8 +66,7 @@ final class QueryAsyncSubmission {
                     org.pangrova.observability.logging.LogContext.setQueryId(context.queryId());
                     resultHandler.accept(context.queryId(), context.state(),
                             dispatcher.execute(context.state(), context.sql(), context.session()));
-                }
-                catch (RuntimeException | Error failure) {
+                } catch (RuntimeException | Error failure) {
                     context.failure().set(failure);
                     LOG.error("event=async_query_execution_failed queryId={}", context.queryId(), failure);
                     fail(context, "INTERNAL_ERROR", failure.getClass().getSimpleName(),
@@ -97,8 +103,12 @@ final class QueryAsyncSubmission {
 
     private void requireResult(Context context, Future<?> dispatch) {
         Throwable failure = context.failure().get();
-        if (failure instanceof Error fatal) throw fatal;
-        if (failure instanceof RuntimeException rejected) throw rejected;
+        if (failure instanceof Error fatal) {
+            throw fatal;
+        }
+        if (failure instanceof RuntimeException rejected) {
+            throw rejected;
+        }
         var state = context.state().getState();
         if (state == QueryStateMachine.State.FAILED || state == QueryStateMachine.State.CANCELLED) {
             dispatch.cancel(true);
@@ -109,9 +119,13 @@ final class QueryAsyncSubmission {
         if (context.state().getResultEndpoint().isEmpty()
                 || state != QueryStateMachine.State.RUNNING && state != QueryStateMachine.State.FINISHING
                     && state != QueryStateMachine.State.FINISHED) {
-            if (!context.state().isTerminal()) fail(context, "INTERNAL_ERROR", "RESULT_ENDPOINT_UNAVAILABLE",
-                    "Query dispatch completed without a ready result endpoint", "async_result_endpoint_unavailable");
-            throw new IllegalStateException("Query dispatch completed without a ready result endpoint: " + context.queryId());
+            if (!context.state().isTerminal()) {
+                fail(context, "INTERNAL_ERROR", "RESULT_ENDPOINT_UNAVAILABLE",
+                        "Query dispatch completed without a ready result endpoint",
+                        "async_result_endpoint_unavailable");
+            }
+            throw new IllegalStateException(
+                    "Query dispatch completed without a ready result endpoint: " + context.queryId());
         }
     }
 
@@ -119,8 +133,17 @@ final class QueryAsyncSubmission {
         failureHandler.fail(context.queryId(), new ErrorDetail(code, type, message), reason);
     }
 
-    @FunctionalInterface interface FailureHandler { void fail(String queryId, ErrorDetail error, String reason); }
-    @FunctionalInterface interface ResultHandler { void accept(String queryId, QueryStateMachine state, DispatchResult result); }
-    private record Context(String queryId, String sql, CoordinatorSessionContext session, QueryStateMachine state,
-                           CountDownLatch ready, AtomicReference<Throwable> failure) { }
+    @FunctionalInterface
+    interface FailureHandler {
+        void fail(String queryId, ErrorDetail error, String reason);
+    }
+
+    @FunctionalInterface
+    interface ResultHandler {
+        void accept(String queryId, QueryStateMachine state, DispatchResult result);
+    }
+
+    private record Context(
+            String queryId, String sql, CoordinatorSessionContext session, QueryStateMachine state,
+            CountDownLatch ready, AtomicReference<Throwable> failure) { }
 }

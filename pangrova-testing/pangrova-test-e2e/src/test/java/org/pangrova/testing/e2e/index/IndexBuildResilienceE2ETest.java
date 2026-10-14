@@ -95,6 +95,7 @@ class IndexBuildResilienceE2ETest extends SqlE2ETestBase {
         void rebuildAndQuery() {
             sqlRunner.executeDdl("CREATE INDEX idx_rebuild ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_rebuild");
 
             sqlRunner.execute("INSERT INTO " + fqn()
                     + " (user_id, description, amount, status) VALUES"
@@ -236,6 +237,7 @@ class IndexBuildResilienceE2ETest extends SqlE2ETestBase {
         void fullScanUnaffectedByIndex() {
             sqlRunner.executeDdl("CREATE INDEX idx_life ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_life");
             sqlRunner.executeDdl("ALTER INDEX idx_life ON " + fqn() + " REBUILD");
             sqlRunner.executeDdl("DROP INDEX idx_life ON " + fqn());
 

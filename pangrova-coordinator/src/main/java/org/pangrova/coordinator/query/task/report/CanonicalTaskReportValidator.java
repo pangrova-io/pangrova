@@ -24,7 +24,6 @@ import org.pangrova.protocol.v2.TaskState;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -37,6 +36,7 @@ public final class CanonicalTaskReportValidator {
             CanonicalTaskRequests.MAX_COVERAGE_IDENTITIES;
     private static final double COVERAGE_EPSILON = 1.0e-12;
 
+    /** Validates an ordinary task report against its exact issued request and REST envelope. */
     public Optional<TaskReport> validate(
             TaskStatusReport report, SubmitTaskRequest expectedRequest) {
         validateOuterIdentity(report, expectedRequest);
@@ -111,13 +111,7 @@ public final class CanonicalTaskReportValidator {
             SubmitTaskRequest expected) {
         TaskAttemptId actual = status.getAttempt();
         var outer = report.attempt();
-        if (!actual.getQueryOrJobId().equals(report.queryId())
-                || !actual.getTaskId().equals(report.taskId())
-                || actual.getStageId() != report.stageId()
-                || actual.getPartitionId() != report.partitionId()
-                || actual.getPlanEpoch() != outer.planEpoch()
-                || actual.getAttemptId() != outer.attemptId()
-                || actual.getFencingToken() != outer.fencingToken()) {
+        if (!matchesOuterAttempt(actual, report, outer)) {
             throw invalid("Native status attempt differs from its REST envelope");
         }
         long expectedControl = expected != null
@@ -127,15 +121,29 @@ public final class CanonicalTaskReportValidator {
         }
         var expectedOwner = expected != null
                 ? expected.taskRequest().getAttempt().getExecutionOwner() : null;
-        if (expectedOwner != null
-                && (!actual.hasExecutionOwner()
-                || !actual.getExecutionOwner().getOwnerId().equals(expectedOwner.getOwnerId())
-                || !actual.getExecutionOwner().getOwnerIncarnation()
-                        .equals(expectedOwner.getOwnerIncarnation())
-                || actual.getExecutionOwner().getFencingToken()
-                        != expectedOwner.getFencingToken())) {
+        if (expectedOwner != null && !matchesExecutionOwner(actual, expectedOwner)) {
             throw invalid("Native status execution owner differs from the dispatched request");
         }
+    }
+
+    private static boolean matchesOuterAttempt(TaskAttemptId actual, TaskStatusReport report,
+            org.pangrova.protocol.rest.task.TaskAttemptDescriptor outer) {
+        return actual.getQueryOrJobId().equals(report.queryId())
+                && actual.getTaskId().equals(report.taskId())
+                && actual.getStageId() == report.stageId()
+                && actual.getPartitionId() == report.partitionId()
+                && actual.getPlanEpoch() == outer.planEpoch()
+                && actual.getAttemptId() == outer.attemptId()
+                && actual.getFencingToken() == outer.fencingToken();
+    }
+
+    private static boolean matchesExecutionOwner(TaskAttemptId actual,
+            org.pangrova.protocol.v2.ExecutionOwnerIdentity expectedOwner) {
+        return actual.hasExecutionOwner()
+                && actual.getExecutionOwner().getOwnerId().equals(expectedOwner.getOwnerId())
+                && actual.getExecutionOwner().getOwnerIncarnation()
+                        .equals(expectedOwner.getOwnerIncarnation())
+                && actual.getExecutionOwner().getFencingToken() == expectedOwner.getFencingToken();
     }
 
     private static void validateState(TaskReport status, TaskStatusReport report) {
@@ -276,17 +284,7 @@ public final class CanonicalTaskReportValidator {
         }
         Set<ArtifactKey> actual = new HashSet<>();
         for (ArtifactFreshnessReport report : coverage.getArtifactsList()) {
-            ArtifactKey key = new ArtifactKey(
-                    report.getArtifactId(), report.getArtifactType(),
-                    report.getGeneration(), report.getSourceId(),
-                    report.getSourceSnapshot());
-            if (key.artifactId().isBlank() || key.artifactType().isBlank()
-                    || key.generation().isBlank() || key.sourceId().isBlank()
-                    || key.sourceSnapshot().isBlank()
-                    || report.getArtifactCreatedAtEpochMs() == 0
-                    || !actual.add(key)) {
-                throw invalid("TaskReport contains invalid artifact freshness identity");
-            }
+            ArtifactKey key = requireArtifactKey(report, actual);
             ArtifactBinding binding = expected.artifacts().get(key);
             if (binding == null
                     || report.getSourceDataTimestampMs()
@@ -306,11 +304,43 @@ public final class CanonicalTaskReportValidator {
         }
     }
 
+    private static ArtifactKey requireArtifactKey(ArtifactFreshnessReport report, Set<ArtifactKey> actual) {
+        ArtifactKey key = new ArtifactKey(
+                report.getArtifactId(), report.getArtifactType(),
+                report.getGeneration(), report.getSourceId(),
+                report.getSourceSnapshot());
+        if (key.artifactId().isBlank() || key.artifactType().isBlank()
+                || key.generation().isBlank() || key.sourceId().isBlank()
+                || key.sourceSnapshot().isBlank()
+                || report.getArtifactCreatedAtEpochMs() == 0
+                || !actual.add(key)) {
+            throw invalid("TaskReport contains invalid artifact freshness identity");
+        }
+        return key;
+    }
+
     private static void validateCompletionState(
             TaskReport status, CoverageReport coverage, ExpectedCoverage expected) {
         CompletionState completion = coverage.getCompletionState();
         boolean allCompleted = coverage.getCompletedWorkUnits()
                 == coverage.getExpectedWorkUnits();
+        validateCompletionEvidence(status, coverage, expected, completion, allCompleted);
+
+        if (status.getState() == TaskState.TASK_STATE_FINISHED
+                && completion != CompletionState.COMPLETION_STATE_COMPLETE
+                && completion != CompletionState.COMPLETION_STATE_FALLBACK_EXACT
+                && completion != CompletionState.COMPLETION_STATE_PARTIAL) {
+            throw invalid("finished TaskReport has no terminal completion state");
+        }
+        if ((status.getState() == TaskState.TASK_STATE_FAILED
+                || status.getState() == TaskState.TASK_STATE_CANCELLED)
+                && completion != CompletionState.COMPLETION_STATE_PARTIAL) {
+            throw invalid("unsuccessful TaskReport must be PARTIAL");
+        }
+    }
+
+    private static void validateCompletionEvidence(TaskReport status, CoverageReport coverage,
+            ExpectedCoverage expected, CompletionState completion, boolean allCompleted) {
         switch (completion) {
             case COMPLETION_STATE_COMPLETE -> {
                 if (!allCompleted || coverage.getFailedWorkUnitIdsCount() != 0
@@ -337,18 +367,7 @@ public final class CanonicalTaskReportValidator {
                 }
             }
             case UNRECOGNIZED -> throw invalid("TaskReport has unknown completion state");
-        }
-
-        if (status.getState() == TaskState.TASK_STATE_FINISHED
-                && completion != CompletionState.COMPLETION_STATE_COMPLETE
-                && completion != CompletionState.COMPLETION_STATE_FALLBACK_EXACT
-                && completion != CompletionState.COMPLETION_STATE_PARTIAL) {
-            throw invalid("finished TaskReport has no terminal completion state");
-        }
-        if ((status.getState() == TaskState.TASK_STATE_FAILED
-                || status.getState() == TaskState.TASK_STATE_CANCELLED)
-                && completion != CompletionState.COMPLETION_STATE_PARTIAL) {
-            throw invalid("unsuccessful TaskReport must be PARTIAL");
+            default -> throw invalid("TaskReport has unknown completion state");
         }
     }
 

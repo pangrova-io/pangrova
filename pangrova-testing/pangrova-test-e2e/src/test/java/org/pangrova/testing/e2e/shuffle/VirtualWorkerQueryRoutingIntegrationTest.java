@@ -156,12 +156,12 @@ class VirtualWorkerQueryRoutingIntegrationTest extends VirtualWorkerRoutingInteg
     // -----------------------------------------------------------------------
 
     private void createOrdersTable() {
-        dataSetup.createTestTable(CATALOG, SCHEMA, ordersTable,
+        setupData().createTestTable(CATALOG, SCHEMA, ordersTable,
                 "id BIGINT, customer_id BIGINT, amount BIGINT, category VARCHAR");
     }
 
     private void createCustomersTable() {
-        dataSetup.createTestTable(CATALOG, SCHEMA, customersTable,
+        setupData().createTestTable(CATALOG, SCHEMA, customersTable,
                 "id BIGINT, name VARCHAR, region VARCHAR");
     }
 
@@ -178,29 +178,34 @@ class VirtualWorkerQueryRoutingIntegrationTest extends VirtualWorkerRoutingInteg
     }
 
     private void insertOrdersBatch(int startInclusive, int endExclusive) {
+        StringBuilder sql = new StringBuilder("INSERT INTO ")
+                .append(CATALOG).append('.').append(SCHEMA).append('.').append(ordersTable)
+                .append(" (id, customer_id, amount, category) VALUES ");
         for (int i = startInclusive; i < endExclusive; i++) {
             long id = i + 1;
             long customerId = (i % 50) + 1;
             long amount = (i * 7 + 13) % 1000;
             String category = "cat_" + (i % 5);
-            sqlRunner.execute(String.format(
-                    "INSERT INTO %s.%s.%s (id, customer_id, amount, category) "
-                    + "VALUES (%d, %d, %d, '%s')",
-                    CATALOG, SCHEMA, ordersTable,
-                    id, customerId, amount, category));
+            if (i > startInclusive) sql.append(',');
+            sql.append('(').append(id).append(',').append(customerId).append(',')
+                    .append(amount).append(",'").append(category).append("')");
         }
+        setupRunner().execute(sql.toString());
     }
 
     private void insertCustomersData() {
+        StringBuilder sql = new StringBuilder("INSERT INTO ")
+                .append(CATALOG).append('.').append(SCHEMA).append('.').append(customersTable)
+                .append(" (id, name, region) VALUES ");
         for (int i = 0; i < 50; i++) {
             long id = i + 1;
             String name = "customer_" + id;
             String region = "region_" + (i % 5);
-            sqlRunner.execute(String.format(
-                    "INSERT INTO %s.%s.%s (id, name, region) "
-                    + "VALUES (%d, '%s', '%s')",
-                    CATALOG, SCHEMA, customersTable, id, name, region));
+            if (i > 0) sql.append(',');
+            sql.append('(').append(id).append(",'").append(name).append("','")
+                    .append(region).append("')");
         }
+        setupRunner().execute(sql.toString());
     }
 
     // -----------------------------------------------------------------------

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.admission.QueryRejectedException;
+
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -221,11 +223,11 @@ class DistributedScenarioTest {
     }
 
     @Test
-    void taskFailureDetectedByTracker() {
+    void nativeTaskFailureFailsQuery() {
         String taskId = dispatchAndGetTaskId("resched-q1");
         dispatchAdditionalTask(taskId, "resched-q1-invalid-plan", true);
         awaitQueryState("resched-q1", QueryStateMachine.State.FAILED);
-        assertThat(taskTracker.hasFailedTask("resched-q1")).isTrue();
+        assertThat(queryManager.getStateMachine("resched-q1").getError()).isPresent();
         assertActualFailure("resched-q1-invalid-plan");
     }
 
@@ -283,7 +285,20 @@ class DistributedScenarioTest {
     }
 
     private String dispatchAndGetTaskId(String queryId) {
-        return submitTestQuery(queryId).resultEndpoint().ticket();
+        String ticket = submitTestQuery(queryId).resultEndpoint().ticket();
+        String prefix = "pangrova.result.read.v1:";
+        assertThat(ticket).startsWith(prefix);
+        int signatureSeparator = ticket.indexOf('|');
+        try {
+            var grant = org.pangrova.protocol.v2.ResultReadGrant.parseFrom(
+                    java.util.Base64.getDecoder().decode(ticket.substring(prefix.length(), signatureSeparator)));
+            assertThat(grant.getAttempt().getQueryOrJobId()).isEqualTo(queryId);
+            assertThat(grant.getScope()).isEqualTo(
+                    org.pangrova.protocol.v2.ResultReadScope.RESULT_READ_SCOPE_RESULT_STREAM);
+            return grant.getAttempt().getTaskId();
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            throw new IllegalStateException("Worker result ticket has no canonical read grant", malformed);
+        }
     }
 
     private ResultEndpoint dispatchAdditionalTask(String originalTaskId, String taskId, boolean invalidPlan) {

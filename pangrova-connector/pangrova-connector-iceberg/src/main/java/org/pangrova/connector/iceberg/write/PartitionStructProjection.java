@@ -47,11 +47,14 @@ final class PartitionStructProjection implements StructLike {
 
     @Override
     public <T> T get(int pos, Class<T> javaClass) {
-        Object value = delegate.get(pos, Object.class);
+        Types.NestedField field = schema.columns().get(pos);
+        if (field.type().typeId() == Type.TypeID.UNKNOWN) {
+            return null;
+        }
+        Object value = delegate.getField(field.name());
         if (value == null) {
             return null;
         }
-        Types.NestedField field = schema.columns().get(pos);
         Type.TypeID typeId = field.type().typeId();
         if (typeId == Type.TypeID.TIMESTAMP || typeId == Type.TypeID.TIMESTAMP_NANO) {
             Instant instant = value instanceof LocalDateTime ldt ? ldt.toInstant(ZoneOffset.UTC)

@@ -42,6 +42,15 @@ public final class PlannerTypeSystem extends RelDataTypeSystemImpl {
     }
 
     @Override
+    public RelDataType deriveSumType(RelDataTypeFactory factory, RelDataType argumentType) {
+        return switch (argumentType.getSqlTypeName()) {
+            case TINYINT, SMALLINT, INTEGER -> factory.createTypeWithNullability(
+                    factory.createSqlType(SqlTypeName.BIGINT), argumentType.isNullable());
+            default -> super.deriveSumType(factory, argumentType);
+        };
+    }
+
+    @Override
     public RelDataType deriveDecimalMultiplyType(RelDataTypeFactory factory,
             RelDataType left, RelDataType right) {
         return DecimalArithmeticTypeDerivation.multiply(factory, left, right);

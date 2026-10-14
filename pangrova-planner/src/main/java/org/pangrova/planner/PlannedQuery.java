@@ -352,10 +352,24 @@ public final class PlannedQuery {
         return PlanFragmenter.fragment(plan, -1);
     }
 
+    /** Caps exchange cohorts before their partition identities enter the stage graph. */
+    public FragmentedPlan fragmentForCluster(int clusterParallelismLimit) {
+        return PlanFragmenter.fragment(plan, -1,
+                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+                clusterParallelismLimit);
+    }
+
     /** Carries physical identity through producer/exchange/merge and trims only final output. */
     public FragmentedPlan fragmentWithPhysicalRetrievalIdentity() {
+        return fragmentWithPhysicalRetrievalIdentity(128);
+    }
+
+    /** Builds a retrieval plan within the admitted cluster parallelism limit. */
+    public FragmentedPlan fragmentWithPhysicalRetrievalIdentity(int clusterParallelismLimit) {
         RelNode extended = org.pangrova.planner.retrieval.PhysicalRetrievalIdentityRewriter.rewrite(plan);
-        FragmentedPlan fragments = PlanFragmenter.fragment(extended, -1);
+        FragmentedPlan fragments = PlanFragmenter.fragment(extended, -1,
+                AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+                clusterParallelismLimit);
         int visibleCount = plan.getRowType().getFieldCount();
         var stages = fragments.stages().stream().map(stage -> {
             if (!stage.taskType().equals("OUTPUT")) {

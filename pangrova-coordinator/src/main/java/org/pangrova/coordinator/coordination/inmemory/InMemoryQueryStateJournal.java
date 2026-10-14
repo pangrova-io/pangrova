@@ -22,7 +22,8 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     private final LinkedHashMap<UUID, QueryStateEvent> queries = new LinkedHashMap<>();
     @javax.annotation.concurrent.GuardedBy("this")
     private final LinkedHashMap<UUID, TaskStateEvent> tasks = new LinkedHashMap<>();
-    @javax.annotation.concurrent.GuardedBy("this") private boolean closed;
+    @javax.annotation.concurrent.GuardedBy("this")
+    private boolean closed;
 
     /** Uses the same finite resident-event policy as the production NONE factory. */
     public InMemoryQueryStateJournal() { this(StateJournalConfig.NONE.maxResidentEvents()); }
@@ -37,7 +38,10 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         requireOpen();
         UUID id = event.context().eventId();
         QueryStateEvent old = queries.get(id);
-        if (old != null) { requireExact(old.equals(event)); return; }
+        if (old != null) {
+            requireExact(old.equals(event));
+            return;
+        }
         requireCapacity();
         queries.put(id, event);
     }
@@ -48,7 +52,10 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         requireOpen();
         UUID id = event.context().eventId();
         TaskStateEvent old = tasks.get(id);
-        if (old != null) { requireExact(old.equals(event)); return; }
+        if (old != null) {
+            requireExact(old.equals(event));
+            return;
+        }
         requireCapacity();
         tasks.put(id, event);
     }
@@ -69,7 +76,11 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         requireOpen();
         Objects.requireNonNull(queryId, "queryId");
         QueryStateEvent latest = null;
-        for (QueryStateEvent event : queries.values()) if (event.queryId().equals(queryId)) latest = event;
+        for (QueryStateEvent event : queries.values()) {
+            if (event.queryId().equals(queryId)) {
+                latest = event;
+            }
+        }
         return Optional.ofNullable(latest);
     }
     @Override public synchronized void purgeQuery(String queryId) {
@@ -89,7 +100,9 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         if (closed) throw failure("Process-local journal is closed");
     }
     private void requireCapacity() {
-        if (queries.size() + tasks.size() >= capacity) throw failure("Process-local journal resident-event capacity exceeded");
+        if (queries.size() + tasks.size() >= capacity) {
+            throw failure("Process-local journal resident-event capacity exceeded");
+        }
     }
     private static void requireExact(boolean exact) {
         if (!exact) throw failure("Journal event ID has a different payload");

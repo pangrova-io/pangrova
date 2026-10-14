@@ -144,7 +144,7 @@ ordering for tests that consume the native bundle.
 │ Step 6: Java Full Test (all modules, 0 failures)                 │
 │   mvn -q -Pfull-regression,coverage verify                      │
 │                                                                  │
-│ Step 7: E2E (full pipeline: SQL → Native → Result)               │
+│ Step 7: E2E (shared JVM, then isolated Native owners)            │
 │   mvn -q -Pfull-regression                                      │
 │     -pl pangrova-testing/pangrova-test-e2e -am test              │
 │                                                                  │
@@ -160,8 +160,23 @@ A failed prerequisite blocks dependent checks; independent validation may contin
 Fix failures caused by the change. Record baseline/environment failures with evidence
 and their validation impact according to `development.md`; do not claim a blocked
 chain passed or expand the task into unrelated repairs.
-`full-regression` removes daily filename/tag exclusions, including untagged
-`*IntegrationTest`, native bootstrap, routing integration, and performance tests.
+`full-regression` removes daily filename exclusions and runs ordinary E2E
+groups, including routing integration and performance tests.
+Its shared JVM run excludes only `native-runtime-owner`: these classes start and
+stop the process-wide Native runtime and would invalidate later SQL tests.
+Complete Step 7 by running each owner class in its own Maven invocation/JVM:
+
+```bash
+for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
+             WorkerShuffleChannelAdmissionIntegrationTest; do
+  mvn -q -Pfull-regression -pl pangrova-testing/pangrova-test-e2e \
+    -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test
+done
+```
+
+The shared run and all three isolated runs must pass; report their test counts
+separately. A single shared JVM run that excludes these classes without the
+three isolated results is incomplete.
 It does not turn routing integration into independent-process distributed evidence.
 Record discovered test counts and FAIL/SKIPPED/BLOCKED results; a successful Maven
 command that selects no applicable tests is not validation. The coverage profile

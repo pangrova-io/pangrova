@@ -16,6 +16,7 @@ package org.pangrova.testing.e2e.index.vector;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.index.IndexReadiness;
 import org.pangrova.testing.e2e.runner.QueryError;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -213,6 +214,7 @@ class VectorIndexResilienceE2ETest extends SqlE2ETestBase {
             insertClusteredVectors();
             sqlRunner.executeDdl("CREATE INDEX idx_rebuild ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
+            IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_rebuild");
 
             List<TypedRow> beforeRebuild = sqlRunner.execute(
                     "SELECT id FROM " + fqn()

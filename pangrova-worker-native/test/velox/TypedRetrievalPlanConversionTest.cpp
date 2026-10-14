@@ -337,6 +337,41 @@ TEST(TypedRetrievalPlanConversionTest, ExactTopKBuildsDeterministicPlan) {
   EXPECT_EQ(partial_topn->sources()[0]->name(), "TableScan");
 }
 
+TEST(TypedRetrievalPlanConversionTest, ExactTopKResolvesDuplicateLogicalNamesByOrdinal) {
+  auto rel = exactTopKRelation();
+  auto* read_schema = rel.mutable_extension_single()->mutable_input()
+      ->mutable_read()->mutable_base_schema();
+  read_schema->clear_names();
+  read_schema->mutable_struct_()->clear_types();
+  addI64Column(read_schema, "id");
+  addStringColumn(read_schema, "name");
+  addI64Column(read_schema, "id");
+  addFp64Column(read_schema, "amount");
+
+  pangrova::protocol::v2::RelationDetailEnvelope envelope;
+  ASSERT_TRUE(rel.extension_single().detail().UnpackTo(&envelope));
+  auto* detail = envelope.mutable_retrieval_source();
+  detail->mutable_invocation()->clear_arguments();
+  addFieldArgument(detail->mutable_invocation(), "score", 3);
+  auto* contract = detail->mutable_output_contract();
+  contract->clear_stable_key_fields();
+  contract->add_stable_key_fields("id");
+  contract->add_stable_key_fields("name");
+  contract->add_stable_key_fields("id");
+  *contract->mutable_schema() = *read_schema;
+  rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
+
+  VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+  auto result = convertRelation(converter, rel);
+  auto final_topn = std::dynamic_pointer_cast<const facebook::velox::core::TopNNode>(result);
+  ASSERT_NE(final_topn, nullptr);
+  ASSERT_EQ(final_topn->sortingKeys().size(), 4);
+  for (size_t key = 0; key < 4; ++key) {
+    const size_t expected_ordinal = key == 0 ? 3 : key - 1;
+    EXPECT_EQ(final_topn->sortingKeys()[key]->name(), physicalFieldAlias(expected_ordinal));
+  }
+}
+
 TEST(TypedRetrievalPlanConversionTest, EveryAnnBuildsExactLocalTopNOverCandidates) {
   struct AnnCase final {
     pangrova::protocol::v2::CapabilityDescriptor capability;

@@ -49,6 +49,44 @@ class RetrievalTopKPlanBinderTest {
     }
 
     @Test
+    void exactTopKRetainsOrdinarySortWhenJoinColumnsShareAnIdentityName() throws Exception {
+        NamedStruct original = candidateSchema();
+        NamedStruct duplicated = original.toBuilder()
+                .addNames("id")
+                .setStruct(original.getStruct().toBuilder().addTypes(original.getStruct().getTypes(0)))
+                .build();
+        Plan sqlPlan = plan(duplicated);
+
+        BoundExecutionPlan bound = RetrievalTopKPlanBinder.bindExecution(
+                sqlPlan.toByteArray(),
+                List.of(RetrievalTopKBinding.exact(
+                        1, 10, ScoreDirection.SCORE_DIRECTION_LOWER_IS_BETTER,
+                        List.of(0, 2), duplicated.toByteArray())),
+                "duplicate-join-key");
+
+        assertThat(Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot().getInput()
+                .getFetch().getInput().hasSort()).isTrue();
+        assertThat(bound.operatorBindings()).isEmpty();
+    }
+
+    @Test
+    void exactTopKRetainsOrdinarySortWhenBindingNamesDriftFromInput() throws Exception {
+        NamedStruct actual = candidateSchema();
+        NamedStruct requested = actual.toBuilder().setNames(0, "renamed_id").build();
+
+        BoundExecutionPlan bound = RetrievalTopKPlanBinder.bindExecution(
+                plan(actual).toByteArray(),
+                List.of(RetrievalTopKBinding.exact(
+                        1, 10, ScoreDirection.SCORE_DIRECTION_LOWER_IS_BETTER,
+                        List.of(0), requested.toByteArray())),
+                "drifted-candidate-name");
+
+        assertThat(Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot().getInput()
+                .getFetch().getInput().hasSort()).isTrue();
+        assertThat(bound.operatorBindings()).isEmpty();
+    }
+
+    @Test
     void bindsPlannerExpressionEncodedFetchLimit() throws Exception {
         NamedStruct schema = candidateSchema();
         Plan originalPlan = plan(schema);

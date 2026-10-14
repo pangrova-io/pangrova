@@ -13,10 +13,13 @@ import org.pangrova.spi.connector.index.NativeIndexEvaluator;
 import org.pangrova.spi.connector.metadata.ConnectorSplit;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexEvalResult;
+import org.pangrova.spi.index.IndexType;
 import org.pangrova.spi.index.eval.IndexEvalHint;
 import org.pangrova.spi.index.eval.IndexEvaluatedSplit;
 import org.pangrova.spi.index.eval.SplitIndexEvalResult;
+import org.pangrova.spi.index.predicate.EqualTo;
 import org.pangrova.spi.index.predicate.IndexPredicate;
+import org.pangrova.spi.index.predicate.InList;
 import org.pangrova.spi.index.statistics.FileColumnStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -492,6 +495,13 @@ public final class IndexSplitFilter implements AutoCloseable {
         if (descriptor == null) {
             return null;
         }
+        if (descriptor.indexType() == IndexType.BLOOM_FILTER
+                && !hasNativeBloomKeyContract(hint.predicate())) {
+            // The protocol string variant also carries Calcite DATE/TIMESTAMP
+            // and DECIMAL fallback values. Their toString() is not the index
+            // writer's verified canonical key, so Native must not prune them.
+            return null;
+        }
         Map<String, String> fileMappings = ctx.indexFileMappings()
                 .getOrDefault(hint.indexId(), Map.of());
         if (shouldSkipLowCoverage(hint.indexId(), fileMappings.size(), ctx.totalDataFiles())) {
@@ -503,6 +513,21 @@ public final class IndexSplitFilter implements AutoCloseable {
         }
         return new IndexEvalHint(hint.indexId(), descriptor.indexType(),
                 hint.predicate(), indexFilePath, descriptor.generation());
+    }
+
+    private static boolean hasNativeBloomKeyContract(IndexPredicate predicate) {
+        if (predicate instanceof EqualTo equal) {
+            return hasNativeBloomKeyContract(equal.value());
+        }
+        if (predicate instanceof InList in) {
+            return in.values().stream().allMatch(IndexSplitFilter::hasNativeBloomKeyContract);
+        }
+        return false;
+    }
+
+    private static boolean hasNativeBloomKeyContract(Comparable<?> value) {
+        return value instanceof String || value instanceof Long
+                || value instanceof Integer || value instanceof Boolean;
     }
 
     private boolean shouldSkipLowCoverage(String indexId, int mappedFiles, int totalDataFiles) {

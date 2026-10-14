@@ -164,7 +164,7 @@ std::vector<uint8_t> PlanExecutionDriver::collectTaskStats() const {
   if (!task) return {};
   const auto stats = task->taskStats();
   metrics_.observeColumnarReadTaskStats(stats);
-  return pangrova::jni::serializeNativeTaskStats(stats);
+  return active_runner_->collectTaskStats();
 }
 
 bool PlanExecutionDriver::hasFinalTaskStats() const {

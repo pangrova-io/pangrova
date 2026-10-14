@@ -16,6 +16,7 @@ import org.pangrova.spi.index.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -44,7 +45,7 @@ final class IndexValidationHelper {
         }
     }
 
-    static void validateColumns(QualifiedTableName ref, List<String> columns,
+    static List<String> validateColumns(QualifiedTableName ref, List<String> columns,
                                 IndexType indexType, CatalogRegistry catalogRegistry, ConnectorSession session) {
         CatalogHandle handle = catalogRegistry.getCatalog(ref.catalog());
         ConnectorMetadata metadata = handle.getMetadata(session);
@@ -52,6 +53,7 @@ final class IndexValidationHelper {
                 session, new SchemaTableName(ref.schema(), ref.table()));
         ConnectorTableMetadata tableMeta = metadata.getTableMetadata(session, tableHandle);
 
+        List<String> resolvedColumns = new ArrayList<>(columns.size());
         for (String col : columns) {
             ConnectorTableMetadata.Column matched = tableMeta.typedColumns().stream()
                     .filter(c -> c.name().equalsIgnoreCase(col))
@@ -65,7 +67,9 @@ final class IndexValidationHelper {
                         "Column '" + col + "' type " + matched.type().name()
                                 + " is not compatible with index type " + indexType);
             }
+            resolvedColumns.add(matched.name());
         }
+        return List.copyOf(resolvedColumns);
     }
 
     static void validateMultiColumnConstraints(IndexType indexType, List<String> columns) {

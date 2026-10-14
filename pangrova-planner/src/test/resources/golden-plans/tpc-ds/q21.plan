@@ -1,5 +1,5 @@
 LogicalSort(sort0=[$0], sort1=[$1], dir0=[ASC], dir1=[ASC], fetch=[100])
-  LogicalFilter(condition=[AND(>($2, 0), SEARCH(/(CAST($3):DECIMAL(12, 1) NOT NULL, $2), Sarg[[0.667:DECIMAL(4, 3)..1.5:DECIMAL(4, 3)]]:DECIMAL(4, 3)))])
+  LogicalFilter(condition=[AND(>($2, 0), SEARCH(/(CAST($3):DECIMAL(21, 1) NOT NULL, $2), Sarg[[0.667:DECIMAL(4, 3)..1.5:DECIMAL(4, 3)]]:DECIMAL(4, 3)))])
     LogicalAggregate(group=[{0, 1}], inv_before=[$SUM0($2)], inv_after=[$SUM0($3)])
       LogicalProject(w_warehouse_name=[$1], i_item_id=[$2], $f2=[CASE(<($4, 2000-03-11), $0, 0)], $f3=[CASE(>=($4, 2000-03-11), $0, 0)])
         LogicalProject(inv_quantity_on_hand=[$1], w_warehouse_name=[$2], i_item_id=[$3], i_current_price=[$4], d_date=[$6])

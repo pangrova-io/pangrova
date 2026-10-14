@@ -246,6 +246,9 @@ message NativeTaskStats {
   uint64 cache_admission_rejection_count = 17;
   // Live drivers blocked on the actual output consumer, not accumulated wait time.
   uint64 consumer_blocked_drivers = 18;
+  // Worker-local scalar index decisions before Velox split enqueue.
+  uint64 index_splits_evaluated = 19;
+  uint64 index_splits_skipped = 20;
 }
 
 // Generic report produced by one fenced background work page. Outputs are

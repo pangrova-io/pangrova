@@ -300,6 +300,14 @@ TaskReport; the Worker then publishes a failed, zero-completed-coverage
 reconciliation with the Native failure attached. A result stream that returns
 an error is not a successful producer EOF.
 
+On result-server shutdown, Native first revokes registered read authorities
+and wakes pending SDK fetches. It then calls Arrow Flight
+`FlightServerBase::Shutdown()` with an
+immediate deadline so an idle client RPC cannot hold the server stop after
+its authority has been revoked. Arrow Flight's [shutdown contract](https://arrow.apache.org/docs/cpp/api/flight.html)
+waits for active requests; the deadline cancels those transport calls while
+the already-revoked reader and output queue finish cleanup.
+
 ## 6. JNI Boundary
 
 The JNI layer transfers task-control commands, canonical v2 task bytes and
@@ -339,6 +347,12 @@ retention have distinct lifetimes; a task's pool usage alone is not a complete
 shuffle-memory accounting figure. The exact resource gap and acceptance
 criteria are in [resource-management.md](./resource-management.md) and the
 [AI Native audit](../internal/ai-native-roadmap.md).
+
+The Velox allocator retains a strong reference to its registered
+`AsyncDataCache`. Native shutdown joins task and I/O owners, clears the global
+cache pointer, then calls the cache's `shutdown()` before checking allocator
+pages or replacing the memory manager. Dropping only Pangrova's cache reference
+does not release the allocator-owned cache pages.
 
 ## 10. Native I/O
 

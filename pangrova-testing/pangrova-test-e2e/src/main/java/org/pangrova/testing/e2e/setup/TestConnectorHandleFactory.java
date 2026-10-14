@@ -8,6 +8,7 @@ import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorContext;
 import org.pangrova.spi.connector.ConnectorFactory;
 import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,11 +29,12 @@ public final class TestConnectorHandleFactory implements ConnectorHandleFactory 
 
     private final Map<String, ConnectorFactory> factories = new ConcurrentHashMap<>();
     private final Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> controlPlanes;
-    private final Function<CatalogDescriptor, Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog>> sourceCatalogs;
+    private final Function<CatalogDescriptor, Optional<ManagedSourceCatalog>> sourceCatalogs;
 
     /** Discovers real plugins and supplies their catalog-bound Worker metadata control port. */
-    public TestConnectorHandleFactory(Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> controlPlanes,
-            Function<CatalogDescriptor, Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog>> sourceCatalogs) {
+    public TestConnectorHandleFactory(
+            Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> controlPlanes,
+            Function<CatalogDescriptor, Optional<ManagedSourceCatalog>> sourceCatalogs) {
         this.controlPlanes = Objects.requireNonNull(controlPlanes, "controlPlanes");
         this.sourceCatalogs = Objects.requireNonNull(sourceCatalogs, "sourceCatalogs");
         discoverFactories();
@@ -41,8 +43,9 @@ public final class TestConnectorHandleFactory implements ConnectorHandleFactory 
     @Override
     public CatalogHandle create(CatalogDescriptor descriptor) {
         ConnectorFactory factory = resolveFactory(descriptor.provider());
-        Connector connector = factory.create(
-                descriptor.name(), descriptor.properties(), new CatalogContext(controlPlanes.apply(descriptor), sourceCatalogs.apply(descriptor)));
+        Connector connector = factory.create(descriptor.name(), descriptor.properties(),
+                new CatalogContext(controlPlanes.apply(descriptor),
+                        sourceCatalogs.apply(descriptor)));
         LOG.info("Created test connector '{}' via provider '{}'",
                 descriptor.name(), descriptor.provider());
         return new ConnectorCatalogHandle(descriptor, connector);
@@ -66,10 +69,14 @@ public final class TestConnectorHandleFactory implements ConnectorHandleFactory 
     }
 
     private record CatalogContext(Optional<NativeDatasetControlPlane> control,
-            Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> source) implements ConnectorContext {
-        private CatalogContext { Objects.requireNonNull(control, "control"); Objects.requireNonNull(source, "source"); }
+            Optional<ManagedSourceCatalog> source) implements ConnectorContext {
+        private CatalogContext {
+            Objects.requireNonNull(control, "control");
+            Objects.requireNonNull(source, "source");
+        }
         @Override
         public Optional<NativeDatasetControlPlane> nativeDatasetControlPlane() { return control; }
-        @Override public Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> managedSourceCatalog() { return source; }
+        @Override
+        public Optional<ManagedSourceCatalog> managedSourceCatalog() { return source; }
     }
 }

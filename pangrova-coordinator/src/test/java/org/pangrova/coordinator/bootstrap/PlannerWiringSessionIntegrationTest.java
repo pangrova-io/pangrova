@@ -43,19 +43,15 @@ class PlannerWiringSessionIntegrationTest {
     @Test
     void startupServicesNeedNoQueryIdentityAndSchemasRemainTenantScopedAndDynamic() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("planner_scope");
-        String databaseSchema;
-        try (var connection = dataSource.getConnection()) {
-            databaseSchema = connection.getSchema();
-        }
-        var postgres = SharedPostgresContainer.instance();
-        String url = postgres.getJdbcUrl() + (postgres.getJdbcUrl().contains("?") ? "&" : "?")
-                + "currentSchema=" + databaseSchema;
         var store = new JdbcMetadataStore(dataSource);
         store.saveCatalogDescriptor(new CatalogDescriptor("scoped_lance", CatalogType.CONNECTOR,
-                "lance", CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString(), "jdbc.url", url,
-                "jdbc.user", postgres.getUsername(), "jdbc.password", postgres.getPassword()), "", Set.of()));
+                "lance", CatalogState.ACTIVE, Map.of("warehouse", warehouse.toString()), "", Set.of()));
         var factory = new PluginConnectorHandleFactory(ConnectorFactory.class.getClassLoader(),
-                new SecretResolver(), ignored -> Optional.empty());
+                new SecretResolver(), ignored -> Optional.empty(), descriptor -> Optional.of(
+                        new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(dataSource,
+                                new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
+                                        descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
+                                ignored -> { throw new IllegalStateException("No write execution in this read fixture"); })));
         MetadataBootstrap metadata = MetadataBootstrap.initialize(store, factory);
         try {
             var context = new QueryModuleLoader(CoordinatorBootstrapConfig.withDefaults("scope-test", 0),
@@ -132,14 +128,14 @@ class PlannerWiringSessionIntegrationTest {
         var root = metadata.buildCalciteSchema(session);
         var catalog = root.getSubSchema("scoped_lance", false);
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("ALTER TABLE pangrova_lance_schemas RENAME TO temporarily_unavailable_schemas");
+            statement.execute("ALTER TABLE managed_source_schemas RENAME TO temporarily_unavailable_schemas");
             try {
                 assertThatThrownBy(catalog::getSubSchemaMap)
                         .isInstanceOf(RuntimeException.class).hasRootCauseInstanceOf(java.sql.SQLException.class);
             } finally {
-                statement.execute("ALTER TABLE temporarily_unavailable_schemas RENAME TO pangrova_lance_schemas");
+                statement.execute("ALTER TABLE temporarily_unavailable_schemas RENAME TO managed_source_schemas");
             }
-            statement.execute("ALTER TABLE pangrova_lance_tables RENAME TO temporarily_unavailable_tables");
+            statement.execute("ALTER TABLE managed_source_heads RENAME TO temporarily_unavailable_tables");
             try {
                 var collector = new org.pangrova.planner.stats.StatisticsCollector(
                         new org.pangrova.coordinator.metadata.read.CatalogStatisticsProvider(
@@ -149,7 +145,7 @@ class PlannerWiringSessionIntegrationTest {
                         .isInstanceOf(org.pangrova.metadata.exception.MetadataResolutionException.class)
                         .hasRootCauseInstanceOf(java.sql.SQLException.class);
             } finally {
-                statement.execute("ALTER TABLE temporarily_unavailable_tables RENAME TO pangrova_lance_tables");
+                statement.execute("ALTER TABLE temporarily_unavailable_tables RENAME TO managed_source_heads");
             }
         }
     }

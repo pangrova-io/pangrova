@@ -212,13 +212,11 @@ public final class IndexBuildCoordinator implements AutoCloseable {
     }
 
     private IndexBuildResult runClaimedBuild(BuildRequest request, long startedAt) {
+        pinBuildSnapshot(request.descriptor());
         IndexBuildResult result = buildFiles(request);
         long durationMs = System.currentTimeMillis() - startedAt;
         if (metrics != null) {
             metrics.recordBuild(durationMs, result.successCount(), result.failureCount());
-        }
-        if (result.isFullySuccessful()) {
-            pinBuildSnapshot(request.descriptor());
         }
         LOG.info(
                 "event=index_build_completed indexId={} succeeded={} failed={} durationMs={}",
@@ -327,7 +325,8 @@ public final class IndexBuildCoordinator implements AutoCloseable {
     }
 
     private void pinBuildSnapshot(IndexDescriptor descriptor) {
-        if (context.snapshotPinProvider() == null || descriptor.buildSnapshotId() == null) {
+        if (context.snapshotPinProvider() == null || descriptor.buildSnapshotId() == null
+                || descriptor.buildSnapshotId().isEmpty()) {
             return;
         }
         try {
@@ -337,17 +336,13 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                     descriptor.tableName(),
                     Long.parseLong(descriptor.buildSnapshotId()),
                     descriptor.indexId());
-        } catch (NumberFormatException numberFormatException) {
-            LOG.debug(
-                    "event=index_build_pin_skipped indexId={} snapshotId={} reason=non_numeric",
-                    descriptor.indexId(),
-                    descriptor.buildSnapshotId());
         } catch (RuntimeException runtimeException) {
-            LOG.warn(
+            LOG.error(
                     "event=index_build_pin_failed indexId={} snapshotId={} error={}",
                     descriptor.indexId(),
                     descriptor.buildSnapshotId(),
-                    runtimeException.getMessage());
+                    runtimeException.getMessage(), runtimeException);
+            throw runtimeException;
         }
     }
 

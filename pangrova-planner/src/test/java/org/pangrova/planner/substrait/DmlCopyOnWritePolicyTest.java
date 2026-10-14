@@ -12,6 +12,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexInterpreter;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -40,6 +41,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests actual policy application and the relation consumed by the Native COW writer. */
 class DmlCopyOnWritePolicyTest {
@@ -109,6 +111,14 @@ class DmlCopyOnWritePolicyTest {
     }
 
     @Test
+    void maskedConjunctiveDeleteAndRowPolicyKeepCalciteFilterFlat() {
+        LogicalFilter result = (LogicalFilter) lowered(
+                "DELETE FROM target_rows WHERE score = 0 AND id > 0", true, true);
+
+        assertThat(RexUtil.isFlat(result.getCondition())).isTrue();
+    }
+
+    @Test
     void updateAssignmentsFollowSqlOrderNotTableOrder() {
         LogicalProject result = (LogicalProject) lowered(
                 "UPDATE target_rows SET score = 40, tenant = 7 WHERE id = 1", false, false);
@@ -143,6 +153,34 @@ class DmlCopyOnWritePolicyTest {
         assertThat(join.getCondition().getKind()).isEqualTo(SqlKind.AND);
         assertThat(join.getLeft().explain()).contains("LogicalProject");
         assertThat(new SubstraitPlanSerializer().serialize(new SubstraitConverter().convert(modify))).isNotEmpty();
+    }
+
+    @Test
+    void maskedConjunctiveMergeAndRowPolicyKeepCalciteJoinFlat() {
+        LogicalTableModify modify = protectedPlan(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id "
+                        + "WHEN MATCHED AND t.score = 0 AND t.id > 1 THEN UPDATE SET score = s.score",
+                true, true);
+        LogicalJoin join = (LogicalJoin) ((LogicalProject) modify.getInput()).getInput();
+
+        assertThat(RexUtil.isFlat(join.getCondition())).isTrue();
+        assertThat(join.getCondition().toString()).contains(">");
+        assertThat(value(join.getCondition(), join, 1L, 1L, 99L, 1L, 1L, 11L))
+                .isEqualTo(false);
+        assertThat(value(join.getCondition(), join, 3L, 1L, 99L, 3L, 1L, 33L))
+                .isEqualTo(true);
+        assertThat(value(join.getCondition(), join, 3L, 1L, 99L, 3L, 2L, 33L))
+                .isEqualTo(false);
+    }
+
+    @Test
+    void conditionalMatchedUpdateWithInsertFailsBeforeLowering() {
+        assertThatThrownBy(() -> protectedPlan(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id "
+                        + "WHEN MATCHED AND t.id > 1 THEN UPDATE SET score = s.score "
+                        + "WHEN NOT MATCHED THEN INSERT (id, tenant, score) "
+                        + "VALUES (s.id, s.tenant, s.score)", false, false))
+                .hasMessageContaining("conditional UPDATE with INSERT");
     }
 
     private static RelNode lowered(String sql, boolean rowPolicy, boolean mask) {

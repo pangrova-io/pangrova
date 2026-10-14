@@ -85,6 +85,11 @@ class WorkerNativeDatasetControlTest extends ContainerTestBase {
         assertThat(decoded.publication().candidate().manifestSha256()).isEqualTo(actual.getPublication().getCandidate()
                 .getManifestSha256().getDigest().toByteArray());
         assertThat(decoded.objects().objects()).hasSameSizeAs(actual.getObjectPage().getObjectsList());
+        WorkerNativeDatasetControl.requireIssuedPage(decoded.objects(), 0, "");
+        assertThatThrownBy(() -> WorkerNativeDatasetControl.requireIssuedPage(decoded.objects(), 1, "!"))
+                .hasMessageContaining("sequence or cursor differs");
+        assertThatThrownBy(() -> WorkerNativeDatasetControl.requireIssuedPage(decoded.objects(), 0, "other"))
+                .hasMessageContaining("sequence or cursor differs");
         assertThat(execution.intent().publication()).isNull();
         assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.PENDING);
         assertThatThrownBy(() -> WorkerNativeDatasetControl.decodePreparation(response(actual), "another", execution.catalog()))

@@ -1,7 +1,5 @@
 package org.pangrova.connector.iceberg;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
@@ -19,7 +17,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,30 +24,17 @@ import java.util.Optional;
 
 /**
  * Catalog-side table resolution and listing for the Iceberg connector:
- * caches recently loaded tables, resolves live (refreshed) tables from
+ * resolves tables from the catalog, resolves live (refreshed) tables from
  * handles, and lists schemas/tables via the Iceberg catalog API.
  */
 final class IcebergCatalogTables {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergCatalogTables.class);
 
-    private static final Duration TABLE_CACHE_TTL = Duration.ofSeconds(5);
-    private static final int TABLE_CACHE_MAX_SIZE = 100;
-
     private final Catalog catalog;
-
-    /**
-     * Short-lived table metadata cache to avoid redundant catalog round-trips
-     * during a single query planning cycle (F-CONNECTOR-09).
-     */
-    private final Cache<TableIdentifier, Table> tableCache;
 
     IcebergCatalogTables(Catalog catalog) {
         this.catalog = catalog;
-        this.tableCache = Caffeine.newBuilder()
-                .expireAfterWrite(TABLE_CACHE_TTL)
-                .maximumSize(TABLE_CACHE_MAX_SIZE)
-                .build();
     }
 
     /**
@@ -71,7 +55,9 @@ final class IcebergCatalogTables {
     ConnectorTableHandle getTableHandle(SchemaTableName tableName) {
         TableIdentifier id = TableIdentifier.of(tableName.schema(), tableName.table());
         try {
-            Table table = tableCache.get(id, k -> catalog.loadTable(k));
+            // A process-wide TTL cannot fence DROP/CREATE by another catalog owner.
+            // Resolve existence and immutable handle metadata from the current catalog state.
+            Table table = catalog.loadTable(id);
             return IcebergTableHandleFactory.fromTable(tableName.schema(), tableName.table(), table);
         } catch (org.apache.iceberg.exceptions.NoSuchTableException e) {
             LOG.debug("Table not found: {}", tableName);

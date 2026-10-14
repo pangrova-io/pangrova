@@ -1,5 +1,8 @@
 package org.pangrova.testing.e2e.index;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
@@ -11,6 +14,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
+import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,6 +63,32 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
         return FQN_PREFIX + tableName;
     }
 
+    private void awaitReadyIndex(String indexName) {
+        org.awaitility.Awaitility.await("index READY: " + indexName)
+                .atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(sqlRunner.execute("SHOW INDEXES FROM " + fqn()).stream()
+                        .filter(row -> indexName.equals(row.getRaw("index_name").toString()))
+                        .findFirst().orElseThrow().getRaw("state").toString()).isEqualTo("READY"));
+    }
+
+    private void awaitReadyGeneration(String indexName, int generation) {
+        org.awaitility.Awaitility.await("index generation " + generation + ": " + indexName)
+                .atMost(Duration.ofSeconds(30))
+                .until(() -> {
+                    try (var connection = stateStoreDataSource().getConnection();
+                            var statement = connection.prepareStatement(
+                                    "SELECT generation, state FROM index_descriptors "
+                                            + "WHERE table_name=? AND index_name=?")) {
+                        statement.setString(1, tableName);
+                        statement.setString(2, indexName);
+                        try (var rows = statement.executeQuery()) {
+                            return rows.next() && rows.getInt("generation") == generation
+                                    && "READY".equals(rows.getString("state"));
+                        }
+                    }
+                });
+    }
+
     // --- 35.1.1: CREATE INDEX ---
 
     @Nested
@@ -66,7 +97,7 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("CREATE INDEX creates a BLOOM_FILTER index and SHOW INDEXES lists it")
-        void createBloomFilterIndex() {
+        void createBloomFilterIndex() throws Exception {
             sqlRunner.executeDdl("CREATE INDEX idx_bloom ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
 
@@ -74,6 +105,15 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
             assertThat(indexes).isNotEmpty();
             assertThat(indexes.get(0).getRaw("index_name").toString()).isEqualTo("idx_bloom");
             assertThat(indexes.get(0).getRaw("index_type").toString()).isEqualTo("BLOOM_FILTER");
+            awaitReadyIndex("idx_bloom");
+            try (var catalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString())) {
+                var table = catalog.loadTable(TableIdentifier.of(SCHEMA, tableName));
+                long sourceSnapshot = table.currentSnapshot().snapshotId();
+                assertThat(table.refs().entrySet().stream()
+                        .filter(entry -> entry.getKey().startsWith("pangrova_index_"))
+                        .map(entry -> entry.getValue().snapshotId()))
+                        .containsExactly(sourceSnapshot);
+            }
         }
 
         @Test
@@ -167,15 +207,101 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("ALTER INDEX REBUILD on freshly created index succeeds")
-        void rebuildIndex() {
+        void rebuildIndex() throws Exception {
             sqlRunner.executeDdl("CREATE INDEX idx_bloom ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
 
+            awaitReadyIndex("idx_bloom");
+
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (user_id, description, amount, status) VALUES"
+                    + " (3, 'new generation', 300.0, 'ACTIVE')");
+
             sqlRunner.executeDdl("ALTER INDEX idx_bloom ON " + fqn() + " REBUILD");
+
+            awaitReadyGeneration("idx_bloom", 1);
+            try (var connection = stateStoreDataSource().getConnection();
+                    var statement = connection.prepareStatement("""
+                            SELECT old.index_file_path, rebuilt.index_file_path
+                            FROM index_descriptors AS descriptor
+                            JOIN index_file_mappings AS old
+                              ON old.index_id = descriptor.index_id AND old.generation = 0
+                            JOIN index_file_mappings AS rebuilt
+                              ON rebuilt.index_id = descriptor.index_id AND rebuilt.generation = 1
+                              AND rebuilt.data_file_path = old.data_file_path
+                            WHERE descriptor.table_name = ? AND descriptor.index_name = ?
+                            """)) {
+                statement.setString(1, tableName);
+                statement.setString(2, "idx_bloom");
+                int sharedSources = 0;
+                try (var rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        String oldPath = rows.getString(1);
+                        String rebuiltPath = rows.getString(2);
+                        assertThat(rebuiltPath).isNotEqualTo(oldPath).contains("/g1/");
+                        var oldFile = new org.apache.hadoop.fs.Path(oldPath);
+                        var rebuiltFile = new org.apache.hadoop.fs.Path(rebuiltPath);
+                        var configuration = new Configuration();
+                        assertThat(oldFile.getFileSystem(configuration).exists(oldFile)).isTrue();
+                        assertThat(rebuiltFile.getFileSystem(configuration).exists(rebuiltFile)).isTrue();
+                        sharedSources++;
+                    }
+                }
+                assertThat(sharedSources).isPositive();
+            }
+            try (var catalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString())) {
+                var table = catalog.loadTable(TableIdentifier.of(SCHEMA, tableName));
+                long rebuiltSnapshot = table.currentSnapshot().snapshotId();
+                assertThat(table.refs().entrySet().stream()
+                        .filter(entry -> entry.getKey().startsWith("pangrova_index_"))
+                        .map(entry -> entry.getValue().snapshotId()))
+                        .contains(rebuiltSnapshot);
+            }
 
             List<TypedRow> indexes = sqlRunner.execute(
                     "SHOW INDEXES ON " + fqn());
             assertThat(indexes).isNotEmpty();
+            assertThat(sqlRunner.execute("SELECT user_id FROM " + fqn() + " WHERE user_id = 3"))
+                    .hasSize(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("DROP and recreate index")
+    class DropAndRecreate {
+
+        @Test
+        void keepsDroppedGenerationAddressableUntilGc() throws IOException {
+            sqlRunner.executeDdl("CREATE INDEX idx_reused ON " + fqn()
+                    + "(user_id) USING BLOOM_FILTER");
+            awaitReadyIndex("idx_reused");
+            sqlRunner.executeDdl("DROP INDEX idx_reused ON " + fqn());
+
+            sqlRunner.executeDdl("CREATE INDEX idx_reused ON " + fqn()
+                    + "(user_id) USING BLOOM_FILTER");
+            awaitReadyIndex("idx_reused");
+
+            try (var catalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString())) {
+                var table = catalog.loadTable(TableIdentifier.of(SCHEMA, tableName));
+                assertThat(table.refs().keySet().stream()
+                        .filter(name -> name.startsWith("pangrova_index_")))
+                        .hasSize(2);
+            }
+            try (var connection = stateStoreDataSource().getConnection();
+                    var statement = connection.prepareStatement(
+                            "SELECT state FROM index_descriptors WHERE table_name=? AND index_name=?")) {
+                statement.setString(1, tableName);
+                statement.setString(2, "idx_reused");
+                try (var rows = statement.executeQuery()) {
+                    var states = new java.util.ArrayList<String>();
+                    while (rows.next()) {
+                        states.add(rows.getString(1));
+                    }
+                    assertThat(states).containsExactlyInAnyOrder("DROPPED", "READY");
+                }
+            } catch (java.sql.SQLException failure) {
+                throw new IllegalStateException("Cannot inspect retained index identities", failure);
+            }
         }
     }
 

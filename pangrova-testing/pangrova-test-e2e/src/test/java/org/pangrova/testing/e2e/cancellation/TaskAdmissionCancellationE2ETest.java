@@ -21,27 +21,27 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
     @Test
     void cancellationBeforeAdmissionProducesRealReceiptAndBlocksHeldPost() throws Exception {
         try (var scenario = scenario()) {
-            assertThat(cancelQuery(scenario.query.queryId()).statusCode()).isEqualTo(202);
+            assertThat(cancelQuery(scenario.queryId()).statusCode()).isEqualTo(202);
             TaskReport receipt = receipt(scenario.transport.awaitDrainResponse(), scenario.submission.request());
             assertThat(receipt.getExecutionDrainState())
                     .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
             scenario.transport.releasePost();
             assertThat(scenario.transport.awaitPostResponse().statusCode()).isEqualTo(409);
-            assertThat(pollUntilTerminal(scenario.query.queryId())).contains("\"CANCELLED\"");
+            assertThat(pollUntilTerminal(scenario.queryId())).contains("\"CANCELLED\"");
         }
     }
 
     @Test
     void delayedPostAfterRealReceiptCannotReopenSealedAttempt() throws Exception {
         try (var scenario = scenario()) {
-            assertThat(cancelQuery(scenario.query.queryId()).statusCode()).isEqualTo(202);
+            assertThat(cancelQuery(scenario.queryId()).statusCode()).isEqualTo(202);
             var first = receipt(scenario.transport.awaitDrainResponse(), scenario.submission.request());
             assertThat(replay(scenario.submission.body(), scenario.submission.headers()).statusCode()).isEqualTo(409);
             var repeated = seal(scenario.submission.request());
             assertThat(receipt(repeated, scenario.submission.request())).isEqualTo(first);
             scenario.transport.releasePost();
             assertThat(scenario.transport.awaitPostResponse().statusCode()).isEqualTo(409);
-            assertThat(pollUntilTerminal(scenario.query.queryId())).contains("\"CANCELLED\"");
+            assertThat(pollUntilTerminal(scenario.queryId())).contains("\"CANCELLED\"");
         }
     }
 
@@ -53,7 +53,7 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
             try {
                 var cancellation = executor.submit(() -> {
                     start.await();
-                    return cancelQuery(scenario.query.queryId());
+                    return cancelQuery(scenario.queryId());
                 });
                 var delivery = executor.submit(() -> {
                     start.await();
@@ -63,12 +63,12 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
                 start.countDown();
                 assertThat(cancellation.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(202);
                 assertThat(delivery.get(30, TimeUnit.SECONDS).statusCode()).isIn(200, 409);
-                var actual = receipt(scenario.transport.awaitDrainResponse(), scenario.submission.request());
+                var actual = receipt(seal(scenario.submission.request()), scenario.submission.request());
                 assertThat(actual.getExecutionDrainState()).isIn(
                         ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED,
                         ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
                 assertThat(replay(scenario.submission.body(), scenario.submission.headers()).statusCode()).isEqualTo(409);
-                assertThat(pollUntilTerminal(scenario.query.queryId())).contains("\"CANCELLED\"");
+                assertThat(pollUntilTerminal(scenario.queryId())).contains("\"CANCELLED\"");
             } finally {
                 start.countDown();
                 scenario.transport.releasePost();
@@ -86,7 +86,7 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
             var response = replay(MAPPER.writeValueAsBytes(expired), scenario.submission.headers());
             assertThat(response.statusCode()).isEqualTo(408);
             assertThat(MAPPER.readValue(response.body(), SubmitTaskResponse.class).accepted()).isFalse();
-            assertThat(cancelQuery(scenario.query.queryId()).statusCode()).isEqualTo(202);
+            assertThat(cancelQuery(scenario.queryId()).statusCode()).isEqualTo(202);
             var actual = receipt(scenario.transport.awaitDrainResponse(), scenario.submission.request());
             assertThat(actual.getExecutionDrainState())
                     .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
@@ -106,9 +106,9 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
             var response = replay(MAPPER.writeValueAsBytes(conflicting), scenario.submission.headers());
             assertThat(response.statusCode()).isEqualTo(409);
             assertThat(MAPPER.readValue(response.body(), SubmitTaskResponse.class).accepted()).isFalse();
-            assertThat(consumeSubmittedQuery(scenario.query)).extracting(row -> row.getLong("id"))
+            assertThat(consumeSubmittedQuery(scenario.awaitSubmittedQuery())).extracting(row -> row.getLong("id"))
                     .containsExactlyInAnyOrder(7L, 9L);
-            assertThat(pollUntilTerminal(scenario.query.queryId())).contains("\"FINISHED\"");
+            assertThat(pollUntilTerminal(scenario.queryId())).contains("\"FINISHED\"");
             var actual = receipt(seal(scenario.submission.request()), scenario.submission.request());
             assertThat(actual.getExecutionDrainState())
                     .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);

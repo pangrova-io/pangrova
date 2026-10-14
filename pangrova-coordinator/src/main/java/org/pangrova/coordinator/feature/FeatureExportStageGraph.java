@@ -9,6 +9,7 @@ import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.artifact.TabularExportPlanBuilder;
 import org.pangrova.protocol.BoundExecutionPlan;
+import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.OperatorBinding;
 
 import java.util.ArrayList;
@@ -29,6 +30,16 @@ final class FeatureExportStageGraph {
             boolean terminal = "OUTPUT".equals(stage.taskType());
             var plan = terminal ? TabularExportPlanBuilder.build(stage.serializedPlan().planBytes()).planBytes()
                     : stage.serializedPlan().planBytes();
+            try {
+                var root = io.substrait.proto.Plan.parseFrom(plan).getRelations(0).getRoot();
+                SubstraitRelationLayout.rootSchema(root);
+            } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+                throw new IllegalArgumentException("Feature export stage " + stage.stageId()
+                        + " has an invalid Substrait plan", failure);
+            } catch (IllegalArgumentException failure) {
+                throw new IllegalArgumentException("Feature export stage " + stage.stageId()
+                        + " has an invalid canonical schema: " + failure.getMessage(), failure);
+            }
             var bound = new BoundExecutionPlan(plan, terminal ? List.of(sink) : List.of());
             var kind = terminal ? ArtifactBuildPageKind.RELATIONAL_PARTITION : ArtifactBuildPageKind.RELATIONAL_COMPUTE;
             stages.add(ArtifactStageGraph.StagePlan.of(stage.stageId(), stage.parallelism(), kind, plan,

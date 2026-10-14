@@ -99,6 +99,9 @@ protocol::v2::OperatorBinding artifactBinding() {
   auto* pq = output->add_properties();
   pq->set_name("pq_subvectors");
   pq->mutable_value()->set_int64_value(1);
+  auto* metric = output->add_properties();
+  metric->set_name("metric");
+  metric->mutable_value()->set_string_value("L2");
   return binding;
 }
 
@@ -335,6 +338,27 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedNativeSink) {
   EXPECT_EQ(artifact->config().row_position_channel, 0);
   EXPECT_EQ(artifact->config().vector_channel, 1);
   EXPECT_EQ(artifact->config().diskann.dimension, 4);
+}
+
+TEST(ArtifactBuildPlanConversionTest, RequiresImmutableDiskAnnL2Metric) {
+  auto rel = artifactRelation();
+  auto binding = artifactBinding();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  auto* metric = binding.mutable_output_artifact()->mutable_properties(2);
+  metric->mutable_value()->set_string_value("COSINE");
+  EXPECT_THROW(converter.convert(serializePlan(rel), {}, false, "ArrowBatch",
+                                 {{binding.plan_node_id(), binding}}, runtimeContext()),
+               std::runtime_error);
+  metric->mutable_value()->set_int64_value(1);
+  EXPECT_THROW(converter.convert(serializePlan(rel), {}, false, "ArrowBatch",
+                                 {{binding.plan_node_id(), binding}}, runtimeContext()),
+               std::runtime_error);
+  binding.mutable_output_artifact()->mutable_properties()->DeleteSubrange(2, 1);
+  EXPECT_THROW(converter.convert(serializePlan(rel), {}, false, "ArrowBatch",
+                                 {{binding.plan_node_id(), binding}}, runtimeContext()),
+               std::runtime_error);
 }
 
 TEST(ArtifactBuildPlanConversionTest, RejectsNonRootAndNestedArtifactArguments) {

@@ -145,9 +145,14 @@ PangrovaExchangeSource::PangrovaExchangeSource(
 }
 
 bool PangrovaExchangeSource::shouldRequestLocked() {
-  if (atEnd_ || closed_.load()) {
+  if (closed_.load()) {
     return false;
   }
+  // A timed-out long poll can return an empty response just as the in-flight
+  // read reaches EOF. ExchangeClient may put that source back in its empty
+  // queue after atEnd_ becomes true. Let it request once more so the terminal
+  // response removes the source; rejecting it violates ExchangeClient's
+  // empty-source invariant and strands the downstream task.
   return !requestPending_.exchange(true);
 }
 
@@ -349,7 +354,7 @@ PangrovaExchangeSource::fetchViaFlight(
   }
 
   if (scheduleRead) {
-    auto ioExecutor = pangrova::jni::globalIoExecutor();
+    auto ioExecutor = pangrova::jni::globalBlockingIoExecutor();
     if (!ioExecutor) {
       finishFlightReadFailure(
           promise, "Native exchange I/O executor is unavailable");
@@ -420,7 +425,7 @@ PangrovaExchangeSource::fetchViaExternal(
     }
   }
   if (scheduleRead) {
-    auto ioExecutor = pangrova::jni::globalIoExecutor();
+    auto ioExecutor = pangrova::jni::globalBlockingIoExecutor();
     if (!ioExecutor) {
       finishFlightReadFailure(
           promise, "Native exchange I/O executor is unavailable");

@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Actual Worker admission/reporting with real JNI runtime and durable mTLS service, not successful SQL E2E. */
 @Tag("native-required")
+@Tag("native-runtime-owner")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 @ResourceLock(ActualShuffleBackend.CREDENTIAL_LOCK)
 class WorkerShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {

@@ -167,6 +167,7 @@ facebook::velox::core::PlanNodePtr VeloxPlanConverter::convertFilteredRetrievalI
     facebook::velox::core::PlanNodePtr input,
     const std::vector<split::SplitConfig>& splits) {
   using namespace facebook::velox;
+  const auto logical_input_type = logicalNodeType(input);
   auto inspected = inspectInput(input);
   resolveFields(inspected, splits);
   const auto& projects = inspected.projects;
@@ -227,13 +228,15 @@ facebook::velox::core::PlanNodePtr VeloxPlanConverter::convertFilteredRetrievalI
   config.hydration_scan = std::move(hydration);
   core::PlanNodePtr result = std::make_shared<FilteredArtifactRetrievalNode>(
       detail.plan_node_id(), std::move(config), eligibility);
-  logical_node_types_[result->id()] = logicalNodeType(scan);
   for (auto iterator = projects.rbegin(); iterator != projects.rend(); ++iterator) {
     const auto& original = *iterator;
     result = std::make_shared<core::ProjectNode>(nextNodeId(), original->outputType()->names(),
         original->projections(), result);
-    logical_node_types_[result->id()] = logicalNodeType(original);
   }
+  if (!result->outputType()->equivalent(*input->outputType())) {
+    throw std::runtime_error("Filtered ANN output differs from its logical input contract");
+  }
+  logical_node_types_[result->id()] = logical_input_type;
   return result;
 }
 

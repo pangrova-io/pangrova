@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
@@ -19,13 +20,15 @@ final class TaskQueryCompletion {
     private final NativeTaskWriteCompletion writes;
     private final TaskReportSequences sequences;
     private final ConcurrentHashMap<String, Boolean> finalizationGuard = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Thread> rechecks = new ConcurrentHashMap<>();
+    private final Set<String> deferredQueries = ConcurrentHashMap.newKeySet();
 
     TaskQueryCompletion(TaskStatusReceiverContext deps, NativeTaskWriteCompletion writes,
             TaskReportSequences sequences) {
-        queryManager = deps.queryManager(); taskTracker = deps.taskTracker();
+        queryManager = deps.queryManager();
+        taskTracker = deps.taskTracker();
         stageCompletionCallback = deps.stageCompletionCallback();
-        this.writes = writes; this.sequences = sequences;
+        this.writes = writes;
+        this.sequences = sequences;
     }
 
     void evaluateQueryTransitions(String queryId, TaskStatusReport report) {
@@ -40,12 +43,10 @@ final class TaskQueryCompletion {
                     && !stageCompletionCallback.isQueryComplete(queryId)) {
                 LOG.debug("event=query_finalization_deferred queryId={}"
                         + " reason=dag_stages_pending", queryId);
-                // Schedule a deferred re-check. The DAG engine may complete
-                // the stage during collectResults (early terminal replay),
-                // after which isQueryComplete returns true. Without this
-                // retry, the query hangs because no one re-triggers
-                // evaluateQueryTransitions after the DAG completes.
-                scheduleQueryCompletionRecheck(queryId);
+                // The final task report can precede an asynchronous stage
+                // transition. Observe the DAG's terminal event so completion
+                // cannot be lost between the two owners.
+                observeDeferredCompletion(queryId);
                 return;
             }
             finalizeCompletedQuery(queryId);
@@ -56,62 +57,45 @@ final class TaskQueryCompletion {
         }
     }
 
-    /**
-     * Schedules a deferred re-check of query completion after DAG stages finish.
-     * Polls isQueryComplete at short intervals until true, then finalizes.
-     */
-    private void scheduleQueryCompletionRecheck(String queryId) {
-        var operation = taskTracker.enterQueryMetadataOperation(queryId);
-        Thread thread;
+    /** Keeps the query's metadata operation alive until its DAG reports a terminal outcome. */
+    private void observeDeferredCompletion(String queryId) {
+        if (!deferredQueries.add(queryId)) {
+            return;
+        }
+        org.pangrova.coordinator.task.QueryIssuanceOperation operation;
         try {
-            thread = new Thread(() -> {
-                try { pollUntilQueryComplete(queryId); }
-                finally { rechecks.remove(queryId, Thread.currentThread()); operation.close(); }
-            }, "query-recheck-" + queryId);
-            thread.setDaemon(true);
-            if (rechecks.putIfAbsent(queryId, thread) != null) { operation.close(); return; }
-        } catch (RuntimeException | Error failure) { operation.close(); throw failure; }
-        try { thread.start(); }
-        catch (RuntimeException | Error failure) {
-            rechecks.remove(queryId, thread);
+            operation = taskTracker.enterQueryMetadataOperation(queryId);
+        } catch (RuntimeException | Error failure) {
+            deferredQueries.remove(queryId);
+            throw failure;
+        }
+        try {
+            stageCompletionCallback.onQueryTerminal(queryId, successful -> {
+                try {
+                    if (successful && mayFinalize(queryId) && taskTracker.allTasksFinished(queryId)) {
+                        LOG.info("event=query_finalization_dag_complete queryId={}", queryId);
+                        finalizeCompletedQuery(queryId);
+                    }
+                } finally {
+                    deferredQueries.remove(queryId);
+                    operation.close();
+                }
+            });
+        } catch (RuntimeException | Error failure) {
+            deferredQueries.remove(queryId);
             operation.close();
             throw failure;
         }
     }
 
-    /** Polls query completion at 50ms intervals, finalizing when all tasks finish. */
-    private void pollUntilQueryComplete(String queryId) {
-        for (int i = 0; i < 600; i++) {
-            var state = queryManager.getQueryState(queryId);
-            if (state.isEmpty() || switch (state.orElseThrow()) {
-                case FINISHED, FAILED, CANCELLED -> true;
-                default -> false;
-            }) return;
-            if (!sleepQuietly()) {
-                return;
-            }
-            if (stageCompletionCallback == null
-                    || stageCompletionCallback.isQueryComplete(queryId)) {
-                if (taskTracker.allTasksFinished(queryId)) {
-                    LOG.info("event=query_finalization_recheck_success queryId={} attempts={}",
-                            queryId, i + 1);
-                    finalizeCompletedQuery(queryId);
-                }
-                return;
-            }
-        }
-        LOG.warn("event=query_finalization_recheck_timeout queryId={}", queryId);
-    }
-
-    /** Sleeps 50ms; returns false if interrupted. */
-    private static boolean sleepQuietly() {
-        try {
-            Thread.sleep(50);
-            return true;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+    private boolean mayFinalize(String queryId) {
+        if (taskTracker.hasFailedTask(queryId)) {
             return false;
         }
+        return queryManager.getQueryState(queryId).filter(state -> switch (state) {
+            case FINISHED, FAILED, CANCELLED -> false;
+            default -> true;
+        }).isPresent();
     }
 
     private void finalizeCompletedQuery(String queryId) {

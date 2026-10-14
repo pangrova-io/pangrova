@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
+import java.util.function.Consumer;
+
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,11 @@ class EventDrivenQueryCompletionTest {
                                    String state, ErrorDetail error) {
             // no-op for testing defaults
         }
+
+        @Override
+        public void onQueryTerminal(String queryId, Consumer<Boolean> listener) {
+            listener.accept(true);
+        }
     }
 
     /**
@@ -78,6 +85,7 @@ class EventDrivenQueryCompletionTest {
         int failedCount;
         int cancelledCount;
         int expectedTaskCount = Integer.MAX_VALUE;
+        Consumer<Boolean> terminalListener;
 
         @Override
         public void onTaskTerminal(String queryId, String taskId,
@@ -87,11 +95,24 @@ class EventDrivenQueryCompletionTest {
                 case "FAILED" -> failedCount++;
                 case "CANCELLED" -> cancelledCount++;
             }
+            if (terminalListener != null && isQueryComplete(queryId)) {
+                terminalListener.accept(failedCount == 0 && cancelledCount == 0);
+                terminalListener = null;
+            }
         }
 
         @Override
         public boolean isQueryComplete(String queryId) {
             return (finishedCount + failedCount + cancelledCount) >= expectedTaskCount;
+        }
+
+        @Override
+        public void onQueryTerminal(String queryId, Consumer<Boolean> listener) {
+            if (isQueryComplete(queryId)) {
+                listener.accept(failedCount == 0 && cancelledCount == 0);
+            } else {
+                terminalListener = listener;
+            }
         }
     }
 }

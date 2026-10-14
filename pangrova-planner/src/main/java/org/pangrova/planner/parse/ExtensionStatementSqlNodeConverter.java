@@ -156,6 +156,21 @@ final class ExtensionStatementSqlNodeConverter {
     }
 
     private SqlNode convertMerge(MergeStatement m) {
+        long matchedActions = m.clauses().stream().filter(clause ->
+                clause instanceof MergeStatement.MergeClause.WhenMatchedUpdate
+                        || clause instanceof MergeStatement.MergeClause.WhenMatchedDelete).count();
+        long insertActions = m.clauses().stream().filter(clause ->
+                clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert).count();
+        if (matchedActions > 1 || insertActions > 1) {
+            throw new IllegalArgumentException(
+                    "MERGE cannot be lowered to one atomic native write: multiple actions of the same kind");
+        }
+        if (m.clauses().stream().anyMatch(clause ->
+                clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert insert
+                        && insert.condition().isPresent())) {
+            throw new IllegalArgumentException(
+                    "MERGE cannot be lowered to one atomic native write: conditional INSERT");
+        }
         SqlIdentifier target = (SqlIdentifier) id(m.targetTable());
         SqlIdentifier targetAlias = m.targetAlias()
                 .map(a -> new SqlIdentifier(a, POS)).orElse(null);
@@ -169,16 +184,31 @@ final class ExtensionStatementSqlNodeConverter {
         SqlInsert ins = null;
         for (var clause : m.clauses()) {
             if (clause instanceof MergeStatement.MergeClause.WhenMatchedUpdate wu) {
+                if (wu.condition().isPresent()) {
+                    if (insertActions != 0) {
+                        throw new IllegalArgumentException(
+                                "MERGE cannot be lowered to one atomic native write: conditional UPDATE with INSERT");
+                    }
+                    onCond = SqlStdOperatorTable.AND.createCall(
+                            POS, onCond, convertExpression(wu.condition().orElseThrow()));
+                }
                 SqlNodeList c = new SqlNodeList(wu.assignments().stream()
                         .map(a -> (SqlNode) new SqlIdentifier(a.column(), POS)).toList(), POS);
                 SqlNodeList v = new SqlNodeList(wu.assignments().stream()
                         .map(a -> convertExpression(a.value())).toList(), POS);
-                upd = new SqlUpdate(POS, target, c, v,
-                        wu.condition().map(this::convertExpression).orElse(null), null, null);
+                upd = new SqlUpdate(POS, target, c, v, null, null, null);
             } else if (clause instanceof MergeStatement.MergeClause.WhenMatchedDelete wd) {
+                if (wd.condition().isPresent()) {
+                    if (insertActions != 0) {
+                        throw new IllegalArgumentException(
+                                "MERGE cannot be lowered to one atomic native write: conditional DELETE with INSERT");
+                    }
+                    onCond = SqlStdOperatorTable.AND.createCall(
+                            POS, onCond, convertExpression(wd.condition().orElseThrow()));
+                }
                 if (upd == null) {
                     upd = new SqlUpdate(POS, target, SqlNodeList.EMPTY, SqlNodeList.EMPTY,
-                            wd.condition().map(this::convertExpression).orElse(null), null, null);
+                            null, null, null);
                 }
             } else if (clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert wi) {
                 SqlNodeList c2 = wi.columns().map(this::toColumnNodeList).orElse(null);

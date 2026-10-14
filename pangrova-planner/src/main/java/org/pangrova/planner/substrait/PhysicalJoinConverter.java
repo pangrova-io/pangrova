@@ -4,6 +4,7 @@ import io.substrait.expression.Expression;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableExpression;
 import io.substrait.relation.ImmutableSort;
+import io.substrait.relation.ImmutableJoin;
 import io.substrait.relation.Rel;
 import io.substrait.relation.physical.BroadcastExchange;
 import io.substrait.relation.physical.ComparisonJoinKey;
@@ -22,7 +23,6 @@ import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinInfo;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rex.RexNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,6 +60,9 @@ final class PhysicalJoinConverter {
         Rel right = relVisitor.apply(mergeJoin.getRight());
 
         JoinInfo joinInfo = mergeJoin.analyzeCondition();
+        if (!joinInfo.getRemaining(mergeJoin.getCluster().getRexBuilder()).isAlwaysTrue()) {
+            return joinWithFullCondition(mergeJoin, left, right);
+        }
         // PERF-T13: Use ImmutableIntList directly (read-only) instead of copying to ArrayList.
         List<Integer> leftKeys = joinInfo.leftKeys;
         List<Integer> rightKeys = joinInfo.rightKeys;
@@ -76,7 +79,6 @@ final class PhysicalJoinConverter {
                 .right(right)
                 .keys(comparisonKeys(left, right, leftKeys, rightKeys))
                 .joinType(mapMergeJoinType(mergeJoin.getJoinType()));
-        addRemainingFilter(builder, mergeJoin.analyzeCondition(), mergeJoin);
 
         LOG.debug("event=convert_merge_join_standard joinType={} leftKeys={} rightKeys={} preSorted={}",
                 mergeJoin.getJoinType(), leftKeys, rightKeys, inputsPreSorted);
@@ -177,6 +179,9 @@ final class PhysicalJoinConverter {
             org.apache.calcite.rel.core.Join join, Rel left, Rel right) {
 
         JoinInfo joinInfo = join.analyzeCondition();
+        if (!joinInfo.getRemaining(join.getCluster().getRexBuilder()).isAlwaysTrue()) {
+            return joinWithFullCondition(join, left, right);
+        }
         // PERF-T13: Use ImmutableIntList directly (read-only) instead of copying to ArrayList.
         List<Integer> leftKeys = joinInfo.leftKeys;
         List<Integer> rightKeys = joinInfo.rightKeys;
@@ -186,31 +191,19 @@ final class PhysicalJoinConverter {
                 .right(right)
                 .keys(comparisonKeys(left, right, leftKeys, rightKeys))
                 .joinType(mapHashJoinType(join.getJoinType()));
-        addRemainingFilter(builder, joinInfo, join);
 
         LOG.debug("event=convert_hash_join_standard joinType={} leftKeys={} rightKeys={}",
                 join.getJoinType(), leftKeys, rightKeys);
         return builder.build();
     }
 
-    private void addRemainingFilter(
-            io.substrait.relation.physical.ImmutableHashJoin.Builder builder,
-            JoinInfo joinInfo,
-            org.apache.calcite.rel.core.Join join) {
-        RexNode remaining = joinInfo.getRemaining(join.getCluster().getRexBuilder());
-        if (!remaining.isAlwaysTrue()) {
-            builder.postJoinFilter(rexConverter.convert(remaining));
-        }
-    }
-
-    private void addRemainingFilter(
-            io.substrait.relation.physical.ImmutableMergeJoin.Builder builder,
-            JoinInfo joinInfo,
-            org.apache.calcite.rel.core.Join join) {
-        RexNode remaining = joinInfo.getRemaining(join.getCluster().getRexBuilder());
-        if (!remaining.isAlwaysTrue()) {
-            builder.postJoinFilter(rexConverter.convert(remaining));
-        }
+    /** A residual ON predicate must run inside the join, before outer-row padding. */
+    private Rel joinWithFullCondition(org.apache.calcite.rel.core.Join join, Rel left, Rel right) {
+        return ImmutableJoin.builder()
+                .left(left).right(right)
+                .condition(rexConverter.convert(join.getCondition()))
+                .joinType(PlanNodeConverter.mapJoinType(join.getJoinType()))
+                .build();
     }
 
     private static List<ComparisonJoinKey> comparisonKeys(

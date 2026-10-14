@@ -342,11 +342,30 @@ final class TaskIdentityRegistry {
         return removed[0];
     }
 
-    synchronized void compactDrainedTask(String taskId, SubmitTaskRequest request) {
-        Identity identity = requireIdentity(request);
-        if (identity.drainReceipt() == null) throw new IllegalStateException("Task has no actual drain receipt");
+    synchronized void compactDrainedTask(String taskId, SubmitTaskRequest request,
+            org.pangrova.protocol.v2.TaskReport receipt) {
+        Identity identity = identities.get(taskId);
+        if (identity == null || identity.drainReceipt() == null) {
+            throw new IllegalStateException("Task has no actual drain receipt");
+        }
         if (!taskId.equals(request.taskRequest().getAttempt().getTaskId())) {
             throw new IllegalArgumentException("Task compaction identity changed");
+        }
+        if (!request.taskRequest().getAttempt().equals(receipt.getAttempt())
+                || !identity.attempt().equals(org.pangrova.protocol.rest.task.TaskAttemptDescriptor
+                        .from(receipt.getAttempt()))
+                || !org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                        .compactExecutionDrainReceipt(identity.drainReceipt())
+                        .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                                .compactExecutionDrainReceipt(receipt))) {
+            throw new IllegalArgumentException("Task compaction drain receipt changed");
+        }
+        // A settled task can already be compacted while an in-flight report
+        // fact briefly retains its issued request. That fact may finish and
+        // clear the request between the caller's lookup and this method.
+        if (identity.request() == null) return;
+        if (!request.equals(identity.request())) {
+            throw new IllegalStateException("Task has no exact retained issued request");
         }
         identities.put(taskId, identity.compact());
     }

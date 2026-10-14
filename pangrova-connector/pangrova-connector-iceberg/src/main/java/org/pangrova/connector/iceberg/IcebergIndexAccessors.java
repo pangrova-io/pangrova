@@ -12,6 +12,7 @@ import org.pangrova.spi.connector.index.NativeIndexEvaluator;
 import org.pangrova.spi.connector.index.NativeIndexType;
 import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
 import org.pangrova.spi.connector.index.SnapshotDataFile;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
 import org.pangrova.spi.index.statistics.DataFileStatistics;
 import org.pangrova.spi.index.statistics.FileColumnStatistics;
 import org.apache.iceberg.DataFile;
@@ -102,6 +103,11 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
     public Optional<SnapshotAwareMetadata> getSnapshotAwareMetadata(
             String schemaName, String tableName) {
         return Optional.of(new IcebergSnapshotAwareMetadata(catalog, schemaName, tableName));
+    }
+
+    @Override
+    public Optional<SnapshotPinProvider> getSnapshotPinProvider() {
+        return Optional.of(new IcebergSnapshotPinProvider(catalog));
     }
 
     @Override

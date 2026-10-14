@@ -348,6 +348,28 @@ public class TaskManager implements AutoCloseable {
         return OptionalLong.of(info.executorHandle());
     }
 
+    /** Snapshot of completed Native scalar-index decisions in retained task records. */
+    public IndexSplitTotals getNativeIndexSplitTotals() {
+        long evaluated = 0;
+        long skipped = 0;
+        for (TaskInfo info : tasks.values()) {
+            byte[] bytes = info.terminalTaskStats();
+            if (bytes == null || bytes.length == 0) {
+                continue;
+            }
+            try {
+                var stats = org.pangrova.protocol.v2.NativeTaskStats.parseFrom(bytes);
+                evaluated = Math.addExact(evaluated, stats.getIndexSplitsEvaluated());
+                skipped = Math.addExact(skipped, stats.getIndexSplitsSkipped());
+            } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+                throw new IllegalStateException("Captured NativeTaskStats is malformed", malformed);
+            }
+        }
+        return new IndexSplitTotals(evaluated, skipped);
+    }
+
+    public record IndexSplitTotals(long evaluated, long skipped) {}
+
     /**
      * Returns the per-task shuffle server port, or 0 if no shuffle server was started.
      */

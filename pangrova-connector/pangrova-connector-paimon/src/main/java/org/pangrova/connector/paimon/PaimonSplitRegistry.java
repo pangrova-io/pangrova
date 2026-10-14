@@ -349,7 +349,7 @@ public final class PaimonSplitRegistry implements AutoCloseable {
         }
 
         /** Returns the actual table selected when this split was planned. */
-        public Table table() { return table; }
+        Table table() { return table; }
 
         /** Borrows the retained SDK payload; this does not grant a new read or extend the lease. */
         public Split split() { return split; }

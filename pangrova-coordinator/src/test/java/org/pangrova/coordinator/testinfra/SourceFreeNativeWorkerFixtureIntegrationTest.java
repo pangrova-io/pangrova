@@ -69,6 +69,9 @@ class SourceFreeNativeWorkerFixtureIntegrationTest {
             var issued = tracker.getTaskRequest(issuedTaskId).taskRequest();
             assertThat(response.resultEndpoint().ticket()).isEqualTo(worker.resultTicket(issued));
             assertThat(response.resultEndpoint().ticket()).isNotEqualTo(issuedTaskId);
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5))
+                    .until(() -> worker.taskManager().getRunningTaskCount() == 1);
+            assertThat(worker.taskManager().getRunningTaskCount()).isEqualTo(1);
             worker.close();
             assertThat(NativeRuntime.isInitialized()).isFalse();
             assertThat(worker.reports()).anySatisfy(report -> {

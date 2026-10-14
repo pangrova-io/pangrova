@@ -27,6 +27,7 @@ import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
@@ -115,6 +116,11 @@ class SpeculativeExecutionWiringTest {
                     org.pangrova.protocol.rest.error.ErrorDetail error) {
                 completedTask.set(taskId);
             }
+
+            @Override public void onQueryTerminal(
+                    String queryId, java.util.function.Consumer<Boolean> listener) {
+                listener.accept(true);
+            }
         };
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(
                 qm(), tracker, wm, launcher, resolver, rec,
@@ -164,7 +170,7 @@ class SpeculativeExecutionWiringTest {
         assertThat(tracker.getTaskIds(QID)).doesNotContain(copy);
         assertThat(failures.get()).isEqualTo(1);
     }
-    @Test void concurrentSpeculativeLoserDoesNotContributeWriteFragment() throws Exception {
+    @RepeatedTest(20) void concurrentSpeculativeLoserDoesNotContributeWriteFragment() throws Exception {
         var fragments = new NativeWriteCommitTracker();
         fragments.registerWriteContext(
                 QID,

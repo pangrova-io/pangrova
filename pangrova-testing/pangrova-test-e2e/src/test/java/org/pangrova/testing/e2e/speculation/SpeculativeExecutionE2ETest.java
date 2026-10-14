@@ -142,12 +142,16 @@ class SpeculativeExecutionE2ETest extends SqlE2ETestBase {
         @DisplayName("missing original task cannot leave a speculative pair")
         void missingOriginalRequestDoesNotLeavePair() {
             SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
+            CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+            RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
+                    CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
             launcher.setDispatchDependencies(
-                    new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(),
-                            new NoOpTracingProvider()),
+                    dispatcher,
                     new WorkerManager(20_000, 60_000,
                             new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()),
-                    new CoordinatorTaskTracker());
+                    tracker);
+            launcher.setCancelRetrier(new org.pangrova.coordinator.task.TaskCancelRetrier(
+                    dispatcher, tracker));
 
             assertThat(launcher.launchSpeculative("task-1", "worker-A", "query-1"))
                     .isNull();

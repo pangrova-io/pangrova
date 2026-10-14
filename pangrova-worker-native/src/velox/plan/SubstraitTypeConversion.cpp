@@ -59,7 +59,9 @@ facebook::velox::core::TypedExprPtr VeloxPlanConverter::convertReferenceSegment(
     const auto row = std::dynamic_pointer_cast<const RowType>(value->type());
     const auto index = field.field();
     if (!row || index < 0 || static_cast<size_t>(index) >= row->size()) {
-      throw std::runtime_error("Field reference index is out of bounds for ROW schema");
+      throw std::runtime_error(
+          "Field reference index " + std::to_string(index) +
+          " is out of bounds for " + value->type()->toString());
     }
     selected = value->isInputKind()
         ? core::TypedExprPtr(std::make_shared<core::FieldAccessTypedExpr>(

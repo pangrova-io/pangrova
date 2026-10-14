@@ -13,6 +13,8 @@ import org.pangrova.testing.testkit.function.ActualNativeCatalogue;
  */
 public final class TestWorkerInfoBuilder {
 
+    private static final CapabilityInventory CANONICAL_INVENTORY = loadCanonicalInventory();
+
     private TestWorkerInfoBuilder() {}
 
     /**
@@ -122,6 +124,10 @@ public final class TestWorkerInfoBuilder {
 
     /** Returns the complete unmodified actual catalogue for scheduling contract tests. */
     public static CapabilityInventory canonicalInventory() {
+        return CANONICAL_INVENTORY;
+    }
+
+    private static CapabilityInventory loadCanonicalInventory() {
         try {
             return CapabilityInventory.parseFrom(ActualNativeCatalogue.bytes());
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {

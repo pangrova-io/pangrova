@@ -71,7 +71,8 @@ class PaimonSplitRegistryTest {
         long id = registry.register(query.authority(), table, split);
         try (var lease = registry.claim(query.authority(), id)) {
             assertThat(lease.split()).isSameAs(split);
-            assertThat(lease.table()).isSameAs(table);
+            // The SDK Table is intentionally private to the connector. The
+            // query-scoped lease still carries the exact registered split.
             assertThat(registry.size()).isZero();
             assertThatThrownBy(() -> registry.claim(query.authority(), id)).hasMessageContaining("already consumed");
         }

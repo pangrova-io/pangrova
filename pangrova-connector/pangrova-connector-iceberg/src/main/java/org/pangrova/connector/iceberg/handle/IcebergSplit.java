@@ -75,6 +75,11 @@ public record IcebergSplit(
                 : Arrays.copyOf(residualPredicate, residualPredicate.length);
     }
 
+    @Override
+    public byte[] residualPredicate() {
+        return Arrays.copyOf(residualPredicate, residualPredicate.length);
+    }
+
     /**
      * Creates a new {@link Builder} for constructing IcebergSplit instances.
      * Preferred over telescoping constructors for readability.

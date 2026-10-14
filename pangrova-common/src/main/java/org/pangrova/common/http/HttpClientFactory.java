@@ -1,12 +1,15 @@
 package org.pangrova.common.http;
 
+import java.net.ProxySelector;
 import java.net.http.HttpClient;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Factory for creating managed HTTP client instances with connection pooling.
+ * Factory for creating managed internal RPC HTTP clients with connection pooling.
+ * Cluster traffic uses direct connections so a host JVM proxy cannot intercept
+ * Worker registration, task dispatch, status reports, or heartbeats.
  * Returns ManagedHttpClient so callers can shut down the backing thread pool.
  */
 public final class HttpClientFactory {
@@ -26,6 +29,7 @@ public final class HttpClientFactory {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(config.connectTimeout())
                 .executor(executor)
+                .proxy(ProxySelector.of(null))
                 .build();
         return new ManagedHttpClient(client, executor);
     }

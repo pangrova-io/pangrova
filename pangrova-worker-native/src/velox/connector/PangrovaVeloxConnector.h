@@ -21,6 +21,7 @@
 #include "merge/MergeReaderFactory.h"
 #include "velox/connector/AdaptiveBatchSizer.h"
 #include "velox/connector/IcebergMetadataJsonReader.h"
+#include "velox/connector/PaimonSnapshotJsonReader.h"
 #include "velox/connector/PartitionColumnInjector.h"
 #include "velox/connector/SchemaEvolution.h"
 #include "velox/connector/SourceObjectIdentityInjector.h"
@@ -290,6 +291,7 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Pinned Iceberg metadata object; read on the worker through its registered
   // filesystem, never materialized in the coordinator or connector JVM.
   std::unique_ptr<IcebergMetadataJsonReader> metadata_reader_;
+  std::unique_ptr<PaimonSnapshotJsonReader> paimon_snapshot_reader_;
 
   // Paimon changelog mode flag for the current split.
   // When true, the split's Parquet file contains a _row_kind column.

@@ -104,8 +104,11 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
     public org.pangrova.spi.connector.metadata.NativeDatasetScanPage scanPartitions(
             ConnectorSession session, AcceptedSourceSnapshot snapshot,
             java.util.OptionalLong afterPartitionId, int pageSize) {
-        long version = snapshot.version(); byte[] schemaFingerprint = snapshot.schemaSha256();
-        if (!security(session).getTenantId().equals(snapshot.tenant())) throw new SecurityException("Scan membership tenant differs");
+        long version = snapshot.version();
+        byte[] schemaFingerprint = snapshot.schemaSha256();
+        if (!security(session).getTenantId().equals(snapshot.tenant())) {
+            throw new SecurityException("Scan membership tenant differs");
+        }
         if (version <= 0 || schemaFingerprint.length != 32 || pageSize < 1 || pageSize > 256
                 || (afterPartitionId.isPresent() && afterPartitionId.getAsLong() < 0)) {
             throw new IllegalArgumentException("Invalid dataset scan pagination");
@@ -138,24 +141,29 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             var request = org.pangrova.protocol.v2.CleanupSourceObjectsRequest.newBuilder()
                     .setCatalog(catalogBinding()).setSecurity(security(session)).setExecutionId(batch.executionId())
                     .setCommitFingerprint(batch.fingerprint()).setExecutionOwner(ExecutionOwnerIdentity.newBuilder()
-                            .setOwnerId(anchor.ownerId()).setOwnerIncarnation(anchor.ownerIncarnation()).setFencingToken(anchor.fencingToken()))
+                            .setOwnerId(anchor.ownerId()).setOwnerIncarnation(anchor.ownerIncarnation())
+                            .setFencingToken(anchor.fencingToken()))
                     .setControlEpoch(dependencies.controlEpoch().getAsLong()).setDeadlineEpochMs(deadline)
                     .setCleanupId(batch.cleanupId()).setDatasetUri(batch.datasetUri())
                     .setObjectsSha256(Checksum.newBuilder().setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
                             .setDigest(ByteString.copyFrom(batch.sha256())));
-            for (var object : batch.objects()) request.addObjects(org.pangrova.protocol.v2.PreparedSourceObject.newBuilder()
-                    .setRelativePath(object.relativePath()).setSizeBytes(object.sizeBytes())
-                    .setPurpose(object.purpose() == SourceObjectPage.Purpose.SOURCE
-                            ? org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_SOURCE
-                            : org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR));
+            for (var object : batch.objects()) {
+                request.addObjects(org.pangrova.protocol.v2.PreparedSourceObject.newBuilder()
+                        .setRelativePath(object.relativePath()).setSizeBytes(object.sizeBytes())
+                        .setPurpose(object.purpose() == SourceObjectPage.Purpose.SOURCE
+                                ? org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_SOURCE
+                                : org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR));
+            }
             try {
-                var response = client.call(endpoint(), command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_CLEANUP_SOURCE_OBJECTS,
-                        request.build()), deadline);
+                var response = client.call(endpoint(),
+                        command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_CLEANUP_SOURCE_OBJECTS, request.build()),
+                        deadline);
                 var result = response.getPayload().unpack(org.pangrova.protocol.v2.CleanupSourceObjectsResult.class);
                 if (!result.getCleanupId().equals(batch.cleanupId()) || !result.getSdkJoined()
                         || result.getDeletedCount() != batch.objects().size()
                         || !result.getObjectsSha256().equals(request.getObjectsSha256())) {
-                    throw new IllegalArgumentException("Source cleanup response differs from its authoritative deletion set");
+                    throw new IllegalArgumentException(
+                            "Source cleanup response differs from its authoritative deletion set");
                 }
                 sourceCatalog.completeCleanup(reservation, batch);
             } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
@@ -170,8 +178,10 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             List<byte[]> fragments, DistributedWriteCommitContext context, SourcePublicationReservation reservation) {
         WriteCommitEntry intent = dependencies.journal().get().getEntry(context.executionId()).orElseThrow(
                 () -> new IllegalStateException("Native preparation requires a durable write intent"));
-        validateIntent(intent, fragments, context); validateOutput(intent, output, catalog.name());
-        WriteCommitFencer fencer = Objects.requireNonNull(dependencies.fencer().get(), "Preparation requires durable ownership");
+        validateIntent(intent, fragments, context);
+        validateOutput(intent, output, catalog.name());
+        WriteCommitFencer fencer = Objects.requireNonNull(
+                dependencies.fencer().get(), "Preparation requires durable ownership");
         ExecutionAnchor anchor = fencer.currentAnchor(context.executionId());
         requireOwner(fencer, anchor, context.executionId());
         long deadline = Math.min(deadline(), anchor.expiresAt().toEpochMilli());
@@ -193,16 +203,23 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             pageRequest = pageRequest.toBuilder().setInvocationId(invocation.invocationId()).build();
             PreparationPage page;
             try {
-                var response = client.call(worker, command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE,
-                        pageRequest), deadline);
+                var response = client.call(worker,
+                        command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE, pageRequest),
+                        deadline);
                 page = decodePreparation(response, context.commitFingerprint(), catalogBinding());
                 var evidence = response.getPayload().unpack(PrepareDistributedWriteResult.class);
                 if (!evidence.getInvocationId().equals(invocation.invocationId())) {
                     throw new IllegalArgumentException("Preparation response differs from its durable SDK invocation");
                 }
                 if (!evidence.getSdkJoined()) {
-                    if (page != null) throw new IllegalArgumentException("Prepared candidate has no actual SDK join proof");
-                    return new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+                    if (page != null) {
+                        throw new IllegalArgumentException("Prepared candidate has no actual SDK join proof");
+                    }
+                    return new NativeWritePreparation(
+                            NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+                }
+                if (page != null) {
+                    requireIssuedPage(page.objects(), pageIndex, after);
                 }
                 sourceCatalog.acknowledgePreparation(reservation, invocation,
                         CanonicalTaskRequests.sha256(evidence.toByteArray()).getDigest().toByteArray());
@@ -213,39 +230,57 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                         context.executionId(), context.commitFingerprint(), pageIndex, uncertain);
                 return new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
             }
-            if (page == null) return new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
-            requireOwner(fencer, anchor, context.executionId());
-            if (page.objects().index() != pageIndex || !page.objects().afterPath().equals(after)) {
-                throw new IllegalArgumentException("SDK object page sequence or cursor differs");
+            if (page == null) {
+                return new NativeWritePreparation(
+                        NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
             }
-            if (first == null) first = page.publication();
-            else requireSamePreparation(first, page.publication());
+            requireOwner(fencer, anchor, context.executionId());
+            if (first == null) {
+                first = page.publication();
+            } else {
+                requireSamePreparation(first, page.publication());
+            }
             sourceCatalog.registerObjects(reservation, page.publication(), page.objects());
-            if (page.objects().last()) return new NativeWritePreparation(NativeWritePreparation.Outcome.PREPARED,
-                    java.util.Optional.of(page.publication()));
+            if (page.objects().last()) {
+                return new NativeWritePreparation(NativeWritePreparation.Outcome.PREPARED,
+                        java.util.Optional.of(page.publication()));
+            }
             after = page.objects().lastPath();
         }
         throw new IllegalStateException("SDK object registration exceeds its admitted page bound");
     }
 
+    static void requireIssuedPage(SourceObjectPage page, int pageIndex, String after) {
+        if (page.index() != pageIndex || !page.afterPath().equals(after)) {
+            throw new IllegalArgumentException("SDK object page sequence or cursor differs");
+        }
+    }
+
     static PrepareDistributedWriteRequest prepareRequest(SecurityContext security, WriteCommitEntry intent,
             ExecutionAnchor anchor, long deadline, long controlEpoch, SourcePublicationReservation reservation) {
-        if (controlEpoch <= 0 || deadline <= System.currentTimeMillis()) throw new IllegalArgumentException("Invalid preparation term/deadline");
-        if (intent.ownerId() == null || intent.executionFencingToken() <= 0) throw new IllegalArgumentException("Winners lack durable provenance");
+        if (controlEpoch <= 0 || deadline <= System.currentTimeMillis()) {
+            throw new IllegalArgumentException("Invalid preparation term/deadline");
+        }
+        if (intent.ownerId() == null || intent.executionFencingToken() <= 0) {
+            throw new IllegalArgumentException("Winners lack durable provenance");
+        }
         validateIntentOwner(intent, anchor, deadline);
         try {
             var binding = WriteOutputBinding.parseFrom(intent.writeOutputBinding());
             var allocation = org.pangrova.protocol.v2.SourcePublicationReservation.newBuilder()
                     .setTableId(reservation.base().tableId()).setTableGeneration(reservation.base().generation())
-                    .setTenantId(reservation.base().key().tenant()).setManifestRelativePath(reservation.manifestRelativePath());
+                    .setTenantId(reservation.base().key().tenant())
+                    .setManifestRelativePath(reservation.manifestRelativePath());
             reservation.baseSnapshot().ifPresent(base -> allocation.setBaseSnapshot(
                     org.pangrova.protocol.SourceSnapshotBindings.encode(base, binding.getLance().getCatalog())));
             var request = PrepareDistributedWriteRequest.newBuilder().setSecurity(security).setOutputBinding(binding)
-                    .setExecutionId(intent.queryId()).setCommitFingerprint(intent.commitFingerprint()).setReservation(allocation)
+                    .setExecutionId(intent.queryId()).setCommitFingerprint(intent.commitFingerprint())
+                    .setReservation(allocation)
                     .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId(anchor.ownerId())
                             .setOwnerIncarnation(anchor.ownerIncarnation()).setFencingToken(anchor.fencingToken()))
                     .setIntentExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId(intent.ownerId())
-                            .setOwnerIncarnation(intent.ownerIncarnation()).setFencingToken(intent.executionFencingToken()))
+                            .setOwnerIncarnation(intent.ownerIncarnation())
+                            .setFencingToken(intent.executionFencingToken()))
                     .setControlEpoch(controlEpoch).setDeadlineEpochMs(deadline);
             for (byte[] bytes : intent.fragments()) {
                 var fragment = LanceWriteFragment.parseFrom(bytes);
@@ -302,9 +337,11 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
             }
             validateAllocation(allocation, binding.getLance());
             var acceptedBase = output.acceptedWriteBaseSnapshot();
-            if ((base > 0) != acceptedBase.isPresent() || binding.getLance().hasBaseSnapshot() != acceptedBase.isPresent()
+            if ((base > 0) != acceptedBase.isPresent()
+                    || binding.getLance().hasBaseSnapshot() != acceptedBase.isPresent()
                     || (acceptedBase.isPresent() && !org.pangrova.protocol.SourceSnapshotBindings.encode(
-                            acceptedBase.orElseThrow(), binding.getLance().getCatalog()).equals(binding.getLance().getBaseSnapshot()))) {
+                            acceptedBase.orElseThrow(), binding.getLance().getCatalog())
+                            .equals(binding.getLance().getBaseSnapshot()))) {
                 throw new IllegalArgumentException("Native output accepted base differs from durable intent");
             }
         } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
@@ -361,21 +398,27 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
 
     record PreparationPage(PreparedSourcePublication publication, SourceObjectPage objects) {}
 
-    static PreparationPage decodePreparation(RuntimeCommandResponse response, String fingerprint, CatalogExecutionBinding catalog) {
+    static PreparationPage decodePreparation(
+            RuntimeCommandResponse response, String fingerprint, CatalogExecutionBinding catalog) {
         try {
             var result = response.getPayload().unpack(PrepareDistributedWriteResult.class);
-            if (!result.getUnknownFields().asMap().isEmpty() || !fingerprint.equals(result.getCommitFingerprint())) throw new IllegalArgumentException("Preparation fingerprint differs");
-            if (result.getOutcome() == org.pangrova.protocol.v2.WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_UNKNOWN) {
-                if (result.hasPublication() || result.hasObjectPage()) throw new IllegalArgumentException("UNKNOWN has no prepared evidence");
+            if (!result.getUnknownFields().asMap().isEmpty()
+                    || !fingerprint.equals(result.getCommitFingerprint())) {
+                throw new IllegalArgumentException("Preparation fingerprint differs");
+            }
+            if (!isPreparedOutcome(result)) {
                 return null;
             }
-            if (result.getOutcome() != org.pangrova.protocol.v2.WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_PREPARED
-                    || !result.hasPublication() || !result.hasObjectPage()) throw new IllegalArgumentException("Missing SDK preparation evidence");
             var header = result.getPublication();
-            if (!header.getUnknownFields().asMap().isEmpty()) throw new IllegalArgumentException("Unknown source preparation header fields");
+            if (!header.getUnknownFields().asMap().isEmpty()) {
+                throw new IllegalArgumentException("Unknown source preparation header fields");
+            }
             requireSha256(header.getObjectsSha256());
             var reference = org.pangrova.protocol.SourceSnapshotBindings.decode(header.getCandidate(), catalog);
-            if (!reference.membershipId().equals(fingerprint) || reference.acceptedOriginRevision() != catalog.getCatalogRevision()) throw new IllegalArgumentException("Candidate membership differs");
+            if (!reference.membershipId().equals(fingerprint)
+                    || reference.acceptedOriginRevision() != catalog.getCatalogRevision()) {
+                throw new IllegalArgumentException("Candidate membership differs");
+            }
             var publication = new PreparedSourcePublication(reference, header.getRowCount(), header.getObjectsCount(),
                     header.getObjectsSha256().getDigest().toByteArray(), header.getInheritedMembership());
             var page = result.getObjectPage();
@@ -384,8 +427,12 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                 throw new IllegalArgumentException("Unknown source object page fields");
             }
             requireSha256(page.getSha256());
-            var objects = new SourceObjectPage(page.getPageIndex(), page.getAfterPath(), page.getObjectsList().stream()
-                    .map(object -> new SourceObjectPage.ObjectReference(object.getRelativePath(), object.getSizeBytes(), objectPurpose(object.getPurpose()))).toList(),
+            var objects = new SourceObjectPage(page.getPageIndex(), page.getAfterPath(),
+                    page.getObjectsList().stream()
+                            .map(object -> new SourceObjectPage.ObjectReference(
+                                    object.getRelativePath(), object.getSizeBytes(),
+                                    objectPurpose(object.getPurpose())))
+                            .toList(),
                     page.getSha256().getDigest().toByteArray(), page.getIsLast());
             return new PreparationPage(publication, objects);
         } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException malformed) {
@@ -393,21 +440,50 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
         }
     }
 
+    private static boolean isPreparedOutcome(PrepareDistributedWriteResult result) {
+        if (result.getOutcome()
+                == org.pangrova.protocol.v2.WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_UNKNOWN) {
+            if (result.hasPublication() || result.hasObjectPage()) {
+                throw new IllegalArgumentException("UNKNOWN has no prepared evidence");
+            }
+            return false;
+        }
+        if (result.getOutcome()
+                != org.pangrova.protocol.v2.WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_PREPARED
+                || !result.hasPublication() || !result.hasObjectPage()) {
+            throw new IllegalArgumentException("Missing SDK preparation evidence");
+        }
+        return true;
+    }
+
     private static void requireSamePreparation(PreparedSourcePublication first, PreparedSourcePublication next) {
-        var left = first.candidate(); var right = next.candidate();
-        if (!left.deployment().equals(right.deployment()) || left.acceptedOriginRevision() != right.acceptedOriginRevision()
-                || !left.tenant().equals(right.tenant())
-                || !left.tableId().equals(right.tableId()) || left.generation() != right.generation()
-                || !left.datasetUri().equals(right.datasetUri()) || left.version() != right.version()
-                || !left.manifestRelativePath().equals(right.manifestRelativePath())
-                || !Arrays.equals(left.manifestSha256(), right.manifestSha256())
-                || !Arrays.equals(left.schemaSha256(), right.schemaSha256()) || left.manifestSize() != right.manifestSize()
-                || !left.namingScheme().equals(right.namingScheme()) || !left.membershipId().equals(right.membershipId())
+        var left = first.candidate();
+        var right = next.candidate();
+        if (!sameCandidateAuthority(left, right) || !sameCandidateFiles(left, right)
                 || first.rows() != next.rows() || first.objectsCount() != next.objectsCount()
                 || !Arrays.equals(first.objectsSha256(), next.objectsSha256())
                 || !first.inheritedMembership().equals(next.inheritedMembership())) {
             throw new IllegalArgumentException("SDK preparation header changed across pages");
         }
+    }
+
+    private static boolean sameCandidateAuthority(AcceptedSourceSnapshot left, AcceptedSourceSnapshot right) {
+        return left.deployment().equals(right.deployment())
+                && left.acceptedOriginRevision() == right.acceptedOriginRevision()
+                && left.tenant().equals(right.tenant())
+                && left.tableId().equals(right.tableId())
+                && left.generation() == right.generation()
+                && left.datasetUri().equals(right.datasetUri())
+                && left.version() == right.version();
+    }
+
+    private static boolean sameCandidateFiles(AcceptedSourceSnapshot left, AcceptedSourceSnapshot right) {
+        return left.manifestRelativePath().equals(right.manifestRelativePath())
+                && Arrays.equals(left.manifestSha256(), right.manifestSha256())
+                && Arrays.equals(left.schemaSha256(), right.schemaSha256())
+                && left.manifestSize() == right.manifestSize()
+                && left.namingScheme().equals(right.namingScheme())
+                && left.membershipId().equals(right.membershipId());
     }
 
     private SecurityContext security(ConnectorSession session) {
@@ -446,7 +522,9 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
     }
 
     private static void requireSha256(Checksum digest) {
-        if (!digest.getUnknownFields().asMap().isEmpty() || digest.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256 || digest.getDigest().size() != 32) {
+        if (!digest.getUnknownFields().asMap().isEmpty()
+                || digest.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
+                || digest.getDigest().size() != 32) {
             throw new IllegalArgumentException("Native metadata requires exact SHA-256 evidence");
         }
     }

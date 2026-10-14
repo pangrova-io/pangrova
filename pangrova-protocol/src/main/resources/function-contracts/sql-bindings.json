@@ -118,7 +118,7 @@
     {"namespace":"string","canonicalUrn":"extension:io.substrait:functions_string","name":"ltrim","implementation":"ltrim","kind":"SCALAR"},
     {"namespace":"string","canonicalUrn":"extension:io.substrait:functions_string","name":"rtrim","implementation":"rtrim","kind":"SCALAR"},
     {"namespace":"string","canonicalUrn":"extension:io.substrait:functions_string","name":"char_length","implementation":"length","kind":"SCALAR","sqlNames":["CHAR_LENGTH","CHARACTER_LENGTH","LENGTH"]},
-    {"namespace":"string","canonicalUrn":"extension:io.substrait:functions_string","name":"json_extract_scalar","implementation":"json_extract_scalar","kind":"SCALAR","sqlNames":["VARIANT_GET"]},
+    {"namespace":"variant","canonicalUrn":"extension:org.pangrova:functions_variant","name":"variant_get","implementation":"variant_get","kind":"SCALAR","sqlNames":["VARIANT_GET"]},
     {"namespace":"datetime","canonicalUrn":"extension:org.pangrova:functions_datetime","name":"year","implementation":"year","kind":"SCALAR"},
     {"namespace":"datetime","canonicalUrn":"extension:org.pangrova:functions_datetime","name":"month","implementation":"month","kind":"SCALAR"},
     {"namespace":"datetime","canonicalUrn":"extension:org.pangrova:functions_datetime","name":"day","implementation":"day","kind":"SCALAR"},

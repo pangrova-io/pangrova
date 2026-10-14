@@ -2,13 +2,48 @@ package org.pangrova.protocol;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.PhysicalFileAllocation;
+import org.pangrova.protocol.v2.PhysicalFileWriteBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskExecutionOptions;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.WriteOutputBinding;
+import org.pangrova.protocol.v2.WriteTaskOptions;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class NativeWriteBindingsTest {
+    @Test
+    void repeatedTransportBindingAcceptsOnlyTheExactSealedPhysicalAttempt() {
+        var attempt = TaskAttemptId.newBuilder().setQueryOrJobId("query-1")
+                .setTaskId("task-1").setPlanEpoch(1).setFencingToken(2).setControlEpoch(3)
+                .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId("owner-1")
+                        .setOwnerIncarnation("incarnation-1").setFencingToken(4)).build();
+        var physical = PhysicalFileWriteBinding.newBuilder().setAllocationPrefix("objects/write")
+                .addFiles(PhysicalFileWriteBindings.sealed(PhysicalFileAllocation.newBuilder()
+                        .setFileName("data.lance").setOpaqueLocation("objects/write/data.lance")));
+        var request = TaskRequest.newBuilder().setAttempt(attempt)
+                .setExecutionOptions(TaskExecutionOptions.newBuilder().setWrite(WriteTaskOptions.newBuilder()
+                        .setOutputBinding(WriteOutputBinding.newBuilder().setPhysical(physical)))).build();
+
+        var bound = NativeWriteBindings.bindAttempt(request);
+        assertThat(NativeWriteBindings.bindAttempt(bound)).isEqualTo(bound);
+        assertThatThrownBy(() -> NativeWriteBindings.bindAttempt(bound.toBuilder()
+                .setAttempt(attempt.toBuilder().setAttemptId(1)).build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different task attempt");
+        var tampered = bound.toBuilder().setExecutionOptions(bound.getExecutionOptions().toBuilder()
+                .setWrite(bound.getExecutionOptions().getWrite().toBuilder().setOutputBinding(
+                        bound.getExecutionOptions().getWrite().getOutputBinding().toBuilder().setPhysical(
+                                bound.getExecutionOptions().getWrite().getOutputBinding().getPhysical().toBuilder()
+                                        .setFiles(0, bound.getExecutionOptions().getWrite().getOutputBinding()
+                                                .getPhysical().getFiles(0).toBuilder()
+                                                .setFileSource("forged")))))).build();
+        assertThatThrownBy(() -> NativeWriteBindings.bindAttempt(tampered))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sealed task attempt");
+    }
+
     @Test
     void exactAttemptAndOwnerProduceDistinctStagingPaths() {
         TaskAttemptId attempt = TaskAttemptId.newBuilder().setQueryOrJobId("query-1")

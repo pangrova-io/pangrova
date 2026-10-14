@@ -764,6 +764,106 @@ TEST(ParseTaskConfigTest, ParsesPinnedIcebergMetadataSplitAndRejectsIdentityDrif
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
+TEST(ParseTaskConfigTest, ParsesPinnedPaimonSnapshotObjectAndRejectsKindDrift) {
+  auto request = validRequest();
+  auto* data_split = addFileSplit(request, proto::FILE_FORMAT_METADATA_JSON);
+  const std::string location = "s3://warehouse/db/orders/snapshot/snapshot-7";
+  data_split->set_connector_id("paimon");
+  data_split->set_source_id("db.orders$snapshots");
+  data_split->set_source_snapshot(std::string(64, 'a'));
+  data_split->set_data_object_id(location);
+  data_split->set_opaque_location(location);
+  data_split->set_start_offset(0);
+  data_split->set_length(256);
+  proto::FileSplitDetail detail;
+  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  detail.mutable_system_table()->set_kind(
+      proto::SystemTableSplitDetail::PAIMON_SNAPSHOTS);
+  detail.mutable_system_table()->set_snapshot_id(7);
+  detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
+  data_split->mutable_connector_detail()->PackFrom(detail);
+
+  auto parsed = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(parsed.splits.size(), 1U);
+  EXPECT_EQ(parsed.splits.front().system_table,
+      split::SystemTableKind::PAIMON_SNAPSHOTS);
+  EXPECT_EQ(parsed.splits.front().system_table_snapshot_id, 7);
+  EXPECT_EQ(parsed.splits.front().system_table_object_sha256, std::string(32, 'b'));
+
+  detail.mutable_system_table()->set_snapshot_id(0);
+  data_split->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  detail.mutable_system_table()->set_snapshot_id(7);
+  detail.mutable_system_table()->clear_object_sha256();
+  data_split->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
+  data_split->mutable_connector_detail()->PackFrom(detail);
+  data_split->set_connector_id("iceberg");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
+TEST(ParseTaskConfigTest, ParsesPinnedPaimonTagAndRejectsIdentityDrift) {
+  auto request = validRequest();
+  auto* data_split = addFileSplit(request, proto::FILE_FORMAT_METADATA_JSON);
+  const std::string location = "s3://warehouse/db/orders/tag/tag-v1";
+  data_split->set_connector_id("paimon");
+  data_split->set_source_id("db.orders$tags");
+  data_split->set_source_snapshot(std::string(64, 'a'));
+  data_split->set_data_object_id(location);
+  data_split->set_opaque_location(location);
+  data_split->set_start_offset(0);
+  data_split->set_length(256);
+  proto::FileSplitDetail detail;
+  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  detail.mutable_system_table()->set_kind(proto::SystemTableSplitDetail::PAIMON_TAGS);
+  detail.mutable_system_table()->set_tag_name("v1");
+  detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
+  data_split->mutable_connector_detail()->PackFrom(detail);
+
+  auto parsed = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(parsed.splits.size(), 1U);
+  EXPECT_EQ(parsed.splits.front().system_table, split::SystemTableKind::PAIMON_TAGS);
+  EXPECT_EQ(parsed.splits.front().system_table_tag_name, "v1");
+
+  detail.mutable_system_table()->set_tag_name("v2");
+  data_split->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  detail.mutable_system_table()->set_tag_name("v1");
+  detail.mutable_system_table()->set_snapshot_id(7);
+  data_split->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
+TEST(ParseTaskConfigTest, ParsesPinnedPaimonOptionsAndRejectsSchemaDrift) {
+  auto request = validRequest();
+  auto* data_split = addFileSplit(request, proto::FILE_FORMAT_METADATA_JSON);
+  const std::string location = "s3://warehouse/db/orders/schema/schema-2";
+  data_split->set_connector_id("paimon");
+  data_split->set_source_id("db.orders$options");
+  data_split->set_source_snapshot(std::string(64, 'a'));
+  data_split->set_data_object_id(location);
+  data_split->set_opaque_location(location);
+  data_split->set_start_offset(0);
+  data_split->set_length(256);
+  proto::FileSplitDetail detail;
+  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  detail.mutable_system_table()->set_kind(proto::SystemTableSplitDetail::PAIMON_OPTIONS);
+  detail.mutable_system_table()->set_schema_id(2);
+  detail.mutable_system_table()->set_object_sha256(std::string(32, 'b'));
+  data_split->mutable_connector_detail()->PackFrom(detail);
+
+  auto parsed = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(parsed.splits.size(), 1U);
+  EXPECT_EQ(parsed.splits.front().system_table, split::SystemTableKind::PAIMON_OPTIONS);
+  ASSERT_TRUE(parsed.splits.front().system_table_schema_id.has_value());
+  EXPECT_EQ(parsed.splits.front().system_table_schema_id.value(), 2);
+
+  detail.mutable_system_table()->set_schema_id(3);
+  data_split->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
 TEST(ParseTaskConfigTest, RejectsDuplicateDataSplitIdentity) {
   auto request = validRequest();
   auto* first = addFileSplit(request);

@@ -278,4 +278,8 @@ std::shared_ptr<folly::Executor> globalIoExecutor() {
   return NativeEngineLifecycle::instance().ioExecutor();
 }
 
+std::shared_ptr<folly::Executor> globalBlockingIoExecutor() {
+  return NativeEngineLifecycle::instance().blockingIoExecutor();
+}
+
 }  // namespace pangrova::jni

@@ -17,9 +17,16 @@ import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Exchange;
 import org.apache.calcite.rel.core.Aggregate;
+import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.Sort;
+import org.apache.calcite.rel.core.TableModify;
+import org.apache.calcite.rel.core.Uncollect;
 import org.apache.calcite.rel.core.Values;
 import org.apache.calcite.rel.core.Window;
+import org.apache.calcite.rel.logical.LogicalAggregate;
+import org.apache.calcite.rel.logical.LogicalCorrelate;
+import org.apache.calcite.rel.logical.LogicalFilter;
+import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rex.RexLiteral;
 import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
@@ -57,11 +64,20 @@ final class PlanFragmenter {
 
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
             AuthorizedStageGraph.TerminalPurpose terminalPurpose) {
+        return fragment(root, sessionParallelismOverride, terminalPurpose,
+                DEFAULT_MAX_PARALLELISM);
+    }
+
+    static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
+            AuthorizedStageGraph.TerminalPurpose terminalPurpose, int clusterParallelismLimit) {
         checkNotNull(root, "root RelNode must not be null");
+        if (clusterParallelismLimit < 1) {
+            throw new IllegalArgumentException("Cluster parallelism limit must be positive");
+        }
         FragmentContext context = new FragmentContext(
                 sessionParallelismOverride,
                 DEFAULT_BYTES_PER_PARTITION,
-                DEFAULT_MAX_PARALLELISM,
+                Math.min(DEFAULT_MAX_PARALLELISM, clusterParallelismLimit),
                 checkNotNull(terminalPurpose, "terminalPurpose must not be null"));
         return context.fragment(root);
     }
@@ -110,8 +126,18 @@ final class PlanFragmenter {
         }
 
         FragmentedPlan fragment(RelNode root) {
-            root = enforceGlobalOperators(root, true);
-            int parallelism = resolveStageParallelism(root);
+            // A correlated subtree cannot be split before its outer-row
+            // binding has been turned into an ordinary join condition.
+            boolean correlatedExecution = containsCorrelatedExecution(root);
+            if (!correlatedExecution) {
+                root = enforceGlobalOperators(root, true);
+            }
+            // A TableModify emits rows for one fenced WRITE task, even though
+            // Calcite describes its logical result as a single row count. An
+            // exchange above it would carry the wrong schema and create an
+            // additional writer for the same commit binding.
+            int parallelism = correlatedExecution || root instanceof TableModify
+                    ? SINGLE_PARALLELISM : resolveStageParallelism(root);
             int computeStageId = createStage(root, parallelism, "COMPUTE");
             setPlan(computeStageId, rewrite(root, computeStageId, parallelism));
             if (parallelism == SINGLE_PARALLELISM
@@ -121,6 +147,32 @@ final class PlanFragmenter {
                 addOutputStage(computeStageId);
             }
             return build();
+        }
+
+        private static boolean containsCorrelatedExecution(RelNode node) {
+            if (node instanceof LogicalCorrelate correlate) {
+                RelNode right = correlate.getRight();
+                boolean nativeUnnest = right instanceof Uncollect
+                        || right instanceof LogicalProject project
+                                && project.getInput() instanceof Uncollect;
+                if (!correlate.getRequiredColumns().isEmpty() && !nativeUnnest) {
+                    return true;
+                }
+                while (right instanceof LogicalProject project) {
+                    right = project.getInput();
+                }
+                if (right instanceof LogicalAggregate aggregate
+                        && aggregate.getGroupCount() == 0
+                        && aggregate.getInput() instanceof LogicalFilter) {
+                    return true;
+                }
+            }
+            for (RelNode input : node.getInputs()) {
+                if (containsCorrelatedExecution(input)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /** Aggregates, windows and global ordering require a semantically complete input distribution. */
@@ -319,6 +371,12 @@ final class PlanFragmenter {
             if (boundaries.isEmpty() && hasOnlyValuesLeaves(root)) {
                 return SINGLE_PARALLELISM;
             }
+            // Independent split partitions do not contain both inputs of a
+            // local join. Keep its scans together unless the plan provides
+            // explicit exchange boundaries with a distribution contract.
+            if (boundaries.isEmpty() && containsJoin(root)) {
+                return SINGLE_PARALLELISM;
+            }
             if (boundaries.stream().anyMatch(FragmentContext::isSingleton)) {
                 return SINGLE_PARALLELISM;
             }
@@ -345,6 +403,13 @@ final class PlanFragmenter {
             }
             return node.getInputs().stream()
                     .allMatch(FragmentContext::hasOnlyValuesLeaves);
+        }
+
+        private static boolean containsJoin(RelNode node) {
+            if (node instanceof Join) {
+                return true;
+            }
+            return node.getInputs().stream().anyMatch(FragmentContext::containsJoin);
         }
 
         private static boolean isSingleton(ExchangeBoundary boundary) {

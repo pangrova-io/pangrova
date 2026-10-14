@@ -13,8 +13,9 @@ import java.util.List;
  * Connectors implement this interface using their native pinning mechanism
  * (e.g., Iceberg branch refs, Paimon tags).</p>
  *
- * <p>Lifecycle: {@link #pinSnapshot} is called after a successful index build;
- * {@link #unpinSnapshot} is called when the index generation is garbage-collected.</p>
+ * <p>Lifecycle: {@link #pinSnapshot} must succeed before the builder reads source
+ * files or publishes an index as ready; {@link #unpinSnapshot} is called when its retained snapshot is
+ * garbage-collected. Operations should be idempotent for crash retries.</p>
  */
 @Experimental
 public interface SnapshotPinProvider {
@@ -63,4 +64,10 @@ public interface SnapshotPinProvider {
     List<Long> getPinnedSnapshots(String catalogName,
                                   String schemaName,
                                   String tableName);
+
+    /** Enumerates every durable snapshot ref for one exact index, including retired generations. */
+    default List<Long> getPinnedSnapshotsForIndex(String catalogName, String schemaName,
+                                                  String tableName, String indexId) {
+        throw new UnsupportedOperationException("Per-index snapshot pin enumeration is unavailable");
+    }
 }

@@ -295,6 +295,12 @@ jobs:
       - name: Compile the complete Java reactor
         run: mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
 
+      - name: Configure real FILE SQL acceptance
+        run: |
+          capability_key=$(openssl rand -base64 32)
+          echo "::add-mask::$capability_key"
+          echo "PANGROVA_E2E_FILE_CAPABILITY_KEY=$capability_key" >> "$GITHUB_ENV"
+
       - name: Run full regression with real coverage
         run: |
           mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle' \
@@ -305,6 +311,13 @@ jobs:
           mvn -B -Pnative-runtime,full-regression \
             -pl pangrova-testing/pangrova-test-e2e -am test \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
+          for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
+                       WorkerShuffleChannelAdmissionIntegrationTest; do
+            mvn -B -Pnative-runtime,full-regression \
+              -pl pangrova-testing/pangrova-test-e2e \
+              -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test \
+              -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
+          done
           mvn -B -Pnative-runtime -pl pangrova-testing/pangrova-test-e2e \
             -Dtest=ActivationSmokeE2ETest test \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"

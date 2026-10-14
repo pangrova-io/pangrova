@@ -5,7 +5,6 @@ import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.e2e.fixture.WriteTestHelper;
 import org.pangrova.testing.e2e.runner.QueryError;
-import org.pangrova.testing.e2e.runner.SqlExecutionException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,11 +13,14 @@ import org.junit.jupiter.api.TestInfo;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.awaitility.Awaitility.await;
 
 /**
  * E2E tests verifying coordinator handles worker failures gracefully.
@@ -39,6 +41,7 @@ class WorkerCrashQueryTerminationTest extends SqlE2ETestBase {
     private static final Duration FAILURE_DETECTION_TIMEOUT = Duration.ofSeconds(60);
 
     private String tableName;
+    private boolean workerHttpStopped;
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -81,8 +84,23 @@ class WorkerCrashQueryTerminationTest extends SqlE2ETestBase {
         stopWorkerHttpServer();
 
         assertTimeoutPreemptively(FAILURE_DETECTION_TIMEOUT, () -> {
-            submitQueryExpectingFailure(buildSelectAll(tableName));
-            assertNoOrphanedTasks();
+            Set<String> before = queryManager.getStateMachines().keySet();
+            sqlRunner.executeExpectingError(buildSelectAll(tableName));
+            Set<String> submitted = new HashSet<>(queryManager.getStateMachines().keySet());
+            submitted.removeAll(before);
+            assertThat(submitted).as("failed query was registered").isNotEmpty();
+            assertThat(submitted).allSatisfy(queryId ->
+                    assertThat(queryManager.getQueryState(queryId)).contains(
+                            org.pangrova.coordinator.query.QueryStateMachine.State.FAILED));
+            assertThat(queryManager.getActiveQueryIds())
+                    .as("physical cleanup waits for the unreachable Worker's real drain receipt")
+                    .containsAnyElementsOf(submitted);
+
+            ensureWorkerRunning();
+            await().atMost(FAILURE_DETECTION_TIMEOUT).untilAsserted(() ->
+                    assertThat(queryManager.getActiveQueryIds())
+                            .as("failed queries physically drain after Worker control recovers")
+                            .doesNotContainAnyElementsOf(submitted));
         });
     }
 
@@ -122,42 +140,18 @@ class WorkerCrashQueryTerminationTest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
 
     private void stopWorkerHttpServer() {
-        stopQuietly(workerHttpServer);
+        try {
+            workerHttpServer.stop();
+            workerHttpStopped = true;
+        } catch (Exception failure) {
+            throw new IllegalStateException("Failed to stop Worker HTTP control endpoint", failure);
+        }
     }
 
     private void ensureWorkerRunning() {
-        try {
-            startWorker();
-        } catch (Exception e) {
-            // Best-effort restart — other tests may still work
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Query submission helpers
-    // -----------------------------------------------------------------------
-
-    private void submitQueryExpectingFailure(String sql) {
-        try {
-            sqlRunner.execute(sql);
-        } catch (SqlExecutionException ignored) {
-            // Expected — query should fail when worker is down
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Assertion helpers
-    // -----------------------------------------------------------------------
-
-    private void assertNoOrphanedTasks() {
-        // After failure, taskTracker should have no active (non-terminal) tasks
-        // for any query. Verify by checking that no query has pending tasks.
-        boolean hasOrphans = queryManager.getActiveQueryIds().stream()
-                .anyMatch(qid -> !taskTracker.allTasksFinished(qid)
-                        && !taskTracker.hasFailedTask(qid));
-        assertThat(hasOrphans)
-                .as("No orphaned tasks should remain after worker failure")
-                .isFalse();
+        if (!workerHttpStopped) return;
+        restartWorkerHttpServerAfterOutage();
+        workerHttpStopped = false;
     }
 
     private static void assertErrorContainsContext(QueryError error) {

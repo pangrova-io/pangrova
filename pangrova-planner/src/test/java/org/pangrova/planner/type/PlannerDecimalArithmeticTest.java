@@ -61,6 +61,15 @@ class PlannerDecimalArithmeticTest {
         assertThat(system.deriveSumType(factory, decimal(20, 18))).isEqualTo(decimal(38, 18));
     }
 
+    @Test
+    void integerSumWidensToNativeBigintResult() {
+        for (SqlTypeName input : new SqlTypeName[] {
+                SqlTypeName.TINYINT, SqlTypeName.SMALLINT, SqlTypeName.INTEGER}) {
+            assertThat(system.deriveSumType(factory, factory.createSqlType(input))
+                    .getSqlTypeName()).isEqualTo(SqlTypeName.BIGINT);
+        }
+    }
+
     private RelDataType decimal(int precision, int scale) {
         return factory.createSqlType(SqlTypeName.DECIMAL, precision, scale);
     }

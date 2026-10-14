@@ -150,28 +150,42 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
             return 0;
         }
         int dispatched = 0;
-        for (var jobKey : store.listRunnableJobs(capacity, now)) {
-            if (dispatched >= capacity) {
-                break;
+        Map<org.pangrova.metadata.artifact.build.ArtifactBuildJobKey, Long> memoryGrants =
+                new java.util.HashMap<>();
+        boolean madeProgress;
+        do {
+            madeProgress = false;
+            for (var jobKey : store.listRunnableJobs(capacity - dispatched, now)) {
+                long requestedMemory = memoryGrants.computeIfAbsent(jobKey, key ->
+                        store.findDispatchSpec(key.tenantId(), key.jobId())
+                                .orElseThrow().maxMemoryBytes());
+                if (workerManager.getActiveWorkers().stream().noneMatch(
+                        worker -> hasUnreservedMemory(worker, requestedMemory))) {
+                    continue;
+                }
+                var claimed = claimAuthorizedPage(jobKey, epoch, now);
+                if (claimed.isEmpty()) {
+                    continue;
+                }
+                ArtifactBuildLease lease = claimed.orElseThrow();
+                try {
+                    dispatch(lease, now);
+                    dispatched++;
+                    madeProgress = true;
+                    if (dispatched == capacity) {
+                        break;
+                    }
+                } catch (org.pangrova.security.authz.AuthorizationDeniedException revoked) {
+                    store.cancelJob(lease.tenantId(), lease.jobId(), revoked.getMessage(), now);
+                    LOG.warn("event=artifact_dispatch_revoked jobId={} tenantId={} reason={}",
+                            lease.jobId(), lease.tenantId(), revoked.getMessage());
+                } catch (RuntimeException failure) {
+                    retryLease(lease, failure.getMessage(), now);
+                    LOG.warn("event=artifact_dispatch_prepare_failed jobId={} pageId={} reason={}",
+                            lease.jobId(), lease.pageId(), failure.getMessage());
+                }
             }
-            var claimed = claimAuthorizedPage(jobKey, epoch, now);
-            if (claimed.isEmpty()) {
-                continue;
-            }
-            ArtifactBuildLease lease = claimed.orElseThrow();
-            try {
-                dispatch(lease, now);
-                dispatched++;
-            } catch (org.pangrova.security.authz.AuthorizationDeniedException revoked) {
-                store.cancelJob(lease.tenantId(), lease.jobId(), revoked.getMessage(), now);
-                LOG.warn("event=artifact_dispatch_revoked jobId={} tenantId={} reason={}",
-                        lease.jobId(), lease.tenantId(), revoked.getMessage());
-            } catch (RuntimeException failure) {
-                retryLease(lease, failure.getMessage(), now);
-                LOG.warn("event=artifact_dispatch_prepare_failed jobId={} pageId={} reason={}",
-                        lease.jobId(), lease.pageId(), failure.getMessage());
-            }
-        }
+        } while (madeProgress && dispatched < capacity);
         return dispatched;
     }
 
@@ -227,11 +241,21 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         return active.size();
     }
 
+    private boolean hasUnreservedMemory(WorkerInfo worker, long requestedMemory) {
+        long reserved = active.values().stream()
+                .filter(attempt -> attempt.worker.workerId().equals(worker.workerId()))
+                .mapToLong(attempt -> attempt.memoryGrantBytes)
+                .sum();
+        return worker.availableMemoryBytes() >= requestedMemory
+                && worker.availableMemoryBytes() - requestedMemory >= reserved;
+    }
+
     private void registerGraphAttempt(
             org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime.PreparedTask task,
             java.util.concurrent.CompletableFuture<DispatchResult> acknowledgement) {
         String taskId = task.request().taskRequest().getAttempt().getTaskId();
-        var attempt = new ActiveAttempt(task.lease(), task.worker(), task.lease().expiresAt());
+        var attempt = new ActiveAttempt(task.lease(), task.worker(), task.lease().expiresAt(),
+                task.request().taskRequest().getResourceGrant().getNativeMemoryBytes());
         if (active.putIfAbsent(taskId, attempt) != null) {
             throw new IllegalStateException("Duplicate exact durable graph task identity");
         }
@@ -241,14 +265,17 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
     private void dispatch(ArtifactBuildLease lease, Instant now) {
         ArtifactDispatchRequestFactory.PreparedRequest prepared =
                 requestFactory.prepare(lease, now);
-        List<WorkerInfo> candidates = workerManager.getActiveWorkers();
+        List<WorkerInfo> candidates = workerManager.getActiveWorkers().stream()
+                .filter(candidate -> hasUnreservedMemory(candidate, prepared.maxMemoryBytes()))
+                .toList();
         WorkerInfo worker = scheduler.selectWorkerWithBindings(
                 prepared.maxMemoryBytes(), candidates,
                 prepared.bindings())
                 .orElseThrow(() -> workerSelectionFailure(
                         candidates, prepared.bindings(), prepared.maxMemoryBytes()));
         String taskId = prepared.taskId();
-        ActiveAttempt attempt = new ActiveAttempt(lease, worker, lease.expiresAt());
+        ActiveAttempt attempt = new ActiveAttempt(
+                lease, worker, lease.expiresAt(), prepared.maxMemoryBytes());
         try {
             if (active.putIfAbsent(taskId, attempt) != null) {
                 throw new IllegalStateException("duplicate active artifact task identity");
@@ -477,16 +504,19 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
     private static final class ActiveAttempt {
         private final ArtifactBuildLease lease;
         private final WorkerInfo worker;
+        private final long memoryGrantBytes;
         private volatile Instant expiresAt;
         private volatile boolean acknowledged;
         private volatile boolean cancelling;
         private volatile String retryReason;
 
         private ActiveAttempt(
-                ArtifactBuildLease lease, WorkerInfo worker, Instant expiresAt) {
+                ArtifactBuildLease lease, WorkerInfo worker, Instant expiresAt,
+                long memoryGrantBytes) {
             this.lease = lease;
             this.worker = worker;
             this.expiresAt = expiresAt;
+            this.memoryGrantBytes = memoryGrantBytes;
         }
     }
 }

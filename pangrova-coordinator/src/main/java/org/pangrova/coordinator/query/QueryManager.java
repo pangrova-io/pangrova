@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.admission.QueryRejectedException;
+
+import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
+
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 
 import java.time.Duration;
@@ -77,7 +81,7 @@ public class QueryManager {
     }
 
     QueryManager(QueryManagerContext deps, LongSupplier nanoClock) {
-        this.queryDispatcher = deps.queryDispatcher();
+        this.queryDispatcher = java.util.Objects.requireNonNull(deps.queryDispatcher(), "queryDispatcher");
         this.tracingProvider = deps.tracingProvider();
         this.tenantGuard = QueryAdmission.tenantGuard(deps, queries.values());
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
@@ -121,6 +125,7 @@ public class QueryManager {
 
     private void incrementCounter(LongCounter counter) { if (counter != null) counter.add(1); }
 
+    /** Admits and submits a query under its execution authority. */
     public SubmitQueryResponse submitQuery(String queryId, String sql, CoordinatorSessionContext session) {
         checkNotNull(queryId, "queryId must not be null");
         checkNotNull(sql, "sql must not be null");
@@ -166,7 +171,11 @@ public class QueryManager {
             try {
                 failQuery(queryId, new ErrorDetail("QUERY_SUBMISSION_FAILED", failure.getClass().getSimpleName(),
                         String.valueOf(failure.getMessage())), "submission_failed");
-            } catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) {
+                    failure.addSuppressed(cleanup);
+                }
+            }
             throw failure;
         } finally {
             finishSubmission(submission, queryId, stateMachine, submissionFailure);
@@ -298,6 +307,7 @@ public class QueryManager {
         admission.setClusterController(controller);
     }
 
+    /** Requests cancellation and completes terminal effects for the query. */
     public boolean cancelQuery(String queryId) {
         QueryStateMachine sm = queries.get(queryId);
         boolean cancelled = sm != null && sm.tryTransition(QueryStateMachine.State.CANCELLED);
@@ -314,6 +324,7 @@ public class QueryManager {
         return sm != null ? Optional.of(sm.getState()) : Optional.empty();
     }
 
+    /** Looks up local state, then the durable journal when no local owner exists. */
     public Optional<QueryStateMachine.State> getQueryStateWithJournalFallback(String queryId) {
         Optional<QueryStateMachine.State> local = getQueryState(queryId);
         if (local.isPresent()) {
@@ -335,6 +346,7 @@ public class QueryManager {
         return queries.get(queryId);
     }
 
+    /** Registers a recovered query state under the current lifecycle gate. */
     public void registerStateMachine(String queryId, QueryStateMachine sm) {
         queryLifecycleLock.readLock().lock();
         try {
@@ -346,20 +358,29 @@ public class QueryManager {
                 try {
                     if (sm.isTerminal()) queryDispatcher.openQueryIssuance(queryId);
                     else queryDispatcher.bindConnectorAuthority(sm, queryId);
+                } catch (RuntimeException | Error failure) {
+                    queries.remove(queryId, sm);
+                    throw failure;
                 }
-                catch (RuntimeException | Error failure) { queries.remove(queryId, sm); throw failure; }
                 activeQueryCount.incrementAndGet();
             }
-        } finally { queryLifecycleLock.readLock().unlock(); }
+        } finally {
+            queryLifecycleLock.readLock().unlock();
+        }
         var operation = queryDispatcher.enterQueryMetadataOperation(queryId);
         try {
             if (journalLifecycle.journal().latestQueryEvent(queryId).isPresent()) sm.retainJournalOwnership();
             if (sm.isTerminal()) sm.claimTerminalEffects();
-        } finally { operation.close(); }
+        } finally {
+            operation.close();
+        }
         if (sm.isTerminal()) completeTerminalQuery(queryId, sm, "registered_terminal");
     }
 
-    public void markRecoveredIssuanceUnresolved(String queryId) { queryDispatcher.markRecoveredIssuanceUnresolved(queryId); }
+    /** Marks recovered issuance unresolved until its original operations are reconciled. */
+    public void markRecoveredIssuanceUnresolved(String queryId) {
+        queryDispatcher.markRecoveredIssuanceUnresolved(queryId);
+    }
 
     public QueryStateJournal getStateJournal() {
         return journalLifecycle.journal();
@@ -369,6 +390,7 @@ public class QueryManager {
         return activeQueryCount.get();
     }
 
+    /** Opens or seals query admission while holding the lifecycle write lock. */
     public void setAcceptingQueries(boolean accepting) {
         queryLifecycleLock.writeLock().lock();
         try {
@@ -400,6 +422,7 @@ public class QueryManager {
         return true;
     }
 
+    /** Returns query IDs whose physical cleanup remains outstanding. */
     public Set<String> getActiveQueryIds() {
         return queries.entrySet().stream()
                 .filter(e -> !e.getValue().physicalCleanupApplied())
@@ -424,12 +447,15 @@ public class QueryManager {
                                      Executor cleanupExecutor,
                                      Duration retention, Duration interval) {
         cleanupScheduler.startPeriodicCleanup(timer, cleanupExecutor, retention, interval);
+        terminalCleanup.startRetryDispatch(timer, cleanupExecutor);
     }
 
     public void stopPeriodicCleanup() {
+        terminalCleanup.stopRetryDispatch();
         cleanupScheduler.stopPeriodicCleanup();
     }
 
+    /** Applies logical completion after all task and write effects are ready. */
     public void onAllTasksFinished(String queryId) {
         QueryStateMachine sm = queries.get(queryId);
         if (sm == null) {
@@ -499,6 +525,7 @@ public class QueryManager {
         completeTerminalQuery(queryId, sm, reason);
     }
 
+    /** Returns the query's recorded error when present. */
     public Optional<ErrorDetail> getQueryError(String queryId) {
         QueryStateMachine sm = queries.get(queryId);
         if (sm == null) {

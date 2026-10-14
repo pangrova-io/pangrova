@@ -3,6 +3,7 @@ package org.pangrova.coordinator.index.lifecycle;
 import org.pangrova.coordinator.index.BuildMappingPersister;
 import org.pangrova.coordinator.index.IndexGenerationPublisher;
 import org.pangrova.coordinator.index.ddl.DurableIndexBuildService;
+import org.pangrova.coordinator.index.ddl.IndexSourceAuthority;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildResult;
@@ -59,6 +60,10 @@ final class IndexGenerationRefresher {
                 .withBuildSnapshotId(sourceSnapshot, startedAt)
                 .withState(IndexState.BUILDING, startedAt);
         try {
+            if (!nativeArtifact) {
+                IndexSourceAuthority.forDescriptor(
+                        store, deps.buildServices(), deps.connectorAccessorResolver(), descriptor);
+            }
             return refreshGeneration(
                     store, coordinator, descriptor, rebuilding, input, nativeArtifact);
         } catch (RuntimeException failure) {
@@ -112,11 +117,18 @@ final class IndexGenerationRefresher {
             IndexDescriptor rebuilding,
             List<DataFileInfo> dataFiles) {
         if (dataFiles.isEmpty()) {
+            IndexBuildResult pinned = coordinator.submitBuildTask(
+                    rebuilding, List.of(), null, null).join();
+            if (!pinned.isFullySuccessful()) {
+                throw new IllegalStateException("Empty replacement could not pin its source snapshot");
+            }
             return 0;
         }
-        FileSystemAccessor fileSystem = deps.connectorAccessorResolver()
+        var accessors = IndexSourceAuthority.forDescriptor(
+                store, deps.buildServices(), deps.connectorAccessorResolver(), rebuilding);
+        FileSystemAccessor fileSystem = accessors
                 .resolve(rebuilding.catalogName());
-        ColumnValueReader columnReader = deps.connectorAccessorResolver()
+        ColumnValueReader columnReader = accessors
                 .resolveColumnValueReader(rebuilding.catalogName());
         IndexBuildResult result = coordinator.submitBuildTask(
                 rebuilding, dataFiles, fileSystem, columnReader,

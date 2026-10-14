@@ -124,6 +124,19 @@ class CanonicalExpressionSqlProtocolTest {
     }
 
     @Test
+    void mixedIntegerArithmeticPromotesTheNarrowOperand() throws Exception {
+        var add = expression("SELECT CAST(x AS BIGINT) + 1 FROM (SELECT 1 AS x) t")
+                .getScalarFunction();
+        assertThat(add.getOutputType().hasI64()).isTrue();
+        var narrow = add.getArguments(1).getValue();
+        if (narrow.hasCast()) {
+            assertThat(narrow.getCast().getType().hasI64()).isTrue();
+        } else {
+            assertThat(narrow.getLiteral().hasI64()).isTrue();
+        }
+    }
+
+    @Test
     void comparisonKeepsTheValidatedCommonTypeCastsInTheProtocol() throws Exception {
         var comparison = expression("SELECT CAST(x AS INTEGER) = CAST(y AS DECIMAL(20,2)) "
                 + "FROM (SELECT 1 AS x, 2 AS y) t").getScalarFunction();

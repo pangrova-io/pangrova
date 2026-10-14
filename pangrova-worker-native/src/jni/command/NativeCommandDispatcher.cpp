@@ -329,7 +329,7 @@ void handlePrefetchArtifacts(const proto::RuntimeCommand& cmd,
     return;
   }
 
-  auto executor = globalIoExecutor();
+  auto executor = globalBlockingIoExecutor();
   if (!executor) {
     resp = successResponse();
     return;

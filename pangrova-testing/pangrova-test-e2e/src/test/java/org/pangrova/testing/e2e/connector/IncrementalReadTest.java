@@ -3,6 +3,11 @@ package org.pangrova.testing.e2e.connector;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.apache.paimon.catalog.CatalogContext;
+import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.table.FileStoreTable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -58,6 +63,18 @@ class IncrementalReadTest extends SqlE2ETestBase {
         return PAIMON_CATALOG + "." + SCHEMA + "." + paimonTable;
     }
 
+    /** Isolates incremental SQL verification from the separate $snapshots scan path. */
+    private long latestPaimonSnapshotId() throws Exception {
+        Options options = new Options();
+        options.setString("warehouse", paimonWarehouse().toString());
+        try (var catalog = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            var table = (FileStoreTable) catalog.getTable(Identifier.create(SCHEMA, paimonTable));
+            Long snapshotId = table.snapshotManager().latestSnapshotId();
+            assertThat(snapshotId).as("Paimon committed snapshot").isNotNull();
+            return snapshotId;
+        }
+    }
+
     @Nested
     @DisplayName("3.3.6 - Iceberg Incremental Read with Change Type")
     class IcebergIncrementalRead {
@@ -72,7 +89,7 @@ class IncrementalReadTest extends SqlE2ETestBase {
                     + " VALUES (1, 'alice'), (2, 'bob')");
 
             List<TypedRow> snapshots = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
             assertThat(snapshots).hasSizeGreaterThanOrEqualTo(1);
             long snapshot1 = ((Number) snapshots.get(0).getRaw("snapshot_id")).longValue();
 
@@ -80,7 +97,7 @@ class IncrementalReadTest extends SqlE2ETestBase {
                     + " VALUES (3, 'charlie'), (4, 'diana')");
 
             List<TypedRow> snapshots2 = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
             long snapshot2 = ((Number) snapshots2.get(snapshots2.size() - 1).getRaw("snapshot_id")).longValue();
 
             List<TypedRow> changes = sqlRunner.execute(
@@ -105,14 +122,14 @@ class IncrementalReadTest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + icebergFqn() + " VALUES (1, 'initial')");
 
             List<TypedRow> snap1 = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
             long fromSnapshot = ((Number) snap1.get(snap1.size() - 1).getRaw("snapshot_id")).longValue();
 
             sqlRunner.execute("INSERT INTO " + icebergFqn() + " VALUES (2, 'second')");
             sqlRunner.execute("INSERT INTO " + icebergFqn() + " VALUES (3, 'third')");
 
             List<TypedRow> snap3 = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
             long toSnapshot = ((Number) snap3.get(snap3.size() - 1).getRaw("snapshot_id")).longValue();
 
             List<TypedRow> changes = sqlRunner.execute(
@@ -132,24 +149,19 @@ class IncrementalReadTest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("Returns appended rows between two snapshots with INSERT change type")
-        void incrementalReadReturnsAppendedRows() {
+        void incrementalReadReturnsAppendedRows() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR)");
 
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " VALUES (1, 'alice'), (2, 'bob')");
 
-            List<TypedRow> snapshots = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$snapshots ORDER BY snapshot_id");
-            assertThat(snapshots).hasSizeGreaterThanOrEqualTo(1);
-            long snapshot1 = ((Number) snapshots.get(snapshots.size() - 1).getRaw("snapshot_id")).longValue();
+            long snapshot1 = latestPaimonSnapshotId();
 
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " VALUES (3, 'charlie'), (4, 'diana')");
 
-            List<TypedRow> snapshots2 = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$snapshots ORDER BY snapshot_id");
-            long snapshot2 = ((Number) snapshots2.get(snapshots2.size() - 1).getRaw("snapshot_id")).longValue();
+            long snapshot2 = latestPaimonSnapshotId();
 
             List<TypedRow> changes = sqlRunner.execute(
                     "SELECT * FROM " + paimonFqn()
@@ -179,7 +191,7 @@ class IncrementalReadTest extends SqlE2ETestBase {
                     + " VALUES (1, 'alice')");
 
             List<TypedRow> snapshots = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
             long snapshotId = ((Number) snapshots.get(snapshots.size() - 1).getRaw("snapshot_id")).longValue();
 
             List<TypedRow> changes = sqlRunner.execute(
@@ -191,17 +203,15 @@ class IncrementalReadTest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("No changes between consecutive snapshots with no writes returns empty")
-        void noChangesBetweenSnapshotsReturnsEmpty() {
+        void noChangesBetweenSnapshotsReturnsEmpty() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR)");
 
             sqlRunner.execute("INSERT INTO " + paimonFqn() + " VALUES (1, 'alice')");
             sqlRunner.execute("INSERT INTO " + paimonFqn() + " VALUES (2, 'bob')");
 
-            List<TypedRow> snapshots = sqlRunner.execute(
-                    "SELECT * FROM " + paimonFqn() + "$snapshots ORDER BY snapshot_id");
-            long snapshot1 = ((Number) snapshots.get(0).getRaw("snapshot_id")).longValue();
-            long snapshot2 = ((Number) snapshots.get(0).getRaw("snapshot_id")).longValue();
+            long snapshot1 = latestPaimonSnapshotId();
+            long snapshot2 = snapshot1;
 
             List<TypedRow> changes = sqlRunner.execute(
                     "SELECT * FROM " + paimonFqn()

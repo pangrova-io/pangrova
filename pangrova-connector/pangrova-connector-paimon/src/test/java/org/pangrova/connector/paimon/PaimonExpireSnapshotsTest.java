@@ -14,6 +14,7 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.SnapshotManager;
 import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.spi.connector.index.SnapshotExpiredException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for G-CONN-07: Paimon expire_snapshots procedure.
@@ -96,6 +98,49 @@ class PaimonExpireSnapshotsTest {
         assertThat(afterTable.tagManager().tagExists("keep-me"))
                 .as("Tag 'keep-me' must survive snapshot expiration")
                 .isTrue();
+    }
+
+    @Test
+    void indexPinsRetainExactHistoricalSnapshotsThroughExpiration() throws Exception {
+        commitData(0);
+        commitData(1);
+        FileStoreTable table = (FileStoreTable) catalog.getTable(tableId);
+        long oldSnapshot = table.snapshotManager().latestSnapshotId();
+        var pins = metadata.getIndexSupport().orElseThrow().getSnapshotPinProvider().orElseThrow();
+        pins.pinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-one");
+        pins.pinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-one");
+        pins.pinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-two");
+        for (int i = 2; i < 5; i++) {
+            commitData(i);
+        }
+        long currentSnapshot = ((FileStoreTable) catalog.getTable(tableId))
+                .snapshotManager().latestSnapshotId();
+        pins.pinSnapshot("test_catalog", "db", "test_expire", currentSnapshot, "index-one");
+
+        metadata.executeProcedure(null, "expire_snapshots",
+                Map.of("arg0", "db.test_expire", "retain_max", "1"));
+        assertThat(((FileStoreTable) catalog.getTable(tableId))
+                .snapshotManager().snapshotExists(oldSnapshot)).isFalse();
+        var reopened = new PaimonMetadata(catalog, "test_catalog", new PaimonSplitRegistry());
+        var reopenedPins = reopened.getIndexSupport().orElseThrow()
+                .getSnapshotPinProvider().orElseThrow();
+        assertThat(reopenedPins.getPinnedSnapshotsForIndex(
+                "test_catalog", "db", "test_expire", "index-one"))
+                .containsExactly(oldSnapshot, currentSnapshot);
+        assertThat(reopened.getSnapshotAwareMetadata("db", "test_expire")
+                .orElseThrow().listFilesAtSnapshot(Long.toString(oldSnapshot))).isNotEmpty();
+
+        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-one");
+        assertThat(reopenedPins.getPinnedSnapshotsForIndex(
+                "test_catalog", "db", "test_expire", "index-two"))
+                .containsExactly(oldSnapshot);
+        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-two");
+        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", currentSnapshot, "index-one");
+        assertThat(reopenedPins.getPinnedSnapshotsForIndex(
+                "test_catalog", "db", "test_expire", "index-one")).isEmpty();
+        assertThatThrownBy(() -> reopenedPins.pinSnapshot(
+                "test_catalog", "db", "test_expire", 0, "index-one"))
+                .isInstanceOf(SnapshotExpiredException.class);
     }
 
     @Test

@@ -414,6 +414,12 @@ public final class FilterPredicateExtractor {
         if (raw == null) {
             return null;
         }
+        // Calcite's NlsString.toString() renders a SQL literal (including
+        // charset and quotes), not the value stored in the data file. Using
+        // that rendering as an index key can falsely prune matching files.
+        if (raw instanceof org.apache.calcite.util.NlsString nls) {
+            return nls.getValue();
+        }
         SqlTypeName columnType = ref.getType().getSqlTypeName();
         if (raw instanceof java.math.BigDecimal bd) {
             return switch (columnType) {

@@ -1,7 +1,6 @@
 package org.pangrova.planner.substrait;
 
 import io.substrait.expression.Expression;
-import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableExpression;
 import io.substrait.type.Type;
@@ -410,6 +409,22 @@ final class ExpressionConverter {
                 return convert(rexBuilder.makeCast(doubleType, operand));
             }).toList();
         }
+        if ("arithmetic".equals(ref.namespace()) && !"round".equals(ref.name()) && args.size() == 2
+                && integralRank(call.getType().getSqlTypeName()) > 0
+                && call.getOperands().stream().allMatch(operand ->
+                        integralRank(operand.getType().getSqlTypeName()) > 0)) {
+            // Calcite can retain a narrower integer literal beside BIGINT
+            // while declaring the arithmetic result BIGINT. Velox resolves
+            // exact homogeneous signatures, so encode the proven promotion.
+            SqlTypeName target = call.getType().getSqlTypeName();
+            args = call.getOperands().stream().map(operand -> {
+                if (operand.getType().getSqlTypeName() == target) return convert(operand);
+                var promoted = rexBuilder.getTypeFactory().createTypeWithNullability(
+                        rexBuilder.getTypeFactory().createSqlType(target),
+                        operand.getType().isNullable());
+                return convert(rexBuilder.makeCast(promoted, operand));
+            }).toList();
+        }
         if ("round".equals(ref.name()) && args.size() == 2) {
             var position = call.getOperands().get(1);
             var integerType = rexBuilder.getTypeFactory().createTypeWithNullability(
@@ -445,24 +460,13 @@ final class ExpressionConverter {
         FunctionReference ref = functionMapper.map(call.getOperator());
         var variant = functionMapper.resolveScalarVariant(ref);
         Expression jsonArg = convert(call.getOperands().get(0));
-        Expression pathArg = convertVariantPath(call.getOperands().get(1));
+        Expression pathArg = convert(call.getOperands().get(1));
         Type outputType = typeMapper.map(call.getType());
         return ImmutableExpression.ScalarFunctionInvocation.builder()
                 .declaration(variant)
                 .outputType(outputType)
                 .arguments(List.of(jsonArg, pathArg))
                 .build();
-    }
-
-    private Expression convertVariantPath(RexNode pathNode) {
-        if (pathNode instanceof RexLiteral lit && lit.getTypeName() == SqlTypeName.CHAR) {
-            String path = lit.getValueAs(String.class);
-            if (path != null && !path.startsWith("$")) {
-                String jsonPath = path.startsWith("[") ? "$" + path : "$." + path;
-                return ExpressionCreator.string(lit.getType().isNullable(), jsonPath);
-            }
-        }
-        return convert(pathNode);
     }
 
     /**
@@ -478,10 +482,23 @@ final class ExpressionConverter {
         RelDataType branchType = call.getType();
         List<Expression.IfClause> clauses = buildIfClauses(operands, branchType);
         Expression elseExpr = convertCaseBranch(operands.get(operandCount - 1), branchType);
-        return ImmutableExpression.IfThen.builder()
+        Expression conditional = ImmutableExpression.IfThen.builder()
                 .ifClauses(clauses)
                 .elseClause(elseExpr)
                 .build();
+        // IfThen carries no declared output type. Its branches can appear nullable
+        // even when Calcite proved the complete CASE non-null (for example
+        // CASE WHEN count IS NOT NULL THEN count ELSE 0 END). Preserve that
+        // proof in the wire type so a downstream exchange sees the same schema.
+        if (!call.getType().isNullable() && operands.stream().map(RexNode::getType)
+                .anyMatch(RelDataType::isNullable)) {
+            return ImmutableExpression.Cast.builder()
+                    .input(conditional)
+                    .type(typeMapper.map(call.getType()))
+                    .failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION)
+                    .build();
+        }
+        return conditional;
     }
 
     private List<Expression.IfClause> buildIfClauses(List<RexNode> operands, RelDataType branchType) {
