@@ -50,6 +50,7 @@ WORKDIR /workspace
 COPY pangrova-worker-native/bin/setup-native-build-env.sh /workspace/pangrova-worker-native/bin/setup-native-build-env.sh
 COPY pangrova-worker-native/bin/apply-velox-patches.sh /workspace/pangrova-worker-native/bin/apply-velox-patches.sh
 COPY pangrova-worker-native/bin/record-function-provenance.sh /workspace/pangrova-worker-native/bin/record-function-provenance.sh
+COPY pangrova-worker-native/cmake/dependency-checks/re2/ /workspace/pangrova-worker-native/cmake/dependency-checks/re2/
 COPY pangrova-worker-native/tools/function-contracts/FunctionGenerationIdentity.cpp /workspace/pangrova-worker-native/tools/function-contracts/FunctionGenerationIdentity.cpp
 COPY pangrova-worker-native/patches/velox-function-metadata-snapshot.patch /workspace/pangrova-worker-native/patches/velox-function-metadata-snapshot.patch
 COPY pangrova-protocol/tools/function-contracts/generate_execution_selection.py /workspace/pangrova-protocol/tools/function-contracts/generate_execution_selection.py
