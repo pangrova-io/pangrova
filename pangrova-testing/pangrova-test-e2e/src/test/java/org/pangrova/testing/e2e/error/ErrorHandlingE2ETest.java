@@ -1,6 +1,5 @@
 package org.pangrova.testing.e2e.error;
 
-import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.e2e.runner.QueryError;
@@ -171,14 +170,15 @@ class ErrorHandlingE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Type mismatch in WHERE clause: implicit coercion returns empty result")
-        void typeMismatchCoercionReturnsEmptyResult() {
+        @DisplayName("Invalid implicit numeric cast returns a structured runtime error")
+        void invalidImplicitNumericCastReturnsRuntimeError() {
             seedTestTable();
 
-            List<TypedRow> rows = sqlRunner.execute(
+            QueryError error = sqlRunner.executeExpectingError(
                     "SELECT * FROM " + fqn() + " WHERE id = 'not_a_number'");
 
-            assertThat(rows).isEmpty();
+            assertThat(error.errorType()).isEqualTo("RUNTIME");
+            assertThat(error.message()).contains("not_a_number", "BIGINT", "INVALID_ARGUMENT");
         }
     }
 

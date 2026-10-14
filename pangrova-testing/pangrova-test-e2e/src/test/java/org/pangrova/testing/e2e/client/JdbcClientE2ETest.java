@@ -16,6 +16,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -197,7 +198,9 @@ class JdbcClientE2ETest extends SqlE2ETestBase {
     private Connection openJdbcConnection() throws SQLException {
         String url = String.format(
                 "jdbc:pangrova://localhost:%d/%s", coordinatorHttpPort(), CATALOG);
-        return DriverManager.getConnection(url);
+        Properties credentials = new Properties();
+        credentials.setProperty("token", E2E_USER_BEARER_TOKEN);
+        return DriverManager.getConnection(url, credentials);
     }
 
     private void insertTestData() {

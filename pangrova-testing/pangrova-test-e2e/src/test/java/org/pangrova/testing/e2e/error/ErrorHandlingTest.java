@@ -152,15 +152,12 @@ class ErrorHandlingTest extends SqlE2ETestBase {
         void divisionByZero() {
             seedTestTable();
 
-            // Velox uses checkedDivide for integer division, which throws
-            // ARITHMETIC_ERROR on division by zero. The Velox task fails,
-            // but coordinator may report FINISHED before the error propagates,
-            // so Flight DoGet returns empty (task not in OutputBufferManager).
-            List<TypedRow> rows = sqlRunner.execute(
+            QueryError error = sqlRunner.executeExpectingError(
                     "SELECT id, CAST(id AS BIGINT) / CAST(0 AS BIGINT) AS bad FROM " + fqn()
                     + " ORDER BY id");
 
-            assertThat(rows).isEmpty();
+            assertThat(error.errorType()).isEqualTo("RUNTIME");
+            assertThat(error.message()).contains("ARITHMETIC_ERROR", "division by zero");
         }
     }
 
@@ -197,37 +194,38 @@ class ErrorHandlingTest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("Non-numeric VARCHAR CAST to INTEGER triggers Velox error")
-        void castVarcharToIntegerReturnsEmpty() {
+        void castVarcharToIntegerReportsError() {
             seedTestTable();
 
-            // Velox strict CAST throws on invalid conversions ('alice' → INTEGER).
-            // Error may not propagate to coordinator state, yielding empty results.
-            List<TypedRow> rows = sqlRunner.execute(
+            QueryError error = sqlRunner.executeExpectingError(
                     "SELECT CAST(name AS INTEGER) AS casted FROM " + fqn() + " ORDER BY id");
 
-            assertThat(rows).isEmpty();
+            assertThat(error.errorType()).isEqualTo("RUNTIME");
+            assertThat(error.message()).contains("INVALID_ARGUMENT", "alice", "INTEGER");
         }
 
         @Test
-        @DisplayName("WHERE clause with invalid CAST filters out all rows")
-        void castInWhereClauseFiltersAll() {
+        @DisplayName("WHERE clause with invalid CAST fails the query")
+        void castInWhereClauseReportsError() {
             seedTestTable();
 
-            List<TypedRow> rows = sqlRunner.execute(
+            QueryError error = sqlRunner.executeExpectingError(
                     "SELECT * FROM " + fqn() + " WHERE CAST(name AS INTEGER) > 0");
 
-            assertThat(rows).isEmpty();
+            assertThat(error.errorType()).isEqualTo("RUNTIME");
+            assertThat(error.message()).contains("INVALID_ARGUMENT", "alice", "INTEGER");
         }
 
         @Test
         @DisplayName("Non-numeric VARCHAR CAST to BIGINT triggers Velox error")
-        void castVarcharToBigintReturnsEmpty() {
+        void castVarcharToBigintReportsError() {
             seedTestTable();
 
-            List<TypedRow> rows = sqlRunner.execute(
+            QueryError error = sqlRunner.executeExpectingError(
                     "SELECT CAST(name AS BIGINT) AS casted FROM " + fqn() + " ORDER BY id");
 
-            assertThat(rows).isEmpty();
+            assertThat(error.errorType()).isEqualTo("RUNTIME");
+            assertThat(error.message()).contains("INVALID_ARGUMENT", "alice", "BIGINT");
         }
     }
 
@@ -274,14 +272,14 @@ class ErrorHandlingTest extends SqlE2ETestBase {
         void partialDivisionByZeroFailsQuery() {
             seedTestTable();
 
-            // Velox checkedDivide: when id=2, (id - 2) = 0 triggers
-            // ARITHMETIC_ERROR for the entire task. The Velox task fails,
-            // but coordinator may report FINISHED before the error propagates.
-            List<TypedRow> rows = sqlRunner.execute(
+            // When id=2, checkedDivide fails the entire query rather than
+            // returning the rows produced before that failure.
+            QueryError error = sqlRunner.executeExpectingError(
                     "SELECT id, CAST(id AS BIGINT) / (id - CAST(2 AS BIGINT)) AS ratio FROM " + fqn()
                     + " ORDER BY id");
 
-            assertThat(rows).isEmpty();
+            assertThat(error.errorType()).isEqualTo("RUNTIME");
+            assertThat(error.message()).contains("ARITHMETIC_ERROR", "division by zero");
         }
     }
 
