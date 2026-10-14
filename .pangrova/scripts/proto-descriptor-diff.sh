@@ -262,7 +262,8 @@ else
     status=1
 fi
 
-if find "${ROOT_DIR}/pangrova-worker-native/proto" -type f \
+if [[ -d "${ROOT_DIR}/pangrova-worker-native/proto" ]] && \
+   find "${ROOT_DIR}/pangrova-worker-native/proto" -type f \
         -path "${ROOT_DIR}/pangrova-worker-native/proto/pangrova/*" \
         -name '*.proto' -print -quit | grep -q .; then
     echo "FAIL: Pangrova-owned boundary proto found under worker-native/proto." >&2
