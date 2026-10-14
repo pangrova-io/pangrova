@@ -73,6 +73,11 @@ RUN --mount=type=cache,id=pangrova-native-deps-${TARGETARCH},target=/tmp/pangrov
 COPY --from=uv-tools /uv /uvx /usr/local/bin/
 RUN set -eu; uv --version; \
     uv_release="$(uv --version | cut -d ' ' -f 2)"; test "${uv_release}" = '0.12.21'
+# Velox's pinned setup script downloads several archives with plain curl. Retry
+# transient transport failures inside this dependency layer; otherwise one refused
+# connection discards the completed Boost build and restarts the whole layer.
+RUN printf '%s\n' 'connect-timeout = 30' 'retry = 6' 'retry-all-errors' \
+    'retry-delay = 5' > /root/.curlrc
 RUN GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.version GIT_CONFIG_VALUE_0=HTTP/1.1 \
     SKIP_DEPS=1 pangrova-worker-native/bin/setup-native-build-env.sh
 
