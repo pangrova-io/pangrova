@@ -392,6 +392,11 @@ build_velox() {
     fi
   elif [[ "$OS" == "Linux" ]]; then
     ./scripts/setup-ubuntu.sh
+    # setup-ubuntu.sh installs core Velox dependencies but leaves cloud adapters
+    # to an explicit command. The S3-enabled Velox configure requires AWSSDK.
+    if [[ ! -f "${INSTALL_PREFIX:-/usr/local}/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]]; then
+      ./scripts/setup-ubuntu.sh install_aws_deps
+    fi
   fi
 
   ensure_folly_compiler_abi
