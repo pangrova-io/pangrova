@@ -111,7 +111,9 @@ public class BatchStreamProducer implements FlightProducer {
             listener.start(outputRoot);
             VectorLoader loader = new VectorLoader(outputRoot);
             decodeBatches(firstBatch, loader, listener);
-            streamRemainingBatches(dataTicket, loader, listener);
+            if (!producer.singleResponsePerRequest()) {
+                streamRemainingBatches(dataTicket, loader, listener);
+            }
             listener.completed();
         } catch (Exception e) {
             LOG.error("event=flight_get_stream_failed error={}", e.getMessage(), e);

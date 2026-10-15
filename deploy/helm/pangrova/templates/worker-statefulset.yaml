@@ -38,8 +38,17 @@ spec:
               value: /opt/pangrova/logs
             - name: PANGROVA_JAVA_OPTS
               value: {{ .Values.worker.javaOpts | quote }}
-            - name: WORKER_COORDINATOR_URL
-              value: "http://pangrova-coordinator:8080"
+            - name: PANGROVA_COORDINATOR_URL
+              value: "http://pangrova-coordinator-bootstrap:8080"
+            - name: PANGROVA_ADVERTISED_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PANGROVA_INTERNAL_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.internalAuth.existingSecret | quote }}
+                  key: internal-auth-secret
           readinessProbe:
             httpGet:
               path: /v1/health
@@ -48,7 +57,7 @@ spec:
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/live
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
@@ -60,6 +69,10 @@ spec:
               subPath: worker.yml
             - name: logs
               mountPath: /opt/pangrova/logs
+            {{- if not .Values.persistence.enabled }}
+            - name: data
+              mountPath: /opt/pangrova/data
+            {{- end }}
             {{- if .Values.persistence.enabled }}
             - name: data
               mountPath: /opt/pangrova/data
@@ -70,6 +83,10 @@ spec:
             name: pangrova-config
         - name: logs
           emptyDir: {}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
   {{- if .Values.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:

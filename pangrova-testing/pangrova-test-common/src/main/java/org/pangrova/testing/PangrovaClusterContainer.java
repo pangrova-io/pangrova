@@ -1,5 +1,7 @@
 package org.pangrova.testing;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -38,6 +40,7 @@ import java.util.function.Consumer;
 public final class PangrovaClusterContainer implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaClusterContainer.class);
+    private static final ObjectMapper HEALTH_JSON = new ObjectMapper();
     private static final DockerImageName DEFAULT_IMAGE = DockerImageName.parse("pangrova/pangrova:latest");
 
     private static final int COORDINATOR_HTTP_PORT = 8080;
@@ -90,7 +93,8 @@ public final class PangrovaClusterContainer implements AutoCloseable {
         }
         LOG.info("Starting PangrovaClusterContainer: 1 coordinator + {} workers", workerCount);
 
-        // Coordinator
+        // Coordinator HTTP must answer before Workers can register; full readiness
+        // deliberately remains 503 until Workers and a catalog exist.
         coordinator = new RuntimeUserContainer(imageName)
                 .withNetwork(network)
                 .withNetworkAliases("coordinator")
@@ -100,7 +104,8 @@ public final class PangrovaClusterContainer implements AutoCloseable {
                 .withEnv("PANGROVA_COORDINATOR_ID", "e2e-coordinator")
                 .waitingFor(Wait.forHttp("/v1/health")
                         .forPort(COORDINATOR_HTTP_PORT)
-                        .forStatusCode(200)
+                        .forStatusCodeMatching(status -> status == 200 || status == 503)
+                        .forResponsePredicate(PangrovaClusterContainer::coordinatorHttpServing)
                         .withStartupTimeout(STARTUP_TIMEOUT))
                 .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("coordinator"));
         try {
@@ -141,6 +146,19 @@ public final class PangrovaClusterContainer implements AutoCloseable {
             workers.add(worker);
             workerConfiguration.accept(i, worker);
             worker.start();
+        }
+    }
+
+    /** Coordinator readiness depends on Workers and catalogs created after this process starts. */
+    static boolean coordinatorHttpServing(String body) {
+        if (body == null) return false;
+        try {
+            var status = HEALTH_JSON.readTree(body);
+            return status != null && "COORDINATOR".equals(status.path("nodeType").asText())
+                    && status.path("checks").path("http").isBoolean()
+                    && status.path("checks").path("http").booleanValue();
+        } catch (JsonProcessingException invalidHealthResponse) {
+            return false;
         }
     }
 

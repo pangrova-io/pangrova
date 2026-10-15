@@ -19,6 +19,11 @@ image:
   # pullSecrets:
   #   - name: my-registry-secret
 
+# Create this Secret in the release namespace (and each tenant namespace).
+# The key must be internal-auth-secret; never put the value in chart values.
+internalAuth:
+  existingSecret: pangrova-internal-auth
+
 # ---- Service Account ----
 serviceAccount:
   create: true
@@ -27,7 +32,9 @@ serviceAccount:
 
 # ---- Coordinator ----
 coordinator:
-  replicas: 2
+  # The default in-memory, non-HA configuration has one Coordinator.
+  # Multiple replicas require a shared JDBC state store and HA configuration.
+  replicas: 1
 
   resources:
     requests:
@@ -106,6 +113,7 @@ config:
       id: "coordinator-1"
       host: "0.0.0.0"
       port: 8080
+      internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
       ha:
         enabled: false
       query:
@@ -126,11 +134,16 @@ config:
     worker:
       host: "0.0.0.0"
       port: 8081
+      advertised-host: "${PANGROVA_ADVERTISED_HOST}"
+      coordinator-url: "${PANGROVA_COORDINATOR_URL}"
+      internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
       heartbeat-interval: "10s"
       shuffle:
         buffer-capacity: 100
         max-memory-bytes: 536870912
         spill-threshold: 0.8
+        service:
+          spill-directory: /opt/pangrova/data
       memory:
         budget-bytes: 536870912
         system-reserved-bytes: 67108864
@@ -143,6 +156,9 @@ config:
         max-attempts: 5
         initial-backoff: "1s"
         max-backoff: "30s"
+      native:
+        cache:
+          enabled: false
     observability:
       enabled: true
     security:

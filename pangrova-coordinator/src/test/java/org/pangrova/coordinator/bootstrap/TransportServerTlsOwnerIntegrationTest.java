@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.coordinator.result.CoordinatorDataProducer;
 import org.pangrova.coordinator.result.CoordinatorResultBuffer;
 import org.pangrova.spi.transport.TransportServerConfig;
+import org.pangrova.spi.transport.DataTicket;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
 import org.pangrova.worker.heartbeat.SpillDiskMonitor;
 import org.pangrova.worker.transport.TransportServer;
@@ -88,6 +90,15 @@ class TransportServerTlsOwnerIntegrationTest {
                     var descriptor = FlightDescriptor.command(new byte[] {4, 5});
                     check(trusted.getInfo(descriptor).getDescriptor().equals(descriptor),
                             "bootstrap path reaches the real authenticated Flight server");
+                    var ticket = new Ticket(new DataTicket("tls-ack", "", 0,
+                            DataTicket.TicketType.RESULT).serialize());
+                    for (int request = 0; request < 2; request++) {
+                        try (var stream = trusted.getStream(ticket)) {
+                            check(stream.next() && stream.getRoot().getRowCount() == 1,
+                                    "control acknowledgement is returned once");
+                            check(!stream.next(), "control acknowledgement reaches EOF");
+                        }
+                    }
                 } finally {
                     trusted.close();
                 }

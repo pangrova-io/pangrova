@@ -27,6 +27,7 @@ class HealthCheckEndpointTest {
                 new TestConditions(true, false, false, 0, 1));
 
         assertThat(endpoint.isReady()).isFalse();
+        assertThat(endpoint.isLive()).isTrue();
     }
 
     @Test
@@ -55,6 +56,16 @@ class HealthCheckEndpointTest {
                 new TestConditions(true, true, false, 0, 0));
 
         assertThat(endpoint.isReady()).isFalse();
+        assertThat(endpoint.isLive()).isTrue();
+    }
+
+    @Test
+    void livenessFailsBeforeHttpStarts() {
+        HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
+                HealthCheckEndpoint.NodeType.COORDINATOR,
+                new TestConditions(false, true, true, 1, 1));
+
+        assertThat(endpoint.isLive()).isFalse();
     }
 
     @Test

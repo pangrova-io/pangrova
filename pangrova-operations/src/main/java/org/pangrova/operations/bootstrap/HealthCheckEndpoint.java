@@ -27,6 +27,11 @@ public final class HealthCheckEndpoint {
         };
     }
 
+    /** Returns whether this node's HTTP server has completed startup. */
+    public boolean isLive() {
+        return conditions.isHttpReady();
+    }
+
     /** Builds the full health status including per-component check results. */
     public HealthStatus health() {
         Map<String, Boolean> checks = buildChecks();

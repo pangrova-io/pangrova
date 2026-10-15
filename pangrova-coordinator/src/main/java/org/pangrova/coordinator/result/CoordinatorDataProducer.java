@@ -40,4 +40,9 @@ public final class CoordinatorDataProducer implements DataProducer {
         LOG.debug("event=result_served queryId={} sizeBytes={}", queryId, data.length);
         return data;
     }
+
+    @Override
+    public boolean singleResponsePerRequest() {
+        return true;
+    }
 }

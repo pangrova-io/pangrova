@@ -37,6 +37,11 @@ spec:
               value: /opt/pangrova/logs
             - name: PANGROVA_JAVA_OPTS
               value: {{ .Values.coordinator.javaOpts | quote }}
+            - name: PANGROVA_INTERNAL_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.internalAuth.existingSecret | quote }}
+                  key: internal-auth-secret
           readinessProbe:
             httpGet:
               path: /v1/health
@@ -45,7 +50,7 @@ spec:
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /v1/health
+              path: /v1/health/live
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10

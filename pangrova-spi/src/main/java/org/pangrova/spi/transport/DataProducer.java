@@ -17,4 +17,13 @@ public interface DataProducer {
      *         null if data is not yet ready (caller should retry)
      */
     byte[] doGet(DataTicket ticket);
+
+    /**
+     * Whether one non-empty response contains the complete result for a DoGet request.
+     * Snapshot producers can retain bytes for independent retries; streaming producers
+     * continue to return batches until they return an empty array for EOF.
+     */
+    default boolean singleResponsePerRequest() {
+        return false;
+    }
 }

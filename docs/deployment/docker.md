@@ -12,12 +12,17 @@ Run Pangrova with Docker Compose for development and testing, and build containe
 
 ```bash
 cd deploy/docker
-cp .env.example .env        # adjust if needed
+cp .env.example .env
+# Set PANGROVA_DB_PASSWORD and a random >=32-byte PANGROVA_INTERNAL_AUTH_SECRET in .env.
 docker compose up -d
-docker compose ps            # verify both services are healthy
+docker compose ps
 ```
 
-Coordinator is available at `http://localhost:8080`. Worker registers automatically.
+Compose starts PostgreSQL, one Coordinator, and one Worker with a small development
+configuration mounted read-only from `deploy/docker/config/`. The Coordinator is
+available at `http://localhost:8080`; the Worker registers after Coordinator
+HTTP startup. The password and internal secret must be supplied in `.env` and
+must not be committed. SQL readiness remains 503 until a catalog is created.
 
 To stop:
 
@@ -33,7 +38,12 @@ docker compose -f docker-compose-cluster.yml up -d
 docker compose -f docker-compose-cluster.yml ps
 ```
 
-This starts 2 Coordinators (ports 8080, 8082) and 3 Workers (ports 8081, 8083, 8084).
+This starts PostgreSQL, 2 independent non-HA Coordinators (ports 8080, 8082),
+and 3 Workers (ports 8081, 8083, 8084). The development configuration disables
+HA: Workers 1 and 2 register with Coordinator 1, Worker 3 with Coordinator 2.
+The two endpoints have separate Worker registries and do not provide failover.
+Use a shared JDBC state store and the production HA configuration before
+claiming failover behavior.
 
 ## Docker — Build Image from Source
 
@@ -104,7 +114,8 @@ the image until the dependency is rebuilt correctly.
 
 All services read configuration from `/opt/pangrova/config/` inside the container. Override via:
 
-- Environment variables (`PANGROVA_JAVA_OPTS`, `WORKER_COORDINATOR_URL`, etc.)
+- Environment variables used by YAML placeholders (`PANGROVA_COORDINATOR_URL`,
+  `PANGROVA_ADVERTISED_HOST`, `PANGROVA_INTERNAL_AUTH_SECRET`, etc.)
 - Helm `values.yaml` — `config.coordinator` and `config.worker` embed full YAML content
 - Kubernetes ConfigMap — mounted as `coordinator.yml` / `worker.yml`
 
@@ -112,12 +123,20 @@ See the [Configuration Reference](../configuration/reference.md) for the complet
 
 ## Health Checks
 
-All services expose `GET /v1/health` for readiness and liveness probes.
+All services expose `GET /v1/health` for readiness and `GET /v1/health/live`
+for liveness. Coordinator readiness requires its HTTP server, a registered
+Worker, and a catalog; it can return 503 while its live endpoint returns 200.
+Compose and the image healthcheck use liveness so Workers can start and register.
+Workers must have an existing writable `worker.shuffle.service.spill-directory`
+with capacity for their configured spill quota and headroom. The Compose
+configuration points it at the Worker data volume. The production
+`etc/worker.yml` defaults to the explicitly provisioned `/mnt/spill/pangrova`
+mount, with `PANGROVA_SHUFFLE_SERVICE_SPILL_DIRECTORY` for override.
 
-| Component   | Default Port | Health Endpoint                    |
-|-------------|-------------|------------------------------------|
-| Coordinator | 8080        | `http://localhost:8080/v1/health`  |
-| Worker      | 8081        | `http://localhost:8081/v1/health`  |
+| Component   | Default Port | Readiness | Liveness |
+|-------------|-------------|-----------|----------|
+| Coordinator | 8080 | `/v1/health` | `/v1/health/live` |
+| Worker | 8081 | `/v1/health` | `/v1/health/live` |
 
 ## Image Versioning
 

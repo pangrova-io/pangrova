@@ -125,7 +125,9 @@ For chaos/fault-injection tests. Required for CDC EOS tests, distributed consens
 | Image | `pangrova/pangrova:latest` |
 | Coordinator Port | 8080 |
 | Worker Port | 8081 |
-| Health Check | HTTP `/v1/health` → 200 |
+| Coordinator startup | `/v1/health` returns 200 or 503 with `nodeType=COORDINATOR` and `checks.http=true` before Workers start |
+| Readiness | HTTP `/v1/health` → 200 only after node-specific dependencies are ready |
+| Liveness | HTTP `/v1/health/live` → 200 once the node HTTP server has started |
 
 A test counts as multi-worker or distributed E2E only when every advertised
 worker has a distinct process/container and endpoint. Multiple worker IDs that

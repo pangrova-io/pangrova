@@ -191,6 +191,15 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
                   port: 8080
                   internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
                   role: QUERY
+                  transport:
+                    tls:
+                      enabled: true
+                      certificate-chain-path: "%s"
+                      private-key-path: "%s"
+                      root-ca-path: "%s"
+                  shuffle:
+                    tls:
+                      server-identity: host.testcontainers.internal
                   speculation:
                     enabled: true
                   ha:
@@ -212,7 +221,9 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
                       user-dn-pattern: uid={0},dc=pangrova,dc=org
                 tenant:
                   enabled: true
-                """.formatted(security.processJdbcUrl());
+                """.formatted(ROLE_TLS_DIRECTORY + "/identity.pem",
+                        ROLE_TLS_DIRECTORY + "/identity-key.pem",
+                        ROLE_TLS_DIRECTORY + "/root.pem", security.processJdbcUrl());
     }
 
     private String workerConfig(WorkerNetwork network) {
@@ -233,6 +244,9 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
                   memory:
                     budget-bytes: 536870912
                     node-bytes: 1073741824
+                  shuffle:
+                    service:
+                      spill-directory: "/opt/pangrova/data"
                   native:
                     cache:
                       enabled: false

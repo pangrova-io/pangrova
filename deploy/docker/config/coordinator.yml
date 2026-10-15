@@ -1,0 +1,18 @@
+# Docker Compose development profile. Production uses etc/coordinator.yml.
+coordinator:
+  id: "${HOSTNAME:-coordinator-0}"
+  host: 0.0.0.0
+  port: 8080
+  role: QUERY
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
+  ha:
+    enabled: false
+state-store:
+  type: JDBC
+metadata:
+  enabled: true
+  jdbc-url: "jdbc:postgresql://metadata:5432/pangrova_meta"
+  jdbc-username: "${PANGROVA_DB_USERNAME}"
+  jdbc-password: "${PANGROVA_DB_PASSWORD}"
+security:
+  enabled: false

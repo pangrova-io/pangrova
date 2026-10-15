@@ -71,6 +71,7 @@ class CoordinatorDataProducerTest {
     void doGetRetainsDataAcrossMultipleCalls() {
         buffer.put("q1", new byte[]{42});
 
+        assertThat(producer.singleResponsePerRequest()).isTrue();
         assertThat(producer.doGet(ticket("q1"))).isEqualTo(new byte[]{42});
         assertThat(producer.doGet(ticket("q1"))).isEqualTo(new byte[]{42});
     }

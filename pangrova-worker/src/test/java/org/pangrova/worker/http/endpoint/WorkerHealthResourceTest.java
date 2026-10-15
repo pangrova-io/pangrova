@@ -31,6 +31,16 @@ class WorkerHealthResourceTest {
         WorkerHealthResource resource = new WorkerHealthResource(endpoint);
         Response response = resource.health();
         assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(resource.live().getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void workerWithoutHttpIsNotLive() {
+        HealthCheckEndpoint endpoint = new HealthCheckEndpoint(
+                HealthCheckEndpoint.NodeType.WORKER,
+                new StubConditions(false, true, true, 9091, true));
+
+        assertThat(new WorkerHealthResource(endpoint).live().getStatus()).isEqualTo(503);
     }
 
     private record StubConditions(boolean http, boolean transport, boolean nativeReady,

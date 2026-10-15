@@ -9,6 +9,38 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Configuration failures must clean up the owned cluster even before the first container starts. */
 class PangrovaClusterContainerLifecycleTest {
     @Test
+    void coordinatorStartupProbeRequiresItsOwnHttpCheck() {
+        String pendingCluster = """
+                {"ready":false,"nodeType":"COORDINATOR",
+                 "checks":{"http":true,"hasWorkers":false,"hasCatalogs":false}}
+                """;
+        assertThat(PangrovaClusterContainer.coordinatorHttpServing(pendingCluster))
+                .isTrue();
+        assertThat(PangrovaClusterContainer.coordinatorHttpServing(
+                """
+                {"ready":true,"nodeType":"COORDINATOR","checks":{"http":true}}
+                """))
+                .isTrue();
+        assertThat(PangrovaClusterContainer.coordinatorHttpServing(
+                """
+                {"ready":false,"nodeType":"COORDINATOR","checks":{"http":false}}
+                """))
+                .isFalse();
+        assertThat(PangrovaClusterContainer.coordinatorHttpServing(
+                """
+                {"ready":true,"nodeType":"WORKER","checks":{"http":true}}
+                """))
+                .isFalse();
+        assertThat(PangrovaClusterContainer.coordinatorHttpServing(
+                """
+                {"ready":true,"nodeType":"COORDINATOR","checks":{"http":"true"}}
+                """))
+                .isFalse();
+        assertThat(PangrovaClusterContainer.coordinatorHttpServing("{invalid"))
+                .isFalse();
+    }
+
+    @Test
     void invalidConstructionFailsBeforeAllocatingClusterResources() {
         assertThatThrownBy(() -> new PangrovaClusterContainer(0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new PangrovaClusterContainer(Integer.MIN_VALUE))

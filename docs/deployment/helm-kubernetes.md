@@ -7,6 +7,27 @@ description: "Helm chart installation, production values, scaling, multi-tenancy
 
 Deploy Pangrova on Kubernetes with the bundled Helm chart.
 
+The chart's embedded YAML is a development profile: it uses in-memory state,
+has no authentication, and has no preconfigured catalog. Rendering and linting
+the chart do not establish production readiness. Supply persistent shared JDBC
+state, metadata storage, authentication, transport TLS, catalog bootstrap and
+sized Worker spill volumes in environment-specific values before production.
+Raising `coordinator.replicas` alone does not enable HA.
+
+Before installation, create a `pangrova-internal-auth` Secret with an
+`internal-auth-secret` key of at least 32 random bytes in the release namespace.
+For multi-tenant deployment, create the same Secret in every tenant namespace.
+The chart references the Secret through `internalAuth.existingSecret` and never
+stores its value in chart values.
+Coordinator and Worker liveness probes call `/v1/health/live`; readiness probes
+call `/v1/health`. Coordinator readiness requires a Worker and catalog, so the
+chart also publishes `pangrova-coordinator-bootstrap` for Worker registration
+and initial catalog administration before the query-facing Coordinator Service
+has ready endpoints. The bootstrap Service deliberately publishes not-ready
+addresses and should remain cluster-internal. Worker data volumes must provide
+at least the configured Native shuffle spill quota plus headroom; the default
+chart mounts `/opt/pangrova/data` even when persistent volumes are disabled.
+
 
 ## Kubernetes — Helm Chart {#helm-kubernetes}
 
@@ -211,7 +232,8 @@ kubectl describe hpa pangrova-worker -n pangrova
 | `image.repository` | string | `pangrova/pangrova` | Container image repository |
 | `image.tag` | string | `latest` | Container image tag |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
-| `coordinator.replicas` | int | `2` | Number of Coordinator pods |
+| `coordinator.replicas` | int | `1` | Number of Coordinator pods; multiple replicas require shared JDBC state and HA configuration |
+| `internalAuth.existingSecret` | string | `pangrova-internal-auth` | Existing Secret with `internal-auth-secret` key in each deployment namespace |
 | `coordinator.resources` | object | 2 CPU / 4Gi | Coordinator resource requests/limits |
 | `coordinator.javaOpts` | string | `-Xms2g -Xmx8g` | Coordinator JVM options |
 | `coordinator.nodeSelector` | object | `{}` | Coordinator node selector |

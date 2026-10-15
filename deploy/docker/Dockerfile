@@ -86,15 +86,15 @@ ENV PANGROVA_HOME=/opt/pangrova \
     PANGROVA_CONF_DIR=/opt/pangrova/config \
     PANGROVA_LOG_DIR=/opt/pangrova/logs
 RUN groupadd -r pangrova && useradd -r -g pangrova -d /opt/pangrova pangrova \
-    && mkdir -p /opt/pangrova/logs /opt/pangrova/data \
+    && mkdir -p /opt/pangrova/logs /opt/pangrova/data /mnt/spill/pangrova \
     && apt-get update && apt-get install -y --no-install-recommends curl libstdc++6 libgcc-s1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /dist/ /opt/pangrova/
-RUN chmod +x /opt/pangrova/bin/*.sh && chown -R pangrova:pangrova /opt/pangrova
+RUN chmod +x /opt/pangrova/bin/*.sh && chown -R pangrova:pangrova /opt/pangrova /mnt/spill/pangrova
 USER pangrova
 WORKDIR /opt/pangrova
 EXPOSE 8080 8081
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8080/v1/health || curl -f http://localhost:8081/v1/health || exit 1
+    CMD curl -f http://localhost:8080/v1/health/live || curl -f http://localhost:8081/v1/health/live || exit 1
 ENTRYPOINT ["/opt/pangrova/bin/pangrova.sh"]
 CMD ["start", "coordinator"]
