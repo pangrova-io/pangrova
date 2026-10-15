@@ -146,7 +146,9 @@ final class IcebergWriteCommitter {
         if (!handle.partitionSpecJson().equals(declaration.partitionSpecJson())) changed.add("partition spec");
         if (handle.formatVersion() != declaration.formatVersion()) changed.add("format version");
         if (!IcebergDeclarationProperties.capture(handle.properties())
-                .equals(declaration.declarationProperties())) changed.add("properties");
+                .equals(declaration.declarationProperties())) {
+            changed.add("properties");
+        }
         if (!changed.isEmpty()) {
             throw new IllegalStateException("Iceberg write declaration changed since allocation: "
                     + handle.schemaName() + "." + handle.tableName() + " (" + String.join(", ", changed) + ")");
