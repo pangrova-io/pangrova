@@ -107,9 +107,8 @@ public final class DynamicTableWriter {
                     .map(committed -> committed.equals(checkpoint))
                     .orElse(false);
         } catch (Exception e) {
-            LOG.warn("event=dt_checkpoint_read_failed targetTable={} error={} action=proceed_with_write",
-                    targetTable, e.getMessage());
-            return false;
+            throw new IllegalStateException(
+                    "Cannot verify Dynamic Table checkpoint before writing " + targetTable, e);
         }
     }
 

@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.dynamictable;
 
-import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.metadata.dynamictable.DynamicTableState;
 
 /**
@@ -22,7 +21,8 @@ public interface DynamicTableRefreshDispatchFunction {
      *
      * @param state      current Dynamic Table state (defines the query, source, target)
      * @param checkpoint source checkpoint for incremental CDC splits
-     * @return dispatch result with worker task information
+     * @return terminal worker outcome after the target write is durably committed;
+     *         a task dispatch acknowledgement is not a successful refresh
      */
-    DispatchResult apply(DynamicTableState state, String checkpoint);
+    NativeRefreshOutcome apply(DynamicTableState state, String checkpoint);
 }

@@ -3,6 +3,7 @@ package org.pangrova.coordinator.dynamictable.refresh.pipeline;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.StaleEpochException;
 import org.pangrova.coordinator.dynamictable.DynamicTableConfig;
+import org.pangrova.coordinator.dynamictable.NativeRefreshOutcome;
 import org.pangrova.coordinator.dynamictable.detect.ChangeResult;
 import org.pangrova.coordinator.dynamictable.detect.SchemaEvolutionException;
 import org.pangrova.coordinator.dynamictable.eval.IncrementalResult;
@@ -167,13 +168,20 @@ public final class RefreshCoordinator {
         validateEpoch(state);
         lockCoordinator.checkRenewalAborted(state.dtName(), refreshId);
 
-        deps.nativeRefreshDispatch().apply(state, sourceCheckpoint);
+        NativeRefreshOutcome outcome = Objects.requireNonNull(
+                deps.nativeRefreshDispatch().apply(state, sourceCheckpoint),
+                "native refresh must return a terminal commit outcome")
+                .requireCommittedCheckpoint(sourceCheckpoint);
+        validateEpoch(state);
+        lockCoordinator.checkRenewalAborted(state.dtName(), refreshId);
 
-        LOG.info("event=dt_native_refresh_dispatched dtName={} refreshId={} checkpoint={}",
-                state.dtName(), refreshId, sourceCheckpoint);
+        LOG.info("event=dt_native_refresh_committed dtName={} refreshId={} taskId={} "
+                        + "checkpoint={} rowsWritten={} bytesWritten={}",
+                state.dtName(), refreshId, outcome.taskId(), sourceCheckpoint,
+                outcome.processedRows(), outcome.bytesWritten());
 
         DynamicTableWriteResult writeResult = new DynamicTableWriteResult(
-                0L, 0L, state.dtName(), sourceCheckpoint);
+                outcome.bytesWritten(), outcome.processedRows(), state.dtName(), sourceCheckpoint);
         return commitAndRecord(state, triggerType, refreshId, startTime, writeResult);
     }
 

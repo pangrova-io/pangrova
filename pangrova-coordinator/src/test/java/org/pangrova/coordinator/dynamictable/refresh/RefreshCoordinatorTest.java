@@ -2,6 +2,8 @@ package org.pangrova.coordinator.dynamictable.refresh;
 
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.coordinator.dynamictable.DynamicTableConfig;
+import org.pangrova.coordinator.dynamictable.DynamicTableRefreshDispatchFunction;
+import org.pangrova.coordinator.dynamictable.NativeRefreshOutcome;
 import org.pangrova.coordinator.dynamictable.detect.ChangeResult;
 import org.pangrova.coordinator.dynamictable.detect.IncrementalScanPlan;
 import org.pangrova.coordinator.dynamictable.detect.SchemaEvolutionException;
@@ -105,6 +107,65 @@ class RefreshCoordinatorTest {
         DynamicTableState committed = stateStore.loadState("orders").orElseThrow();
         assertThat(committed.checkpoint()).isEqualTo(result.newCheckpoint());
         assertThat(committed.consecutiveFailures()).isZero();
+    }
+
+    @Test
+    void nativeRefresh_advancesCheckpointOnlyAfterConfirmedCommit() {
+        DynamicTableState state = activeState("native_committed_dt");
+        stateStore.saveState(state);
+        AtomicInteger dispatches = new AtomicInteger();
+        RefreshCoordinator coordinator = buildNativeCoordinator((current, checkpoint) -> {
+            dispatches.incrementAndGet();
+            return NativeRefreshOutcome.success("task-committed", 7, 896, checkpoint);
+        });
+
+        RefreshResult result = coordinator.executeRefresh(state, TriggerType.MANUAL);
+
+        assertThat(result.status()).isEqualTo(RefreshStatus.SUCCESS);
+        assertThat(result.processedRows()).isEqualTo(7);
+        assertThat(result.bytesWritten()).isEqualTo(896);
+        assertThat(result.newCheckpoint()).isEqualTo("200");
+        assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint()).isEqualTo("200");
+        assertThat(dispatches).hasValue(1);
+    }
+
+    @Test
+    void nativeRefresh_failedCommitDoesNotAdvanceCheckpoint() {
+        DynamicTableState state = activeState("native_failed_dt");
+        stateStore.saveState(state);
+        RefreshCoordinator coordinator = buildNativeCoordinator((current, checkpoint) ->
+                NativeRefreshOutcome.failure("task-failed", "target commit failed"));
+
+        RefreshResult result = coordinator.executeRefresh(state, TriggerType.MANUAL);
+
+        assertThat(result.status()).isEqualTo(RefreshStatus.FAILURE);
+        assertThat(result.newCheckpoint()).isNull();
+        assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint()).isEqualTo("100");
+    }
+
+    @Test
+    void nativeRefresh_wrongCheckpointDoesNotAdvanceCheckpoint() {
+        DynamicTableState state = activeState("native_wrong_checkpoint_dt");
+        stateStore.saveState(state);
+        RefreshCoordinator coordinator = buildNativeCoordinator((current, checkpoint) ->
+                NativeRefreshOutcome.success("task-wrong", 7, 896, "201"));
+
+        RefreshResult result = coordinator.executeRefresh(state, TriggerType.MANUAL);
+
+        assertThat(result.status()).isEqualTo(RefreshStatus.FAILURE);
+        assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint()).isEqualTo("100");
+    }
+
+    @Test
+    void nativeRefresh_missingCompletionDoesNotAdvanceCheckpoint() {
+        DynamicTableState state = activeState("native_missing_completion_dt");
+        stateStore.saveState(state);
+        RefreshCoordinator coordinator = buildNativeCoordinator((current, checkpoint) -> null);
+
+        RefreshResult result = coordinator.executeRefresh(state, TriggerType.MANUAL);
+
+        assertThat(result.status()).isEqualTo(RefreshStatus.FAILURE);
+        assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint()).isEqualTo("100");
     }
 
     // ── No-op skip ──────────────────────────────────────────────────
@@ -435,6 +496,14 @@ class RefreshCoordinatorTest {
                                                 DynamicTableWriter writer) {
         var deps = new RefreshCoordinatorContext(stateStore, historyStore, writer);
         return new RefreshCoordinator(deps, pipeline, new RefreshLockCoordinator(lockManager), config);
+    }
+
+    private RefreshCoordinator buildNativeCoordinator(DynamicTableRefreshDispatchFunction dispatch) {
+        var deps = new RefreshCoordinatorContext(stateStore, historyStore,
+                failingWriter(), null, null, null, dispatch);
+        return new RefreshCoordinator(deps,
+                snapshotPipeline(incrementalChanges(), IncrementalResult.empty()),
+                new RefreshLockCoordinator(lockManager), config);
     }
 
     // ── Helper: state factories ─────────────────────────────────────

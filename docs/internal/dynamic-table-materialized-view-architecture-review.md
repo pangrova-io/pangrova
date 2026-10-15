@@ -104,6 +104,8 @@ published_checkpoint <= target_table_committed_source_position
 
 **必须改成**：dispatch 返回 execution handle；coordinator 等待所有 fragments 达到 prepared；目标 catalog 使用受 fencing token 保护的原子 commit 发布新 generation；只有 commit 成功后，metadata 才能把 active generation 与 committed source position 一起发布。
 
+2026-10-16 增量修正：`DynamicTableRefreshDispatchFunction` 已改为返回终态 `NativeRefreshOutcome`，`RefreshCoordinator` 拒绝 null、失败及不匹配的已提交 checkpoint，重新检查 epoch/租约后才推进状态，并记录实际行数/字节数；聚合、投影和 merge 的直接分发调用也检查同一结果。此修正仅封闭“收到派发描述符即报成功”的接口漏洞。生产装配、真实目标表原子 generation 提交、源位置与目标提交的共同 fencing、撤销/未知提交恢复和实际物化 SQL E2E 尚未完成，不能据此宣称 P0-2 全链闭合。
+
 ### P0-3 APPEND 不能承载一般增量维护
 
 `DynamicTableWriter` 固定使用 `WriteMode.APPEND`。Filter/project 路径忽略 DELETE，aggregate 路径把新的 group state 作为行追加。对于 UPDATE、DELETE、聚合回撤、重复 replay，这分别造成陈旧行、重复行和累计错误。

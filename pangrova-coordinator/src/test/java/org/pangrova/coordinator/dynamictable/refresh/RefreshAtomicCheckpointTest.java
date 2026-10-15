@@ -162,8 +162,8 @@ class RefreshAtomicCheckpointTest {
     }
 
     @Test
-    void refresh_readCheckpointFails_proceedsWithWrite() {
-        DynamicTableState state = activeState("fallback_dt");
+    void refresh_readCheckpointFails_rejectsWriteAndKeepsCheckpoint() {
+        DynamicTableState state = activeState("unverified_checkpoint_dt");
         stateStore.saveState(state);
 
         // Table writer throws on readLastCommitProperty
@@ -177,9 +177,10 @@ class RefreshAtomicCheckpointTest {
 
         RefreshResult result = coordinator.executeRefresh(state, TriggerType.SCHEDULED);
 
-        // Should proceed with write despite read failure
-        assertThat(result.status()).isEqualTo(RefreshStatus.SUCCESS);
-        assertThat(writeCounter.get()).isEqualTo(1);
+        assertThat(result.status()).isEqualTo(RefreshStatus.FAILURE);
+        assertThat(writeCounter.get()).isZero();
+        assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint())
+                .isEqualTo("100");
     }
 
     // ── Helpers ────────────────────────────────────────────────────

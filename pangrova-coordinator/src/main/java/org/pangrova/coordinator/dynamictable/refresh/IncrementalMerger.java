@@ -58,7 +58,9 @@ public final class IncrementalMerger {
             String checkpoint) {
         Objects.requireNonNull(nativeDispatch, "nativeDispatch must not be null");
         Objects.requireNonNull(state, "state must not be null");
-        nativeDispatch.apply(state, checkpoint);
+        Objects.requireNonNull(nativeDispatch.apply(state, checkpoint),
+                "native merge must return a terminal commit outcome")
+                .requireCommittedCheckpoint(checkpoint);
         LOG.info("event=incremental_merge_native_dispatch dtName={} checkpoint={}",
                 state.dtName(), checkpoint);
         return new IncrementalResult(List.of(), 0, 0);

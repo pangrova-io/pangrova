@@ -108,7 +108,9 @@ public final class AggregateEvaluator implements IncrementalEvaluator {
      */
     private IncrementalResult delegateToNativeWorker(DynamicTableState dtState, ChangeResult changes) {
         String checkpoint = changes.extractCheckpoint();
-        nativeDispatch.apply(dtState, checkpoint);
+        Objects.requireNonNull(nativeDispatch.apply(dtState, checkpoint),
+                "native aggregation must return a terminal commit outcome")
+                .requireCommittedCheckpoint(checkpoint);
         long rowCount = changes instanceof ChangeResult.CdcBatch batch
                 ? batch.events().size() : 0;
         LOG.info("event=aggregate_native_dispatch dtName={} inputRows={}",

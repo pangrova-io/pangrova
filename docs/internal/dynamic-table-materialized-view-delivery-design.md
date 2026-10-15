@@ -32,10 +32,10 @@
 | F01 | 历史审计中执行装配未注册 DT tasks；无调用的 QueryExecutionWiring 副本现已删除 | 必须用唯一 QueryExecutionBootstrap 与真实进程证明 DT reachable，删除副本不是验收 |
 | F02 | PlannerWiring 仍向 DT rewriter 与 metadata version provider 位置传 null | 显式读 DT 无正常 generation binder；不能依靠测试 override |
 | F03 | MV listener 与 recovery 已在 PlannerWiring 构造；MetadataBootstrap 使用 InMemoryMaterializedViewStore | 旧审查“listener 未 wiring”不能照搬；生产持久化仍缺失 |
-| F04 | RefreshCoordinator.native 路径忽略 DispatchResult，构造零行写成功并 commitAndRecord | worker 未完成也推进 checkpoint；必须取得精确 committed receipt |
-| F05 | NativeRefreshOutcome 注释宣称闭环，但 dispatch 接口实际仍返回 DispatchResult | 以方法类型和调用为证据；不能把未消费 outcome 当成修复 |
+| F04 | 历史 native 路径忽略 DispatchResult 并构造零行成功；现已要求终态 NativeRefreshOutcome、核对 checkpoint 与实际行数/字节数 | 消除了“派发即成功”的接口漏洞；尚须真实目标提交 receipt、原子 generation 发布和独立 E2E |
+| F05 | 历史 NativeRefreshOutcome 未被消费；现 dispatch 接口及调用方均验证终态 | 生产没有该函数的真实装配，接口通过不代表 Worker 完成或 Catalog 提交已验证 |
 | F06 | DynamicTableWriter 把输出转成 INSERT，统一 WriteMode.APPEND | FULL/UPDATE/DELETE/group replace 语义不成立；迁出 JVM 数据路径 |
-| F07 | Checkpoint 幂等只比 target 最近属性；读取失败继续写；type 固定 SNAPSHOT | 无完整批次身份，历史 replay 不安全；使用 durable attempt/receipt |
+| F07 | Checkpoint 幂等只比 target 最近属性；读取失败现拒绝写；type 固定 SNAPSHOT | 防止读取失败时盲写，但仍无完整批次身份，历史 replay 不安全；使用 durable attempt/receipt |
 | F08 | ChangeResult.CdcBatch checkpoint 是最后事件 eventTime 字符串 | 无 partition/source 恢复坐标；改为类型化 opaque position vector |
 | F09 | tryUseIncrementalSplits 仅检查并打日志，未把增量 split 绑定执行；使用 dtName | 不能称 O(delta)；能力对象和 range 必须由 source binding 提供 |
 | F10 | 增量 merge 异常后返回原 delta，并称 fallback_to_full_result | 这没有重跑 full；改为显式失败或重新编译 full attempt |

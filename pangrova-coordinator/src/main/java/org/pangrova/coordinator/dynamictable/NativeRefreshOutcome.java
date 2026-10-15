@@ -38,6 +38,9 @@ public record NativeRefreshOutcome(
 
     public NativeRefreshOutcome {
         Objects.requireNonNull(taskId, "taskId must not be null");
+        if (taskId.isBlank()) {
+            throw new IllegalArgumentException("taskId must not be blank");
+        }
         if (processedRows < 0) {
             throw new IllegalArgumentException("processedRows must be non-negative");
         }
@@ -47,9 +50,29 @@ public record NativeRefreshOutcome(
         if (success && errorMessage != null) {
             throw new IllegalArgumentException("success outcomes must not carry an errorMessage");
         }
+        if (success && (committedCheckpoint == null || committedCheckpoint.isBlank())) {
+            throw new IllegalArgumentException("success outcomes require a committed checkpoint");
+        }
         if (!success && errorMessage == null) {
             throw new IllegalArgumentException("failure outcomes must carry an errorMessage");
         }
+        if (!success && committedCheckpoint != null) {
+            throw new IllegalArgumentException("failure outcomes must not carry a committed checkpoint");
+        }
+    }
+
+    /** Rejects a missing, failed, or mismatched durable commit before checkpoint publication. */
+    public NativeRefreshOutcome requireCommittedCheckpoint(String expectedCheckpoint) {
+        if (expectedCheckpoint == null || expectedCheckpoint.isBlank()) {
+            throw new IllegalStateException("Native refresh source checkpoint is missing");
+        }
+        if (!success) {
+            throw new IllegalStateException("Native refresh task " + taskId + " failed: " + errorMessage);
+        }
+        if (!expectedCheckpoint.equals(committedCheckpoint)) {
+            throw new IllegalStateException("Native refresh committed a different source checkpoint");
+        }
+        return this;
     }
 
     /**

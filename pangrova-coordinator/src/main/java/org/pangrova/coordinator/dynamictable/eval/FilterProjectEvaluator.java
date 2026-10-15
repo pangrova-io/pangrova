@@ -84,7 +84,9 @@ public final class FilterProjectEvaluator implements IncrementalEvaluator {
      */
     private IncrementalResult delegateToNativeWorker(DynamicTableState state, ChangeResult changes) {
         String checkpoint = changes.extractCheckpoint();
-        nativeDispatch.apply(state, checkpoint);
+        Objects.requireNonNull(nativeDispatch.apply(state, checkpoint),
+                "native filter/project must return a terminal commit outcome")
+                .requireCommittedCheckpoint(checkpoint);
         long rowCount = countInputRows(changes);
         LOG.info("event=filter_project_native_dispatch dtName={} inputRows={}",
                 state.dtName(), rowCount);
