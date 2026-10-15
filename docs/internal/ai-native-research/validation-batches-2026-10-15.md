@@ -2,7 +2,7 @@
 
 本清单按**独立验收检查点**计数，共 6 批、27 项。它不把某个局部测试通过等同于整条链通过；“已知缺口”表示现有实现或安全前置条件尚不满足，须先修复再验收。每项通过证据需绑定提交、依赖/协议、Native 或镜像指纹、实际执行命令、测试发现数、失败/错误/跳过数及日志。历史结果见 [validation-current.md](validation-current.md)，原始目标见仓库外的当前计划；最终生产资格仍以 `.pangrova/rules/build-pipeline.md`、`ci-gates.md` 为准。
 
-2026-10-16 盘点：按下表的限定验收范围，已完成 3 项（#5 Mac Native Release、#6 Mac ASan 地址检查、#10 三个隔离 Native runtime owner），仍开放 24 项：第一批 4、第二批 2、第三批 3、第四批 4、第五批 8、第六批 3。`785dd3f9` 干净归档的 ARM64 Bake 曾成功加载，但独立进程启动暴露 SLF4J 2 provider 缺失、Jersey 1/4 shaded ASM 冲突和 Coordinator 主线程过早退出。`1eb68802` 已提交/推送这三项根因修复，干净归档的新镜像已完整 Bake/加载：`pangrova/pangrova:verify-1eb68802`、image ID `sha256:c2702ed0a8ed882ebbc37084ceb4764efb81ab016f9754c6eb98fced774125b8`（ARM64，860,063,655 B；`/tmp/pangrova-arm64-final-bake-1eb68802.log`）。Coordinator 已保持前台，健康端点返回真实 JSON；独立 E2E 首轮发现测试容器先要求 Coordinator ready=200 才启动 Worker，而该状态必须等待 Worker/Catalog，形成启动门禁死锁；测试组件已修、最近测试 6/6，独立 E2E 正滚动复验。镜像仍需与本批后续功能修复同源重建，不能计作最终生产验收。用户将验收重心明确为功能覆盖与端到端通过；强制覆盖率和重复 CI 门禁已从 `785dd3f9` 移除，行为/集成/安全检查保留。各批可并行做互不争用的代码审查和研究；同一 Docker VM 的镜像构建与重型容器 E2E 顺序执行，避免资源竞争造成伪失败。磁盘按批检查，仅清理明确由本任务生成且已失效的产物。
+2026-10-16 盘点：历史批次曾完成 3 项（#5 Mac Native Release、#6 Mac ASan 地址检查、#10 三个隔离 Native runtime owner）；这些结果早于本轮 Native/协议/执行源码变化，最终同源码资格仍为 0/27，不能把历史 3 项算进最终通过数。`668aa77a` 干净归档的 ARM64 镜像 `pangrova/pangrova:verify-668aa77a` 已完整 Bake/加载，image ID `sha256:381696b0abc77b14212c910695f4d4b32ce5b382cc6d696fbeabb02258c32e47`（861,013,799 B；`/tmp/pangrova-arm64-final-bake-668aa77a.log`）；独立双 Worker 推测执行首轮 Surefire 10 run/0 failure/10 error/0 skip（`/tmp/pangrova-independent-spec-668aa77a-r1.log`）。实际运行暴露 Worker `/v1/health/live` 被鉴权拦截为 401，以及 8,053,064 行聚合的 Native Flight shuffle spill 容量错误。健康鉴权精确修复 `9ba739f9` 已推送，真 HTTP 最近测试 1/1、Worker 静态检查退出 0。Shuffle 多批共享匿名段与 byte/file 区分诊断仍在 Native 增量验证，镜像须与这些修复和 `$files` 等功能同源码重建。用户将验收重心明确为功能覆盖与端到端通过；强制覆盖率和重复 CI 门禁已移除，行为/集成/安全检查保留。互不争用的模块可分别滚动验证；同一 Docker VM 的镜像构建与重型容器 E2E 顺序执行。磁盘按批检查，仅清理本任务生成且已失效的产物。
 
 当前已通过但不能替代以下开放检查点：Mac Native Release/ASan 地址检查各 4,138/4,138（ASan 设置 `detect_leaks=0`）；JDK 17 Worker 1,433/1,433、Coordinator 先前 3,098/3,098；全 reactor 静态从起点退出 0；Gravitino Iceberg REST 空表 DDL/读/删除 1/1；DynamicTable 直读重写 5/5；真实 Ollama Worker HTTP 13/13 与共享 SQL E2E 13/13。它们各有源码批次和作用范围，不能合并成“生产全绿”。
 
@@ -10,7 +10,7 @@
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 1 | ARM64 正式 Bake 镜像 | `1eb68802` 干净归档完整 Bake/加载已通过，image ID `sha256:c2702ed0a8ed882ebbc37084ceb4764efb81ab016f9754c6eb98fced774125b8`，镜像 860,063,655 B；运行内容已确认仅 Jersey 4 server、匹配的 Logback 1.4.14/SLF4J 2.0.9。后续功能修复合并后须以最终同源码再 Bake。 |
+| 1 | ARM64 正式 Bake 镜像 | `668aa77a` 干净归档完整 Bake/加载已通过，image ID `sha256:381696b0abc77b14212c910695f4d4b32ce5b382cc6d696fbeabb02258c32e47`，861,013,799 B；Worker health 与 Native shuffle 后续修复尚未入该镜像，最终同源码须再 Bake。 |
 | 2 | 镜像内 Native/JNI 与 SQL 冒烟 | 新镜像中 Coordinator 已在 JRE17 前台持续运行，真实 `/v1/health` 返回 JSON HTTP 503（`http=true`、尚无 Worker/Catalog），证实 HTTP 路由已可用。独立测试组件原先先等 HTTP 200 再启 Worker 形成启动死锁；组件修复后正重跑 SQL→Native→Arrow/Flight→客户端，结果未出。 |
 | 3 | Linux x86_64 生产镜像 | 在 x86_64 runner 按同一 Bake 配方构建、启动并运行 Native/JNI/SQL；本机 ARM64 通过不能替代。 |
 | 4 | Linux ASan/LSan | 同源码、同依赖和真实夹具的 Linux 全量 sanitizer，地址错误与泄漏均为 0；Mac `detect_leaks=0` 的 4,153 项不证明 LSan。 |
@@ -19,8 +19,8 @@
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 5 | 最终 Native Release 全量 | 当前 `91bc121c` 同源码 Mac Release 在真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 600.34 秒；日志 `/tmp/pangrova-native-release-current-full-r2.log`。这是 Mac Native 门禁，不替代 Linux 镜像。 |
-| 6 | 最终 Native ASan 全量 | 当前源码 ASan 增量构建 PASS，真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 1,674.73 秒（`/tmp/pangrova-native-asan-current-full-r1.log`）；Mac `detect_leaks=0` 只检查地址问题，LSan 仍见第 4 项。 |
+| 5 | 最终 Native Release 全量 | 历史 `91bc121c` 同源码 Mac Release 在真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 600.34 秒；日志 `/tmp/pangrova-native-release-current-full-r2.log`。这是 Mac Native 门禁，不替代 Linux 镜像。 |
+| 6 | 最终 Native ASan 全量 | 较早源码 ASan 增量构建 PASS，真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 1,674.73 秒（`/tmp/pangrova-native-asan-current-full-r1.log`）；Mac `detect_leaks=0` 只检查地址问题，LSan 仍见第 4 项。 |
 | 7 | JDK 17 全 reactor 完整回归 | 最终同源码执行 `-Pfull-regression verify`，记录各模块实际发现数与 0 失败/错误/非预期跳过；本轮 Worker 1,433 项已过，但之前全 reactor E2E 遇 Docker VM 级联失败。 |
 | 8 | 静态、协议与结构门禁 | `9b85f68e` 源码全 reactor `-Pstatic-analysis -DskipTests verify` 从起点退出 0（`/tmp/pangrova-reactor-static-current-r2.log`）；首轮发现 Iceberg 跨行 `if` 缺大括号，最近模块检查通过后全量重跑。最终 descriptor、SPI/JNI、文档引用、E2E 真实性及适用脚本仍须同源码完成。 |
 
@@ -29,8 +29,8 @@
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
 | 9 | 完整共享 JVM E2E | `pangrova-test-e2e` 全部适用类、零失败/错误/跳过并记录实际测试数；先前 1,089 项运行受 VM 崩溃连锁污染，不能计通过。 |
-| 10 | 三个隔离 Native runtime owner | 当前源码三个类各独立 JVM 重跑：`WorkerBootstrapE2ETest` 5/5、`NativeExchangeTransportExternalIntegrationTest` 3/3、`WorkerShuffleChannelAdmissionIntegrationTest` 1/1，均 0 失败/错误/跳过；日志分别为 `/tmp/pangrova-worker-bootstrap-owner-current-r1.log`、`/tmp/pangrova-exchange-external-owner-current-r1.log`、`/tmp/pangrova-shuffle-admission-owner-current-r1.log`。仍需第 11 项的镜像双进程搬运。 |
-| 11 | 两个独立 Worker 的推测执行/交换 | `1eb68802` 新 image ID 的首轮测试揭示测试容器 Coordinator readiness=200 与实际启动顺序闭环（`/tmp/pangrova-independent-final-1eb68802-jdk17.log`）；门禁已改为严格验证 Coordinator HTTP 服务可达，再启动 Worker，最近测试 6/6 通过。正在同一 image ID/JDK17 重跑 10 项真实搬运、winner fencing 与资源归还（`/tmp/pangrova-independent-final-1eb68802-jdk17-r2.log`）。 |
+| 10 | 三个隔离 Native runtime owner | 较早源码三个类各独立 JVM 重跑：`WorkerBootstrapE2ETest` 5/5、`NativeExchangeTransportExternalIntegrationTest` 3/3、`WorkerShuffleChannelAdmissionIntegrationTest` 1/1，均 0 失败/错误/跳过；日志分别为 `/tmp/pangrova-worker-bootstrap-owner-current-r1.log`、`/tmp/pangrova-exchange-external-owner-current-r1.log`、`/tmp/pangrova-shuffle-admission-owner-current-r1.log`。仍需第 11 项的镜像双进程搬运。 |
+| 11 | 两个独立 Worker 的推测执行/交换 | `668aa77a` 镜像首轮真双 Worker 10 run/0 failure/10 error/0 skip；9 项等待 clone issued 超时、1 项等待 source task issued 超时，链路日志显示 Worker live 探针 401 与真实 `MAX(payload)` Flight spill 容量错误。Worker HTTP 修复 1/1 通过并已推送，Native 共享 spill 段修复及同源码镜像复验进行中；本项未通过。 |
 | 12 | 故障恢复矩阵 | 真实 PG、对象存储、Flight/Toxiproxy 和独立进程验证接管、迟到 RPC、丢 ACK、未知提交、取消、慢读、OOM 与最后 owner 退出；局部用例已过，组合矩阵未全闭合。 |
 
 ## 第四批：外部 Catalog 和真实写入（4 项）

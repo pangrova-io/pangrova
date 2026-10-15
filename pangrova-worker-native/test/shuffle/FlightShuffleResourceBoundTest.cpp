@@ -100,7 +100,9 @@ TEST(FlightShuffleResourceBoundTest, MissingConsumersDoNotBlockOtherPartitionsOr
   ASSERT_EQ(server.lingeringHandleCount(), 1u);
   queue.reset();  // Lingering data must not retain/dereference the producer.
   EXPECT_EQ(server.bufferUsage().memory_bytes, 0u);
-  EXPECT_EQ(server.bufferUsage().spill_bytes, 17u * 4096);
+  // The consumed marker shares a segment with the unread partitions, so its
+  // physical disk blocks remain charged until the segment closes.
+  EXPECT_EQ(server.bufferUsage().spill_bytes, 18u * 4096);
   EXPECT_TRUE(std::filesystem::is_empty(directory.path()));
   for (int i = 0; i < 16; ++i) {
     ShuffleBatch batch;
@@ -166,6 +168,8 @@ TEST(FlightShuffleResourceBoundTest, ExhaustedDiskFailsFlightAndPreservesOtherHa
   ASSERT_TRUE(second.push(taggedBatch(0, 8), 1s));
   auto result = (*stream)->Next();
   EXPECT_TRUE(result.status().IsCapacityError()) << result.status().ToString();
+  EXPECT_NE(result.status().ToString().find("spill byte budget exhausted"),
+            std::string::npos);
   server.unregisterHandle(2);  // Also joins cancellation/producer wakeup.
   EXPECT_TRUE(second.isClosed());
   EXPECT_FALSE(second.push(taggedBatch(1, 9), 0ms));

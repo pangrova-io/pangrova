@@ -98,7 +98,7 @@ Native Flight shuffle has a separate, process-wide service reservation. The Work
 | `worker.shuffle.service.retention-bytes` | long | `16777216` | Native Flight demux retention reservation |
 | `worker.shuffle.service.transit-bytes` | long | `16777216` | Separate active Flight replay/IPC/send reservation; must fit three 4 MiB payloads plus 64 KiB metadata |
 | `worker.shuffle.service.spill-bytes` | long | `1073741824` | Hard cap for this service's spill bytes |
-| `worker.shuffle.service.spill-files` | int | `256` | Hard cap for this service's anonymous spill files |
+| `worker.shuffle.service.spill-files` | int | `256` | Hard cap for this service's open anonymous spill files; small batches share 16 MiB segments |
 | `worker.shuffle.service.spill-directory` | string | required | Dedicated absolute spill directory; no fallback |
 
 The service spill cap does not yet share a node-wide disk allocator with task spill. Size their quotas against the same volume explicitly; this remains a distributed resource-governance gap.

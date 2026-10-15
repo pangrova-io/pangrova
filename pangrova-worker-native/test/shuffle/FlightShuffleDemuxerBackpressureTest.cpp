@@ -56,7 +56,7 @@ TEST(FlightShuffleDemuxerBackpressureTest, BoundedResidentBytesPreserveFifoWithS
   ASSERT_TRUE(demuxer.quiesce(std::chrono::seconds(2)));
   EXPECT_EQ(demuxer.bufferedBatchCount(kPartition), kStaged);
   EXPECT_LE(store->usage().memory_bytes, limits.memory_bytes);
-  EXPECT_EQ(store->usage().spill_files, kStaged - 1);
+  EXPECT_EQ(store->usage().spill_files, 1u);
 
   for (int expected = 1; expected <= kStaged; ++expected) {
     ShuffleBatch out;

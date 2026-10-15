@@ -26,6 +26,9 @@ struct ShuffleBufferLimits {
   uint64_t spill_bytes = 8ULL * 1024 * 1024 * 1024;
   uint64_t buffered_batches = 65536;
   uint64_t spill_files = 256;
+  // Several small batches share one anonymous spill file. This keeps the
+  // descriptor limit independent of the number of buffered batches.
+  uint64_t spill_segment_bytes = 16ULL * 1024 * 1024;
   uint64_t max_payload_bytes = 4ULL * 1024 * 1024;
   uint64_t handles = 128;
   uint64_t streams = 128;
@@ -60,13 +63,26 @@ class ShuffleBufferStore : public std::enable_shared_from_this<ShuffleBufferStor
     ~Reservation();
   };
 
-  // Internal move-only record. Reservation outlives the anonymous file so disk
-  // credit is returned only after the descriptor (and its storage) is released.
+  struct SpillSegment {
+    explicit SpillSegment(std::shared_ptr<Reservation> file_credit)
+        : file_credit(std::move(file_credit)) {}
+    // Destroy the file before releasing its descriptor credit.
+    std::shared_ptr<Reservation> file_credit;
+    folly::File file;
+    std::once_flag create_once;
+    arrow::Status create_status = arrow::Status::OK();
+    uint64_t next_offset = 0;  // guarded by the owning store's mutex
+  };
+
+  // Internal move-only record. The segment remains open until its final entry
+  // is released. The segment owns physical disk and file credits; each entry
+  // owns its record credit.
   struct Entry {
     std::shared_ptr<Reservation> reservation;
     ShuffleBatch batch{};
     uint64_t payload_bytes = 0;
-    folly::File file;
+    std::shared_ptr<SpillSegment> segment;
+    uint64_t spill_offset = 0;
   };
 
   // Reserves before retaining a batch. Oversized/empty/null data is an error.
@@ -88,13 +104,19 @@ class ShuffleBufferStore : public std::enable_shared_from_this<ShuffleBufferStor
   const ShuffleBufferLimits& limits() const { return limits_; }
 
  private:
-  arrow::Result<std::shared_ptr<Reservation>> reserve(
+  struct StorageReservation {
+    std::shared_ptr<Reservation> entry;
+    std::shared_ptr<SpillSegment> segment;
+    uint64_t spill_offset = 0;
+  };
+  arrow::Result<StorageReservation> reserve(
       uint64_t payload_bytes, uint64_t resident_bytes);
   void release(const ShuffleBufferUsage& charge);
   const ShuffleBufferLimits limits_;
   mutable std::mutex mutex_;
   std::condition_variable transit_available_;
   ShuffleBufferUsage usage_;
+  std::weak_ptr<SpillSegment> active_segment_;
 };
 
 }  // namespace pangrova::shuffle

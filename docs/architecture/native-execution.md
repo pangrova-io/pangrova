@@ -450,19 +450,21 @@ The page ownership copy is a correctness boundary: Flight readers may outlive
 the producer's Velox task pool. The canonical page limit is 4 MiB. The producer
 queue reserves both a slot and actual resident bytes before copying; its default
 byte cap is 16 MiB, while production task creation binds the exact Coordinator
-shuffle grant and rejects a partial Native pool reservation. This closes the
-former count-only queue gap, but does **not** bound every shuffle allocation.
-`ShuffleBufferStore` separately charges retained demux pages or spill files
-against server-wide limits; the current Flight server starts with its own
-default 64 MiB retention cap, not a reservation from the JVM node arbiter.
-`PartitionDemuxer::pop()` releases that charge as
-it hands a page to a Flight reader; the reader may then allocate replay,
-coalesced IOBuf and Arrow binary-array copies while only the number of active
-streams (default 128) is limited. This uncharged active-stream memory remains
-a P1 production-scale gap. It requires byte credits covering in-flight Flight
-responses through send completion, or a proved zero-copy owner transfer, plus
-concurrent slow-reader/cancellation/linger stress tests. No throughput or
-end-to-end memory ceiling is claimed from the current focused tests.
+shuffle grant and rejects a partial Native pool reservation. The producer
+queue and Flight service have separate ownership and grants.
+`ShuffleBufferStore` charges retained demux batches against service-wide
+resident-byte, spill-byte, record, and file limits. Small spilled batches
+share 16 MiB anonymous file segments: the segment retains its rounded
+disk-byte and descriptor credits until its final batch is released, because
+reading one batch does not reclaim its blocks from a shared file. This lets
+the default 1 GiB spill grant hold more than 256 small batches without
+exceeding the 256 open-file limit. Exhausting
+either hard limit fails the affected handle; the demux does not wait on a
+partition that may have no consumer. A separate transit-byte grant covers
+replay and Flight response copies until the reader releases its lease. The
+service spill cap remains separate from task spill and does not yet share a
+node-wide disk allocator; see the deployment resource guidance. No throughput
+or end-to-end node disk ceiling is claimed from focused tests.
 
 ## 21. Future Optimization Boundary
 

@@ -2,7 +2,9 @@
 
 #include <fcntl.h>
 #include <future>
+#include <stdexcept>
 #include <unistd.h>
+#include <vector>
 
 namespace pangrova::shuffle {
 namespace {
@@ -53,6 +55,8 @@ TEST(ShuffleBufferStoreTest, RecordAndFileLimitsAreFiniteAndReusable) {
   limits.memory_bytes = 0;
   limits.buffered_batches = 1;
   limits.spill_files = 1;
+  limits.max_payload_bytes = 64;
+  limits.spill_segment_bytes = 4096;
   auto store = std::make_shared<ShuffleBufferStore>(limits);
   auto entry = store->store(taggedBatch(0, 1));
   ASSERT_TRUE(entry.ok());
@@ -64,7 +68,103 @@ TEST(ShuffleBufferStoreTest, RecordAndFileLimitsAreFiniteAndReusable) {
   store = std::make_shared<ShuffleBufferStore>(limits);
   entry = store->store(taggedBatch(0, 1));
   ASSERT_TRUE(entry.ok());
-  EXPECT_TRUE(store->store(taggedBatch(1, 2)).status().IsCapacityError());
+  auto denied = store->store(taggedBatch(1, 2));
+  EXPECT_TRUE(denied.status().IsCapacityError());
+  EXPECT_NE(denied.status().ToString().find("spill file budget exhausted"),
+            std::string::npos);
+}
+
+TEST(ShuffleBufferStoreTest, ManySmallBatchesShareOneFileAndReleaseIndependentCredits) {
+  test::SpillDirectory directory;
+  ShuffleBufferLimits limits;
+  limits.memory_bytes = 0;
+  limits.spill_files = 1;
+  limits.spill_directory = directory.path();
+  auto store = std::make_shared<ShuffleBufferStore>(limits);
+  std::vector<std::unique_ptr<ShuffleBufferStore::Entry>> entries;
+  for (int i = 0; i < 1000; ++i) {
+    auto stored = store->store(taggedBatch(0, i));
+    ASSERT_TRUE(stored.ok()) << stored.status().ToString();
+    entries.push_back(std::move(*stored));
+  }
+  EXPECT_EQ(store->usage().spill_files, 1u);
+  EXPECT_EQ(store->usage().buffered_batches, 1000u);
+  EXPECT_EQ(store->usage().spill_bytes, 1000u * 4096);
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path()));
+  for (int i : {0, 500, 999}) {
+    auto replayed = store->replay(*entries[i]);
+    ASSERT_TRUE(replayed.ok()) << replayed.status().ToString();
+    EXPECT_EQ(replayed->row_count, i);
+  }
+  entries.erase(entries.begin(), entries.begin() + 500);
+  EXPECT_EQ(store->usage().buffered_batches, 500u);
+  EXPECT_EQ(store->usage().spill_files, 1u);
+  EXPECT_EQ(store->usage().spill_bytes, 1000u * 4096);
+  entries.clear();
+  EXPECT_EQ(store->usage().spill_bytes, 0u);
+  EXPECT_EQ(store->usage().spill_files, 0u);
+}
+
+TEST(ShuffleBufferStoreTest, SegmentRolloverKeepsFileCapAndReusesReleasedSlot) {
+  ShuffleBufferLimits limits;
+  limits.memory_bytes = 0;
+  limits.max_payload_bytes = 64;
+  limits.spill_segment_bytes = 4096;
+  limits.spill_files = 2;
+  auto store = std::make_shared<ShuffleBufferStore>(limits);
+  auto first = store->store(taggedBatch(0, 1));
+  auto second = store->store(taggedBatch(0, 2));
+  ASSERT_TRUE(first.ok() && second.ok());
+  EXPECT_EQ(store->usage().spill_files, 2u);
+  EXPECT_TRUE(store->store(taggedBatch(0, 3)).status().IsCapacityError());
+  first.ValueOrDie().reset();
+  EXPECT_EQ(store->usage().spill_files, 1u);
+  auto third = store->store(taggedBatch(0, 3));
+  ASSERT_TRUE(third.ok()) << third.status().ToString();
+  EXPECT_EQ(store->usage().spill_files, 2u);
+  auto replayed = store->replay(**second);
+  ASSERT_TRUE(replayed.ok());
+  EXPECT_EQ(replayed->row_count, 2);
+  replayed = store->replay(**third);
+  ASSERT_TRUE(replayed.ok());
+  EXPECT_EQ(replayed->row_count, 3);
+  second.ValueOrDie().reset();
+  third.ValueOrDie().reset();
+  EXPECT_EQ(store->usage().spill_files, 0u);
+}
+
+TEST(ShuffleBufferStoreTest, ConcurrentWritersUseDisjointOffsetsInSharedSegment) {
+  ShuffleBufferLimits limits;
+  limits.memory_bytes = 0;
+  limits.spill_files = 1;
+  auto store = std::make_shared<ShuffleBufferStore>(limits);
+  using Entries = std::vector<std::unique_ptr<ShuffleBufferStore::Entry>>;
+  std::vector<std::future<Entries>> writers;
+  for (int writer = 0; writer < 4; ++writer) {
+    writers.push_back(std::async(std::launch::async, [store, writer] {
+      Entries entries;
+      for (int index = 0; index < 64; ++index) {
+        auto stored = store->store(taggedBatch(writer, writer * 64 + index));
+        if (!stored.ok()) throw std::runtime_error(stored.status().ToString());
+        entries.push_back(std::move(*stored));
+      }
+      return entries;
+    }));
+  }
+  std::vector<Entries> retained;
+  for (auto& writer : writers) retained.push_back(writer.get());
+  EXPECT_EQ(store->usage().spill_files, 1u);
+  for (int thread = 0; thread < 4; ++thread) {
+    for (int index = 0; index < 64; ++index) {
+      auto replayed = store->replay(*retained[thread][index]);
+      ASSERT_TRUE(replayed.ok()) << replayed.status().ToString();
+      EXPECT_EQ(replayed->partition_id, thread);
+      EXPECT_EQ(replayed->row_count, thread * 64 + index);
+    }
+  }
+  retained.clear();
+  EXPECT_EQ(store->usage().spill_files, 0u);
+  EXPECT_EQ(store->usage().spill_bytes, 0u);
 }
 
 TEST(ShuffleBufferStoreTest, NullEmptyNegativeAndOversizeNeverAcquireCredit) {
@@ -85,7 +185,7 @@ TEST(ShuffleBufferStoreTest, TruncatedSpillFailsInsteadOfReturningPartialData) {
   auto store = std::make_shared<ShuffleBufferStore>(limits);
   auto entry = store->store(taggedBatch(0, 1));
   ASSERT_TRUE(entry.ok());
-  ASSERT_EQ(::ftruncate((*entry)->file.fd(), 1), 0);
+  ASSERT_EQ(::ftruncate((*entry)->segment->file.fd(), 1), 0);
   EXPECT_TRUE(store->replay(**entry).status().IsIOError());
   entry.ValueOrDie().reset();
   EXPECT_EQ(store->usage().spill_bytes, 0u);
@@ -102,7 +202,7 @@ TEST(ShuffleBufferStoreTest, ReadErrorRetainsCreditUntilFileIsClosed) {
   // error without mocks, private access, or external services.
   folly::File unreadable(::open(directory.path().c_str(), O_RDONLY), true);
   ASSERT_GE(unreadable.fd(), 0);
-  (*entry)->file = std::move(unreadable);
+  (*entry)->segment->file = std::move(unreadable);
   EXPECT_TRUE(store->replay(**entry).status().IsIOError());
   EXPECT_EQ(store->usage().spill_files, 1u);
   entry.ValueOrDie().reset();
