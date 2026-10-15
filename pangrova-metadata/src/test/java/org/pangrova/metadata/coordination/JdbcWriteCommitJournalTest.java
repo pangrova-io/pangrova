@@ -98,7 +98,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                         41L,
                         new byte[]{42},
                         "alice",
-                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt()),
+                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(), null),
                 fragments);
         journal.recordIntent(new WriteCommitEntry(
                 "q-replay",
@@ -118,7 +118,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 "coord-A",
                 "process-A",
                 7L,
-                null));
+                null, null));
 
         WriteCommitEntry reloaded = journal.getEntry("q-replay").orElseThrow();
         assertThat(reloaded.fragments()).hasSize(2);
@@ -332,7 +332,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                         -1L,
                         new byte[]{42},
                         "alice",
-                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt()),
+                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(), null),
                 List.of());
         return new WriteCommitEntry(
                 queryId,
@@ -352,6 +352,6 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
                 null,
                 null,
                 0L,
-                null);
+                null, null);
     }
 }

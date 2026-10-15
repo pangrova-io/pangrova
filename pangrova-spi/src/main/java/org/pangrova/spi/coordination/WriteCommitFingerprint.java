@@ -16,7 +16,7 @@ import java.util.Objects;
 @Experimental
 public final class WriteCommitFingerprint {
 
-    private static final String CONTRACT_VERSION = "pangrova-distributed-write-v3";
+    private static final String CONTRACT_VERSION = "pangrova-distributed-write-v4";
 
     private WriteCommitFingerprint() {
     }
@@ -59,6 +59,14 @@ public final class WriteCommitFingerprint {
                 writeDeclaration(out, intent.authorizationReceipt().declaration());
                 out.writeInt(writeOutputBinding.length);
                 out.write(writeOutputBinding);
+                CopyFileCommitBinding copyFile = intent.copyFile();
+                out.writeBoolean(copyFile != null);
+                if (copyFile != null) {
+                    writeString(out, copyFile.fileKey());
+                    out.writeLong(copyFile.loadGeneration());
+                    writeString(out, copyFile.claimDigest());
+                    writeString(out, copyFile.tableUuid());
+                }
                 out.writeInt(fragmentDigests.size());
                 for (byte[] fragmentDigest : fragmentDigests) {
                     out.write(fragmentDigest);
@@ -73,7 +81,8 @@ public final class WriteCommitFingerprint {
     /** Immutable fingerprint input; this Java aggregate is not an additional transport protocol. */
     public record Intent(String executionId, String tenantId, String catalogName, String tableName,
                          String writeMode, long baseSnapshotId, byte[] writeOutputBinding,
-                         String principal, WriteAuthorizationReceipt authorizationReceipt) {
+                         String principal, WriteAuthorizationReceipt authorizationReceipt,
+                         CopyFileCommitBinding copyFile) {
         /** Copies the exact allocation and authority content before hashing. */
         public Intent {
             if (principal == null || principal.isBlank()) {

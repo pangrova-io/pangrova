@@ -30,7 +30,7 @@ class ConnectorWriteMetadataReplayContractTest {
                 new byte[]{1},
                 "a".repeat(64),
                 "alice",
-                org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt());
+                org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt(), null);
 
         assertThatThrownBy(() -> metadata.finishDistributedWrite(
                 null, null, List.of(), context))

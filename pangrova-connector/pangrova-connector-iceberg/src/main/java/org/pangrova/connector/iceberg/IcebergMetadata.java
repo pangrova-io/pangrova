@@ -17,11 +17,13 @@ import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.spi.connector.metadata.DeleteFilter;
 import org.pangrova.spi.connector.metadata.DeletionMode;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
 import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.coordination.CopyFilePublication;
 import org.pangrova.spi.index.statistics.DataFileStatistics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -40,7 +42,7 @@ import java.util.function.Consumer;
  * Iceberg metadata implementation delegating to real Iceberg Catalog API.
  * Acts as anti-corruption layer: Iceberg SDK types stay within this module.
  */
-public class IcebergMetadata extends IcebergReadMetadata {
+public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePublicationMetadata {
 
     static final long DEFAULT_PIN_TTL_MS = 1_800_000L; // 30 minutes
     static final long DEFAULT_COMMIT_TIMEOUT_MS = 30_000L; // 30 seconds
@@ -203,7 +205,7 @@ public class IcebergMetadata extends IcebergReadMetadata {
                         handle.baseSnapshotId(),
                         context.writeOutputBinding(),
                         context.principal(),
-                        context.authorizationReceipt()),
+                        context.authorizationReceipt(), context.copyFile()),
                 fragments);
             if (!expectedFingerprint.equals(context.commitFingerprint())) {
                 throw new IllegalArgumentException(
@@ -217,8 +219,40 @@ public class IcebergMetadata extends IcebergReadMetadata {
             throw new IllegalStateException(
                     "Iceberg table UUID changed since the distributed write was planned");
         }
+        if (context != null && context.copyFile() != null
+                && (!IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())
+                || !handle.tableUuid().equals(context.copyFile().tableUuid()))) {
+            throw new IllegalArgumentException("COPY claim does not match the Iceberg INSERT target");
+        }
         writeCommitter.finishDistributedWrite(
                 icebergTable, handle, fragments, tenantId, context);
+    }
+
+    @Override
+    public CopyFilePublication confirmCopyFilePublication(
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputHandle,
+            DistributedWriteCommitContext context) {
+        if (context == null || context.copyFile() == null) {
+            throw new IllegalArgumentException("COPY publication requires an exact claim binding");
+        }
+        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
+        if (!handle.tableUuid().equals(context.copyFile().tableUuid())
+                || !tenantId(session).equals(context.tenantId())
+                || !IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())) {
+            throw new IllegalArgumentException("COPY publication target differs from its write intent");
+        }
+        Table table = catalog.loadTable(TableIdentifier.of(handle.schemaName(), handle.tableName()));
+        table.refresh();
+        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(table))) {
+            throw new IllegalStateException("Iceberg table UUID changed before COPY publication proof");
+        }
+        org.apache.iceberg.Snapshot snapshot = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        if (snapshot == null) {
+            throw new IllegalStateException("COPY Iceberg snapshot marker is absent or outcome is unknown");
+        }
+        return new CopyFilePublication(context.copyFile(), context.executionId(),
+                context.commitFingerprint(), snapshot.snapshotId());
     }
 
     /**

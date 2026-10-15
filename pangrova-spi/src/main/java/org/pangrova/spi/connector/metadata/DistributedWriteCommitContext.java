@@ -21,7 +21,8 @@ public record DistributedWriteCommitContext(
         byte[] writeOutputBinding,
         String commitFingerprint,
         String principal,
-        org.pangrova.spi.coordination.WriteAuthorizationReceipt authorizationReceipt) {
+        org.pangrova.spi.coordination.WriteAuthorizationReceipt authorizationReceipt,
+        org.pangrova.spi.coordination.CopyFileCommitBinding copyFile) {
 
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
 

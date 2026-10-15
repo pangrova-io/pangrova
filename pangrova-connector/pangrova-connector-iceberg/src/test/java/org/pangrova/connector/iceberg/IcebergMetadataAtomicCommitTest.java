@@ -7,6 +7,7 @@ import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.coordination.CopyFileClaim;
 import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -278,6 +279,39 @@ class IcebergMetadataAtomicCommitTest {
     }
 
     @Test
+    void copyPublicationProofRequiresExactMarkerInCurrentAncestry() {
+        Table table = createTable("copy_marker_ancestry");
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/base.parquet")
+                .withFormat(FileFormat.PARQUET).withRecordCount(1)
+                .withFileSizeInBytes(100).build()).commit();
+        table.refresh();
+        long baseSnapshot = table.currentSnapshot().snapshotId();
+        IcebergOutputTableHandle handle = beginInsert("copy_marker_ancestry");
+        byte[] fragment = buildAppendFragmentBytes(table, "copy-file.parquet", 7, 700);
+        CopyFileClaim claim = new CopyFileClaim("iceberg-atomic-test", handle.tableUuid(),
+                "s3://bucket/data/copy-file.parquet", "version-1", "a".repeat(64), 700L,
+                "profile", "00000000-0000-0000-0000-000000000001", 1L, 0L, "q-copy-marker");
+        DistributedWriteCommitContext context = copyContext(
+                "q-copy-marker", handle, List.of(fragment), claim);
+
+        metadata.finishDistributedWrite(SESSION, handle, List.of(fragment), context);
+        table.refresh();
+        long published = table.currentSnapshot().snapshotId();
+        assertThat(metadata.confirmCopyFilePublication(SESSION, handle, context).snapshotId())
+                .isEqualTo(published);
+        assertThat(table.currentSnapshot().summary())
+                .containsEntry(IcebergDistributedCommitMarker.COPY_FILE_KEY, claim.claimKey())
+                .containsEntry(IcebergDistributedCommitMarker.COPY_CLAIM_DIGEST, claim.claimDigest())
+                .containsEntry(IcebergDistributedCommitMarker.COPY_TABLE_UUID, claim.tableUuid());
+
+        table.manageSnapshots().rollbackTo(baseSnapshot).commit();
+        assertThatThrownBy(() -> metadata.confirmCopyFilePublication(SESSION, handle, context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not in the current snapshot ancestry");
+    }
+
+    @Test
     void oldJournalCannotWriteRecreatedTableWithSameName() {
         Table original = createTable("recreated_table");
         IcebergOutputTableHandle handle = beginInsert("recreated_table");
@@ -451,7 +485,7 @@ class IcebergMetadataAtomicCommitTest {
                         handle.baseSnapshotId(),
                         binding,
                         SESSION.getUser(),
-                        IcebergWriteReceiptFixtures.receipt()),
+                        IcebergWriteReceiptFixtures.receipt(), null),
                 fragments);
         return new DistributedWriteCommitContext(
                 executionId,
@@ -460,13 +494,27 @@ class IcebergMetadataAtomicCommitTest {
                 binding,
                 fingerprint,
                 SESSION.getUser(),
-                IcebergWriteReceiptFixtures.receipt());
+                IcebergWriteReceiptFixtures.receipt(), null);
     }
 
     /**
      * Builds a single APPEND fragment as a JSON array containing one DataFile,
      * serialized via ContentFileParser for round-trip fidelity.
      */
+    private DistributedWriteCommitContext copyContext(String executionId,
+            IcebergOutputTableHandle handle, List<byte[]> fragments, CopyFileClaim claim) {
+        String tenantId = SESSION.getProperties().get("tenant_id");
+        byte[] binding = IcebergWriteBindingFixtures.binding(handle);
+        String fingerprint = WriteCommitFingerprint.compute(
+                new WriteCommitFingerprint.Intent(executionId, tenantId, CATALOG_NAME,
+                        new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
+                        handle.writeMode(), handle.baseSnapshotId(), binding, SESSION.getUser(),
+                        IcebergWriteReceiptFixtures.receipt(), claim.commitBinding()), fragments);
+        return new DistributedWriteCommitContext(executionId, tenantId, handle.baseSnapshotId(),
+                binding, fingerprint, SESSION.getUser(), IcebergWriteReceiptFixtures.receipt(),
+                claim.commitBinding());
+    }
+
     private byte[] buildAppendFragmentBytes(Table table, String fileName,
                                             long recordCount, long fileSizeInBytes) {
         DataFile dataFile = DataFiles.builder(table.spec())

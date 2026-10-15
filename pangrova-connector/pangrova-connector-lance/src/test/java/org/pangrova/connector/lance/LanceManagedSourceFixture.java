@@ -231,13 +231,13 @@ public final class LanceManagedSourceFixture {
         var receipt = receipt(output.table());
         var intent = new WriteCommitFingerprint.Intent(execution, TENANT, catalog.getCatalogName(),
                 output.table().table().toString(), output.mode(), output.table().version(),
-                allocation.binding().toByteArray(), PRINCIPAL, receipt);
+                allocation.binding().toByteArray(), PRINCIPAL, receipt, null);
         String fingerprint = WriteCommitFingerprint.compute(intent, fragments);
         var anchor = allocation.anchor();
         var entry = new WriteCommitEntry(execution, catalog.getCatalogName(), output.table().table().toString(),
                 WriteCommitEntry.State.PENDING, Instant.now().toEpochMilli(), fragments, output.mode(), fingerprint,
                 TENANT, PRINCIPAL, receipt, output.table().version(), allocation.binding().toByteArray(), fingerprint,
-                anchor.ownerId(), anchor.ownerIncarnation(), anchor.fencingToken(), null);
+                anchor.ownerId(), anchor.ownerIncarnation(), anchor.fencingToken(), null, null);
         journal.recordIntent(entry);
         return journal.getEntry(execution).orElseThrow();
     }

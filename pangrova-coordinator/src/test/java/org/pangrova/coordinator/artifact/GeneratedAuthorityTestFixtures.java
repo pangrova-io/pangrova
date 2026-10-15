@@ -70,11 +70,11 @@ final class GeneratedAuthorityTestFixtures {
     static String recordCommit(WriteCommitJournal journal, DeferredAuthorizationScope scope) {
         var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
         var intent = new WriteCommitFingerprint.Intent("generated-write", "tenant-a", "lake", "sales.documents",
-                "INSERT", 40L, new byte[]{42}, "alice", receipt);
+                "INSERT", 40L, new byte[]{42}, "alice", receipt, null);
         String fingerprint = WriteCommitFingerprint.compute(intent, List.of(new byte[]{1}));
         journal.recordIntent(new WriteCommitEntry("generated-write", "lake", "sales.documents",
                 WriteCommitEntry.State.PENDING, 1_000L, List.of(new byte[]{1}), "INSERT", fingerprint,
-                "tenant-a", "alice", receipt, 40L, new byte[]{42}, fingerprint, null, null, 0, null));
+                "tenant-a", "alice", receipt, 40L, new byte[]{42}, fingerprint, null, null, 0, null, null));
         journal.markCommitted("generated-write");
         return fingerprint;
     }

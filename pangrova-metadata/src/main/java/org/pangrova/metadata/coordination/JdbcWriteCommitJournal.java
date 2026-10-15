@@ -4,6 +4,8 @@ import org.pangrova.spi.annotation.ThreadSafe;
 import org.pangrova.spi.coordination.JournalWriteException;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.coordination.CopyFileCommitBinding;
+import org.pangrova.spi.coordination.CopyFilePublication;
 import org.pangrova.spi.connector.metadata.NativeWriteFinalization;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
 import org.slf4j.Logger;
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * JDBC-backed write commit journal for crash-recovery idempotency.
@@ -74,6 +77,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "owner_incarnation VARCHAR(255), "
                     + "execution_fencing_token BIGINT NOT NULL, "
                     + "published_version BIGINT, manifest_sha256 BYTEA, "
+                    + "copy_claim_key CHAR(64), copy_load_generation BIGINT, "
+                    + "copy_claim_digest CHAR(64), copy_table_uuid UUID, "
                     + "CONSTRAINT chk_write_commit_terminal_state CHECK ("
                     + "state IN ('PENDING','COMMITTED','ABORTED') "
                     + "AND (state <> 'ABORTED' OR (published_version IS NULL AND manifest_sha256 IS NULL))), "
@@ -88,15 +93,21 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "CONSTRAINT chk_write_commit_base_snapshot "
                     + "CHECK (base_snapshot_id >= -1), "
                     + "CONSTRAINT chk_write_commit_fingerprint "
-                    + "CHECK (commit_fingerprint ~ '^[0-9a-f]{64}$'))";
+                    + "CHECK (commit_fingerprint ~ '^[0-9a-f]{64}$'), "
+                    + "CONSTRAINT chk_write_copy_binding CHECK ((copy_claim_key IS NULL "
+                    + "AND copy_load_generation IS NULL AND copy_claim_digest IS NULL "
+                    + "AND copy_table_uuid IS NULL) OR (copy_claim_key ~ '^[0-9a-f]{64}$' "
+                    + "AND copy_load_generation >= 0 AND copy_claim_digest ~ '^[0-9a-f]{64}$' "
+                    + "AND copy_table_uuid IS NOT NULL AND write_mode = 'INSERT')))";
 
     private static final String INSERT_ENTRY =
             "INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state, "
                     + "timestamp_ms, fragments, write_mode, idempotency_key, owner_id, "
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
-                    + "published_version, manifest_sha256) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
+                    + "copy_claim_digest, copy_table_uuid) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                     + "ON CONFLICT (query_id) DO NOTHING";
 
     private static final String UPDATE_STATE =
@@ -114,7 +125,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "fragments, write_mode, idempotency_key, owner_id, "
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
-                    + "published_version, manifest_sha256 "
+                    + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
+                    + "copy_claim_digest, copy_table_uuid "
                     + "FROM write_commit_journal WHERE query_id = ?";
 
     private static final String SELECT_PENDING_PREFIX =
@@ -122,7 +134,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "fragments, write_mode, idempotency_key, owner_id, "
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
-                    + "published_version, manifest_sha256 "
+                    + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
+                    + "copy_claim_digest, copy_table_uuid "
                     + "FROM write_commit_journal WHERE state = 'PENDING' AND query_id IN (";
 
     private static final String DELETE_ENTRY =
@@ -130,6 +143,15 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "AND state='COMMITTED' AND deferred_work_acknowledged "
                     + "AND NOT EXISTS (SELECT 1 FROM index_commit_log e "
                     + "WHERE e.commit_fingerprint=write_commit_journal.commit_fingerprint AND NOT e.processed)";
+
+    private static final String INSERT_COPY_PUBLICATION =
+            "INSERT INTO copy_file_publications (claim_key, load_generation, claim_digest, "
+                    + "execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    + "ON CONFLICT (claim_key, load_generation) DO NOTHING";
+    private static final String SELECT_COPY_PUBLICATION =
+            "SELECT claim_digest, execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id "
+                    + "FROM copy_file_publications WHERE claim_key=? AND load_generation=?";
 
     private final DataSource dataSource;
 
@@ -153,12 +175,18 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     @Override
     public void recordIntent(WriteCommitEntry entry) {
         Objects.requireNonNull(entry, "entry must not be null");
+        if (entry.state() != WriteCommitEntry.State.PENDING) {
+            throw new IllegalArgumentException("Only PENDING write intents may be recorded");
+        }
         if (!DeferredAuthorizationScopeCodec.decodeWriteReceipt(
                 entry.authorizationReceipt().authorizationScope()).equals(entry.authorizationReceipt())) {
             throw new IllegalArgumentException("Write receipt declaration differs from its canonical scope");
         }
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(INSERT_ENTRY)) {
+            if (entry.copyFile() != null) {
+                requireMatchingCopyAdmission(conn, entry);
+            }
             int parameter = 1;
             ps.setString(parameter++, entry.queryId());
             ps.setString(parameter++, entry.catalogName());
@@ -180,10 +208,22 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             ps.setBytes(parameter++, entry.authorizationReceipt().authorizationScope());
             if (entry.publication() == null) {
                 ps.setNull(parameter++, java.sql.Types.BIGINT);
-                ps.setNull(parameter, java.sql.Types.BINARY);
+                ps.setNull(parameter++, java.sql.Types.BINARY);
             } else {
                 ps.setLong(parameter++, entry.publication().publishedVersion());
-                ps.setBytes(parameter, entry.publication().manifestSha256());
+                ps.setBytes(parameter++, entry.publication().manifestSha256());
+            }
+            CopyFileCommitBinding copyFile = entry.copyFile();
+            if (copyFile == null) {
+                ps.setNull(parameter++, java.sql.Types.CHAR);
+                ps.setNull(parameter++, java.sql.Types.BIGINT);
+                ps.setNull(parameter++, java.sql.Types.CHAR);
+                ps.setNull(parameter, java.sql.Types.OTHER);
+            } else {
+                ps.setString(parameter++, copyFile.fileKey());
+                ps.setLong(parameter++, copyFile.loadGeneration());
+                ps.setString(parameter++, copyFile.claimDigest());
+                ps.setObject(parameter, UUID.fromString(copyFile.tableUuid()));
             }
             int inserted = ps.executeUpdate();
             if (inserted == 0) {
@@ -197,6 +237,115 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             throw new JournalWriteException(
                     "Failed to record write commit intent for queryId=" + entry.queryId(), e,
                     JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
+    private static void requireMatchingCopyAdmission(Connection connection, WriteCommitEntry entry)
+            throws SQLException {
+        CopyFileCommitBinding binding = entry.copyFile();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT claim_digest, execution_id, tenant_id, table_uuid "
+                        + "FROM copy_file_claims WHERE claim_key=? AND load_generation=?")) {
+            statement.setString(1, binding.fileKey());
+            statement.setLong(2, binding.loadGeneration());
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next() || !binding.claimDigest().equals(result.getString("claim_digest"))
+                        || !entry.queryId().equals(result.getString("execution_id"))
+                        || !entry.tenantId().equals(result.getString("tenant_id"))
+                        || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())) {
+                    throw new IllegalStateException("COPY write intent differs from durable file admission");
+                }
+            }
+        }
+    }
+
+    @Override
+    public void recordCopyFilePublication(WriteCommitEntry entry, CopyFilePublication publication) {
+        Objects.requireNonNull(entry, "entry must not be null");
+        Objects.requireNonNull(publication, "publication must not be null");
+        if (entry.copyFile() == null || !entry.copyFile().equals(publication.binding())
+                || !entry.queryId().equals(publication.executionId())
+                || !entry.commitFingerprint().equals(publication.commitFingerprint())) {
+            throw new IllegalArgumentException("COPY publication differs from its exact write intent");
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            // The journal may have been purged after an earlier successful publication.
+            // A PostgreSQL BEFORE INSERT guard requires a live journal row, so replay
+            // must inspect the immutable publication before attempting another insert.
+            Optional<CopyFilePublication> recorded = readCopyPublication(connection, entry);
+            if (recorded.isPresent()) {
+                requireSamePublication(recorded.orElseThrow(), publication);
+                return;
+            }
+            try (PreparedStatement insert = connection.prepareStatement(INSERT_COPY_PUBLICATION)) {
+                int parameter = 1;
+                insert.setString(parameter++, publication.binding().fileKey());
+                insert.setLong(parameter++, publication.binding().loadGeneration());
+                insert.setString(parameter++, publication.binding().claimDigest());
+                insert.setString(parameter++, publication.executionId());
+                insert.setString(parameter++, entry.tenantId());
+                insert.setObject(parameter++, UUID.fromString(publication.binding().tableUuid()));
+                insert.setString(parameter++, publication.commitFingerprint());
+                insert.setLong(parameter, publication.snapshotId());
+                if (insert.executeUpdate() == 1) {
+                    return;
+                }
+            }
+            requireSamePublication(readCopyPublication(connection, entry).orElseThrow(() ->
+                    new IllegalStateException("COPY publication disappeared during concurrent replay")), publication);
+        } catch (SQLException failure) {
+            // A concurrent winner may publish and retire the journal between our
+            // initial lookup and the guarded INSERT. Only its exact immutable
+            // proof makes that SQL failure an idempotent success.
+            Optional<CopyFilePublication> recorded = findCopyFilePublication(entry);
+            if (recorded.isPresent()) {
+                requireSamePublication(recorded.orElseThrow(), publication);
+                return;
+            }
+            throw new JournalWriteException("Cannot persist exact COPY file publication", failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
+    @Override
+    public Optional<CopyFilePublication> findCopyFilePublication(WriteCommitEntry entry) {
+        Objects.requireNonNull(entry, "entry must not be null");
+        Objects.requireNonNull(entry.copyFile(), "COPY binding is required");
+        try (Connection connection = dataSource.getConnection()) {
+            return readCopyPublication(connection, entry);
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot inspect durable COPY file publication", failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
+    private static Optional<CopyFilePublication> readCopyPublication(
+            Connection connection, WriteCommitEntry entry) throws SQLException {
+        CopyFileCommitBinding binding = entry.copyFile();
+        try (PreparedStatement statement = connection.prepareStatement(SELECT_COPY_PUBLICATION)) {
+            statement.setString(1, binding.fileKey());
+            statement.setLong(2, binding.loadGeneration());
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return Optional.empty();
+                }
+                if (!binding.claimDigest().equals(result.getString("claim_digest"))
+                        || !entry.queryId().equals(result.getString("execution_id"))
+                        || !entry.tenantId().equals(result.getString("tenant_id"))
+                        || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())
+                        || !entry.commitFingerprint().equals(result.getString("commit_fingerprint"))
+                        || result.getLong("snapshot_id") <= 0) {
+                    throw new IllegalStateException("COPY file publication conflicts with immutable intent");
+                }
+                return Optional.of(new CopyFilePublication(binding, entry.queryId(),
+                        entry.commitFingerprint(), result.getLong("snapshot_id")));
+            }
+        }
+    }
+
+    private static void requireSamePublication(CopyFilePublication recorded, CopyFilePublication expected) {
+        if (!recorded.equals(expected)) {
+            throw new IllegalStateException("COPY file publication conflicts with immutable proof");
         }
     }
 
@@ -467,7 +616,17 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 rs.getString("owner_id"),
                 rs.getString("owner_incarnation"),
                 rs.getLong("execution_fencing_token"),
-                readPublication(rs));
+                readPublication(rs), readCopyFile(rs));
+    }
+
+    private static CopyFileCommitBinding readCopyFile(ResultSet result) throws SQLException {
+        String key = result.getString("copy_claim_key");
+        if (key == null) {
+            return null;
+        }
+        return new CopyFileCommitBinding(key, result.getLong("copy_load_generation"),
+                result.getString("copy_claim_digest"),
+                result.getObject("copy_table_uuid", UUID.class).toString());
     }
 
     private static NativeWriteFinalization readPublication(ResultSet result) throws SQLException {

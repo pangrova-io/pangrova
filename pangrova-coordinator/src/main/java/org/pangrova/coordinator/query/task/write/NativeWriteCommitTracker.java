@@ -4,6 +4,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.spi.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.coordination.CopyFileCommitBinding;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,13 +67,16 @@ public class NativeWriteCommitTracker {
      * @param outputHandle the output table handle from beginInsert/beginDelete/beginOverwrite
      * @param session      the connector session for the write operation
      * @param writeOutputBinding exact canonical binding dispatched to Workers
+     * @param copyFile exact durable COPY admission, absent for ordinary writes
      */
+    @SuppressWarnings("checkstyle:ParameterNumber")
     public void registerWriteContext(String queryId, String catalogName,
                                      ConnectorOutputTableHandle outputHandle,
                                      ConnectorSession session,
                                      byte[] writeOutputBinding,
                                      WriteAuthorizationReceipt authorizationReceipt,
-                                     WriteAllocationIntent allocationIntent) {
+                                     WriteAllocationIntent allocationIntent,
+                                     CopyFileCommitBinding copyFile) {
         checkNotNull(queryId, "queryId must not be null");
         checkNotNull(catalogName, "catalogName must not be null");
         checkNotNull(outputHandle, "outputHandle must not be null");
@@ -87,7 +91,7 @@ public class NativeWriteCommitTracker {
             throw new IllegalArgumentException("writeOutputBinding must not be empty");
         }
         var state = new WriteCommitState(catalogName, outputHandle, session, writeOutputBinding,
-                authorizationReceipt, allocationIntent);
+                authorizationReceipt, allocationIntent, copyFile);
         var candidate = new ReservationEntry();
         candidate.result.complete(state);
         var existing = reservations.putIfAbsent(queryId, candidate);
@@ -318,19 +322,21 @@ public class NativeWriteCommitTracker {
         private final byte[] writeOutputBinding;
         private final WriteAuthorizationReceipt authorizationReceipt;
         private final WriteAllocationIntent allocationIntent;
+        private final CopyFileCommitBinding copyFile;
         private final List<byte[]> fragments = new ArrayList<>();
         private volatile long lastUpdateTimeMs;
 
         WriteCommitState(String catalogName, ConnectorOutputTableHandle outputHandle,
                          ConnectorSession session, byte[] writeOutputBinding,
                          WriteAuthorizationReceipt authorizationReceipt,
-                         WriteAllocationIntent allocationIntent) {
+                         WriteAllocationIntent allocationIntent, CopyFileCommitBinding copyFile) {
             this.catalogName = catalogName;
             this.outputHandle = outputHandle;
             this.session = session;
             this.writeOutputBinding = writeOutputBinding.clone();
             this.authorizationReceipt = authorizationReceipt;
             this.allocationIntent = allocationIntent;
+            this.copyFile = copyFile;
             this.lastUpdateTimeMs = System.currentTimeMillis();
         }
 
@@ -364,6 +370,8 @@ public class NativeWriteCommitTracker {
         public WriteAuthorizationReceipt authorizationReceipt() { return authorizationReceipt; }
 
         public WriteAllocationIntent allocationIntent() { return allocationIntent; }
+
+        public CopyFileCommitBinding copyFile() { return copyFile; }
 
         /**
          * Returns an immutable copy of collected fragments.

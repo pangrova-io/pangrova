@@ -40,7 +40,7 @@ public final class PaimonCommitTestSupport {
                         baseSnapshotId,
                         WRITE_BINDING,
                         session.getUser(),
-                        PaimonWriteReceiptFixtures.receipt()),
+                        PaimonWriteReceiptFixtures.receipt(), null),
                 fragments);
         return new DistributedWriteCommitContext(
                 executionId,
@@ -49,6 +49,6 @@ public final class PaimonCommitTestSupport {
                 WRITE_BINDING,
                 fingerprint,
                 session.getUser(),
-                PaimonWriteReceiptFixtures.receipt());
+                PaimonWriteReceiptFixtures.receipt(), null);
     }
 }

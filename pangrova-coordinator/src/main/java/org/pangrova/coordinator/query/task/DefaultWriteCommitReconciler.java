@@ -12,6 +12,9 @@ import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.coordination.CopyFilePublication;
+import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,13 +52,22 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
     }
 
     private final CatalogResolver catalogResolver;
+    private final WriteCommitJournal journal;
 
-    public DefaultWriteCommitReconciler(CatalogResolver catalogResolver) {
+    public DefaultWriteCommitReconciler(WriteCommitJournal journal, CatalogResolver catalogResolver) {
+        this.journal = checkNotNull(journal, "journal must not be null");
         this.catalogResolver = checkNotNull(catalogResolver, "catalogResolver must not be null");
     }
 
     @Override
     public RecoveryOutcome reconcile(WriteCommitEntry entry) {
+        Optional<CopyFilePublication> recorded = entry.copyFile() == null
+                ? Optional.empty() : journal.findCopyFilePublication(entry);
+        if (isCommittedCopyMissingPublication(entry, recorded)) {
+            LOG.error("event=write_commit_reconcile queryId={} outcome=QUARANTINED "
+                    + "reason=committed_copy_missing_publication", entry.queryId());
+            return RecoveryOutcome.QUARANTINED;
+        }
         SchemaTableName table = parseTable(entry.tableName());
         if (table == null) {
             LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
@@ -72,8 +84,20 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
         }
         try {
             ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
-            catalog.getMetadata(session).finishDistributedWrite(
+            var metadata = catalog.getMetadata(session);
+            if (recorded.isPresent()) {
+                confirmRecordedCopyPublication(metadata, session, handle, entry, recorded.orElseThrow());
+                return RecoveryOutcome.COMMITTED;
+            }
+            metadata.finishDistributedWrite(
                     session, handle, entry.fragments(), entry.commitContext());
+            if (entry.copyFile() != null) {
+                if (!(metadata instanceof CopyFilePublicationMetadata copyMetadata)) {
+                    throw new IllegalStateException("COPY target connector cannot prove snapshot publication");
+                }
+                journal.recordCopyFilePublication(entry,
+                        copyMetadata.confirmCopyFilePublication(session, handle, entry.commitContext()));
+            }
             LOG.info("event=write_commit_reconciled queryId={} table={} mode={} outcome=COMMITTED",
                     entry.queryId(), table, entry.writeMode());
             return RecoveryOutcome.COMMITTED;
@@ -82,7 +106,7 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                     + "reason=connector_cannot_decode", entry.queryId(), table);
             return RecoveryOutcome.QUARANTINED;
         } catch (RuntimeException e) {
-            if (e instanceof org.pangrova.spi.connector.metadata.SourceTableUnavailableException || isTableGone(e)) {
+            if (mayConfirmOrdinaryAbort(entry, e)) {
                 try {
                     ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
                     var receipt = catalog.getMetadata(session).abortDistributedWrite(
@@ -102,6 +126,34 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
             LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=ambiguous error={}", entry.queryId(), table, e.toString());
             return RecoveryOutcome.QUARANTINED;
+        }
+    }
+
+    private static boolean isCommittedCopyMissingPublication(
+            WriteCommitEntry entry, Optional<CopyFilePublication> recorded) {
+        return entry.copyFile() != null && entry.state() == WriteCommitEntry.State.COMMITTED
+                && recorded.isEmpty();
+    }
+
+    private static boolean mayConfirmOrdinaryAbort(WriteCommitEntry entry, RuntimeException failure) {
+        return entry.copyFile() == null && (failure
+                instanceof org.pangrova.spi.connector.metadata.SourceTableUnavailableException
+                || isTableGone(failure));
+    }
+
+    private static void confirmRecordedCopyPublication(
+            org.pangrova.spi.connector.metadata.ConnectorMetadata metadata,
+            ConnectorSession session,
+            ConnectorOutputTableHandle handle,
+            WriteCommitEntry entry,
+            CopyFilePublication recorded) {
+        if (!(metadata instanceof CopyFilePublicationMetadata copyMetadata)) {
+            throw new IllegalStateException("COPY target connector cannot prove snapshot publication");
+        }
+        CopyFilePublication current = copyMetadata.confirmCopyFilePublication(
+                session, handle, entry.commitContext());
+        if (!recorded.equals(current)) {
+            throw new IllegalStateException("Current Iceberg snapshot differs from durable COPY publication");
         }
     }
 

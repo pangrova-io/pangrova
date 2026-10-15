@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
+import org.pangrova.coordinator.coordination.inmemory.InMemoryWriteCommitJournal;
 
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
@@ -85,7 +86,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
                         37L,
                         binding,
                         "alice",
-                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(), null),
                 fragments);
         return new WriteCommitEntry(
                 "q1",
@@ -105,13 +106,14 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
                 null,
                 null,
                 0L,
-                null);
+                null, null);
     }
 
     @Test
     void rehydratesAndReDrivesCommit() {
         RecordingMetadata md = new RecordingMetadata();
-        var reconciler = new DefaultWriteCommitReconciler(c -> catalog(md));
+        var reconciler = new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, c -> catalog(md));
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("frag".getBytes()), "INSERT"));
 
@@ -127,7 +129,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
     void connectorCannotRehydrate_quarantined() {
         RecordingMetadata md = new RecordingMetadata();
         md.codecUnavailable = true;
-        var reconciler = new DefaultWriteCommitReconciler(c -> catalog(md));
+        var reconciler = new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, c -> catalog(md));
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"));
 
@@ -139,7 +142,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
     void tableGoneWithoutDurableAbortReceiptIsQuarantined() {
         RecordingMetadata md = new RecordingMetadata();
         md.tableGone = true;
-        var reconciler = new DefaultWriteCommitReconciler(c -> catalog(md));
+        var reconciler = new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, c -> catalog(md));
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "DELETE"));
 
@@ -150,7 +154,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
     @Test
     void emptyOverwriteIsReplayedBecauseTruncateHasNoFragments() {
         RecordingMetadata md = new RecordingMetadata();
-        var reconciler = new DefaultWriteCommitReconciler(c -> catalog(md));
+        var reconciler = new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, c -> catalog(md));
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of(), "OVERWRITE"));
 
@@ -162,7 +167,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
     @Test
     void legacyUnparseableIdentity_quarantined() {
         RecordingMetadata md = new RecordingMetadata();
-        var reconciler = new DefaultWriteCommitReconciler(c -> catalog(md));
+        var reconciler = new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, c -> catalog(md));
 
         // A legacy lossy handle.toString() cannot be reconstructed -> safe quarantine.
         var outcome = reconciler.reconcile(
@@ -174,7 +180,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
 
     @Test
     void unknownCatalog_quarantined() {
-        var reconciler = new DefaultWriteCommitReconciler(c -> null);
+        var reconciler = new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, c -> null);
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"));
 
@@ -185,6 +192,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
     void sameNameNewCatalogIncarnationIsQuarantinedBeforeCommit() {
         RecordingMetadata md = new RecordingMetadata();
         var reconciler = new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE,
                 c -> catalog(md, "catalog-incarnation-2"));
 
         var outcome = reconciler.reconcile(
@@ -206,7 +214,8 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
         var decoded = DefaultWriteCommitReconciler.decodeExactHandle(intent, output.targetTable().orElseThrow(), actual);
         assertThat(decoded).usingRecursiveComparison().isEqualTo(output);
         assertThat(actual.getOutputHandleCodec().serialize(decoded)).isEqualTo(actual.getOutputHandleCodec().serialize(output));
-        assertThat(new DefaultWriteCommitReconciler(ignored -> actual).reconcile(intent))
+        assertThat(new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, ignored -> actual).reconcile(intent))
                 .isEqualTo(WriteCommitReconciler.RecoveryOutcome.COMMITTED);
         assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
         assertThat(execution.intent().publication().publishedVersion()).isEqualTo(accepted.getVersion());
@@ -222,11 +231,12 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTes
                 .setDatasetUri("file:///warehouse/another-table")).build();
         var fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
                 entry.catalogName(), entry.tableName(), entry.writeMode(), entry.baseSnapshotId(), changed.toByteArray(),
-                entry.principal(), entry.authorizationReceipt()), entry.fragments());
+                entry.principal(), entry.authorizationReceipt(), null), entry.fragments());
         var forged = new WriteCommitEntry(entry.queryId(), entry.catalogName(), entry.tableName(), entry.state(), entry.timestampMs(),
                 entry.fragments(), entry.writeMode(), fingerprint, entry.tenantId(), entry.principal(), entry.authorizationReceipt(),
-                entry.baseSnapshotId(), changed.toByteArray(), fingerprint, entry.ownerId(), entry.ownerIncarnation(), entry.executionFencingToken(), null);
-        assertThat(new DefaultWriteCommitReconciler(ignored -> actual).reconcile(forged))
+                entry.baseSnapshotId(), changed.toByteArray(), fingerprint, entry.ownerId(), entry.ownerIncarnation(), entry.executionFencingToken(), null, null);
+        assertThat(new DefaultWriteCommitReconciler(
+                InMemoryWriteCommitJournal.INSTANCE, ignored -> actual).reconcile(forged))
                 .isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
         assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.PENDING);
         assertThat(execution.intent().publication()).isNull();

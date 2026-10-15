@@ -95,7 +95,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
                 new TaskStatusReceiverWriteCommitTest.TestConnectorSession(),
                 binding(h),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
         registerTwoRunningTasks(tracker);
 
         tracker.armRace();
@@ -159,7 +159,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
                 new TaskStatusReceiverWriteCommitTest.TestConnectorSession(),
                 binding(h),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
         registerTwoRunningTasks(tracker);
 
         tracker.armRace();

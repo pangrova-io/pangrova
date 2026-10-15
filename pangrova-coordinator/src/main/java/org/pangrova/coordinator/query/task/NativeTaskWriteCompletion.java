@@ -12,10 +12,12 @@ import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.spi.coordination.WriteCommitJournal;
 import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.coordination.CopyFilePublication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -81,6 +83,19 @@ final class NativeTaskWriteCompletion {
 
         // Idempotent recovery: skip if the journal says this write is already committed
         if (writeCommitJournal.isCommitted(queryId)) {
+            WriteCommitEntry committed = writeCommitJournal.getEntry(queryId).orElseThrow(() ->
+                    new IllegalStateException("COMMITTED write lost its durable intent"));
+            if (committed.copyFile() != null) {
+                DefaultWriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(
+                        writeCommitJournal, name -> {
+                            CatalogHandle catalog = catalogRegistry.getCatalog(name);
+                            return catalog instanceof ConnectorCatalogHandle connector ? connector : null;
+                        });
+                if (reconciler.reconcile(committed)
+                        != org.pangrova.coordinator.query.task.write.WriteCommitReconciler.RecoveryOutcome.COMMITTED) {
+                    throw new IllegalStateException("COMMITTED COPY lost its current Iceberg snapshot proof");
+                }
+            }
             LOG.info("event=distributed_write_already_committed queryId={}", queryId);
             retireCommittedWrite(queryId);
             return true;
@@ -102,10 +117,14 @@ final class NativeTaskWriteCompletion {
             return false;
         }
 
-        commitCatalog(writeState, intent, fragments);
+        CopyFilePublication copyPublication = commitCatalog(writeState, intent, fragments);
 
         // A changed owner must reconcile the same intent, never publish another commit.
         if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_catalog_commit")) return false;
+        if (copyPublication != null) {
+            writeCommitJournal.recordCopyFilePublication(intent, copyPublication);
+        }
+        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_copy_publication")) return false;
         writeCommitJournal.markCommitted(queryId);
         retireCommittedWrite(queryId);
         LOG.info("event=distributed_write_committed queryId={} catalog={} fragmentCount={}",
@@ -113,7 +132,7 @@ final class NativeTaskWriteCompletion {
         return true;
     }
 
-    private void commitCatalog(NativeWriteCommitTracker.WriteCommitState writeState,
+    private CopyFilePublication commitCatalog(NativeWriteCommitTracker.WriteCommitState writeState,
             WriteCommitEntry intent, List<byte[]> fragments) {
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(writeState.catalogName());
         if (!(catalogHandle instanceof ConnectorCatalogHandle connectorCatalog)) {
@@ -126,6 +145,14 @@ final class NativeTaskWriteCompletion {
         ConnectorMetadata metadata = catalogHandle.getMetadata(writeState.session());
         metadata.finishDistributedWrite(
                 writeState.session(), boundHandle, fragments, intent.commitContext());
+        if (intent.copyFile() == null) {
+            return null;
+        }
+        if (!(metadata instanceof CopyFilePublicationMetadata copyMetadata)) {
+            throw new IllegalStateException("COPY target connector cannot prove snapshot publication");
+        }
+        return copyMetadata.confirmCopyFilePublication(
+                writeState.session(), boundHandle, intent.commitContext());
     }
 
     private void retireCommittedWrite(String queryId) {
@@ -169,7 +196,7 @@ final class NativeTaskWriteCompletion {
                         baseSnapshotId,
                         writeOutputBinding,
                         writeState.session().getUser(),
-                        writeState.authorizationReceipt()),
+                        writeState.authorizationReceipt(), writeState.copyFile()),
                 fragments);
         return new WriteCommitEntry(
                 queryId,
@@ -189,7 +216,7 @@ final class NativeTaskWriteCompletion {
                 anchor != null ? anchor.ownerId() : null,
                 anchor != null ? anchor.ownerIncarnation() : null,
                 anchor != null ? anchor.fencingToken() : 0L,
-                null);
+                null, writeState.copyFile());
     }
 
     private static boolean isCurrentExecutionOwner(

@@ -466,7 +466,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         var entry = fixture.journal().getEntry(first.executionId()).orElseThrow();
         var identity = new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
                 entry.catalogName(), entry.tableName(), entry.writeMode(), entry.baseSnapshotId(), entry.writeOutputBinding(),
-                entry.principal(), entry.authorizationReceipt());
+                entry.principal(), entry.authorizationReceipt(), null);
         assertThat(org.pangrova.spi.coordination.WriteCommitFingerprint.compute(identity, List.of(firstFragment, secondFragment)))
                 .isEqualTo(entry.commitFingerprint());
         var pages = sdk.prepare(request);
@@ -476,7 +476,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
                 .setGeneration("generation-2")).build();
         var nextIdentity = new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
                 entry.catalogName(), entry.tableName(), entry.writeMode(), entry.baseSnapshotId(), nextBinding.toByteArray(),
-                entry.principal(), entry.authorizationReceipt());
+                entry.principal(), entry.authorizationReceipt(), null);
         String nextFingerprint = org.pangrova.spi.coordination.WriteCommitFingerprint.compute(nextIdentity, entry.fragments());
         assertThat(nextFingerprint).isNotEqualTo(entry.commitFingerprint());
         var invalid = request.toBuilder().setOutputBinding(nextBinding).setCommitFingerprint(nextFingerprint)

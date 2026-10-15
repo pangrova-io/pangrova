@@ -117,6 +117,10 @@ final class PaimonWriteLifecycle {
 
     private void validateFingerprint(ConnectorSession session, PaimonOutputTableHandle handle,
             List<byte[]> fragments, DistributedWriteCommitContext context) {
+        if (context.copyFile() != null) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Paimon cannot publish an Iceberg COPY file claim marker");
+        }
         if (handle.baseSnapshotId() != context.baseSnapshotId() || !tenantId(session).equals(context.tenantId())) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon commit context does not match the bound write handle");
@@ -126,7 +130,7 @@ final class PaimonWriteLifecycle {
                         context.tenantId(), catalogName,
                         new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
                         handle.writeMode(), handle.baseSnapshotId(), context.writeOutputBinding(),
-                        context.principal(), context.authorizationReceipt()), fragments);
+                        context.principal(), context.authorizationReceipt(), null), fragments);
         if (!expected.equals(context.commitFingerprint())) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon write payload does not match durable commit fingerprint");

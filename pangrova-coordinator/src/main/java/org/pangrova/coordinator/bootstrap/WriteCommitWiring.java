@@ -36,7 +36,7 @@ final class WriteCommitWiring {
 
     static WriteCommitRecoveryService createRecoveryService(
             WriteCommitJournal journal, CatalogRegistry catalog) {
-        WriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(
+        WriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(journal,
                 catalogName -> resolveCatalog(catalog, catalogName));
         return new WriteCommitRecoveryService(journal, reconciler);
     }

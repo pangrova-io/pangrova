@@ -43,7 +43,7 @@ class JdbcCopyFileClaimStoreTest {
             assertThat(List.of(results.get(0).get(), results.get(1).get()))
                     .containsExactlyInAnyOrder(CopyFileClaimStore.ClaimResult.ACQUIRED,
                             CopyFileClaimStore.ClaimResult.BLOCKED);
-            assertThat(first.get(one.claimKey()).orElseThrow().executionId())
+            assertThat(first.get(one.claimKey(), 0).orElseThrow().executionId())
                     .isIn("execution-one", "execution-two");
         } finally {
             executor.shutdownNow();
@@ -59,7 +59,7 @@ class JdbcCopyFileClaimStoreTest {
                 .isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
 
         var recovered = new JdbcCopyFileClaimStore(source);
-        assertThat(recovered.get(original.claimKey())).contains(original);
+        assertThat(recovered.get(original.claimKey(), 0)).contains(original);
         assertThat(recovered.claim(original))
                 .isEqualTo(CopyFileClaimStore.ClaimResult.SAME_EXECUTION);
         CopyFileClaim otherExecution = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
@@ -82,7 +82,7 @@ class JdbcCopyFileClaimStoreTest {
         assertThatThrownBy(() -> store.claim(claim("tenant-a", TABLE_A, "version-1",
                 "a".repeat(64), PROFILE_B, "execution-two")))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("conflicting byte");
-        assertThat(store.get(original.claimKey())).contains(original);
+        assertThat(store.get(original.claimKey(), 0)).contains(original);
     }
 
     @Test
@@ -109,7 +109,7 @@ class JdbcCopyFileClaimStoreTest {
         assertThat(after.claimDigest()).isNotEqualTo(before.claimDigest());
         assertThatThrownBy(() -> store.claim(after))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("conflicting byte");
-        assertThat(store.get(before.claimKey())).contains(before);
+        assertThat(store.get(before.claimKey(), 0)).contains(before);
     }
 
     @Test
@@ -126,7 +126,7 @@ class JdbcCopyFileClaimStoreTest {
                 PROFILE_A, "execution-four");
         for (CopyFileClaim candidate : List.of(one, otherTenant, otherTable, otherVersion)) {
             assertThat(store.claim(candidate)).isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
-            assertThat(store.get(candidate.claimKey())).contains(candidate);
+            assertThat(store.get(candidate.claimKey(), 0)).contains(candidate);
         }
     }
 
@@ -147,7 +147,7 @@ class JdbcCopyFileClaimStoreTest {
             assertThatThrownBy(() -> statement.executeUpdate("TRUNCATE copy_file_claims"))
                     .isInstanceOf(SQLException.class).hasMessageContaining("immutable");
         }
-        assertThat(store.get(original.claimKey())).contains(original);
+        assertThat(store.get(original.claimKey(), 0)).contains(original);
     }
 
     @Test
@@ -160,7 +160,7 @@ class JdbcCopyFileClaimStoreTest {
             statement.execute("ALTER TABLE copy_file_claims RENAME TO unavailable_copy_file_claims");
         }
         assertThatThrownBy(() -> store.claim(original)).isInstanceOf(MetastoreException.class);
-        assertThatThrownBy(() -> store.get(original.claimKey())).isInstanceOf(MetastoreException.class);
+        assertThatThrownBy(() -> store.get(original.claimKey(), 0)).isInstanceOf(MetastoreException.class);
     }
 
     @Test
@@ -173,17 +173,34 @@ class JdbcCopyFileClaimStoreTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("S3 version byte limit");
         assertThatThrownBy(() -> new CopyFileClaim("tenant-a", TABLE_A,
                 "s3://bucket/data/../file.parquet", "version-1", "a".repeat(64), 4,
-                "profile", PROFILE_A, 1, "execution-one"))
+                "profile", PROFILE_A, 1, 0, "execution-one"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unsafe object key");
         assertThatThrownBy(() -> new CopyFileClaim("tenant-a", TABLE_A,
                 "s3://bucket/data/file.parquet?versionId=latest", "version-1",
-                "a".repeat(64), 4, "profile", PROFILE_A, 1, "execution-one"))
+                "a".repeat(64), 4, "profile", PROFILE_A, 1, 0, "execution-one"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("canonical S3");
+    }
+
+    @Test
+    void reloadGenerationCannotBypassAnUnprovenPriorPublication() throws Exception {
+        var source = SharedPostgresContainer.migratedDataSource("copy_claim_generation_fence");
+        var store = new JdbcCopyFileClaimStore(source);
+        CopyFileClaim first = claim("tenant-a", TABLE_A, "version-1", "a".repeat(64),
+                PROFILE_A, "execution-one");
+        assertThat(store.claim(first)).isEqualTo(CopyFileClaimStore.ClaimResult.ACQUIRED);
+        CopyFileClaim reload = new CopyFileClaim(first.tenantId(), first.tableUuid(),
+                first.sourceUrl(), first.sourceVersionId(), first.sourceSha256(), first.sourceSize(),
+                first.profileName(), first.profileIncarnationId(), first.profileRevision(),
+                1, "execution-two");
+        assertThatThrownBy(() -> store.claim(reload)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("atomic catalog-head fence");
+        assertThat(store.get(first.claimKey(), 1)).isEmpty();
+        assertThat(store.get(first.claimKey(), 0)).contains(first);
     }
 
     private static CopyFileClaim claim(String tenant, String table, String version, String sha,
                                        String profileIncarnation, String execution) {
         return new CopyFileClaim(tenant, table, "s3://bucket/data/file.parquet", version,
-                sha, 4, "profile", profileIncarnation, 1, execution);
+                sha, 4, "profile", profileIncarnation, 1, 0, execution);
     }
 }

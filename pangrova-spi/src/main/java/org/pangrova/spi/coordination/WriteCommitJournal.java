@@ -39,6 +39,15 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     void recordPublication(String queryId, String commitFingerprint, NativeWriteFinalization publication);
 
     /**
+     * Durably records a COPY file's marker-verified Iceberg publication before marking
+     * the write COMMITTED or retiring its redo intent. In-memory journals must reject COPY.
+     */
+    void recordCopyFilePublication(WriteCommitEntry entry, CopyFilePublication publication);
+
+    /** Returns exact durable COPY evidence, including its snapshot ID; conflicting evidence fails closed. */
+    Optional<CopyFilePublication> findCopyFilePublication(WriteCommitEntry entry);
+
+    /**
      * Marks an existing intent as COMMITTED after successful commit.
      * Must be called AFTER {@code finishDistributedWrite()} succeeds.
      *

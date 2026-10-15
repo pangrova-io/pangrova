@@ -2,6 +2,7 @@ package org.pangrova.coordinator.coordination.inmemory;
 
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.coordination.CopyFilePublication;
 import org.pangrova.spi.connector.metadata.NativeWriteFinalization;
 
 import java.util.List;
@@ -24,6 +25,9 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
 
     @Override
     public void recordIntent(WriteCommitEntry entry) {
+        if (entry.copyFile() != null) {
+            throw new IllegalStateException("COPY requires a durable PostgreSQL write journal");
+        }
         entries.compute(entry.queryId(), (ignored, existing) -> {
             if (existing == null) {
                 return entry;
@@ -58,6 +62,16 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
             }
             return existing.withPublication(publication);
         });
+    }
+
+    @Override
+    public void recordCopyFilePublication(WriteCommitEntry entry, CopyFilePublication publication) {
+        throw new IllegalStateException("COPY requires a durable PostgreSQL publication store");
+    }
+
+    @Override
+    public Optional<CopyFilePublication> findCopyFilePublication(WriteCommitEntry entry) {
+        throw new IllegalStateException("COPY requires a durable PostgreSQL publication store");
     }
 
     @Override

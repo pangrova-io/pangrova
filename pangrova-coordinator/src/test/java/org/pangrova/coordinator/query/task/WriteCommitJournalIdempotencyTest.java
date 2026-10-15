@@ -115,7 +115,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
 
         registerSingleTask("t-1");
         receiver.onTaskStatus(finishedWithWriteResult("t-1", fragment));
@@ -144,7 +144,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
 
         registerSingleTask("t-1");
         receiver.onTaskStatus(finishedWithWriteResult("t-1", fragment));
@@ -162,7 +162,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
 
         // Manually record an intent
         writeCommitJournal.recordIntent(entry(
@@ -223,7 +223,7 @@ class WriteCommitJournalIdempotencyTest {
                         11L,
                         new byte[]{42},
                         "alice",
-                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(), null),
                 fragments);
         writeCommitJournal.recordIntent(new WriteCommitEntry(
                 "q-replayable",
@@ -243,7 +243,7 @@ class WriteCommitJournalIdempotencyTest {
                 "coord-A",
                 "process-A",
                 3L,
-                null));
+                null, null));
 
         WriteCommitEntry pendingEntry = writeCommitJournal.getEntry("q-replayable").orElseThrow();
         assertThat(pendingEntry.fragments().get(0)).isEqualTo(new byte[]{9, 8, 7});
@@ -292,7 +292,7 @@ class WriteCommitJournalIdempotencyTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
 
         registerTwoTasks();
 
@@ -340,7 +340,7 @@ class WriteCommitJournalIdempotencyTest {
                         -1L,
                         new byte[]{42},
                         "alice",
-                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(), null),
                 List.of());
         return new WriteCommitEntry(
                 queryId,
@@ -360,7 +360,7 @@ class WriteCommitJournalIdempotencyTest {
                 null,
                 null,
                 0L,
-                null);
+                null, null);
     }
 
     private void registerTwoTasks() {

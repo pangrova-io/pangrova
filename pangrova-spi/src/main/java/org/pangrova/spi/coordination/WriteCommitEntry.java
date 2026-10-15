@@ -39,6 +39,7 @@ import java.util.Objects;
  * @param ownerIncarnation exact process incarnation that recorded it (nullable)
  * @param executionFencingToken backend-issued execution token (0 without HA)
  * @param publication confirmed external publication, persisted before catalog visibility (nullable)
+ * @param copyFile exact COPY claim generation, absent for ordinary distributed writes
  */
 @Stable(since = "1.0")
 public record WriteCommitEntry(
@@ -59,7 +60,8 @@ public record WriteCommitEntry(
         String ownerId,
         String ownerIncarnation,
         long executionFencingToken,
-        NativeWriteFinalization publication) {
+        NativeWriteFinalization publication,
+        CopyFileCommitBinding copyFile) {
 
     /**
      * Commit lifecycle states.
@@ -104,7 +106,7 @@ public record WriteCommitEntry(
         }
         String expectedFingerprint = WriteCommitFingerprint.compute(
                 new WriteCommitFingerprint.Intent(queryId, tenantId, catalogName, tableName, writeMode,
-                        baseSnapshotId, writeOutputBinding, principal, authorizationReceipt), fragments);
+                        baseSnapshotId, writeOutputBinding, principal, authorizationReceipt, copyFile), fragments);
         if (!expectedFingerprint.equals(commitFingerprint)) {
             throw new IllegalArgumentException(
                     "commitFingerprint does not match the immutable write intent");
@@ -156,7 +158,7 @@ public record WriteCommitEntry(
         return new WriteCommitEntry(queryId, catalogName, tableName, state, timestampMs, fragments,
                 writeMode, idempotencyKey, tenantId, principal, authorizationReceipt,
                 baseSnapshotId, writeOutputBinding,
-                commitFingerprint, ownerId, ownerIncarnation, executionFencingToken, confirmed);
+                commitFingerprint, ownerId, ownerIncarnation, executionFencingToken, confirmed, copyFile);
     }
 
     /** Applies a monotonic lifecycle transition without dropping the immutable replay identity. */
@@ -168,14 +170,14 @@ public record WriteCommitEntry(
         return new WriteCommitEntry(queryId, catalogName, tableName, next, timestamp, fragments,
                 writeMode, idempotencyKey, tenantId, principal, authorizationReceipt,
                 baseSnapshotId, writeOutputBinding, commitFingerprint, ownerId,
-                ownerIncarnation, executionFencingToken, publication);
+                ownerIncarnation, executionFencingToken, publication, copyFile);
     }
 
     /** Returns the exact connector commit context persisted with this intent. */
     public DistributedWriteCommitContext commitContext() {
         return new DistributedWriteCommitContext(
                 queryId, tenantId, baseSnapshotId, writeOutputBinding, commitFingerprint,
-                principal, authorizationReceipt);
+                principal, authorizationReceipt, copyFile);
     }
 
     /**

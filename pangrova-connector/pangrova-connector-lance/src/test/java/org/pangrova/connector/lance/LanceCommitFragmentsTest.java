@@ -89,7 +89,7 @@ class LanceCommitFragmentsTest {
                 binding.toByteArray(),
                 "a".repeat(64),
                 "alice",
-                LanceWriteReceiptFixtures.receipt());
+                LanceWriteReceiptFixtures.receipt(), null);
     }
 
     private LanceWriteFragment fragment(int partition) {

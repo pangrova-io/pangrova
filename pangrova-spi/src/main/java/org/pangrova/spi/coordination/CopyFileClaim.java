@@ -23,6 +23,7 @@ public record CopyFileClaim(
         String profileName,
         String profileIncarnationId,
         long profileRevision,
+        long loadGeneration,
         String executionId) {
 
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");
@@ -52,6 +53,9 @@ public record CopyFileClaim(
         if (profileRevision <= 0) {
             throw new IllegalArgumentException("profileRevision must be positive");
         }
+        if (loadGeneration < 0) {
+            throw new IllegalArgumentException("loadGeneration must not be negative");
+        }
         requireText(executionId, "executionId");
     }
 
@@ -65,6 +69,11 @@ public record CopyFileClaim(
         return digest("pangrova.copy.file-evidence.v1", claimKey(), sourceSha256,
                 Long.toString(sourceSize), profileName, profileIncarnationId,
                 Long.toString(profileRevision));
+    }
+
+    /** One claim generation; generation zero is the normal first load. */
+    public CopyFileCommitBinding commitBinding() {
+        return new CopyFileCommitBinding(claimKey(), loadGeneration, claimDigest(), tableUuid);
     }
 
     private static void requireSourceUrl(String value) {

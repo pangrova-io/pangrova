@@ -31,7 +31,7 @@ class WriteCommitRecoveryServiceTest {
                         19L,
                         new byte[]{42},
                         "alice",
-                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(), null),
                 fragments);
         return new WriteCommitEntry(
                 queryId,
@@ -51,7 +51,7 @@ class WriteCommitRecoveryServiceTest {
                 "coord-A",
                 "process-A",
                 1L,
-                null);
+                null, null);
     }
 
     @Test

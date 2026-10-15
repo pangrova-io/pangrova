@@ -64,8 +64,8 @@ class IcebergWriteBindingTest {
     private DistributedWriteCommitContext context(IcebergOutputTableHandle handle, byte[] bytes) {
         var receipt = IcebergWriteReceiptFixtures.receipt();
         String fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(
-                "write", "tenant", "catalog", "db.events", "INSERT", -1, bytes, "writer", receipt), List.of());
+                "write", "tenant", "catalog", "db.events", "INSERT", -1, bytes, "writer", receipt, null), List.of());
         return new DistributedWriteCommitContext("write", "tenant", handle.baseSnapshotId(),
-                bytes, fingerprint, "writer", receipt);
+                bytes, fingerprint, "writer", receipt, null);
     }
 }

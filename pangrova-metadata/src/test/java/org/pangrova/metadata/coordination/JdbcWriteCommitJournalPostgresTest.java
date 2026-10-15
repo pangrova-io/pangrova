@@ -234,7 +234,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
                         42L,
                         new byte[]{42},
                         "alice",
-                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt()),
+                        org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures.receipt(), null),
                 fragments);
         return new WriteCommitEntry(
                 queryId,
@@ -254,6 +254,6 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
                 "coordinator-a",
                 "process-a",
                 7L,
-                null);
+                null, null);
     }
 }

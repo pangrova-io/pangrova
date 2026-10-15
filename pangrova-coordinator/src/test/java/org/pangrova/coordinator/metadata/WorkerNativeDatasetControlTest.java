@@ -107,13 +107,13 @@ class WorkerNativeDatasetControlTest extends ContainerTestBase {
         var context = intent.commitContext();
         WorkerNativeDatasetControl.validateIntent(intent, intent.fragments(), context);
         var wrongExecution = new DistributedWriteCommitContext("another-query", context.tenantId(), context.baseSnapshotId(),
-                context.writeOutputBinding(), context.commitFingerprint(), context.principal(), context.authorizationReceipt());
+                context.writeOutputBinding(), context.commitFingerprint(), context.principal(), context.authorizationReceipt(), null);
         assertThatThrownBy(() -> WorkerNativeDatasetControl.validateIntent(intent, intent.fragments(), wrongExecution))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> WorkerNativeDatasetControl.validateIntent(intent, List.of(new byte[] {1}), context))
                 .isInstanceOf(IllegalArgumentException.class);
         var wrongPrincipal = new DistributedWriteCommitContext(context.executionId(), context.tenantId(), context.baseSnapshotId(),
-                context.writeOutputBinding(), context.commitFingerprint(), "another-principal", context.authorizationReceipt());
+                context.writeOutputBinding(), context.commitFingerprint(), "another-principal", context.authorizationReceipt(), null);
         assertThatThrownBy(() -> WorkerNativeDatasetControl.validateIntent(intent, intent.fragments(), wrongPrincipal))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -144,7 +144,7 @@ class WorkerNativeDatasetControlTest extends ContainerTestBase {
         var higherIntent = new WriteCommitEntry(intent.queryId(), intent.catalogName(), intent.tableName(), intent.state(),
                 intent.timestampMs(), intent.fragments(), intent.writeMode(), intent.idempotencyKey(), intent.tenantId(),
                 intent.principal(), intent.authorizationReceipt(), intent.baseSnapshotId(), intent.writeOutputBinding(),
-                intent.commitFingerprint(), next.ownerId(), next.ownerIncarnation(), next.fencingToken(), null);
+                intent.commitFingerprint(), next.ownerId(), next.ownerIncarnation(), next.fencingToken(), null, null);
         assertThatThrownBy(() -> WorkerNativeDatasetControl.prepareRequest(security, higherIntent, valid, deadline, 1,
                 execution.reservation())).isInstanceOf(SecurityException.class);
     }
@@ -201,11 +201,11 @@ class WorkerNativeDatasetControlTest extends ContainerTestBase {
         var bytes = WriteOutputBinding.newBuilder().setLance(binding).build().toByteArray();
         var fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(original.queryId(), original.tenantId(),
                 original.catalogName(), original.tableName(), original.writeMode(), original.baseSnapshotId(), bytes,
-                original.principal(), original.authorizationReceipt()), original.fragments());
+                original.principal(), original.authorizationReceipt(), null), original.fragments());
         return new WriteCommitEntry(original.queryId(), original.catalogName(), original.tableName(), original.state(),
                 original.timestampMs(), original.fragments(), original.writeMode(), fingerprint, original.tenantId(),
                 original.principal(), original.authorizationReceipt(), original.baseSnapshotId(), bytes, fingerprint,
-                original.ownerId(), original.ownerIncarnation(), original.executionFencingToken(), null);
+                original.ownerId(), original.ownerIncarnation(), original.executionFencingToken(), null, null);
     }
 
     private record Output(SchemaTableName table, String mode, long base, NativeWriteAllocation allocation,

@@ -88,6 +88,14 @@ final class IcebergWriteCommitter {
                     new IcebergCollectedFragments("OVERWRITE", List.of(), List.of()),
                     tenantId, context);
         } else {
+            if (context != null && context.copyFile() != null) {
+                icebergTable.refresh();
+                if (IcebergDistributedCommitMarker.isPublished(icebergTable, context)) {
+                    return;
+                }
+                throw new IllegalStateException(
+                        "COPY cannot complete without a marker-bearing Iceberg snapshot");
+            }
             LOG.info("event=distributed_write_noop table={}.{} reason=no_fragments",
                     handle.schemaName(), handle.tableName());
         }

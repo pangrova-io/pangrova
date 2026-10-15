@@ -23,6 +23,22 @@ class WriteCommitFingerprintTest {
     }
 
     @Test
+    void ordinaryAndCopyWritesUseOneCanonicalFingerprintWithDistinctClaimPresence() {
+        var fragments = List.of(new byte[]{1});
+        String ordinary = insertFingerprint(null, fragments);
+        var binding = new CopyFileCommitBinding("a".repeat(64), 0,
+                "b".repeat(64), "00000000-0000-0000-0000-000000000001");
+        String copy = insertFingerprint(binding, fragments);
+
+        assertThat(copy).hasSize(64).isNotEqualTo(ordinary);
+        assertThat(insertFingerprint(binding, fragments)).isEqualTo(copy);
+        assertThat(insertFingerprint(new CopyFileCommitBinding(binding.fileKey(), 1,
+                binding.claimDigest(), binding.tableUuid()), fragments)).isNotEqualTo(copy);
+        assertThat(insertFingerprint(new CopyFileCommitBinding(binding.fileKey(), 0,
+                "c".repeat(64), binding.tableUuid()), fragments)).isNotEqualTo(copy);
+    }
+
+    @Test
     void tenantSnapshotAndPayloadAreBoundIntoIdentity() {
         String baseline = fingerprint(List.of(new byte[]{1}));
 
@@ -36,7 +52,7 @@ class WriteCommitFingerprintTest {
                         10L,
                         WRITE_BINDING,
                         "alice",
-                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt()),
+                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt(), null),
                 List.of(new byte[]{1})))
                 .isNotEqualTo(baseline);
         assertThat(WriteCommitFingerprint.compute(
@@ -49,7 +65,7 @@ class WriteCommitFingerprintTest {
                         11L,
                         WRITE_BINDING,
                         "alice",
-                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt()),
+                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt(), null),
                 List.of(new byte[]{1})))
                 .isNotEqualTo(baseline);
         assertThat(WriteCommitFingerprint.compute(
@@ -62,7 +78,7 @@ class WriteCommitFingerprintTest {
                         10L,
                         new byte[]{43},
                         "alice",
-                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt()),
+                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt(), null),
                 List.of(new byte[]{1})))
                 .isNotEqualTo(baseline);
         assertThat(fingerprint(List.of(new byte[]{2}))).isNotEqualTo(baseline);
@@ -88,7 +104,7 @@ class WriteCommitFingerprintTest {
                 null,
                 null,
                 0L,
-                null))
+                null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match");
     }
@@ -107,7 +123,7 @@ class WriteCommitFingerprintTest {
                         10L,
                         binding,
                         "alice",
-                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt()),
+                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt(), null),
                 fragments);
         WriteCommitEntry entry = new WriteCommitEntry(
                 "q1",
@@ -127,7 +143,7 @@ class WriteCommitFingerprintTest {
                 null,
                 null,
                 0L,
-                null);
+                null, null);
 
         binding[0] = 99;
         entry.writeOutputBinding()[0] = 88;
@@ -146,8 +162,15 @@ class WriteCommitFingerprintTest {
                         10L,
                         WRITE_BINDING,
                         "alice",
-                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt()),
+                        org.pangrova.spi.coordination.SpiWriteReceiptFixtures.receipt(), null),
                 fragments);
+    }
+
+    private static String insertFingerprint(CopyFileCommitBinding binding, List<byte[]> fragments) {
+        return WriteCommitFingerprint.compute(
+                new WriteCommitFingerprint.Intent("q1", "tenant-a", "iceberg", "sales.orders",
+                        "INSERT", 10L, WRITE_BINDING, "alice",
+                        SpiWriteReceiptFixtures.receipt(), binding), fragments);
     }
 
     @Test
@@ -172,7 +195,7 @@ class WriteCommitFingerprintTest {
                 null,
                 null,
                 0L,
-                null);
+                null, null);
         var publication = new org.pangrova.spi.connector.metadata.NativeWriteFinalization(
                 org.pangrova.spi.connector.metadata.NativeWriteFinalization.Outcome.COMMITTED, 11, new byte[32]);
         var published = intent.withPublication(publication);

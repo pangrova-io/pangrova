@@ -173,7 +173,7 @@ class TaskStatusReceiverWriteCommitTest {
         writeCommitTracker.registerWriteContext(
                 QUERY_ID, CATALOG_NAME, new TestOutputTableHandle(), new TestConnectorSession(),
                 binding(), org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", Map.of()), null);
         registerRunningQuery();
         registerTwoTasks();
 
@@ -261,7 +261,7 @@ class TaskStatusReceiverWriteCommitTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
 
         registerTwoTasks();
 
@@ -295,7 +295,7 @@ class TaskStatusReceiverWriteCommitTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
 
         registerTwoTasks();
 
@@ -319,7 +319,7 @@ class TaskStatusReceiverWriteCommitTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
 
         tracker.registerTask(QUERY_ID, "t-1");
         registerCanonicalRequest("t-1");
@@ -340,7 +340,7 @@ class TaskStatusReceiverWriteCommitTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
         AtomicInteger fenceChecks = new AtomicInteger();
         receiver.setWriteCommitFencer(new WriteCommitFencer() {
             @Override public ExecutionAnchor currentAnchor(String executionId) {
@@ -398,7 +398,7 @@ class TaskStatusReceiverWriteCommitTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
         receiver.setWriteCommitFencer(new WriteCommitFencer() {
             @Override public ExecutionAnchor currentAnchor(String executionId) {
                 return anchor("active-node", 7L);
@@ -425,7 +425,7 @@ class TaskStatusReceiverWriteCommitTest {
                 new TestConnectorSession(),
                 binding(),
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
         catalogRegistry.unregister(CATALOG_NAME);
         catalogRegistry.register(new CatalogDescriptor(
                 CATALOG_NAME, CatalogType.CONNECTOR, "test-provider",

@@ -16,6 +16,10 @@ final class IcebergDistributedCommitMarker {
     static final String EXECUTION_ID = "pangrova.commit.execution-id";
     static final String TENANT_ID = "pangrova.commit.tenant-id";
     static final String BASE_SNAPSHOT_ID = "pangrova.commit.base-snapshot-id";
+    static final String COPY_FILE_KEY = "pangrova.copy.file-key";
+    static final String COPY_LOAD_GENERATION = "pangrova.copy.load-generation";
+    static final String COPY_CLAIM_DIGEST = "pangrova.copy.claim-digest";
+    static final String COPY_TABLE_UUID = "pangrova.copy.table-uuid";
 
     private IcebergDistributedCommitMarker() {
     }
@@ -34,6 +38,13 @@ final class IcebergDistributedCommitMarker {
                 requireSummary(snapshot, EXECUTION_ID, context.executionId());
                 requireSummary(snapshot, TENANT_ID, context.tenantId());
                 requireSummary(snapshot, BASE_SNAPSHOT_ID, String.valueOf(context.baseSnapshotId()));
+                if (context.copyFile() != null) {
+                    requireSummary(snapshot, COPY_FILE_KEY, context.copyFile().fileKey());
+                    requireSummary(snapshot, COPY_LOAD_GENERATION,
+                            String.valueOf(context.copyFile().loadGeneration()));
+                    requireSummary(snapshot, COPY_CLAIM_DIGEST, context.copyFile().claimDigest());
+                    requireSummary(snapshot, COPY_TABLE_UUID, context.copyFile().tableUuid());
+                }
                 if (matched != null) {
                     throw new IllegalStateException(
                             "Iceberg commit fingerprint appears in multiple snapshots");
@@ -99,6 +110,12 @@ final class IcebergDistributedCommitMarker {
         update.set(EXECUTION_ID, context.executionId());
         update.set(TENANT_ID, context.tenantId());
         update.set(BASE_SNAPSHOT_ID, String.valueOf(context.baseSnapshotId()));
+        if (context.copyFile() != null) {
+            update.set(COPY_FILE_KEY, context.copyFile().fileKey());
+            update.set(COPY_LOAD_GENERATION, String.valueOf(context.copyFile().loadGeneration()));
+            update.set(COPY_CLAIM_DIGEST, context.copyFile().claimDigest());
+            update.set(COPY_TABLE_UUID, context.copyFile().tableUuid());
+        }
     }
 
     private static void requireSummary(Snapshot snapshot, String key, String expected) {

@@ -94,7 +94,7 @@ class NativeDatasetControlBootstrapTest extends ContainerTestBase {
             var intent = execution.intent(); var context = intent.commitContext();
             var missing = new DistributedWriteCommitContext(context.executionId() + "-missing", context.tenantId(),
                     context.baseSnapshotId(), context.writeOutputBinding(), context.commitFingerprint(),
-                    context.principal(), context.authorizationReceipt());
+                    context.principal(), context.authorizationReceipt(), null);
             assertThatThrownBy(() -> plane.prepareWrite(session, execution.output(), intent.fragments(), missing, execution.reservation()))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("durable write intent");
             assertThat(queries.writeCommitJournal().getEntry(intent.queryId()).orElseThrow().commitFingerprint())

@@ -180,7 +180,7 @@ class SpeculativeExecutionWiringTest {
                         "catalog", "default"),
                 new byte[]{42},
                 org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()), null);
         CountDownLatch bothAtElection = new CountDownLatch(2);
         var concurrentResolver = new DuplicateTaskResolver() {
             @Override public boolean onTaskComplete(

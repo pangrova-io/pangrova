@@ -25,5 +25,5 @@ public interface CopyFileClaimStore {
     ClaimResult claim(CopyFileClaim claim);
 
     /** Reads the durable admission evidence without implying a catalog commit. */
-    Optional<CopyFileClaim> get(String claimKey);
+    Optional<CopyFileClaim> get(String claimKey, long loadGeneration);
 }

@@ -239,8 +239,8 @@ class IcebergStaticOverwriteScopeTest {
         var receipt = IcebergWriteReceiptFixtures.receipt();
         String fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(
                 "scope-replay", "scope-tenant", CATALOG, "db.events", output.writeMode(),
-                output.baseSnapshotId(), binding, SESSION.getUser(), receipt), fragments);
+                output.baseSnapshotId(), binding, SESSION.getUser(), receipt, null), fragments);
         return new DistributedWriteCommitContext("scope-replay", "scope-tenant", output.baseSnapshotId(),
-                binding, fingerprint, SESSION.getUser(), receipt);
+                binding, fingerprint, SESSION.getUser(), receipt, null);
     }
 }
