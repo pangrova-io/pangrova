@@ -295,28 +295,21 @@ public final class AstToSqlNodeConverter {
     }
 
     private SqlNode convertGenerateSeries(TableFunctionRef funcRef) {
-        long start = extractLiteralLong(funcRef.argument());
-        long stop = extractLiteralLong(funcRef.endArgument().orElseThrow(
-                () -> new IllegalArgumentException("GENERATE_SERIES requires start and stop")));
-        List<SqlNode> rows = new java.util.ArrayList<>();
-        for (long i = start; i <= stop; i++) {
-            SqlNode row = SqlStdOperatorTable.ROW.createCall(POS,
-                    SqlLiteral.createExactNumeric(String.valueOf(i), POS));
-            rows.add(row);
-        }
-        SqlNode values = SqlStdOperatorTable.VALUES.createCall(POS, rows.toArray(SqlNode[]::new));
-        return SqlStdOperatorTable.AS.createCall(POS, values,
-                new SqlIdentifier("generate_series", POS),
-                new SqlIdentifier("val", POS));
-    }
-
-    private static long extractLiteralLong(Expression expr) {
-        if (expr instanceof org.pangrova.parser.ast.Literal lit
-                && lit.value() instanceof org.pangrova.parser.ast.LiteralValue.IntegerValue iv) {
-            return iv.value();
-        }
-        throw new IllegalArgumentException(
-                "GENERATE_SERIES arguments must be integer literals, got: " + expr);
+        List<SqlNode> arguments = new ArrayList<>();
+        arguments.add(convertExpression(funcRef.argument()));
+        arguments.add(convertExpression(funcRef.endArgument().orElseThrow(
+                () -> new IllegalArgumentException("GENERATE_SERIES requires start and stop"))));
+        funcRef.stepArgument().ifPresent(step -> arguments.add(convertExpression(step)));
+        SqlNode invocation = new SqlUnresolvedFunction(new SqlIdentifier("GENERATE_SERIES", POS),
+                null, null, null, null, SqlFunctionCategory.USER_DEFINED_TABLE_FUNCTION)
+                .createCall(POS, arguments.toArray(SqlNode[]::new));
+        SqlNode table = SqlStdOperatorTable.COLLECTION_TABLE.createCall(POS, invocation);
+        List<SqlNode> alias = new ArrayList<>();
+        alias.add(table);
+        alias.add(new SqlIdentifier(funcRef.alias().orElse("generate_series"), POS));
+        funcRef.columnAliases().stream().map(name -> new SqlIdentifier(name, POS))
+                .forEach(alias::add);
+        return SqlStdOperatorTable.AS.createCall(POS, alias.toArray(SqlNode[]::new));
     }
 
     private SqlNode applyTimeTravel(SqlNode table, TableRef ref) {

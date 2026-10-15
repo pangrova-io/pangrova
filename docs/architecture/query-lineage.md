@@ -26,6 +26,12 @@ relation's field prefix and only references into that prefix. A missing owner,
 reordered field or changed type still rejects lineage capture rather than
 attributing the array to another input.
 
+A zero-input table function such as `GENERATE_SERIES` produces derived output
+columns with no physical source table columns. Calcite's column-origin metadata
+records the empty source set for this leaf; lineage classification marks its
+outputs as transformed. Table functions with inputs still require a known
+column mapping and cannot be treated as source-free.
+
 Governance bootstrap selects `pangrova.lineage.backend` explicitly (`LOG` by default to
 preserve the existing log deployment; `HTTP` for an external backend). HTTP requires
 `OPENLINEAGE_URL`; `OPENLINEAGE_API_KEY` is optional bearer authentication. The namespace

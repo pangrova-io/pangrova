@@ -201,6 +201,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Statement visitInsertIntoStatement(PangrovaSqlParser.InsertIntoStatementContext ctx) { return withLocation((InsertStatement) dml.visitInsertInto(ctx.insertInto()), ctx); }
     @Override public Statement visitInsertOverwriteStatement(PangrovaSqlParser.InsertOverwriteStatementContext ctx) { return withLocation((InsertOverwriteStatement) dml.visitInsertOverwrite(ctx.insertOverwrite()), ctx); }
     @Override public Statement visitInsertSelectStatement(PangrovaSqlParser.InsertSelectStatementContext ctx) { return withLocation((InsertSelectStatement) dml.visitInsertSelect(ctx.insertSelect()), ctx); }
+    @Override public Statement visitCopyIntoStatement(PangrovaSqlParser.CopyIntoStatementContext ctx) { return withLocation((InsertSelectStatement) dml.visitCopyInto(ctx.copyInto()), ctx); }
     @Override public Statement visitShowSchemasStatement(PangrovaSqlParser.ShowSchemasStatementContext ctx) { return (ShowSchemasStatement) ddlDml.visitShowSchemas(ctx.showSchemas()); }
     @Override public Statement visitShowTablesStatement(PangrovaSqlParser.ShowTablesStatementContext ctx) { return (ShowTablesStatement) ddlDml.visitShowTables(ctx.showTables()); }
     @Override public Statement visitShowViewsStatement(PangrovaSqlParser.ShowViewsStatementContext ctx) { return (ShowViewsStatement) ddlDml.visitShowViews(ctx.showViews()); }
@@ -514,13 +515,27 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         var funcRef = buildTableFunctionRef(ctx.tableFunctionCall(), alias, columnAliases);
         return TableRef.lateralTableFunction(funcRef);
     }
+    @Override
+    public TableRef visitDirectGenerateSeriesRef(PangrovaSqlParser.DirectGenerateSeriesRefContext ctx) {
+        Optional<String> alias = ctx.alias == null
+                ? Optional.empty() : Optional.of(extractIdentifierText(ctx.alias));
+        List<String> columnAliases = ctx.columnNameList() == null ? List.of()
+                : ctx.columnNameList().identifier().stream().map(this::extractIdentifierText).toList();
+        return TableRef.lateralTableFunction(new TableFunctionRef(
+                TableFunctionRef.TableFunctionType.GENERATE_SERIES,
+                (Expression) visit(ctx.rangeStart), Optional.of((Expression) visit(ctx.rangeEnd)),
+                ctx.rangeStep == null ? Optional.empty() : Optional.of((Expression) visit(ctx.rangeStep)),
+                alias, columnAliases));
+    }
     private TableFunctionRef buildTableFunctionRef(PangrovaSqlParser.TableFunctionCallContext funcCall,
                                                    Optional<String> alias, List<String> columnAliases) {
         if (funcCall.GENERATE_SERIES() != null) {
             Expression startExpr = (Expression) visit(funcCall.rangeStart);
             Expression endExpr = (Expression) visit(funcCall.rangeEnd);
             return new TableFunctionRef(TableFunctionRef.TableFunctionType.GENERATE_SERIES,
-                    startExpr, Optional.of(endExpr), alias, columnAliases);
+                    startExpr, Optional.of(endExpr),
+                    funcCall.rangeStep == null ? Optional.empty()
+                            : Optional.of((Expression) visit(funcCall.rangeStep)), alias, columnAliases);
         }
         TableFunctionRef.TableFunctionType funcType = funcCall.EXPLODE() != null
                 ? TableFunctionRef.TableFunctionType.EXPLODE

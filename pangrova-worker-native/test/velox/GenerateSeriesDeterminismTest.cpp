@@ -15,12 +15,15 @@
 // **Validates: Requirements 5.2**
 
 #include <gtest/gtest.h>
+#include "StructuralContractIdentities.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -111,7 +114,7 @@ std::shared_ptr<const TableFunctionNode> buildGenerateSeriesNode(
 
   return std::make_shared<TableFunctionNode>(
       "gen_series_test",
-      "generate_series",
+      pangrova::capability::generated::pangrova_table_generate_series.id,
       std::move(arguments),
       std::move(output_type));
 }
@@ -121,8 +124,8 @@ std::shared_ptr<const TableFunctionNode> buildGenerateSeriesNode(
 // ===========================================================================
 
 std::vector<int64_t> executeGenerateSeries(
-    const std::shared_ptr<const TableFunctionNode>& node) {
-  auto plan = std::dynamic_pointer_cast<const core::PlanNode>(node);
+    const core::PlanNodePtr& plan,
+    int32_t max_drivers = 1) {
 
   // Collect output vectors via consumer callback.
   std::mutex mu;
@@ -156,9 +159,10 @@ std::vector<int64_t> executeGenerateSeries(
       std::move(consumer));
 
   // Wait for task completion.
-  task->start(1);
+  task->start(max_drivers);
   auto future = task->taskCompletionFuture();
   future.wait();
+  EXPECT_FALSE(task->error()) << task->errorMessage();
 
   return values;
 }
@@ -171,7 +175,9 @@ class GenerateSeriesDeterminismTest
     : public ::testing::TestWithParam<GenerateSeriesParam> {
  protected:
   static void SetUpTestSuite() {
-    pool_ = pangrova::test::testLeafPool("GenerateSeriesDeterminismTest");
+    if (!pool_) {
+      pool_ = pangrova::test::testLeafPool("GenerateSeriesDeterminismTest");
+    }
   }
 
   static std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
@@ -372,12 +378,41 @@ TEST_F(GenerateSeriesDeterminismTest, Int64BoundariesDoNotOverflow) {
             (std::vector<int64_t>{max}));
 }
 
+TEST_F(GenerateSeriesDeterminismTest, SourceRunsOnceWithMultipleTaskDrivers) {
+  auto source = buildGenerateSeriesNode(1, 100, 1);
+  EXPECT_TRUE(source->requiresSingleThread());
+  auto actual = executeGenerateSeries(source, 8);
+  ASSERT_EQ(actual.size(), 100);
+  for (int64_t value = 1; value <= 100; ++value) {
+    EXPECT_EQ(actual[value - 1], value);
+  }
+}
+
+TEST_F(GenerateSeriesDeterminismTest, MixedUnionRunsSourceOnceWithMultipleTaskDrivers) {
+  auto values = std::dynamic_pointer_cast<FlatVector<int64_t>>(
+      BaseVector::create(BIGINT(), 2, pool_.get()));
+  values->set(0, 100);
+  values->set(1, 101);
+  auto rows = std::make_shared<RowVector>(
+      pool_.get(), ROW({"series_value"}, {BIGINT()}), BufferPtr(nullptr), 2,
+      std::vector<VectorPtr>{values});
+  auto other = std::make_shared<core::ValuesNode>(
+      "mixed-other", std::vector<RowVectorPtr>{rows});
+  auto source = buildGenerateSeriesNode(1, 3, 1);
+  auto mixed = core::LocalPartitionNode::gather("mixed-union", {other, source});
+
+  auto actual = executeGenerateSeries(mixed, 8);
+  std::sort(actual.begin(), actual.end());
+  EXPECT_EQ(actual, (std::vector<int64_t>{1, 2, 3, 100, 101}));
+}
+
 TEST_F(GenerateSeriesDeterminismTest, LateralGeneratorStopsAtInt64Boundaries) {
   constexpr auto max = std::numeric_limits<int64_t>::max();
   constexpr auto min = std::numeric_limits<int64_t>::min();
   TableFunctionRegistry registry;
   registry.registerBuiltins();
-  auto generate = registry.resolve("generate_series");
+  auto generate = registry.resolve(
+      pangrova::capability::generated::pangrova_table_generate_series.id);
   ASSERT_TRUE(generate);
 
   for (const auto& [start, stop, step, expected] :
@@ -386,12 +421,14 @@ TEST_F(GenerateSeriesDeterminismTest, LateralGeneratorStopsAtInt64Boundaries) {
            {min + 1, min, -1, {min + 1, min}}}) {
     std::vector<int64_t> values;
     std::vector<vector_size_t> row_indices;
+    std::optional<int64_t> continuation;
     auto node = buildGenerateSeriesNode(start, stop, step);
     const auto count = generate(nullptr, 0, node->arguments(), values,
-                                row_indices, 100, pool_.get());
+                                row_indices, 100, pool_.get(), continuation);
     EXPECT_EQ(values, expected);
     EXPECT_EQ(count, expected.size());
     EXPECT_EQ(row_indices.size(), expected.size());
+    EXPECT_FALSE(continuation);
   }
 }
 

@@ -107,36 +107,28 @@ WHEN MATCHED AND target.email LIKE '%@deleted.com' THEN
 
 ## COPY INTO
 
-Bulk load data from external files or URIs into a table.
+`COPY INTO table FROM (SELECT ...)` appends the query result through the same
+native write and catalog commit path as `INSERT INTO table SELECT ...`. This is
+a Pangrova extension for table-to-table copies; each execution appends rows.
+
+File/URI loading is not implemented. A URI source, or file-loading options on a
+subquery source, returns an unsupported-feature error before any write. Do not
+use `COPY INTO` for retryable file ingestion until file discovery, authorization,
+format scanning, and committed file identity tracking are available.
 
 ### Syntax
 
 ```sql
 COPY INTO table_name
-FROM source
-[FILE_FORMAT = format_name]
-[PATTERN = 'glob_pattern']
-[WITH (option = value [, ...])];
+FROM (SELECT ...);
 ```
 
-**Source** can be a URI string or a subquery.
+**Source** can be a subquery. URI syntax is parsed but rejected.
 
 **Examples:**
 
 ```sql
--- Load from S3 path
-COPY INTO prod.analytics.events
-FROM 's3://data-lake/events/2024/'
-FILE_FORMAT = parquet
-PATTERN = '*.parquet';
-
 -- Load from subquery
 COPY INTO prod.analytics.events
 FROM (SELECT * FROM staging.raw_events WHERE event_date = DATE '2024-06-01');
-
--- With options
-COPY INTO prod.analytics.logs
-FROM 's3://bucket/logs/'
-FILE_FORMAT = csv
-WITH (header = true, delimiter = ',', null_value = 'NULL');
 ```

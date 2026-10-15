@@ -11,6 +11,7 @@ import org.apache.calcite.rel.core.Sample;
 import org.apache.calcite.rel.core.SetOp;
 import org.apache.calcite.rel.core.Snapshot;
 import org.apache.calcite.rel.core.Sort;
+import org.apache.calcite.rel.core.TableFunctionScan;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.core.Values;
 import org.apache.calcite.rel.core.Window;
@@ -42,6 +43,9 @@ final class ColumnLineageKinds {
             return DerivationType.DIRECT;
         }
         if (relation instanceof Values) {
+            return DerivationType.TRANSFORM;
+        }
+        if (relation instanceof TableFunctionScan function && function.getInputs().isEmpty()) {
             return DerivationType.TRANSFORM;
         }
         if (relation instanceof Project project) {

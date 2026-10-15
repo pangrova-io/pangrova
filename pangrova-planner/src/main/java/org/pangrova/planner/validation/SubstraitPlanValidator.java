@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
 import org.pangrova.planner.extension.UnnestRelDetail;
+import org.pangrova.planner.extension.GenerateSeriesRelDetail;
 
 /**
  * Validates a Substrait {@link Plan} against the native engine's capability
@@ -56,7 +57,7 @@ public final class SubstraitPlanValidator {
             Map.entry("ExtensionLeaf", "ExtensionLeafRel"),
             Map.entry("ExtensionSingle", "ExtensionSingleRel"),
             Map.entry("Cross", "JoinRel"),
-            Map.entry("ExtensionMulti", "JoinRel")
+            Map.entry("ExtensionMulti", "ExtensionMultiRel")
     );
 
     /**
@@ -98,7 +99,8 @@ public final class SubstraitPlanValidator {
 
         String registryName = REL_TYPE_NAMES.get(className);
         boolean unsupportedDetail = (rel instanceof ExtensionLeaf leaf
-                && !(leaf.getDetail() instanceof ExchangeInputLeafDetail))
+                && !(leaf.getDetail() instanceof ExchangeInputLeafDetail)
+                && !(leaf.getDetail() instanceof GenerateSeriesRelDetail))
                 || (rel instanceof ExtensionSingle single
                         && !(single.getDetail() instanceof UnnestRelDetail));
         if (registryName == null || !registry.isRelSupported(registryName)

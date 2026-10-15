@@ -206,6 +206,18 @@ def validate_structural_contract(value):
         raise ValueError("Malformed structural contract identity or execution semantics")
     exact_bool(value["deterministic"])
     strings([value["implementation"]])
+    if value["id"] == "pangrova.table.generate_series":
+        if (value["implementation"] != "GenerateSeriesOperator"
+                or value["argumentLayout"] != {"names": ["start", "stop", "step"],
+                                               "minArguments": 2, "maxArguments": 3,
+                                               "types": ["BIGINT"],
+                                               "standalone": "CONSTANT_ONLY",
+                                               "lateral": "UNSUPPORTED"}
+                or value["options"] != []
+                or value["output"] != {"authority": "TABLE_FUNCTION_DETAIL_OUTPUT_SCHEMA",
+                                       "columns": [{"name": "val", "type": "BIGINT"}]}):
+            raise ValueError("Unknown GENERATE_SERIES structural execution semantics")
+        return
     layout = value["argumentLayout"]
     exact_keys(layout, ("namePattern", "minArguments", "variadic", "types", "replicate"))
     if (type(layout["minArguments"]) is not int or not 0 < layout["minArguments"] <= 256

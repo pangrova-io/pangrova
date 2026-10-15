@@ -17,10 +17,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * End-to-end tests for SQL GENERATE_SERIES results with a running Native worker.
  *
- * <p>The planner currently expands integer literals to VALUES. These tests
- * validate the returned sequence and Native runtime availability, not the
- * GenerateSeriesOperator or its TaskStats. Native table-function routing needs
- * a separate physical-plan and execution assertion.
+ * <p>The planner emits a canonical table-function relation. These tests verify
+ * result semantics through a running worker; planner protocol tests assert
+ * the physical source relation separately.
  *
  * <p>Validates: Requirements 5.2, 5.6
  */
@@ -46,6 +45,31 @@ class GenerateSeriesE2ETest extends SqlE2ETestBase {
     @Nested
     @DisplayName("GENERATE_SERIES Output Correctness")
     class OutputCorrectness {
+
+        @Test
+        @DisplayName("Direct descending series uses an explicit negative step")
+        void directSeriesWithStep() {
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT n FROM GENERATE_SERIES(10, 1, -3) AS s(n) ORDER BY n DESC");
+            assertThat(rows.stream().map(row -> ((Number) row.getRaw("n")).longValue()))
+                    .containsExactly(10L, 7L, 4L, 1L);
+        }
+
+        @Test
+        @DisplayName("Series at signed 64-bit boundaries does not overflow")
+        void seriesAtInt64Boundaries() {
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT n FROM GENERATE_SERIES(9223372036854775806, 9223372036854775807) AS s(n)");
+            assertThat(rows.stream().map(row -> ((Number) row.getRaw("n")).longValue()))
+                    .containsExactly(9223372036854775806L, 9223372036854775807L);
+        }
+
+        @Test
+        @DisplayName("Step opposed to range direction returns no rows")
+        void seriesWithOppositeDirectionIsEmpty() {
+            assertThat(sqlRunner.execute("SELECT * FROM GENERATE_SERIES(10, 1, 1)"))
+                    .isEmpty();
+        }
 
         @Test
         @DisplayName("GENERATE_SERIES(1, 100) produces exactly 100 rows with values 1 through 100")

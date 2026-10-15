@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "StructuralContractIdentities.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/vector/FlatVector.h"
 
@@ -154,7 +155,8 @@ GenerateSeriesTranslator::toOperator(
   if (!table_func_node) {
     return nullptr;
   }
-  if (table_func_node->functionName() != "generate_series") {
+  if (!table_func_node->sources().empty() || table_func_node->functionName() !=
+      pangrova::capability::generated::pangrova_table_generate_series.id) {
     return nullptr;
   }
   return std::make_unique<GenerateSeriesOperator>(

@@ -53,6 +53,35 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PlanFragmenterTest {
 
     @Test
+    void splitlessSeriesRunsOnceDespiteParallelismOverride() {
+        var plan = new PangrovaPlanner().plan(
+                "SELECT n FROM GENERATE_SERIES(1, 100) AS s(n)").plan();
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+
+        assertThat(fragmented.transfers()).isEmpty();
+        assertThat(fragmented.stages()).singleElement().satisfies(stage ->
+                assertThat(stage.parallelism()).isOne());
+    }
+
+    @Test
+    void mixedScanAndSeriesUnionDoesNotReplicateLocalSource() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("numbers", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT).build();
+            }
+        });
+        var plan = new PangrovaPlanner(schema).plan(
+                "SELECT id FROM numbers UNION ALL "
+                        + "SELECT val FROM GENERATE_SERIES(1, 3)").plan();
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+
+        assertThat(fragmented.transfers()).isEmpty();
+        assertThat(fragmented.stages()).singleElement().satisfies(stage ->
+                assertThat(stage.parallelism()).isOne());
+    }
+
+    @Test
     void vectorTopKHintRetainsSourceThroughValidatedArrayCast() {
         var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
         schema.add("vectors", new org.apache.calcite.schema.impl.AbstractTable() {

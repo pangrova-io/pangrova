@@ -16,7 +16,9 @@
 // Placement: velox/runtime/ — Velox runtime lifecycle management.
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -39,7 +41,8 @@ class TableFunctionRegistry {
  public:
   // A RowGenerator receives an input batch + row index, and appends
   // output values to the provided output column vectors.
-  // Returns the number of output rows produced for this input row.
+  // Returns the number of output rows produced for this input row. A nonempty
+  // continuation holds the next value to emit when the output batch fills.
   using RowGenerator = std::function<int64_t(
       const facebook::velox::RowVectorPtr& input,
       facebook::velox::vector_size_t row,
@@ -47,7 +50,8 @@ class TableFunctionRegistry {
       std::vector<int64_t>& outputValues,
       std::vector<facebook::velox::vector_size_t>& inputRowIndices,
       size_t maxOutput,
-      facebook::velox::memory::MemoryPool* pool)>;
+      facebook::velox::memory::MemoryPool* pool,
+      std::optional<int64_t>& continuation)>;
 
   // Register a table function with its generator. Throws std::runtime_error
   // if name is empty or already registered.

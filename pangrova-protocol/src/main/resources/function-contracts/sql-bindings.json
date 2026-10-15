@@ -202,6 +202,18 @@
       "output":{"authority":"TABLE_FUNCTION_DETAIL_OUTPUT_SCHEMA","arrayColumns":1,"mapColumns":2,"zip":"LONGEST_NULL_PAD","ordinalityType":"BIGINT","ordinalityBase":1,"outer":"KEEP_NULL_OR_EMPTY_INPUT"},
       "deterministic":true,
       "retry":"IDEMPOTENT"
+    },
+    {
+      "id":"pangrova.table.generate_series",
+      "version":"1.0.0",
+      "kind":"TABLE",
+      "placement":"NATIVE",
+      "implementation":"GenerateSeriesOperator",
+      "argumentLayout":{"names":["start","stop","step"],"minArguments":2,"maxArguments":3,"types":["BIGINT"],"standalone":"CONSTANT_ONLY","lateral":"UNSUPPORTED"},
+      "options":[],
+      "output":{"authority":"TABLE_FUNCTION_DETAIL_OUTPUT_SCHEMA","columns":[{"name":"val","type":"BIGINT"}]},
+      "deterministic":true,
+      "retry":"IDEMPOTENT"
     }
   ]
 }

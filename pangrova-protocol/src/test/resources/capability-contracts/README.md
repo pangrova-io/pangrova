@@ -7,18 +7,27 @@ the generated-values materializer, whose availability depends on the actual
 immutable-cache readiness gate. It is distinct from the cache-disabled function
 exporter catalogue used by function-contract tests.
 
-The snapshot was recaptured on 2026-10-14 from the matching packaged Release
-Native library after the canonical v2 result-server bind-address contract changed. The
-cache-disabled function catalogue was captured separately from the current
-Native exporter (SHA-256 `c615388f67918ee4d44b0d5b56452ab857773b9bec8e34ae0f866df5a788602a`).
-The complete cache-enabled inventory came from actual E2E JNI startup:
+The snapshot was recaptured on 2026-10-15 from the matching packaged Release
+Native library after the `GENERATE_SERIES` function declaration and Native
+relation inventory changed. The cache-disabled function catalogue was captured
+separately from the rebuilt `pangrova_function_export --catalogue` executable
+(SHA-256 `a8e49ae138759d3a032863397af3dc9d2fa89b18138783b685d539c1c11cdca8`):
 
-- Native library SHA-256: `a769ab2dccd8be95dd1def4e5a3e31c0360ea9b550292479d98c1380abdcae23`.
-- Inventory SHA-256: `a3511e913a26311a87cf240f29f098ada8ba4a103cab443e0e718d0b76d0f4fd`.
+- Exported catalogue: 781,796 raw bytes, SHA-256
+  `bc63582e20e4942a58f24f7af098d829a80c0ea91d46fd61a6c177264fde9713`.
 
-The E2E capture enabled the real governed FILE callback deployment before Native
-startup. It retained 19 capabilities and 99 functions; text-format comparison
-against the previous inventory changed only descriptor and derived manifest hashes.
+The complete cache-enabled inventory came from actual E2E JNI startup with
+`PANGROVA_E2E_FILE_CAPABILITY_KEY` set, which deployed the governed FILE
+callbacks before Native catalogue publication:
+
+- Native library SHA-256: `f940e80f17f4c0e0df388a217750cdc7021541cd87a0bfc23bfb40e1bf711d3a`.
+- Inventory: 793,767 raw bytes, SHA-256
+  `b71987d6e748aa9a93e6cb91523f2bada176787ac38b2710ac3b8e0961c8f039`.
+
+The E2E capture retained all 19 capabilities and 99 functions, including both
+`file_from_url` and `file_from_bytes`. Text-format comparison against the
+previous inventory changed only the binding-declaration and derived manifest
+hashes and removed the unsupported `ExtensionMultiRel` advertisement.
 
 Tests retain every actual capability and function in the positive round trip.
 Negative inputs mutate the actual inventory while retaining capability identity.

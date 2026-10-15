@@ -6,6 +6,7 @@
 // convertExchangeRel, convertSortRel, convertFetchRel, convertWindowRel,
 // convertSetRel, convertCrossRel, convertSortOrder.
 #include "velox/plan/VeloxPlanConverter.h"
+#include "StructuralContractIdentities.h"
 #include "velox/plan/CanonicalOrdinalIdentity.h"
 #include "velox/plan/CandidateContractValidation.h"
 
@@ -134,6 +135,9 @@ VeloxPlanConverter::convertExtensionLeafRel(
         "VeloxPlanConverter: unsupported relation detail schema version: " +
         std::to_string(envelope.schema_version()));
   }
+  if (envelope.has_table_function()) {
+    return convertTableFunctionDetail(envelope.table_function());
+  }
   if (!envelope.has_exchange_input()) {
     throw std::runtime_error(
         "VeloxPlanConverter: unsupported typed extension leaf detail: " +
@@ -159,6 +163,12 @@ VeloxPlanConverter::convertExtensionSingleRel(
   pangrova::protocol::v2::RelationDetailEnvelope envelope;
   const bool has_typed_detail =
       ext_rel.has_detail() && ext_rel.detail().UnpackTo(&envelope);
+  if (has_typed_detail && envelope.has_table_function() &&
+      envelope.table_function().invocation().capability().capability_id() ==
+          pangrova::capability::generated::pangrova_table_generate_series.id) {
+    throw std::runtime_error(
+        "GENERATE_SERIES lateral input is not a declared SQL capability");
+  }
   const std::vector<split::SplitConfig>* effective_splits = &splits;
   bool has_retrieval_override = false;
   if (has_typed_detail && envelope.has_retrieval_source()) {
@@ -221,7 +231,14 @@ VeloxPlanConverter::convertExtensionSingleRel(
           envelope.table_function(), input, input_type);
     }
     if (envelope.has_table_function()) {
-      return convertUnnest(envelope.table_function(), input);
+      const auto& capability_id =
+          envelope.table_function().invocation().capability().capability_id();
+      if (capability_id ==
+          pangrova::capability::generated::pangrova_table_unnest.id) {
+        return convertUnnest(envelope.table_function(), input);
+      }
+      throw std::runtime_error(
+          "VeloxPlanConverter: unsupported table function capability: " + capability_id);
     }
     throw std::runtime_error(
         "VeloxPlanConverter: unsupported typed relation detail: " +
@@ -289,13 +306,6 @@ VeloxPlanConverter::convertExchangeRel(
 
 // ---------------------------------------------------------------------------
 // SortOrder conversion helper
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// ExtensionMultiRel → TableFunctionNode (table-valued functions)
-//
-// Table functions use the same v2 RelationDetailEnvelope and capability
-// invocation contract as retrieval/model relations.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

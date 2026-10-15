@@ -194,14 +194,12 @@ TEST_F(NativeCommandGetCapabilitiesTest, AdvertisesSubstraitSupportInInventory) 
   EXPECT_TRUE(rel_types.contains("ReadRel"));
   EXPECT_TRUE(rel_types.contains("ExchangeRel"));
   EXPECT_TRUE(rel_types.contains("ExtensionSingleRel"));
-  // The production converter routes the canonical ExtensionMultiRel to its
-  // table-function implementation, so it must remain advertised.
-  EXPECT_TRUE(rel_types.contains("ExtensionMultiRel"));
+  EXPECT_FALSE(rel_types.contains("ExtensionMultiRel"));
   EXPECT_TRUE(expression_types.contains("Literal"));
   EXPECT_TRUE(expression_types.contains("ScalarFunction"));
   EXPECT_TRUE(rel_types.contains("NestedLoopJoinRel"));
   EXPECT_TRUE(expression_types.contains("WindowFunction"));
-  EXPECT_EQ(rel_types.size(), 17u);
+  EXPECT_EQ(rel_types.size(), 16u);
   EXPECT_EQ(expression_types.size(), 7u);
 }
 

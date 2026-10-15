@@ -62,6 +62,13 @@ class TableFunctionNode : public facebook::velox::core::PlanNode {
     return sources_;
   }
 
+  // A zero-input function is one invocation per task. Velox may run the task
+  // with multiple drivers, but duplicating this source would duplicate rows.
+  // Lateral functions remain parallel across their input rows.
+  bool requiresSingleThread() const override {
+    return sources_.empty();
+  }
+
   const std::string& functionName() const {
     return function_name_;
   }

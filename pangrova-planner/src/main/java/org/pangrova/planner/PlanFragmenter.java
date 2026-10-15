@@ -27,6 +27,8 @@ import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalCorrelate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
+import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
 import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
@@ -190,7 +192,7 @@ final class PlanFragmenter {
                 }
             }
             if (node instanceof Aggregate aggregate
-                    && !hasOnlyValuesLeaves(aggregate.getInput())) {
+                    && !hasOnlyLocalSourceLeaves(aggregate.getInput())) {
                 PangrovaDistribution distribution = (aggregate.getGroupSets() == null
                         || aggregate.getGroupSets().size() == 1)
                         && !aggregate.getGroupSet().isEmpty()
@@ -203,14 +205,14 @@ final class PlanFragmenter {
                             aggregate.getAggCallList());
                 }
             }
-            if (node instanceof Window window && !hasOnlyValuesLeaves(window.getInput())) {
+            if (node instanceof Window window && !hasOnlyLocalSourceLeaves(window.getInput())) {
                 return WindowPartitioning.enforce(window, FragmentContext::enforceDistribution);
             }
             if (node instanceof Sort sort
                     && !(root && terminalPurpose == AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT
                             && sort.fetch != null
                             && (sort.offset == null || RexLiteral.intValue(sort.offset) == 0))
-                    && !hasOnlyValuesLeaves(sort.getInput())) {
+                    && !hasOnlyLocalSourceLeaves(sort.getInput())) {
                 RelNode input = enforceDistribution(sort.getInput(),
                         PangrovaDistribution.SINGLETON);
                 if (input != sort.getInput()) {
@@ -364,11 +366,10 @@ final class PlanFragmenter {
         private int resolveStageParallelism(RelNode root) {
             List<ExchangeBoundary> boundaries = new ArrayList<>();
             collectDirectBoundaries(root, boundaries);
-            // An unfragmented VALUES source is replicated verbatim by every
-            // task. It has no splits to partition, so an explicit session
-            // override must not multiply rows or provider calls. A boundary
-            // itself still keeps its requested downstream partition count.
-            if (boundaries.isEmpty() && hasOnlyValuesLeaves(root)) {
+            // A splitless local source is replicated verbatim by every task.
+            // Keep VALUES and Native GENERATE_SERIES on exactly one producer;
+            // an override must not multiply rows or provider calls.
+            if (containsDirectLocalSourceLeaf(root)) {
                 return SINGLE_PARALLELISM;
             }
             // Independent split partitions do not contain both inputs of a
@@ -394,15 +395,31 @@ final class PlanFragmenter {
                     .orElseGet(() -> computeDynamicParallelism(root));
         }
 
-        private static boolean hasOnlyValuesLeaves(RelNode node) {
+        private static boolean hasOnlyLocalSourceLeaves(RelNode node) {
             if (exchangeBoundary(node) != null) {
                 return false;
             }
             if (node.getInputs().isEmpty()) {
-                return node instanceof Values;
+                return node instanceof Values
+                        || node instanceof LogicalTableFunctionScan scan
+                                && scan.getCall() instanceof RexCall call
+                                && call.getOperator().getName().equalsIgnoreCase("GENERATE_SERIES")
+                                && scan.getInputs().isEmpty();
             }
             return node.getInputs().stream()
-                    .allMatch(FragmentContext::hasOnlyValuesLeaves);
+                    .allMatch(FragmentContext::hasOnlyLocalSourceLeaves);
+        }
+
+        /** A local source in a mixed stage also runs once, while exchange inputs are separate stages. */
+        private static boolean containsDirectLocalSourceLeaf(RelNode node) {
+            if (exchangeBoundary(node) != null) {
+                return false;
+            }
+            if (node.getInputs().isEmpty()) {
+                return hasOnlyLocalSourceLeaves(node);
+            }
+            return node.getInputs().stream()
+                    .anyMatch(FragmentContext::containsDirectLocalSourceLeaf);
         }
 
         private static boolean containsJoin(RelNode node) {

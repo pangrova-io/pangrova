@@ -77,6 +77,7 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
     private static List<SqlOperator> buildCustomOperators() {
         List<SqlOperator> ops = new ArrayList<>();
         addSpatialFunctions(ops);
+        ops.add(new GenerateSeriesSqlFunction());
         addArrayAndVectorFunctions(ops);
         addStringFunctions(ops);
         ops.add(new RoundSqlFunction());

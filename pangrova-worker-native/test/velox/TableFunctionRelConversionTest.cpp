@@ -3,16 +3,16 @@
 //
 // Property 12: TableFunctionRel Plan Conversion
 //
-// TEST_P over function names × argument counts (1, 2, 3) × output schema
-// widths (1, 2, 4).
+// TEST_P over the declared 2/3-argument source and rejected lateral forms.
 // Verifies:
-//   - convertExtensionMultiRel creates a TableFunctionNode with matching
+//   - canonical extension relations create a TableFunctionNode with matching
 //     function name, arguments, and output schema.
 //   - Unregistered function names throw std::runtime_error.
 //
 // **Validates: Requirements 5.1**
 
 #include <gtest/gtest.h>
+#include "StructuralContractIdentities.h"
 #include "../CanonicalTestPlan.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
@@ -46,6 +46,19 @@ struct TableFunctionRelParam {
   int output_schema_width;
 };
 
+constexpr auto& kSeries = pangrova::capability::generated::pangrova_table_generate_series;
+
+void setCapability(pangrova::protocol::v2::CapabilityRef* reference,
+                   const std::string& function_name) {
+  reference->set_capability_id(function_name);
+  if (function_name == kSeries.id) {
+    reference->set_semantic_version(kSeries.version);
+    reference->set_signature_sha256(std::string(
+        reinterpret_cast<const char*>(kSeries.signature.data()),
+        kSeries.signature.size()));
+  }
+}
+
 // ===========================================================================
 // Helpers
 // ===========================================================================
@@ -56,7 +69,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& col_name) {
       ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
-// Build a Substrait Plan containing an ExtensionMultiRel encoding a
+// Build a Substrait Plan containing an ExtensionLeafRel encoding a
 // TableFunctionDetail with the given parameters. No input (standalone).
 std::vector<uint8_t> buildTableFunctionPlan(
     const std::string& function_name,
@@ -68,43 +81,42 @@ std::vector<uint8_t> buildTableFunctionPlan(
 
   // Add output names matching the output schema width.
   for (int i = 0; i < output_schema_width; ++i) {
-    root->add_names("out_" + std::to_string(i));
+    root->add_names(i == 0 ? "val" : "extra_" + std::to_string(i));
   }
 
-  auto* ext_multi = root->mutable_input()->mutable_extension_multi();
+  auto* ext_leaf = root->mutable_input()->mutable_extension_leaf();
 
   pangrova::protocol::v2::RelationDetailEnvelope envelope;
   envelope.set_schema_version(1);
   auto* detail = envelope.mutable_table_function();
   detail->set_plan_node_id("table-function-0");
-  detail->mutable_invocation()->mutable_capability()->set_capability_id(
-      function_name);
+  setCapability(detail->mutable_invocation()->mutable_capability(), function_name);
 
   // Add literal integer arguments.
   for (int i = 0; i < argument_count; ++i) {
     substrait::Expression arg;
     arg.mutable_literal()->set_i64(i + 1);
     auto* named = detail->mutable_invocation()->add_arguments();
-    named->set_name("arg_" + std::to_string(i));
+    named->set_name(i == 0 ? "start" : i == 1 ? "stop" : "step");
     named->mutable_expression()->CopyFrom(arg);
   }
 
   // Build output schema.
   substrait::NamedStruct output_schema;
   for (int i = 0; i < output_schema_width; ++i) {
-    addI64Column(&output_schema, "out_" + std::to_string(i));
+    addI64Column(&output_schema, i == 0 ? "val" : "extra_" + std::to_string(i));
   }
   detail->mutable_output_schema()->CopyFrom(output_schema);
 
-  // Pack detail into the ExtensionMultiRel's detail field.
-  ext_multi->mutable_detail()->PackFrom(envelope);
+  // A source relation has no inputs in Substrait.
+  ext_leaf->mutable_detail()->PackFrom(envelope);
 
   std::string bytes;
   pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
-// Build a Substrait Plan containing an ExtensionMultiRel with a lateral join
+// Build a Substrait Plan containing an ExtensionSingleRel with a lateral join
 // pattern (one input source).
 std::vector<uint8_t> buildTableFunctionWithInputPlan(
     const std::string& function_name,
@@ -120,10 +132,10 @@ std::vector<uint8_t> buildTableFunctionWithInputPlan(
     root->add_names("col_" + std::to_string(i));
   }
 
-  auto* ext_multi = root->mutable_input()->mutable_extension_multi();
+  auto* ext_single = root->mutable_input()->mutable_extension_single();
 
   // Add input: a ReadRel (TableScan).
-  auto* input_read = ext_multi->add_inputs()->mutable_read();
+  auto* input_read = ext_single->mutable_input()->mutable_read();
   input_read->mutable_named_table()->add_names("input_table");
   auto* input_schema = input_read->mutable_base_schema();
   for (int i = 0; i < input_schema_width; ++i) {
@@ -134,8 +146,7 @@ std::vector<uint8_t> buildTableFunctionWithInputPlan(
   envelope.set_schema_version(1);
   auto* detail = envelope.mutable_table_function();
   detail->set_plan_node_id("table-function-0");
-  detail->mutable_invocation()->mutable_capability()->set_capability_id(
-      function_name);
+  setCapability(detail->mutable_invocation()->mutable_capability(), function_name);
 
   // Add field reference arguments pointing to input columns.
   for (int i = 0; i < argument_count; ++i) {
@@ -145,7 +156,7 @@ std::vector<uint8_t> buildTableFunctionWithInputPlan(
     ref->mutable_direct_reference()->mutable_struct_field()->set_field(
         i % input_schema_width);
     auto* named = detail->mutable_invocation()->add_arguments();
-    named->set_name("arg_" + std::to_string(i));
+    named->set_name(i == 0 ? "start" : i == 1 ? "stop" : "step");
     named->mutable_expression()->CopyFrom(arg);
   }
 
@@ -155,11 +166,11 @@ std::vector<uint8_t> buildTableFunctionWithInputPlan(
     addI64Column(&output_schema, "in_" + std::to_string(i));
   }
   for (int i = 0; i < output_schema_width; ++i) {
-    addI64Column(&output_schema, "func_out_" + std::to_string(i));
+    addI64Column(&output_schema, i == 0 ? "val" : "extra_" + std::to_string(i));
   }
   detail->mutable_output_schema()->CopyFrom(output_schema);
 
-  ext_multi->mutable_detail()->PackFrom(envelope);
+  ext_single->mutable_detail()->PackFrom(envelope);
 
   std::string bytes;
   pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
@@ -181,7 +192,7 @@ class TableFunctionRelConversionTest
 // ===========================================================================
 // Property 12.1: Standalone TableFunctionNode Creation
 //
-// For any registered function name, convertExtensionMultiRel SHALL create a
+// For the declared GENERATE_SERIES capability, conversion SHALL create a
 // TableFunctionNode with matching function name, argument count, and output
 // schema width.
 //
@@ -226,7 +237,7 @@ TEST_P(TableFunctionRelConversionTest, StandaloneTableFunctionNodeCreated) {
 
   // Verify output column names.
   for (int i = 0; i < param.output_schema_width; ++i) {
-    expectCanonicalOutputField(converter, output_type, i, "out_" + std::to_string(i));
+    expectCanonicalOutputField(converter, output_type, i, i == 0 ? "val" : "extra_" + std::to_string(i));
   }
 
   // Standalone: no input sources.
@@ -236,125 +247,57 @@ TEST_P(TableFunctionRelConversionTest, StandaloneTableFunctionNodeCreated) {
 }
 
 // ===========================================================================
-// Property 12.2: Lateral Join TableFunctionNode Creation
+// Property 12.2: Undeclared Lateral GENERATE_SERIES Is Rejected
 //
-// When an input source is present (lateral join pattern), the
-// TableFunctionNode SHALL have the input as its source and the output schema
-// SHALL be the combined input + function output columns.
-//
-// **Validates: Requirements 5.1**
+// The SQL planner only emits a zero-input source. ExtensionSingleRel must not
+// silently turn a field-dependent invocation into a production capability.
 // ===========================================================================
 
-TEST_P(TableFunctionRelConversionTest, LateralJoinTableFunctionNodeCreated) {
+TEST_P(TableFunctionRelConversionTest, LateralSeriesIsRejected) {
   const auto& param = GetParam();
-  const int input_schema_width = 2;  // Fixed input width for lateral tests.
-
-  auto plan_bytes = buildTableFunctionWithInputPlan(
-      param.function_name, param.argument_count, param.output_schema_width,
-      input_schema_width);
-  ASSERT_FALSE(plan_bytes.empty());
-
+  const auto bytes = buildTableFunctionWithInputPlan(
+      param.function_name, param.argument_count, param.output_schema_width, 2);
   const auto converter_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
-  auto result = converter.convert(plan_bytes, {});
-
-  ASSERT_NE(result, nullptr)
-      << "Plan conversion failed for lateral " << param.name;
-
-  // Root.names may cause VeloxPlanConverter to wrap the plan with a
-  // ProjectNode for column renaming. Unwrap it to find the TableFunctionNode.
-  auto actual_node = result;
-  if (actual_node->name() == "Project" && !actual_node->sources().empty()) {
-    actual_node = actual_node->sources()[0];
-  }
-  EXPECT_EQ(actual_node->name(), "TableFunction")
-      << "Expected TableFunction node for lateral " << param.name;
-
-  auto tf_node = std::dynamic_pointer_cast<const TableFunctionNode>(actual_node);
-  ASSERT_NE(tf_node, nullptr)
-      << "Failed to cast to TableFunctionNode for lateral " << param.name;
-
-  // Verify function name matches.
-  EXPECT_EQ(tf_node->functionName(), param.function_name)
-      << "Function name mismatch for lateral " << param.name;
-
-  // Verify argument count matches.
-  EXPECT_EQ(
-      static_cast<int>(tf_node->arguments().size()), param.argument_count)
-      << "Argument count mismatch for lateral " << param.name;
-
-  // Verify combined output schema: input_cols + function_output_cols.
-  auto output_type = tf_node->outputType();
-  ASSERT_NE(output_type, nullptr);
-  int expected_total_cols = input_schema_width + param.output_schema_width;
-  EXPECT_EQ(static_cast<int>(output_type->size()), expected_total_cols)
-      << "Combined output schema width mismatch for lateral " << param.name;
-
-  // Verify input column names come first.
-  for (int i = 0; i < input_schema_width; ++i) {
-    expectCanonicalOutputField(converter, output_type, i, "col_" + std::to_string(i));
-    EXPECT_EQ(tf_node->sources()[0]->outputType()->nameOf(i), physicalFieldAlias(i));
-  }
-
-  // Verify function output column names follow.
-  for (int i = 0; i < param.output_schema_width; ++i) {
-    expectCanonicalOutputField(converter, output_type, input_schema_width + i,
-        "col_" + std::to_string(input_schema_width + i));
-  }
-
-  // Lateral join: one input source (TableScan).
-  ASSERT_EQ(tf_node->sources().size(), 1)
-      << "Lateral TableFunctionNode should have one source for "
-      << param.name;
-  EXPECT_EQ(tf_node->sources()[0]->name(), "TableScan");
-  const auto declaredInput = converter.getScanNodeOutputType(tf_node->sources()[0]->id());
-  ASSERT_TRUE(declaredInput.has_value());
-  for (int i = 0; i < input_schema_width; ++i) {
-    EXPECT_EQ(declaredInput.value()->nameOf(i), "in_" + std::to_string(i));
-  }
+  EXPECT_THROW(converter.convert(bytes, {}), std::runtime_error);
 }
 
-TEST(TableFunctionOutputContractTest, RejectsMissingOrChangedInputPrefix) {
+TEST(TableFunctionOutputContractTest, RejectsUndeclaredIdentityAndMalformedSeriesShape) {
   pangrova::test::testMemoryManager();
-  for (int mutation = 0; mutation < 3; ++mutation) {
+  for (int mutation = 0; mutation < 4; ++mutation) {
     SCOPED_TRACE(mutation);
-    const auto bytes = buildTableFunctionWithInputPlan("generate_series", 2, 1, 2);
+    const auto bytes = buildTableFunctionPlan(kSeries.id, 2, 1);
     substrait::Plan plan;
     ASSERT_TRUE(plan.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
-    auto* extension = plan.mutable_relations(0)->mutable_root()->mutable_input()->mutable_extension_multi();
+    auto* extension = plan.mutable_relations(0)->mutable_root()->mutable_input()
+                          ->mutable_extension_leaf();
     pangrova::protocol::v2::RelationDetailEnvelope envelope;
     ASSERT_TRUE(extension->detail().UnpackTo(&envelope));
-    auto* schema = envelope.mutable_table_function()->mutable_output_schema();
-    if (mutation == 0) schema->set_names(0, "wrong_input_label");
-    if (mutation == 1) {
-      schema->mutable_struct_()->mutable_types(0)->Clear();
-      schema->mutable_struct_()->mutable_types(0)->mutable_string()
-          ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
-    }
-    if (mutation == 2) {
-      schema->mutable_names()->DeleteSubrange(0, 2);
-      schema->mutable_struct_()->mutable_types()->DeleteSubrange(0, 2);
+    auto* detail = envelope.mutable_table_function();
+    if (mutation == 0) {
+      detail->mutable_invocation()->mutable_capability()->set_signature_sha256("invalid");
+    } else if (mutation == 1) {
+      detail->mutable_invocation()->mutable_capability()->set_capability_id("generate_series");
+    } else if (mutation == 2) {
+      detail->mutable_invocation()->mutable_arguments()->RemoveLast();
+    } else {
+      addI64Column(detail->mutable_output_schema(), "extra");
     }
     extension->mutable_detail()->PackFrom(envelope);
     const auto mutated = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
     const auto converter_registry =
         facebook::velox::exec::FunctionRegistrySnapshot::capture();
     VeloxPlanConverter converter(converter_registry);
-    try {
-      converter.convert({mutated.begin(), mutated.end()}, {});
-      FAIL() << "Invalid table-function prefix must fail before execution";
-    } catch (const std::runtime_error& error) {
-      EXPECT_NE(std::string(error.what()).find("output"), std::string::npos);
-      EXPECT_NE(std::string(error.what()).find("prefix"), std::string::npos);
-    }
+    EXPECT_THROW(converter.convert({mutated.begin(), mutated.end()}, {}),
+                 std::runtime_error);
   }
 }
 
 // ===========================================================================
-// Property 12.3: Unregistered Function Name Throws
+// Property 12.3: Undeclared Capability Name Throws
 //
-// For any unregistered function name, convertExtensionMultiRel SHALL throw
+// For an undeclared capability name, conversion SHALL throw
 // std::runtime_error with a descriptive message.
 //
 // **Validates: Requirements 5.5**
@@ -385,32 +328,15 @@ TEST_P(TableFunctionRelConversionTest, UnregisteredFunctionThrows) {
 }
 
 // ===========================================================================
-// Parameterization: function names × argument counts × output schema widths
+// Parameterization: declared argument counts
 // ===========================================================================
 
 INSTANTIATE_TEST_SUITE_P(
     TableFunctionRelConversion,
     TableFunctionRelConversionTest,
     ::testing::Values(
-        // generate_series × argument counts × output widths
-        TableFunctionRelParam{
-            "GenSeries_1arg_1out", "generate_series", 1, 1},
-        TableFunctionRelParam{
-            "GenSeries_2arg_1out", "generate_series", 2, 1},
-        TableFunctionRelParam{
-            "GenSeries_3arg_1out", "generate_series", 3, 1},
-        TableFunctionRelParam{
-            "GenSeries_1arg_2out", "generate_series", 1, 2},
-        TableFunctionRelParam{
-            "GenSeries_2arg_2out", "generate_series", 2, 2},
-        TableFunctionRelParam{
-            "GenSeries_3arg_2out", "generate_series", 3, 2},
-        TableFunctionRelParam{
-            "GenSeries_1arg_4out", "generate_series", 1, 4},
-        TableFunctionRelParam{
-            "GenSeries_2arg_4out", "generate_series", 2, 4},
-        TableFunctionRelParam{
-            "GenSeries_3arg_4out", "generate_series", 3, 4}),
+        TableFunctionRelParam{"GenSeries_2arg_1out", kSeries.id, 2, 1},
+        TableFunctionRelParam{"GenSeries_3arg_1out", kSeries.id, 3, 1}),
     [](const ::testing::TestParamInfo<TableFunctionRelParam>& info) {
       return info.param.name;
     });

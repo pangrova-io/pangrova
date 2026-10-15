@@ -144,7 +144,7 @@ proto::CapabilityInventory runtimeCapabilityInventory(const facebook::velox::exe
         "MergeJoinRel", "JoinRel", "NestedLoopJoinRel", "ExchangeRel", "ExtensionLeafRel",
         "SortRel", "FetchRel",
         "ConsistentPartitionWindowRel", "SetRel", "CrossRel",
-        "ExtensionSingleRel", "ExtensionMultiRel"}) {
+        "ExtensionSingleRel"}) {
     inventory_v2->add_supported_substrait_rel_types(rel);
   }
   for (const auto* expression : {"FieldReference", "Literal", "ScalarFunction",

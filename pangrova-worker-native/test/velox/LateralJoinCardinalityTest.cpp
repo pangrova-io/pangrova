@@ -14,14 +14,17 @@
 // **Validates: Requirements 5.3**
 
 #include <gtest/gtest.h>
+#include "StructuralContractIdentities.h"
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "../TestMemoryHelper.h"
 #include "velox/plan/LateralTableFunctionOperator.h"
+#include "velox/plan/GenerateSeriesOperator.h"
 #include "velox/plan/TableFunctionNode.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
@@ -131,7 +134,7 @@ std::shared_ptr<const TableFunctionNode> buildLateralPlanNode(
 
   return std::make_shared<TableFunctionNode>(
       "lateral_gen_series",
-      "generate_series",
+      pangrova::capability::generated::pangrova_table_generate_series.id,
       std::move(arguments),
       std::move(output_type),
       input);
@@ -144,6 +147,97 @@ int64_t expectedTotalRows(int32_t input_size, int32_t output_per_row) {
 }
 
 }  // namespace
+
+TEST(TableFunctionTranslatorRoutingTest, SourceTranslatorRejectsInputNode) {
+  auto pool = pangrova::test::testLeafPool("SourceTranslatorRoutingTest");
+  auto input = std::make_shared<ValuesNode>(
+      "routing_values", buildInputData(1, pool.get()));
+  auto lateral = buildLateralPlanNode(input, 2);
+  GenerateSeriesTranslator translator;
+  EXPECT_EQ(translator.toOperator(nullptr, 0, lateral), nullptr);
+}
+
+TEST(TableFunctionTranslatorRoutingTest, LateralTranslatorRejectsSourceNode) {
+  std::vector<std::shared_ptr<const core::ITypedExpr>> arguments;
+  arguments.push_back(std::make_shared<core::ConstantTypedExpr>(
+      BIGINT(), variant(int64_t{1})));
+  arguments.push_back(std::make_shared<core::ConstantTypedExpr>(
+      BIGINT(), variant(int64_t{2})));
+  auto source = std::make_shared<TableFunctionNode>(
+      "routing_source",
+      pangrova::capability::generated::pangrova_table_generate_series.id,
+      std::move(arguments), ROW({"val"}, {BIGINT()}));
+  LateralTableFunctionTranslator translator;
+  EXPECT_EQ(translator.toOperator(nullptr, 0, source), nullptr);
+}
+
+TEST(LateralJoinContinuationTest, SeriesSpanningBatchesPreservesEveryInputRow) {
+  auto pool = pangrova::test::testLeafPool("LateralJoinContinuationTest");
+  auto input = buildInputData(2, pool.get());
+  TableFunctionRegistry registry;
+  registry.registerBuiltins();
+  auto generator = registry.resolve(
+      pangrova::capability::generated::pangrova_table_generate_series.id);
+  ASSERT_TRUE(generator);
+
+  std::vector<std::shared_ptr<const core::ITypedExpr>> arguments;
+  arguments.push_back(std::make_shared<core::ConstantTypedExpr>(
+      BIGINT(), variant(int64_t{1})));
+  arguments.push_back(std::make_shared<core::ConstantTypedExpr>(
+      BIGINT(), variant(int64_t{7})));
+  std::vector<int64_t> all_values;
+  std::vector<vector_size_t> all_rows;
+  for (vector_size_t row = 0; row < input->size(); ++row) {
+    std::optional<int64_t> continuation;
+    do {
+      std::vector<int64_t> values;
+      std::vector<vector_size_t> rows;
+      generator(input, row, arguments, values, rows, 3, pool.get(), continuation);
+      EXPECT_LE(values.size(), 3u);
+      all_values.insert(all_values.end(), values.begin(), values.end());
+      all_rows.insert(all_rows.end(), rows.begin(), rows.end());
+    } while (continuation);
+  }
+  EXPECT_EQ(all_values, (std::vector<int64_t>{1, 2, 3, 4, 5, 6, 7,
+                                               1, 2, 3, 4, 5, 6, 7}));
+  EXPECT_EQ(all_rows, (std::vector<vector_size_t>{0, 0, 0, 0, 0, 0, 0,
+                                                  1, 1, 1, 1, 1, 1, 1}));
+}
+
+TEST(LateralJoinContinuationTest, DictionaryEncodedInputFieldPreservesValues) {
+  auto pool = pangrova::test::testLeafPool("LateralJoinDictionaryTest");
+  auto source = buildInputData(2, pool.get());
+  auto indices = allocateIndices(2, pool.get());
+  indices->asMutable<vector_size_t>()[0] = 1;
+  indices->asMutable<vector_size_t>()[1] = 0;
+  auto encoded = BaseVector::wrapInDictionary(
+      nullptr, indices, 2, source->childAt(0));
+  auto input = std::make_shared<RowVector>(
+      pool.get(), ROW({"input_id"}, {BIGINT()}), BufferPtr(nullptr), 2,
+      std::vector<VectorPtr>{encoded});
+  TableFunctionRegistry registry;
+  registry.registerBuiltins();
+  auto generator = registry.resolve(
+      pangrova::capability::generated::pangrova_table_generate_series.id);
+  ASSERT_TRUE(generator);
+  std::vector<std::shared_ptr<const core::ITypedExpr>> arguments;
+  arguments.push_back(std::make_shared<core::FieldAccessTypedExpr>(
+      BIGINT(), "input_id"));
+  arguments.push_back(std::make_shared<core::ConstantTypedExpr>(
+      BIGINT(), variant(int64_t{2})));
+
+  std::vector<int64_t> all_values;
+  for (vector_size_t row = 0; row < input->size(); ++row) {
+    std::optional<int64_t> continuation;
+    do {
+      std::vector<int64_t> values;
+      std::vector<vector_size_t> rows;
+      generator(input, row, arguments, values, rows, 2, pool.get(), continuation);
+      all_values.insert(all_values.end(), values.begin(), values.end());
+    } while (continuation);
+  }
+  EXPECT_EQ(all_values, (std::vector<int64_t>{1, 2, 0, 1, 2}));
+}
 
 // ===========================================================================
 // Test fixture
@@ -182,7 +276,8 @@ TEST_P(LateralJoinCardinalityTest, PlanNodeStructureForLateralJoin) {
   // Verify plan node structure.
   EXPECT_EQ(lateral_node->name(), "TableFunction")
       << "Node name must be TableFunction for " << param.name;
-  EXPECT_EQ(lateral_node->functionName(), "generate_series")
+  EXPECT_EQ(lateral_node->functionName(),
+            pangrova::capability::generated::pangrova_table_generate_series.id)
       << "Function name must be generate_series for " << param.name;
   EXPECT_EQ(lateral_node->arguments().size(), 2u)
       << "Must have 2 arguments (start, stop) for " << param.name;

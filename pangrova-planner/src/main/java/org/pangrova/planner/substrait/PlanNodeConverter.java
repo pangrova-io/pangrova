@@ -3,6 +3,7 @@ package org.pangrova.planner.substrait;
 import org.pangrova.planner.PlanTable;
 
 import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
+import org.pangrova.planner.extension.GenerateSeriesRelDetail;
 
 import io.substrait.expression.Expression;
 import io.substrait.expression.ExpressionCreator;
@@ -46,6 +47,7 @@ import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.logical.LogicalTableScan;
+import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
 import org.apache.calcite.rel.logical.LogicalUnion;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rel.logical.LogicalWindow;
@@ -93,6 +95,7 @@ public final class PlanNodeConverter {
     private final List<AiInvocationPlanHint> aiInvocationHints = new ArrayList<>();
     private final Set<LogicalJoin> singleMatchJoins =
             Collections.newSetFromMap(new IdentityHashMap<>());
+    private int nextGenerateSeriesId;
 
     public PlanNodeConverter(TypeMapper typeMapper, FunctionMapper functionMapper,
                             RexBuilder rexBuilder) {
@@ -127,6 +130,8 @@ public final class PlanNodeConverter {
                 Map.entry(LogicalFilter.class, n -> visitFilter((LogicalFilter) n)),
                 Map.entry(LogicalValues.class, n -> visitValues((LogicalValues) n)),
                 Map.entry(LogicalTableScan.class, n -> visitTableScan((LogicalTableScan) n)),
+                Map.entry(LogicalTableFunctionScan.class,
+                        n -> visitTableFunction((LogicalTableFunctionScan) n)),
                 Map.entry(LogicalSort.class, n -> visitSort((LogicalSort) n)),
                 Map.entry(LogicalJoin.class, n -> visitJoin((LogicalJoin) n)),
                 Map.entry(PangrovaSortMergeJoin.class,
@@ -215,6 +220,30 @@ public final class PlanNodeConverter {
                 .getQualifiedName();
         return ImmutableNamedScan.builder().names(qualifiedName)
                 .initialSchema(ns).build();
+    }
+
+    private Rel visitTableFunction(LogicalTableFunctionScan scan) {
+        if (!scan.getInputs().isEmpty() || !(scan.getCall() instanceof RexCall call)
+                || !call.getOperator().getName().equalsIgnoreCase("GENERATE_SERIES")) {
+            throw unsupported("TableFunctionScan: " + scan.getCall());
+        }
+        List<Long> arguments = call.getOperands().stream().map(argument -> {
+            if (!(argument instanceof RexLiteral literal)) {
+                throw unsupported("GENERATE_SERIES requires constant integer arguments");
+            }
+            var value = literal.getValueAs(java.math.BigDecimal.class);
+            if (value == null) {
+                throw unsupported("GENERATE_SERIES requires non-NULL integer arguments");
+            }
+            try {
+                return value.longValueExact();
+            } catch (ArithmeticException e) {
+                throw unsupported("GENERATE_SERIES argument exceeds BIGINT range");
+            }
+        }).toList();
+        var detail = new GenerateSeriesRelDetail("generate_series_" + nextGenerateSeriesId++, arguments,
+                buildNamedStruct(scan.getRowType()));
+        return ExtensionLeaf.from(detail).build();
     }
 
     private Rel visitExchangeInput(PangrovaExchangeInput input) {

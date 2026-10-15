@@ -27,8 +27,8 @@ import java.util.List;
 /**
  * Full-stack E2E tests for COPY INTO SQL statement.
  *
- * <p>Validates SQL parsing and execution of COPY INTO for loading data
- * from external files/URIs and subqueries into tables.</p>
+ * <p>Validates the executable subquery extension and fail-closed handling of
+ * file sources until the file-loading transaction path is implemented.</p>
  */
 @E2ETest
 @DisplayName("COPY INTO Full-Stack E2E")
@@ -60,14 +60,15 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
     class CopyFromUri {
 
         @Test
-        @DisplayName("COPY INTO from Parquet URI syntax is accepted")
+        @DisplayName("COPY INTO from Parquet URI fails closed")
         void copyFromParquetUri() {
             executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, name VARCHAR, value DOUBLE)");
 
             String sql = "COPY INTO " + fqn()
                     + " FROM 's3://test-bucket/data/sample.parquet'"
                     + " FILE_FORMAT = 'PARQUET'";
-            executeDdl(sql);
+            assertQueryFailsWithMessage(sql, "COPY INTO from a URI is unsupported");
+            assertQueryReturnsEmpty("SELECT * FROM " + fqn());
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -81,7 +82,8 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
                     + " FROM 's3://test-bucket/data/users.csv'"
                     + " FILE_FORMAT = 'CSV'"
                     + " WITH ('header'='true', 'delimiter'=',')";
-            executeDdl(sql);
+            assertQueryFailsWithMessage(sql, "COPY INTO from a URI is unsupported");
+            assertQueryReturnsEmpty("SELECT * FROM " + fqn());
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -94,7 +96,8 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
             String sql = "COPY INTO " + fqn()
                     + " FROM 's3://test-bucket/events/events.json'"
                     + " FILE_FORMAT = 'JSON'";
-            executeDdl(sql);
+            assertQueryFailsWithMessage(sql, "COPY INTO from a URI is unsupported");
+            assertQueryReturnsEmpty("SELECT * FROM " + fqn());
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -115,8 +118,15 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
 
             String sql = "COPY INTO " + fqn()
                     + " FROM (SELECT id, name FROM " + sourceTable + " WHERE active = true)";
-            executeDdl(sql);
+            executeDml(sql);
             assertQueryReturnsRows("SELECT * FROM " + fqn(), 2);
+            assertQueryReturnsRows("SELECT * FROM " + fqn() + " WHERE id = 1 AND name = 'Alice'", 1);
+            assertQueryReturnsRows("SELECT * FROM " + fqn() + " WHERE id = 3 AND name = 'Carol'", 1);
+            assertQueryReturnsEmpty("SELECT * FROM " + fqn() + " WHERE id = 2");
+
+            executeDml(sql);
+            assertQueryReturnsRows("SELECT * FROM " + fqn(), 4);
+            assertQueryReturnsRows("SELECT * FROM " + fqn() + " WHERE id = 1 AND name = 'Alice'", 2);
 
             executeDdl("DROP TABLE " + fqn());
             executeDdl("DROP TABLE " + sourceTable);
@@ -136,7 +146,8 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
                     + " FROM 's3://test-bucket/logs/'"
                     + " FILE_FORMAT = 'PARQUET'"
                     + " PATTERN = '*.parquet'";
-            executeDdl(sql);
+            assertQueryFailsWithMessage(sql, "COPY INTO from a URI is unsupported");
+            assertQueryReturnsEmpty("SELECT * FROM " + fqn());
 
             executeDdl("DROP TABLE " + fqn());
         }

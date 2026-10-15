@@ -55,6 +55,7 @@ void LateralTableFunctionOperator::addInput(
     facebook::velox::RowVectorPtr input) {
   input_ = std::move(input);
   current_input_row_ = 0;
+  continuation_.reset();
 }
 
 namespace {
@@ -128,8 +129,10 @@ facebook::velox::RowVectorPtr LateralTableFunctionOperator::getOutput() {
     row_generator_(
         input_, current_input_row_, arguments_,
         output_values, input_row_indices, max_output,
-        operatorCtx_->pool());
-    ++current_input_row_;
+        operatorCtx_->pool(), continuation_);
+    if (!continuation_) {
+      ++current_input_row_;
+    }
   }
 
   if (output_values.empty()) {

@@ -38,6 +38,15 @@ class FunctionBindingDeclarationsTest {
     }
 
     @Test
+    void generateSeriesIdentityIsDeclaredForNativeTableExecution() {
+        var reference = BuiltInCapabilityCatalog.generateSeriesPlanRef();
+        assertThat(reference.getCapabilityId()).isEqualTo("pangrova.table.generate_series");
+        assertThat(reference.getSemanticVersion()).isEqualTo("1.0.0");
+        assertThat(reference.getSignatureSha256()).hasSize(32);
+        assertThat(reference.getImplementationBuildId()).isEmpty();
+    }
+
+    @Test
     void embeddingDefaultAndAllowedPurposesAreDeclaredNotCardinalityDerived() {
         var argument = FunctionBindingDeclarations.normalizedArguments("SCALAR", "ai", "ai_embed").get(0);
         assertThat(argument.getOrdinal()).isEqualTo(2);

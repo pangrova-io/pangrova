@@ -211,6 +211,12 @@ public final class BuiltInCapabilityCatalog {
                 .structuralReference("pangrova.table.unnest");
     }
 
+    /** Native series table function with exact 2/3 BIGINT arguments. */
+    public static CapabilityRef generateSeriesPlanRef() {
+        return org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
+                .structuralReference("pangrova.table.generate_series");
+    }
+
     /** Returns the build-independent semantic reference embedded in a query plan. */
     public static CapabilityRef exactTopKPlanRef() {
         return CapabilityRef.newBuilder()

@@ -65,6 +65,13 @@ task-scoped Flight result decoder so both Native exchange pages and result
 OutputBuffer pages use the same codec. The singleton global Sort
 remains a scale bottleneck until distributed range-sort/merge is validated.
 
+Splitless sources such as `GENERATE_SERIES` need two cardinality boundaries:
+the planner assigns one producer task to a stage containing the source, and
+the zero-input Native table-function node limits its Velox source pipeline to
+one driver. A task may still use multiple drivers for other pipelines, including
+the scan side of a mixed `UNION ALL`. Table functions with input rows retain
+per-input parallelism.
+
 ## 2. Design Philosophy: Separation of Control Plane and Data Plane
 
 Building on the core ideas of Velox, Pangrova adopts an architecture that separates the "control plane" from the "data plane":

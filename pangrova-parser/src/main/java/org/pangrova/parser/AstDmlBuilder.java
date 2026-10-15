@@ -7,6 +7,8 @@ import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,6 +74,24 @@ class AstDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
         SetQuery selectQuery = (selectStmt instanceof SetQuery sq)
                 ? sq : new SetQuery(List.of((Query) selectStmt));
         return new InsertSelectStatement(tableName, columns, overwrite, selectQuery);
+    }
+
+    @Override
+    public InsertSelectStatement visitCopyInto(PangrovaSqlParser.CopyIntoContext ctx) {
+        if (ctx.copySource().STRING_LITERAL() != null) {
+            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
+                    "COPY INTO from a URI is unsupported until file discovery, authorization, "
+                            + "format scanning, and committed file-load tracking are implemented");
+        }
+        if (ctx.FILE_FORMAT() != null || ctx.PATTERN() != null || ctx.copyOptionList() != null) {
+            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
+                    "COPY INTO FROM (SELECT ...) does not support file-loading options");
+        }
+        Statement source = (Statement) parent.visit(ctx.copySource().setQuery());
+        SetQuery query = source instanceof SetQuery setQuery
+                ? setQuery : new SetQuery(List.of((Query) source));
+        return new InsertSelectStatement(parent.visitQualifiedName(ctx.qualifiedName()),
+                Optional.empty(), false, query);
     }
 
     @Override

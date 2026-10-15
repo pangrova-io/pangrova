@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "velox/plan/TableFunctionNode.h"
@@ -70,6 +71,9 @@ class LateralTableFunctionOperator : public facebook::velox::exec::Operator {
 
   // Current row index within the input batch.
   facebook::velox::vector_size_t current_input_row_{0};
+
+  // Next series value when one input row spans more than one output batch.
+  std::optional<int64_t> continuation_;
 };
 
 // PlanNodeTranslator that maps TableFunctionNode with input sources

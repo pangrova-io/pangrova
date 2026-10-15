@@ -6,9 +6,10 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "StructuralContractIdentities.h"
 #include "velox/common/base/Exceptions.h"
 #include "velox/core/Expressions.h"
-#include "velox/vector/FlatVector.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox {
 
@@ -50,18 +51,18 @@ int64_t evaluateIntArgument(
       input->type());
   auto field_index = input_type->getChildIdx(field_expr->name());
   auto child_vector = input->childAt(field_index);
+  facebook::velox::DecodedVector decoded(*child_vector);
 
   VELOX_USER_CHECK(
-      !child_vector->isNullAt(row),
+      !decoded.isNullAt(row),
       "GENERATE_SERIES: argument '{}' must not be NULL at row {}",
       arg_name, row);
 
   if (child_vector->typeKind() == facebook::velox::TypeKind::BIGINT) {
-    return child_vector->as<facebook::velox::FlatVector<int64_t>>()->valueAt(row);
+    return decoded.valueAt<int64_t>(row);
   }
   if (child_vector->typeKind() == facebook::velox::TypeKind::INTEGER) {
-    return static_cast<int64_t>(
-        child_vector->as<facebook::velox::FlatVector<int32_t>>()->valueAt(row));
+    return static_cast<int64_t>(decoded.valueAt<int32_t>(row));
   }
   VELOX_USER_FAIL(
       "GENERATE_SERIES: argument '{}' must be an integer type, got {}",
@@ -76,7 +77,8 @@ int64_t generateSeriesGenerator(
     std::vector<int64_t>& outputValues,
     std::vector<facebook::velox::vector_size_t>& inputRowIndices,
     size_t maxOutput,
-    facebook::velox::memory::MemoryPool* /*pool*/) {
+    facebook::velox::memory::MemoryPool* /*pool*/,
+    std::optional<int64_t>& continuation) {
   VELOX_USER_CHECK(
       arguments.size() == 2 || arguments.size() == 3,
       "GENERATE_SERIES requires 2 or 3 arguments (start, stop[, step]), got {}",
@@ -91,20 +93,24 @@ int64_t generateSeriesGenerator(
 
   bool empty_series = (step > 0 && start > stop) || (step < 0 && start < stop);
   if (empty_series) {
+    continuation.reset();
     return 0;
   }
 
   int64_t count = 0;
-  for (int64_t v = start;
-       (step > 0 ? v <= stop : v >= stop) && outputValues.size() < maxOutput;) {
-    outputValues.push_back(v);
+  int64_t value = continuation.value_or(start);
+  continuation.reset();
+  while (outputValues.size() < maxOutput) {
+    outputValues.push_back(value);
     inputRowIndices.push_back(row);
     ++count;
-    const auto next = static_cast<__int128>(v) + step;
+    const auto next = static_cast<__int128>(value) + step;
     if (step > 0 ? next > stop : next < stop) {
+      continuation.reset();
       break;
     }
-    v = static_cast<int64_t>(next);
+    value = static_cast<int64_t>(next);
+    continuation = value;
   }
   return count;
 }
@@ -146,7 +152,8 @@ bool TableFunctionRegistry::isRegistered(const std::string& name) const {
 }
 
 void TableFunctionRegistry::registerBuiltins() {
-  registerFunction("generate_series", generateSeriesGenerator);
+  registerFunction(pangrova::capability::generated::pangrova_table_generate_series.id,
+                   generateSeriesGenerator);
 
   std::cerr << "level=INFO event=table_function_builtins_registered"
             << " count=" << registry_.size() << std::endl;

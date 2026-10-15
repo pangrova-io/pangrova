@@ -349,7 +349,11 @@ class VeloxPlanConverter {
       const pangrova::protocol::v2::TableFunctionDetail& detail,
       std::shared_ptr<const facebook::velox::core::PlanNode> input);
 
-  // ExtensionMultiRel → TableFunctionNode (table-valued functions).
+  // ExtensionLeafRel for source functions; ExtensionSingleRel for lateral input.
+  std::shared_ptr<const facebook::velox::core::PlanNode>
+  convertTableFunctionDetail(
+      const pangrova::protocol::v2::TableFunctionDetail& detail);
+
   std::shared_ptr<const facebook::velox::core::PlanNode>
   convertExtensionMultiRel(
       const substrait::ExtensionMultiRel& ext_rel,

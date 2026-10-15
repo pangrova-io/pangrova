@@ -30,6 +30,24 @@ class BindingDeclarationsTest(unittest.TestCase):
         changed["output"]["ordinalityBase"] = 0
         self.assertNotEqual(structural_contract_digest(contract), structural_contract_digest(changed))
 
+    def test_generate_series_structural_contract_rejects_argument_or_output_drift(self):
+        declaration = read_declarations(RESOURCE.read_text())
+        contract = next(entry for entry in declaration["structuralContracts"]
+                        if entry["id"] == "pangrova.table.generate_series")
+        self.assertEqual(2, contract["argumentLayout"]["minArguments"])
+        self.assertEqual(3, contract["argumentLayout"]["maxArguments"])
+        self.assertEqual("UNSUPPORTED", contract["argumentLayout"]["lateral"])
+        for mutate in (lambda item: item["argumentLayout"].update(maxArguments=4),
+                       lambda item: item["argumentLayout"].update(standalone="ANY_EXPRESSION"),
+                       lambda item: item["argumentLayout"].update(lateral="CONSTANT_OR_INPUT_FIELD"),
+                       lambda item: item["output"]["columns"][0].update(type="INTEGER")):
+            changed = deepcopy(declaration)
+            target = next(entry for entry in changed["structuralContracts"]
+                          if entry["id"] == "pangrova.table.generate_series")
+            mutate(target)
+            with self.assertRaises(ValueError):
+                read_declarations(json.dumps(changed))
+
     def test_missing_real_registration_remains_a_gap_not_an_available_function(self):
         declaration = read_declarations(RESOURCE.read_text())
         empty = {"functions": [], "specialForms": ["and", "or", "coalesce", "row_constructor"]}

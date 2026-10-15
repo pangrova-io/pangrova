@@ -192,6 +192,9 @@ tableRef
         (AS? alias=identifier LPAREN columnNameList RPAREN)?      #lateralTableFunctionRef
     | TABLE LPAREN tableFunctionCall RPAREN
         (AS? alias=identifier (LPAREN columnNameList RPAREN)?)?   #standaloneTableFunctionRef
+    | GENERATE_SERIES LPAREN rangeStart=expression COMMA rangeEnd=expression
+        (COMMA rangeStep=expression)? RPAREN
+        (AS? alias=identifier (LPAREN columnNameList RPAREN)?)?   #directGenerateSeriesRef
     | LATERAL EXPLODE LPAREN expression RPAREN
         (AS? alias=identifier LPAREN columnNameList RPAREN)?        #lateralExplodeRef
     | LATERAL POSEXPLODE LPAREN expression RPAREN
@@ -245,7 +248,8 @@ unpivotColumn
 tableFunctionCall
     : EXPLODE LPAREN expression RPAREN
     | POSEXPLODE LPAREN expression RPAREN
-    | GENERATE_SERIES LPAREN rangeStart=expression COMMA rangeEnd=expression RPAREN
+    | GENERATE_SERIES LPAREN rangeStart=expression COMMA rangeEnd=expression
+        (COMMA rangeStep=expression)? RPAREN
     ;
 
 timeTravelSpec
