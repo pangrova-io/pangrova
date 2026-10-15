@@ -2,6 +2,8 @@ package org.pangrova.spi.storage;
 
 import org.pangrova.spi.annotation.Experimental;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.Objects;
 
@@ -44,20 +46,23 @@ public record StorageProfile(
         options = options == null ? Map.of() : Map.copyOf(options);
     }
 
-    /**
-     * Returns true if the given URL (scheme://bucket/key) matches this profile's
-     * bucket and prefix scope.
-     */
+    /** Returns true only for an unambiguous object URL within this profile's scope. */
     public boolean matchesUrl(String url) {
-        if (url == null) return false;
-        // Parse: s3://bucket/prefix/...
-        int schemeEnd = url.indexOf("://");
-        if (schemeEnd < 0) return false;
-        String remaining = url.substring(schemeEnd + 3);
-        int slashIdx = remaining.indexOf('/');
-        String urlBucket = slashIdx > 0 ? remaining.substring(0, slashIdx) : remaining;
-        String urlKey = slashIdx > 0 ? remaining.substring(slashIdx + 1) : "";
-        return urlBucket.equals(bucket) && (prefix.isEmpty() || urlKey.startsWith(prefix));
+        if (url == null || type == StorageType.LOCAL) return false;
+        try {
+            URI uri = new URI(url);
+            if (!schemeMatches(uri.getScheme()) || uri.isOpaque()
+                    || uri.getRawUserInfo() != null || uri.getPort() != -1
+                    || uri.getRawQuery() != null || uri.getRawFragment() != null
+                    || !bucket.equals(uri.getRawAuthority())) {
+                return false;
+            }
+            String path = uri.getRawPath();
+            return path != null && path.startsWith("/")
+                    && isKeyWithinPrefix(path.substring(1));
+        } catch (URISyntaxException | IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     /**
@@ -67,7 +72,37 @@ public record StorageProfile(
      * @return true if the key is within the allowed prefix
      */
     public boolean isKeyWithinPrefix(String key) {
-        return prefix.isEmpty() || (key != null && key.startsWith(prefix));
+        if (!safeKey(key)) return false;
+        String root = prefix.endsWith("/") ? prefix.substring(0, prefix.length() - 1) : prefix;
+        if (!prefix.isEmpty() && !safeKey(root)) return false;
+        if (root.isEmpty()) return true;
+        return key.startsWith(root + "/")
+                || (!prefix.endsWith("/") && key.equals(root));
+    }
+
+    private boolean schemeMatches(String scheme) {
+        if (scheme == null) return false;
+        return switch (type) {
+            case S3 -> "s3".equalsIgnoreCase(scheme);
+            case OSS -> "oss".equalsIgnoreCase(scheme);
+            case GCS -> "gs".equalsIgnoreCase(scheme);
+            case ADLS -> "abfss".equalsIgnoreCase(scheme);
+            case LOCAL -> false;
+        };
+    }
+
+    private static boolean safeKey(String key) {
+        if (key == null || key.isEmpty() || key.startsWith("/")
+                || key.indexOf('%') >= 0 || key.indexOf('\\') >= 0
+                || key.indexOf('?') >= 0 || key.indexOf('#') >= 0) {
+            return false;
+        }
+        for (String segment : key.split("/", -1)) {
+            if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
