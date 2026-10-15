@@ -11,7 +11,8 @@
 .secrets
 secrets
 **/target
-**/build
+pangrova-worker-native/build
+website/build
 pangrova-worker-native/build-*
 deps-install
 native-output
