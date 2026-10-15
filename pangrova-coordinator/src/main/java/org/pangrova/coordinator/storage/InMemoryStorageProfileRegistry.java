@@ -15,48 +15,73 @@ package org.pangrova.coordinator.storage;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.spi.storage.StorageProfile;
 import org.pangrova.spi.storage.StorageProfileRegistry;
+import org.pangrova.spi.storage.StorageProfileRevision;
 
 /**
  * Thread-safe in-memory implementation of {@link StorageProfileRegistry}.
  *
- * <p>Profiles registered via {@code CREATE STORAGE PROFILE} are stored in a
- * {@link ConcurrentHashMap} and survive for the lifetime of the coordinator JVM.
- * A persistent implementation backed by the metadata store can replace this
- * when cross-restart persistence is required.</p>
+ * <p>Used by focused tests only. Production SQL uses the PostgreSQL authority;
+ * this map is not a coordinator bootstrap fallback.</p>
  */
 public final class InMemoryStorageProfileRegistry implements StorageProfileRegistry {
 
-    private final ConcurrentHashMap<String, StorageProfile> profiles = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, StorageProfileRevision> current = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<RevisionKey, StorageProfileRevision> history = new ConcurrentHashMap<>();
 
     @Override
     public void register(StorageProfile profile) {
-        profiles.put(profile.name(), profile);
+        StorageProfileRevision snapshot = new StorageProfileRevision(profile, UUID.randomUUID().toString(), 1);
+        current.put(profile.name(), snapshot);
+        history.put(new RevisionKey(profile.name(), snapshot.incarnationId(), 1), snapshot);
+    }
+
+    @Override
+    public boolean createIfAbsent(StorageProfile profile) {
+        StorageProfileRevision snapshot = new StorageProfileRevision(profile, UUID.randomUUID().toString(), 1);
+        if (current.putIfAbsent(profile.name(), snapshot) != null) {
+            return false;
+        }
+        history.put(new RevisionKey(profile.name(), snapshot.incarnationId(), 1), snapshot);
+        return true;
     }
 
     @Override
     public boolean unregister(String name) {
-        return profiles.remove(name) != null;
+        return current.remove(name) != null;
     }
 
     @Override
     public Optional<StorageProfile> get(String name) {
-        return Optional.ofNullable(profiles.get(name));
+        return getCurrentRevision(name).map(StorageProfileRevision::profile);
+    }
+
+    @Override
+    public Optional<StorageProfileRevision> getCurrentRevision(String name) {
+        return Optional.ofNullable(current.get(name));
+    }
+
+    @Override
+    public Optional<StorageProfileRevision> findRevision(
+            String name, String incarnationId, long revision) {
+        return Optional.ofNullable(history.get(new RevisionKey(name, incarnationId, revision)));
     }
 
     @Override
     public List<StorageProfile> list() {
-        return List.copyOf(profiles.values());
+        return current.values().stream().map(StorageProfileRevision::profile).toList();
     }
 
     @Override
     public Optional<StorageProfile> resolveByUrl(String url) {
         StorageProfile bestMatch = null;
         int longestPrefix = -1;
-        for (StorageProfile p : profiles.values()) {
+        for (StorageProfileRevision snapshot : current.values()) {
+            StorageProfile p = snapshot.profile();
             if (p.matchesUrl(url) && p.prefix().length() > longestPrefix) {
                 bestMatch = p;
                 longestPrefix = p.prefix().length();
@@ -64,4 +89,6 @@ public final class InMemoryStorageProfileRegistry implements StorageProfileRegis
         }
         return Optional.ofNullable(bestMatch);
     }
+
+    private record RevisionKey(String name, String incarnationId, long revision) {}
 }

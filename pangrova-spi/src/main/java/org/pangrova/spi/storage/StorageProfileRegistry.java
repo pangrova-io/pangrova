@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Global registry for external storage profiles.
- * Profiles can be registered via DDL ({@code CREATE STORAGE PROFILE}) or YAML configuration.
+ * Global registry for external storage profiles. Production definitions created
+ * through DDL are held in the shared metadata authority.
  *
  * <p>Thread-safe: implementations must support concurrent reads and writes.</p>
  */
@@ -15,11 +15,13 @@ import java.util.Optional;
 public interface StorageProfileRegistry {
 
     /**
-     * Registers a new storage profile. Replaces any existing profile with the same name.
-     *
-     * @param profile the profile to register
+     * Legacy test/configuration registration. Durable authorities reject replacement;
+     * SQL creation must use {@link #createIfAbsent(StorageProfile)}.
      */
     void register(StorageProfile profile);
+
+    /** Atomically creates a name if absent; never overwrites an existing definition. */
+    boolean createIfAbsent(StorageProfile profile);
 
     /**
      * Unregisters the storage profile with the given name.
@@ -36,6 +38,12 @@ public interface StorageProfileRegistry {
      * @return the profile if found
      */
     Optional<StorageProfile> get(String name);
+
+    /** Returns the exact current immutable definition and its durable identity. */
+    Optional<StorageProfileRevision> getCurrentRevision(String name);
+
+    /** Returns an exact historical definition; missing revisions must never rebind to current. */
+    Optional<StorageProfileRevision> findRevision(String name, String incarnationId, long revision);
 
     /**
      * Returns all registered storage profiles.

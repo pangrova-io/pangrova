@@ -5,7 +5,7 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry;
+import org.pangrova.metadata.storage.JdbcStorageProfileRegistry;
 import org.pangrova.operations.bootstrap.BootstrapFailedException;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.GroupRoleMapping;
@@ -33,18 +33,49 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Production bootstrap reads the shared PostgreSQL role and grant authority on every check. */
 class SecurityBootstrapGrantsTest extends ContainerTestBase {
     @Test
+    void droppedProfileRevokesReadGrantBeforeSameNameRecreation() throws Exception {
+        var source = SharedPostgresContainer.migratedDataSource("profile_read_recreation");
+        var roles = new PersistentRoleStore(source);
+        roles.initSchema();
+        roles.createRole(Role.of("reader"));
+        roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
+        var grants = new PersistentGrantStore(source);
+        var registry = new JdbcStorageProfileRegistry(source);
+        registry.createIfAbsent(new StorageProfile("incoming", StorageType.S3,
+                "old-bucket", "", "", "", Map.of(), Map.of()));
+        grants.addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
+                "STORAGE_PROFILE", "incoming", null, null, null));
+        var bootstrap = new SecurityBootstrap(config(), source);
+        try {
+            bootstrap.start();
+            var alice = user("alice", Set.of());
+            assertThatCode(() -> bootstrap.accessControl().checkCanReadStorageProfile(alice, "incoming"))
+                    .doesNotThrowAnyException();
+            assertThat(registry.unregister("incoming")).isTrue();
+            assertThat(registry.createIfAbsent(new StorageProfile("incoming", StorageType.S3,
+                    "new-bucket", "", "", "", Map.of(), Map.of()))).isTrue();
+            assertThatThrownBy(() -> bootstrap.accessControl().checkCanReadStorageProfile(alice, "incoming"))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+        } finally {
+            bootstrap.shutdown();
+        }
+    }
+
+    @Test
     void profileVisibilityReadsPersistentGrantsAndPropagatesAuthorityOutage() throws Exception {
-        var source = SharedPostgresContainer.isolatedDataSource("profile_visibility");
+        var source = SharedPostgresContainer.migratedDataSource("profile_visibility");
         var roles = new PersistentRoleStore(source);
         roles.initSchema();
         roles.createRole(Role.of("profile-viewer"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "profile-viewer"));
         var grants = new PersistentGrantStore(source);
+        var registry = new JdbcStorageProfileRegistry(source);
+        assertThat(registry.createIfAbsent(new StorageProfile("visible", StorageType.S3,
+                "visible-bucket", "", "", "", Map.of(), Map.of()))).isTrue();
+        assertThat(registry.createIfAbsent(new StorageProfile("hidden", StorageType.S3,
+                "hidden-bucket", "", "", "", Map.of(), Map.of()))).isTrue();
         grants.addGrant(PrivilegeGrant.of("profile-viewer", Privilege.VIEW_STORAGE_PROFILE,
                 "STORAGE_PROFILE", "visible", null, null, null));
-        var registry = new InMemoryStorageProfileRegistry();
-        registry.register(new StorageProfile("visible", StorageType.S3, "visible-bucket", "", "", "", Map.of(), Map.of()));
-        registry.register(new StorageProfile("hidden", StorageType.S3, "hidden-bucket", "", "", "", Map.of(), Map.of()));
         var bootstrap = new SecurityBootstrap(config(), source);
         try {
             bootstrap.start();
@@ -65,10 +96,28 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
                     "STORAGE_PROFILE", "visible", null, null, null));
             assertThat(task.execute(show, execution).rows())
                     .extracting(row -> row.getRaw("name")).containsExactly("visible");
+            assertThatThrownBy(() -> bootstrap.accessControl()
+                    .checkCanReadStorageProfile(user("alice", Set.of()), "visible"))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            grants.addGrant(PrivilegeGrant.of("profile-viewer", Privilege.READ_STORAGE_PROFILE,
+                    "STORAGE_PROFILE", "visible", null, null, null));
+            assertThatCode(() -> bootstrap.accessControl()
+                    .checkCanReadStorageProfile(user("alice", Set.of()), "visible"))
+                    .doesNotThrowAnyException();
+            assertThatThrownBy(() -> bootstrap.accessControl()
+                    .checkCanReadStorageProfile(user("alice", Set.of()), "hidden"))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            grants.revokeGrants("profile-viewer", Privilege.READ_STORAGE_PROFILE, "visible", null, null);
+            assertThatThrownBy(() -> bootstrap.accessControl()
+                    .checkCanReadStorageProfile(user("alice", Set.of()), "visible"))
+                    .isInstanceOf(AuthorizationDeniedException.class);
             try (var connection = source.getConnection(); var statement = connection.createStatement()) {
                 statement.execute("ALTER TABLE security_grants RENAME TO unavailable_profile_grants");
             }
             assertThatThrownBy(() -> task.execute(show, execution))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("Failed listing all grants");
+            assertThatThrownBy(() -> bootstrap.accessControl()
+                    .checkCanReadStorageProfile(user("alice", Set.of()), "visible"))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("Failed listing all grants");
         } finally {
             bootstrap.shutdown();

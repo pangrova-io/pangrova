@@ -55,6 +55,7 @@ final class QueryExecutionBootstrap {
     private final StreamingBootstrap streamingBootstrap;
     private final HighAvailabilityCoordinationService coordinationService;
     private final org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver;
+    private final javax.sql.DataSource metadataDataSource;
     private final org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker;
     private final org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
@@ -84,7 +85,8 @@ final class QueryExecutionBootstrap {
                                  featureViewServiceFactory,
                          org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
                                  embeddingModelRegistry,
-                         org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver) {
+                         org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver,
+                         javax.sql.DataSource metadataDataSource) {
         this.config = config;
         this.tracingProvider = tracingProvider;
         this.accessControl = accessControl;
@@ -93,6 +95,7 @@ final class QueryExecutionBootstrap {
         this.streamingBootstrap = streamingBootstrap;
         this.coordinationService = coordinationService;
         this.shuffleOwnerResolver = shuffleOwnerResolver;
+        this.metadataDataSource = metadataDataSource;
         this.writeCommitTracker = writeCommitTracker;
         this.generatedValueMaterialization = generatedValueMaterialization;
         this.writeAuthoritySupplier = generatedValueMaterialization == null ? null
@@ -236,7 +239,7 @@ final class QueryExecutionBootstrap {
             registerStreamTasks(metadataFactory, streamingBootstrap.getDdlExecutor());
         }
         registerBranchTasks(metadataFactory, catalog);
-        registerStorageProfileTasks(metadataFactory, accessControl);
+        registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
 
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
@@ -398,8 +401,11 @@ final class QueryExecutionBootstrap {
 
     private static void registerStorageProfileTasks(
             org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
-            AccessControl accessControl) {
-        var registry = new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
+            AccessControl accessControl, javax.sql.DataSource metadataDataSource) {
+        if (metadataDataSource == null) {
+            return;
+        }
+        var registry = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(metadataDataSource);
         factory.registerTask(org.pangrova.parser.ast.statement.CreateStorageProfileStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.CreateStorageProfileTask(registry));
         factory.registerTask(org.pangrova.parser.ast.statement.DropStorageProfileStatement.class,

@@ -28,6 +28,8 @@ import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -52,6 +54,16 @@ class StorageProfileE2ETest extends PangrovaE2ETestBase {
     private static final String SCHEMA = "default";
     private static final String FQN_PREFIX = CATALOG + "." + SCHEMA + ".";
     private String profileName;
+
+    @BeforeAll
+    static void useProductionProfileAuthority() {
+        configureDurableStorageProfiles(true);
+    }
+
+    @AfterAll
+    static void restoreSharedProfileFixture() {
+        configureDurableStorageProfiles(false);
+    }
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -109,6 +121,38 @@ class StorageProfileE2ETest extends PangrovaE2ETestBase {
                     .contains("MANAGE_STORAGE_PROFILE");
         } finally {
             releaseProfileAuthority(authority, profileName, hiddenName);
+        }
+    }
+
+    @Test
+    @DisplayName("Profile definitions survive dispatcher rebuild and retain exact historical identity")
+    void durableProfileRevisionSurvivesDispatcherRebuildAndRecreation() {
+        var registry = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(stateStoreDataSource());
+        try {
+            executeDdl("CREATE STORAGE PROFILE " + profileName
+                    + " WITH ('type'='S3', 'bucket'='old-bucket', 'prefix'='data/')");
+            var old = registry.getCurrentRevision(profileName).orElseThrow();
+            executeDdl("CREATE STORAGE PROFILE IF NOT EXISTS " + profileName
+                    + " WITH ('type'='S3', 'bucket'='forged-bucket')");
+            assertThat(registry.getCurrentRevision(profileName)).contains(old);
+            assertThat(executeExpectingError("CREATE STORAGE PROFILE " + profileName
+                    + " WITH ('type'='S3', 'bucket'='forged-bucket')"))
+                    .contains("already exists");
+            configureDurableStorageProfiles(true);
+            assertThat(executeQuery("SHOW STORAGE PROFILES"))
+                    .anyMatch(row -> profileName.equals(row.getRaw("name"))
+                            && "old-bucket".equals(row.getRaw("bucket")));
+            executeDdl("DROP STORAGE PROFILE " + profileName);
+            executeDdl("CREATE STORAGE PROFILE " + profileName
+                    + " WITH ('type'='S3', 'bucket'='new-bucket', 'prefix'='data/')");
+            var replacement = registry.getCurrentRevision(profileName).orElseThrow();
+            assertThat(replacement.incarnationId()).isNotEqualTo(old.incarnationId());
+            assertThat(registry.findRevision(profileName, old.incarnationId(), old.revision()))
+                    .contains(old);
+            assertThat(registry.findRevision(profileName, replacement.incarnationId(), replacement.revision()))
+                    .contains(replacement);
+        } finally {
+            executeDdl("DROP STORAGE PROFILE IF EXISTS " + profileName);
         }
     }
 

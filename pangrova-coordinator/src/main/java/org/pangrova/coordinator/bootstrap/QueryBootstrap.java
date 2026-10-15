@@ -207,7 +207,7 @@ final class QueryBootstrap {
                 metadataBootstrap, moduleWiring, streamingBootstrap, coordinationService,
                 writeCommitTracker, generatedValueMaterialization, semanticViewStore,
                 featureViewService, embeddingModelRegistry,
-                durableRecovery::resolveShuffleOwner);
+                durableRecovery::resolveShuffleOwner, metadataDataSource);
         queryDispatcher = executionWiring.buildQueryDispatcher(workerManager, taskTracker,
                 moduleContext, resolveCircuitBreaker(), controlPlaneResultService,
                 splitAssignmentManager, speculativeStageHandler, stateJournal);

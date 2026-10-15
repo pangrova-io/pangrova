@@ -17,4 +17,10 @@ public interface StorageProfileAccessControl {
         throw new AccessDeniedException("MANAGE_STORAGE_PROFILE is required on storage profile '"
                 + profileName + "'");
     }
+
+    /** Deny by default: visibility or management never authorizes reading source bytes. */
+    default void checkCanReadStorageProfile(UserIdentity user, String profileName) {
+        throw new AccessDeniedException("READ_STORAGE_PROFILE is required on storage profile '"
+                + profileName + "'");
+    }
 }

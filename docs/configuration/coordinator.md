@@ -131,15 +131,26 @@ closed instead of reusing an earlier permission. RLS and column masking match
 the independently resolved role set while retaining the authenticated identity's
 original groups and attributes. SQL role/grant administration is not yet exposed
 by this configuration surface; provision the persistent authority explicitly.
-For storage profiles, provision `VIEW_STORAGE_PROFILE` or
-`MANAGE_STORAGE_PROFILE` in `security_grants` with
+For storage profiles, provision `VIEW_STORAGE_PROFILE`,
+`MANAGE_STORAGE_PROFILE`, or `READ_STORAGE_PROFILE` in `security_grants` with
 `object_type = 'STORAGE_PROFILE'`, `catalog_name` equal to the exact profile
 name (or `*` for a deliberate account-wide grant), and schema/table/column
 scope columns set to `NULL`. Bind the grant's `role_name` through
 `pangrova_roles` and `pangrova_user_roles` or `pangrova_group_roles`.
-`MANAGE_STORAGE_PROFILE` also permits viewing the same profile; `VIEW_STORAGE_PROFILE`
-does not permit mutation. This uses the existing PostgreSQL administrative
+`MANAGE_STORAGE_PROFILE` also permits viewing the same profile. Reading source
+object bytes requires a separate `READ_STORAGE_PROFILE` grant; viewing or managing
+a profile does not imply it. This uses the existing PostgreSQL administrative
 provisioning path; Pangrova SQL `GRANT` for storage profiles is not exposed.
+Profile definitions are stored in the metadata PostgreSQL authority with immutable
+incarnation and revision history. An unavailable authority fails profile operations;
+there is no coordinator-local profile fallback.
+Exact-name `VIEW_STORAGE_PROFILE`, `READ_STORAGE_PROFILE`, `ALL`, and `OWNER`
+grants require an existing profile. Dropping it atomically revokes those grants,
+so a later profile with the same name cannot inherit earlier metadata or
+object-read permission.
+`MANAGE_STORAGE_PROFILE` is a namespace permission and may be pre-granted for
+profile creation; it remains after a drop.
+An explicit `*` grant remains account-wide and applies to future names.
 
 Query admission resolves the tenant from the authenticated user's membership when
 `tenant.enabled=true`; it requires `security.enabled=true` with an authenticator

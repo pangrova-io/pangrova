@@ -34,6 +34,8 @@ public enum Privilege {
     MANAGE_STORAGE_PROFILE,
     /** View account-scoped storage profile metadata. */
     VIEW_STORAGE_PROFILE,
+    /** Read object bytes through one exact storage profile. */
+    READ_STORAGE_PROFILE,
     RENAME_TABLE,
     SHOW_SCHEMAS,
     SHOW_TABLES,

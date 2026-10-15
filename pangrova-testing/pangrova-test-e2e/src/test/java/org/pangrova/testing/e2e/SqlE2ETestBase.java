@@ -274,6 +274,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static volatile RemoteTaskDispatcher sharedTaskDispatcher;
     private static volatile QueryDispatcher sharedQueryDispatcher;
     private static volatile org.pangrova.spi.security.AccessControl featureAccessControl;
+    private static volatile boolean durableStorageProfileScenario;
     private static volatile org.pangrova.spi.security.AccessControl currentAccessControl;
     private static volatile org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             sharedGeneratedValueCoordinator;
@@ -793,6 +794,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     /** Releases a scenario's policy wiring; no alternative compilation path is retained. */
     protected static void clearFeatureSecurity() {
         featureAccessControl = null;
+        rebuildQueryPipeline();
+    }
+
+    /** Rebuilds only a storage-profile scenario with the production JDBC authority. */
+    protected static void configureDurableStorageProfiles(boolean enabled) {
+        durableStorageProfileScenario = enabled;
         rebuildQueryPipeline();
     }
 
@@ -2389,7 +2396,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.ast.statement.IncrementalReadStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalog));
         // Storage Profile management
-        var spRegistry = new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
+        org.pangrova.spi.storage.StorageProfileRegistry spRegistry = durableStorageProfileScenario
+                ? new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(
+                        java.util.Objects.requireNonNull(stateStoreDataSource))
+                : new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
         tasks.put(org.pangrova.parser.ast.statement.CreateStorageProfileStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.CreateStorageProfileTask(spRegistry));
         tasks.put(org.pangrova.parser.ast.statement.DropStorageProfileStatement.class,

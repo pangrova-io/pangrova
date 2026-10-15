@@ -251,6 +251,16 @@ catalog `ALL` grants do not authorize these account-scoped changes. An
 authenticated identity and a configured access-control provider are required.
 `SHOW STORAGE PROFILES` returns only profiles covered by `VIEW_STORAGE_PROFILE`
 or `MANAGE_STORAGE_PROFILE` on that profile name; it does not enumerate others.
+Reading source object bytes requires the separate `READ_STORAGE_PROFILE` privilege.
+Definitions persist in the metadata PostgreSQL authority across coordinator restarts.
+`CREATE` is atomic across coordinators and never replaces an existing profile.
+After `DROP` and re-creation, the new definition has a distinct incarnation;
+historical revisions support exact recovery checks and never authorize a new read
+after the current profile has been dropped or replaced.
+Exact-name `VIEW_STORAGE_PROFILE`, `READ_STORAGE_PROFILE`, `ALL`, and `OWNER`
+grants require an existing profile. `DROP` revokes them in the same metadata transaction;
+`MANAGE_STORAGE_PROFILE` is a namespace grant that may be assigned before CREATE
+and survives DROP. An account-wide `*` grant remains in force for future profiles.
 
 ### CREATE STORAGE PROFILE
 
@@ -266,9 +276,14 @@ CREATE STORAGE PROFILE s3_prod WITH (
     type = 's3',
     region = 'us-west-2',
     bucket = 'my-data-lake',
-    access_key_secret = 'aws/prod-key'
+    'path-style-access' = 'false'
 );
 ```
+
+Supported properties are `type`, `bucket`, `prefix`, `endpoint`, `region`,
+`path-style-access`, and `project` for GCS. SQL profile definitions do not accept or persist credential
+values. Source reading remains unavailable until the complete COPY authorization,
+staging, and commit path is enabled.
 
 ### DROP STORAGE PROFILE
 

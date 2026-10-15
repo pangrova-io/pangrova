@@ -43,7 +43,8 @@ public final class S3BlobStorage implements BlobStorage {
         this(buildClient(settings), settings, true);
     }
 
-    S3BlobStorage(S3Client client, Settings settings) {
+    /** Uses a caller-configured S3 client while retaining all publication and read checks. */
+    public S3BlobStorage(S3Client client, Settings settings) {
         this(client, settings, false);
     }
 

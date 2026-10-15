@@ -43,15 +43,6 @@ public final class CreateStorageProfileTask implements MetadataTask<CreateStorag
     public StatementResult execute(CreateStorageProfileStatement statement,
                                     StatementExecutionContext context) {
         String name = statement.profileName();
-        if (!statement.ifNotExists() && registry.get(name).isPresent()) {
-            throw new PangrovaException(PangrovaErrorCode.METADATA_CATALOG_ALREADY_EXISTS,
-                    "Storage profile already exists: " + name);
-        }
-        if (statement.ifNotExists() && registry.get(name).isPresent()) {
-            return new StatementResult(List.of(), List.of(), "Storage profile already exists: " + name,
-                    StatementCategory.DDL);
-        }
-
         Map<String, String> props = statement.properties();
         String typeStr = props.getOrDefault("type", "S3");
         StorageType type;
@@ -71,7 +62,14 @@ public final class CreateStorageProfileTask implements MetadataTask<CreateStorag
                 props.getOrDefault("region", ""),
                 Map.of(), // credentials are not set via SQL for security
                 filterOptions(props));
-        registry.register(profile);
+        if (!registry.createIfAbsent(profile)) {
+            if (!statement.ifNotExists()) {
+                throw new PangrovaException(PangrovaErrorCode.METADATA_CATALOG_ALREADY_EXISTS,
+                        "Storage profile already exists: " + name);
+            }
+            return new StatementResult(List.of(), List.of(), "Storage profile already exists: " + name,
+                    StatementCategory.DDL);
+        }
 
         return new StatementResult(List.of(), List.of(), "Storage profile created: " + name,
                 StatementCategory.DDL);
@@ -81,9 +79,20 @@ public final class CreateStorageProfileTask implements MetadataTask<CreateStorag
         var options = new java.util.LinkedHashMap<String, String>();
         for (var entry : props.entrySet()) {
             String key = entry.getKey();
-            if (!"type".equals(key) && !"bucket".equals(key) && !"prefix".equals(key)
-                    && !"endpoint".equals(key) && !"region".equals(key)) {
+            if ("path-style-access".equals(key)) {
+                String value = entry.getValue();
+                if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                    throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                            "path-style-access must be true or false");
+                }
+                options.put(key, value.toLowerCase(java.util.Locale.ROOT));
+            } else if ("project".equals(key) && "GCS".equalsIgnoreCase(props.getOrDefault("type", "S3"))) {
                 options.put(key, entry.getValue());
+            } else if (!"type".equals(key) && !"bucket".equals(key)
+                    && !"prefix".equals(key) && !"endpoint".equals(key)
+                    && !"region".equals(key)) {
+                throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                        "Unsupported storage profile property: " + key);
             }
         }
         return options;

@@ -111,6 +111,8 @@ class RbacAccessControlRoleStoreTest {
                 "STORAGE_PROFILE", "source", null, null, null));
         assertThatCode(() -> accessControl.checkCanViewStorageProfile(alice, "source"))
                 .doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanReadStorageProfile(alice, "source"))
+                .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> accessControl.checkCanManageStorageProfile(alice, "source"))
                 .isInstanceOf(AccessDeniedException.class);
 
@@ -122,7 +124,20 @@ class RbacAccessControlRoleStoreTest {
                 .isInstanceOf(AccessDeniedException.class);
         assertThatCode(() -> accessControl.checkCanViewStorageProfile(alice, "source"))
                 .doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanReadStorageProfile(alice, "source"))
+                .isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> accessControl.checkCanViewStorageProfile(alice, "other"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        grantStore.addGrant(PrivilegeGrant.of("storage-admin", Privilege.READ_STORAGE_PROFILE,
+                "STORAGE_PROFILE", "source", null, null, null));
+        assertThatCode(() -> accessControl.checkCanReadStorageProfile(alice, "source"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanReadStorageProfile(alice, "other"))
+                .isInstanceOf(AccessDeniedException.class);
+        grantStore.addGrant(PrivilegeGrant.of("storage-admin", Privilege.READ_STORAGE_PROFILE,
+                "TABLE", "other", null, null, null));
+        assertThatThrownBy(() -> accessControl.checkCanReadStorageProfile(alice, "other"))
                 .isInstanceOf(AccessDeniedException.class);
 
         var allOnProfile = PrivilegeGrant.of("storage-admin", Privilege.ALL,
@@ -136,6 +151,8 @@ class RbacAccessControlRoleStoreTest {
                 "STORAGE_PROFILE", "lake", null, null, null));
         var bob = userWithGroups("bob");
         assertThatCode(() -> accessControl.checkCanManageStorageProfile(bob, "lake"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> accessControl.checkCanReadStorageProfile(bob, "lake"))
                 .doesNotThrowAnyException();
         assertThatThrownBy(() -> accessControl.checkCanSelectFromTable(bob, "lake", "default", "docs"))
                 .isInstanceOf(AccessDeniedException.class);
