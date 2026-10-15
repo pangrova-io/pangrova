@@ -97,11 +97,12 @@ RUN set -eu; \
 RUN PANGROVA_NATIVE_BUILD_PHASE=arrow-flight SKIP_DEPS=1 \
     pangrova-worker-native/bin/setup-native-build-env.sh
 
-COPY pangrova-worker-native/ /workspace/pangrova-worker-native/
-COPY pangrova-protocol/ /workspace/pangrova-protocol/
-
 FROM builder AS native-build
 WORKDIR /workspace/pangrova-worker-native
+COPY pangrova-worker-native/bin/build-lance-ffi.sh /workspace/pangrova-worker-native/bin/build-lance-ffi.sh
+COPY pangrova-worker-native/lance-ffi/ /workspace/pangrova-worker-native/lance-ffi/
+COPY pangrova-protocol/src/main/proto/ /workspace/pangrova-protocol/src/main/proto/
+COPY pangrova-protocol/src/main/proto-imports/ /workspace/pangrova-protocol/src/main/proto-imports/
 RUN apt-get update && apt-get install -y --no-install-recommends ripgrep \
     && rm -rf /var/lib/apt/lists/*
 RUN bash -c 'source /opt/pangrova-production/env.sh \
@@ -111,6 +112,8 @@ RUN bash -c 'source /opt/pangrova-production/env.sh \
 COPY deploy/docker/build-static-curl.sh /workspace/build-static-curl.sh
 RUN bash /workspace/build-static-curl.sh
 ENV PKG_CONFIG_PATH=/opt/pangrova-production/native-deps/lib/pkgconfig
+COPY pangrova-worker-native/ /workspace/pangrova-worker-native/
+COPY pangrova-protocol/ /workspace/pangrova-protocol/
 RUN --mount=type=cache,id=pangrova-native-ccache-${TARGETARCH},target=/root/.cache/ccache,sharing=locked \
     CCACHE_MAXSIZE=3G bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
