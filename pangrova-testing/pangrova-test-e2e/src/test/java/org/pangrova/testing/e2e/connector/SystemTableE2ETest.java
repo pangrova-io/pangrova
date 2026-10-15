@@ -147,6 +147,47 @@ class SystemTableE2ETest extends SqlE2ETestBase {
         }
     }
 
+    @Nested
+    @DisplayName("Paimon table$schemas")
+    class PaimonSchemas {
+        @Test
+        void historicalSchemasAreReadThroughSqlAndNative() {
+            sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
+                    + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
+            sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " ADD COLUMN note VARCHAR");
+            sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " ADD COLUMN score BIGINT");
+
+            List<TypedRow> rows = sqlRunner.execute("SELECT schema_id, fields, options,"
+                    + " update_time FROM " + paimonFqn() + "$schemas"
+                    + " WHERE schema_id >= 0 ORDER BY schema_id");
+            assertThat(rows).hasSize(3);
+            assertThat(rows).extracting(row -> row.getLong("schema_id"))
+                    .containsExactly(0L, 1L, 2L);
+            assertThat(rows.get(0).getString("fields")).contains("name").doesNotContain("note");
+            assertThat(rows.get(1).getString("fields")).contains("note").doesNotContain("score");
+            assertThat(rows.get(2).getString("fields")).contains("score");
+            assertThat(rows.get(2).getString("options")).startsWith("{");
+            assertThat(rows.get(2).getTimestamp("update_time")).isNotNull();
+            List<TypedRow> latest = sqlRunner.execute(
+                    "SELECT * FROM " + paimonFqn() + "$schemas WHERE schema_id = 2");
+            assertThat(latest).hasSize(1);
+            assertThat(latest.get(0).columnNames()).containsExactly(
+                    "schema_id", "fields", "partition_keys", "primary_keys", "options",
+                    "comment", "update_time");
+        }
+
+        @Test
+        void emptyDataTableStillExposesInitialSchema() {
+            sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
+                    + " (id BIGINT, PRIMARY KEY (id) NOT ENFORCED)");
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT schema_id, primary_keys FROM " + paimonFqn() + "$schemas");
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0).getLong("schema_id")).isZero();
+            assertThat(rows.get(0).getString("primary_keys")).contains("id");
+        }
+    }
+
     // --- 2.1.24: Paimon SELECT FROM table$snapshots ---
 
     @Nested

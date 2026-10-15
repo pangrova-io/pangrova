@@ -49,7 +49,7 @@
 | 17 | 唯一 Calcite SQL 前端 | 生产 DDL/DML/时间旅行等全部迁移并删除可达 ANTLR/fallback；逐形式语义、计划与调用链证明。 |
 | 18 | `GENERATE_SERIES` 真 Native 表函数 | 裸调用、二/三参及极值经 Substrait 表函数关系到 Velox operator；零输入 source 的 Velox 多 driver 重复生成已修复，Native 聚焦 191/191、真实 SQL/JNI E2E 6/6 通过。仍需最终同源 Linux 镜像/独立进程及全量回归，不能仅凭本机局部结果关闭生产检查点。 |
 | 19 | `COPY INTO` 真文件加载 | 无文件选项的 `FROM (SELECT …)` 已接通现有 INSERT SELECT 路径，真实 SQL/JNI/Iceberg 5/5 E2E 通过；URI 仅 fail closed。仍需授权 URI/文件快照、格式读取、幂等文件身份与提交 journal、真实对象存储数据核对；旧空成功断言不算验收。 |
-| 20 | 剩余系统表 | Iceberg `$files/$entries/$manifests/$partitions`、Paimon `$schemas/$branches/$files` 等冻结句柄、typed split、Native reader 与 SQL 实值；`$snapshots/$tags/$options` 的局部结果不能替代。 |
+| 20 | 剩余系统表 | Paimon `$schemas` 已接通 Calcite lookup/基表 SELECT 授权、冻结历史 schema 对象、typed split、Native JSON reader 与 SQL 实值；JDK17 SQL→Native 2/2、Native 聚焦 11/11、Coordinator lookup 9/9、授权 46/46、JNI loader 1/1，详见 `docs/internal/system-table-native-scan-implementation.md`。Iceberg `$files/$entries/$manifests/$partitions`、Paimon `$branches/$files` 仍无完整 Native/SQL E2E，系统表全家族与最终同源码独立镜像尚未验收，本项不关闭。 |
 | 21 | Dynamic Table 真物化刷新 | 接通 RefreshCoordinator、增量 split dispatch、原子版本与物理扫描量；已过的 5/5 仅是直读重写，刷新前亦可见新行。 |
 | 22 | 索引完整生命周期与 DiskANN | scalar 索引持久授权、Iceberg generation snapshot refs、READY/REBUILD/GC；向量 DiskANN 真 ANN operator、过滤与 Recall，不能以候选数据或旧算术性能断言替代。 |
 | 23 | 独立模型服务异步执行 | 当前 `91bc121c` 用本机完整 Ollama 模型缓存重跑 Worker 三类真实 HTTP 集成测试 13/13 PASS（`/tmp/pangrova-worker-ai-cache-focused-r1.log`），另有 SQL→Coordinator→Worker/JNI/Native→真实 Ollama→结果的共享 E2E 13/13 PASS（`/tmp/pangrova-ollama-sql-e2e-current-r1.log`），两者均 0 失败/错误/跳过。独立服务进程、批量异步 RPC/Arrow Flight、超时/取消/乱序/未知完成和 fencing 矩阵仍未闭合。 |

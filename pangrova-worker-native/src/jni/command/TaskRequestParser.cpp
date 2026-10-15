@@ -724,6 +724,22 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         config.system_table_schema_id = detail.system_table().schema_id();
         config.system_table_object_sha256 = detail.system_table().object_sha256();
         break;
+      case proto::SystemTableSplitDetail::PAIMON_SCHEMAS:
+        if (split.connector_id() != "paimon" ||
+            !split.source_id().ends_with("$schemas") ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() != 0 ||
+            !detail.system_table().tag_name().empty() ||
+            !split.opaque_location().ends_with(
+                "/schema/schema-" +
+                std::to_string(detail.system_table().schema_id())) ||
+            detail.system_table().object_sha256().size() != 32) {
+          throw std::runtime_error("Paimon schemas split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::PAIMON_SCHEMAS;
+        config.system_table_schema_id = detail.system_table().schema_id();
+        config.system_table_object_sha256 = detail.system_table().object_sha256();
+        break;
       default:
         throw std::runtime_error("Unsupported system table split kind");
     }

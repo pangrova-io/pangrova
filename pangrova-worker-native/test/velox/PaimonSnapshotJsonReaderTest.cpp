@@ -241,5 +241,38 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSchemaOptionsInBoundedBatches) {
   EXPECT_THROW(wrong.next(1), std::runtime_error);
 }
 
+TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSchemaHistoryAndRejectsReplacement) {
+  constexpr auto schemaJson = R"({"id":0,"fields":[{"id":0,"name":"id"}],
+    "partitionKeys":[],"primaryKeys":["id"],"options":{"bucket":"1"},
+    "comment":"example","timeMillis":1700000000123})";
+  auto pool = pangrova::test::testLeafPool("PaimonSchemas");
+  SnapshotFile file(schemaJson);
+  auto type = facebook::velox::ROW(
+      {"schema_id", "fields", "partition_keys", "primary_keys", "options",
+       "comment", "update_time"},
+      {facebook::velox::BIGINT(), facebook::velox::VARCHAR(),
+       facebook::velox::VARCHAR(), facebook::velox::VARCHAR(),
+       facebook::velox::VARCHAR(), facebook::velox::VARCHAR(),
+       facebook::velox::TIMESTAMP()});
+  PaimonSnapshotJsonReader reader(file.path(), file.size(), 0,
+      digest(schemaJson), type, pool.get(), "", 0, true);
+  auto row = reader.next(1);
+  ASSERT_NE(row, nullptr);
+  EXPECT_EQ(row->childAt(0)->asFlatVector<int64_t>()->valueAt(0), 0);
+  EXPECT_EQ(row->childAt(1)->asFlatVector<facebook::velox::StringView>()
+                ->valueAt(0).str(), "[{\"id\":0,\"name\":\"id\"}]");
+  EXPECT_EQ(row->childAt(3)->asFlatVector<facebook::velox::StringView>()
+                ->valueAt(0).str(), "[\"id\"]");
+  EXPECT_EQ(row->childAt(4)->asFlatVector<facebook::velox::StringView>()
+                ->valueAt(0).str(), "{\"bucket\":\"1\"}");
+  EXPECT_EQ(row->childAt(6)->asFlatVector<facebook::velox::Timestamp>()
+                ->valueAt(0).toMillis(), 1700000000123);
+  EXPECT_EQ(reader.next(1), nullptr);
+
+  PaimonSnapshotJsonReader wrong(file.path(), file.size(), 0,
+      digest(std::string(schemaJson) + "different"), type, pool.get(), "", 0, true);
+  EXPECT_THROW(wrong.next(1), std::runtime_error);
+}
+
 }  // namespace
 }  // namespace pangrova::velox::test

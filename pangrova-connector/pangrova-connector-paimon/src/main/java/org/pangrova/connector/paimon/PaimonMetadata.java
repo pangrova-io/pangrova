@@ -95,7 +95,8 @@ public class PaimonMetadata implements ConnectorMetadata {
         int separator = tableName.table().lastIndexOf('$');
         String systemSuffix = separator > 0 ? tableName.table().substring(separator + 1) : "";
         if (systemSuffix.equalsIgnoreCase("snapshots") || systemSuffix.equalsIgnoreCase("tags")
-                || systemSuffix.equalsIgnoreCase("options")) {
+                || systemSuffix.equalsIgnoreCase("options")
+                || systemSuffix.equalsIgnoreCase("schemas")) {
             String baseName = tableName.table().substring(0, separator);
             try {
                 Table base = catalog.getTable(Identifier.create(tableName.schema(), baseName));
@@ -109,6 +110,8 @@ public class PaimonMetadata implements ConnectorMetadata {
                                 ? PaimonSystemTableHandle.Kind.TAGS
                                 : systemSuffix.equalsIgnoreCase("options")
                                         ? PaimonSystemTableHandle.Kind.OPTIONS
+                                        : systemSuffix.equalsIgnoreCase("schemas")
+                                                ? PaimonSystemTableHandle.Kind.SCHEMAS
                                         : PaimonSystemTableHandle.Kind.SNAPSHOTS);
             } catch (Catalog.TableNotExistException missing) {
                 return null;

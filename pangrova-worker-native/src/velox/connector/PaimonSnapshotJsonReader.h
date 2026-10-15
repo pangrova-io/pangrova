@@ -27,7 +27,8 @@ class PaimonSnapshotJsonReader final {
       facebook::velox::RowTypePtr outputType,
       facebook::velox::memory::MemoryPool* pool,
       std::string tagName = {},
-      std::optional<uint64_t> expectedSchemaId = std::nullopt);
+      std::optional<uint64_t> expectedSchemaId = std::nullopt,
+      bool schemaHistory = false);
 
   facebook::velox::RowVectorPtr next(uint64_t maxRows);
 
@@ -43,6 +44,7 @@ class PaimonSnapshotJsonReader final {
   std::string expected_sha256_;
   std::string tag_name_;
   std::optional<uint64_t> expected_schema_id_;
+  bool schema_history_;
   std::vector<std::pair<std::string, std::string>> options_;
   size_t option_cursor_ = 0;
   bool options_loaded_ = false;

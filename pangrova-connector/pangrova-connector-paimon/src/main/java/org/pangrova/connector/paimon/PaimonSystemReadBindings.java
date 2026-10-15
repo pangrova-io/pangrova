@@ -58,6 +58,20 @@ final class PaimonSystemReadBindings {
                                 0, name.substring(4), -1, path.toString(), length,
                                 checksum(table, path, length)));
                     }
+                } else if (selector.kind() == PaimonSystemTableHandle.Kind.SCHEMAS) {
+                    long selectedLatest = table.schemaManager().latest()
+                            .orElseThrow(() -> new IllegalStateException("Paimon table has no schema"))
+                            .id();
+                    for (var schema : table.schemaManager().listAll()) {
+                        if (schema.id() > selectedLatest) {
+                            continue;
+                        }
+                        var path = table.schemaManager().toSchemaPath(schema.id());
+                        long length = manager.fileIO().getFileStatus(path).getLen();
+                        objects.add(new PaimonSystemTableHandle.MetadataObject(
+                                0, null, schema.id(), path.toString(), length,
+                                checksum(table, path, length)));
+                    }
                 } else {
                     var schema = table.schemaManager().latest()
                             .orElseThrow(() -> new IllegalStateException("Paimon table has no schema"));
@@ -100,7 +114,7 @@ final class PaimonSystemReadBindings {
                 var expectedPath = switch (pinned.kind()) {
                     case SNAPSHOTS -> table.snapshotManager().snapshotPath(object.snapshotId());
                     case TAGS -> table.tagManager().tagPath(object.tagName());
-                    case OPTIONS -> table.schemaManager().toSchemaPath(object.schemaId());
+                    case OPTIONS, SCHEMAS -> table.schemaManager().toSchemaPath(object.schemaId());
                 };
                 if (!expectedPath.toString().equals(object.uri())
                         || table.snapshotManager().fileIO().getFileStatus(expectedPath).getLen()

@@ -180,7 +180,8 @@ public final class AccessControlEnforcer {
         if (suffix > 0 && (table.substring(suffix + 1).equalsIgnoreCase("snapshots")
                 || table.substring(suffix + 1).equalsIgnoreCase("history")
                 || table.substring(suffix + 1).equalsIgnoreCase("tags")
-                || table.substring(suffix + 1).equalsIgnoreCase("options"))) {
+                || table.substring(suffix + 1).equalsIgnoreCase("options")
+                || table.substring(suffix + 1).equalsIgnoreCase("schemas"))) {
             return table.substring(0, suffix);
         }
         return table;

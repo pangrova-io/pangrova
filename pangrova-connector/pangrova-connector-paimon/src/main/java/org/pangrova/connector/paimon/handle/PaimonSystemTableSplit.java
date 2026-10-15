@@ -34,6 +34,7 @@ public record PaimonSystemTableSplit(
             case SNAPSHOTS -> SystemTableSplitDetail.Kind.PAIMON_SNAPSHOTS;
             case TAGS -> SystemTableSplitDetail.Kind.PAIMON_TAGS;
             case OPTIONS -> SystemTableSplitDetail.Kind.PAIMON_OPTIONS;
+            case SCHEMAS -> SystemTableSplitDetail.Kind.PAIMON_SCHEMAS;
         };
         var detail = FileSplitDetail.newBuilder()
                 .setFileFormat(FileFormat.FILE_FORMAT_METADATA_JSON)

@@ -1,10 +1,10 @@
 # System-table SQL: Native scan implementation contract
 
-Status: **IN PROGRESS — not production-ready** (2026-10-14). Iceberg
-`$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options` have typed
+Status: **IN PROGRESS — not production-ready** (2026-10-16). Iceberg
+`$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
 v2 splits, Worker Native readers, and focused SQL E2E coverage. Iceberg
 `$files`/`$entries`/`$manifests`/`$partitions` still lack Native readers;
-Paimon `$schemas`/`$branches`/`$files` and the final full-chain gate remain
+Paimon `$branches`/`$files` and the final full-chain gate remain
 open. This is an implementation specification and failure record, not a
 production-readiness assertion.
 
@@ -47,11 +47,14 @@ declared public schema.
   for audit. The former Coordinator `ConnectorSystemTable.rows()` task is
   removed. SHOW FILES/MANIFESTS/PARTITIONS fail closed because their Native
   readers are not yet implemented; direct SELECT for those Iceberg kinds and
-  other Paimon system-table kinds also remain open. Paimon `$snapshots`,
-  `$tags`, and `$options` use typed splits over pinned JSON objects and a
-  Native reader. Their declared 14, 7, and 2 columns follow the fixed Paimon
+  Paimon `$branches`/`$files` also remain open. Paimon `$snapshots`,
+  `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
+  and a Native reader. Their declared 14, 7, 2, and 7 columns follow the fixed Paimon
   1.4.1 `SnapshotsTable.TABLE_TYPE`, `TagsTable.TABLE_TYPE`, and
-  `OptionsTable.TABLE_TYPE`, respectively. Source epoch
+  `OptionsTable.TABLE_TYPE`, and `SchemasTable.TABLE_TYPE`, respectively. Paimon
+  `$schemas` enumerates pinned historical `schema/schema-ID` objects through
+  the selected latest schema ID; its `fields`, `partition_keys`, `primary_keys`,
+  and `options` columns are JSON strings, matching the Paimon SDK. Source epoch
   milliseconds become a deterministic UTC SQL timestamp, with millisecond
   source precision. Nullable snapshot and tag fields remain SQL NULL. The whole
   family is **not** closed.
@@ -60,7 +63,7 @@ declared public schema.
   end. Thus generated mixed-case table names use the same Native reader as
   direct `SELECT`, without interpolating punctuation into SQL.
 - Worker Native checks the pinned metadata object's length and, for Paimon
-  `$snapshots`, `$tags`, and `$options`, the SHA-256 of its exact JSON bytes. A distributed
+  `$snapshots`, `$tags`, `$options`, and `$schemas`, the SHA-256 of its exact JSON bytes. A distributed
   deployment requires immutable shared storage reachable from every Worker;
   node-local catalog paths are development-only. A stronger storage version or
   ETag/content check remains needed for Iceberg if same-length overwrites are possible.
@@ -191,9 +194,35 @@ ambiguous response and verify no same-cycle retry or subsequent ref deletion.
   must use actual INSERT/UPDATE/DELETE writes, a packaged JNI library, and
   assert exact metadata columns/values. The incremental-read Iceberg fixture
   now uses the currently declared `timestamp_ms` column; Paimon snapshot SQL
-  now has nonempty and empty SQL E2E evidence, but mutation, projection,
-  filtering and multi-split coverage remain to be validated. Multi-worker E2E must use distinct
+  now has nonempty and empty SQL E2E evidence. Paimon `$schemas` has SQL E2E
+  evidence for three schema revisions, projection/filter/order, declared
+  column order, and an empty data table with an initial schema. Its focused
+  Native test rejects a same-length changed metadata object. For the earlier
+  Paimon snapshot paths, mutation, projection, filtering and multi-split
+  coverage remain to be validated. Multi-worker E2E must use distinct
   Worker processes/endpoints and verify complete split coverage.
 - Run `.pangrova/rules/build-pipeline.md` Step 0–8 in order after protocol or
   Native edits. Existing parser-only and connector-object unit tests are not
   substitutes for this E2E gate.
+
+### `$schemas` incremental evidence (2026-10-16)
+
+This closes only the Paimon `$schemas` query path, not the system-table family.
+The fixed Paimon 1.4.1 `SchemasTable.TABLE_TYPE` defines seven columns. Its
+`fields`, `partition_keys`, `primary_keys`, and `options` values are JSON
+strings. The connector pins each historical schema object's URI, length and
+SHA-256; Worker Native checks those bytes and the schema ID before producing
+the row. Calcite lookup and SELECT authorization both recognize `$schemas`
+while retaining the base table's SELECT grant.
+
+On JDK 17, focused connector binding tests passed 8/8, Coordinator lookup
+tests 9/9, authorization tests 46/46, the JNI loader test 1/1, and the
+SQL-to-Native `SystemTableE2ETest$PaimonSchemas` tests 2/2. Native focused
+parser/reader tests passed 11/11. The latter E2E queried three real schema
+versions and the initial schema of a table with no data rows. The built Native
+library and the packaged `osx/aarch64` JNI resource both have SHA-256
+`a7751636931a633c765b533872d49a0ab2c38f4af29bb28766c9ab86c1ddb12f`.
+This was an in-process SQL E2E using the packaged JNI resource; an independent
+Pangrova process image has not yet been validated for this `$schemas` path.
+Iceberg `$files`/`$entries`/`$manifests`/`$partitions`, Paimon
+`$branches`/`$files`, and the final full production gate remain open.

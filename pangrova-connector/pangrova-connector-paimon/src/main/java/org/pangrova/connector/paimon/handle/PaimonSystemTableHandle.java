@@ -16,7 +16,7 @@ public record PaimonSystemTableHandle(
 
     /** Native metadata readers supported by this handle. */
     public enum Kind {
-        SNAPSHOTS("snapshots"), TAGS("tags"), OPTIONS("options");
+        SNAPSHOTS("snapshots"), TAGS("tags"), OPTIONS("options"), SCHEMAS("schemas");
 
         private final String suffix;
 
@@ -58,7 +58,8 @@ public record PaimonSystemTableHandle(
         for (MetadataObject object : objects) {
             if ((kind == Kind.SNAPSHOTS && object.snapshotId() <= 0)
                     || (kind == Kind.TAGS && object.tagName() == null)
-                    || (kind == Kind.OPTIONS && object.schemaId() < 0)) {
+                    || ((kind == Kind.OPTIONS || kind == Kind.SCHEMAS)
+                            && object.schemaId() < 0)) {
                 throw new IllegalArgumentException("Paimon metadata object does not match relation kind");
             }
         }
@@ -79,6 +80,16 @@ public record PaimonSystemTableHandle(
 
     /** Paimon 1.4.1 system-table columns, independent of base-table columns. */
     public List<ConnectorTableMetadata.Column> typedColumns() {
+        if (kind == Kind.SCHEMAS) {
+            return List.of(
+                    new ConnectorTableMetadata.Column("schema_id", PangrovaType.BIGINT),
+                    new ConnectorTableMetadata.Column("fields", PangrovaType.VARCHAR),
+                    new ConnectorTableMetadata.Column("partition_keys", PangrovaType.VARCHAR),
+                    new ConnectorTableMetadata.Column("primary_keys", PangrovaType.VARCHAR),
+                    new ConnectorTableMetadata.Column("options", PangrovaType.VARCHAR),
+                    new ConnectorTableMetadata.Column("comment", PangrovaType.VARCHAR),
+                    new ConnectorTableMetadata.Column("update_time", PangrovaType.TIMESTAMP));
+        }
         if (kind == Kind.OPTIONS) {
             return List.of(
                     new ConnectorTableMetadata.Column("key", PangrovaType.VARCHAR),

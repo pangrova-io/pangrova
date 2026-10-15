@@ -174,6 +174,42 @@ std::optional<std::string> optionalTagRetention(
   return result;
 }
 
+facebook::velox::RowVectorPtr schemaRow(const simdjson::dom::element& object,
+    const facebook::velox::RowTypePtr& outputType,
+    facebook::velox::memory::MemoryPool* pool, int64_t schemaId) {
+  auto vector = std::dynamic_pointer_cast<facebook::velox::RowVector>(
+      facebook::velox::BaseVector::create(outputType, 1, pool));
+  for (size_t column = 0; column < outputType->size(); ++column) {
+    const auto& name = outputType->nameOf(column);
+    auto child = vector->childAt(column);
+    if (name == "schema_id") {
+      child->asFlatVector<int64_t>()->set(0, schemaId);
+    } else if (name == "update_time") {
+      child->asFlatVector<facebook::velox::Timestamp>()->set(0,
+          facebook::velox::Timestamp::fromMillis(requiredLong(object, "timeMillis")));
+    } else if (name == "comment") {
+      auto value = optionalString(object, "comment");
+      if (value) {
+        child->asFlatVector<facebook::velox::StringView>()->set(
+            0, facebook::velox::StringView(*value));
+      } else {
+        child->setNull(0, true);
+      }
+    } else {
+      const char* key = name == "partition_keys" ? "partitionKeys" :
+          name == "primary_keys" ? "primaryKeys" : name.c_str();
+      auto field = object[key];
+      if (field.error() || field.value().is_null()) {
+        throw std::runtime_error("Missing Paimon schema field: " + name);
+      }
+      auto value = simdjson::minify(field.value());
+      child->asFlatVector<facebook::velox::StringView>()->set(
+          0, facebook::velox::StringView(value));
+    }
+  }
+  return vector;
+}
+
 }  // namespace
 
 PaimonSnapshotJsonReader::PaimonSnapshotJsonReader(
@@ -182,17 +218,20 @@ PaimonSnapshotJsonReader::PaimonSnapshotJsonReader(
     facebook::velox::RowTypePtr outputType,
     facebook::velox::memory::MemoryPool* pool,
     std::string tagName,
-    std::optional<uint64_t> expectedSchemaId)
+    std::optional<uint64_t> expectedSchemaId,
+    bool schemaHistory)
     : output_type_(std::move(outputType)), pool_(pool),
       expected_length_(expectedLength),
       expected_snapshot_id_(expectedSnapshotId),
       expected_sha256_(std::move(expectedSha256)),
       tag_name_(std::move(tagName)),
-      expected_schema_id_(expectedSchemaId) {
+      expected_schema_id_(expectedSchemaId),
+      schema_history_(schemaHistory) {
   if (expected_length_ == 0 || expected_length_ > kMaxSnapshotBytes ||
       (expected_snapshot_id_ == 0 && tag_name_.empty() && !expected_schema_id_) ||
       (expected_snapshot_id_ != 0 && !tag_name_.empty()) ||
       (expected_schema_id_ && (expected_snapshot_id_ != 0 || !tag_name_.empty())) ||
+      (schema_history_ && !expected_schema_id_) ||
       expected_sha256_.size() != 32 ||
       !output_type_ || !pool_) {
     throw std::invalid_argument("Invalid pinned Paimon snapshot reader input");
@@ -213,6 +252,18 @@ void PaimonSnapshotJsonReader::validateOutputSchema() const {
   for (size_t i = 0; i < output_type_->size(); ++i) {
     const auto& name = output_type_->nameOf(i);
     const auto type = output_type_->childAt(i)->kind();
+    if (schema_history_) {
+      const bool numeric = name == "schema_id";
+      const bool timestamp = name == "update_time";
+      const bool textual = name == "fields" || name == "partition_keys" ||
+          name == "primary_keys" || name == "options" || name == "comment";
+      if (!((numeric && type == facebook::velox::TypeKind::BIGINT) ||
+            (timestamp && type == facebook::velox::TypeKind::TIMESTAMP) ||
+            (textual && type == facebook::velox::TypeKind::VARCHAR))) {
+        throw std::runtime_error("Invalid Paimon schemas output schema: " + name);
+      }
+      continue;
+    }
     if (expected_schema_id_) {
       if ((name != "key" && name != "value") ||
           type != facebook::velox::TypeKind::VARCHAR) {
@@ -252,7 +303,7 @@ facebook::velox::RowVectorPtr PaimonSnapshotJsonReader::next(uint64_t maxRows) {
   if (maxRows == 0) {
     throw std::invalid_argument("Metadata scan batch size must be positive");
   }
-  if (expected_schema_id_ && options_loaded_) {
+  if (expected_schema_id_ && !schema_history_ && options_loaded_) {
     return nextOptions(maxRows);
   }
   if (emitted_) {
@@ -279,6 +330,11 @@ facebook::velox::RowVectorPtr PaimonSnapshotJsonReader::next(uint64_t maxRows) {
     const auto schemaId = requiredLong(object, "id");
     if (schemaId < 0 || static_cast<uint64_t>(schemaId) != *expected_schema_id_) {
       throw std::runtime_error("Pinned Paimon schema ID differs from JSON object");
+    }
+    if (schema_history_) {
+      auto row = schemaRow(object, output_type_, pool_, schemaId);
+      emitted_ = true;
+      return row;
     }
     auto field = object["options"];
     if (field.error()) throw std::runtime_error("Missing Paimon schema options");

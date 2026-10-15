@@ -16,6 +16,7 @@ import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataTypes;
@@ -119,6 +120,46 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             assertThat(detail.getKind()).isEqualTo(SystemTableSplitDetail.Kind.PAIMON_OPTIONS);
             assertThat(detail.getSchemaId()).isEqualTo(schema.id());
             assertThat(detail.getObjectSha256().size()).isEqualTo(32);
+        }
+    }
+
+    @Test
+    void schemasSqlBindingPinsEveryVersionAndRejectsSameLengthReplacement() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var id = Identifier.create("db", "orders");
+            catalog.alterTable(id, List.of(SchemaChange.addColumn("extra", DataTypes.STRING())), false);
+            catalog.alterTable(id, List.of(SchemaChange.addColumn("more", DataTypes.BIGINT())), false);
+            var table = (FileStoreTable) catalog.getTable(id);
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var selector = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$schemas"));
+            assertThat(metadata.getTableMetadata(SESSION, selector).columns()).containsExactly(
+                    "schema_id", "fields", "partition_keys", "primary_keys", "options",
+                    "comment", "update_time");
+            var binding = metadata.bindRead(SESSION, selector);
+            var bound = (PaimonSystemTableHandle) binding.handle();
+            assertThat(bound.objects()).extracting(PaimonSystemTableHandle.MetadataObject::schemaId)
+                    .containsExactly(0L, 1L, 2L);
+            metadata.validateReadBinding(SESSION, binding);
+            for (var object : bound.objects()) {
+                assertThat(Files.readString(Path.of(object.uri())))
+                        .contains("\"id\"", "\"fields\"", "\"partitionKeys\"",
+                                "\"primaryKeys\"", "\"options\"", "\"timeMillis\"");
+                var split = new PaimonSystemTableSplit(
+                        bound.tableName(), bound.sourceIdentity(), bound.kind(), object);
+                var detail = DataSplit.parseFrom(split.toSplitInfoProto())
+                        .getConnectorDetail().unpack(FileSplitDetail.class).getSystemTable();
+                assertThat(detail.getKind()).isEqualTo(SystemTableSplitDetail.Kind.PAIMON_SCHEMAS);
+                assertThat(detail.getSchemaId()).isEqualTo(object.schemaId());
+                assertThat(detail.getObjectSha256().size()).isEqualTo(32);
+            }
+            var path = Path.of(table.schemaManager().toSchemaPath(1).toString());
+            byte[] contents = Files.readAllBytes(path);
+            contents[contents.length - 1] ^= 1;
+            Files.write(path, contents);
+            assertThat(Files.size(path)).isEqualTo(contents.length);
+            assertThatThrownBy(() -> metadata.validateReadBinding(SESSION, binding))
+                    .hasMessageContaining("Pinned Paimon metadata object changed");
         }
     }
 

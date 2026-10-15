@@ -235,13 +235,15 @@ void PangrovaVeloxDataSource::addSplit(
     }
     if (*splitConfig.system_table == split::SystemTableKind::PAIMON_SNAPSHOTS ||
         *splitConfig.system_table == split::SystemTableKind::PAIMON_TAGS ||
-        *splitConfig.system_table == split::SystemTableKind::PAIMON_OPTIONS) {
+        *splitConfig.system_table == split::SystemTableKind::PAIMON_OPTIONS ||
+        *splitConfig.system_table == split::SystemTableKind::PAIMON_SCHEMAS) {
       paimon_snapshot_reader_ = std::make_unique<PaimonSnapshotJsonReader>(
           splitConfig.file_path, splitConfig.length,
           splitConfig.system_table_snapshot_id,
           splitConfig.system_table_object_sha256, output_type_, pool_,
           splitConfig.system_table_tag_name,
-          splitConfig.system_table_schema_id);
+          splitConfig.system_table_schema_id,
+          *splitConfig.system_table == split::SystemTableKind::PAIMON_SCHEMAS);
     } else {
       metadata_reader_ = std::make_unique<IcebergMetadataJsonReader>(
           splitConfig.file_path, splitConfig.length, *splitConfig.system_table,

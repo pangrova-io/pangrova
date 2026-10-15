@@ -246,7 +246,8 @@ public final class AstToSqlNodeConverter {
         Identifier tableName = ref.systemTableRef().map(systemTable -> {
             String kind = systemTable.systemTableName();
             if (!kind.equalsIgnoreCase("snapshots") && !kind.equalsIgnoreCase("history")
-                    && !kind.equalsIgnoreCase("tags") && !kind.equalsIgnoreCase("options")) {
+                    && !kind.equalsIgnoreCase("tags") && !kind.equalsIgnoreCase("options")
+                    && !kind.equalsIgnoreCase("schemas")) {
                 throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                         "System table has no Native reader: " + kind);
             }

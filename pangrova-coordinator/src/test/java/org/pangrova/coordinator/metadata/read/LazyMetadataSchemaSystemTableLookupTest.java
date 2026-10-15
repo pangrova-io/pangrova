@@ -48,6 +48,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
         var history = lookup.getIgnoreCase("orders$HiStOrY");
         var tags = lookup.getIgnoreCase("ORDERS$TAGS");
         var options = lookup.getIgnoreCase("orders$OpTiOnS");
+        var schemas = lookup.getIgnoreCase("ORDERS$ScHeMaS");
 
         assertThat(snapshots).isNotNull();
         assertThat(snapshots.name()).isEqualTo("Orders$snapshots");
@@ -57,8 +58,10 @@ class LazyMetadataSchemaSystemTableLookupTest {
         assertThat(tags.name()).isEqualTo("Orders$tags");
         assertThat(options).isNotNull();
         assertThat(options.name()).isEqualTo("Orders$options");
+        assertThat(schemas).isNotNull();
+        assertThat(schemas.name()).isEqualTo("Orders$schemas");
         assertThat(metadata.lookups).contains("Orders$snapshots", "Orders$history",
-                "Orders$tags", "Orders$options");
+                "Orders$tags", "Orders$options", "Orders$schemas");
         assertThat(lookup.getNames(LikePattern.any())).containsExactly("Orders");
     }
 
@@ -230,7 +233,8 @@ class LazyMetadataSchemaSystemTableLookupTest {
                     || table.table().equals(base + "$snapshots")
                     || table.table().equals(base + "$history")
                     || table.table().equals(base + "$tags")
-                    || table.table().equals(base + "$options");
+                    || table.table().equals(base + "$options")
+                    || table.table().equals(base + "$schemas");
             return tableNames.contains(base) && supported ? new TestHandle(table.table()) : null;
         }
 
@@ -240,7 +244,8 @@ class LazyMetadataSchemaSystemTableLookupTest {
             String column = name.endsWith("$snapshots") ? "snapshot_id"
                     : name.endsWith("$history") ? "made_current_at"
                     : name.endsWith("$tags") ? "tag_name"
-                    : name.endsWith("$options") ? "key" : "id";
+                    : name.endsWith("$options") ? "key"
+                    : name.endsWith("$schemas") ? "schema_id" : "id";
             return new ConnectorTableMetadata(new SchemaTableName(SCHEMA, name),
                     List.of(column), List.of(new ConnectorTableMetadata.Column(column, PangrovaType.BIGINT)),
                     Map.of());

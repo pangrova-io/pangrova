@@ -57,6 +57,7 @@ enum class SystemTableKind : uint8_t {
   PAIMON_SNAPSHOTS,
   PAIMON_TAGS,
   PAIMON_OPTIONS,
+  PAIMON_SCHEMAS,
 };
 
 struct ColumnMappingConfig {

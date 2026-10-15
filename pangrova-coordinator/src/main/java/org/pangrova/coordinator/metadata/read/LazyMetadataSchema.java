@@ -187,6 +187,7 @@ final class LazyMetadataSchema extends AbstractSchema {
         String suffix = name.substring(separator + 1).toLowerCase(Locale.ROOT);
         return "snapshots".equals(suffix) || "history".equals(suffix)
                 || "tags".equals(suffix) || "options".equals(suffix)
+                || "schemas".equals(suffix)
                 ? Optional.of(suffix) : Optional.empty();
     }
 
