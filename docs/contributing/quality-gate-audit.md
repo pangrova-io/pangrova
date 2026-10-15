@@ -11,6 +11,8 @@ description: "逐项核对门禁的实际行为、重复约束、误报风险和
 
 审计日期：2026-10-04。检查了 `AGENTS.md`、七份 `.pangrova/rules/` 规则、门禁脚本、实际 CI 调用、父 POM、Checkstyle/SpotBugs 配置、对应的源码与字节码检查测试，以及开发和测试文档。
 
+2026-10-16 增量审计补充了覆盖率、重复 Java 构建及独立 ArchUnit job 的清理；下文原始分布和时长仍是 2026-10-04 的快照。
+
 结构比较使用仓库锁定的 Checkstyle 10.12.7、Maven Checkstyle Plugin 3.3.1 和 JDK 17，不使用手写方法长度估算。分别扫描当前工作区及提交基线 `e92532a77fcd813009e659a62e7691f08e972899`。提交基线通过 `git cat-file --batch` 导出至临时目录，没有 stash、切换分支或修改共享源码。
 
 当前工作区含大量既有修改，因此两组结果分别报告。扫描仅包含各模块的 `src/main/java`，排除 `target` 中的生成代码；保留与实际配置相同的 `switchBlockAsSingleDecisionPoint=true` 和嵌套深度设置。当前工作区额外比较了应用现有豁免与不应用豁免两种结果。基线比较使用该提交自己的豁免文件。新加入的 `NestedForDepth=3` 在边界测试中单独验证；下表的前后比较不将新增循环检查混入原有指标。
@@ -83,6 +85,10 @@ Checkstyle 将圈复杂度定义为决策点加一，包含布尔运算和循环
 | P0 证据必须粘贴全部 grep | 重复日志增加上下文，逐行同类解释未必增加审查价值 | 保留同类缺陷搜索；提交命令、命中数、代表样本、分类和完整输出链接 |
 | 所有 PR 跑额外 TPC-H/JMH | 不区分文档和运行时修改；短采样性能波动未经稳定复测不能直接认定阈值过紧 | 仅对生产、依赖、benchmark 和相关工具变化触发；未知输入保守触发；10%/15% 等既有回归阈值不改，生产正确性链不删 |
 | 旧工具规则入口 | .claude/.qoder 只含到 canonical rules 的两个符号链接，setup 会自动重建 | 删除两目录和重建逻辑；仅保留 AGENTS.md + .pangrova，setup 改为只读布局验证 |
+| Diff coverage ≥60% | 百分比无法证明 SQL→Native、分布式故障和资源回收等实际行为，且要求全分支每条变更行具备 JaCoCo 报告 | 删除阈值 gate 与强制 CI 插桩；保留按风险选择的功能、集成、Native、E2E、smoke 测试，可选 `-Pcoverage` 用于找未测路径 |
+| Java CI 先 `clean verify -DskipTests` 后 `verify` | 编译和打包生命周期重复执行，后一次 `verify` 已包含必要的编译 | 合并为一次 `clean verify`，保留干净构建和原有日常测试筛选 |
+| 独立 ArchUnit CI job | `SpiWiringVerificationTest` 与 `BootstrapReachabilityTest` 均为未标记的 `*Test.java`，已由 Java 日常测试和生产全量回归选中；独立 job 再次编译全部模块并运行同两类测试 | 删除重复 job，保留测试本身及其日常/生产执行 |
+| 生产 CI 全 reactor 后再次跑共享 E2E 与 ActivationSmoke | `full-regression` 包含 `pangrova-test-e2e` 模块并选中未标记的 `*Test.java`；ActivationSmoke 无排除标签，已在全量回归中执行 | 删除重复调用；三项 `native-runtime-owner` 测试仍各用独立 JVM 执行，保留真实镜像和 JNI 链路 |
 
 ## 保留门禁及其实际边界
 
@@ -99,7 +105,6 @@ Checkstyle 将圈复杂度定义为决策点加一，包含布尔运算和循环
 | 环境路径检查 | 5 个禁止样本、8 个允许样本通过；约 0.03 秒 | 防止机器路径写入活跃文件；本次仅测模式自检，未将其声称为完整仓库扫描通过 |
 | Proto descriptor | 本次核对实现，未以修改后的 descriptor 重新接受协议 | 比较 descriptor 字节和 canonical source 所有权，不是语义兼容分析；安全增加字段也会造成 drift，更新基线不证明 wire/API 兼容。官方区分 [wire-safe 与应用兼容](https://protobuf.dev/programming-guides/proto3/#updating) |
 | JNI symbol symmetry | 保留本地脚本和包装/加载验证要求 | 符号存在不证明所有权、类型和生命周期正确；与 JNI/E2E 测试互补 |
-| Diff coverage ≥60% | 门禁和真实报告来源保持 | 报告缺失、过期、错误源码映射仍失败；不为 token 成本而取消行为覆盖 |
 | SpotBugs/FindSecBugs | profile、分析强度、过滤器保持 | 配置的 Medium 是检测优先级/置信度，不等于运行时严重性。没有误报样本和安全分类证据时不整体降级 |
 | Native/WERROR/sanitizers | 构建和相关风险场景保持 | 编译警告、内存与未定义行为直接影响 JVM/查询执行，不与格式清单合并删除 |
 | 生产同源构建和真实 E2E/smoke | 原有 production-regression 与 artifact provenance 保留 | 静态分析/工作流语法通过不能代替实际镜像、部署和 SQL→Native→结果的执行证据 |

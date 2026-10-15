@@ -15,7 +15,7 @@ mvn -q -DskipTests install
 mvn -q -pl <module> -am test
 
 # Test (full project)
-mvn -q -Pfull-regression,coverage verify
+mvn -q -Pfull-regression verify
 
 # Package
 mvn -q -DskipTests package
@@ -141,16 +141,11 @@ ordering for tests that consume the native bundle.
 │   java -version && mvn -version                                 │
 │   mvn -q -DskipTests install                                    │
 │                                                                  │
-│ Step 6: Java Full Test (all modules, 0 failures)                 │
-│   mvn -q -Pfull-regression,coverage verify                      │
+│ Step 6: Java Full Test (all modules, shared E2E and smoke)       │
+│   mvn -q -Pfull-regression verify                               │
 │                                                                  │
-│ Step 7: E2E (shared JVM, then isolated Native owners)            │
-│   mvn -q -Pfull-regression                                      │
-│     -pl pangrova-testing/pangrova-test-e2e -am test              │
-│                                                                  │
-│ Step 8: Smoke (real SQL → Worker → packaged JNI → result)        │
-│   mvn -q -pl pangrova-testing/pangrova-test-e2e                  │
-│     -Dtest=ActivationSmokeE2ETest test                           │
+│ Step 7: Isolated Native owner E2E (three separate JVMs)          │
+│   see commands below                                             │
 │                                                                  │
 │ ALL REQUIRED STEPS MUST PASS; report blockers accurately.                           │
 └──────────────────────────────────────────────────────────────────┘
@@ -174,13 +169,14 @@ for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTe
 done
 ```
 
-The shared run and all three isolated runs must pass; report their test counts
+The Step 6 shared run, including `ActivationSmokeE2ETest`, and all three isolated
+owner runs must pass; report their test counts
 separately. A single shared JVM run that excludes these classes without the
 three isolated results is incomplete.
 It does not turn routing integration into independent-process distributed evidence.
 Record discovered test counts and FAIL/SKIPPED/BLOCKED results; a successful Maven
-command that selects no applicable tests is not validation. The coverage profile
-produces each module's real JaCoCo report; run the changed-line coverage gate
-against the actual review base after verification, including uncommitted files.
-The `pangrova-test-smoke` harness self-test only proves test discovery; it does
-not qualify as Step 8 until it contains a real full-chain activation test.
+command that selects no applicable tests is not validation. Use the optional
+`-Pcoverage` profile to inspect JaCoCo reports when it helps identify untested
+behavior; a percentage is not a release gate.
+The `pangrova-test-smoke` harness self-test only proves test discovery; the
+`ActivationSmokeE2ETest` in Step 6 is the real full-chain activation test.

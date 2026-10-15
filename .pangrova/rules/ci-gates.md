@@ -5,8 +5,8 @@ Gate scripts live in `.pangrova/scripts/`; CI wiring is defined in `.github/work
 The JDK 17/21 daily jobs retain their documented filtered selection; they are not
 full regression. The production-regression job builds the canonical same-source
 Linux Bake image after Native and sanitizer gates, stages its verified classpath
-JNI classifier, and runs `native-runtime,full-regression,coverage`, full E2E and
-real activation smoke. Changed-line coverage uses that unfiltered run. Workflow
+JNI classifier, and runs `native-runtime,full-regression`, full E2E and
+real activation smoke. Workflow
 configuration and syntax checks alone are not an executed image or deployment
 acceptance result; a missing build runner/image remains a blocker.
 
@@ -17,7 +17,6 @@ acceptance result; a missing build runner/image remains a blocker.
 | SPI annotation | `check-spi-annotations.sh` | All public SPI types must have `@Stable`/`@Experimental`/`@Internal` | Every PR |
 | SPI stability | `check-spi-stability.sh` | `@Stable` types must have ≥1 production impl | Local |
 | Proto diff | `proto-descriptor-diff.sh` | Exact descriptor drift and canonical source ownership; not semantic compatibility analysis | Java CI |
-| Diff coverage | `diff-coverage-check.sh` | PRs must hit ≥60% line coverage on changed lines | Every PR |
 | Doc class refs | `check-doc-class-refs.sh` | Class references in docs must resolve | Doc changes |
 | Stub patterns | `detect-dead-stubs.sh` | Heuristic check for unimplemented method bodies; not reachability proof | Every PR |
 | Plan stability | `plan-stability-check.sh` | Golden query plan diffs flagged | Planner changes |
@@ -55,7 +54,7 @@ performance regression thresholds and full production correctness checks remain.
 |------|----------------|---------|
 | Checkstyle | `config/checkstyle/` | `-Pstatic-analysis` |
 | SpotBugs | `config/spotbugs/` | `-Pstatic-analysis` |
-| JaCoCo (coverage) | Parent pom | `-Pcoverage` |
+| JaCoCo (optional report) | Parent pom | `-Pcoverage` |
 | PIT (mutation) | Parent pom | `-Pmutation` |
 
 ```bash
@@ -63,7 +62,7 @@ performance regression thresholds and full production correctness checks remain.
 java -version && mvn -version
 mvn -q -pl <module> -am verify -Pstatic-analysis
 
-# Generate coverage report
+# Generate an optional coverage report for investigation
 mvn -q -pl <module> -am verify -Pcoverage
 ```
 
@@ -81,6 +80,8 @@ Removed checks must not be recreated by a blanket local runner:
   direction govern package boundaries, rather than arbitrary 8/15/25-file limits.
 - Duplicate regex structure scanning: Checkstyle is the single executable owner of
   file/method size, parameter count, complexity, and control-flow nesting.
+- Changed-line coverage thresholds: behavior, integration, Native, E2E, and smoke
+  tests establish acceptance; JaCoCo remains available for optional investigation.
 
 See `docs/contributing/quality-gate-audit.md` for evidence and remaining limitations.
 
@@ -92,7 +93,6 @@ Pre-existing unannotated types are tracked in `.pangrova/scripts/.spi-annotation
 
 | Metric | Threshold | Gate |
 |--------|-----------|------|
-| Diff line coverage | ≥60% | `diff-coverage-check.sh` |
 | SPI annotation | 100% new types | `check-spi-annotations.sh` |
 | Proto descriptor drift | Baseline reviewed and synchronized; wire/API compatibility reviewed separately | `proto-descriptor-diff.sh` |
 | Checkstyle | 0 violations | `-Pstatic-analysis` |

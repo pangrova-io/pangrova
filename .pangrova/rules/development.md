@@ -118,8 +118,9 @@ Coverage depth follows risk:
 - User-visible SQL, protocol, JNI, or distributed behavior should have integration
   or E2E coverage at the appropriate boundary.
 
-Changed-line coverage is enforced by `.pangrova/scripts/diff-coverage-check.sh`.
-Do not write low-value assertions solely to satisfy the threshold.
+Do not write low-value assertions solely to satisfy a coverage percentage. Optional
+JaCoCo reports can help identify untested paths, but production acceptance depends
+on passing behavior, integration, and E2E tests at the affected boundaries.
 
 For TestContainers, use mapped ports and wait strategies. If Docker is unavailable,
 report the missing prerequisite accurately; do not disable the test or claim it

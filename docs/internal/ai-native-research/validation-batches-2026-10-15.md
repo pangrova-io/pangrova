@@ -2,13 +2,15 @@
 
 本清单按**独立验收检查点**计数，共 6 批、27 项。它不把某个局部测试通过等同于整条链通过；“已知缺口”表示现有实现或安全前置条件尚不满足，须先修复再验收。每项通过证据需绑定提交、依赖/协议、Native 或镜像指纹、实际执行命令、测试发现数、失败/错误/跳过数及日志。历史结果见 [validation-current.md](validation-current.md)，原始目标见仓库外的当前计划；最终生产资格仍以 `.pangrova/rules/build-pipeline.md`、`ci-gates.md` 为准。
 
-当前已通过但不能替代以下检查点：Mac Native Release/ASan 地址检查各 4,153/4,153（ASan 设置 `detect_leaks=0`）；JDK 17 Worker 本轮 1,433/1,433、Coordinator 先前 3,098/3,098；全 reactor 静态先前退出 0；Gravitino Iceberg REST 空表 DDL/读/删除 1/1；DynamicTable 直读重写 5/5；真实 Ollama Worker 13/13。它们各有源码批次和作用范围，不能合并成“生产全绿”。
+2026-10-16 盘点：按下表的限定验收范围，已完成 3 项（#5 Mac Native Release、#6 Mac ASan 地址检查、#10 三个隔离 Native runtime owner），仍开放 24 项：第一批 4、第二批 2、第三批 3、第四批 4、第五批 8、第六批 3。第一批 ARM64 镜像从 `5b91b79d` 干净归档构建至 Java 分发组装，Native/严格打包/JNI classifier/Java reactor 均通过，但旧 `target/*.jar` 把 Lance `-tests.jar` 和其他测试夹具复制进生产镜像，使唯一 provider 检查正确拒绝，故没有 image ID（`/tmp/pangrova-arm64-final-bake-5b91b79da504.log`）。从模块 Maven 产物元数据精确复制主 JAR 的修复已通过真实 ARM64 builder 聚焦验证（`/tmp/pangrova-arm64-mainjar-builder-5b91b79da504-r2.log`），最终完整 Bake 待新提交重跑。用户将验收重心明确为功能覆盖与端到端通过，并要求清理覆盖率和其他重复门禁；CI/规则同步调整中。各批可并行做互不争用的代码审查和研究；同一 Docker VM 的镜像构建与重型容器 E2E 顺序执行，避免资源竞争造成伪失败。磁盘按批检查，仅清理明确由本任务生成且已失效的产物。
+
+当前已通过但不能替代以下开放检查点：Mac Native Release/ASan 地址检查各 4,138/4,138（ASan 设置 `detect_leaks=0`）；JDK 17 Worker 1,433/1,433、Coordinator 先前 3,098/3,098；全 reactor 静态从起点退出 0；Gravitino Iceberg REST 空表 DDL/读/删除 1/1；DynamicTable 直读重写 5/5；真实 Ollama Worker HTTP 13/13 与共享 SQL E2E 13/13。它们各有源码批次和作用范围，不能合并成“生产全绿”。
 
 ## 第一批：Linux 可部署产物（4 项，进行中）
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 1 | ARM64 正式 Bake 镜像 | 从干净 Git archive 完整构建、加载并取得真实 image ID；固定 `4945a2ef` 归档加候选链接修复的 r24 已成功链接函数导出器和 JNI `.so`，但生产打包门禁发现 `libcurl.so.4` 动态依赖并拒绝产物；尚无完整镜像。 |
+| 1 | ARM64 正式 Bake 镜像 | 从干净 Git archive 完整构建、加载并取得真实 image ID；固定 `4945a2ef` 归档加候选链接修复的 r25 已成功产出并通过生产打包门禁的 AArch64 `.so`，但仍未运行完整 Java/镜像层，亦未基于最终功能源码取得 image ID。 |
 | 2 | 镜像内 Native/JNI 与 SQL 冒烟 | 核对镜像 Native、Java 包、协议与函数目录指纹，启动真实 Coordinator/Worker，执行 SQL→Native→Arrow/Flight→客户端实值及关闭；必须使用第 1 项同一个 image ID。 |
 | 3 | Linux x86_64 生产镜像 | 在 x86_64 runner 按同一 Bake 配方构建、启动并运行 Native/JNI/SQL；本机 ARM64 通过不能替代。 |
 | 4 | Linux ASan/LSan | 同源码、同依赖和真实夹具的 Linux 全量 sanitizer，地址错误与泄漏均为 0；Mac `detect_leaks=0` 的 4,153 项不证明 LSan。 |
@@ -17,17 +19,17 @@
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 5 | 最终 Native Release 全量 | 现有 4,153/4,153 属于进入 Linux 生产链接修复前的源码；最终实现稳定后用匹配 fixture 全跑，0 失败/跳过。 |
-| 6 | 最终 Native ASan 全量 | 当前同类历史 4,153/4,153 仅地址检查；最后一次 Native 改动后重新全跑，并单列 LSan 第 4 项。 |
-| 7 | JDK 17 全 reactor 完整回归与 coverage | 最终同源码执行 `-Pfull-regression,coverage verify`，记录各模块报告与 0 失败/错误/跳过；本轮 Worker 1,433 项已过，但之前全 reactor E2E 遇 Docker VM 级联失败。 |
-| 8 | 静态、协议、结构与变更行覆盖率 | 最终同源码从起点跑 `static-analysis`、descriptor、SPI/JNI、文档引用、E2E 真实性及适用脚本；变更行覆盖率 ≥60%。历史 70.9% 和静态退出 0 仍需最终重核。 |
+| 5 | 最终 Native Release 全量 | 当前 `91bc121c` 同源码 Mac Release 在真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 600.34 秒；日志 `/tmp/pangrova-native-release-current-full-r2.log`。这是 Mac Native 门禁，不替代 Linux 镜像。 |
+| 6 | 最终 Native ASan 全量 | 当前源码 ASan 增量构建 PASS，真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 1,674.73 秒（`/tmp/pangrova-native-asan-current-full-r1.log`）；Mac `detect_leaks=0` 只检查地址问题，LSan 仍见第 4 项。 |
+| 7 | JDK 17 全 reactor 完整回归 | 最终同源码执行 `-Pfull-regression verify`，记录各模块实际发现数与 0 失败/错误/非预期跳过；本轮 Worker 1,433 项已过，但之前全 reactor E2E 遇 Docker VM 级联失败。 |
+| 8 | 静态、协议与结构门禁 | `9b85f68e` 源码全 reactor `-Pstatic-analysis -DskipTests verify` 从起点退出 0（`/tmp/pangrova-reactor-static-current-r2.log`）；首轮发现 Iceberg 跨行 `if` 缺大括号，最近模块检查通过后全量重跑。最终 descriptor、SPI/JNI、文档引用、E2E 真实性及适用脚本仍须同源码完成。 |
 
 ## 第三批：共享与独立进程 E2E（4 项）
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
 | 9 | 完整共享 JVM E2E | `pangrova-test-e2e` 全部适用类、零失败/错误/跳过并记录实际测试数；先前 1,089 项运行受 VM 崩溃连锁污染，不能计通过。 |
-| 10 | 三个隔离 Native runtime owner | `WorkerBootstrapE2ETest`、`NativeExchangeTransportExternalIntegrationTest`、`WorkerShuffleChannelAdmissionIntegrationTest` 各独立 JVM；历史 5/5、3/3、1/1，最终镜像/JNI 变更后复跑。 |
+| 10 | 三个隔离 Native runtime owner | 当前源码三个类各独立 JVM 重跑：`WorkerBootstrapE2ETest` 5/5、`NativeExchangeTransportExternalIntegrationTest` 3/3、`WorkerShuffleChannelAdmissionIntegrationTest` 1/1，均 0 失败/错误/跳过；日志分别为 `/tmp/pangrova-worker-bootstrap-owner-current-r1.log`、`/tmp/pangrova-exchange-external-owner-current-r1.log`、`/tmp/pangrova-shuffle-admission-owner-current-r1.log`。仍需第 11 项的镜像双进程搬运。 |
 | 11 | 两个独立 Worker 的推测执行/交换 | 使用第 1/3 项真实 image ID 跑 `IndependentSpeculativeExecutionE2ETest` 和对应远程 shuffle/故障 E2E，验证独立进程、实际搬运、winner fencing 和资源归还；目前无镜像 ID。 |
 | 12 | 故障恢复矩阵 | 真实 PG、对象存储、Flight/Toxiproxy 和独立进程验证接管、迟到 RPC、丢 ACK、未知提交、取消、慢读、OOM 与最后 owner 退出；局部用例已过，组合矩阵未全闭合。 |
 
@@ -45,12 +47,12 @@
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
 | 17 | 唯一 Calcite SQL 前端 | 生产 DDL/DML/时间旅行等全部迁移并删除可达 ANTLR/fallback；逐形式语义、计划与调用链证明。 |
-| 18 | `GENERATE_SERIES` 真 Native 表函数 | 裸调用、二/三参及极值经 Substrait 表函数关系到 Velox operator；Parser/Protocol/Planner 全模块与 Mac Native 聚焦已过，但真实 SQL/JNI E2E 首轮 2/6 通过，正向序列精确重复两次；须修复 source 并行度再复验，Linux 同源镜像亦未验。 |
+| 18 | `GENERATE_SERIES` 真 Native 表函数 | 裸调用、二/三参及极值经 Substrait 表函数关系到 Velox operator；零输入 source 的 Velox 多 driver 重复生成已修复，Native 聚焦 191/191、真实 SQL/JNI E2E 6/6 通过。仍需最终同源 Linux 镜像/独立进程及全量回归，不能仅凭本机局部结果关闭生产检查点。 |
 | 19 | `COPY INTO` 真文件加载 | 无文件选项的 `FROM (SELECT …)` 已接通现有 INSERT SELECT 路径，真实 SQL/JNI/Iceberg 5/5 E2E 通过；URI 仅 fail closed。仍需授权 URI/文件快照、格式读取、幂等文件身份与提交 journal、真实对象存储数据核对；旧空成功断言不算验收。 |
 | 20 | 剩余系统表 | Iceberg `$files/$entries/$manifests/$partitions`、Paimon `$schemas/$branches/$files` 等冻结句柄、typed split、Native reader 与 SQL 实值；`$snapshots/$tags/$options` 的局部结果不能替代。 |
 | 21 | Dynamic Table 真物化刷新 | 接通 RefreshCoordinator、增量 split dispatch、原子版本与物理扫描量；已过的 5/5 仅是直读重写，刷新前亦可见新行。 |
 | 22 | 索引完整生命周期与 DiskANN | scalar 索引持久授权、Iceberg generation snapshot refs、READY/REBUILD/GC；向量 DiskANN 真 ANN operator、过滤与 Recall，不能以候选数据或旧算术性能断言替代。 |
-| 23 | 独立模型服务异步执行 | SQL→Native 异步批量 RPC/Arrow Flight→真实模型服务→typed result，以及超时、取消、乱序、未知完成和 fencing；本轮真实 Ollama 13/13 仅覆盖 Worker HTTP 组件。 |
+| 23 | 独立模型服务异步执行 | 当前 `91bc121c` 用本机完整 Ollama 模型缓存重跑 Worker 三类真实 HTTP 集成测试 13/13 PASS（`/tmp/pangrova-worker-ai-cache-focused-r1.log`），另有 SQL→Coordinator→Worker/JNI/Native→真实 Ollama→结果的共享 E2E 13/13 PASS（`/tmp/pangrova-ollama-sql-e2e-current-r1.log`），两者均 0 失败/错误/跳过。独立服务进程、批量异步 RPC/Arrow Flight、超时/取消/乱序/未知完成和 fencing 矩阵仍未闭合。 |
 | 24 | Feature Store、CDC 与评估闭环 | 同一物理计划的 point-in-time join、watermark、版本物化、训练导出和真实指标计算/发布；当前元数据或单路径测试不能证明全链。 |
 
 ## 第六批：性能和发布资格（3 项）

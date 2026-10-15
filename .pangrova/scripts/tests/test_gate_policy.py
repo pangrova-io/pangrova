@@ -180,8 +180,8 @@ class StructuralPolicyTest(unittest.TestCase):
             prop = config.find(f'.//module[@name="{module}"]/property[@name="max"]')
             self.assertEqual(int(prop.get('value')), maximum)
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        self.assertIn('native-runtime,full-regression,coverage verify', workflow)
-        self.assertIn('--threshold 60', workflow)
+        self.assertIn('native-runtime,full-regression verify', workflow)
+        self.assertNotIn('diff-coverage-check.sh', workflow)
         self.assertEqual(workflow.count('verify -Pstatic-analysis'), 1)
 
     def test_production_regression_retains_same_source_image_identity(self):
@@ -199,7 +199,7 @@ class StructuralPolicyTest(unittest.TestCase):
                                         ('pangrova.e2e.image-id', 'PANGROVA_E2E_IMAGE_ID')]:
             self.assertIn(f'requiredProperty("{property_name}")', consumer)
             # verify executes the E2E leaf too; all three test commands require the identity.
-            self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 3)
+            self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 2)
 
 
 if __name__ == '__main__':

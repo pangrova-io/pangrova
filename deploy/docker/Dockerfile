@@ -43,7 +43,12 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     for module in pangrova-standalone pangrova-coordinator pangrova-worker \
         pangrova-client/pangrova-client-cli pangrova-connector/pangrova-connector-iceberg \
         pangrova-connector/pangrova-connector-paimon pangrova-connector/pangrova-connector-lance; do \
-        cp "$module"/target/*.jar /dist/lib/; \
+        properties="$module/target/maven-archiver/pom.properties"; test -f "$properties"; \
+        artifact_id="$(sed -n 's/^artifactId=//p' "$properties")"; \
+        artifact_version="$(sed -n 's/^version=//p' "$properties")"; \
+        test -n "$artifact_id" && test -n "$artifact_version"; \
+        main_jar="$module/target/$artifact_id-$artifact_version.jar"; \
+        test -f "$main_jar"; cp "$main_jar" /dist/lib/; \
     done; \
     test -f "/dist/lib/$(basename "$bundle")"; \
     lance_jars=(/dist/lib/pangrova-connector-lance-*.jar); \

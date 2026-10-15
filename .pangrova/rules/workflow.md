@@ -38,7 +38,7 @@ commands. This checklist adds no unconditional full-project regression requireme
   full-chain validation is required for broad execution changes or when focused
   evidence cannot establish the affected boundaries.
 - Update docs for changed behavior/API/configuration. Update rules only for policy
-  or architecture changes. Retain ≥60% changed-line coverage for production Java.
+  or architecture changes. Validate affected behavior at its actual boundary.
 - Report checks and results accurately, including verified blockers. A failed or
   unexecuted check must never be reported as passing.
 

@@ -243,20 +243,10 @@ jobs:
           chmod +x .pangrova/scripts/proto-descriptor-diff.sh
           .pangrova/scripts/proto-descriptor-diff.sh
 
-      - name: Build with Maven
-        run: mvn -B clean verify -DskipTests -pl '!pangrova-native-bundle'
-
       - name: Run daily filtered tests
-        run: mvn -B verify -Pcoverage -Djava.library.path=${{ env.NATIVE_LIB_DIR }} -pl '!pangrova-native-bundle'
+        run: mvn -B clean verify -Djava.library.path=${{ env.NATIVE_LIB_DIR }} -pl '!pangrova-native-bundle'
         env:
           LD_LIBRARY_PATH: ${{ env.NATIVE_LIB_DIR }}
-
-      - name: Upload Coverage
-        if: matrix.java == '17'
-        uses: codecov/codecov-action@v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
 
   production-regression:
     name: Production image and full regression (JDK 17)
@@ -301,16 +291,13 @@ jobs:
           echo "::add-mask::$capability_key"
           echo "PANGROVA_E2E_FILE_CAPABILITY_KEY=$capability_key" >> "$GITHUB_ENV"
 
-      - name: Run full regression with real coverage
+      - name: Run full regression
         run: |
-          mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle' \
+          mvn -B -Pnative-runtime,full-regression verify -pl '!pangrova-native-bundle' \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
 
-      - name: Run full E2E and real activation smoke
+      - name: Run isolated Native runtime owner E2E
         run: |
-          mvn -B -Pnative-runtime,full-regression \
-            -pl pangrova-testing/pangrova-test-e2e -am test \
-            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
           for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
                        WorkerShuffleChannelAdmissionIntegrationTest; do
             mvn -B -Pnative-runtime,full-regression \
@@ -318,15 +305,6 @@ jobs:
               -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test \
               -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
           done
-          mvn -B -Pnative-runtime -pl pangrova-testing/pangrova-test-e2e \
-            -Dtest=ActivationSmokeE2ETest test \
-            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
-
-      - name: Diff Coverage Gate
-        if: github.event_name == 'pull_request'
-        run: |
-          git fetch origin ${{ github.base_ref }} --depth=1
-          bash .pangrova/scripts/diff-coverage-check.sh --threshold 60 --base-ref origin/${{ github.base_ref }}
 
       - name: Upload full regression reports
         if: always()
@@ -335,7 +313,6 @@ jobs:
           name: production-regression-reports
           path: |
             **/target/surefire-reports/
-            **/target/site/jacoco/
 
   tpch-performance:
     name: TPC-H Performance Regression
@@ -742,38 +719,3 @@ jobs:
 
       - name: Static Analysis (profile gate)
         run: mvn -B verify -Pstatic-analysis -DskipTests -pl '!pangrova-native-bundle'
-
-  archunit:
-    name: ArchUnit Wiring Verification
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up function-contract Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Compile all modules
-        run: mvn -B compile -pl '!pangrova-native-bundle'
-
-      - name: Run ArchUnit SPI wiring verification
-        run: |
-          mvn -B test \
-            -pl pangrova-testing/pangrova-test-e2e \
-            -Dtest="SpiWiringVerificationTest" \
-            -DfailIfNoTests=false
-
-      - name: Run ArchUnit bootstrap reachability verification
-        run: |
-          mvn -B test \
-            -pl pangrova-testing/pangrova-test-e2e \
-            -Dtest="BootstrapReachabilityTest" \
-            -DfailIfNoTests=false

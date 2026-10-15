@@ -89,7 +89,7 @@ class RegressionSelectionTest {
     }
 
     @Test
-    void productionCiBuildsAnActualImageBeforeUnfilteredRegressionAndCoverage() throws Exception {
+    void productionCiBuildsAnActualImageBeforeUnfilteredRegression() throws Exception {
         var workflow = Files.readString(ROOT.resolve(".github/workflows/ci.yml"));
         var start = workflow.indexOf("  production-regression:");
         var end = workflow.indexOf("  tpch-performance:", start);
@@ -102,16 +102,17 @@ class RegressionSelectionTest {
                 .contains("image_id=$(docker image inspect --format '{{.Id}}' \"$PANGROVA_E2E_IMAGE\")")
                 .contains("\"PANGROVA_E2E_IMAGE_ID=$image_id\" >> \"$GITHUB_ENV\"")
                 .contains("stage-production-regression-native.sh \"$PANGROVA_E2E_IMAGE_ID\"")
-                .contains("-Pnative-runtime,full-regression,coverage verify")
-                .contains("-Dtest=ActivationSmokeE2ETest test")
-                .contains("diff-coverage-check.sh --threshold 60")
+                .contains("-Pnative-runtime,full-regression verify")
+                .contains("-Dtest=\"$suite\" test")
+                .doesNotContain("-Dtest=ActivationSmokeE2ETest test")
+                .doesNotContain("diff-coverage-check.sh")
                 .doesNotContain("pangrova/pangrova:latest");
-        assertThat(production.indexOf("docker buildx bake")).isLessThan(production.indexOf("full-regression,coverage verify"));
+        assertThat(production.indexOf("docker buildx bake")).isLessThan(production.indexOf("full-regression verify"));
         assertThat(production.indexOf("docker image inspect")).isLessThan(production.indexOf("stage-production-regression-native"));
-        assertThat(production.indexOf("stage-production-regression-native")).isLessThan(production.indexOf("full-regression,coverage verify"));
+        assertThat(production.indexOf("stage-production-regression-native")).isLessThan(production.indexOf("full-regression verify"));
         for (var property : List.of("-Dpangrova.e2e.image=\"$PANGROVA_E2E_IMAGE\"",
                 "-Dpangrova.e2e.image-id=\"$PANGROVA_E2E_IMAGE_ID\"")) {
-            assertThat(production.split(java.util.regex.Pattern.quote(property), -1).length - 1).isEqualTo(4);
+            assertThat(production.split(java.util.regex.Pattern.quote(property), -1).length - 1).isEqualTo(2);
         }
     }
 
