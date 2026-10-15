@@ -57,6 +57,13 @@ name or by optimistic client refresh. If the extension is unavailable, keep
 nonempty writes fail closed; reads and supported empty-table operations remain
 independent.
 
+The current local `HadoopCatalog` allowance supports development fixtures. The
+[Iceberg format](https://iceberg.apache.org/spec/#file-system-tables) now
+explicitly calls filesystem-table atomic rename deprecated and unsafe on local
+filesystems and object stores. Its local positive tests do
+not certify a production shared-warehouse commit backend; production catalog
+admission must continue to require a verified metastore pointer CAS.
+
 ## Required evidence before enabling REST writes
 
 1. Real Gravitino-backed, nonempty INSERT/SELECT/DELETE and the corresponding
