@@ -83,6 +83,7 @@ RUN printf '%s\n' 'connect-timeout = 30' 'retry = 6' 'retry-all-errors' \
 RUN GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.version GIT_CONFIG_VALUE_0=HTTP/1.1 \
     PANGROVA_AWS_PREPARE_SCRIPT=/workspace/pangrova-worker-native/bin/prepare-aws-sdk-source.sh \
     PANGROVA_NATIVE_BUILD_PHASE=velox SKIP_DEPS=1 pangrova-worker-native/bin/setup-native-build-env.sh
+COPY pangrova-worker-native/patch_flight_types.py /workspace/pangrova-worker-native/patch_flight_types.py
 RUN PANGROVA_NATIVE_BUILD_PHASE=arrow-flight SKIP_DEPS=1 \
     pangrova-worker-native/bin/setup-native-build-env.sh
 
