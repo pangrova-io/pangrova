@@ -108,8 +108,9 @@ RUN bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
     && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \
     && ./bin/build-lance-ffi.sh'
-RUN apt-get update && apt-get install -y --no-install-recommends libssh-dev \
-    && rm -rf /var/lib/apt/lists/*
+COPY deploy/docker/build-static-curl.sh /workspace/build-static-curl.sh
+RUN bash /workspace/build-static-curl.sh
+ENV PKG_CONFIG_PATH=/opt/pangrova-production/native-deps/lib/pkgconfig
 RUN bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
     && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \
