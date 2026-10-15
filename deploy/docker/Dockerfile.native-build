@@ -96,6 +96,20 @@ RUN set -eu; \
         | sha256sum -c -
 RUN PANGROVA_NATIVE_BUILD_PHASE=arrow-flight SKIP_DEPS=1 \
     pangrova-worker-native/bin/setup-native-build-env.sh
+# CMake consumes this fixed source directory before considering FetchContent's
+# Git clone. Production builds must not depend on a live CRoaring Git checkout.
+RUN set -eu; \
+    archive=/tmp/CRoaring-4.1.7.tar.gz; \
+    curl --http1.1 --proto '=https' --tlsv1.2 -fsSL --retry 6 --retry-all-errors \
+        --connect-timeout 30 --max-time 600 \
+        https://codeload.github.com/RoaringBitmap/CRoaring/tar.gz/refs/tags/v4.1.7 \
+        -o "$archive"; \
+    printf 'ea235796c074c3a8a8c3e5c84bb5f09619723b8e4913cf99cc349f626c193569  %s\n' "$archive" \
+        | sha256sum -c -; \
+    mkdir -p "$PANGROVA_DEPS_PREFIX/src"; \
+    tar -xzf "$archive" -C "$PANGROVA_DEPS_PREFIX/src"; \
+    test -f "$PANGROVA_DEPS_PREFIX/src/CRoaring-4.1.7/CMakeLists.txt"; \
+    rm "$archive"
 
 FROM builder AS native-build
 ENV RUSTUP_TOOLCHAIN=1.98.1
