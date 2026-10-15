@@ -67,7 +67,7 @@ if(VELOX_FOUND AND VELOX_MONO_LIB)
   if(APPLE)
     target_link_options(pangrova_function_export PRIVATE "-Wl,-force_load,${VELOX_MONO_LIB}")
     target_link_libraries(pangrova_function_export PRIVATE "-lc++abi")
-  else()
+  elseif(NOT PANGROVA_PRODUCTION_BUILD)
     target_link_options(pangrova_function_export PRIVATE
       "-Wl,--whole-archive" "${VELOX_MONO_LIB}" "-Wl,--no-whole-archive")
   endif()

@@ -431,7 +431,7 @@ if(PANGROVA_SOURCES)
       # The strip script (bin/strip-velox-optional-deps.sh) removes .o files
       # that reference unavailable libraries (DuckDB, geos, S2, tpch, stemmer,
       # protobuf v5 API, Arrow Flight server, Network.framework, BZ2).
-    else()
+    elseif(NOT PANGROVA_PRODUCTION_BUILD)
       if(VELOX_MONO_LIB)
         target_link_options(pangrova_native PRIVATE
           "-Wl,--whole-archive" "${VELOX_MONO_LIB}" "-Wl,--no-whole-archive"

@@ -76,8 +76,14 @@ message(STATUS "Velox build dir:      ${VELOX_BUILD_DIR}")
 add_library(velox_imported INTERFACE)
 include("${CMAKE_CURRENT_LIST_DIR}/PangrovaAbseil.cmake")
 if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    # The pinned Velox and Folly archives both use F14 SIMD+CRC mode. Apply
+    # the matching code generation to consumers of their inline F14 headers,
+    # without rebuilding unrelated C or third-party targets.
+    target_compile_options(velox_imported INTERFACE -march=armv8-a+crc)
+  endif()
   # The installed Folly and AWS CRT archives refer to one another. GNU ld
-  # must rescan this static dependency closure after force-loading Velox.
+  # must rescan this static dependency closure after extracting Velox members.
   target_link_libraries(velox_imported INTERFACE "-Wl,--start-group")
 endif()
 
@@ -140,11 +146,13 @@ if(_VELOX_MONO_LIB)
   message(STATUS "Velox mono lib: ${_VELOX_MONO_LIB} (stripped=${VELOX_MONO_STRIPPED})")
   set(VELOX_MONO_LIB "${_VELOX_MONO_LIB}" CACHE FILEPATH "" FORCE)
   set(VELOX_MONO_STRIPPED "${VELOX_MONO_STRIPPED}" CACHE BOOL "" FORCE)
-  # NOTE: Do NOT add libvelox.a to velox_imported INTERFACE_LINK_LIBRARIES.
-  # The mono lib is linked via -force_load (macOS) or --whole-archive (Linux)
-  # in CMakeLists.txt. Adding it here would cause it to be linked TWICE:
-  # once via force-load (stripped for tests) and once via normal link (full),
-  # defeating the S3 .o removal for test binaries.
+  # Production Linux keeps the mono archive inside the dependency rescan group.
+  # Every built-in function registrar is referenced explicitly, so archive
+  # extraction retains the actual registry without pulling unrelated Velox
+  # objects into the large JNI binary. Dev builds still force-load below.
+  if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(velox_imported INTERFACE "${_VELOX_MONO_LIB}")
+  endif()
 else()
   message(WARNING "libvelox.a NOT found — Velox symbols will be MISSING.")
 endif()
@@ -385,7 +393,7 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
             "-framework Network"
             "-lcurl"
           )
-        else()
+        elseif(NOT PANGROVA_PRODUCTION_BUILD)
           target_link_libraries(velox_imported INTERFACE "-lcurl" "-lssl" "-lcrypto")
         endif()
         list(LENGTH _AWS_LIBS _N_AWS)
@@ -403,7 +411,7 @@ if(NOT _AWS_LIBS)
       if(APPLE)
         target_link_libraries(velox_imported INTERFACE
           "-framework Security" "-framework CoreFoundation" "-lcurl")
-      else()
+      elseif(NOT PANGROVA_PRODUCTION_BUILD)
         target_link_libraries(velox_imported INTERFACE "-lcurl" "-lssl" "-lcrypto")
       endif()
       list(LENGTH _AWS_LIBS _N_AWS)
@@ -432,10 +440,24 @@ if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     endif()
     target_link_libraries(velox_imported INTERFACE "${_production_archive}")
   endforeach()
-  # Folly's stack trace support needs both the generic and target-architecture
-  # libunwind archives. Resolve their static variants from this toolchain.
-  find_library(_PRODUCTION_UNWIND NAMES unwind REQUIRED)
-  find_library(_PRODUCTION_UNWIND_ARCH NAMES "unwind-${CMAKE_SYSTEM_PROCESSOR}" REQUIRED)
+  # Arrow/Parquet imports place these archives before Velox on the final link
+  # line. Velox's reader objects introduce additional Thrift and Arrow symbols,
+  # so add the exact matching archives inside the rescan group as well.
+  foreach(_production_archive
+      "${PANGROVA_DEPS_PREFIX}/lib/libarrow.a"
+      "${PANGROVA_DEPS_PREFIX}/lib/libarrow_bundled_dependencies.a"
+      "${_production_lib_dir}/libthrift.a")
+    if(NOT EXISTS "${_production_archive}")
+      message(FATAL_ERROR "Linux production dependency is missing: ${_production_archive}")
+    endif()
+    target_link_libraries(velox_imported INTERFACE "${_production_archive}")
+  endforeach()
+  # Ubuntu's static libunwind contains non-PIC LTO objects. Require the
+  # verified PIC archives built into this production dependency prefix.
+  find_library(_PRODUCTION_UNWIND NAMES unwind
+    PATHS "${PANGROVA_DEPS_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
+  find_library(_PRODUCTION_UNWIND_ARCH NAMES "unwind-${CMAKE_SYSTEM_PROCESSOR}"
+    PATHS "${PANGROVA_DEPS_PREFIX}/lib" NO_DEFAULT_PATH REQUIRED)
   target_link_libraries(velox_imported INTERFACE
     "${_PRODUCTION_UNWIND}" "${_PRODUCTION_UNWIND_ARCH}")
 endif()

@@ -117,6 +117,8 @@ RUN bash -c 'source /opt/pangrova-production/env.sh \
     && ./bin/build-lance-ffi.sh'
 COPY deploy/docker/build-static-curl.sh /workspace/build-static-curl.sh
 RUN bash /workspace/build-static-curl.sh
+COPY deploy/docker/build-static-libunwind.sh /workspace/build-static-libunwind.sh
+RUN bash /workspace/build-static-libunwind.sh
 ENV PKG_CONFIG_PATH=/opt/pangrova-production/native-deps/lib/pkgconfig
 COPY pangrova-worker-native/ /workspace/pangrova-worker-native/
 COPY pangrova-protocol/ /workspace/pangrova-protocol/
