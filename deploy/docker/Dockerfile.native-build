@@ -107,7 +107,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ripgrep \
 RUN bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
     && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \
-    && ./bin/build-lance-ffi.sh \
+    && ./bin/build-lance-ffi.sh'
+RUN bash -c 'source /opt/pangrova-production/env.sh \
+    && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
+    && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \
     && cmake --preset dev-release -DPANGROVA_BUILD_TESTS=OFF \
         -DPANGROVA_PRODUCTION_BUILD=ON \
         -DArrow_DIR="$PANGROVA_DEPS_PREFIX/lib/cmake/Arrow" \

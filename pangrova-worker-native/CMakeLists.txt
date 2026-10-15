@@ -162,12 +162,12 @@ if(APPLE AND NOT OPENSSL_ROOT_DIR AND
 endif()
 find_package(OpenSSL REQUIRED)
 
-# FindJNI probes the JDK's shared JVM/AWT libraries to discover headers. They
-# are not link dependencies of Pangrova; only JNI_INCLUDE_DIRS is consumed.
+# Only the JNI headers are consumed. Request the headless JVM component so
+# FindJNI does not also require the unrelated AWT library by default.
 if(PANGROVA_PRODUCTION_BUILD)
   set(CMAKE_FIND_LIBRARY_SUFFIXES "${_PANGROVA_SYSTEM_LIBRARY_SUFFIXES}")
 endif()
-find_package(JNI REQUIRED)
+find_package(JNI REQUIRED COMPONENTS JVM)
 if(PANGROVA_PRODUCTION_BUILD)
   set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 endif()
