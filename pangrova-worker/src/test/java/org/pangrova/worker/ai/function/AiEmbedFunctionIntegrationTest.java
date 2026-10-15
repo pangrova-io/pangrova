@@ -9,6 +9,7 @@ import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
 import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.worker.ai.OllamaIntegrationTestModels;
 import org.pangrova.worker.ai.context.AiExecutionContext;
 import org.pangrova.worker.ai.context.AiProviderCallContext;
 import org.pangrova.worker.ai.context.BoundAiInvocation;
@@ -42,9 +43,9 @@ class AiEmbedFunctionIntegrationTest extends ContainerTestBase {
                 .withExposedPorts(11434)
                 .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200)
                         .withStartupTimeout(Duration.ofMinutes(3)));
+        OllamaIntegrationTestModels.mountCache(ollama);
         ollama.start();
-        var pull = ollama.execInContainer("ollama", "pull", MODEL);
-        assertThat(pull.getExitCode()).as("Real model pull: %s", pull.getStderr()).isZero();
+        OllamaIntegrationTestModels.requireModel(ollama, MODEL);
         assertThat(embed(provider(384), EmbeddingPurpose.RAW, List.of("ready")).get(0)).hasSize(384);
     }
 

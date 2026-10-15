@@ -16,6 +16,7 @@ import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
 import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.spi.ai.inference.GenerationParameters;
 import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.worker.ai.OllamaIntegrationTestModels;
 import org.pangrova.worker.ai.provider.GovernedEmbeddingProvider;
 import org.pangrova.worker.ai.provider.GovernedInferenceProvider;
 import org.testcontainers.containers.GenericContainer;
@@ -44,11 +45,11 @@ class GovernedProviderIntegrationTest extends ContainerTestBase {
                 .withExposedPorts(11434)
                 .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200)
                         .withStartupTimeout(Duration.ofMinutes(3)));
+        OllamaIntegrationTestModels.mountCache(ollama);
         ollama.start();
         for (String model : List.of(GovernedAiTestModels.EMBEDDING_MODEL,
                 GovernedAiTestModels.INFERENCE_MODEL)) {
-            var pull = ollama.execInContainer("ollama", "pull", model);
-            assertThat(pull.getExitCode()).as("Actual model pull: %s", pull.getStderr()).isZero();
+            OllamaIntegrationTestModels.requireModel(ollama, model);
         }
     }
 

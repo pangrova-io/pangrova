@@ -11,6 +11,7 @@ import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
 import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.worker.ai.OllamaIntegrationTestModels;
 import org.pangrova.worker.ai.invocation.AiTransportTestAdmission;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -46,9 +47,9 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
                 .withExposedPorts(11434)
                 .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200)
                         .withStartupTimeout(Duration.ofMinutes(3)));
+        OllamaIntegrationTestModels.mountCache(ollama);
         ollama.start();
-        var pulled = ollama.execInContainer("ollama", "pull", MODEL);
-        assertThat(pulled.getExitCode()).as("Actual model pull: %s", pulled.getStderr()).isZero();
+        OllamaIntegrationTestModels.requireModel(ollama, MODEL);
         toxiproxy = new ToxiproxyContainer(DockerImageName.parse("ghcr.io/shopify/toxiproxy:2.12.0"))
                 .withNetwork(network);
         toxiproxy.start();
