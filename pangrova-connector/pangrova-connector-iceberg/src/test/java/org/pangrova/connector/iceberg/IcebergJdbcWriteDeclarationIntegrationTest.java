@@ -37,6 +37,7 @@ import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.DeleteFilter;
 import org.pangrova.spi.connector.data.type.ArrayType;
 import org.pangrova.spi.connector.data.type.MapType;
 import org.pangrova.spi.connector.data.type.PangrovaType;
@@ -292,6 +293,18 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
         assertThat(current.snapshots()).hasSize(2);
         assertThat(current.currentSnapshot().summary().get("total-records")).isEqualTo("2");
         assertThat(current.currentSnapshot().summary()).containsAllEntriesOf(handle.declarationProperties());
+    }
+
+    @Test
+    void deleteByFilterPublishesThroughJdbcDeclarationFence() throws IOException {
+        table.newAppend().appendFile(file(table, 1)).commit();
+        var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "events"));
+        long snapshotBefore = table.currentSnapshot().snapshotId();
+
+        metadata.deleteByFilter(SESSION, handle, new DeleteFilter.All());
+
+        Table current = second.loadTable(ID);
+        assertThat(current.currentSnapshot().snapshotId()).isNotEqualTo(snapshotBefore);
     }
 
     @Test

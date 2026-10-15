@@ -2,6 +2,7 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.spi.connector.index.CommitEventType;
 import org.pangrova.spi.connector.metadata.DeleteFilter;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
@@ -136,15 +137,31 @@ final class IcebergWriteCommitter {
     void deleteByFilter(
             Table icebergTable, IcebergTableHandle handle,
             DeleteFilter filter, String tenantId) {
+        IcebergDeclarationCommit.requireSupported(catalog, icebergTable);
+        IcebergOutputTableHandle declaration = (IcebergOutputTableHandle)
+                IcebergOutputHandles.forDelete(handle, icebergTable);
+        List<String> changed = new ArrayList<>();
+        if (!handle.tableLocation().equals(declaration.tableLocation())) changed.add("location");
+        if (!handle.schemaJson().equals(declaration.schemaJson())) changed.add("schema");
+        if (!handle.partitionSpecJson().equals(declaration.partitionSpecJson())) changed.add("partition spec");
+        if (handle.formatVersion() != declaration.formatVersion()) changed.add("format version");
+        if (!IcebergDeclarationProperties.capture(handle.properties())
+                .equals(declaration.declarationProperties())) changed.add("properties");
+        if (!changed.isEmpty()) {
+            throw new IllegalStateException("Iceberg write declaration changed since allocation: "
+                    + handle.schemaName() + "." + handle.tableName() + " (" + String.join(", ", changed) + ")");
+        }
+        Table fencedTable = IcebergDeclarationCommit.bind(catalog, icebergTable, declaration);
         Expression icebergExpr = IcebergDeleteFilterTranslator.toIcebergExpression(
-                filter, icebergTable.schema());
+                filter, fencedTable.schema());
         String tableId = handle.schemaName() + "." + handle.tableName();
         try {
             commitExecutor.execute(() ->
-                    commitExecutor.retry(() ->
-                            icebergTable.newDelete()
-                                    .deleteFromRowFilter(icebergExpr)
-                                    .commit()), tableId);
+                    commitExecutor.retry(() -> {
+                        var delete = fencedTable.newDelete().deleteFromRowFilter(icebergExpr);
+                        IcebergSnapshotDeclarations.apply(delete, declaration);
+                        delete.commit();
+                    }), tableId);
         } catch (org.apache.iceberg.exceptions.ValidationException e) {
             throw new UnsupportedOperationException(
                     "Iceberg deleteFromRowFilter cannot handle partial-file filter: " + e.getMessage(), e);

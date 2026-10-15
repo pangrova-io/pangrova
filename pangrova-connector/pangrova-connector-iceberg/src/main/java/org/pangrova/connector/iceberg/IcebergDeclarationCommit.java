@@ -4,6 +4,7 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.hadoop.HadoopTableOperations;
 import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -23,7 +24,9 @@ final class IcebergDeclarationCommit {
         // The exact SDK JDBC catalog creates its own pointer-CAS operations;
         // accepting a caller-supplied TableOperations implementation is unsafe.
         if (catalog.getClass() == JdbcCatalog.class) return;
-        if (sdkTable.operations().getClass() == HadoopTableOperations.class && local(table.location())) return;
+        if (catalog.getClass() == HadoopCatalog.class
+                && sdkTable.operations().getClass() == HadoopTableOperations.class
+                && local(table.location())) return;
         throw unsupported("whole-metadata CAS has not been verified for this catalog");
     }
 

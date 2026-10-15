@@ -154,6 +154,14 @@ fence has only been verified with atomic whole-metadata pointer comparison on
 JDBC and local Hadoop catalogs. REST table creation and metadata access remain
 available, but `INSERT` and other writes require a catalog-specific atomic
 declaration fence before they can be enabled safely.
+This includes filtered `DELETE`: the connector checks the catalog capability
+before publication and fences changes to the selected schema, partition spec,
+location, format version, and generated/vector declaration properties. An
+accepted filtered `DELETE` records the canonical declaration in its snapshot
+summary for historical reads without copying unrelated table properties. An
+Iceberg REST server backed by JDBC does not expose the backing JDBC metadata
+pointer comparison through the standard REST commit requirements, so the
+connector still rejects REST writes through that server.
 
 #### Encryption (both modes)
 

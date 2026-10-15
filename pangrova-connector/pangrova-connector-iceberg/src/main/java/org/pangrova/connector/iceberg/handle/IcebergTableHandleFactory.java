@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg.handle;
 
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
@@ -197,6 +198,9 @@ public final class IcebergTableHandleFactory {
      * Defaults to version 1 if not explicitly set.
      */
     private static int extractFormatVersion(Table table) {
+        if (table instanceof HasTableOperations sdkTable) {
+            return sdkTable.operations().current().formatVersion();
+        }
         String versionStr = table.properties().get("format-version");
         if (versionStr != null) {
             try {
