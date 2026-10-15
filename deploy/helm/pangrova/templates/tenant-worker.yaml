@@ -46,6 +46,8 @@ spec:
         component: worker
         tenant: {{ .name }}
     spec:
+      securityContext:
+        fsGroup: {{ $root.Values.worker.fsGroup }}
       containers:
         - name: worker
           image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag }}"

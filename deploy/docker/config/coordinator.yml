@@ -15,4 +15,8 @@ metadata:
   jdbc-username: "${PANGROVA_DB_USERNAME}"
   jdbc-password: "${PANGROVA_DB_PASSWORD}"
 security:
-  enabled: false
+  # Explicit development-only bypass still instantiates the internal-service
+  # authentication filter required for Worker control.
+  enabled: true
+  auth:
+    type: NOOP

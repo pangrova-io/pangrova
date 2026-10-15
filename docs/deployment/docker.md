@@ -22,7 +22,9 @@ Compose starts PostgreSQL, one Coordinator, and one Worker with a small developm
 configuration mounted read-only from `deploy/docker/config/`. The Coordinator is
 available at `http://localhost:8080`; the Worker registers after Coordinator
 HTTP startup. The password and internal secret must be supplied in `.env` and
-must not be committed. SQL readiness remains 503 until a catalog is created.
+must not be committed. This profile explicitly uses `security.auth.type: NOOP`,
+which accepts unauthenticated clients; keep it isolated from untrusted networks.
+SQL readiness remains 503 until a catalog is created.
 
 To stop:
 

@@ -19,6 +19,8 @@ spec:
         app: pangrova
         component: worker
     spec:
+      securityContext:
+        fsGroup: {{ .Values.worker.fsGroup }}
       containers:
         - name: worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

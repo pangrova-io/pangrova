@@ -10,6 +10,13 @@
 
 # ---- Global ----
 namespace: pangrova
+# Helm --create-namespace or an operator owns the release namespace. Enable
+# this only when the release should own and delete that Namespace itself.
+manageNamespace: false
+# Fail closed: the embedded NOOP authenticator is usable only when an operator
+# explicitly opts into the development profile. Production values must supply
+# config.coordinator with OAUTH2 or LDAP authentication.
+developmentMode: false
 
 # ---- Image ----
 image:
@@ -24,6 +31,16 @@ image:
 internalAuth:
   existingSecret: pangrova-internal-auth
 
+# External PostgreSQL is required. The service must resolve in the release
+# namespace and the existing Secret must contain username and password keys.
+# Create the database before installing the chart; the Coordinator migrates its
+# own schema at startup. Override these values for your PostgreSQL endpoint.
+metadata:
+  host: pangrova-postgresql
+  port: 5432
+  database: pangrova_meta
+  existingSecret: pangrova-metadata
+
 # ---- Service Account ----
 serviceAccount:
   create: true
@@ -32,8 +49,8 @@ serviceAccount:
 
 # ---- Coordinator ----
 coordinator:
-  # The default in-memory, non-HA configuration has one Coordinator.
-  # Multiple replicas require a shared JDBC state store and HA configuration.
+  # A single Coordinator is the only supported default. Multiple replicas
+  # require a separately configured and verified HA topology.
   replicas: 1
 
   resources:
@@ -49,7 +66,8 @@ coordinator:
     port: 8080
     # annotations: {}
 
-  javaOpts: "-Xms2g -Xmx8g"
+  # Leave container memory for HTTP, Flight, JNI and other native allocations.
+  javaOpts: "-Xms1g -Xmx4g"
 
   # Pod-level settings
   nodeSelector: {}
@@ -57,6 +75,8 @@ coordinator:
   affinity: {}
   podAnnotations: {}
   podLabels: {}
+  # The image runs as uid/gid 999; mounted data and log volumes need write access.
+  fsGroup: 999
 
   # Readiness/liveness probe tuning
   readinessProbe:
@@ -93,6 +113,7 @@ worker:
   affinity: {}
   podAnnotations: {}
   podLabels: {}
+  fsGroup: 999
 
   # Readiness/liveness probe tuning
   readinessProbe:
@@ -123,13 +144,20 @@ config:
         heartbeat-timeout: "30s"
         max-retry: 3
     state-store:
-      type: IN_MEMORY
+      type: JDBC
     metadata:
       enabled: true
+      jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT}/${PANGROVA_DB_NAME}"
+      jdbc-username: "${PANGROVA_DB_USERNAME}"
+      jdbc-password: "${PANGROVA_DB_PASSWORD}"
     observability:
       enabled: true
     security:
-      enabled: false
+      # This embedded development profile requires developmentMode=true at Helm
+      # render time. The Worker-control auth filter still gets instantiated.
+      enabled: true
+      auth:
+        type: NOOP
   worker: |
     worker:
       host: "0.0.0.0"
