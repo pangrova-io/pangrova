@@ -44,13 +44,15 @@ public interface TableWriter extends AutoCloseable {
      *
      * <p>Used for idempotent recovery: the coordinator embeds a checkpoint in commit
      * properties, and on recovery reads it back to determine if the write was already
-     * committed. Implementations that do not support commit properties return empty.</p>
+     * committed. Implementations that cannot verify commit properties must fail
+     * explicitly; an empty result means the property was verified absent.</p>
      *
      * @param tableName fully qualified table name
      * @param key       the property key to read
-     * @return the property value, or empty if not present or not supported
+     * @return the property value, or empty if verified absent
+     * @throws UnsupportedOperationException when commit properties cannot be read
      */
     default Optional<String> readCommitProperty(String tableName, String key) {
-        return Optional.empty();
+        throw new UnsupportedOperationException("Commit property reads are not supported by this table writer");
     }
 }

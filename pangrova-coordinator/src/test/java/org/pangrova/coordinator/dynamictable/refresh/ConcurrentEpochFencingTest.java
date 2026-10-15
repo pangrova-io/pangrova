@@ -219,6 +219,11 @@ class ConcurrentEpochFencingTest {
         }
 
         @Override
+        public Optional<String> readCommitProperty(String tableName, String key) {
+            return Optional.empty();
+        }
+
+        @Override
         public TableFormat format() { return TableFormat.ICEBERG; }
 
         @Override
@@ -247,6 +252,11 @@ class ConcurrentEpochFencingTest {
                 throw new RuntimeException("Interrupted waiting for latch", e);
             }
             return new WriteResult(tableName, rowCount, 1, 0, 0, Instant.now());
+        }
+
+        @Override
+        public Optional<String> readCommitProperty(String tableName, String key) {
+            return Optional.empty();
         }
 
         @Override

@@ -626,6 +626,11 @@ class RefreshCoordinatorTest {
         }
 
         @Override
+        public Optional<String> readCommitProperty(String tableName, String key) {
+            return Optional.empty();
+        }
+
+        @Override
         public TableFormat format() {
             return TableFormat.ICEBERG;
         }
@@ -641,6 +646,11 @@ class RefreshCoordinatorTest {
                 String tableName, List<WriteRecord> records,
                 WriteMode writeMode, WriteContext context) {
             throw new RuntimeException("write I/O error");
+        }
+
+        @Override
+        public Optional<String> readCommitProperty(String tableName, String key) {
+            return Optional.empty();
         }
 
         @Override
@@ -803,6 +813,11 @@ class RefreshCoordinatorTest {
             writeCalled.set(true);
             return new org.pangrova.spi.connector.data.write.model.WriteResult(
                     tableName, records.size(), 1, 0, 0, Instant.now());
+        }
+
+        @Override
+        public Optional<String> readCommitProperty(String tableName, String key) {
+            return Optional.empty();
         }
 
         @Override

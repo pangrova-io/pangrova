@@ -609,6 +609,11 @@ class PreservationPropertyTest {
         }
 
         @Override
+        public Optional<String> readCommitProperty(String tableName, String key) {
+            return Optional.empty();
+        }
+
+        @Override
         public TableFormat format() { return TableFormat.ICEBERG; }
 
         @Override

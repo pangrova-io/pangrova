@@ -35,7 +35,7 @@
 | F04 | 历史 native 路径忽略 DispatchResult 并构造零行成功；现已要求终态 NativeRefreshOutcome、核对 checkpoint 与实际行数/字节数 | 消除了“派发即成功”的接口漏洞；尚须真实目标提交 receipt、原子 generation 发布和独立 E2E |
 | F05 | 历史 NativeRefreshOutcome 未被消费；现 dispatch 接口及调用方均验证终态 | 生产没有该函数的真实装配，接口通过不代表 Worker 完成或 Catalog 提交已验证 |
 | F06 | DynamicTableWriter 把输出转成 INSERT，统一 WriteMode.APPEND | FULL/UPDATE/DELETE/group replace 语义不成立；迁出 JVM 数据路径 |
-| F07 | Checkpoint 幂等只比 target 最近属性；读取失败现拒绝写；type 固定 SNAPSHOT | 防止读取失败时盲写，但仍无完整批次身份，历史 replay 不安全；使用 durable attempt/receipt |
+| F07 | Checkpoint 幂等只比 target 最近属性；读取失败或 TableWriter 不支持读取现拒绝写；type 固定 SNAPSHOT | 防止无法验证时盲写，但仍无完整批次身份，历史 replay 不安全；使用 durable attempt/receipt |
 | F08 | ChangeResult.CdcBatch checkpoint 是最后事件 eventTime 字符串 | 无 partition/source 恢复坐标；改为类型化 opaque position vector |
 | F09 | tryUseIncrementalSplits 仅检查并打日志，未把增量 split 绑定执行；使用 dtName | 不能称 O(delta)；能力对象和 range 必须由 source binding 提供 |
 | F10 | 增量 merge 异常后返回原 delta，并称 fallback_to_full_result | 这没有重跑 full；改为显式失败或重新编译 full attempt |

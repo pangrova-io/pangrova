@@ -183,6 +183,40 @@ class RefreshAtomicCheckpointTest {
                 .isEqualTo("100");
     }
 
+    @Test
+    void refresh_unsupportedCommitPropertyRead_rejectsWriteAndKeepsCheckpoint() {
+        DynamicTableState state = activeState("unsupported_checkpoint_dt");
+        stateStore.saveState(state);
+
+        var writeCounter = new AtomicInteger();
+        TableWriter unsupportedWriter = new TableWriter() {
+            @Override
+            public WriteResult write(String tableName, List<WriteRecord> records,
+                                     WriteMode writeMode, WriteContext context) {
+                writeCounter.incrementAndGet();
+                return new WriteResult(tableName, records.size(), 1, 0, 0, Instant.now());
+            }
+
+            @Override
+            public TableFormat format() {
+                return TableFormat.ICEBERG;
+            }
+
+            @Override
+            public void close() {}
+        };
+        var coordinator = buildCoordinator(
+                snapshotPipeline(incrementalChanges(), evaluationWithRows(2)),
+                new DynamicTableWriter(unsupportedWriter, noOpCache()));
+
+        RefreshResult result = coordinator.executeRefresh(state, TriggerType.SCHEDULED);
+
+        assertThat(result.status()).isEqualTo(RefreshStatus.FAILURE);
+        assertThat(writeCounter.get()).isZero();
+        assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint())
+                .isEqualTo("100");
+    }
+
     // ── Helpers ────────────────────────────────────────────────────
 
     private RefreshCoordinator buildCoordinator(RefreshPipeline pipeline,
@@ -262,6 +296,11 @@ class RefreshAtomicCheckpointTest {
                                  WriteMode writeMode, WriteContext context) {
             lastCommitProperties = context.commitProperties();
             return new WriteResult(tableName, records.size(), 1, 0, 0, Instant.now());
+        }
+
+        @Override
+        public Optional<String> readCommitProperty(String tableName, String key) {
+            return Optional.empty();
         }
 
         @Override
