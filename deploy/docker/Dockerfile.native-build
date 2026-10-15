@@ -111,11 +111,14 @@ RUN bash -c 'source /opt/pangrova-production/env.sh \
 COPY deploy/docker/build-static-curl.sh /workspace/build-static-curl.sh
 RUN bash /workspace/build-static-curl.sh
 ENV PKG_CONFIG_PATH=/opt/pangrova-production/native-deps/lib/pkgconfig
-RUN bash -c 'source /opt/pangrova-production/env.sh \
+RUN --mount=type=cache,id=pangrova-native-ccache-${TARGETARCH},target=/root/.cache/ccache,sharing=locked \
+    CCACHE_MAXSIZE=3G bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
     && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \
     && cmake --preset dev-release -DPANGROVA_BUILD_TESTS=OFF \
         -DPANGROVA_PRODUCTION_BUILD=ON \
+        -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+        -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
         -DArrow_DIR="$PANGROVA_DEPS_PREFIX/lib/cmake/Arrow" \
         -DParquet_DIR="$PANGROVA_DEPS_PREFIX/lib/cmake/Parquet" \
         -DARROW_FLIGHT_HOME="$PANGROVA_DEPS_PREFIX" \

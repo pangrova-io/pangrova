@@ -75,6 +75,11 @@ message(STATUS "Velox build dir:      ${VELOX_BUILD_DIR}")
 # --- Create velox_imported INTERFACE target ---
 add_library(velox_imported INTERFACE)
 include("${CMAKE_CURRENT_LIST_DIR}/PangrovaAbseil.cmake")
+if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # The installed Folly and AWS CRT archives refer to one another. GNU ld
+  # must rescan this static dependency closure after force-loading Velox.
+  target_link_libraries(velox_imported INTERFACE "-Wl,--start-group")
+endif()
 
 # 1) Velox headers
 target_include_directories(velox_imported SYSTEM INTERFACE "${VELOX_INCLUDE_DIR}")
