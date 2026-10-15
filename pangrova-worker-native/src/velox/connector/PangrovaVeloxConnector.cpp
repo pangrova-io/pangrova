@@ -124,6 +124,10 @@ facebook::velox::dwio::common::FileFormat resolveFileFormat(
       throw pangrova::executor::NativeUnsupportedFeatureException(
           "file_format:metadata_directory_via_dwio", "metadata_directory",
           "Directory metadata uses the Native branch reader, not Velox DWIO");
+    case split::FileFormatType::METADATA_AVRO:
+      throw pangrova::executor::NativeUnsupportedFeatureException(
+          "file_format:metadata_avro_via_dwio", "metadata_avro",
+          "Iceberg manifest metadata uses the Native Avro reader, not Velox DWIO");
   }
   throw pangrova::executor::NativeUnsupportedFeatureException(
       "file_format:unknown", "unknown", "");
@@ -222,6 +226,7 @@ void PangrovaVeloxDataSource::addSplit(
   // Reset merge reader from any previous split.
   merge_reader_.reset();
   metadata_reader_.reset();
+  iceberg_manifest_reader_.reset();
   paimon_snapshot_reader_.reset();
   paimon_branch_reader_.reset();
   lance_reader_.reset();
@@ -235,7 +240,19 @@ void PangrovaVeloxDataSource::addSplit(
   batch_calibrated_ = false;
 
   if (splitConfig.system_table.has_value()) {
-    if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
+    if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_MANIFESTS) {
+      if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
+        throw std::runtime_error("Iceberg manifests split requires metadata Avro format");
+      }
+      iceberg_manifest_reader_ = std::make_unique<IcebergManifestListReader>(
+          splitConfig.file_path, splitConfig.length,
+          splitConfig.system_table_snapshot_id,
+          splitConfig.system_table_iceberg_snapshot_sequence_number,
+          splitConfig.system_table_iceberg_format_version,
+          splitConfig.system_table_object_sha256,
+          splitConfig.system_table_iceberg_partition_specs,
+          output_type_, pool_);
+    } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_DIRECTORY) {
         throw std::runtime_error("Paimon branches split requires directory format");
       }
@@ -1003,6 +1020,17 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     checkCancelled();
     if (!rowVector) {
       metadata_reader_.reset();
+      return facebook::velox::RowVectorPtr(nullptr);
+    }
+    completed_rows_ += rowVector->size();
+    completed_bytes_ += rowVector->estimateFlatSize();
+    return rowVector;
+  }
+  if (iceberg_manifest_reader_) {
+    auto rowVector = iceberg_manifest_reader_->next(batchSize);
+    checkCancelled();
+    if (!rowVector) {
+      iceberg_manifest_reader_.reset();
       return facebook::velox::RowVectorPtr(nullptr);
     }
     completed_rows_ += rowVector->size();

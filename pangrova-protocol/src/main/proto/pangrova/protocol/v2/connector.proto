@@ -17,6 +17,8 @@ enum FileFormat {
   FILE_FORMAT_METADATA_JSON = 4;
   // A local directory metadata read unit; no file byte range is implied.
   FILE_FORMAT_METADATA_DIRECTORY = 5;
+  // One immutable Iceberg manifest-list Avro object-container file.
+  FILE_FORMAT_METADATA_AVRO = 6;
 }
 
 message ColumnMapping {
@@ -268,6 +270,17 @@ message DeletionVectorReference {
   uint64 physical_rows = 5;
 }
 
+// A partition-result type and transform frozen at the selected Iceberg snapshot.
+message IcebergManifestPartitionField {
+  string transform = 1;
+  string result_type = 2;
+}
+
+message IcebergManifestPartitionSpec {
+  int32 spec_id = 1;
+  repeated IcebergManifestPartitionField fields = 2;
+}
+
 // A read-only metadata table is a scan source in the same DataSplit envelope
 // as every other connector source. The opaque_location identifies the pinned
 // metadata source (object or directory); no rows are carried through the Coordinator.
@@ -281,12 +294,13 @@ message SystemTableSplitDetail {
     PAIMON_OPTIONS = 5;
     PAIMON_SCHEMAS = 6;
     PAIMON_BRANCHES = 7;
+    ICEBERG_MANIFESTS = 8;
   }
   Kind kind = 1;
-  // Positive only for a Paimon snapshot object; the Native reader verifies it
-  // against the JSON content before emitting a row.
+  // Positive for a Paimon snapshot object or selected Iceberg manifest-list
+  // snapshot; the Native reader verifies it before emitting rows.
   uint64 snapshot_id = 2;
-  // SHA-256 of the exact pinned Paimon metadata JSON bytes.
+  // SHA-256 of exact pinned Paimon metadata JSON or Iceberg Avro bytes.
   bytes object_sha256 = 3;
   // Tag name pinned by the Paimon connector; nonempty only for PAIMON_TAGS.
   string tag_name = 4;
@@ -302,6 +316,11 @@ message SystemTableSplitDetail {
   // Zone offset at this exact mtime, frozen from the Paimon SDK JVM default zone.
   // Native applies it only after stat verification to reproduce TIMESTAMP(3).
   int32 directory_zone_offset_seconds = 10;
+  // Frozen Iceberg partition spec result types for $manifests bound rendering.
+  repeated IcebergManifestPartitionSpec iceberg_partition_specs = 11;
+  // Iceberg v2/v3 only. v1 without a list and v4 are rejected at binding.
+  int32 iceberg_format_version = 12;
+  uint64 iceberg_snapshot_sequence_number = 13;
 }
 
 // Immutable identity of the exact catalog deployment authorized by the

@@ -15,6 +15,7 @@ enum class FileFormatType : uint8_t {
   LANCE = 2,
   METADATA_JSON = 3,
   METADATA_DIRECTORY = 4,
+  METADATA_AVRO = 5,
 };
 
 // Convert FileFormatType to string for logging/error messages.
@@ -25,6 +26,7 @@ inline const char* fileFormatName(FileFormatType fmt) {
     case FileFormatType::LANCE: return "lance";
     case FileFormatType::METADATA_JSON: return "metadata_json";
     case FileFormatType::METADATA_DIRECTORY: return "metadata_directory";
+    case FileFormatType::METADATA_AVRO: return "metadata_avro";
   }
   return "parquet";
 }
@@ -61,6 +63,17 @@ enum class SystemTableKind : uint8_t {
   PAIMON_OPTIONS,
   PAIMON_SCHEMAS,
   PAIMON_BRANCHES,
+  ICEBERG_MANIFESTS,
+};
+
+struct IcebergManifestPartitionField {
+  std::string transform;
+  std::string result_type;
+};
+
+struct IcebergManifestPartitionSpec {
+  int32_t spec_id = 0;
+  std::vector<IcebergManifestPartitionField> fields;
 };
 
 struct ColumnMappingConfig {
@@ -155,6 +168,9 @@ struct SplitConfig {
   uint64_t system_table_directory_device = 0;
   uint64_t system_table_directory_inode = 0;
   int32_t system_table_directory_zone_offset_seconds = 0;
+  int32_t system_table_iceberg_format_version = 0;
+  uint64_t system_table_iceberg_snapshot_sequence_number = 0;
+  std::vector<IcebergManifestPartitionSpec> system_table_iceberg_partition_specs;
 
   // Schema evolution
   std::vector<ColumnMappingConfig> column_mappings;

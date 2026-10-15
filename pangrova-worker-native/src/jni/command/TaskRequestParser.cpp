@@ -422,6 +422,8 @@ split::FileFormatType parseFileFormat(proto::FileFormat format) {
       return split::FileFormatType::METADATA_JSON;
     case proto::FILE_FORMAT_METADATA_DIRECTORY:
       return split::FileFormatType::METADATA_DIRECTORY;
+    case proto::FILE_FORMAT_METADATA_AVRO:
+      return split::FileFormatType::METADATA_AVRO;
     case proto::FILE_FORMAT_UNSPECIFIED:
     default:
       throw std::runtime_error("FileSplitDetail requires a supported file format");
@@ -659,9 +661,12 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
   if (detail.has_system_table()) {
     const bool directory = detail.system_table().kind() ==
         proto::SystemTableSplitDetail::PAIMON_BRANCHES;
+    const bool avro = detail.system_table().kind() ==
+        proto::SystemTableSplitDetail::ICEBERG_MANIFESTS;
     if ((directory && (config.file_format != split::FileFormatType::METADATA_DIRECTORY ||
             split.start_offset() != 0 || split.length() != 0)) ||
-        (!directory && (config.file_format != split::FileFormatType::METADATA_JSON ||
+        (!directory && (config.file_format != (avro
+                ? split::FileFormatType::METADATA_AVRO : split::FileFormatType::METADATA_JSON) ||
             split.start_offset() != 0 || split.length() == 0))) {
       throw std::runtime_error(
           "System table split requires a pinned source matching its read unit");
@@ -672,6 +677,11 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         detail.system_table().directory_inode() != 0 ||
         detail.system_table().directory_zone_offset_seconds() != 0)) {
       throw std::runtime_error("Non-branch system table has directory identity");
+    }
+    if (!avro && (detail.system_table().iceberg_partition_specs_size() != 0 ||
+        detail.system_table().iceberg_format_version() != 0 ||
+        detail.system_table().iceberg_snapshot_sequence_number() != 0)) {
+      throw std::runtime_error("Non-Iceberg manifests split has manifest identity");
     }
     switch (detail.system_table().kind()) {
       case proto::SystemTableSplitDetail::ICEBERG_SNAPSHOTS:
@@ -694,6 +704,45 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         }
         config.system_table = split::SystemTableKind::ICEBERG_HISTORY;
         break;
+      case proto::SystemTableSplitDetail::ICEBERG_MANIFESTS:
+      {
+        const auto& system = detail.system_table();
+        if (split.connector_id() != "iceberg" ||
+            !split.source_id().ends_with("$manifests") ||
+            split.source_snapshot() != split.opaque_location() ||
+            split.data_object_id() != split.opaque_location() ||
+            split.partition_values_size() != 0 ||
+            system.snapshot_id() == 0 ||
+            system.object_sha256().size() != 32 ||
+            (system.iceberg_format_version() != 2 && system.iceberg_format_version() != 3) ||
+            !system.tag_name().empty() || system.schema_id() != 0) {
+          throw std::runtime_error("Iceberg manifests split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::ICEBERG_MANIFESTS;
+        config.system_table_snapshot_id = system.snapshot_id();
+        config.system_table_object_sha256 = system.object_sha256();
+        config.system_table_iceberg_format_version = system.iceberg_format_version();
+        config.system_table_iceberg_snapshot_sequence_number =
+            system.iceberg_snapshot_sequence_number();
+        std::unordered_set<int32_t> specIds;
+        for (const auto& spec : system.iceberg_partition_specs()) {
+          if (spec.spec_id() < 0 || !specIds.insert(spec.spec_id()).second ||
+              spec.fields_size() > 1024) {
+            throw std::runtime_error("Invalid Iceberg manifests partition spec binding");
+          }
+          split::IcebergManifestPartitionSpec parsed;
+          parsed.spec_id = spec.spec_id();
+          for (const auto& field : spec.fields()) {
+            if (field.transform().empty() || field.result_type().empty() ||
+                field.transform().size() > 128 || field.result_type().size() > 128) {
+              throw std::runtime_error("Invalid Iceberg manifests partition field binding");
+            }
+            parsed.fields.push_back({field.transform(), field.result_type()});
+          }
+          config.system_table_iceberg_partition_specs.push_back(std::move(parsed));
+        }
+        break;
+      }
       case proto::SystemTableSplitDetail::PAIMON_SNAPSHOTS:
         if (split.connector_id() != "paimon" ||
             !split.source_id().ends_with("$snapshots") ||
@@ -797,7 +846,8 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         throw std::runtime_error("Unsupported system table split kind");
     }
   } else if (config.file_format == split::FileFormatType::METADATA_JSON ||
-      config.file_format == split::FileFormatType::METADATA_DIRECTORY) {
+      config.file_format == split::FileFormatType::METADATA_DIRECTORY ||
+      config.file_format == split::FileFormatType::METADATA_AVRO) {
     throw std::runtime_error(
         "Metadata JSON split requires typed system table detail");
   }

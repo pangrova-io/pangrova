@@ -4,7 +4,8 @@ Status: **IN PROGRESS — not production-ready** (2026-10-16). Iceberg
 `$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
 v2 splits, Worker Native readers, and focused SQL E2E coverage. Paimon
 `$branches` now has the same chain for local filesystem catalogs only. Iceberg
-`$files`/`$entries`/`$manifests`/`$partitions` still lack Native readers;
+`$manifests` has a pinned Avro manifest-list Native reader. Iceberg
+`$files`/`$entries`/`$partitions` still lack Native readers;
 Paimon `$branches` on distributed/object storage, `$files`, and the final full-chain gate remain
 open. This is an implementation specification and failure record, not a
 production-readiness assertion.
@@ -46,9 +47,11 @@ declared public schema.
 - SHOW SNAPSHOTS is rewritten before compilation into the same authorized
   `SELECT * FROM base$snapshots` distributed query, preserving original SQL
   for audit. The former Coordinator `ConnectorSystemTable.rows()` task is
-  removed. SHOW FILES/MANIFESTS/PARTITIONS fail closed because their Native
-  readers are not yet implemented; direct SELECT for those Iceberg kinds and
-  Paimon `$files` and nonlocal `$branches` also remain open. Paimon `$snapshots`,
+  removed. SHOW FILES/MANIFESTS/PARTITIONS still fail closed; the SHOW MANIFESTS
+  rewrite has not yet been wired to the new direct `$manifests` SELECT path,
+  while the other SHOW readers remain absent. Direct SELECT for Iceberg
+  `$files`, `$entries`, and `$partitions`, Paimon `$files`, and nonlocal
+  `$branches` also remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
   and a Native reader. Their declared 14, 7, 2, and 7 columns follow the fixed Paimon
   1.4.1 `SnapshotsTable.TABLE_TYPE`, `TagsTable.TABLE_TYPE`, and
@@ -77,7 +80,9 @@ declared public schema.
   `$snapshots`, `$tags`, `$options`, and `$schemas`, the SHA-256 of its exact JSON bytes. A distributed
   deployment requires immutable shared storage reachable from every Worker;
   node-local catalog paths are development-only. A stronger storage version or
-  ETag/content check remains needed for Iceberg if same-length overwrites are possible.
+  ETag/content check remains needed for the older Iceberg JSON system-table paths
+  if same-length overwrites are possible. Iceberg `$manifests` pins the complete
+  manifest-list SHA-256 and checks it again in Native.
 - The [Iceberg specification](https://iceberg.apache.org/spec/) places each
   snapshot's manifest list in a separate Avro object; each manifest is another
   immutable Avro object containing data or delete-file entries. A Native
@@ -235,7 +240,7 @@ library and the packaged `osx/aarch64` JNI resource both have SHA-256
 `a7751636931a633c765b533872d49a0ab2c38f4af29bb28766c9ab86c1ddb12f`.
 This was an in-process SQL E2E using the packaged JNI resource; an independent
 Pangrova process image has not yet been validated for this `$schemas` path.
-Iceberg `$files`/`$entries`/`$manifests`/`$partitions`, Paimon
+Iceberg `$files`/`$entries`/`$partitions`, Paimon
 nonlocal `$branches`/all `$files`, and the final full production gate remain open.
 
 ### `$branches` local-filesystem increment (2026-10-16)
@@ -268,5 +273,27 @@ the current Native filesystem abstraction has no portable metadata-status
 operation with the same semantics. Such catalogs reject `$branches` rather
 than producing Coordinator rows or guessed timestamps. An independent
 Pangrova process image and the full system-table production regression have
-not been validated for this path. Iceberg `$files`/`$entries`/`$manifests`/
+not been validated for this path. Iceberg `$files`/`$entries`/
 `$partitions` and Paimon `$files` remain open.
+
+### Iceberg `$manifests` manifest-list increment (2026-10-16)
+
+The fixed Iceberg 1.11.0 `ManifestsTable` defines 12 typed columns, including
+`partition_summaries ARRAY<ROW<contains_null BOOLEAN, contains_nan BOOLEAN,
+lower_bound VARCHAR, upper_bound VARCHAR>>`. The connector selects one v2/v3
+snapshot manifest-list URI, freezes its length and SHA-256, and sends its
+snapshot/sequence/format identity and partition-spec descriptors in a typed
+split. Worker Native verifies the exact bytes and Avro OCF header, reads bounded
+null/deflate blocks, and emits Velox rows. Empty tables issue no split. V1
+snapshots without a manifest list, v4, unsupported codecs and partition-bound
+types fail closed; the latter remain a scope limit for full type coverage.
+
+JDK 17 focused Iceberg binding tests passed 3/3, Planner 6/6, Coordinator
+55/55, and Native Avro tests 4/4. The packaged JNI SQL E2E passed 2/2:
+empty and committed 12-column reads, plus actual nested `east`/`west`
+partition bounds. The Native and packaged `osx/aarch64` JNI SHA-256 is
+`85db890051b7cb92f5508c64cf2f93bc81e099deb4033059a5e92bdcb0254e40`.
+The descriptor change was checked against two complete actual Native fixtures;
+Protocol full-module tests passed 441/441. These in-process results do not
+close independent-image, cross-filesystem, all partition-bound types, or the
+remaining Iceberg `$files`/`$entries`/`$partitions` and Paimon `$files` paths.

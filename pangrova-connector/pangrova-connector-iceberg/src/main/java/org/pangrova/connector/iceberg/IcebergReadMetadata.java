@@ -5,6 +5,7 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
+import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
@@ -105,6 +106,13 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
         int separator = tableName.table().lastIndexOf('$');
         if (separator > 0 && separator < tableName.table().length() - 1) {
+            if ("manifests".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
+                String baseName = tableName.table().substring(0, separator);
+                IcebergTableHandle base = (IcebergTableHandle) catalogTables.getTableHandle(
+                        new SchemaTableName(tableName.schema(), baseName));
+                return base == null ? null : IcebergManifestReadBindings.select(
+                        base, catalogTables.resolveTable(base));
+            }
             var kind = IcebergSystemTableHandle.Kind.fromSuffix(
                     tableName.table().substring(separator + 1));
             if (kind.isPresent()) {
@@ -131,6 +139,13 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof IcebergManifestTableHandle manifests) {
+            List<ConnectorTableMetadata.Column> columns = manifests.typedColumns();
+            return new ConnectorTableMetadata(
+                    new SchemaTableName(manifests.baseTable().schemaName(), manifests.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(),
+                    columns, Map.of());
+        }
         if (table instanceof IcebergSystemTableHandle system) {
             List<ConnectorTableMetadata.Column> columns = system.typedColumns();
             return new ConnectorTableMetadata(
@@ -143,7 +158,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     @Override
     public ConnectorTableReadMetadata getTableReadMetadata(ConnectorSession session, ConnectorTableHandle table) {
-        if (table instanceof IcebergSystemTableHandle) {
+        if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle) {
             return new ConnectorTableReadMetadata(getTableMetadata(session, table),
                     ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
         }
@@ -164,10 +179,12 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     @Override
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
-        if (table instanceof IcebergSystemTableHandle system) {
+        if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle) {
+            List<ConnectorTableMetadata.Column> typedColumns = table instanceof IcebergSystemTableHandle system
+                    ? system.typedColumns() : ((IcebergManifestTableHandle) table).typedColumns();
             Map<String, ColumnHandle> columns = new java.util.LinkedHashMap<>();
             int fieldId = 1;
-            for (ConnectorTableMetadata.Column column : system.typedColumns()) {
+            for (ConnectorTableMetadata.Column column : typedColumns) {
                 columns.put(column.name(),
                         new IcebergColumnHandle(fieldId++, column.name(), column.type()));
             }
@@ -178,7 +195,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     @Override
     public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
-        if (table instanceof IcebergSystemTableHandle) {
+        if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle) {
             return TableStatistics.UNKNOWN;
         }
         return IcebergTableStatisticsReader.read(
@@ -195,7 +212,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public void validateColumnAccess(ConnectorSession session, ConnectorTableHandle table,
                                      List<String> projectedColumns) {
-        if (table instanceof IcebergSystemTableHandle) {
+        if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle) {
             // Metadata columns have no base-table encryption key. The query
             // authorization layer still requires SELECT on the base table.
             return;

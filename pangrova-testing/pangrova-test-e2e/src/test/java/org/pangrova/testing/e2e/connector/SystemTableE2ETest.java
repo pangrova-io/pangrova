@@ -122,6 +122,65 @@ class SystemTableE2ETest extends SqlE2ETestBase {
     // --- 2.1.23: Iceberg SELECT FROM table$files ---
 
     @Nested
+    @DisplayName("Iceberg table$manifests (pinned Native Avro list)")
+    class IcebergManifests {
+        @Test
+        void emptyAndCommittedManifestListHaveOfficialTypedColumns() {
+            sqlRunner.executeDdl("CREATE TABLE " + icebergFqn()
+                    + " (id BIGINT, region VARCHAR)");
+            assertThat(sqlRunner.execute("SELECT * FROM " + icebergFqn() + "$manifests"))
+                    .isEmpty();
+
+            sqlRunner.execute("INSERT INTO " + icebergFqn()
+                    + " (id, region) VALUES (1, 'east'), (2, 'west')");
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT * FROM " + icebergFqn() + "$manifests");
+            assertThat(rows).isNotEmpty();
+            for (TypedRow row : rows) {
+                assertThat(row.columnNames()).containsExactly(
+                        "content", "path", "length", "partition_spec_id",
+                        "added_snapshot_id", "added_data_files_count",
+                        "existing_data_files_count", "deleted_data_files_count",
+                        "added_delete_files_count", "existing_delete_files_count",
+                        "deleted_delete_files_count", "partition_summaries");
+                assertThat(row.getInt("content")).isZero();
+                assertThat(row.getString("path")).isNotBlank();
+                assertThat(row.getLong("length")).isPositive();
+                assertThat(row.getLong("added_snapshot_id")).isPositive();
+                assertThat(row.getRaw("partition_summaries")).isEqualTo(List.of());
+            }
+        }
+
+        @Test
+        void partitionBoundsRemainNestedTypedValuesThroughSql() {
+            sqlRunner.executeDdl("CREATE TABLE " + icebergFqn()
+                    + " (id BIGINT, region VARCHAR) PARTITIONED BY (region)");
+            sqlRunner.execute("INSERT INTO " + icebergFqn()
+                    + " (id, region) VALUES (1, 'east'), (2, 'west')");
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT partition_summaries FROM " + icebergFqn() + "$manifests");
+            assertThat(rows).isNotEmpty();
+            java.util.Set<String> observedBounds = new java.util.HashSet<>();
+            assertThat(rows).allSatisfy(row -> {
+                assertThat(row.getRaw("partition_summaries")).isInstanceOf(List.class);
+                List<?> summaries = (List<?>) row.getRaw("partition_summaries");
+                assertThat(summaries).hasSize(1);
+                assertThat(summaries.get(0)).isInstanceOf(java.util.Map.class);
+                java.util.Map<?, ?> summary = (java.util.Map<?, ?>) summaries.get(0);
+                assertThat(summary.keySet().stream().map(Object::toString).toList())
+                        .containsExactlyInAnyOrder(
+                        "contains_null", "contains_nan", "lower_bound", "upper_bound");
+                assertThat(summary.get("contains_null")).isEqualTo(false);
+                assertThat(summary.get("lower_bound")).isInstanceOf(String.class);
+                assertThat(summary.get("upper_bound")).isInstanceOf(String.class);
+                observedBounds.add((String) summary.get("lower_bound"));
+                observedBounds.add((String) summary.get("upper_bound"));
+            });
+            assertThat(observedBounds).contains("east", "west");
+        }
+    }
+
+    @Nested
     @DisplayName("2.1.23 - Iceberg table$files")
     class IcebergFiles {
 

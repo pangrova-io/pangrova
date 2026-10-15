@@ -60,4 +60,14 @@ class SystemTableSqlConversionTest {
         assertThat(((SqlIdentifier) calcite.getFrom()).names)
                 .containsExactly("lake", "analytics", "orders$options");
     }
+
+    @Test
+    void manifestsIdentifierRetainsSystemTableSuffix() {
+        var ast = new SqlParser().parse("SELECT path FROM lake.analytics.orders$manifests");
+
+        var calcite = (SqlSelect) new AstToSqlNodeConverter().convert(ast);
+
+        assertThat(((SqlIdentifier) calcite.getFrom()).names)
+                .containsExactly("lake", "analytics", "orders$manifests");
+    }
 }

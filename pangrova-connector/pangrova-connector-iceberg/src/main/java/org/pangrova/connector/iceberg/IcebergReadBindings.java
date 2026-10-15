@@ -5,6 +5,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
@@ -24,6 +25,17 @@ final class IcebergReadBindings {
     private IcebergReadBindings() {}
 
     static ConnectorReadBinding bind(IcebergCatalogTables tables, ConnectorTableHandle selector) {
+        if (selector instanceof IcebergManifestTableHandle manifests) {
+            IcebergManifestReadBindings.validate(manifests, tables.resolveTable(manifests.baseTable()));
+            var columns = manifests.typedColumns();
+            var metadata = new ConnectorTableMetadata(
+                    new SchemaTableName(manifests.baseTable().schemaName(), manifests.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+            return new ConnectorReadBinding(manifests, new ConnectorTableReadMetadata(metadata,
+                    ConnectorTableReadMetadata.DeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
+                    manifestSourceIdentity(manifests));
+        }
         if (selector instanceof IcebergSystemTableHandle system) {
             var columns = system.typedColumns();
             var metadata = new ConnectorTableMetadata(
@@ -57,6 +69,14 @@ final class IcebergReadBindings {
     }
 
     static void validate(IcebergCatalogTables tables, ConnectorReadBinding binding) {
+        if (binding.handle() instanceof IcebergManifestTableHandle manifests) {
+            String identity = manifestSourceIdentity(manifests);
+            if (!identity.equals(binding.sourceIdentity())) {
+                throw new IllegalStateException("Selected Iceberg manifest-list binding identity differs");
+            }
+            IcebergManifestReadBindings.validate(manifests, tables.resolveTable(manifests.baseTable()));
+            return;
+        }
         if (binding.handle() instanceof IcebergSystemTableHandle system) {
             if (!system.metadataLocation().equals(binding.sourceIdentity())) {
                 throw new IllegalStateException("Selected metadata object identity differs");
@@ -102,5 +122,10 @@ final class IcebergReadBindings {
                 + snapshot.schemaId() + "\0" + snapshot.sequenceNumber() + "\0"
                 + snapshot.timestampMillis() + "\0" + snapshot.manifestListLocation();
         return DigestUtils.sha256Hex(uuid + "\0" + table.location() + "\0" + selected);
+    }
+
+    private static String manifestSourceIdentity(IcebergManifestTableHandle manifests) {
+        return manifests.empty() ? manifests.tableUuid()
+                : manifests.manifestListLocation() + "#" + manifests.manifestListSha256();
     }
 }
