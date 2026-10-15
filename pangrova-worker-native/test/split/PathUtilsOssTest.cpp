@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include "split/LocalFileUri.h"
 #include "split/PathUtils.h"
 
 namespace pangrova::split {
@@ -46,6 +47,43 @@ TEST(PathUtilsOssTest, OssWithNestedPath) {
 TEST(PathUtilsOssTest, StripFilePrefixStillWorks) {
   EXPECT_EQ(stripFilePrefix("file:/tmp/data.parquet"), "/tmp/data.parquet");
   EXPECT_EQ(stripFilePrefix("/tmp/data.parquet"), "/tmp/data.parquet");
+}
+
+TEST(PathUtilsOssTest, DecodeLocalFileUriWithEscapedSpace) {
+  EXPECT_EQ(decodeLocalFileUri("file:/tmp/iceberg%20warehouse/manifest.avro"),
+      "/tmp/iceberg warehouse/manifest.avro");
+  EXPECT_EQ(decodeLocalFileUri("file:///tmp/iceberg%20warehouse/manifest.avro"),
+      "/tmp/iceberg warehouse/manifest.avro");
+}
+
+TEST(PathUtilsOssTest, RejectMalformedOrUnsafeLocalFileUri) {
+  EXPECT_THROW(decodeLocalFileUri("file:/tmp/bad%2"), std::invalid_argument);
+  EXPECT_THROW(decodeLocalFileUri("file:/tmp/bad%GG"), std::invalid_argument);
+  EXPECT_THROW(decodeLocalFileUri("file:/tmp/bad%2Fpath"), std::invalid_argument);
+  EXPECT_THROW(decodeLocalFileUri("file:/tmp/bad%00path"), std::invalid_argument);
+  EXPECT_THROW(decodeLocalFileUri("file:/tmp/%2e%2e/manifest.avro"),
+      std::invalid_argument);
+  EXPECT_THROW(decodeLocalFileUri("file://remote/tmp/manifest.avro"),
+      std::invalid_argument);
+  EXPECT_THROW(decodeLocalFileUri("file:////tmp/manifest.avro"),
+      std::invalid_argument);
+  EXPECT_THROW(decodeLocalFileUri("file:/tmp/manifest.avro?query"),
+      std::invalid_argument);
+}
+
+TEST(PathUtilsOssTest, RejectNonlocalUri) {
+  EXPECT_THROW(decodeLocalFileUri("s3://bucket/manifest.avro"),
+      std::invalid_argument);
+}
+
+TEST(PathUtilsOssTest, MetadataObjectPathPreservesS3AndDecodesLocalFile) {
+  EXPECT_EQ(metadataObjectPath("s3://bucket/manifest.avro"),
+      "s3://bucket/manifest.avro");
+  EXPECT_EQ(metadataObjectPath("oss://bucket/manifest.avro"),
+      "s3://bucket/manifest.avro");
+  EXPECT_EQ(metadataObjectPath("file:/tmp/iceberg%20warehouse/manifest.avro"),
+      "/tmp/iceberg warehouse/manifest.avro");
+  EXPECT_THROW(metadataObjectPath("file:/tmp/bad%2"), std::invalid_argument);
 }
 
 }  // namespace

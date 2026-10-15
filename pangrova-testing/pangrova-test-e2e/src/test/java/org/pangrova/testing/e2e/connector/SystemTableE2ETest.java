@@ -3,6 +3,16 @@ package org.pangrova.testing.e2e.connector;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.ContentFile;
+import org.apache.iceberg.ManifestContent;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -18,6 +30,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -186,24 +199,88 @@ class SystemTableE2ETest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("SELECT FROM table$files returns file rows with file_path and record_count")
-        void selectFromIcebergFiles() {
+        void selectFromIcebergFiles() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + icebergFqn()
                     + " (id BIGINT, name VARCHAR)");
+            assertThat(sqlRunner.execute("SELECT file_path, record_count FROM "
+                    + icebergFqn() + "$files")).isEmpty();
+            assertThatThrownBy(() -> sqlRunner.execute("SELECT column_sizes FROM "
+                    + icebergFqn() + "$files"))
+                    .hasMessageContaining("PLANNER-0001")
+                    .hasMessageContaining("column_sizes");
+            assertThat(sqlRunner.execute("SELECT * FROM " + icebergFqn() + "$files"))
+                    .isEmpty();
             sqlRunner.execute("INSERT INTO " + icebergFqn()
                     + " (id, name) VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')");
 
-            List<TypedRow> rows = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$files");
+            String deletePath;
+            Map<String, ContentFile<?>> sdkFiles = new LinkedHashMap<>();
+            try (var catalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString())) {
+                var table = catalog.loadTable(TableIdentifier.of(SCHEMA, tableName));
+                deletePath = table.location() + "/data/position-delete.parquet";
+                var delete = FileMetadata.deleteFileBuilder(table.spec())
+                        .ofPositionDeletes()
+                        .withPath(deletePath)
+                        .withFileSizeInBytes(128L)
+                        .withRecordCount(5)
+                        .withFormat(FileFormat.PARQUET)
+                        .build();
+                table.newRowDelta().addDeletes(delete).commit();
+                table.refresh();
+                assertThat(table.currentSnapshot().allManifests(table.io()))
+                        .extracting(manifest -> manifest.content())
+                        .contains(ManifestContent.DATA, ManifestContent.DELETES);
+                assertThat(MetadataTableUtils.createMetadataTableInstance(table,
+                        MetadataTableType.FILES).schema().columns())
+                        .extracting(field -> field.name())
+                        .contains("content", "file_path", "file_format", "spec_id",
+                                "record_count", "file_size_in_bytes", "readable_metrics");
+                for (var manifest : table.currentSnapshot().allManifests(table.io())) {
+                    if (manifest.content() == ManifestContent.DATA) {
+                        try (var reader = ManifestFiles.read(manifest, table.io(), table.specs())) {
+                            for (var file : reader) {
+                                assertThat(sdkFiles.put(file.path().toString(), file)).isNull();
+                            }
+                        }
+                    } else {
+                        try (var reader = ManifestFiles.readDeleteManifest(
+                                manifest, table.io(), table.specs())) {
+                            for (var file : reader) {
+                                assertThat(sdkFiles.put(file.path().toString(), file)).isNull();
+                            }
+                        }
+                    }
+                }
+            }
 
-            assertThat(rows).isNotEmpty();
-            TypedRow first = rows.get(0);
-            assertThat(first.containsColumn("file_path")).isTrue();
-            assertThat(first.containsColumn("record_count")).isTrue();
-            assertThat(first.getString("file_path")).isNotNull();
-            long totalRecords = rows.stream()
-                    .mapToLong(r -> r.getLong("record_count"))
-                    .sum();
-            assertThat(totalRecords).isEqualTo(3L);
+            assertThat(sdkFiles).containsKey(deletePath);
+            assertThat(sdkFiles.values()).extracting(file -> file.content().id())
+                    .contains(0, 1);
+
+            List<TypedRow> rows = sqlRunner.execute("SELECT content, file_path, file_format,"
+                    + " spec_id, record_count, file_size_in_bytes FROM " + icebergFqn()
+                    + "$files ORDER BY content");
+            assertThat(rows).hasSize(sdkFiles.size());
+            assertThat(rows).extracting(row -> row.getInt("content")).contains(0, 1);
+            assertThat(sqlRunner.execute("SELECT * FROM " + icebergFqn() + "$files"))
+                    .hasSize(sdkFiles.size())
+                    .allSatisfy(row -> assertThat(row.columnNames()).containsExactly(
+                            "content", "file_path", "file_format", "spec_id",
+                            "record_count", "file_size_in_bytes"));
+            for (TypedRow row : rows) {
+                assertThat(row.columnNames()).containsExactly("content", "file_path",
+                        "file_format", "spec_id", "record_count", "file_size_in_bytes");
+                var expected = sdkFiles.get(row.getString("file_path"));
+                assertThat(expected).isNotNull();
+                assertThat(row.getInt("content")).isEqualTo(expected.content().id());
+                assertThat(row.getString("file_format")).isEqualTo(expected.format().name());
+                assertThat(row.getInt("spec_id")).isEqualTo(expected.specId());
+                assertThat(row.getLong("record_count")).isEqualTo(expected.recordCount());
+                assertThat(row.getLong("file_size_in_bytes"))
+                        .isEqualTo(expected.fileSizeInBytes());
+            }
+            assertThat(rows.stream().filter(row -> row.getInt("content") == 0)
+                    .mapToLong(row -> row.getLong("record_count")).sum()).isEqualTo(3);
         }
     }
 
@@ -533,7 +610,7 @@ class SystemTableE2ETest extends SqlE2ETestBase {
                     + " (id BIGINT, name VARCHAR)");
 
             List<TypedRow> rows = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$files");
+                    "SELECT file_path, record_count FROM " + icebergFqn() + "$files");
             assertThat(rows).isEmpty();
         }
 

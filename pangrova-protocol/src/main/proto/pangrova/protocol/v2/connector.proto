@@ -295,6 +295,7 @@ message SystemTableSplitDetail {
     PAIMON_SCHEMAS = 6;
     PAIMON_BRANCHES = 7;
     ICEBERG_MANIFESTS = 8;
+    ICEBERG_FILES = 9;
   }
   Kind kind = 1;
   // Positive for a Paimon snapshot object or selected Iceberg manifest-list
@@ -321,6 +322,12 @@ message SystemTableSplitDetail {
   // Iceberg v2/v3 only. v1 without a list and v4 are rejected at binding.
   int32 iceberg_format_version = 12;
   uint64 iceberg_snapshot_sequence_number = 13;
+  // ICEBERG_FILES pins both the parent list and one child manifest object.
+  string iceberg_manifest_list_uri = 14;
+  uint64 iceberg_manifest_list_length = 15;
+  bytes iceberg_manifest_list_sha256 = 16;
+  int32 iceberg_child_spec_id = 17;
+  int32 iceberg_child_content = 18;
 }
 
 // Immutable identity of the exact catalog deployment authorized by the

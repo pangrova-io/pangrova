@@ -7,6 +7,8 @@ import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableSplit;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableSplit;
+import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergFileTableSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
@@ -102,6 +104,12 @@ public class IcebergSplitManager implements ConnectorSplitManager {
             ConnectorTableHandle table,
             DynamicFilter dynamicFilter,
             Constraint constraint) {
+        if (table instanceof IcebergFileTableHandle files) {
+            IcebergFileReadBindings.validate(files, resolveTable(files.baseTable()));
+            return new FixedSplitSource(files.manifests().stream()
+                    .map(manifest -> (ConnectorSplit) new IcebergFileTableSplit(files, manifest))
+                    .toList());
+        }
         if (table instanceof IcebergManifestTableHandle manifests) {
             IcebergManifestReadBindings.validate(manifests, resolveTable(manifests.baseTable()));
             return new FixedSplitSource(manifests.empty() ? List.of()

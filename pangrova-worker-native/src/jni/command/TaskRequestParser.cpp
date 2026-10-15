@@ -662,7 +662,10 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
     const bool directory = detail.system_table().kind() ==
         proto::SystemTableSplitDetail::PAIMON_BRANCHES;
     const bool avro = detail.system_table().kind() ==
-        proto::SystemTableSplitDetail::ICEBERG_MANIFESTS;
+            proto::SystemTableSplitDetail::ICEBERG_MANIFESTS ||
+        detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_FILES;
+    const bool files = detail.system_table().kind() ==
+        proto::SystemTableSplitDetail::ICEBERG_FILES;
     if ((directory && (config.file_format != split::FileFormatType::METADATA_DIRECTORY ||
             split.start_offset() != 0 || split.length() != 0)) ||
         (!directory && (config.file_format != (avro
@@ -682,6 +685,13 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         detail.system_table().iceberg_format_version() != 0 ||
         detail.system_table().iceberg_snapshot_sequence_number() != 0)) {
       throw std::runtime_error("Non-Iceberg manifests split has manifest identity");
+    }
+    if (!files && (!detail.system_table().iceberg_manifest_list_uri().empty() ||
+        detail.system_table().iceberg_manifest_list_length() != 0 ||
+        !detail.system_table().iceberg_manifest_list_sha256().empty() ||
+        detail.system_table().iceberg_child_spec_id() != 0 ||
+        detail.system_table().iceberg_child_content() != 0)) {
+      throw std::runtime_error("Non-Iceberg files split has child manifest identity");
     }
     switch (detail.system_table().kind()) {
       case proto::SystemTableSplitDetail::ICEBERG_SNAPSHOTS:
@@ -713,6 +723,9 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
             split.data_object_id() != split.opaque_location() ||
             split.partition_values_size() != 0 ||
             system.snapshot_id() == 0 ||
+            system.snapshot_id() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            system.iceberg_snapshot_sequence_number() >
+                static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
             system.object_sha256().size() != 32 ||
             (system.iceberg_format_version() != 2 && system.iceberg_format_version() != 3) ||
             !system.tag_name().empty() || system.schema_id() != 0) {
@@ -741,6 +754,45 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
           }
           config.system_table_iceberg_partition_specs.push_back(std::move(parsed));
         }
+        break;
+      }
+      case proto::SystemTableSplitDetail::ICEBERG_FILES:
+      {
+        const auto& system = detail.system_table();
+        if (split.connector_id() != "iceberg" ||
+            !split.source_id().ends_with("$files") ||
+            split.source_snapshot() != system.iceberg_manifest_list_uri() ||
+            split.data_object_id() != split.opaque_location() ||
+            split.partition_values_size() != 0 ||
+            split.source_snapshot() == split.opaque_location() ||
+            system.snapshot_id() == 0 ||
+            system.snapshot_id() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            system.iceberg_snapshot_sequence_number() >
+                static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            system.object_sha256().size() != 32 ||
+            (system.iceberg_format_version() != 2 && system.iceberg_format_version() != 3) ||
+            system.iceberg_manifest_list_uri().empty() ||
+            system.iceberg_manifest_list_length() == 0 ||
+            system.iceberg_manifest_list_sha256().size() != 32 ||
+            system.iceberg_child_spec_id() < 0 ||
+            (system.iceberg_child_content() != 0 && system.iceberg_child_content() != 1) ||
+            system.iceberg_partition_specs_size() != 0 ||
+            !system.tag_name().empty() || system.schema_id() != 0) {
+          throw std::runtime_error("Iceberg files split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::ICEBERG_FILES;
+        config.system_table_snapshot_id = system.snapshot_id();
+        config.system_table_object_sha256 = system.object_sha256();
+        config.system_table_iceberg_format_version = system.iceberg_format_version();
+        config.system_table_iceberg_snapshot_sequence_number =
+            system.iceberg_snapshot_sequence_number();
+        config.system_table_iceberg_manifest_list_uri = system.iceberg_manifest_list_uri();
+        config.system_table_iceberg_manifest_list_length =
+            system.iceberg_manifest_list_length();
+        config.system_table_iceberg_manifest_list_sha256 =
+            system.iceberg_manifest_list_sha256();
+        config.system_table_iceberg_child_spec_id = system.iceberg_child_spec_id();
+        config.system_table_iceberg_child_content = system.iceberg_child_content();
         break;
       }
       case proto::SystemTableSplitDetail::PAIMON_SNAPSHOTS:

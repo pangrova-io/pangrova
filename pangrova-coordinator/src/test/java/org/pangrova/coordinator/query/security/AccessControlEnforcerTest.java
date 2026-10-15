@@ -367,6 +367,9 @@ class AccessControlEnforcerTest {
             assertThatCode(() -> baseGranted.checkTableAccess(
                     List.of(List.of(CATALOG, SCHEMA, TABLE + "$manifests")), user()))
                     .doesNotThrowAnyException();
+            assertThatCode(() -> baseGranted.checkTableAccess(
+                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$files")), user()))
+                    .doesNotThrowAnyException();
 
             PrivilegeGrant suffixOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
                     "TABLE", CATALOG, SCHEMA, TABLE + "$snapshots", null);
@@ -398,6 +401,11 @@ class AccessControlEnforcerTest {
                     "TABLE", CATALOG, SCHEMA, TABLE + "$manifests", null);
             assertThatThrownBy(() -> enforcer(List.of(manifestsOnly)).checkTableAccess(
                     List.of(List.of(CATALOG, SCHEMA, TABLE + "$manifests")), user()))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            PrivilegeGrant filesOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
+                    "TABLE", CATALOG, SCHEMA, TABLE + "$files", null);
+            assertThatThrownBy(() -> enforcer(List.of(filesOnly)).checkTableAccess(
+                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$files")), user()))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
 

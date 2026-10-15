@@ -188,7 +188,7 @@ final class LazyMetadataSchema extends AbstractSchema {
         return "snapshots".equals(suffix) || "history".equals(suffix)
                 || "tags".equals(suffix) || "options".equals(suffix)
                 || "schemas".equals(suffix) || "branches".equals(suffix)
-                || "manifests".equals(suffix)
+                || "manifests".equals(suffix) || "files".equals(suffix)
                 ? Optional.of(suffix) : Optional.empty();
     }
 

@@ -4,8 +4,10 @@ Status: **IN PROGRESS — not production-ready** (2026-10-16). Iceberg
 `$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
 v2 splits, Worker Native readers, and focused SQL E2E coverage. Paimon
 `$branches` now has the same chain for local filesystem catalogs only. Iceberg
-`$manifests` has a pinned Avro manifest-list Native reader. Iceberg
-`$files`/`$entries`/`$partitions` still lack Native readers;
+`$manifests` has a pinned Avro manifest-list Native reader. Iceberg `$files`
+has a six-scalar-column Native manifest-entry slice; its complete SDK schema,
+large-table throughput, and independent image are not yet validated. Iceberg
+`$entries`/`$partitions` still lack Native readers;
 Paimon `$branches` on distributed/object storage, `$files`, and the final full-chain gate remain
 open. This is an implementation specification and failure record, not a
 production-readiness assertion.
@@ -50,8 +52,9 @@ declared public schema.
   removed. SHOW FILES/MANIFESTS/PARTITIONS still fail closed; the SHOW MANIFESTS
   rewrite has not yet been wired to the new direct `$manifests` SELECT path,
   while the other SHOW readers remain absent. Direct SELECT for Iceberg
-  `$files`, `$entries`, and `$partitions`, Paimon `$files`, and nonlocal
-  `$branches` also remain open. Paimon `$snapshots`,
+  `$files` has only the six-column scalar slice below; full `$files`,
+  `$entries`, `$partitions`, Paimon `$files`, and nonlocal `$branches`
+  remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
   and a Native reader. Their declared 14, 7, 2, and 7 columns follow the fixed Paimon
   1.4.1 `SnapshotsTable.TABLE_TYPE`, `TagsTable.TABLE_TYPE`, and
@@ -347,3 +350,46 @@ unpartitioned, multi-spec partitioned, data-plus-delete, metrics, deleted-entry,
 and time-travel cases, followed by packaged-JNI SQL E2E; the old facade test
 cannot satisfy this gate. See also the [Iceberg 1.11 query documentation](https://iceberg.apache.org/docs/1.11.0/spark-queries/)
 for the public `$files` metadata-table contract.
+
+### Iceberg `$files` six-column Native increment (2026-10-16)
+
+Direct SQL `base$files` now resolves through Calcite lookup and the base
+table's SELECT grant. The connector selects the exact Iceberg SDK metadata
+table, but declares only the six scalar columns implemented by the Native
+reader: `content INTEGER`, `file_path VARCHAR`, `file_format VARCHAR`,
+`spec_id INTEGER`, `record_count BIGINT`, and `file_size_in_bytes BIGINT`.
+This is deliberately a partial SQL schema: `column_sizes`, bounds,
+`readable_metrics`, partition fields, and other SDK columns are not exposed
+by this slice. A query naming one fails during Calcite validation; `SELECT *`
+returns only those six columns. The full 21-plus-column dynamic SDK schema
+described above remains the target, not a claim of current compatibility.
+
+The Java binding freezes a v2/v3 snapshot's manifest-list URI, length, SHA-256,
+snapshot and sequence numbers, and each child manifest URI, length, SHA-256,
+partition-spec ID and content kind. A typed split represents one child. Native
+verifies both objects and exact parent membership before reading bounded Avro
+OCF batches; it emits live DATA and DELETE manifest entries and skips records
+marked DELETED. V1 snapshots without a manifest list, unverified v4 formats,
+changed objects, malformed entries, and unsupported SQL columns fail closed.
+The former five-column Java facade is not used for this SELECT path.
+Iceberg and Paimon metadata readers share one strict local `file:` URI decoder:
+escaped spaces resolve to their actual path, while malformed escapes, encoded
+path separators, nonlocal authorities, and dot segments are rejected. S3-style
+URI normalization retains its existing scheme behavior.
+
+JDK 17 connector binding tests passed 3/3; the adjacent `$manifests` binding
+tests passed 3/3. Native focused tests passed 71/71, including URI decoding,
+file entries, existing metadata readers, and Shuffle regressions. The
+packaged-JNI SQL E2E passed 1/1 for the `$files` slice and 2/2 for the
+adjacent `$manifests` regression: SQL values were compared with a separate
+Iceberg SDK read after a real data insert and position-delete commit. The
+SQL test also checks an empty table, full six-column star output, and a
+`PLANNER-0001` rejection for `column_sizes`.
+
+This functional slice does not establish large-table throughput: every child
+split currently reopens and hashes the full parent manifest list to prove
+membership, so a snapshot with M manifests can incur O(M²) total parent-list
+work. A verified precomputed parent index or equivalent bounded identity
+proof is needed before claiming production-scale performance. Multi-spec
+partition data, all nested metrics, time travel, nonlocal object storage,
+independent process image, and the full system-table gate remain open.

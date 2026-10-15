@@ -18,7 +18,7 @@ namespace {
 
 class MetadataFile final {
  public:
-  explicit MetadataFile(const std::string& contents) {
+  explicit MetadataFile(const std::string& contents, bool spaced = false) {
     char path[] = "/tmp/pangrova-iceberg-metadata-XXXXXX";
     const int descriptor = mkstemp(path);
     if (descriptor < 0) {
@@ -26,6 +26,11 @@ class MetadataFile final {
     }
     close(descriptor);
     path_ = path;
+    if (spaced) {
+      const auto renamed = path_ + " with space";
+      std::filesystem::rename(path_, renamed);
+      path_ = renamed;
+    }
     std::ofstream output(path_, std::ios::binary | std::ios::trunc);
     output << contents;
     output.close();
@@ -81,6 +86,21 @@ TEST(IcebergMetadataJsonReaderTest, StreamsSnapshotsFromPinnedFile) {
   ASSERT_EQ(second->size(), 1);
   EXPECT_EQ(second->childAt(0)->asFlatVector<int64_t>()->valueAt(0), 12);
   EXPECT_EQ(reader.next(2), nullptr);
+}
+
+TEST(IcebergMetadataJsonReaderTest, DecodesEscapedSpaceAndRejectsMalformedFileUri) {
+  auto pool = pangrova::test::testLeafPool("MetadataEncodedUri");
+  MetadataFile file(kMetadata, true);
+  auto type = facebook::velox::ROW({"snapshot_id"}, {facebook::velox::BIGINT()});
+  auto uri = "file:" + file.path();
+  uri.replace(uri.find("with space"), 10, "with%20space");
+  IcebergMetadataJsonReader reader(uri, file.size(),
+      split::SystemTableKind::ICEBERG_SNAPSHOTS, type, pool.get());
+  ASSERT_NE(reader.next(1), nullptr);
+  uri.replace(uri.find("%20"), 3, "%2");
+  EXPECT_THROW(IcebergMetadataJsonReader(uri, file.size(),
+      split::SystemTableKind::ICEBERG_SNAPSHOTS, type, pool.get()),
+      std::invalid_argument);
 }
 
 TEST(IcebergMetadataJsonReaderTest, ComputesCurrentSnapshotAncestry) {

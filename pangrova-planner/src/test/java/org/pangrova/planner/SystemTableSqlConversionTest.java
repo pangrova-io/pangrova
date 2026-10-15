@@ -24,11 +24,11 @@ class SystemTableSqlConversionTest {
 
     @Test
     void unsupportedSystemTableFailsBeforePhysicalTableLookup() {
-        var ast = new SqlParser().parse("SELECT * FROM lake.analytics.orders$files");
+        var ast = new SqlParser().parse("SELECT * FROM lake.analytics.orders$entries");
 
         assertThatThrownBy(() -> new AstToSqlNodeConverter().convert(ast))
                 .isInstanceOf(PlannerException.class)
-                .hasMessageContaining("no Native reader: files");
+                .hasMessageContaining("no Native reader: entries");
     }
 
     @Test
@@ -69,5 +69,15 @@ class SystemTableSqlConversionTest {
 
         assertThat(((SqlIdentifier) calcite.getFrom()).names)
                 .containsExactly("lake", "analytics", "orders$manifests");
+    }
+
+    @Test
+    void filesIdentifierRetainsSystemTableSuffix() {
+        var ast = new SqlParser().parse("SELECT file_path FROM lake.analytics.orders$files");
+
+        var calcite = (SqlSelect) new AstToSqlNodeConverter().convert(ast);
+
+        assertThat(((SqlIdentifier) calcite.getFrom()).names)
+                .containsExactly("lake", "analytics", "orders$files");
     }
 }

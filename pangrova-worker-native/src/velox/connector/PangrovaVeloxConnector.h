@@ -22,6 +22,7 @@
 #include "velox/connector/AdaptiveBatchSizer.h"
 #include "velox/connector/IcebergMetadataJsonReader.h"
 #include "velox/connector/IcebergManifestListReader.h"
+#include "velox/connector/IcebergManifestEntryReader.h"
 #include "velox/connector/PaimonSnapshotJsonReader.h"
 #include "velox/connector/PaimonBranchDirectoryReader.h"
 #include "velox/connector/PartitionColumnInjector.h"
@@ -294,6 +295,7 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // filesystem, never materialized in the coordinator or connector JVM.
   std::unique_ptr<IcebergMetadataJsonReader> metadata_reader_;
   std::unique_ptr<IcebergManifestListReader> iceberg_manifest_reader_;
+  std::unique_ptr<IcebergManifestEntryReader> iceberg_file_reader_;
   std::unique_ptr<PaimonSnapshotJsonReader> paimon_snapshot_reader_;
   std::unique_ptr<PaimonBranchDirectoryReader> paimon_branch_reader_;
 

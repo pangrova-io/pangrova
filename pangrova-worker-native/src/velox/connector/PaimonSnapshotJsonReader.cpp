@@ -236,7 +236,7 @@ PaimonSnapshotJsonReader::PaimonSnapshotJsonReader(
       !output_type_ || !pool_) {
     throw std::invalid_argument("Invalid pinned Paimon snapshot reader input");
   }
-  const auto path = split::normalizeToS3Uri(split::stripFilePrefix(uri));
+  const auto path = split::metadataObjectPath(uri);
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
   if (!filesystem) {
     throw std::runtime_error("No Native filesystem for Paimon snapshot URI");

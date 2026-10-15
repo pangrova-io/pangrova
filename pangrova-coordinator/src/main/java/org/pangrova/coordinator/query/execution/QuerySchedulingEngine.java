@@ -235,7 +235,7 @@ final class QuerySchedulingEngine {
             byte[] binding = ConnectorWriteBindingFactory.create(admission.catalogHandle(), allocated).toByteArray();
             reservation.publish(() -> writeCommitTracker.registerWriteContext(
                     admission.queryId(), admission.catalogName(),
-                    allocated, admission.session(), binding, admission.authority(), admission.intent()));
+                    allocated, admission.session(), binding, admission.authority(), admission.intent(), null));
         } catch (RuntimeException | Error failure) {
             reservation.fail(failure, outputHandle);
             throw failure;

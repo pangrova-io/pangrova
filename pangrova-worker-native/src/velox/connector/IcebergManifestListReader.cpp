@@ -195,7 +195,7 @@ IcebergManifestListReader::IcebergManifestListReader(
       (formatVersion != 2 && formatVersion != 3)) {
     throw std::invalid_argument("Invalid Iceberg manifests reader selection");
   }
-  const auto path = split::normalizeToS3Uri(split::stripFilePrefix(uri));
+  const auto path = split::metadataObjectPath(uri);
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
   if (!filesystem) throw std::runtime_error("No Native filesystem for Iceberg manifest list");
   container_ = std::make_unique<IcebergAvroContainerReader>(

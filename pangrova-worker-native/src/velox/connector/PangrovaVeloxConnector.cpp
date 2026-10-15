@@ -227,6 +227,7 @@ void PangrovaVeloxDataSource::addSplit(
   merge_reader_.reset();
   metadata_reader_.reset();
   iceberg_manifest_reader_.reset();
+  iceberg_file_reader_.reset();
   paimon_snapshot_reader_.reset();
   paimon_branch_reader_.reset();
   lance_reader_.reset();
@@ -251,6 +252,22 @@ void PangrovaVeloxDataSource::addSplit(
           splitConfig.system_table_iceberg_format_version,
           splitConfig.system_table_object_sha256,
           splitConfig.system_table_iceberg_partition_specs,
+          output_type_, pool_);
+    } else if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_FILES) {
+      if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
+        throw std::runtime_error("Iceberg files split requires metadata Avro format");
+      }
+      iceberg_file_reader_ = std::make_unique<IcebergManifestEntryReader>(
+          splitConfig.file_path, splitConfig.length,
+          splitConfig.system_table_object_sha256,
+          splitConfig.system_table_iceberg_manifest_list_uri,
+          splitConfig.system_table_iceberg_manifest_list_length,
+          splitConfig.system_table_iceberg_manifest_list_sha256,
+          splitConfig.system_table_snapshot_id,
+          splitConfig.system_table_iceberg_snapshot_sequence_number,
+          splitConfig.system_table_iceberg_format_version,
+          splitConfig.system_table_iceberg_child_spec_id,
+          splitConfig.system_table_iceberg_child_content,
           output_type_, pool_);
     } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_DIRECTORY) {
@@ -1031,6 +1048,17 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     checkCancelled();
     if (!rowVector) {
       iceberg_manifest_reader_.reset();
+      return facebook::velox::RowVectorPtr(nullptr);
+    }
+    completed_rows_ += rowVector->size();
+    completed_bytes_ += rowVector->estimateFlatSize();
+    return rowVector;
+  }
+  if (iceberg_file_reader_) {
+    auto rowVector = iceberg_file_reader_->next(batchSize);
+    checkCancelled();
+    if (!rowVector) {
+      iceberg_file_reader_.reset();
       return facebook::velox::RowVectorPtr(nullptr);
     }
     completed_rows_ += rowVector->size();

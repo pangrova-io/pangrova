@@ -64,6 +64,7 @@ enum class SystemTableKind : uint8_t {
   PAIMON_SCHEMAS,
   PAIMON_BRANCHES,
   ICEBERG_MANIFESTS,
+  ICEBERG_FILES,
 };
 
 struct IcebergManifestPartitionField {
@@ -171,6 +172,11 @@ struct SplitConfig {
   int32_t system_table_iceberg_format_version = 0;
   uint64_t system_table_iceberg_snapshot_sequence_number = 0;
   std::vector<IcebergManifestPartitionSpec> system_table_iceberg_partition_specs;
+  std::string system_table_iceberg_manifest_list_uri;
+  uint64_t system_table_iceberg_manifest_list_length = 0;
+  std::string system_table_iceberg_manifest_list_sha256;
+  int32_t system_table_iceberg_child_spec_id = 0;
+  int32_t system_table_iceberg_child_content = 0;
 
   // Schema evolution
   std::vector<ColumnMappingConfig> column_mappings;

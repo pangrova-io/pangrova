@@ -51,6 +51,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
         var schemas = lookup.getIgnoreCase("ORDERS$ScHeMaS");
         var branches = lookup.getIgnoreCase("orders$BrAnChEs");
         var manifests = lookup.getIgnoreCase("ORDERS$MaNiFeStS");
+        var files = lookup.getIgnoreCase("ORDERS$FiLeS");
 
         assertThat(snapshots).isNotNull();
         assertThat(snapshots.name()).isEqualTo("Orders$snapshots");
@@ -66,9 +67,11 @@ class LazyMetadataSchemaSystemTableLookupTest {
         assertThat(branches.name()).isEqualTo("Orders$branches");
         assertThat(manifests).isNotNull();
         assertThat(manifests.name()).isEqualTo("Orders$manifests");
+        assertThat(files).isNotNull();
+        assertThat(files.name()).isEqualTo("Orders$files");
         assertThat(metadata.lookups).contains("Orders$snapshots", "Orders$history",
                 "Orders$tags", "Orders$options", "Orders$schemas", "Orders$branches",
-                "Orders$manifests");
+                "Orders$manifests", "Orders$files");
         assertThat(lookup.getNames(LikePattern.any())).containsExactly("Orders");
     }
 
@@ -132,10 +135,10 @@ class LazyMetadataSchemaSystemTableLookupTest {
         TestMetadata metadata = new TestMetadata();
         var lookup = schema(metadata).tables();
 
-        assertThat(lookup.getIgnoreCase("ORDERS$FILES")).isNull();
-        assertThat(lookup.get("Orders$files")).isNull();
+        assertThat(lookup.getIgnoreCase("ORDERS$ENTRIES")).isNull();
+        assertThat(lookup.get("Orders$entries")).isNull();
         assertThat(lookup.getIgnoreCase("MISSING$SNAPSHOTS")).isNull();
-        assertThat(metadata.lookups).doesNotContain("Orders$files", "Missing$snapshots");
+        assertThat(metadata.lookups).doesNotContain("Orders$entries", "Missing$snapshots");
     }
 
     @Test
@@ -243,7 +246,8 @@ class LazyMetadataSchemaSystemTableLookupTest {
                     || table.table().equals(base + "$options")
                     || table.table().equals(base + "$schemas")
                     || table.table().equals(base + "$branches")
-                    || table.table().equals(base + "$manifests");
+                    || table.table().equals(base + "$manifests")
+                    || table.table().equals(base + "$files");
             return tableNames.contains(base) && supported ? new TestHandle(table.table()) : null;
         }
 
@@ -256,7 +260,8 @@ class LazyMetadataSchemaSystemTableLookupTest {
                     : name.endsWith("$options") ? "key"
                     : name.endsWith("$schemas") ? "schema_id"
                     : name.endsWith("$branches") ? "branch_name"
-                    : name.endsWith("$manifests") ? "path" : "id";
+                    : name.endsWith("$manifests") ? "path"
+                    : name.endsWith("$files") ? "file_path" : "id";
             return new ConnectorTableMetadata(new SchemaTableName(SCHEMA, name),
                     List.of(column), List.of(new ConnectorTableMetadata.Column(column, PangrovaType.BIGINT)),
                     Map.of());

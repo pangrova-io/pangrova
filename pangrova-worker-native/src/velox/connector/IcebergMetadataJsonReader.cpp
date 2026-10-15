@@ -148,7 +148,7 @@ IcebergMetadataJsonReader::IcebergMetadataJsonReader(
     split::SystemTableKind kind, facebook::velox::RowTypePtr outputType,
     facebook::velox::memory::MemoryPool* pool)
     : kind_(kind), output_type_(std::move(outputType)), pool_(pool) {
-  const auto path = split::normalizeToS3Uri(split::stripFilePrefix(uri));
+  const auto path = split::metadataObjectPath(uri);
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
   if (!filesystem) {
     throw std::runtime_error("No Native filesystem for Iceberg metadata URI");

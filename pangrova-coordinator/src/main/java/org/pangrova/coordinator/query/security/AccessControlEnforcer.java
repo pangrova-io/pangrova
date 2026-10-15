@@ -183,7 +183,8 @@ public final class AccessControlEnforcer {
                 || table.substring(suffix + 1).equalsIgnoreCase("options")
                 || table.substring(suffix + 1).equalsIgnoreCase("schemas")
                 || table.substring(suffix + 1).equalsIgnoreCase("branches")
-                || table.substring(suffix + 1).equalsIgnoreCase("manifests"))) {
+                || table.substring(suffix + 1).equalsIgnoreCase("manifests")
+                || table.substring(suffix + 1).equalsIgnoreCase("files"))) {
             return table.substring(0, suffix);
         }
         return table;

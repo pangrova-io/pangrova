@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "split/LocalFileUri.h"
+
 namespace pangrova::split {
 
 // Strip "file:" prefix from path for local file access.
@@ -29,6 +31,12 @@ inline std::string normalizeToS3Uri(const std::string& path) {
     return "s3://" + path.substr(6);
   }
   return path;
+}
+
+/** Resolve a metadata object URI through the canonical local/S3 path contract. */
+inline std::string metadataObjectPath(const std::string& uri) {
+  return uri.starts_with("file:")
+      ? decodeLocalFileUri(uri) : normalizeToS3Uri(uri);
 }
 
 }  // namespace pangrova::split

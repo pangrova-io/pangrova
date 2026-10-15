@@ -102,7 +102,7 @@ final class IcebergManifestReadBindings {
         }
     }
 
-    private static String digest(InputFile input, long expectedLength) {
+    static String digest(InputFile input, long expectedLength) {
         var sha = DigestUtils.sha256();
         byte[] buffer = new byte[HASH_BUFFER_BYTES];
         long readBytes = 0;

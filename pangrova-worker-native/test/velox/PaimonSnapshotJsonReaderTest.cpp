@@ -19,7 +19,7 @@ namespace {
 
 class SnapshotFile final {
  public:
-  explicit SnapshotFile(const std::string& contents) {
+  explicit SnapshotFile(const std::string& contents, bool spaced = false) {
     char path[] = "/tmp/pangrova-paimon-snapshot-XXXXXX";
     const int descriptor = mkstemp(path);
     if (descriptor < 0) {
@@ -27,6 +27,11 @@ class SnapshotFile final {
     }
     close(descriptor);
     path_ = path;
+    if (spaced) {
+      const auto renamed = path_ + " with space";
+      std::filesystem::rename(path_, renamed);
+      path_ = renamed;
+    }
     std::ofstream output(path_, std::ios::binary | std::ios::trunc);
     output << contents;
     output.close();
@@ -82,6 +87,20 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSnapshotAndProjectedColumns) {
                 ->valueAt(0).toMillis(), 1700000000000);
   EXPECT_EQ(row->childAt(4)->asFlatVector<int64_t>()->valueAt(0), 3);
   EXPECT_EQ(reader.next(1), nullptr);
+}
+
+TEST(PaimonSnapshotJsonReaderTest, DecodesEscapedSpaceAndRejectsMalformedFileUri) {
+  auto pool = pangrova::test::testLeafPool("PaimonSnapshotEncodedUri");
+  SnapshotFile file(kSnapshot, true);
+  auto type = facebook::velox::ROW({"snapshot_id"}, {facebook::velox::BIGINT()});
+  auto uri = "file:" + file.path();
+  uri.replace(uri.find("with space"), 10, "with%20space");
+  PaimonSnapshotJsonReader reader(uri, file.size(), 7, digest(kSnapshot),
+      type, pool.get());
+  ASSERT_NE(reader.next(1), nullptr);
+  uri.replace(uri.find("%20"), 3, "%2");
+  EXPECT_THROW(PaimonSnapshotJsonReader(uri, file.size(), 7, digest(kSnapshot),
+      type, pool.get()), std::invalid_argument);
 }
 
 TEST(PaimonSnapshotJsonReaderTest, ExposesFixedPaimon141SchemaAndNulls) {
