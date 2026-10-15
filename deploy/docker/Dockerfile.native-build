@@ -98,11 +98,17 @@ RUN PANGROVA_NATIVE_BUILD_PHASE=arrow-flight SKIP_DEPS=1 \
     pangrova-worker-native/bin/setup-native-build-env.sh
 
 FROM builder AS native-build
+ENV RUSTUP_TOOLCHAIN=1.98.1
+# Install only the Linux host toolchain. The repository toolchain file also
+# lists macOS targets for developer builds, which this image does not need.
+RUN rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
 WORKDIR /workspace/pangrova-worker-native
 COPY pangrova-worker-native/bin/build-lance-ffi.sh /workspace/pangrova-worker-native/bin/build-lance-ffi.sh
 COPY pangrova-worker-native/lance-ffi/ /workspace/pangrova-worker-native/lance-ffi/
 COPY pangrova-protocol/src/main/proto/ /workspace/pangrova-protocol/src/main/proto/
 COPY pangrova-protocol/src/main/proto-imports/ /workspace/pangrova-protocol/src/main/proto-imports/
+RUN awk -F '"' '/^channel = / { if ($2 == ENVIRON["RUSTUP_TOOLCHAIN"]) found=1 } END { exit !found }' \
+    lance-ffi/rust-toolchain.toml
 RUN apt-get update && apt-get install -y --no-install-recommends ripgrep \
     && rm -rf /var/lib/apt/lists/*
 RUN bash -c 'source /opt/pangrova-production/env.sh \
