@@ -10,12 +10,15 @@ import org.pangrova.parser.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.statement.CreateTableAsSelectStatement;
 import org.pangrova.parser.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.ast.statement.CreateStorageProfileStatement;
+import org.pangrova.parser.ast.statement.DropStorageProfileStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
 import org.pangrova.parser.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.UserIdentity;
 
 /**
@@ -29,11 +32,21 @@ public final class PermissionChecker {
 
     /**
      * Enforces table-level access control for the given statement.
-     * Skips silently if accessControl or user is null.
+     * Storage profile mutations require an authenticated actor and access-control
+     * provider. Other checks retain their existing nullable bootstrap behavior.
      */
     public static void check(Statement stmt, CoordinatorSessionContext context,
                               AccessControl accessControl) {
         UserIdentity user = context == null ? null : context.userIdentity();
+        if (stmt instanceof CreateStorageProfileStatement || stmt instanceof DropStorageProfileStatement) {
+            if (accessControl == null || user == null) {
+                throw new AccessDeniedException("Authenticated storage profile administrator is required");
+            }
+            String profileName = stmt instanceof CreateStorageProfileStatement create
+                    ? create.profileName() : ((DropStorageProfileStatement) stmt).profileName();
+            accessControl.checkCanManageStorageProfile(user, profileName);
+            return;
+        }
         if (accessControl == null || user == null) return;
         if (checkCatalogOrSchema(stmt, context, accessControl, user)) return;
         QualifiedTableName parts = StatementClassifier.extractTableParts(stmt, context);

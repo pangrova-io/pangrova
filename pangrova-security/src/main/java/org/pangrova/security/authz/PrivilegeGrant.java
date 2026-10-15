@@ -37,12 +37,20 @@ public record PrivilegeGrant(
      * does NOT satisfy table-level SELECT checks.
      */
     public boolean coversTable(String cat, String sch, String tbl) {
-        if (isColumnScoped()) {
+        if (isColumnScoped() || "STORAGE_PROFILE".equalsIgnoreCase(objectType)) {
             return false;
         }
         return matchesOrWild(catalog, cat)
                 && matchesOrWild(schema, sch)
                 && matchesOrWild(table, tbl);
+    }
+
+    /** Storage-profile grants are isolated from table, schema, and catalog privileges. */
+    public boolean coversStorageProfile(String profileName) {
+        return "STORAGE_PROFILE".equalsIgnoreCase(objectType)
+                && catalog != null
+                && ("*".equals(catalog) || catalog.equals(profileName))
+                && schema == null && table == null && column == null;
     }
 
     /**
@@ -57,6 +65,9 @@ public record PrivilegeGrant(
      * Returns true if this grant covers the given column.
      */
     public boolean coversColumn(String cat, String sch, String tbl, String col) {
+        if ("STORAGE_PROFILE".equalsIgnoreCase(objectType)) {
+            return false;
+        }
         // Column-level check: verify catalog/schema/table match directly
         // (without the isColumnScoped() gate that coversTable() applies).
         // A column-scoped grant must be able to satisfy column-level access checks.

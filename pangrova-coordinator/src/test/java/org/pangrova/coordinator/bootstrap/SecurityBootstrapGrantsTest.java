@@ -2,6 +2,10 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
+import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry;
 import org.pangrova.operations.bootstrap.BootstrapFailedException;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.GroupRoleMapping;
@@ -11,7 +15,11 @@ import org.pangrova.security.authz.Role;
 import org.pangrova.security.authz.UserRoleAssignment;
 import org.pangrova.security.store.PersistentGrantStore;
 import org.pangrova.security.store.PersistentRoleStore;
+import org.pangrova.parser.ast.statement.ShowStorageProfilesStatement;
 import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.storage.StorageProfile;
+import org.pangrova.spi.storage.StorageType;
 import org.pangrova.testing.ContainerTestBase;
 
 import java.time.Instant;
@@ -24,6 +32,49 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Production bootstrap reads the shared PostgreSQL role and grant authority on every check. */
 class SecurityBootstrapGrantsTest extends ContainerTestBase {
+    @Test
+    void profileVisibilityReadsPersistentGrantsAndPropagatesAuthorityOutage() throws Exception {
+        var source = SharedPostgresContainer.isolatedDataSource("profile_visibility");
+        var roles = new PersistentRoleStore(source);
+        roles.initSchema();
+        roles.createRole(Role.of("profile-viewer"));
+        roles.grantRoleToUser(UserRoleAssignment.of("alice", "profile-viewer"));
+        var grants = new PersistentGrantStore(source);
+        grants.addGrant(PrivilegeGrant.of("profile-viewer", Privilege.VIEW_STORAGE_PROFILE,
+                "STORAGE_PROFILE", "visible", null, null, null));
+        var registry = new InMemoryStorageProfileRegistry();
+        registry.register(new StorageProfile("visible", StorageType.S3, "visible-bucket", "", "", "", Map.of(), Map.of()));
+        registry.register(new StorageProfile("hidden", StorageType.S3, "hidden-bucket", "", "", "", Map.of(), Map.of()));
+        var bootstrap = new SecurityBootstrap(config(), source);
+        try {
+            bootstrap.start();
+            var session = new CoordinatorSessionContext("profile-show", Map.of(), user("alice", Set.of()), "tenant-a");
+            var execution = new StatementExecutionContext(null, session.queryId(), session, null, null);
+            var task = new ShowStorageProfilesTask(registry, bootstrap.accessControl());
+            var show = new ShowStorageProfilesStatement();
+            assertThatThrownBy(() -> new ShowStorageProfilesTask(registry, null).execute(show, execution))
+                    .isInstanceOf(AccessDeniedException.class);
+            var anonymous = new StatementExecutionContext(null, "anonymous", null, null, null);
+            assertThatThrownBy(() -> task.execute(show, anonymous))
+                    .isInstanceOf(AccessDeniedException.class);
+            assertThat(task.execute(show, execution).rows())
+                    .extracting(row -> row.getRaw("name")).containsExactly("visible");
+            grants.revokeGrants("profile-viewer", Privilege.VIEW_STORAGE_PROFILE, "visible", null, null);
+            assertThat(task.execute(show, execution).rows()).isEmpty();
+            grants.addGrant(PrivilegeGrant.of("profile-viewer", Privilege.MANAGE_STORAGE_PROFILE,
+                    "STORAGE_PROFILE", "visible", null, null, null));
+            assertThat(task.execute(show, execution).rows())
+                    .extracting(row -> row.getRaw("name")).containsExactly("visible");
+            try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE security_grants RENAME TO unavailable_profile_grants");
+            }
+            assertThatThrownBy(() -> task.execute(show, execution))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("Failed listing all grants");
+        } finally {
+            bootstrap.shutdown();
+        }
+    }
+
     @Test
     void directRolesAndExplicitGroupMappingsReadCurrentGrantsAcrossCoordinators() throws Exception {
         var source = SharedPostgresContainer.isolatedDataSource("rbac_bootstrap");

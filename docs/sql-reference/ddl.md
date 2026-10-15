@@ -245,6 +245,12 @@ a data export interface.
 ## Storage Profile
 
 Manage named storage configurations for external data access.
+Creating or dropping a profile requires `MANAGE_STORAGE_PROFILE` on that
+storage profile name (or an explicit `*` storage-profile grant). Table and
+catalog `ALL` grants do not authorize these account-scoped changes. An
+authenticated identity and a configured access-control provider are required.
+`SHOW STORAGE PROFILES` returns only profiles covered by `VIEW_STORAGE_PROFILE`
+or `MANAGE_STORAGE_PROFILE` on that profile name; it does not enumerate others.
 
 ### CREATE STORAGE PROFILE
 

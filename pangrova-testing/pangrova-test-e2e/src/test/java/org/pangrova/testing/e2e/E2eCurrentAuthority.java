@@ -73,6 +73,12 @@ final class E2eCurrentAuthority {
         if (grants.listGrantsForRole(SQL_ROLE).isEmpty()) {
             grants.addGrant(PrivilegeGrant.of(SQL_ROLE, Privilege.ALL, "TABLE", "*", "*", "*", null));
         }
+        if (grants.listGrantsForRole(SQL_ROLE).stream()
+                .noneMatch(grant -> grant.privilege() == Privilege.MANAGE_STORAGE_PROFILE
+                        && grant.coversStorageProfile("*"))) {
+            grants.addGrant(PrivilegeGrant.of(SQL_ROLE, Privilege.MANAGE_STORAGE_PROFILE,
+                    "STORAGE_PROFILE", "*", null, null, null));
+        }
         return new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
                 new ColumnMaskingProcessor(new PersistentColumnMaskStore(dataSource)));

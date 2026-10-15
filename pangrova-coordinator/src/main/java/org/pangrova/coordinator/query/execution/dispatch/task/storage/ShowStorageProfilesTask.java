@@ -14,7 +14,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.task.storage;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
@@ -22,6 +21,9 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.ShowStorageProfilesStatement;
 import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.storage.StorageProfile;
 import org.pangrova.spi.storage.StorageProfileRegistry;
 
@@ -34,16 +36,23 @@ public final class ShowStorageProfilesTask implements MetadataTask<ShowStoragePr
             "name", "type", "bucket", "region", "endpoint");
 
     private final StorageProfileRegistry registry;
+    private final AccessControl accessControl;
 
-    public ShowStorageProfilesTask(StorageProfileRegistry registry) {
+    public ShowStorageProfilesTask(StorageProfileRegistry registry, AccessControl accessControl) {
         this.registry = registry;
+        this.accessControl = accessControl;
     }
 
     @Override
     public StatementResult execute(ShowStorageProfilesStatement statement,
                                     StatementExecutionContext context) {
+        UserIdentity user = context.session() == null ? null : context.session().userIdentity();
+        if (user == null || accessControl == null) {
+            throw new AccessDeniedException("Authenticated storage profile viewer is required");
+        }
         List<StorageProfile> profiles = registry.list();
         List<TypedRow> rows = profiles.stream()
+                .filter(profile -> canView(user, profile.name()))
                 .map(p -> {
                     TypedRow.Builder b = TypedRow.builder();
                     b.putRaw("name", p.name());
@@ -53,7 +62,16 @@ public final class ShowStorageProfilesTask implements MetadataTask<ShowStoragePr
                     b.putRaw("endpoint", p.endpoint());
                     return b.build();
                 })
-                .collect(Collectors.toList());
+                .toList();
         return new StatementResult(rows, COLUMNS, null, StatementCategory.QUERY);
+    }
+
+    private boolean canView(UserIdentity user, String profileName) {
+        try {
+            accessControl.checkCanViewStorageProfile(user, profileName);
+            return true;
+        } catch (AccessDeniedException denied) {
+            return false;
+        }
     }
 }

@@ -71,6 +71,29 @@ public final class DynamicRbacAccessControl implements AccessControl {
     }
 
     @Override
+    public void checkCanManageStorageProfile(UserIdentity user, String profileName) {
+        boolean granted = resolveGrants(user).stream().anyMatch(grant ->
+                grant.privilege().implies(Privilege.MANAGE_STORAGE_PROFILE)
+                        && grant.coversStorageProfile(profileName));
+        if (!granted) {
+            throw new AuthorizationDeniedException("User '%s' lacks MANAGE_STORAGE_PROFILE on storage profile '%s'"
+                    .formatted(user.principal(), profileName));
+        }
+    }
+
+    @Override
+    public void checkCanViewStorageProfile(UserIdentity user, String profileName) {
+        boolean granted = resolveGrants(user).stream().anyMatch(grant ->
+                grant.coversStorageProfile(profileName)
+                        && (grant.privilege().implies(Privilege.VIEW_STORAGE_PROFILE)
+                        || grant.privilege() == Privilege.MANAGE_STORAGE_PROFILE));
+        if (!granted) {
+            throw new AuthorizationDeniedException("User '%s' lacks VIEW_STORAGE_PROFILE on storage profile '%s'"
+                    .formatted(user.principal(), profileName));
+        }
+    }
+
+    @Override
     public void checkCanAccessSchema(UserIdentity user, String catalog, String schema) {
         requireAnyGrant(user, catalog, schema, null, Privilege.SELECT);
     }

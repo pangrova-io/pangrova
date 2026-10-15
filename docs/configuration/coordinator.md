@@ -131,6 +131,15 @@ closed instead of reusing an earlier permission. RLS and column masking match
 the independently resolved role set while retaining the authenticated identity's
 original groups and attributes. SQL role/grant administration is not yet exposed
 by this configuration surface; provision the persistent authority explicitly.
+For storage profiles, provision `VIEW_STORAGE_PROFILE` or
+`MANAGE_STORAGE_PROFILE` in `security_grants` with
+`object_type = 'STORAGE_PROFILE'`, `catalog_name` equal to the exact profile
+name (or `*` for a deliberate account-wide grant), and schema/table/column
+scope columns set to `NULL`. Bind the grant's `role_name` through
+`pangrova_roles` and `pangrova_user_roles` or `pangrova_group_roles`.
+`MANAGE_STORAGE_PROFILE` also permits viewing the same profile; `VIEW_STORAGE_PROFILE`
+does not permit mutation. This uses the existing PostgreSQL administrative
+provisioning path; Pangrova SQL `GRANT` for storage profiles is not exposed.
 
 Query admission resolves the tenant from the authenticated user's membership when
 `tenant.enabled=true`; it requires `security.enabled=true` with an authenticator

@@ -368,6 +368,9 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
     /** Overload accepting a custom catalog name for cross-catalog isolation tests. */
     private PrivilegeGrant buildGrantForPrivilege(Privilege privilege, String catalog) {
         return switch (privilege) {
+            case MANAGE_STORAGE_PROFILE, VIEW_STORAGE_PROFILE ->
+                    PrivilegeGrant.of("analysts", privilege, "STORAGE_PROFILE",
+                            catalog, null, null, null);
             case SHOW_SCHEMAS, DROP_CATALOG ->
                     PrivilegeGrant.of("analysts", privilege, "CATALOG",
                             catalog, null, null, null);
@@ -403,6 +406,8 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             case ALTER_SCHEMA -> ac.checkCanAlterSchema(user, CATALOG, SCHEMA);
             case SHOW_SCHEMAS -> ac.checkCanShowSchemas(user, CATALOG);
             case SHOW_TABLES -> ac.checkCanShowTables(user, CATALOG, SCHEMA);
+            case MANAGE_STORAGE_PROFILE -> ac.checkCanManageStorageProfile(user, CATALOG);
+            case VIEW_STORAGE_PROFILE -> ac.checkCanViewStorageProfile(user, CATALOG);
             // Privileges without a direct single-method check: verify grant exists
             case UPDATE, TRUNCATE, DROP_CATALOG, RENAME_TABLE, EXECUTE_QUERY,
                  KILL_QUERY, VIEW_QUERY, SET_SESSION, CREATE_VIEW ->
@@ -450,6 +455,12 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
                     .isInstanceOf(AuthorizationDeniedException.class);
             case SHOW_TABLES -> assertThatThrownBy(() ->
                     ac.checkCanShowTables(user, CATALOG, SCHEMA))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            case MANAGE_STORAGE_PROFILE -> assertThatThrownBy(() ->
+                    ac.checkCanManageStorageProfile(user, CATALOG))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            case VIEW_STORAGE_PROFILE -> assertThatThrownBy(() ->
+                    ac.checkCanViewStorageProfile(user, CATALOG))
                     .isInstanceOf(AuthorizationDeniedException.class);
             // Privileges without direct check method: verify no grant exists
             case UPDATE, TRUNCATE, DROP_CATALOG, RENAME_TABLE, EXECUTE_QUERY,
@@ -503,6 +514,8 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             case ALTER_SCHEMA -> ac.checkCanAlterSchema(user, catalog, SCHEMA);
             case SHOW_SCHEMAS -> ac.checkCanShowSchemas(user, catalog);
             case SHOW_TABLES -> ac.checkCanShowTables(user, catalog, SCHEMA);
+            case MANAGE_STORAGE_PROFILE -> ac.checkCanManageStorageProfile(user, catalog);
+            case VIEW_STORAGE_PROFILE -> ac.checkCanViewStorageProfile(user, catalog);
             default -> {
                 PrivilegeGrant grant = PrivilegeGrant.of("analysts", privilege, "TABLE",
                         catalog, SCHEMA, tableName, null);
@@ -552,6 +565,12 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
                     .isInstanceOf(AuthorizationDeniedException.class);
             case SHOW_TABLES -> assertThatThrownBy(() ->
                     ac.checkCanShowTables(user, catalog, SCHEMA))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            case MANAGE_STORAGE_PROFILE -> assertThatThrownBy(() ->
+                    ac.checkCanManageStorageProfile(user, catalog))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            case VIEW_STORAGE_PROFILE -> assertThatThrownBy(() ->
+                    ac.checkCanViewStorageProfile(user, catalog))
                     .isInstanceOf(AuthorizationDeniedException.class);
             default -> {
                 // Privileges without direct check method (UPDATE, TRUNCATE, etc.):

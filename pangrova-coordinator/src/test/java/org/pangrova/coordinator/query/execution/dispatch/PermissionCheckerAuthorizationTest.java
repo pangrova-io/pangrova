@@ -78,6 +78,30 @@ class PermissionCheckerAuthorizationTest {
     }
 
     @Test
+    void storageProfileMutationsRequireTheirOwnScopedManagementGrant() {
+        var create = new SqlParser().parse("CREATE STORAGE PROFILE staging "
+                + "WITH ('type'='S3', 'bucket'='example')");
+        var drop = new SqlParser().parse("DROP STORAGE PROFILE IF EXISTS staging");
+        var tableAdmin = accessControl(grant(Privilege.ALL, "*", "*", "*"));
+        assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, tableAdmin))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("MANAGE_STORAGE_PROFILE");
+        assertThatThrownBy(() -> PermissionChecker.check(drop, SESSION, tableAdmin))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("MANAGE_STORAGE_PROFILE");
+
+        var granted = accessControl(PrivilegeGrant.of("ddl-role", Privilege.MANAGE_STORAGE_PROFILE,
+                "STORAGE_PROFILE", "staging", null, null, null));
+        assertThatCode(() -> PermissionChecker.check(create, SESSION, granted)).doesNotThrowAnyException();
+        assertThatCode(() -> PermissionChecker.check(drop, SESSION, granted)).doesNotThrowAnyException();
+        var other = new SqlParser().parse("DROP STORAGE PROFILE IF EXISTS unrelated");
+        assertThatThrownBy(() -> PermissionChecker.check(other, SESSION, granted))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("unrelated");
+        assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, null))
+                .hasMessageContaining("Authenticated storage profile administrator");
+        assertThatThrownBy(() -> PermissionChecker.check(create, null, granted))
+                .hasMessageContaining("Authenticated storage profile administrator");
+    }
+
+    @Test
     void renameRequiresSourceRenameAndExactDestinationCreatePrivileges() {
         var rename = new SqlParser().parse("ALTER TABLE secured.source_schema.docs RENAME TO target_schema.renamed");
         var sourceOnly = accessControl(grant(Privilege.RENAME_TABLE, "secured", "source_schema", "docs"));

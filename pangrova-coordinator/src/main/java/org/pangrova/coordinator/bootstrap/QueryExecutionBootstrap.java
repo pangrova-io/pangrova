@@ -236,7 +236,7 @@ final class QueryExecutionBootstrap {
             registerStreamTasks(metadataFactory, streamingBootstrap.getDdlExecutor());
         }
         registerBranchTasks(metadataFactory, catalog);
-        registerStorageProfileTasks(metadataFactory);
+        registerStorageProfileTasks(metadataFactory, accessControl);
 
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
@@ -397,14 +397,16 @@ final class QueryExecutionBootstrap {
     }
 
     private static void registerStorageProfileTasks(
-            org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory) {
+            org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
+            AccessControl accessControl) {
         var registry = new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
         factory.registerTask(org.pangrova.parser.ast.statement.CreateStorageProfileStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.CreateStorageProfileTask(registry));
         factory.registerTask(org.pangrova.parser.ast.statement.DropStorageProfileStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.DropStorageProfileTask(registry));
         factory.registerTask(org.pangrova.parser.ast.statement.ShowStorageProfilesStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask(registry));
+                new org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask(
+                        registry, accessControl));
     }
 
     Consumer<String> buildWriteCompleteCallback(MaintenanceScheduler ms) {

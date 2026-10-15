@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -92,6 +93,55 @@ class RbacAccessControlRoleStoreTest {
 
         assertThatCode(() -> accessControl.checkCanDropCatalog(alice, "lake")).doesNotThrowAnyException();
         assertThatCode(() -> accessControl.checkCanAlterCatalog(alice, "lake")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void storageProfileGrantIsIsolatedFromCatalogAndTableGrants() {
+        roleStore.createRole(Role.of("storage-admin"));
+        roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "storage-admin"));
+        var alice = userWithGroups("alice");
+        grantStore.addGrant(PrivilegeGrant.of("storage-admin", Privilege.ALL,
+                "CATALOG", "*", null, null, null));
+        grantStore.addGrant(PrivilegeGrant.of("storage-admin", Privilege.ALL,
+                "TABLE", "*", "*", "*", null));
+        assertThatThrownBy(() -> accessControl.checkCanManageStorageProfile(alice, "source"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        grantStore.addGrant(PrivilegeGrant.of("storage-admin", Privilege.VIEW_STORAGE_PROFILE,
+                "STORAGE_PROFILE", "source", null, null, null));
+        assertThatCode(() -> accessControl.checkCanViewStorageProfile(alice, "source"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanManageStorageProfile(alice, "source"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        grantStore.addGrant(PrivilegeGrant.of("storage-admin", Privilege.MANAGE_STORAGE_PROFILE,
+                "STORAGE_PROFILE", "source", null, null, null));
+        assertThatCode(() -> accessControl.checkCanManageStorageProfile(alice, "source"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanManageStorageProfile(alice, "other"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatCode(() -> accessControl.checkCanViewStorageProfile(alice, "source"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanViewStorageProfile(alice, "other"))
+                .isInstanceOf(AccessDeniedException.class);
+
+        var allOnProfile = PrivilegeGrant.of("storage-admin", Privilege.ALL,
+                "STORAGE_PROFILE", "lake", null, null, null);
+        assertThat(allOnProfile.coversTable("lake", "default", "docs")).isFalse();
+        assertThat(allOnProfile.coversColumn("lake", "default", "docs", "secret")).isFalse();
+
+        roleStore.createRole(Role.of("profile-owner"));
+        roleStore.grantRoleToUser(UserRoleAssignment.of("bob", "profile-owner"));
+        grantStore.addGrant(PrivilegeGrant.of("profile-owner", Privilege.ALL,
+                "STORAGE_PROFILE", "lake", null, null, null));
+        var bob = userWithGroups("bob");
+        assertThatCode(() -> accessControl.checkCanManageStorageProfile(bob, "lake"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanSelectFromTable(bob, "lake", "default", "docs"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> accessControl.checkCanSelectFromColumns(
+                bob, "lake", "default", "docs", Set.of("secret")))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test

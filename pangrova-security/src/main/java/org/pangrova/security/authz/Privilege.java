@@ -30,6 +30,10 @@ public enum Privilege {
     CREATE_CATALOG,
     DROP_CATALOG,
     ALTER_CATALOG,
+    /** Manage account-scoped storage profile definitions. */
+    MANAGE_STORAGE_PROFILE,
+    /** View account-scoped storage profile metadata. */
+    VIEW_STORAGE_PROFILE,
     RENAME_TABLE,
     SHOW_SCHEMAS,
     SHOW_TABLES,

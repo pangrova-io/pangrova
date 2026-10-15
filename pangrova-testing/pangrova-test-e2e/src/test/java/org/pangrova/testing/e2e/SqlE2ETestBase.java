@@ -2395,7 +2395,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.ast.statement.DropStorageProfileStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.DropStorageProfileTask(spRegistry));
         tasks.put(org.pangrova.parser.ast.statement.ShowStorageProfilesStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask(spRegistry));
+                new org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask(
+                        spRegistry, currentAccessControl));
         // Branch/Tag SHOW queries
         var branchDeps = new org.pangrova.coordinator.ai.branch.BranchDdlContext(
                 metadataBootstrap.catalogRegistry(), null);
