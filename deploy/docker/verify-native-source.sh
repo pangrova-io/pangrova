@@ -11,7 +11,6 @@ native_checkout="$2"
 for relative in \
     pangrova-protocol/src/main/proto pangrova-protocol/src/main/proto-imports \
     pangrova-worker-native/src pangrova-worker-native/cmake pangrova-worker-native/bin \
-    pangrova-worker-native/proto \
     pangrova-worker-native/CMakeLists.txt pangrova-worker-native/CMakePresets.json \
     pangrova-worker-native/jni_exported_symbols.map pangrova-worker-native/jni_exported_symbols_macos.list \
     pangrova-worker-native/patch_flight_types.py \
