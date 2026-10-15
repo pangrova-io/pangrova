@@ -70,4 +70,23 @@ class PlannerServiceOwnershipTest {
         dynamic.removeTargetOverride("logical");
         assertThat(rewrite.rewrite("SELECT id FROM logical")).containsIgnoringCase("logical");
     }
+
+    @Test
+    void dynamicTableRewriteChangesOnlyTheParsedTableReference() {
+        var definitions = new MaterializedViewRegistry();
+        definitions.register(new org.pangrova.planner.mv.MaterializedViewDefinition(
+                "logical", "SELECT id FROM source", org.pangrova.parser.ast.RefreshStrategy.INCREMENTAL,
+                true, java.util.Optional.of(Instant.EPOCH), Instant.EPOCH,
+                java.util.Set.of(), java.util.Set.of(), java.util.Set.of()));
+        var dynamic = new DynamicTableRewriter(definitions);
+        dynamic.registerTargetOverride("logical", "physical");
+        var rewrite = new DynamicTableSqlRewriter(new PangrovaParserFactory(), dynamic);
+
+        assertThat(rewrite.rewrite("SELECT 'logical' AS label FROM logical"))
+                .isEqualTo("SELECT 'logical' AS label FROM physical");
+        assertThat(rewrite.rewrite("SELECT logical FROM logical"))
+                .isEqualTo("SELECT logical FROM physical");
+        assertThat(rewrite.rewrite("SELECT 1 /* logical */ FROM logical"))
+                .isEqualTo("SELECT 1 /* logical */ FROM physical");
+    }
 }

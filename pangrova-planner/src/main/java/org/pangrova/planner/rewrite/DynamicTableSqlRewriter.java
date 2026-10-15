@@ -8,14 +8,15 @@ import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.TableRef;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.parser.PangrovaSqlLexer;
+import org.antlr.v4.runtime.CharStreams;
+import org.antlr.v4.runtime.Token;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Pre-parse SQL rewriter that replaces Dynamic Table names with their
@@ -159,14 +160,71 @@ public final class DynamicTableSqlRewriter {
         if (parts.isEmpty()) {
             return sql;
         }
-        StringBuilder patternBuilder = new StringBuilder("(?i)");
-        for (int i = 0; i < parts.size(); i++) {
-            if (i > 0) {
-                patternBuilder.append("\\s*\\.\\s*");
+        // The AST deliberately does not carry source spans. Match its table name
+        // against lexer tokens at a FROM/JOIN (or comma-separated FROM) position,
+        // rather than searching raw SQL: a string, comment, CTE body or projected
+        // column may contain the same text before the actual table reference.
+        List<? extends Token> tokens = new PangrovaSqlLexer(CharStreams.fromString(sql)).getAllTokens();
+        int[] depths = new int[tokens.size()];
+        int depth = 0;
+        int queryDepth = Integer.MAX_VALUE;
+        for (int i = 0; i < tokens.size(); i++) {
+            Token token = tokens.get(i);
+            if (token.getType() == PangrovaSqlLexer.RPAREN) depth--;
+            depths[i] = depth;
+            if (token.getType() == PangrovaSqlLexer.FROM) {
+                queryDepth = Math.min(queryDepth, depth);
             }
-            String part = Pattern.quote(parts.get(i));
-            patternBuilder.append("(?:\"").append(part).append("\"|").append(part).append(")");
+            if (token.getType() == PangrovaSqlLexer.LPAREN) depth++;
         }
-        return sql.replaceFirst(patternBuilder.toString(), Matcher.quoteReplacement(newName));
+        boolean inFrom = false;
+        for (int i = 0; i < tokens.size(); i++) {
+            if (depths[i] != queryDepth) continue;
+            int type = tokens.get(i).getType();
+            if (type == PangrovaSqlLexer.FROM) {
+                inFrom = true;
+            } else if (type == PangrovaSqlLexer.WHERE || type == PangrovaSqlLexer.GROUP
+                    || type == PangrovaSqlLexer.HAVING || type == PangrovaSqlLexer.ORDER
+                    || type == PangrovaSqlLexer.LIMIT || type == PangrovaSqlLexer.OFFSET
+                    || type == PangrovaSqlLexer.UNION || type == PangrovaSqlLexer.INTERSECT
+                    || type == PangrovaSqlLexer.EXCEPT || type == PangrovaSqlLexer.QUALIFY) {
+                inFrom = false;
+            }
+            if (!inFrom || (type != PangrovaSqlLexer.FROM
+                    && type != PangrovaSqlLexer.JOIN && type != PangrovaSqlLexer.COMMA)) {
+                continue;
+            }
+            int last = matchingIdentifier(tokens, depths, i + 1, queryDepth, parts);
+            if (last >= 0) {
+                return sql.substring(0, tokens.get(i + 1).getStartIndex()) + newName
+                        + sql.substring(tokens.get(last).getStopIndex() + 1);
+            }
+        }
+        throw new IllegalStateException("Cannot locate parsed Dynamic Table reference: " + id);
+    }
+
+    private static int matchingIdentifier(List<? extends Token> tokens, int[] depths,
+                                          int start, int queryDepth, List<String> parts) {
+        int index = start;
+        for (int part = 0; part < parts.size(); part++) {
+            if (part > 0) {
+                if (index >= tokens.size() || tokens.get(index).getType() != PangrovaSqlLexer.DOT) {
+                    return -1;
+                }
+                index++;
+            }
+            if (index >= tokens.size() || depths[index] != queryDepth) return -1;
+            Token token = tokens.get(index++);
+            String actual = switch (token.getType()) {
+                case PangrovaSqlLexer.IDENTIFIER -> token.getText();
+                case PangrovaSqlLexer.QUOTED_IDENTIFIER ->
+                        token.getText().substring(1, token.getText().length() - 1).replace("\"\"", "\"");
+                case PangrovaSqlLexer.BACKTICK_IDENTIFIER ->
+                        token.getText().substring(1, token.getText().length() - 1).replace("``", "`");
+                default -> null;
+            };
+            if (actual == null || !actual.equalsIgnoreCase(parts.get(part))) return -1;
+        }
+        return index - 1;
     }
 }

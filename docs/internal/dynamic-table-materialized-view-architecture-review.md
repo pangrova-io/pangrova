@@ -88,6 +88,8 @@ SELECT FROM dynamic_table
 
 生产 Planner 的 `PlannerWiring` 给 `PlannerContext` 的 `dynamicTableRewriter` 与 `metadataVersionProvider` 传入 `null`。因此，即便状态被外部写入，正常 SQL 也不会通过生产 Planner 解析动态表名。
 
+2026-10-16 增量修正：`DynamicTableSqlRewriter` 的文本替换现在用 SQL lexer 的 token 位置匹配 AST 表引用；字符串、注释及投影列中先出现同名文本时，不再误改它们。此修正只封闭名称替换的局部错误，不补齐上述生产装配、CTE/子查询遍历、租户与权限域校验，也不证明物化结果可见性。
+
 **影响**：功能在测试环境看似存在，但标准 coordinator 启动后无法形成 create → schedule → refresh → query 的链路。任何后续优化都必须先以“production reachability”作为验收门槛。
 
 ### P0-2 dispatch 被错误当成 commit
