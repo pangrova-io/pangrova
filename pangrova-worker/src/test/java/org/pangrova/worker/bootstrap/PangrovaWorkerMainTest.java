@@ -77,6 +77,28 @@ class PangrovaWorkerMainTest {
     }
 
     @Test
+    void buildBootstrapConfigSeparatesShuffleRouteFromControlAndResultRoute() {
+        var configuration = PangrovaConfiguration.fromYaml(Map.of(
+                "worker.advertised-host", "host.testcontainers.internal",
+                "worker.shuffle.advertised-host", "worker-1",
+                "worker.transport.tls.enabled", "true",
+                "worker.transport.tls.certificate-chain-path", "/secrets/worker.crt",
+                "worker.transport.tls.private-key-path", "/secrets/worker.key",
+                "worker.transport.tls.root-ca-path", "/secrets/ca.crt",
+                "worker.transport.tls.identity", "host.testcontainers.internal"));
+
+        var bootstrap = PangrovaWorkerMain.buildBootstrapConfig(configuration);
+        assertThat(bootstrap.advertisedHost()).isEqualTo("host.testcontainers.internal");
+        assertThat(bootstrap.shuffleAdvertisedHost()).isEqualTo("worker-1");
+        assertThat(bootstrap.transportSecurityConfig().tlsIdentity())
+                .isEqualTo("host.testcontainers.internal");
+
+        var inherited = PangrovaWorkerMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(
+                Map.of("worker.advertised-host", "shared-worker.internal")));
+        assertThat(inherited.shuffleAdvertisedHost()).isEqualTo("shared-worker.internal");
+    }
+
+    @Test
     void buildBootstrapConfig_defaultsEnableObservabilityAndCdcButNotSecurity() {
         PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of());
         WorkerBootstrapConfig result = PangrovaWorkerMain.buildBootstrapConfig(config);

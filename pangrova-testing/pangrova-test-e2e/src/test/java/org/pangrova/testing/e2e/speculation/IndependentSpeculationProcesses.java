@@ -149,7 +149,8 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
             var result = new ProcessResultWireRelay(() -> new InetSocketAddress(
                     Objects.requireNonNull(process.get()).getHost(), process.get().getMappedPort(resultPort(process.get()))));
             owners.add(result);
-            networks.add(new WorkerNetwork("e2e-worker-" + number, process, http, result));
+            networks.add(new WorkerNetwork("e2e-worker-" + number, "worker-" + number,
+                    process, http, result));
         }
     }
 
@@ -169,10 +170,13 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
     private void configureWorker(WorkerNetwork network, GenericContainer<?> container) {
         if (network == networks.get(0)) reports.connect(endpoint(cluster.getCoordinator(), 8080));
         network.process().set(container);
+        // Native shuffle binds a per-task port; peers reach it through the shared
+        // Docker network alias, while the TLS server identity remains explicit.
         container.withCommand("start", "worker", "--config", "/opt/pangrova/config/process-worker.yml")
                 .withEnv("PANGROVA_JAVA_OPTS", "-Xms128m -Xmx384m -XX:MaxDirectMemorySize=128m")
                 .withEnv("PANGROVA_COORDINATOR_URL", "http://host.testcontainers.internal:" + reports.port())
                 .withEnv("PANGROVA_ADVERTISED_HOST", "host.testcontainers.internal")
+                .withEnv("PANGROVA_HEALTH_PORT", Integer.toString(network.http().port()))
                 .withEnv("PANGROVA_INTERNAL_AUTH_SECRET", "independent-process-internal-secret")
                 .withExposedPorts(network.http().port(), network.result().port())
                 .withCopyToContainer(Transferable.of(workerConfig(network)), "/opt/pangrova/config/process-worker.yml")
@@ -245,13 +249,14 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
                     budget-bytes: 536870912
                     node-bytes: 1073741824
                   shuffle:
+                    advertised-host: "%s"
                     service:
                       spill-directory: "/opt/pangrova/data"
                   native:
                     cache:
                       enabled: false
                 """.formatted(network.http().port(), network.result().port(), ROLE_TLS_DIRECTORY + "/identity.pem",
-                        ROLE_TLS_DIRECTORY + "/identity-key.pem", ROLE_TLS_DIRECTORY + "/root.pem");
+                        ROLE_TLS_DIRECTORY + "/identity-key.pem", ROLE_TLS_DIRECTORY + "/root.pem", network.alias());
     }
 
     private Transferable roleMaterial(TestTlsAuthority.Identity identity) {
@@ -412,7 +417,7 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
         if (failure != null) throw failure;
     }
 
-    record WorkerNetwork(String workerId, AtomicReference<GenericContainer<?>> process,
+    record WorkerNetwork(String workerId, String alias, AtomicReference<GenericContainer<?>> process,
             ProcessWorkerHttpRelay http, ProcessResultWireRelay result) { }
     record IssuedTask(String workerId, SubmitTaskRequest request, ProcessWorkerHttpRelay.Transfer transfer) { }
     record SqlOutput(int exitCode, String output, String errors) {

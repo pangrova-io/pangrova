@@ -132,6 +132,7 @@ public final class PangrovaWorkerMain {
                 config.getString(WorkerOptions.INTERNAL_AUTH_SECRET),
                 null, cacheConfig,
                 config.getString(WorkerOptions.WORKER_ADVERTISED_HOST),
+                config.getString(WorkerOptions.SHUFFLE_ADVERTISED_HOST),
                 loadNativeFunctionConfig(config),
                 loadTransportSecurityConfig(config));
     }

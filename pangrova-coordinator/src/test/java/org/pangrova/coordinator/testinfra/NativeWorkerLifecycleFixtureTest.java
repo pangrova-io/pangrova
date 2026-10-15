@@ -71,6 +71,6 @@ class NativeWorkerLifecycleFixtureTest {
         return new WorkerBootstrapConfig("native-lifecycle", 0, 0, coordinatorUrl,
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS, false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 }

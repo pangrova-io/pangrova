@@ -15,8 +15,10 @@ import org.pangrova.worker.jni.NativeFunctionConfig;
  *
  * <p><b>httpHost vs advertisedHost</b>: {@code httpHost} ({@code worker.host}) is a <em>bind</em>
  * address and defaults to the wildcard {@code 0.0.0.0}. {@code advertisedHost} ({@code
- * worker.advertised-host}) is the address remote peers and the coordinator use to reach this
- * worker. Never advertise a wildcard bind address — see {@code
+ * worker.advertised-host}) is the address the coordinator uses to reach this worker.
+ * {@code shuffleAdvertisedHost} may select a separate route for peer-to-peer Native
+ * Flight shuffle, and defaults to {@code advertisedHost}. Never advertise a wildcard
+ * bind address — see {@code
  * WorkerHttpBootstrap#resolveAdvertisedHost}.
  */
 public record WorkerBootstrapConfig(
@@ -36,6 +38,7 @@ public record WorkerBootstrapConfig(
         ShuffleMode shuffleMode,
         CacheConfig cacheConfig,
         String advertisedHost,
+        String shuffleAdvertisedHost,
         NativeFunctionConfig nativeFunctionConfig,
         TransportSecurityConfig transportSecurityConfig) {
 
@@ -59,6 +62,11 @@ public record WorkerBootstrapConfig(
         nativeFunctionConfig = orDefault(nativeFunctionConfig, NativeFunctionConfig.DEFAULT);
         transportSecurityConfig =
                 orDefault(transportSecurityConfig, TransportSecurityConfig.disabled());
+        if (shuffleAdvertisedHost == null || shuffleAdvertisedHost.isBlank()) {
+            shuffleAdvertisedHost = advertisedHost;
+        } else {
+            shuffleAdvertisedHost = shuffleAdvertisedHost.trim();
+        }
     }
 
     private static void checkWorkerId(String workerId) {
@@ -94,6 +102,7 @@ public record WorkerBootstrapConfig(
                 null,
                 null,
                 ShuffleMode.NATIVE,
+                null,
                 null,
                 null,
                 NativeFunctionConfig.DEFAULT,

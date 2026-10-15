@@ -120,7 +120,7 @@ class WorkerBootstrapTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
                 null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
     }
 
     private static WorkerBootstrap bootstrapWithCatalogRuntime(String workerId) {

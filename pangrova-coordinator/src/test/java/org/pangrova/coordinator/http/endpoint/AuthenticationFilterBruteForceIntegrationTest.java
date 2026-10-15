@@ -67,6 +67,7 @@ class AuthenticationFilterBruteForceIntegrationTest {
         ResourceConfig config = new ResourceConfig();
         config.register(filter);
         config.register(ProtectedResource.class);
+        config.register(HealthResource.class);
 
         ServletContextHandler handler = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
         handler.setContextPath("/");
@@ -157,6 +158,21 @@ class AuthenticationFilterBruteForceIntegrationTest {
         }
     }
 
+    @Test
+    void livenessRemainsAvailableAfterAuthenticationLockout() throws Exception {
+        String ip = "10.50.0.6";
+        for (int i = 0; i < THRESHOLD; i++) {
+            assertThat(sendBadAuth(ip).statusCode()).isEqualTo(401);
+        }
+        assertThat(sendBadAuth(ip).statusCode()).isEqualTo(429);
+
+        for (int i = 0; i < THRESHOLD + 1; i++) {
+            assertThat(sendGet("/v1/health/live", null, ip).statusCode()).isEqualTo(200);
+        }
+        assertThat(sendGet("/v1/health/live/extra", null, ip).statusCode()).isEqualTo(429);
+        assertThat(sendBadAuth(ip).statusCode()).isEqualTo(429);
+    }
+
     // --- HTTP helpers ---
 
     private HttpResponse<String> sendBadAuth(String forwardedFor)
@@ -193,6 +209,21 @@ class AuthenticationFilterBruteForceIntegrationTest {
         @Path("/submit")
         public Response submit() {
             return Response.ok("ok").build();
+        }
+    }
+
+    @Path("/v1/health")
+    public static class HealthResource {
+        @GET
+        @Path("live")
+        public Response live() {
+            return Response.ok("live").build();
+        }
+
+        @GET
+        @Path("live/extra")
+        public Response nonHealthSubpath() {
+            return Response.ok("protected").build();
         }
     }
 

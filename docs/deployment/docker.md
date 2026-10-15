@@ -129,6 +129,10 @@ All services expose `GET /v1/health` for readiness and `GET /v1/health/live`
 for liveness. Coordinator readiness requires its HTTP server, a registered
 Worker, and a catalog; it can return 503 while its live endpoint returns 200.
 Compose and the image healthcheck use liveness so Workers can start and register.
+The image detects the running node role and probes its default management port
+(8080 for Coordinator, 8081 for Worker). If a mounted configuration changes
+that port, set `PANGROVA_HEALTH_PORT` to the same value. Both health routes are
+accessible without authentication, including when a client IP is locked out.
 Workers must have an existing writable `worker.shuffle.service.spill-directory`
 with capacity for their configured spill quota and headroom. The Compose
 configuration points it at the Worker data volume. The production

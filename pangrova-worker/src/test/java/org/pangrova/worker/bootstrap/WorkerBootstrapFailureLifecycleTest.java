@@ -71,6 +71,7 @@ class WorkerBootstrapFailureLifecycleTest {
                 source.resourceConfig(), source.resultRetentionSeconds(),
                 source.cdcEnabled(), source.registrationRetryConfig(), source.httpHost(),
                 source.internalAuthSecret(), source.shuffleMode(), source.cacheConfig(),
-                source.advertisedHost(), functions, source.transportSecurityConfig());
+                source.advertisedHost(), source.shuffleAdvertisedHost(),
+                functions, source.transportSecurityConfig());
     }
 }

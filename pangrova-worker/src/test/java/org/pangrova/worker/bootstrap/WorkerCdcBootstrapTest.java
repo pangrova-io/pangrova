@@ -91,6 +91,6 @@ class WorkerCdcBootstrapTest {
                 false, null, null, 0, cdcEnabled,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
     }
 }

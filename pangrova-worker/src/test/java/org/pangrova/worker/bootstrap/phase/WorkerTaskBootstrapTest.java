@@ -42,7 +42,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
 
         assertThatThrownBy(() -> WorkerTaskBootstrap.createStatusReporter(config, NOOP_OBSERVABILITY))
                 .isInstanceOf(BootstrapFailedException.class)
@@ -58,7 +58,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
 
         var reporter = WorkerTaskBootstrap.createStatusReporter(config, NOOP_OBSERVABILITY);
         assertThat(reporter).isNotNull();
@@ -83,7 +83,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
         WorkerComponentRefs refs = new WorkerComponentRefs();
         refs.setNativeAvailable(false);
 
@@ -111,6 +111,50 @@ class WorkerTaskBootstrapTest {
     @Test
     void warnIfSingleHostUrl_allowsDnsName() {
         assertThat(WorkerTaskBootstrap.looksLikeSingleHost("coordinator-lb.internal")).isFalse();
+    }
+
+    @Test
+    void shuffleAdvertisedHostUsesPeerRouteWithoutChangingResultRoute() {
+        var config = new WorkerBootstrapConfig(
+                "worker-1", 0, 0, null,
+                WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
+                false, null, null,
+                WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
+                false, null, null, null,
+                null, null,
+                "host.testcontainers.internal", "worker-1",
+                null, null);
+
+        assertThat(WorkerHttpBootstrap.resolveAdvertisedHost(config))
+                .isEqualTo("host.testcontainers.internal");
+        assertThat(WorkerTaskBootstrap.resolveShuffleAdvertisedHost(config,
+                WorkerHttpBootstrap.resolveAdvertisedHost(config)))
+                .isEqualTo("worker-1");
+    }
+
+    @Test
+    void shuffleAdvertisedHostDefaultsToResolvedWorkerRoute() {
+        var config = WorkerBootstrapConfig.withDefaults("worker-1");
+        assertThat(WorkerTaskBootstrap.resolveShuffleAdvertisedHost(config, "worker.internal"))
+                .isEqualTo("worker.internal");
+    }
+
+    @Test
+    void shuffleAdvertisedHostRejectsWildcardAddress() {
+        var config = new WorkerBootstrapConfig(
+                "worker-1", 0, 0, null,
+                WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
+                false, null, null,
+                WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
+                false, null, null, null,
+                null, null,
+                "host.testcontainers.internal", "0.0.0.0",
+                null, null);
+
+        assertThatThrownBy(() -> WorkerTaskBootstrap.resolveShuffleAdvertisedHost(
+                config, "host.testcontainers.internal"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("worker.shuffle.advertised-host");
     }
 
     @Test

@@ -105,7 +105,7 @@ class NativeMetricsPullerWiringTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
         WorkerBootstrap bootstrap = TestWorkerBootstrap.create(config);
 
         try {

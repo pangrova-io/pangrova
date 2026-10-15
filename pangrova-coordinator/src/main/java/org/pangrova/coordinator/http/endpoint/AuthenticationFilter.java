@@ -24,7 +24,7 @@ import java.util.Map;
  *
  * <p>Extracts credentials from the Authorization header (Bearer token or Basic auth),
  * sets UserIdentity as a request property on success, aborts with HTTP 401 on failure.
- * Skips authentication for the health check endpoint ({@code /v1/health}).</p>
+ * Skips authentication for the readiness and liveness health endpoints.</p>
  *
  * <p>Integrates per-IP brute force protection: blocked IPs receive HTTP 429 before
  * authentication is attempted. Failed attempts are recorded; successful authentication
@@ -42,6 +42,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
     private enum InternalServiceIdentity { AUTHENTICATED }
 
     private static final String HEALTH_PATH = "v1/health";
+    private static final String HEALTH_LIVE_PATH = "v1/health/live";
     private static final String UNKNOWN_IP = "unknown";
 
     private static final int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
@@ -209,7 +210,10 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
 
     private static boolean isHealthCheck(ContainerRequestContext ctx) {
         String path = ctx.getUriInfo().getPath();
-        return HEALTH_PATH.equals(path) || ("/" + HEALTH_PATH).equals(path);
+        if (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        return HEALTH_PATH.equals(path) || HEALTH_LIVE_PATH.equals(path);
     }
 
     /**

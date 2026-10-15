@@ -66,7 +66,7 @@ final class WorkerBootstrapControlFixture implements AutoCloseable {
                 original.heartbeatIntervalMs(), original.observabilityEnabled(),
                 original.observabilityBootstrapConfig(), original.resourceConfig(), original.resultRetentionSeconds(),
                 original.cdcEnabled(), original.registrationRetryConfig(), workerHost, secret,
-                original.shuffleMode(), original.cacheConfig(), workerHost, original.nativeFunctionConfig(),
+                original.shuffleMode(), original.cacheConfig(), workerHost, null, original.nativeFunctionConfig(),
                 original.transportSecurityConfig());
     }
 

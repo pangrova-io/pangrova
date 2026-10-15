@@ -34,7 +34,13 @@ public final class WorkerOptions {
 
     public static final ConfigOption<String> WORKER_ADVERTISED_HOST = ConfigOptions.key("worker.advertised-host")
             .stringType()
-            .withDescription("Hostname advertised to coordinator for result fetching")
+            .withDescription("Hostname advertised to coordinator for control and result fetching")
+            .build();
+
+    public static final ConfigOption<String> SHUFFLE_ADVERTISED_HOST =
+            ConfigOptions.key("worker.shuffle.advertised-host")
+            .stringType()
+            .withDescription("Peer-worker Native Flight shuffle hostname; defaults to worker.advertised-host")
             .build();
 
     public static final ConfigOption<String> WORKER_ID = ConfigOptions.key("worker.id")

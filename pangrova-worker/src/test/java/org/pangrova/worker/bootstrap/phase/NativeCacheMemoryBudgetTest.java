@@ -126,7 +126,7 @@ class NativeCacheMemoryBudgetTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
 
         RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED));
@@ -155,7 +155,7 @@ class NativeCacheMemoryBudgetTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
 
         RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED));
@@ -174,7 +174,8 @@ class NativeCacheMemoryBudgetTest {
                 defaults.resourceConfig(), defaults.resultRetentionSeconds(),
                 defaults.cdcEnabled(), defaults.registrationRetryConfig(),
                 defaults.httpHost(), defaults.internalAuthSecret(), defaults.shuffleMode(),
-                defaults.cacheConfig(), defaults.advertisedHost(), defaults.nativeFunctionConfig(),
+                defaults.cacheConfig(), defaults.advertisedHost(), defaults.shuffleAdvertisedHost(),
+                defaults.nativeFunctionConfig(),
                 new WorkerBootstrapConfig.TransportSecurityConfig(
                         true, "/secrets/worker.crt", "/secrets/worker.key",
                         "/secrets/ca.crt", "worker-1.internal"));

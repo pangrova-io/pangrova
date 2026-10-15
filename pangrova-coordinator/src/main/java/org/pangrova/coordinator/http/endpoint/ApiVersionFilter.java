@@ -37,6 +37,7 @@ public final class ApiVersionFilter implements ContainerRequestFilter, Container
 
     /** Paths exempt from version checking (probes, version discovery). */
     private static final String HEALTH_PATH = "v1/health";
+    private static final String HEALTH_LIVE_PATH = "v1/health/live";
     private static final String SERVER_INFO_PATH = "v1/server/info";
 
     private static final int HTTP_STATUS_UNPROCESSABLE_ENTITY = 422;
@@ -80,7 +81,8 @@ public final class ApiVersionFilter implements ContainerRequestFilter, Container
         if (path.startsWith("/")) {
             path = path.substring(1);
         }
-        return HEALTH_PATH.equals(path) || SERVER_INFO_PATH.equals(path);
+        return HEALTH_PATH.equals(path) || HEALTH_LIVE_PATH.equals(path)
+                || SERVER_INFO_PATH.equals(path);
     }
 
     private static void rejectUnsupportedVersion(ContainerRequestContext ctx, int clientVersion) {

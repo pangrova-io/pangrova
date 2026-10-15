@@ -59,7 +59,7 @@ class ResultExpirationBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null));
+                null, null, null, null));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -115,7 +115,7 @@ class ResultExpirationBootstrapTest {
                 WorkerBootstrapConfig.ResourceConfig.defaults(),
                 60, false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null);
+                null, null, null, null);
         bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 

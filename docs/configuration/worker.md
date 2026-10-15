@@ -21,7 +21,7 @@ All worker-side configuration keys, as defined by `WorkerOptions` in the
 |-----|------|---------|-------------|
 | `worker.host` | string | `"0.0.0.0"` | Bind address for the worker HTTP server |
 | `worker.port` | int | `8081` | Listen port for the worker HTTP server |
-| `worker.advertised-host` | string | — | Hostname advertised to the coordinator for result fetching. Set explicitly when auto-detection fails (e.g. behind NAT) |
+| `worker.advertised-host` | string | — | Hostname advertised to the coordinator for control and result fetching. Set explicitly when auto-detection fails (e.g. behind NAT) |
 | `worker.id` | string | `"worker-1"` | Unique identifier for this worker instance |
 | `worker.coordinator-url` | string | — | URL of the coordinator to register with. Required for registration |
 | `worker.heartbeat-interval` | duration | `"10s"` | Interval between heartbeat reports to the coordinator. Must be smaller than `coordinator.worker.heartbeat-timeout` |
@@ -50,8 +50,17 @@ is no plaintext fallback.
 
 ## worker.shuffle
 
+Native Flight shuffle can use a separate peer-worker route when the control and
+result address traverses a proxy or host relay. Set
+`worker.shuffle.advertised-host` to a concrete hostname reachable from peer
+workers. When omitted, it inherits `worker.advertised-host`; the TLS certificate
+identity remains `worker.transport.tls.identity` and is verified independently
+of the connection address. Peer workers must be able to reach the Native Flight
+server's advertised bound port at this hostname.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `worker.shuffle.advertised-host` | string | `worker.advertised-host` | Hostname advertised to peer workers for Native Flight shuffle; must not be a wildcard bind address |
 | `worker.shuffle.buffer-capacity` | int | `100` | Maximum number of batches per shuffle partition buffer |
 | `worker.shuffle.max-memory-bytes` | long | `536870912` (512 MB) | Total memory budget in bytes for all shuffle partitions combined |
 | `worker.shuffle.spill-threshold` | double | `0.8` | Memory usage ratio (0.0–1.0) that triggers shuffle spill to disk |

@@ -36,6 +36,13 @@ class WorkerOptionsTest {
     }
 
     @Test
+    void shuffleAdvertisedHostHasNoIndependentDefault() {
+        assertThat(WorkerOptions.SHUFFLE_ADVERTISED_HOST.key())
+                .isEqualTo("worker.shuffle.advertised-host");
+        assertThat(WorkerOptions.SHUFFLE_ADVERTISED_HOST.hasDefaultValue()).isFalse();
+    }
+
+    @Test
     void workerIdDefaultsToWorker1() {
         assertThat(WorkerOptions.WORKER_ID.defaultValue()).isEqualTo("worker-1");
         assertThat(WorkerOptions.WORKER_ID.typeClass()).isEqualTo(String.class);

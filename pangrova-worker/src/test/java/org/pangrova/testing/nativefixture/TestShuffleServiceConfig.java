@@ -38,7 +38,8 @@ public final class TestShuffleServiceConfig {
                 resources(original.resourceConfig()), original.resultRetentionSeconds(),
                 original.cdcEnabled(), original.registrationRetryConfig(), original.httpHost(),
                 original.internalAuthSecret(), original.shuffleMode(), original.cacheConfig(),
-                original.advertisedHost(), original.nativeFunctionConfig(),
+                original.advertisedHost(), original.shuffleAdvertisedHost(),
+                original.nativeFunctionConfig(),
                 original.transportSecurityConfig());
     }
 }

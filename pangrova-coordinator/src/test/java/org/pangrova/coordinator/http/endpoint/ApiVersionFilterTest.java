@@ -133,6 +133,26 @@ class ApiVersionFilterTest {
         assertThat(ctx.isAborted()).isFalse();
     }
 
+    @Test
+    void livenessCheckExemptFromVersionCheck() {
+        StubRequestContext ctx = new StubRequestContext("/v1/health/live");
+        ctx.addHeader(ApiVersion.HEADER_NAME, "999");
+
+        filter.filter(ctx);
+
+        assertThat(ctx.isAborted()).isFalse();
+    }
+
+    @Test
+    void livenessSubpathStillRequiresSupportedVersion() {
+        StubRequestContext ctx = new StubRequestContext("/v1/health/live/extra");
+        ctx.addHeader(ApiVersion.HEADER_NAME, "999");
+
+        filter.filter(ctx);
+
+        assertThat(ctx.isAborted()).isTrue();
+    }
+
     // --- Response path tests ---
 
     @Test

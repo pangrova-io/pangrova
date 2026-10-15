@@ -85,7 +85,8 @@ class WorkerBootstrapOwnerDrainIntegrationTest {
                 source.coordinatorUrl(), source.heartbeatIntervalMs(), source.observabilityEnabled(),
                 source.observabilityBootstrapConfig(), source.resourceConfig(), source.resultRetentionSeconds(),
                 source.cdcEnabled(), source.registrationRetryConfig(), source.httpHost(), source.internalAuthSecret(),
-                source.shuffleMode(), source.cacheConfig(), source.advertisedHost(), functions, source.transportSecurityConfig());
+                source.shuffleMode(), source.cacheConfig(), source.advertisedHost(),
+                source.shuffleAdvertisedHost(), functions, source.transportSecurityConfig());
         var bootstrap = new WorkerBootstrap(config);
         var blocked = new AtomicBoolean(true);
         bootstrap.setCdcConsumer(() -> { if (blocked.get()) throw new IOException("rollback owner still active"); });

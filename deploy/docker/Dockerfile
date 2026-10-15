@@ -95,6 +95,6 @@ USER pangrova
 WORKDIR /opt/pangrova
 EXPOSE 8080 8081
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8080/v1/health/live || curl -f http://localhost:8081/v1/health/live || exit 1
+    CMD /opt/pangrova/bin/pangrova-container-health.sh
 ENTRYPOINT ["/opt/pangrova/bin/pangrova.sh"]
 CMD ["start", "coordinator"]

@@ -179,7 +179,8 @@ public final class WorkerTaskBootstrap {
                 config.transportSecurityConfig().enabled()
                         ? config.transportSecurityConfig().tlsIdentity()
                         : "";
-        var shuffleTransport = new NativeShuffleTransport(executor, workerHost, tlsIdentity);
+        String shuffleHost = resolveShuffleAdvertisedHost(config, workerHost);
+        var shuffleTransport = new NativeShuffleTransport(executor, shuffleHost, tlsIdentity);
         ownership.retain(shuffleTransport);
         String resultBindHost = config.httpHost() == null || config.httpHost().isBlank()
                 ? "0.0.0.0" : config.httpHost().trim();
@@ -196,6 +197,17 @@ public final class WorkerTaskBootstrap {
                 "event=transport_spi_selected shuffle=native result=native exchange=native resultPort={}",
                 resultTransport.boundPort());
         return new TransportRefs(shuffleTransport, resultTransport, exchangeTransport);
+    }
+
+    static String resolveShuffleAdvertisedHost(WorkerBootstrapConfig config, String workerHost) {
+        String configured = config.shuffleAdvertisedHost();
+        if (configured == null || configured.isBlank()) {
+            return workerHost;
+        }
+        if (WorkerHttpBootstrap.isWildcardAddress(configured)) {
+            throw new IllegalArgumentException("worker.shuffle.advertised-host must be a concrete address");
+        }
+        return configured;
     }
 
     /**

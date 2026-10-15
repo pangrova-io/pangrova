@@ -127,6 +127,7 @@ public final class PangrovaStandaloneMain {
                 config.getString(WorkerOptions.INTERNAL_AUTH_SECRET),
                 null, null,
                 config.getString(WorkerOptions.WORKER_ADVERTISED_HOST),
+                config.getString(WorkerOptions.SHUFFLE_ADVERTISED_HOST),
                 null,
                 buildTransportSecurityConfig(config));
     }

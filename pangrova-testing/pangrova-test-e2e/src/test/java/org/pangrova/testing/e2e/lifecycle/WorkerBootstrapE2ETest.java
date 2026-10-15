@@ -166,6 +166,7 @@ class WorkerBootstrapE2ETest extends ContainerTestBase {
                 null, authority.secret(),
                 null, null,
                 null,
+                null,
                 org.pangrova.worker.jni.NativeFunctionConfig.DEFAULT,
                 WorkerBootstrapConfig.TransportSecurityConfig.disabled());
         worker = new WorkerBootstrap(config);
