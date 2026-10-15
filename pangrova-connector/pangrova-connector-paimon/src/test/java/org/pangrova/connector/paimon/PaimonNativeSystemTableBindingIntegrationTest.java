@@ -2,11 +2,16 @@ package org.pangrova.connector.paimon;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.attribute.FileTime;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TimeZone;
 
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
@@ -22,8 +27,14 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableSplit;
+import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonBranchSystemTableSplit;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
@@ -34,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real SDK metadata objects are pinned as Native splits without Coordinator row materialization. */
+@Execution(ExecutionMode.SAME_THREAD)
 class PaimonNativeSystemTableBindingIntegrationTest {
     @TempDir
     Path warehouse;
@@ -160,6 +172,89 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             assertThat(Files.size(path)).isEqualTo(contents.length);
             assertThatThrownBy(() -> metadata.validateReadBinding(SESSION, binding))
                     .hasMessageContaining("Pinned Paimon metadata object changed");
+        }
+    }
+
+    @Test
+    @ResourceLock(value = "java.util.TimeZone", mode = ResourceAccessMode.READ_WRITE)
+    void branchesSqlBindingPinsDirectoryStatusAndTypedSplit() throws Exception {
+        warehouse = warehouse.resolve("with space");
+        var previousZone = TimeZone.getDefault();
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));
+        try {
+            try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+                createTable(catalog);
+                var table = (FileStoreTable) catalog.getTable(Identifier.create("db", "orders"));
+                var metadata = new PaimonMetadata(catalog, "paimon", registry);
+                var selector = metadata.getTableHandle(SESSION,
+                        new SchemaTableName("db", "orders$branches"));
+                assertThat(selector).isInstanceOf(PaimonBranchTableHandle.class);
+                assertThat(metadata.getTableMetadata(SESSION, selector).columns())
+                        .containsExactly("branch_name", "create_time");
+                var empty = metadata.bindRead(SESSION, selector);
+                assertThat(((PaimonBranchTableHandle) empty.handle()).directories()).isEmpty();
+                metadata.validateReadBinding(SESSION, empty);
+
+                table.createBranch("a..b");
+                table.createBranch("dev");
+                table.createBranch("feature beta");
+                table.createBranch("release");
+                metadata.validateReadBinding(SESSION, empty);
+                assertThat(((PaimonBranchTableHandle) empty.handle()).directories()).isEmpty();
+                var binding = metadata.bindRead(SESSION, selector);
+                var bound = (PaimonBranchTableHandle) binding.handle();
+                assertThat(bound.directories()).extracting(PaimonBranchTableHandle.BranchDirectory::name)
+                        .containsExactly("a..b", "dev", "feature beta", "release");
+                assertThat(bound.directories()).allSatisfy(directory ->
+                        assertThat(directory.uri()).contains("with%20space"));
+                assertThat(bound.directories().get(2).uri()).contains("branch-feature%20beta");
+                for (var directory : bound.directories()) {
+                    assertThat(directory.modificationTimeMillis()).isEqualTo(
+                            Files.getLastModifiedTime(Path.of(java.net.URI.create(directory.uri())))
+                                    .toMillis());
+                    assertThat(directory.zoneOffsetSeconds()).isEqualTo(8 * 3600);
+                    assertThat(LocalDateTime.ofInstant(
+                            Instant.ofEpochMilli(directory.modificationTimeMillis()),
+                            ZoneId.systemDefault()))
+                            .isEqualTo(LocalDateTime.ofInstant(
+                                    Instant.ofEpochMilli(directory.modificationTimeMillis()
+                                            + directory.zoneOffsetSeconds() * 1000L),
+                                    java.time.ZoneOffset.UTC));
+                }
+                metadata.validateReadBinding(SESSION, binding);
+                TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+                try {
+                    assertThatThrownBy(() -> metadata.validateReadBinding(SESSION, binding))
+                            .hasMessageContaining("Pinned Paimon branch directory changed");
+                } finally {
+                    TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));
+                }
+                for (var directory : bound.directories()) {
+                    var split = new PaimonBranchSystemTableSplit(
+                            bound.tableName(), bound.sourceIdentity(), directory);
+                    var encoded = DataSplit.parseFrom(split.toSplitInfoProto());
+                    assertThat(encoded.getLength()).isZero();
+                    var detail = encoded.getConnectorDetail().unpack(FileSplitDetail.class);
+                    assertThat(detail.getFileFormat())
+                            .isEqualTo(org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_METADATA_DIRECTORY);
+                    assertThat(detail.getSystemTable().getKind())
+                            .isEqualTo(SystemTableSplitDetail.Kind.PAIMON_BRANCHES);
+                    assertThat(detail.getSystemTable().getBranchName()).isEqualTo(directory.name());
+                    assertThat(detail.getSystemTable().getDirectoryMtimeMs())
+                            .isEqualTo(directory.modificationTimeMillis());
+                    assertThat(detail.getSystemTable().getDirectoryDevice()).isEqualTo(directory.device());
+                    assertThat(detail.getSystemTable().getDirectoryInode()).isEqualTo(directory.inode());
+                    assertThat(detail.getSystemTable().getDirectoryZoneOffsetSeconds())
+                            .isEqualTo(directory.zoneOffsetSeconds());
+                }
+                var path = Path.of(java.net.URI.create(bound.directories().get(0).uri()));
+                Files.setLastModifiedTime(path, FileTime.fromMillis(
+                        bound.directories().get(0).modificationTimeMillis() + 2_000));
+                assertThatThrownBy(() -> metadata.validateReadBinding(SESSION, binding))
+                        .hasMessageContaining("Pinned Paimon branch directory changed");
+            }
+        } finally {
+            TimeZone.setDefault(previousZone);
         }
     }
 

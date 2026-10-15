@@ -120,6 +120,10 @@ facebook::velox::dwio::common::FileFormat resolveFileFormat(
       throw pangrova::executor::NativeUnsupportedFeatureException(
           "file_format:metadata_json_via_dwio", "metadata_json",
           "Metadata tables use the Native metadata reader, not Velox DWIO");
+    case split::FileFormatType::METADATA_DIRECTORY:
+      throw pangrova::executor::NativeUnsupportedFeatureException(
+          "file_format:metadata_directory_via_dwio", "metadata_directory",
+          "Directory metadata uses the Native branch reader, not Velox DWIO");
   }
   throw pangrova::executor::NativeUnsupportedFeatureException(
       "file_format:unknown", "unknown", "");
@@ -219,6 +223,7 @@ void PangrovaVeloxDataSource::addSplit(
   merge_reader_.reset();
   metadata_reader_.reset();
   paimon_snapshot_reader_.reset();
+  paimon_branch_reader_.reset();
   lance_reader_.reset();
 #if PANGROVA_HAS_VELOX_DWIO
   velox_row_reader_.reset();
@@ -230,10 +235,20 @@ void PangrovaVeloxDataSource::addSplit(
   batch_calibrated_ = false;
 
   if (splitConfig.system_table.has_value()) {
-    if (splitConfig.file_format != split::FileFormatType::METADATA_JSON) {
+    if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
+      if (splitConfig.file_format != split::FileFormatType::METADATA_DIRECTORY) {
+        throw std::runtime_error("Paimon branches split requires directory format");
+      }
+      paimon_branch_reader_ = std::make_unique<PaimonBranchDirectoryReader>(
+          splitConfig.file_path, splitConfig.system_table_branch_name,
+          splitConfig.system_table_directory_mtime_ms,
+          splitConfig.system_table_directory_device,
+          splitConfig.system_table_directory_inode,
+          splitConfig.system_table_directory_zone_offset_seconds,
+          output_type_, pool_);
+    } else if (splitConfig.file_format != split::FileFormatType::METADATA_JSON) {
       throw std::runtime_error("System table split requires metadata JSON format");
-    }
-    if (*splitConfig.system_table == split::SystemTableKind::PAIMON_SNAPSHOTS ||
+    } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_SNAPSHOTS ||
         *splitConfig.system_table == split::SystemTableKind::PAIMON_TAGS ||
         *splitConfig.system_table == split::SystemTableKind::PAIMON_OPTIONS ||
         *splitConfig.system_table == split::SystemTableKind::PAIMON_SCHEMAS) {
@@ -999,6 +1014,17 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     checkCancelled();
     if (!rowVector) {
       paimon_snapshot_reader_.reset();
+      return facebook::velox::RowVectorPtr(nullptr);
+    }
+    completed_rows_ += rowVector->size();
+    completed_bytes_ += rowVector->estimateFlatSize();
+    return rowVector;
+  }
+  if (paimon_branch_reader_) {
+    auto rowVector = paimon_branch_reader_->next(batchSize);
+    checkCancelled();
+    if (!rowVector) {
+      paimon_branch_reader_.reset();
       return facebook::velox::RowVectorPtr(nullptr);
     }
     completed_rows_ += rowVector->size();

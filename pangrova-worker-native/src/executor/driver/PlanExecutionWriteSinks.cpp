@@ -48,6 +48,8 @@ std::string writeFileFormatName(split::FileFormatType format) {
       return "LANCE";
     case split::FileFormatType::METADATA_JSON:
       throw std::invalid_argument("Metadata JSON is read-only and cannot be a write format");
+    case split::FileFormatType::METADATA_DIRECTORY:
+      throw std::invalid_argument("Metadata directory is read-only and cannot be a write format");
   }
   throw std::invalid_argument("Unsupported write file format");
 }

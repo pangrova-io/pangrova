@@ -14,6 +14,7 @@ enum class FileFormatType : uint8_t {
   ORC = 1,
   LANCE = 2,
   METADATA_JSON = 3,
+  METADATA_DIRECTORY = 4,
 };
 
 // Convert FileFormatType to string for logging/error messages.
@@ -23,6 +24,7 @@ inline const char* fileFormatName(FileFormatType fmt) {
     case FileFormatType::ORC: return "orc";
     case FileFormatType::LANCE: return "lance";
     case FileFormatType::METADATA_JSON: return "metadata_json";
+    case FileFormatType::METADATA_DIRECTORY: return "metadata_directory";
   }
   return "parquet";
 }
@@ -58,6 +60,7 @@ enum class SystemTableKind : uint8_t {
   PAIMON_TAGS,
   PAIMON_OPTIONS,
   PAIMON_SCHEMAS,
+  PAIMON_BRANCHES,
 };
 
 struct ColumnMappingConfig {
@@ -147,6 +150,11 @@ struct SplitConfig {
   std::string system_table_object_sha256;
   std::string system_table_tag_name;
   std::optional<uint64_t> system_table_schema_id;
+  std::string system_table_branch_name;
+  int64_t system_table_directory_mtime_ms = 0;
+  uint64_t system_table_directory_device = 0;
+  uint64_t system_table_directory_inode = 0;
+  int32_t system_table_directory_zone_offset_seconds = 0;
 
   // Schema evolution
   std::vector<ColumnMappingConfig> column_mappings;

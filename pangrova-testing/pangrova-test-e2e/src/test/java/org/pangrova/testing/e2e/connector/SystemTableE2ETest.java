@@ -14,6 +14,7 @@ import java.util.List;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -185,6 +186,33 @@ class SystemTableE2ETest extends SqlE2ETestBase {
             assertThat(rows).hasSize(1);
             assertThat(rows.get(0).getLong("schema_id")).isZero();
             assertThat(rows.get(0).getString("primary_keys")).contains("id");
+        }
+    }
+
+    @Nested
+    @DisplayName("Paimon table$branches (local directory status)")
+    class PaimonBranches {
+        @Test
+        void branchesAreReadThroughSqlAndNativeDirectoryStat() {
+            sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
+                    + " (id BIGINT, PRIMARY KEY (id) NOT ENFORCED)");
+            assertThat(sqlRunner.execute("SELECT * FROM " + paimonFqn() + "$branches"))
+                    .isEmpty();
+
+            sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " CREATE BRANCH dev");
+            sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " CREATE BRANCH release");
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT branch_name, create_time FROM " + paimonFqn()
+                            + "$branches WHERE branch_name <> 'missing' ORDER BY branch_name");
+            assertThat(rows).hasSize(2);
+            assertThat(rows).extracting(row -> row.getString("branch_name"))
+                    .containsExactly("dev", "release");
+            LocalDateTime nowLocal = LocalDateTime.ofInstant(Instant.now(), ZoneId.systemDefault());
+            for (TypedRow row : rows) {
+                assertThat(row.columnNames()).containsExactly("branch_name", "create_time");
+                assertThat(row.getTimestamp("create_time"))
+                        .isBetween(nowLocal.minusMinutes(5), nowLocal.plusMinutes(5));
+            }
         }
     }
 

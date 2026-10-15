@@ -2,9 +2,10 @@
 
 Status: **IN PROGRESS — not production-ready** (2026-10-16). Iceberg
 `$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
-v2 splits, Worker Native readers, and focused SQL E2E coverage. Iceberg
+v2 splits, Worker Native readers, and focused SQL E2E coverage. Paimon
+`$branches` now has the same chain for local filesystem catalogs only. Iceberg
 `$files`/`$entries`/`$manifests`/`$partitions` still lack Native readers;
-Paimon `$branches`/`$files` and the final full-chain gate remain
+Paimon `$branches` on distributed/object storage, `$files`, and the final full-chain gate remain
 open. This is an implementation specification and failure record, not a
 production-readiness assertion.
 
@@ -47,7 +48,7 @@ declared public schema.
   for audit. The former Coordinator `ConnectorSystemTable.rows()` task is
   removed. SHOW FILES/MANIFESTS/PARTITIONS fail closed because their Native
   readers are not yet implemented; direct SELECT for those Iceberg kinds and
-  Paimon `$branches`/`$files` also remain open. Paimon `$snapshots`,
+  Paimon `$files` and nonlocal `$branches` also remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
   and a Native reader. Their declared 14, 7, 2, and 7 columns follow the fixed Paimon
   1.4.1 `SnapshotsTable.TABLE_TYPE`, `TagsTable.TABLE_TYPE`, and
@@ -58,6 +59,16 @@ declared public schema.
   milliseconds become a deterministic UTC SQL timestamp, with millisecond
   source precision. Nullable snapshot and tag fields remain SQL NULL. The whole
   family is **not** closed.
+  Paimon `$branches` has a separate local-directory split and Native `lstat`
+  reader matching the fixed SDK's `branch_name STRING` and `create_time
+  TIMESTAMP(3)` columns. The connector pins branch names, directory mtime,
+  device/inode, and the JVM zone offset at that exact mtime. Native checks the
+  directory before deriving the local wall-clock timestamp, so Coordinator
+  never materializes the row. File URIs are decoded strictly; local paths and
+  names with spaces remain valid. A query sees the branch list at bind time;
+  branches added later do not appear in its pinned splits. Nonlocal FileIO
+  paths fail closed because Native has no equivalent cross-filesystem metadata
+  stat API. This is a limited local path, not a production closure.
   The rewrite accepts ordinary ASCII identifier parts, including mixed case,
   and rejects names requiring quoting until relation identity is typed end to
   end. Thus generated mixed-case table names use the same Native reader as
@@ -225,4 +236,37 @@ library and the packaged `osx/aarch64` JNI resource both have SHA-256
 This was an in-process SQL E2E using the packaged JNI resource; an independent
 Pangrova process image has not yet been validated for this `$schemas` path.
 Iceberg `$files`/`$entries`/`$manifests`/`$partitions`, Paimon
-`$branches`/`$files`, and the final full production gate remain open.
+nonlocal `$branches`/all `$files`, and the final full production gate remain open.
+
+### `$branches` local-filesystem increment (2026-10-16)
+
+The fixed Paimon 1.4.1 `BranchesTable.TABLE_TYPE` exposes `branch_name STRING`
+and `create_time TIMESTAMP(3)`. Its reader obtains the branch directory's
+`FileIO.getFileStatus(...).getModificationTime()`, converts that epoch into a
+`LocalDateTime` using the SDK JVM's default zone, and omits the main branch.
+Pangrova now pins the directory stat identity and the zone offset at the
+directory's exact mtime; Worker Native validates the local directory's mtime,
+device and inode before emitting the same wall-clock value. The offset is part
+of the source-identity digest, so a changed JVM default zone invalidates a
+bound read. Paimon permits nonblank branch names such as `feature beta` and
+`a..b`; URI validation checks decoded path segments rather than rejecting
+those names. Malformed file URI escapes, an authority, and encoded path
+separators fail closed.
+
+With JDK 17 and Paimon 1.4.1, connector binding tests passed 9/9, including
+empty and newly added branches, named-directory pinning, URI spaces, exact
+millisecond mtime, Shanghai-zone wall-clock equivalence, and mtime/zone drift.
+Native parser and reader tests passed 5/5. Packaged classpath JNI SQL E2E
+passed 1/1: an empty relation followed by two real `CREATE BRANCH` calls,
+projection, filter, sort, and non-null `create_time`. The `osx/aarch64` Native
+library and packaged JNI resource both have SHA-256
+`eb5cf5d35d2dc9099c24795b226f9d55aa65ed5c5d3312b3176e49587badd4d1`.
+
+This increment supports only local filesystem catalogs. Paimon FileIO also
+reports directory modification times for Hadoop/object-storage backends, but
+the current Native filesystem abstraction has no portable metadata-status
+operation with the same semantics. Such catalogs reject `$branches` rather
+than producing Coordinator rows or guessed timestamps. An independent
+Pangrova process image and the full system-table production regression have
+not been validated for this path. Iceberg `$files`/`$entries`/`$manifests`/
+`$partitions` and Paimon `$files` remain open.

@@ -16,6 +16,8 @@ import org.pangrova.connector.paimon.handle.PaimonSplit;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableSplit;
+import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonBranchSystemTableSplit;
 import org.pangrova.spi.connector.ConnectorQueryAuthority;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
@@ -70,6 +72,15 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             Constraint constraint) {
         ConnectorQueryAuthority authority = PaimonSplitRegistry.authority(session);
         try (var permit = authority.enterOperation()) {
+            if (table instanceof PaimonBranchTableHandle branches) {
+                if (!branches.bound()) {
+                    throw new IllegalStateException("Paimon branches must be bound before split planning");
+                }
+                return new FixedSplitSource(branches.directories().stream()
+                        .map(directory -> (ConnectorSplit) new PaimonBranchSystemTableSplit(
+                                branches.tableName(), branches.sourceIdentity(), directory))
+                        .toList());
+            }
             if (table instanceof PaimonSystemTableHandle system) {
                 if (!system.bound()) {
                     throw new IllegalStateException("Paimon system table must be bound before split planning");

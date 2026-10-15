@@ -7,6 +7,7 @@ import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
@@ -94,6 +95,20 @@ public class PaimonMetadata implements ConnectorMetadata {
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
         int separator = tableName.table().lastIndexOf('$');
         String systemSuffix = separator > 0 ? tableName.table().substring(separator + 1) : "";
+        if (systemSuffix.equalsIgnoreCase("branches")) {
+            String baseName = tableName.table().substring(0, separator);
+            try {
+                Table base = catalog.getTable(Identifier.create(tableName.schema(), baseName));
+                if (!(base instanceof FileStoreTable)) {
+                    throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                            "Paimon $branches requires a physical base table");
+                }
+                return PaimonBranchTableHandle.selector(PaimonTableHandleFactory.fromTable(
+                        tableName.schema(), baseName, base));
+            } catch (Catalog.TableNotExistException missing) {
+                return null;
+            }
+        }
         if (systemSuffix.equalsIgnoreCase("snapshots") || systemSuffix.equalsIgnoreCase("tags")
                 || systemSuffix.equalsIgnoreCase("options")
                 || systemSuffix.equalsIgnoreCase("schemas")) {
@@ -154,6 +169,13 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof PaimonBranchTableHandle branches) {
+            var columns = branches.typedColumns();
+            return new ConnectorTableMetadata(
+                    new SchemaTableName(branches.baseTable().schemaName(), branches.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(),
+                    columns, Map.of());
+        }
         if (table instanceof PaimonSystemTableHandle system) {
             var columns = system.typedColumns();
             return new ConnectorTableMetadata(
@@ -180,6 +202,15 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof PaimonBranchTableHandle branches) {
+            Map<String, ColumnHandle> columns = new java.util.LinkedHashMap<>();
+            int fieldId = 1;
+            for (var column : branches.typedColumns()) {
+                columns.put(column.name(), new PaimonColumnHandle(
+                        fieldId++, column.name(), column.type()));
+            }
+            return Map.copyOf(columns);
+        }
         if (table instanceof PaimonSystemTableHandle system) {
             Map<String, ColumnHandle> columns = new java.util.LinkedHashMap<>();
             int fieldId = 1;
@@ -200,6 +231,9 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof PaimonBranchTableHandle branches) {
+            return PaimonBranchReadBindings.bind(catalog, branches);
+        }
         if (table instanceof PaimonSystemTableHandle system) {
             return PaimonSystemReadBindings.bind(catalog, system);
         }
@@ -212,6 +246,10 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public void validateReadBinding(ConnectorSession session,
             ConnectorReadBinding binding) {
+        if (binding.handle() instanceof PaimonBranchTableHandle) {
+            PaimonBranchReadBindings.validate(catalog, binding);
+            return;
+        }
         if (binding.handle() instanceof PaimonSystemTableHandle) {
             PaimonSystemReadBindings.validate(catalog, binding);
             return;
@@ -537,7 +575,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> applyLimit(
             ConnectorSession session, ConnectorTableHandle table, long limit) {
-        if (table instanceof PaimonSystemTableHandle) {
+        if (table instanceof PaimonSystemTableHandle || table instanceof PaimonBranchTableHandle) {
             return Optional.empty();
         }
         PaimonTableHandle handle = (PaimonTableHandle) table;

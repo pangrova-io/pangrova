@@ -29,6 +29,7 @@
 #include "capability/LogicalTypeContract.h"
 #include "capability/NativeCapabilityCatalog.h"
 #include "shuffle/ShuffleTransferLimits.h"
+#include "split/PaimonLocalFileUri.h"
 #include "split/SplitConfig.h"
 
 #include "pangrova/protocol/v2/connector.pb.h"
@@ -419,6 +420,8 @@ split::FileFormatType parseFileFormat(proto::FileFormat format) {
       return split::FileFormatType::LANCE;
     case proto::FILE_FORMAT_METADATA_JSON:
       return split::FileFormatType::METADATA_JSON;
+    case proto::FILE_FORMAT_METADATA_DIRECTORY:
+      return split::FileFormatType::METADATA_DIRECTORY;
     case proto::FILE_FORMAT_UNSPECIFIED:
     default:
       throw std::runtime_error("FileSplitDetail requires a supported file format");
@@ -654,10 +657,21 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
   config.file_format = parseFileFormat(detail.file_format());
   config.file_scan_detail = detail.SerializeAsString();
   if (detail.has_system_table()) {
-    if (config.file_format != split::FileFormatType::METADATA_JSON ||
-        split.start_offset() != 0 || split.length() == 0) {
+    const bool directory = detail.system_table().kind() ==
+        proto::SystemTableSplitDetail::PAIMON_BRANCHES;
+    if ((directory && (config.file_format != split::FileFormatType::METADATA_DIRECTORY ||
+            split.start_offset() != 0 || split.length() != 0)) ||
+        (!directory && (config.file_format != split::FileFormatType::METADATA_JSON ||
+            split.start_offset() != 0 || split.length() == 0))) {
       throw std::runtime_error(
-          "System table split requires a pinned metadata JSON object");
+          "System table split requires a pinned source matching its read unit");
+    }
+    if (!directory && (!detail.system_table().branch_name().empty() ||
+        detail.system_table().directory_mtime_ms() != 0 ||
+        detail.system_table().directory_device() != 0 ||
+        detail.system_table().directory_inode() != 0 ||
+        detail.system_table().directory_zone_offset_seconds() != 0)) {
+      throw std::runtime_error("Non-branch system table has directory identity");
     }
     switch (detail.system_table().kind()) {
       case proto::SystemTableSplitDetail::ICEBERG_SNAPSHOTS:
@@ -740,10 +754,50 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         config.system_table_schema_id = detail.system_table().schema_id();
         config.system_table_object_sha256 = detail.system_table().object_sha256();
         break;
+      case proto::SystemTableSplitDetail::PAIMON_BRANCHES:
+      {
+        std::string directoryPath;
+        try {
+          directoryPath = split::decodePaimonLocalFileUri(split.opaque_location());
+        } catch (const std::invalid_argument&) {
+          throw std::runtime_error("Paimon branches split requires a local file URI");
+        }
+        if (split.connector_id() != "paimon" ||
+            !split.source_id().ends_with("$branches") ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() != 0 ||
+            detail.system_table().schema_id() != 0 ||
+            !detail.system_table().tag_name().empty() ||
+            !detail.system_table().object_sha256().empty() ||
+            detail.system_table().branch_name().empty() ||
+            detail.system_table().branch_name().find('/') != std::string::npos ||
+            detail.system_table().branch_name() == "." ||
+            detail.system_table().branch_name() == ".." ||
+            detail.system_table().branch_name().find('\\') != std::string::npos ||
+            detail.system_table().branch_name().find('\0') != std::string::npos ||
+            !directoryPath.ends_with(
+                "/branch/branch-" + detail.system_table().branch_name()) ||
+            detail.system_table().directory_mtime_ms() < 0 ||
+            detail.system_table().directory_inode() == 0 ||
+            detail.system_table().directory_zone_offset_seconds() < -18 * 3600 ||
+            detail.system_table().directory_zone_offset_seconds() > 18 * 3600 ||
+            split.partition_values_size() != 0) {
+          throw std::runtime_error("Paimon branches split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::PAIMON_BRANCHES;
+        config.system_table_branch_name = detail.system_table().branch_name();
+        config.system_table_directory_mtime_ms = detail.system_table().directory_mtime_ms();
+        config.system_table_directory_device = detail.system_table().directory_device();
+        config.system_table_directory_inode = detail.system_table().directory_inode();
+        config.system_table_directory_zone_offset_seconds =
+            detail.system_table().directory_zone_offset_seconds();
+        break;
+      }
       default:
         throw std::runtime_error("Unsupported system table split kind");
     }
-  } else if (config.file_format == split::FileFormatType::METADATA_JSON) {
+  } else if (config.file_format == split::FileFormatType::METADATA_JSON ||
+      config.file_format == split::FileFormatType::METADATA_DIRECTORY) {
     throw std::runtime_error(
         "Metadata JSON split requires typed system table detail");
   }
