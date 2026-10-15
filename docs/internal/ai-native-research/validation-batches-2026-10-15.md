@@ -2,7 +2,7 @@
 
 本清单按**独立验收检查点**计数，共 6 批、27 项。它不把某个局部测试通过等同于整条链通过；“已知缺口”表示现有实现或安全前置条件尚不满足，须先修复再验收。每项通过证据需绑定提交、依赖/协议、Native 或镜像指纹、实际执行命令、测试发现数、失败/错误/跳过数及日志。历史结果见 [validation-current.md](validation-current.md)，原始目标见仓库外的当前计划；最终生产资格仍以 `.pangrova/rules/build-pipeline.md`、`ci-gates.md` 为准。
 
-2026-10-16 盘点：按下表的限定验收范围，已完成 3 项（#5 Mac Native Release、#6 Mac ASan 地址检查、#10 三个隔离 Native runtime owner），仍开放 24 项：第一批 4、第二批 2、第三批 3、第四批 4、第五批 8、第六批 3。第一批 ARM64 镜像从 `5b91b79d` 干净归档构建至 Java 分发组装，Native/严格打包/JNI classifier/Java reactor 均通过，但旧 `target/*.jar` 把 Lance `-tests.jar` 和其他测试夹具复制进生产镜像，使唯一 provider 检查正确拒绝，故没有 image ID（`/tmp/pangrova-arm64-final-bake-5b91b79da504.log`）。从模块 Maven 产物元数据精确复制主 JAR 的修复已通过真实 ARM64 builder 聚焦验证（`/tmp/pangrova-arm64-mainjar-builder-5b91b79da504-r2.log`），最终完整 Bake 待新提交重跑。用户将验收重心明确为功能覆盖与端到端通过，并要求清理覆盖率和其他重复门禁；CI/规则同步调整中。各批可并行做互不争用的代码审查和研究；同一 Docker VM 的镜像构建与重型容器 E2E 顺序执行，避免资源竞争造成伪失败。磁盘按批检查，仅清理明确由本任务生成且已失效的产物。
+2026-10-16 盘点：按下表的限定验收范围，已完成 3 项（#5 Mac Native Release、#6 Mac ASan 地址检查、#10 三个隔离 Native runtime owner），仍开放 24 项：第一批 4、第二批 2、第三批 3、第四批 4、第五批 8、第六批 3。`785dd3f9` 干净归档的 ARM64 Bake 曾成功加载，但独立进程启动暴露 SLF4J 2 provider 缺失、Jersey 1/4 shaded ASM 冲突和 Coordinator 主线程过早退出。`1eb68802` 已提交/推送这三项根因修复，干净归档的新镜像已完整 Bake/加载：`pangrova/pangrova:verify-1eb68802`、image ID `sha256:c2702ed0a8ed882ebbc37084ceb4764efb81ab016f9754c6eb98fced774125b8`（ARM64，860,063,655 B；`/tmp/pangrova-arm64-final-bake-1eb68802.log`）。Coordinator 已保持前台，健康端点返回真实 JSON；独立 E2E 首轮发现测试容器先要求 Coordinator ready=200 才启动 Worker，而该状态必须等待 Worker/Catalog，形成启动门禁死锁；测试组件已修、最近测试 6/6，独立 E2E 正滚动复验。镜像仍需与本批后续功能修复同源重建，不能计作最终生产验收。用户将验收重心明确为功能覆盖与端到端通过；强制覆盖率和重复 CI 门禁已从 `785dd3f9` 移除，行为/集成/安全检查保留。各批可并行做互不争用的代码审查和研究；同一 Docker VM 的镜像构建与重型容器 E2E 顺序执行，避免资源竞争造成伪失败。磁盘按批检查，仅清理明确由本任务生成且已失效的产物。
 
 当前已通过但不能替代以下开放检查点：Mac Native Release/ASan 地址检查各 4,138/4,138（ASan 设置 `detect_leaks=0`）；JDK 17 Worker 1,433/1,433、Coordinator 先前 3,098/3,098；全 reactor 静态从起点退出 0；Gravitino Iceberg REST 空表 DDL/读/删除 1/1；DynamicTable 直读重写 5/5；真实 Ollama Worker HTTP 13/13 与共享 SQL E2E 13/13。它们各有源码批次和作用范围，不能合并成“生产全绿”。
 
@@ -10,8 +10,8 @@
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 1 | ARM64 正式 Bake 镜像 | 从干净 Git archive 完整构建、加载并取得真实 image ID；固定 `4945a2ef` 归档加候选链接修复的 r25 已成功产出并通过生产打包门禁的 AArch64 `.so`，但仍未运行完整 Java/镜像层，亦未基于最终功能源码取得 image ID。 |
-| 2 | 镜像内 Native/JNI 与 SQL 冒烟 | 核对镜像 Native、Java 包、协议与函数目录指纹，启动真实 Coordinator/Worker，执行 SQL→Native→Arrow/Flight→客户端实值及关闭；必须使用第 1 项同一个 image ID。 |
+| 1 | ARM64 正式 Bake 镜像 | `1eb68802` 干净归档完整 Bake/加载已通过，image ID `sha256:c2702ed0a8ed882ebbc37084ceb4764efb81ab016f9754c6eb98fced774125b8`，镜像 860,063,655 B；运行内容已确认仅 Jersey 4 server、匹配的 Logback 1.4.14/SLF4J 2.0.9。后续功能修复合并后须以最终同源码再 Bake。 |
+| 2 | 镜像内 Native/JNI 与 SQL 冒烟 | 新镜像中 Coordinator 已在 JRE17 前台持续运行，真实 `/v1/health` 返回 JSON HTTP 503（`http=true`、尚无 Worker/Catalog），证实 HTTP 路由已可用。独立测试组件原先先等 HTTP 200 再启 Worker 形成启动死锁；组件修复后正重跑 SQL→Native→Arrow/Flight→客户端，结果未出。 |
 | 3 | Linux x86_64 生产镜像 | 在 x86_64 runner 按同一 Bake 配方构建、启动并运行 Native/JNI/SQL；本机 ARM64 通过不能替代。 |
 | 4 | Linux ASan/LSan | 同源码、同依赖和真实夹具的 Linux 全量 sanitizer，地址错误与泄漏均为 0；Mac `detect_leaks=0` 的 4,153 项不证明 LSan。 |
 
@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | 9 | 完整共享 JVM E2E | `pangrova-test-e2e` 全部适用类、零失败/错误/跳过并记录实际测试数；先前 1,089 项运行受 VM 崩溃连锁污染，不能计通过。 |
 | 10 | 三个隔离 Native runtime owner | 当前源码三个类各独立 JVM 重跑：`WorkerBootstrapE2ETest` 5/5、`NativeExchangeTransportExternalIntegrationTest` 3/3、`WorkerShuffleChannelAdmissionIntegrationTest` 1/1，均 0 失败/错误/跳过；日志分别为 `/tmp/pangrova-worker-bootstrap-owner-current-r1.log`、`/tmp/pangrova-exchange-external-owner-current-r1.log`、`/tmp/pangrova-shuffle-admission-owner-current-r1.log`。仍需第 11 项的镜像双进程搬运。 |
-| 11 | 两个独立 Worker 的推测执行/交换 | 使用第 1/3 项真实 image ID 跑 `IndependentSpeculativeExecutionE2ETest` 和对应远程 shuffle/故障 E2E，验证独立进程、实际搬运、winner fencing 和资源归还；目前无镜像 ID。 |
+| 11 | 两个独立 Worker 的推测执行/交换 | `1eb68802` 新 image ID 的首轮测试揭示测试容器 Coordinator readiness=200 与实际启动顺序闭环（`/tmp/pangrova-independent-final-1eb68802-jdk17.log`）；门禁已改为严格验证 Coordinator HTTP 服务可达，再启动 Worker，最近测试 6/6 通过。正在同一 image ID/JDK17 重跑 10 项真实搬运、winner fencing 与资源归还（`/tmp/pangrova-independent-final-1eb68802-jdk17-r2.log`）。 |
 | 12 | 故障恢复矩阵 | 真实 PG、对象存储、Flight/Toxiproxy 和独立进程验证接管、迟到 RPC、丢 ACK、未知提交、取消、慢读、OOM 与最后 owner 退出；局部用例已过，组合矩阵未全闭合。 |
 
 ## 第四批：外部 Catalog 和真实写入（4 项）
@@ -38,7 +38,7 @@
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
 | 13 | Gravitino Iceberg REST CRUD | 已有空表 DDL/读/删除 1/1；非空 INSERT/查询/删除 2 项被声明栅栏拒绝。需服务端原子完整 metadata CAS 或等价并发前置条件，不能撤掉保护后算通过。 |
-| 14 | 独立 Paimon REST 服务 | 配置真正的 Paimon REST URI/warehouse，跑非空 CRUD 和故障边界；Gravitino 的 Paimon catalog 不是此协议的服务端。 |
+| 14 | 独立 Paimon REST 服务 | Apache `paimon-rust` v0.4.0 正式源码服务（固定提交 `29727bfe`）与 Paimon Java 1.4.1 的非空建表/INSERT/SELECT/DROP E2E 已 **2/2 通过、0 失败/错误/适用跳过**（`/tmp/pangrova-paimon-rest-v0.4.0-e2e-r4.log`）；同一类的 3 个 Iceberg 用例因本轮未配置独立 Iceberg 服务而未运行，不计入 Paimon 通过数。修复了 REST JSON Content-Type、测试端鉴权配置、SDK 可选 audit `owner=null` 的冻结句柄表示，以及当前 schema 选项比较；此前 E2E 的旧断言误把 `ColumnValue.LongValue` 与原始 `Long` 比较，已改用 `TypedRow` 类型访问器并增加全部列值断言。Paimon 模块 341/341 与静态检查通过。该 Rust 本地文件服务不校验提交 table UUID，缺生产并发栅栏；尚需具有真实 CAS/fencing 的独立服务、冲突/未知提交故障矩阵及最终同源回归，故本检查点未关闭。 |
 | 15 | Lance/Paimon 历史版本与写入所有权 | 用真实旧 snapshot 内容、并发 winner/loser、未知提交恢复、取消/drain 和跨 reader 验证最终可见性；已有局部 Lance/Paimon 结果不构成完整矩阵。 |
 | 16 | 大批次 Native 写入容量 | 原 300 行 VECTOR 与新增 1000×16 VECTOR 单语句写入的真实 SQL/JNI/Iceberg E2E 2/2 通过，后者确认实值读取与 Native 活跃池/当前用量归位；容量上限、spill、失败路径资源归零仍待独立故障验证，不能凭这两项推断生产规模。 |
 

@@ -51,7 +51,16 @@ public record PaimonTableHandle(
         snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
         primaryKeys = primaryKeys == null ? List.of() : List.copyOf(primaryKeys);
         partitionKeys = partitionKeys == null ? List.of() : List.copyOf(partitionKeys);
-        properties = properties == null ? Map.of() : Map.copyOf(properties);
+        if (properties == null) {
+            properties = Map.of();
+        } else {
+            // RESTCatalog includes optional audit fields in table.options();
+            // an unset owner is represented there by a null value. A missing
+            // option has the same meaning and keeps this handle immutable.
+            var presentProperties = new java.util.HashMap<>(properties);
+            presentProperties.values().removeIf(value -> value == null);
+            properties = Map.copyOf(presentProperties);
+        }
     }
 
     private static void requireNonBlank(String value, String fieldName) {

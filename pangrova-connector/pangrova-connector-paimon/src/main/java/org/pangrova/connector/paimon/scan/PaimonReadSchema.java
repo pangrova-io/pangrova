@@ -48,7 +48,7 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options) {
             if (!identity.tableLocation().equals(handle.tableLocation())) {
                 throw new IllegalArgumentException("Paimon metadata belongs to a different table");
             }
-            return new PaimonReadSchema(current.rowType(), current.options());
+            return new PaimonReadSchema(current.rowType(), identity.properties());
         }
         long version = handle.snapshotId().orElseThrow();
         var table = requirePinnedTable(handle, current, version);

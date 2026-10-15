@@ -59,9 +59,15 @@ class RestCatalogTest extends SqlE2ETestBase {
             if (!configured(PAIMON_WAREHOUSE)) {
                 throw new IllegalArgumentException(PAIMON_WAREHOUSE + " is required for Paimon REST tests");
             }
+            // Paimon 1.4 requires an explicit auth provider even when the test
+            // server does not authenticate requests. Allow real server credentials
+            // through the environment without changing production defaults.
+            String token = System.getenv().getOrDefault(
+                    "PANGROVA_PAIMON_REST_CATALOG_TOKEN", "local-test-token");
             configs.add(new ConnectorTestConfig(PAI_CATALOG, SCHEMA, "paimon", Map.of(
                     "metastore", "rest", "uri", System.getenv(PAIMON_URI),
-                    "warehouse", System.getenv(PAIMON_WAREHOUSE))));
+                    "warehouse", System.getenv(PAIMON_WAREHOUSE),
+                    "token.provider", "bear", "token", token)));
         }
         return List.copyOf(configs);
     }
@@ -122,9 +128,12 @@ class RestCatalogTest extends SqlE2ETestBase {
                     "SELECT id, name, amount FROM " + fqn + " ORDER BY id");
 
             assertThat(rows).hasSize(2);
-            assertThat(rows.get(0).get("id")).isEqualTo(1L);
-            assertThat(rows.get(0).get("name")).isEqualTo("alice");
-            assertThat(rows.get(1).get("id")).isEqualTo(2L);
+            assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
+            assertThat(rows.get(0).getString("name")).isEqualTo("alice");
+            assertThat(rows.get(0).getDouble("amount")).isEqualTo(100.0);
+            assertThat(rows.get(1).getLong("id")).isEqualTo(2L);
+            assertThat(rows.get(1).getString("name")).isEqualTo("bob");
+            assertThat(rows.get(1).getDouble("amount")).isEqualTo(200.0);
         }
 
         @Test
@@ -167,9 +176,12 @@ class RestCatalogTest extends SqlE2ETestBase {
                     "SELECT id, name, score FROM " + fqn + " ORDER BY id");
 
             assertThat(rows).hasSize(2);
-            assertThat(rows.get(0).get("id")).isEqualTo(1L);
-            assertThat(rows.get(0).get("name")).isEqualTo("alice");
-            assertThat(rows.get(1).get("id")).isEqualTo(2L);
+            assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
+            assertThat(rows.get(0).getString("name")).isEqualTo("alice");
+            assertThat(rows.get(0).getDouble("score")).isEqualTo(80.0);
+            assertThat(rows.get(1).getLong("id")).isEqualTo(2L);
+            assertThat(rows.get(1).getString("name")).isEqualTo("bob");
+            assertThat(rows.get(1).getDouble("score")).isEqualTo(60.0);
         }
 
         @Test

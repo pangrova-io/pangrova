@@ -33,6 +33,20 @@ WITH (
 );
 ```
 
+For a Paimon REST catalog, set `metastore=rest`, `uri`, `warehouse`, and the
+Paimon 1.4 authentication options (`token.provider` and its credentials) in the
+catalog configuration. Keep credentials in the deployment's secret store. The
+connector sends JSON request bodies with `Content-Type: application/json`
+unless that header is explicitly configured. The REST service must return its
+resource `prefix` in `/v1/config`; the Paimon 1.4 client requires it when
+resolving table resources. Validate that the chosen service supports the
+snapshot and commit endpoints before enabling writes. The Apache
+`paimon-rust` filesystem-backed REST server is useful for local integration
+tests, but its current commit path does not enforce table-UUID concurrency
+fencing and is not a production write catalog. See the
+[Paimon REST catalog specification](https://paimon.apache.org/docs/1.4/concepts/rest/overview/)
+and the [Apache test server](https://github.com/apache/paimon-rust/blob/v0.4.0/crates/paimon-rest-server/README.md).
+
 ### Physical file formats
 
 Native scan splits retain the Paimon SDK's exact snapshot ID, physical file

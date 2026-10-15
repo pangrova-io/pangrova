@@ -20,6 +20,7 @@ public class PaimonConnectorFactory implements ConnectorFactory {
     private static final String METASTORE_KEY = "metastore";
     private static final String METASTORE_REST = "rest";
     private static final String REST_URI_KEY = "uri";
+    private static final String REST_CONTENT_TYPE_KEY = "header.Content-Type";
 
     @Override
     public String getName() {
@@ -50,6 +51,12 @@ public class PaimonConnectorFactory implements ConnectorFactory {
         Options options = new Options();
         config.forEach(options::setString);
         options.setString("metastore", "rest");
+        // Paimon's REST client sends a StringEntity for JSON requests, whose
+        // default content type is text/plain. REST servers parsing JSON bodies
+        // require an explicit application/json request header.
+        if (!config.containsKey(REST_CONTENT_TYPE_KEY)) {
+            options.setString(REST_CONTENT_TYPE_KEY, "application/json");
+        }
         CatalogContext context = CatalogContext.create(options);
         return CatalogFactory.createCatalog(context);
     }

@@ -7,6 +7,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.spi.connector.base.ConnectorException;
@@ -74,9 +75,11 @@ final class PaimonReadBindings {
             var options = new LinkedHashMap<>(handle.properties());
             options.remove(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY);
             options.remove(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY);
+            var currentProperties = PaimonTableHandleFactory.fromTable(
+                    handle.schemaName(), handle.tableName(), table).properties();
             if (!org.apache.paimon.utils.JsonSerdeUtil.toFlatJson(table.rowType())
                     .equals(handle.rowTypeJson())
-                    || !table.options().equals(options)) {
+                    || !currentProperties.equals(options)) {
                 throw new IllegalStateException(
                         "Selected current schema or read options changed before split planning");
             }
