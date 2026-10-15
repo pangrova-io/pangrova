@@ -416,21 +416,28 @@ if(NOT _AWS_LIBS)
 endif()
 
 if(PANGROVA_PRODUCTION_BUILD AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  # Velox's dependency setup installs Folly, fmt and the AWS CRT's s2n archive
-  # beside the AWS SDK. They are not part of libvelox.a or the libaws-*.a glob.
+  # Velox's dependency setup installs Folly, fmt, Boost, stemmer and the AWS
+  # CRT's s2n archive beside the AWS SDK. They are not in libvelox.a or the
+  # libaws-*.a glob.
   # Keep them inside the static rescan group so their circular references resolve.
   if(NOT _AWS_LIBS)
     message(FATAL_ERROR "Linux production requires the Velox AWS static archives")
   endif()
   list(GET _AWS_LIBS 0 _production_aws_anchor)
   get_filename_component(_production_lib_dir "${_production_aws_anchor}" DIRECTORY)
-  foreach(_production_lib folly fmt s2n)
+  foreach(_production_lib folly fmt s2n boost_context boost_filesystem boost_system stemmer)
     set(_production_archive "${_production_lib_dir}/lib${_production_lib}.a")
     if(NOT EXISTS "${_production_archive}")
       message(FATAL_ERROR "Linux production dependency is missing: ${_production_archive}")
     endif()
     target_link_libraries(velox_imported INTERFACE "${_production_archive}")
   endforeach()
+  # Folly's stack trace support needs both the generic and target-architecture
+  # libunwind archives. Resolve their static variants from this toolchain.
+  find_library(_PRODUCTION_UNWIND NAMES unwind REQUIRED)
+  find_library(_PRODUCTION_UNWIND_ARCH NAMES "unwind-${CMAKE_SYSTEM_PROCESSOR}" REQUIRED)
+  target_link_libraries(velox_imported INTERFACE
+    "${_PRODUCTION_UNWIND}" "${_PRODUCTION_UNWIND_ARCH}")
 endif()
 
 # 8) ABI compatibility: Velox headers use #ifdef NDEBUG to inline TestValue::adjust().
