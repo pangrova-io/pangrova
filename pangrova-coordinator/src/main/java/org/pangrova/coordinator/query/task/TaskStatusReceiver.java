@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
+import java.time.Instant;
 import java.util.Optional;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
@@ -327,8 +328,19 @@ public final class TaskStatusReceiver {
     }
 
     private boolean updateTaskState(String queryId, String taskId, TaskStatusReport report) {
+        // Capture the Coordinator observation before the state transition: a
+        // concurrent FINISHED report can freeze its end time immediately after
+        // RUNNING is accepted, before this thread records the start.
+        Instant startObservedAt = Instant.now();
         try {
-            return taskTracker.updateTaskState(queryId, taskId, report.state());
+            boolean accepted = taskTracker.updateTaskState(queryId, taskId, report.state());
+            if (accepted && "RUNNING".equals(report.state())) {
+                // Only a fenced, canonical Worker report proves the original attempt
+                // entered execution. The speculation scheduler needs this stage and
+                // start time to compare it with completed peers.
+                taskTracker.recordTaskStart(taskId, String.valueOf(report.stageId()), startObservedAt);
+            }
+            return accepted;
         } catch (IllegalArgumentException e) {
             // The elected attempt can retire this loser after validation but
             // before its in-flight status reaches the state machine.

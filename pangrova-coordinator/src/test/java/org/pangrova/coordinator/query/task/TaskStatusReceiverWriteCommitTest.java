@@ -241,12 +241,72 @@ class TaskStatusReceiverWriteCommitTest {
         assertThatThrownBy(() -> receiver.onTaskStatus(running))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown queryId");
+        assertThat(tracker.getRunningStageIds(QUERY_ID)).isEmpty();
 
         tracker.registerTask(QUERY_ID, "t-early");
         tracker.markScheduled(QUERY_ID, "t-early");
         assertThat(receiver.onTaskStatus(running)).isTrue();
         assertThat(tracker.getTaskState(QUERY_ID, "t-early"))
                 .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.RUNNING);
+        assertThat(tracker.getRunningStageIds(QUERY_ID)).containsExactly("0");
+        assertThat(tracker.getTaskDurationSnapshots(QUERY_ID, "0", Set.of(), Instant.now()))
+                .singleElement().extracting(org.pangrova.coordinator.task.TaskDuration::taskId)
+                .isEqualTo("t-early");
+
+        TaskStatusReport staleAttempt = new TaskStatusReport(
+                "t-early", QUERY_ID, 1, 0, "WRITE", WORKER_ID, "RUNNING",
+                null, null, null, 2, System.currentTimeMillis(),
+                null, null, canonicalAttempt("t-early").nextAttempt());
+        assertThat(receiver.onTaskStatus(staleAttempt)).isFalse();
+        assertThat(tracker.getRunningStageIds(QUERY_ID)).containsExactly("0");
+        assertThat(tracker.getTaskDurationSnapshots(QUERY_ID, "1", Set.of(), Instant.now()))
+                .isEmpty();
+    }
+
+    @Test
+    void runningObservationPrecedesConcurrentFinishTimestamp() {
+        AtomicReference<Instant> finishObservedAt = new AtomicReference<>();
+        AtomicReference<Instant> startObservedAt = new AtomicReference<>();
+        tracker = new CoordinatorTaskTracker() {
+            @Override public boolean updateTaskState(String queryId, String taskId, String workerState) {
+                boolean accepted = super.updateTaskState(queryId, taskId, workerState);
+                if (accepted && "RUNNING".equals(workerState)) {
+                    super.updateTaskState(queryId, taskId, "FINISHED");
+                    finishObservedAt.set(Instant.now());
+                }
+                return accepted;
+            }
+
+            @Override public void recordTaskStart(String taskId, String stageId, Instant observedAt) {
+                startObservedAt.set(observedAt);
+                super.recordTaskStart(taskId, stageId, observedAt);
+            }
+        };
+        queryManager = buildQueryManager(workerManager, tracker);
+        receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(
+                queryManager, tracker, workerManager,
+                null, null, null, null,
+                catalogRegistry, writeCommitTracker, null, null, writeCommitJournal,
+                ArtifactWorkReportSink.rejecting()));
+        tracker.openQueryIssuance(QUERY_ID);
+        registerRunningQuery();
+        tracker.registerTask(QUERY_ID, "t-race");
+        registerCanonicalRequest("t-race");
+        tracker.markScheduled(QUERY_ID, "t-race");
+        tracker.registerTask(QUERY_ID, "pending-peer");
+        tracker.markScheduled(QUERY_ID, "pending-peer");
+
+        TaskStatusReport running = new TaskStatusReport(
+                "t-race", QUERY_ID, 0, 0, "WRITE", WORKER_ID, "RUNNING",
+                null, null, null, 1, System.currentTimeMillis(),
+                null, null, canonicalAttempt("t-race"));
+        assertThat(receiver.onTaskStatus(running)).isTrue();
+        assertThat(startObservedAt.get()).isNotNull().isBeforeOrEqualTo(finishObservedAt.get());
+        assertThat(tracker.getTaskDurationSnapshots(QUERY_ID, "0", Set.of(), Instant.now()))
+                .singleElement().satisfies(duration -> {
+                    assertThat(duration.completed()).isTrue();
+                    assertThat(duration.durationMs()).isGreaterThanOrEqualTo(0L);
+                });
     }
 
     @Test

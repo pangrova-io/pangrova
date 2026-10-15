@@ -33,6 +33,9 @@ public final class TaskTimingTracker {
     private final ConcurrentHashMap<String, Instant> taskStartTimes =
             new ConcurrentHashMap<>();
 
+    private final ConcurrentHashMap<String, Instant> taskFinishTimes =
+            new ConcurrentHashMap<>();
+
     private final ConcurrentHashMap<String, String> taskStageMapping =
             new ConcurrentHashMap<>();
 
@@ -108,6 +111,11 @@ public final class TaskTimingTracker {
         taskStageMapping.put(taskId, stageId);
     }
 
+    /** Freezes the peer duration at the first accepted FINISHED transition. */
+    public void recordTaskFinish(String taskId) {
+        taskFinishTimes.putIfAbsent(taskId, Instant.now());
+    }
+
     /**
      * Produces duration snapshots for tasks in a given stage.
      *
@@ -137,10 +145,11 @@ public final class TaskTimingTracker {
     private TaskDuration buildTaskDuration(String taskId, TaskStateMachine sm,
                                            Set<String> speculativeTaskIds, Instant now) {
         Instant startTime = taskStartTimes.get(taskId);
-        long durationMs = startTime != null
-                ? Duration.between(startTime, now).toMillis()
-                : 0L;
         boolean completed = sm.getState() == TaskStateMachine.State.FINISHED;
+        Instant endTime = completed ? taskFinishTimes.getOrDefault(taskId, now) : now;
+        long durationMs = startTime != null
+                ? Duration.between(startTime, endTime).toMillis()
+                : 0L;
         return new TaskDuration(taskId, durationMs, completed,
                 speculativeTaskIds.contains(taskId));
     }
@@ -170,6 +179,7 @@ public final class TaskTimingTracker {
     /** Removes all timing data for a task (cleanup on completion/cancellation). */
     public void clearTaskTracking(String taskId) {
         taskStartTimes.remove(taskId);
+        taskFinishTimes.remove(taskId);
         taskStageMapping.remove(taskId);
         taskDeadlines.remove(taskId);
     }

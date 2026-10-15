@@ -121,6 +121,9 @@ public class CoordinatorTaskTracker {
         TaskStateMachine.State target = TaskLogicalCompletion.mapWorkerState(workerState);
         boolean transitioned = sm.tryTransition(target);
         boolean accepted = transitioned || sm.getState() == target;
+        if (transitioned && target == TaskStateMachine.State.FINISHED) {
+            timingTracker.recordTaskFinish(taskId);
+        }
         if (accepted && (target == TaskStateMachine.State.FAILED
                 || target == TaskStateMachine.State.ABANDONED)) {
             completeTaskFutureIfTerminal(taskId, sm);

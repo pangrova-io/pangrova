@@ -3,8 +3,10 @@ package org.pangrova.coordinator.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,6 +45,41 @@ class CoordinatorTaskTrackerTest {
         assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "FINISHED")).isTrue();
         assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "RUNNING")).isFalse();
         assertThat(tracker.getTaskState(QUERY_ID, "short-task")).isEqualTo(TaskStateMachine.State.FINISHED);
+    }
+
+    @Test
+    void completedPeerDurationStaysFrozenWhileRunningTaskContinues() {
+        Instant started = Instant.now().minusSeconds(2);
+        for (String taskId : List.of("fast", "slow")) {
+            tracker.registerTask(QUERY_ID, taskId);
+            tracker.markScheduled(QUERY_ID, taskId);
+            tracker.updateTaskState(QUERY_ID, taskId, "RUNNING");
+            tracker.recordTaskStart(taskId, "1", started);
+        }
+        assertThat(tracker.updateTaskState(QUERY_ID, "fast", "FINISHED")).isTrue();
+
+        Instant firstRead = Instant.now();
+        Instant laterRead = firstRead.plusSeconds(60);
+        var first = tracker.getTaskDurationSnapshots(QUERY_ID, "1", Set.of(), firstRead);
+        var later = tracker.getTaskDurationSnapshots(QUERY_ID, "1", Set.of(), laterRead);
+        long finishedDuration = first.stream().filter(task -> task.taskId().equals("fast"))
+                .findFirst().orElseThrow().durationMs();
+        assertThat(later.stream().filter(task -> task.taskId().equals("fast"))
+                .findFirst().orElseThrow().durationMs()).isEqualTo(finishedDuration);
+        assertThat(later.stream().filter(task -> task.taskId().equals("slow"))
+                .findFirst().orElseThrow().durationMs())
+                .isGreaterThan(first.stream().filter(task -> task.taskId().equals("slow"))
+                        .findFirst().orElseThrow().durationMs());
+
+        assertThat(tracker.updateTaskState(QUERY_ID, "fast", "FINISHED")).isTrue();
+        assertThat(tracker.updateTaskState(QUERY_ID, "fast", "RUNNING")).isFalse();
+        assertThat(tracker.getTaskDurationSnapshots(QUERY_ID, "1", Set.of(), laterRead).stream()
+                .filter(task -> task.taskId().equals("fast")).findFirst().orElseThrow().durationMs())
+                .isEqualTo(finishedDuration);
+
+        tracker.clearTaskTracking("fast");
+        assertThat(tracker.getTaskDurationSnapshots(QUERY_ID, "1", Set.of(), laterRead))
+                .extracting(TaskDuration::taskId).containsExactly("slow");
     }
 
     @Test
