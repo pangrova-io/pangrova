@@ -77,7 +77,13 @@ endif()
 # Priority: explicit -D flag > environment variable > ~/.pangrova convention
 # This eliminates the need to source env.sh for most development workflows.
 # ==============================================================================
-set(_PANGROVA_HOME "$ENV{HOME}/.pangrova")
+if(PANGROVA_HOME)
+  set(_PANGROVA_HOME "${PANGROVA_HOME}")
+elseif(DEFINED ENV{PANGROVA_HOME} AND NOT "$ENV{PANGROVA_HOME}" STREQUAL "")
+  set(_PANGROVA_HOME "$ENV{PANGROVA_HOME}")
+else()
+  set(_PANGROVA_HOME "$ENV{HOME}/.pangrova")
+endif()
 
 # PANGROVA_DEPS_PREFIX: hermetic native dependencies
 if(NOT PANGROVA_DEPS_PREFIX)
