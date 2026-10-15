@@ -26,6 +26,7 @@ import org.pangrova.metadata.dynamictable.TriggerType;
 import org.pangrova.planner.cache.CachedResult;
 import org.pangrova.planner.cache.L2CacheStore;
 import org.pangrova.planner.cache.QueryResultCache;
+import org.pangrova.planner.incremental.IncrementalAnalysis;
 import org.pangrova.spi.connector.data.write.model.TableFormat;
 import org.pangrova.spi.connector.data.write.TableWriter;
 import org.pangrova.spi.connector.data.write.model.WriteContext;
@@ -165,6 +166,39 @@ class RefreshCoordinatorTest {
         RefreshResult result = coordinator.executeRefresh(state, TriggerType.MANUAL);
 
         assertThat(result.status()).isEqualTo(RefreshStatus.FAILURE);
+        assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint()).isEqualTo("100");
+    }
+
+    @Test
+    void incrementalMergeReadFailureDoesNotWriteDeltaOrAdvanceCheckpoint() {
+        DynamicTableState state = activeState("merge_read_failed_dt");
+        stateStore.saveState(state);
+        IncrementalAnalysisProvider provider = new IncrementalAnalysisProvider() {
+            @Override
+            public IncrementalAnalysis getAnalysis(String dtName) {
+                return IncrementalAnalysis.incrementalizable(List.of());
+            }
+
+            @Override
+            public IncrementalResult readMaterializedResult(String dtName) {
+                throw new IllegalStateException("materialized generation unavailable");
+            }
+
+            @Override
+            public List<String> groupKeys(String dtName) {
+                return List.of();
+            }
+        };
+        var deps = new RefreshCoordinatorContext(stateStore, historyStore,
+                recordingWriter(3), null, null, provider);
+        RefreshCoordinator coordinator = new RefreshCoordinator(deps,
+                snapshotPipeline(incrementalChanges(), evaluationWithRows(3)),
+                new RefreshLockCoordinator(lockManager), config);
+
+        RefreshResult result = coordinator.executeRefresh(state, TriggerType.MANUAL);
+
+        assertThat(result.status()).isEqualTo(RefreshStatus.FAILURE);
+        assertThat(result.newCheckpoint()).isNull();
         assertThat(stateStore.loadState(state.dtName()).orElseThrow().checkpoint()).isEqualTo("100");
     }
 

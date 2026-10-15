@@ -38,7 +38,7 @@
 | F07 | Checkpoint 幂等只比 target 最近属性；读取失败或 TableWriter 不支持读取现拒绝写；type 固定 SNAPSHOT | 防止无法验证时盲写，但仍无完整批次身份，历史 replay 不安全；使用 durable attempt/receipt |
 | F08 | ChangeResult.CdcBatch checkpoint 是最后事件 eventTime 字符串 | 无 partition/source 恢复坐标；改为类型化 opaque position vector |
 | F09 | tryUseIncrementalSplits 仅检查并打日志，未把增量 split 绑定执行；使用 dtName | 不能称 O(delta)；能力对象和 range 必须由 source binding 提供 |
-| F10 | 增量 merge 异常后返回原 delta，并称 fallback_to_full_result | 这没有重跑 full；改为显式失败或重新编译 full attempt |
+| F10 | 增量 merge 异常原先返回原 delta，并称 fallback_to_full_result；当前刷新改为显式失败且不推进 checkpoint | 这没有重跑 full；仍需真实物化 target、增量 merge 与故障恢复的贯通验收 |
 | F11 | RefreshScheduler 单线程同步刷新，per-object fixed-rate；backoff 取消 periodic 后仅 one-shot | 并发配置不能兑现，retry 成功后可能不再周期刷新 |
 | F12 | triggerCascadeRefresh 当前只有一次调用 | 旧审查“双调用”结论不适用于当前代码；仍需 durable event 幂等 |
 | F13 | lease renew/release 已携带 LeaseEntry epoch；renewalAborted 仍是共享 AtomicBoolean | 已有局部改善，但 claim 不能权威约束逻辑 publish 与物理可见性 |

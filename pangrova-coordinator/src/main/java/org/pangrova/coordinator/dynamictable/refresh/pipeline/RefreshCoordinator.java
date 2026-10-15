@@ -193,13 +193,14 @@ public final class RefreshCoordinator {
      * result and merges it with the delta evaluation result using
      * {@link IncrementalMerger}.</p>
      *
-     * <p>Falls back to the original eval result (full recompute) when:
+     * <p>Uses the original evaluation result when:
      * <ul>
      *   <li>No incremental analysis is available</li>
      *   <li>The analysis indicates non-incrementalizable</li>
      *   <li>No existing materialized data exists (first refresh)</li>
-     *   <li>Any error occurs during merge</li>
      * </ul>
+     * A merge failure must fail this refresh. The evaluation result contains
+     * only the source delta and cannot replace the complete materialization.
      *
      * @param state      current DT state
      * @param deltaResult evaluation result from delta scan
@@ -210,29 +211,23 @@ public final class RefreshCoordinator {
         if (deps.incrementalAnalysisProvider() == null) {
             return deltaResult;
         }
-        try {
-            var analysis = deps.incrementalAnalysisProvider().getAnalysis(state.dtName());
-            if (analysis == null || !analysis.isIncrementalizable()) {
-                return deltaResult;
-            }
-            var oldResult = deps.incrementalAnalysisProvider().readMaterializedResult(state.dtName());
-            if (oldResult == null || oldResult.records().isEmpty()) {
-                LOG.info("event=dt_incremental_merge_skip dtName={} reason=no_existing_data",
-                        state.dtName());
-                return deltaResult;
-            }
-            var groupKeys = deps.incrementalAnalysisProvider().groupKeys(state.dtName());
-            IncrementalResult merged = IncrementalMerger.merge(
-                    oldResult, deltaResult, analysis.mergeStrategies(), groupKeys);
-            LOG.info("event=dt_incremental_merge_success dtName={} old_rows={} delta_rows={} merged_rows={}",
-                    state.dtName(), oldResult.records().size(),
-                    deltaResult.records().size(), merged.records().size());
-            return merged;
-        } catch (Exception e) {
-            LOG.warn("event=dt_incremental_merge_failed dtName={} error={} action=fallback_to_full_result",
-                    state.dtName(), e.getMessage());
+        var analysis = deps.incrementalAnalysisProvider().getAnalysis(state.dtName());
+        if (analysis == null || !analysis.isIncrementalizable()) {
             return deltaResult;
         }
+        var oldResult = deps.incrementalAnalysisProvider().readMaterializedResult(state.dtName());
+        if (oldResult == null || oldResult.records().isEmpty()) {
+            LOG.info("event=dt_incremental_merge_skip dtName={} reason=no_existing_data",
+                    state.dtName());
+            return deltaResult;
+        }
+        var groupKeys = deps.incrementalAnalysisProvider().groupKeys(state.dtName());
+        IncrementalResult merged = IncrementalMerger.merge(
+                oldResult, deltaResult, analysis.mergeStrategies(), groupKeys);
+        LOG.info("event=dt_incremental_merge_success dtName={} old_rows={} delta_rows={} merged_rows={}",
+                state.dtName(), oldResult.records().size(),
+                deltaResult.records().size(), merged.records().size());
+        return merged;
     }
 
     private ChangeResult detectChanges(DynamicTableState state, String refreshId) {
