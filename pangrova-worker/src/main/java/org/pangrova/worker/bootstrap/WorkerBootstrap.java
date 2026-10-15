@@ -95,8 +95,8 @@ public final class WorkerBootstrap {
         WorkerTaskBootstrap.startTaskManager(config, refs, observability);
         startCdc();
         WorkerHttpBootstrap.startHttp(config, refs, observability, started);
-        WorkerHeartbeatBootstrap.startHeartbeat(config, refs);
         WorkerHeartbeatBootstrap.register(config, refs);
+        WorkerHeartbeatBootstrap.startHeartbeat(config, refs);
         LOG.info("event=worker_bootstrap_completed workerId={}", config.workerId());
     }
 

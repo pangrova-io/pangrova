@@ -141,8 +141,10 @@ public class HeartbeatSender {
             LOG.warn("event=heartbeat_sender_already_started workerId={}", config.workerId());
             return;
         }
-        long initialDelay = nextIntervalMs();
-        scheduledTask = scheduler.schedule(this::sendAndReschedule, initialDelay, TimeUnit.MILLISECONDS);
+        // Registration has completed before this sender starts. Publish the
+        // initialized resource snapshot now so the Coordinator can admit tasks
+        // without waiting for the first periodic interval.
+        scheduledTask = scheduler.schedule(this::sendAndReschedule, 0, TimeUnit.MILLISECONDS);
         LOG.info("event=heartbeat_sender_started workerId={} baseIntervalMs={} target={}",
                 config.workerId(), config.intervalMs(), config.coordinatorUrl());
     }

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -35,7 +36,10 @@ constexpr auto kChildSchema = R"({"type":"record","name":"manifest_entry","field
     R"({"name":"file_format","type":"string"},)"
     R"({"name":"spec_id","type":["null","int"]},)"
     R"({"name":"record_count","type":"long"},)"
-    R"({"name":"file_size_in_bytes","type":"long"}]}}]})";
+    R"({"name":"file_size_in_bytes","type":"long"},)"
+    R"({"name":"split_offsets","type":["null",{"type":"array","items":"long"}]},)"
+    R"({"name":"equality_ids","type":["null",{"type":"array","items":"int"}]},)"
+    R"({"name":"sort_order_id","type":["null","int"]}]}}]})";
 
 void appendLong(std::string& bytes, int64_t value) {
   auto encoded = (static_cast<uint64_t>(value) << 1) ^
@@ -121,7 +125,25 @@ std::string encodedLocalUri(const AvroFile& file) {
   return uri;
 }
 
-std::string childRow(int32_t status, const std::string& path, int32_t content = 0) {
+template <typename T>
+void appendOptionalArray(std::string& row,
+    const std::optional<std::vector<T>>& values) {
+  if (!values) {
+    appendLong(row, 0);
+    return;
+  }
+  appendLong(row, 1);
+  if (!values->empty()) {
+    appendLong(row, values->size());
+    for (const auto value : *values) appendLong(row, value);
+  }
+  appendLong(row, 0);
+}
+
+std::string childRow(int32_t status, const std::string& path, int32_t content = 0,
+    std::optional<std::vector<int64_t>> offsets = std::nullopt,
+    std::optional<std::vector<int32_t>> equalityIds = std::nullopt,
+    std::optional<int32_t> sortOrderId = std::nullopt) {
   std::string row;
   appendLong(row, status);
   appendLong(row, content);
@@ -130,6 +152,14 @@ std::string childRow(int32_t status, const std::string& path, int32_t content = 
   appendLong(row, 0);  // null spec ID inherited from manifest
   appendLong(row, 3);
   appendLong(row, 4096);
+  appendOptionalArray(row, offsets);
+  appendOptionalArray(row, equalityIds);
+  if (sortOrderId) {
+    appendLong(row, 1);
+    appendLong(row, *sortOrderId);
+  } else {
+    appendLong(row, 0);
+  }
   return row;
 }
 
@@ -159,6 +189,56 @@ auto projectedType() {
       {facebook::velox::INTEGER(), facebook::velox::VARCHAR(),
        facebook::velox::VARCHAR(), facebook::velox::INTEGER(),
        facebook::velox::BIGINT(), facebook::velox::BIGINT()});
+}
+
+auto arrayProjectionType() {
+  return facebook::velox::ROW(
+      {"file_path", "split_offsets", "equality_ids", "sort_order_id"},
+      {facebook::velox::VARCHAR(),
+       facebook::velox::ARRAY(facebook::velox::BIGINT()),
+       facebook::velox::ARRAY(facebook::velox::INTEGER()),
+       facebook::velox::INTEGER()});
+}
+
+TEST(IcebergManifestEntryReaderTest, PreservesNullEmptyAndPopulatedArrays) {
+  facebook::velox::filesystems::registerLocalFileSystem();
+  auto pool = pangrova::test::testLeafPool("IcebergFilesArrays");
+  const auto childBytes = container(kChildSchema,
+      {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "data"}},
+      3, childRow(1, "file:/data/one.parquet", 0, std::vector<int64_t>{4, 40},
+             std::nullopt, 0) +
+          childRow(1, "file:/data/two.parquet", 0, std::vector<int64_t>{}) +
+          childRow(1, "file:/data/three.parquet"));
+  AvroFile child(childBytes);
+  const auto listBytes = container(kListSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
+      1, listRow(child, childBytes.size()));
+  AvroFile list(listBytes);
+  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
+      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
+      arrayProjectionType(), pool.get());
+  auto batch = reader.next(10);
+  ASSERT_NE(batch, nullptr);
+  ASSERT_EQ(batch->size(), 3);
+  auto* offsets = batch->childAt(1)->as<facebook::velox::ArrayVector>();
+  ASSERT_NE(offsets, nullptr);
+  ASSERT_EQ(offsets->sizeAt(0), 2);
+  EXPECT_EQ(offsets->elements()->asFlatVector<int64_t>()->valueAt(
+      offsets->offsetAt(0)), 4);
+  EXPECT_EQ(offsets->elements()->asFlatVector<int64_t>()->valueAt(
+      offsets->offsetAt(0) + 1), 40);
+  EXPECT_EQ(offsets->sizeAt(1), 0);
+  EXPECT_TRUE(offsets->isNullAt(2));
+  auto* equality = batch->childAt(2)->as<facebook::velox::ArrayVector>();
+  ASSERT_NE(equality, nullptr);
+  EXPECT_TRUE(equality->isNullAt(0));
+  EXPECT_TRUE(equality->isNullAt(1));
+  EXPECT_TRUE(equality->isNullAt(2));
+  auto* sortOrder = batch->childAt(3)->asFlatVector<int32_t>();
+  ASSERT_NE(sortOrder, nullptr);
+  EXPECT_EQ(sortOrder->valueAt(0), 0);
+  EXPECT_TRUE(sortOrder->isNullAt(1));
+  EXPECT_TRUE(sortOrder->isNullAt(2));
 }
 
 TEST(IcebergManifestEntryReaderTest, ReadsLiveScalarProjectionAndSkipsDeleted) {
@@ -225,6 +305,11 @@ TEST(IcebergManifestEntryReaderTest, RejectsUnsupportedNestedProjection) {
   EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
       digest(childBytes), list.path(), listBytes.size(), digest(listBytes),
       7, 1, 2, 0, 0, type, pool.get()), std::runtime_error);
+  auto wrongElementType = facebook::velox::ROW({"split_offsets"},
+      {facebook::velox::ARRAY(facebook::velox::INTEGER())});
+  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
+      digest(childBytes), list.path(), listBytes.size(), digest(listBytes),
+      7, 1, 2, 0, 0, wrongElementType, pool.get()), std::runtime_error);
 }
 
 TEST(IcebergManifestEntryReaderTest, ReadsPositionDeleteManifest) {
@@ -232,7 +317,9 @@ TEST(IcebergManifestEntryReaderTest, ReadsPositionDeleteManifest) {
   auto pool = pangrova::test::testLeafPool("IcebergFilesDelete");
   const auto childBytes = container(kChildSchema,
       {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "deletes"}},
-      1, childRow(1, "file:/data/position-delete.parquet", 1));
+      2, childRow(1, "file:/data/position-delete.parquet", 1) +
+          childRow(1, "file:/data/equality-delete.parquet", 2,
+              std::nullopt, std::vector<int32_t>{1}));
   AvroFile child(childBytes);
   const auto listBytes = container(kListSchema,
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
@@ -240,14 +327,23 @@ TEST(IcebergManifestEntryReaderTest, ReadsPositionDeleteManifest) {
   AvroFile list(listBytes);
   IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
       list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 1,
-      projectedType(), pool.get());
-  auto batch = reader.next(1);
+      facebook::velox::ROW({"content", "file_path", "equality_ids"},
+          {facebook::velox::INTEGER(), facebook::velox::VARCHAR(),
+           facebook::velox::ARRAY(facebook::velox::INTEGER())}), pool.get());
+  auto batch = reader.next(2);
   ASSERT_NE(batch, nullptr);
-  ASSERT_EQ(batch->size(), 1);
+  ASSERT_EQ(batch->size(), 2);
   EXPECT_EQ(batch->childAt(0)->asFlatVector<int32_t>()->valueAt(0), 1);
+  EXPECT_EQ(batch->childAt(0)->asFlatVector<int32_t>()->valueAt(1), 2);
   EXPECT_EQ(batch->childAt(1)->asFlatVector<facebook::velox::StringView>()
                 ->valueAt(0).str(), "file:/data/position-delete.parquet");
-  EXPECT_EQ(reader.next(1), nullptr);
+  auto* equality = batch->childAt(2)->as<facebook::velox::ArrayVector>();
+  ASSERT_NE(equality, nullptr);
+  EXPECT_TRUE(equality->isNullAt(0));
+  ASSERT_EQ(equality->sizeAt(1), 1);
+  EXPECT_EQ(equality->elements()->asFlatVector<int32_t>()->valueAt(
+      equality->offsetAt(1)), 1);
+  EXPECT_EQ(reader.next(2), nullptr);
 }
 
 TEST(IcebergManifestEntryReaderTest, BothReadersOpenEncodedLocalUriWithSpaces) {

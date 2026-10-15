@@ -258,4 +258,43 @@ class HeartbeatSenderTest {
             server.stop(0);
         }
     }
+
+    @Test
+    void firstHeartbeatPublishesResourceSnapshotBeforePeriodicInterval() throws Exception {
+        CountDownLatch received = new CountDownLatch(1);
+        CountDownLatch acknowledged = new CountDownLatch(1);
+        AtomicLong availableMemory = new AtomicLong();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/worker/heartbeat", exchange -> {
+            byte[] request = exchange.getRequestBody().readAllBytes();
+            availableMemory.set(org.pangrova.common.json.JsonMapperFactory.shared()
+                    .readTree(request).path("available_memory_bytes").asLong());
+            received.countDown();
+            byte[] response = "{\"status\":\"ok\",\"coordinator_epoch\":42}".getBytes();
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(response);
+            }
+        });
+        server.start();
+        ScheduledExecutorService executor = newExecutor();
+        HeartbeatSender sender = new HeartbeatSender(
+                new HeartbeatConfig("http://127.0.0.1:" + server.getAddress().getPort(),
+                        "w-immediate", 10_000),
+                () -> new HeartbeatPayload("w-immediate", "NONE", 0.1, 0, 512L * 1024 * 1024),
+                executor);
+        sender.setCoordinatorEpochObserver(epoch -> acknowledged.countDown());
+        try {
+            sender.start();
+            assertTrue(received.await(3, TimeUnit.SECONDS),
+                    "The initialized resource snapshot must precede the first 10-second interval");
+            assertEquals(512L * 1024 * 1024, availableMemory.get());
+            assertTrue(acknowledged.await(3, TimeUnit.SECONDS),
+                    "The Coordinator must acknowledge the first resource heartbeat");
+        } finally {
+            sender.stop();
+            executor.shutdownNow();
+            server.stop(0);
+        }
+    }
 }

@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <charconv>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -18,6 +20,7 @@ namespace pangrova::velox {
 namespace {
 
 constexpr uint64_t kMaxBatchRows = 1024;
+constexpr size_t kMaxBatchArrayElements = 1'000'000;
 
 std::unique_ptr<IcebergAvroContainerReader> openPinned(
     const std::string& uri, uint64_t length, const std::string& sha256) {
@@ -66,6 +69,36 @@ std::string requiredText(const folly::dynamic& object, const char* name) {
   return text;
 }
 
+template <typename T>
+std::optional<std::vector<T>> optionalIntegerArray(
+    const folly::dynamic& object, const char* name) {
+  if (!object.count(name) || object[name].isNull()) return std::nullopt;
+  const auto& array = object[name];
+  if (!array.isArray() || array.size() > kMaxBatchArrayElements) {
+    throw std::runtime_error(std::string("Invalid Iceberg file array: ") + name);
+  }
+  std::vector<T> values;
+  values.reserve(array.size());
+  for (const auto& item : array) {
+    if (!item.isInt() || item.asInt() < 0 ||
+        (std::is_same_v<T, int32_t> &&
+            item.asInt() > std::numeric_limits<int32_t>::max())) {
+      throw std::runtime_error(std::string("Invalid Iceberg file array value: ") + name);
+    }
+    values.push_back(static_cast<T>(item.asInt()));
+  }
+  return values;
+}
+
+std::optional<int32_t> optionalSortOrderId(const folly::dynamic& file) {
+  if (!file.count("sort_order_id") || file["sort_order_id"].isNull()) {
+    return std::nullopt;
+  }
+  const auto value = requiredInt(file, "sort_order_id");
+  if (value < 0) throw std::runtime_error("Invalid Iceberg sort order ID");
+  return value;
+}
+
 void verifyParentMembership(IcebergAvroContainerReader& list,
     const std::string& childUri, uint64_t childLength,
     uint64_t snapshotId, uint64_t sequenceNumber, int32_t formatVersion,
@@ -102,7 +135,46 @@ struct FileRow {
   int32_t specId;
   int64_t recordCount;
   int64_t fileSize;
+  std::optional<std::vector<int64_t>> splitOffsets;
+  std::optional<std::vector<int32_t>> equalityIds;
+  std::optional<int32_t> sortOrderId;
 };
+
+template <typename T>
+facebook::velox::VectorPtr arrayColumn(const std::vector<FileRow>& rows,
+    const facebook::velox::TypePtr& type,
+    std::optional<std::vector<T>> FileRow::* member,
+    facebook::velox::memory::MemoryPool* pool) {
+  using namespace facebook::velox;
+  auto offsets = AlignedBuffer::allocate<vector_size_t>(rows.size(), pool);
+  auto sizes = AlignedBuffer::allocate<vector_size_t>(rows.size(), pool);
+  auto nulls = AlignedBuffer::allocate<bool>(rows.size(), pool, bits::kNotNull);
+  auto* rawOffsets = offsets->asMutable<vector_size_t>();
+  auto* rawSizes = sizes->asMutable<vector_size_t>();
+  auto* rawNulls = nulls->asMutable<uint64_t>();
+  std::vector<T> flat;
+  for (size_t row = 0; row < rows.size(); ++row) {
+    rawOffsets[row] = flat.size();
+    const auto& values = rows[row].*member;
+    if (!values) {
+      bits::setNull(rawNulls, row, true);
+      rawSizes[row] = 0;
+      continue;
+    }
+    if (values->size() > kMaxBatchArrayElements - flat.size()) {
+      throw std::runtime_error("Iceberg file arrays exceed batch element limit");
+    }
+    rawSizes[row] = values->size();
+    flat.insert(flat.end(), values->begin(), values->end());
+  }
+  auto elements = BaseVector::create(type->asArray().elementType(), flat.size(), pool);
+  auto* typed = elements->template asFlatVector<T>();
+  for (size_t index = 0; index < flat.size(); ++index) {
+    typed->set(index, flat[index]);
+  }
+  return std::make_shared<ArrayVector>(pool, type, nulls, rows.size(),
+      offsets, sizes, elements);
+}
 
 FileRow decodeLiveEntry(const folly::dynamic& entry,
     int32_t specId, int32_t manifestContent) {
@@ -125,8 +197,18 @@ FileRow decodeLiveEntry(const folly::dynamic& entry,
   if (recordCount < 0 || fileSize < 0) {
     throw std::runtime_error("Negative Iceberg file count or size");
   }
+  auto splitOffsets = optionalIntegerArray<int64_t>(file, "split_offsets");
+  if (splitOffsets && !std::is_sorted(splitOffsets->begin(), splitOffsets->end())) {
+    throw std::runtime_error("Iceberg split offsets are not sorted");
+  }
+  auto equalityIds = optionalIntegerArray<int32_t>(file, "equality_ids");
+  if ((content == 2 && (!equalityIds || equalityIds->empty())) ||
+      (content != 2 && equalityIds)) {
+    throw std::runtime_error("Iceberg equality IDs disagree with file content");
+  }
   return {content, requiredText(file, "file_path"),
-      requiredText(file, "file_format"), specId, recordCount, fileSize};
+      requiredText(file, "file_format"), specId, recordCount, fileSize,
+      std::move(splitOffsets), std::move(equalityIds), optionalSortOrderId(file)};
 }
 
 }  // namespace
@@ -166,15 +248,24 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
   std::unordered_set<std::string> names;
   for (size_t index = 0; index < output_type_->size(); ++index) {
     const auto& name = output_type_->nameOf(index);
-    const auto expected = name == "content" || name == "spec_id"
+    const auto expected = name == "split_offsets" || name == "equality_ids"
+        ? TypeKind::ARRAY : name == "content" || name == "spec_id" ||
+            name == "sort_order_id"
         ? TypeKind::INTEGER
         : name == "file_path" || name == "file_format"
             ? TypeKind::VARCHAR : TypeKind::BIGINT;
     if ((name != "content" && name != "file_path" &&
             name != "file_format" && name != "spec_id" &&
-            name != "record_count" && name != "file_size_in_bytes") ||
+            name != "record_count" && name != "file_size_in_bytes" &&
+            name != "split_offsets" && name != "equality_ids" &&
+            name != "sort_order_id") ||
         !names.insert(name).second || output_type_->childAt(index)->kind() != expected) {
       throw std::runtime_error("Unsupported Iceberg $files output column: " + name);
+    }
+    if (expected == TypeKind::ARRAY && output_type_->childAt(index)->asArray()
+            .elementType()->kind() != (name == "split_offsets"
+                ? TypeKind::BIGINT : TypeKind::INTEGER)) {
+      throw std::runtime_error("Unsupported Iceberg $files array element type: " + name);
     }
   }
 }
@@ -199,11 +290,26 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
   columns.reserve(output_type_->size());
   for (size_t column = 0; column < output_type_->size(); ++column) {
     const auto& name = output_type_->nameOf(column);
+    const auto type = output_type_->childAt(column);
+    if (name == "split_offsets") {
+      columns.push_back(arrayColumn(rows, type, &FileRow::splitOffsets, pool_));
+      continue;
+    }
+    if (name == "equality_ids") {
+      columns.push_back(arrayColumn(rows, type, &FileRow::equalityIds, pool_));
+      continue;
+    }
     auto vector = facebook::velox::BaseVector::create(
-        output_type_->childAt(column), rows.size(), pool_);
+        type, rows.size(), pool_);
     for (size_t row = 0; row < rows.size(); ++row) {
       const auto& file = rows[row];
-      if (name == "content" || name == "spec_id") {
+      if (name == "sort_order_id") {
+        if (file.sortOrderId) {
+          vector->asFlatVector<int32_t>()->set(row, *file.sortOrderId);
+        } else {
+          vector->setNull(row, true);
+        }
+      } else if (name == "content" || name == "spec_id") {
         vector->asFlatVector<int32_t>()->set(row,
             name == "content" ? file.content : file.specId);
       } else if (name == "file_path" || name == "file_format") {

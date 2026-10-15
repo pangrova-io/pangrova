@@ -5,7 +5,7 @@ Status: **IN PROGRESS — not production-ready** (2026-10-16). Iceberg
 v2 splits, Worker Native readers, and focused SQL E2E coverage. Paimon
 `$branches` now has the same chain for local filesystem catalogs only. Iceberg
 `$manifests` has a pinned Avro manifest-list Native reader. Iceberg `$files`
-has a six-scalar-column Native manifest-entry slice; its complete SDK schema,
+has a nine-column fixed scalar/array Native manifest-entry slice; its complete SDK schema,
 large-table throughput, and independent image are not yet validated. Iceberg
 `$entries`/`$partitions` still lack Native readers;
 Paimon `$branches` on distributed/object storage, `$files`, and the final full-chain gate remain
@@ -52,7 +52,7 @@ declared public schema.
   removed. SHOW FILES/MANIFESTS/PARTITIONS still fail closed; the SHOW MANIFESTS
   rewrite has not yet been wired to the new direct `$manifests` SELECT path,
   while the other SHOW readers remain absent. Direct SELECT for Iceberg
-  `$files` has only the six-column scalar slice below; full `$files`,
+  `$files` has only the nine-column fixed scalar/array slice below; full `$files`,
   `$entries`, `$partitions`, Paimon `$files`, and nonlocal `$branches`
   remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
@@ -393,3 +393,29 @@ work. A verified precomputed parent index or equivalent bounded identity
 proof is needed before claiming production-scale performance. Multi-spec
 partition data, all nested metrics, time travel, nonlocal object storage,
 independent process image, and the full system-table gate remain open.
+
+### Iceberg `$files` fixed-array increment (2026-10-16)
+
+The binding now takes three more fields from the running Iceberg 1.11 SDK
+`MetadataTableType.FILES.schema()` in its official relative order:
+`split_offsets ARRAY<BIGINT>`, `equality_ids ARRAY<INTEGER>`, and nullable
+`sort_order_id INTEGER`. Native reads those values from the verified child
+manifest's `data_file` record and constructs typed Velox arrays. It keeps
+SQL NULL distinct from an empty array, bounds each array and batch, rejects
+wrong element types or unsorted split offsets, and requires equality IDs on
+equality-delete files. The declared SQL schema is now nine columns;
+`SELECT *` returns those nine, while `column_sizes`, dynamic `partition`,
+`readable_metrics`, and the other unsupported SDK fields still fail at
+lookup. This remains a partial public `$files` contract.
+
+Current-source JDK 17 Iceberg binding/adjacent manifest tests passed 6/6,
+Planner SQL conversion passed 7/7, and Coordinator lookup/access-control
+passed 55/55. The Native manifest-entry suite passed 6/6, including NULL,
+empty and populated arrays, DATA and position/equality DELETE manifests,
+pin checks and type rejection. A freshly packaged `osx/aarch64` JNI library
+(SHA-256 `f7d17bd20a7ab7b030684b675925cd37e71618e9dff3d7a12017df58a1ca603c`)
+passed the real SQL E2E 1/1 with independent Iceberg SDK values for all three
+file kinds and a nine-column `SELECT *`; all listed tests had zero failures,
+errors or skips. This increment did not change protobuf or the capability
+descriptor. The complete SDK schema, parent-list O(M²) split cost, cross-file
+system-table coverage, and production-scale independent image remain open.

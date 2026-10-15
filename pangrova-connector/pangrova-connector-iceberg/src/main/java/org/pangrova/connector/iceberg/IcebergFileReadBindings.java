@@ -19,7 +19,8 @@ import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
 final class IcebergFileReadBindings {
     private static final Set<String> NATIVE_COLUMNS = Set.of(
             "content", "file_path", "file_format", "spec_id",
-            "record_count", "file_size_in_bytes");
+            "record_count", "file_size_in_bytes", "split_offsets",
+            "equality_ids", "sort_order_id");
 
     private IcebergFileReadBindings() {}
 

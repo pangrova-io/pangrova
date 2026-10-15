@@ -129,6 +129,10 @@ All services expose `GET /v1/health` for readiness and `GET /v1/health/live`
 for liveness. Coordinator readiness requires its HTTP server, a registered
 Worker, and a catalog; it can return 503 while its live endpoint returns 200.
 Compose and the image healthcheck use liveness so Workers can start and register.
+After registration, each Worker sends its initialized resource heartbeat immediately;
+the scheduler admits tasks only after receiving enough reported free memory.
+Coordinator readiness confirms a registered Worker, while task admission also
+checks its current resource report.
 The image detects the running node role and probes its default management port
 (8080 for Coordinator, 8081 for Worker). If a mounted configuration changes
 that port, set `PANGROVA_HEALTH_PORT` to the same value. Both health routes are

@@ -1,6 +1,8 @@
 package org.pangrova.testing.e2e.speculation;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.testing.PangrovaClusterContainer;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
@@ -13,10 +15,13 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
-import java.net.InetSocketAddress;
-import java.net.URI;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -29,9 +34,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
 /** Sole formal process entry points; every advertised Worker owns an independent JNI runtime. */
 final class IndependentSpeculationProcesses implements AutoCloseable {
     private static final String ROLE_TLS_DIRECTORY = "/opt/pangrova/config/process-tls";
+    private static final long MIN_DISPATCH_MEMORY_BYTES = 64L * 1024 * 1024;
     private final PangrovaClusterContainer cluster;
     private final ProcessSecurityAuthority security;
     private final ProcessStatusReportRelay reports;
@@ -85,6 +94,7 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
             Testcontainers.exposeHostPorts(ports.stream().mapToInt(Integer::intValue).toArray());
             cluster.start();
             verifyImageIdentities();
+            awaitSchedulableWorkers();
             requireSuccessfulSql("CREATE CATALOG spec_catalog WITH ('connector' = 'iceberg', 'type' = 'jdbc', "
                     + "'uri' = '" + security.processJdbcUrl() + "', 'jdbc.user' = 'pangrova', 'jdbc.password' = 'pangrova_test', "
                     + "'jdbc.schema-version' = 'V1', 'warehouse' = '" + input.warehouse().toString().replace("'", "''") + "')");
@@ -93,6 +103,38 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
             try { close(); } catch (Exception cleanupFailure) { failure.addSuppressed(cleanupFailure); }
             throw failure;
         }
+    }
+
+    private void awaitSchedulableWorkers() {
+        HttpClient client = HttpClient.newHttpClient();
+        String authorization = org.pangrova.client.rest.auth.ClientAuthentication.basic(
+                ProcessSecurityAuthority.USER, ProcessSecurityAuthority.PASSWORD).authorizationHeader();
+        HttpRequest request = HttpRequest.newBuilder(coordinator().resolve("/api/workers"))
+                .header("Authorization", authorization)
+                .timeout(Duration.ofSeconds(5)).GET().build();
+        await("two Workers with real heartbeat capacity")
+                .pollInterval(Duration.ofSeconds(1))
+                .atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> {
+                    var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                    assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+                    assertThat(twoWorkersSchedulable(JsonMapperFactory.shared().readTree(response.body())))
+                            .as(response.body()).isTrue();
+                });
+    }
+
+    static boolean twoWorkersSchedulable(JsonNode workers) {
+        if (workers == null || !workers.isArray()) return false;
+        boolean first = false;
+        boolean second = false;
+        for (JsonNode worker : workers) {
+            boolean schedulable = "ACTIVE".equals(worker.path("healthState").asText())
+                    && !"CRITICAL".equals(worker.path("memoryPressure").asText())
+                    && worker.path("availableMemoryBytes").asLong() >= MIN_DISPATCH_MEMORY_BYTES;
+            if (schedulable && "e2e-worker-1".equals(worker.path("workerId").asText())) first = true;
+            if (schedulable && "e2e-worker-2".equals(worker.path("workerId").asText())) second = true;
+        }
+        return first && second;
     }
 
     ProcessStatusReportRelay reports() { return reports; }

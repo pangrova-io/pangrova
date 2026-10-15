@@ -61,14 +61,18 @@ class IcebergFileReadBindingsTest {
             var name = new SchemaTableName("db", "routed$files");
             var empty = (IcebergFileTableHandle) metadata.getTableHandle(SESSION, name);
             assertThat(empty.manifests()).isEmpty();
-            assertThat(empty.typedColumns()).hasSize(6);
+            assertThat(empty.typedColumns()).hasSize(9);
             assertThat(empty.typedColumns().stream().map(c -> c.name()).toList())
                     .containsExactly("content", "file_path", "file_format", "spec_id",
-                            "record_count", "file_size_in_bytes");
+                            "record_count", "file_size_in_bytes", "split_offsets",
+                            "equality_ids", "sort_order_id");
+            assertThat(metadata.getColumnHandles(SESSION, empty))
+                    .containsKeys("split_offsets", "equality_ids", "sort_order_id");
             assertThat(metadata.getColumnHandles(SESSION, empty)).doesNotContainKey("column_sizes");
             metadata.validateColumnAccess(SESSION, empty,
                     List.of("content", "file_path", "file_format", "spec_id",
-                            "record_count", "file_size_in_bytes"));
+                            "record_count", "file_size_in_bytes", "split_offsets",
+                            "equality_ids", "sort_order_id"));
             metadata.validateColumnAccess(SESSION, empty, List.of("FILE_PATH"));
             assertThatThrownBy(() -> metadata.validateColumnAccess(SESSION, empty,
                     List.of("column_sizes")))

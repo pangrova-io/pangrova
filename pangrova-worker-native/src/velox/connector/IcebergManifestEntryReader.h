@@ -14,7 +14,7 @@ class MemoryPool;
 namespace pangrova::velox {
 
 // Scans live entries from one child manifest pinned by its parent list.
-// Only explicitly verified projected scalar fields are supported initially.
+// Only explicitly verified fixed scalar and array fields are supported initially.
 class IcebergManifestEntryReader final {
  public:
   IcebergManifestEntryReader(
