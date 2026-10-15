@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.apache.iceberg.BlobMetadata;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -35,14 +36,21 @@ final class IcebergStatisticsCollector {
     /**
      * Builds table statistics from an Iceberg snapshot summary and manifest files.
      */
-    static TableStatistics buildStatistics(Snapshot snapshot, Table icebergTable) {
+    static TableStatistics buildStatistics(Snapshot snapshot, Table icebergTable, IcebergTableHandle handle) {
+        // A range scan reads only files appended between its endpoints. The end
+        // snapshot's live-file, row and byte totals describe a different source.
+        if (IcebergTableHandle.READ_MODE_INCREMENTAL.equals(handle.readMode())) {
+            return TableStatistics.UNKNOWN;
+        }
         long rowCount = Long.parseLong(
                 snapshot.summary().getOrDefault("total-records", "-1"));
         long dataSize = Long.parseLong(
                 snapshot.summary().getOrDefault("total-files-size", "-1"));
+        long sourceWorkUnits = Long.parseLong(
+                snapshot.summary().getOrDefault("total-data-files", "-1"));
         Map<String, TableStatistics.ColumnStatistics> colStats =
                 collectColumnStatistics(snapshot, icebergTable);
-        return new TableStatistics(rowCount, dataSize, colStats);
+        return new TableStatistics(rowCount, dataSize, sourceWorkUnits, colStats);
     }
 
     /**

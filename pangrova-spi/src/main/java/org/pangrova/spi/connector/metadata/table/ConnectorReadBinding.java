@@ -39,7 +39,8 @@ public record ConnectorReadBinding(ConnectorTableHandle handle,
         if (state != SnapshotState.UNVERSIONED && sourceIdentity.isBlank()) {
             throw new IllegalArgumentException("Versioned read binding requires source identity evidence");
         }
-        if (statistics.rowCount() < -1 || statistics.dataSize() < -1) {
+        if (statistics.rowCount() < -1 || statistics.dataSize() < -1
+                || statistics.sourceWorkUnits() < -1) {
             throw new IllegalArgumentException("Unknown statistics use -1, not another negative value");
         }
     }

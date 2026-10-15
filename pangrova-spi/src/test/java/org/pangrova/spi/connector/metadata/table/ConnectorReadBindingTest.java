@@ -31,7 +31,7 @@ class ConnectorReadBindingTest {
         assertThatThrownBy(() -> binding(ConnectorReadBinding.SnapshotState.EMPTY, OptionalLong.empty(),
                 TableStatistics.UNKNOWN, "identity")).isInstanceOf(IllegalArgumentException.class);
         var empty = binding(ConnectorReadBinding.SnapshotState.EMPTY, OptionalLong.empty(),
-                new TableStatistics(0, 0), "identity");
+                new TableStatistics(0, 0, 0, Map.of()), "identity");
         assertThat(empty.statistics().rowCount()).isZero();
         assertThat(empty.snapshotId()).isEmpty();
     }
@@ -51,9 +51,17 @@ class ConnectorReadBindingTest {
         assertThatThrownBy(() -> binding(ConnectorReadBinding.SnapshotState.SNAPSHOT, OptionalLong.of(1),
                 TableStatistics.UNKNOWN, " ")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> binding(ConnectorReadBinding.SnapshotState.UNVERSIONED, OptionalLong.empty(),
-                new TableStatistics(-2, -1), "")).isInstanceOf(IllegalArgumentException.class);
+                new TableStatistics(-2, -1, -1, Map.of()), "")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> binding(ConnectorReadBinding.SnapshotState.UNVERSIONED, OptionalLong.empty(),
-                new TableStatistics(-1, -2), "")).isInstanceOf(IllegalArgumentException.class);
+                new TableStatistics(-1, -2, -1, Map.of()), "")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new TableStatistics(-1, -1, -2, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void existingStatisticsConstructorsPreserveUnknownSourceUnitSemantics() {
+        assertThat(new TableStatistics(100, 800).sourceWorkUnits()).isEqualTo(-1);
+        assertThat(new TableStatistics(100, 800, Map.of()).sourceWorkUnits()).isEqualTo(-1);
     }
 
     @Test

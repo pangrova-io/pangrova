@@ -11,13 +11,23 @@ import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.schema.impl.AbstractTable;
+import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
 import org.junit.jupiter.api.Test;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -60,6 +70,36 @@ class FragmentSourceParallelismTest {
     }
 
     @Test
+    void selectedSourceUnitsKeepSmallCompressedFilesIndependentlySchedulable() {
+        RelNode scan = boundScan(8_053_064L, 12_280_568L, 4);
+
+        assertThat(FragmentSourceParallelism.resolve(scan, 256L * 1024 * 1024, 128, 4))
+                .isEqualTo(4);
+        assertThat(FragmentSourceParallelism.resolve(scan, 256L * 1024 * 1024, 2, 4))
+                .isEqualTo(2);
+
+        var aggregateBuilder = RelBuilder.create(Frameworks.newConfigBuilder()
+                .defaultSchema(boundSchema(8_053_064L, 12_280_568L, 4)).build());
+        RelNode aggregate = aggregateBuilder.scan("bound")
+                .aggregate(aggregateBuilder.groupKey(), aggregateBuilder.countStar("rows"))
+                .build();
+        var fragmented = PlanFragmenter.fragment(aggregate, 0);
+        int sourceStageId = fragmented.transfers().stream()
+                .filter(transfer -> transfer.shuffleType() == ShuffleType.SINGLETON)
+                .findFirst().orElseThrow().upstreamStageId();
+        assertThat(fragmented.stages()).filteredOn(stage -> stage.stageId() == sourceStageId)
+                .singleElement().satisfies(stage -> assertThat(stage.parallelism()).isEqualTo(4));
+    }
+
+    @Test
+    void unknownAndEmptySourceUnitsPreserveMetadataParallelism() {
+        assertThat(FragmentSourceParallelism.resolve(boundScan(100, 800, -1), 256L * 1024 * 1024, 8, 4))
+                .isEqualTo(1);
+        assertThat(FragmentSourceParallelism.resolve(boundScan(0, 0, 0), 256L * 1024 * 1024, 8, 4))
+                .isEqualTo(1);
+    }
+
+    @Test
     void emptyLiteralInputKeepsNoRowsDespiteCalciteCostingFloor() {
         LogicalValues values = values(0);
         // RelMetadataQuery floors estimates below one; tuples remain the actual immutable source.
@@ -86,4 +126,42 @@ class FragmentSourceParallelismTest {
         }
         return LogicalValues.create(cluster, rowType, tuples.build());
     }
+
+    private static RelNode boundScan(long rows, long bytes, long sourceUnits) {
+        var builder = RelBuilder.create(Frameworks.newConfigBuilder()
+                .defaultSchema(boundSchema(rows, bytes, sourceUnits)).build());
+        return builder.scan("bound").build();
+    }
+
+    private static org.apache.calcite.schema.SchemaPlus boundSchema(
+            long rows, long bytes, long sourceUnits) {
+        var schema = Frameworks.createRootSchema(true);
+        var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "bound"),
+                List.of("id"), List.of(), Map.of());
+        var binding = new ConnectorReadBinding(new SourceHandle(),
+                new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
+                new TableStatistics(rows, bytes, sourceUnits, Map.of()),
+                rows == 0 ? ConnectorReadBinding.SnapshotState.EMPTY : ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                rows == 0 ? OptionalLong.empty() : OptionalLong.of(1), "selected");
+        schema.add("bound", new AbstractTable() {
+            @Override
+            public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT).build();
+            }
+
+            @Override
+            public org.apache.calcite.schema.Statistic getStatistic() {
+                return Statistics.of((double) rows, List.of());
+            }
+
+            @Override
+            public <T> T unwrap(Class<T> type) {
+                if (type.isInstance(binding)) return type.cast(binding);
+                return super.unwrap(type);
+            }
+        });
+        return schema;
+    }
+
+    private record SourceHandle() implements ConnectorTableHandle {}
 }

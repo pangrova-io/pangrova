@@ -72,8 +72,8 @@ final class IcebergReadBindings {
                 org.apache.iceberg.SchemaParser.toJson(schema), fresh.partitionSpecJson(),
                 fresh.formatVersion(), properties, handle.readMode(), handle.fromSnapshotId(),
                 handle.toSnapshotId(), handle.pushedLimit());
-        TableStatistics statistics = snapshot == null ? new TableStatistics(0, 0)
-                : IcebergStatisticsCollector.buildStatistics(snapshot, table);
+        TableStatistics statistics = snapshot == null ? new TableStatistics(0, 0, 0, Map.of())
+                : IcebergStatisticsCollector.buildStatistics(snapshot, table, handle);
         return new ConnectorReadBinding(bound, declaration, statistics,
                 snapshot == null ? ConnectorReadBinding.SnapshotState.EMPTY
                         : ConnectorReadBinding.SnapshotState.SNAPSHOT,

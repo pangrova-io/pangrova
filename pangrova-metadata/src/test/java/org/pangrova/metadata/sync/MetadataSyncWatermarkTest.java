@@ -183,7 +183,7 @@ class MetadataSyncWatermarkTest {
 
         @Override
         public TableStatistics getTableStatistics(String schema, String table) {
-            return new TableStatistics(100L, 1024L);
+            return new TableStatistics(100L, 1024L, -1, Map.of());
         }
 
         @Override

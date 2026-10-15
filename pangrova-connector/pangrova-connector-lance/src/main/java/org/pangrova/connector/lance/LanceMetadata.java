@@ -79,13 +79,15 @@ public final class LanceMetadata implements ConnectorMetadata {
         return java.util.Collections.unmodifiableMap(columns);
     }
     @Override public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
-        return new TableStatistics(snapshots.resolve(session, requireTable(session, table)).rowCount(), -1);
+        return new TableStatistics(snapshots.resolve(session, requireTable(session, table)).rowCount(),
+                -1, -1, java.util.Map.of());
     }
     @Override public org.pangrova.spi.connector.metadata.table.ConnectorReadBinding bindRead(
             ConnectorSession session, ConnectorTableHandle table) {
         var selected = snapshots.resolve(session, requireTable(session, table));
         return new org.pangrova.spi.connector.metadata.table.ConnectorReadBinding(selected,
-                getTableReadMetadata(session, selected), new TableStatistics(selected.rowCount(), -1),
+                getTableReadMetadata(session, selected),
+                new TableStatistics(selected.rowCount(), -1, -1, java.util.Map.of()),
                 selected.version() == 0
                         ? org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY
                         : org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT,

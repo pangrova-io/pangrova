@@ -281,6 +281,14 @@ Live query fragmentation caps exchange partition cohorts by the schedulable
 worker count and the per-worker task limit before assigning partition IDs.
 This keeps the plan's exchange identity aligned with dispatch capacity; a
 later dispatcher cannot safely shrink an already allocated cohort.
+For a bound table scan, source-stage parallelism uses the larger of Calcite's
+estimated scan bytes and the selected connector snapshot's independently
+scannable source work units, subject to the cluster parallelism cap. Iceberg
+publishes its selected snapshot's data-file count as this work-unit estimate;
+connectors without trustworthy source-unit metadata report it as unknown and
+retain byte-based planning. This keeps small, highly compressed files from
+collapsing a multi-file scan into one source task while the downstream exchange
+cohort remains fixed before dispatch.
 
 | Exchange Type | Description | Use Case |
 |--------------|------|----------|

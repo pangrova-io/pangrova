@@ -60,6 +60,7 @@ class IcebergReadBindingIntegrationTest {
             metadata.validateReadBinding(SESSION, binding);
             assertThat(binding.statistics().rowCount()).isEqualTo(3);
             assertThat(binding.statistics().dataSize()).isPositive();
+            assertThat(binding.statistics().sourceWorkUnits()).isEqualTo(1);
             assertThat(binding.statistics().columnStats()).containsKey("id");
             assertThat(binding.statistics().columnStats().get("id").avgSize()).isEqualTo(-1.0);
             assertThat(binding.snapshotId().orElseThrow()).isEqualTo(selected);
@@ -67,6 +68,7 @@ class IcebergReadBindingIntegrationTest {
             assertThat(splits).hasSize(1);
             assertThat(splits).allSatisfy(split -> assertThat(split.getSourceSnapshot()).isEqualTo(Long.toString(selected)));
             assertThat(bind(metadata, "rows").statistics().rowCount()).isEqualTo(8);
+            assertThat(bind(metadata, "rows").statistics().sourceWorkUnits()).isEqualTo(2);
         }
     }
 
@@ -97,6 +99,30 @@ class IcebergReadBindingIntegrationTest {
     }
 
     @Test
+    void incrementalRangeDoesNotBorrowEndSnapshotTableStatistics() throws Exception {
+        try (var catalog = catalog()) {
+            Table table = create(catalog, "incremental");
+            write(table, 3);
+            long first = table.currentSnapshot().snapshotId();
+            write(table, 5);
+            long second = table.currentSnapshot().snapshotId();
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var selector = (org.pangrova.connector.iceberg.handle.IcebergTableHandle)
+                    metadata.getTableHandle(SESSION, new SchemaTableName("db", "incremental"));
+            var interval = selector.withIncrementalRead(first, second);
+            var binding = metadata.bindRead(SESSION, interval);
+
+            assertThat(binding.statistics().rowCount()).isEqualTo(-1);
+            assertThat(binding.statistics().dataSize()).isEqualTo(-1);
+            assertThat(binding.statistics().sourceWorkUnits()).isEqualTo(-1);
+            assertThat(metadata.getTableStatistics(SESSION, interval)).isSameAs(
+                    org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN);
+            assertThat(splits(catalog, binding)).hasSize(1);
+            assertThat(bind(metadata, "incremental").statistics().sourceWorkUnits()).isEqualTo(2);
+        }
+    }
+
+    @Test
     void emptyBindingStaysEmptyAcrossTheFirstCommitAndRejectsReplacement() throws Exception {
         try (var catalog = catalog()) {
             Table table = create(catalog, "empty");
@@ -105,6 +131,7 @@ class IcebergReadBindingIntegrationTest {
             assertThat(empty.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
             assertThat(empty.snapshotId()).isEmpty();
             assertThat(empty.statistics().rowCount()).isZero();
+            assertThat(empty.statistics().sourceWorkUnits()).isZero();
             write(table, 2);
             metadata.validateReadBinding(SESSION, empty);
             // EMPTY is consumed without invoking a live SDK scan by SplitFetcher.

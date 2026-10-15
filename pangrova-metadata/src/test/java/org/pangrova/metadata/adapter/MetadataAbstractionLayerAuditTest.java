@@ -188,7 +188,7 @@ class MetadataAbstractionLayerAuditTest {
 
         @Override
         public TableStatistics getTableStatistics(String schema, String table) {
-            return new TableStatistics(100L, 1024L);
+            return new TableStatistics(100L, 1024L, -1, Map.of());
         }
 
         @Override
@@ -259,7 +259,7 @@ class MetadataAbstractionLayerAuditTest {
 
         @Override
         public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
-            return new TableStatistics(0L, 0L);
+            return new TableStatistics(0L, 0L, 0, Map.of());
         }
     }
 

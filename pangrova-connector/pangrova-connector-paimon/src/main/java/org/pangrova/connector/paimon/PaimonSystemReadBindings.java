@@ -94,7 +94,7 @@ final class PaimonSystemReadBindings {
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns,
                 java.util.Map.of()), ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
         var binding = new ConnectorReadBinding(pinned, declaration,
-                new TableStatistics(pinned.objects().size(), -1),
+                new TableStatistics(pinned.objects().size(), -1, -1, java.util.Map.of()),
                 ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
                 pinned.sourceIdentity());
         if (selector.bound()) {

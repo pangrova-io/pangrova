@@ -101,7 +101,7 @@ class SamplePushdownTest {
             public Optional<TableStatistics> analyzeTable(
                     ConnectorSession session, ConnectorTableHandle table,
                     List<String> columns, double samplePercent) {
-                return Optional.of(new TableStatistics(1000, -1, Map.of()));
+                return Optional.of(new TableStatistics(1000, -1, -1, Map.of()));
             }
         };
 

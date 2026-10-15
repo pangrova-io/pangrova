@@ -17,7 +17,7 @@ final class PaimonTableStatisticsReader {
 
     /** Builds table statistics for the given Paimon table. */
     static TableStatistics build(FileStoreTable table, Snapshot snapshot, org.apache.paimon.types.RowType schema) {
-        if (snapshot == null) return new TableStatistics(0, 0);
+        if (snapshot == null) return new TableStatistics(0, 0, 0, Map.of());
         FileStoreTable selected = table.copyWithoutTimeTravel(
                 Map.of("scan.snapshot-id", Long.toString(snapshot.id())));
         var columnStats = new LinkedHashMap<String, TableStatistics.ColumnStatistics>();
@@ -36,6 +36,6 @@ final class PaimonTableStatisticsReader {
         // The SDK summary has no total byte-size field. A physical record-count
         // estimate (including merge records) is not an exact COUNT result.
         Long rowCount = snapshot.totalRecordCount();
-        return new TableStatistics(rowCount == null ? -1 : rowCount, -1, columnStats);
+        return new TableStatistics(rowCount == null ? -1 : rowCount, -1, -1, columnStats);
     }
 }

@@ -27,7 +27,7 @@ class ConnectorStatisticsIntegrationTest {
         // Scenario 1: Small table (1000 rows, high NDV)
         StatisticsCollector.ConnectorStatisticsProvider smallTableProvider = tableName -> {
             if (new QualifiedTableName("catalog", "db", "small_orders").equals(tableName)) {
-                return new TableStatistics(1_000L, 50_000L, Map.of(
+                return new TableStatistics(1_000L, 50_000L, -1, Map.of(
                         "id", new TableStatistics.ColumnStatistics(0, 1000, 1L, 1000L, 8.0),
                         "amount", new TableStatistics.ColumnStatistics(10, 500, 0L, 10000L, 8.0)
                 ));
@@ -41,7 +41,7 @@ class ConnectorStatisticsIntegrationTest {
         // Scenario 2: Large table (10M rows, low NDV on filter column)
         StatisticsCollector.ConnectorStatisticsProvider largeTableProvider = tableName -> {
             if (new QualifiedTableName("catalog", "db", "large_orders").equals(tableName)) {
-                return new TableStatistics(10_000_000L, 5_000_000_000L, Map.of(
+                return new TableStatistics(10_000_000L, 5_000_000_000L, -1, Map.of(
                         "id", new TableStatistics.ColumnStatistics(0, 10_000_000, 1L, 10_000_000L, 8.0),
                         "status", new TableStatistics.ColumnStatistics(100, 5, 0L, 4L, 4.0)
                 ));
@@ -75,7 +75,7 @@ class ConnectorStatisticsIntegrationTest {
     void lazyLoadFromConnectorPopulatesStore() {
         StatisticsCollector.ConnectorStatisticsProvider provider = tableName -> {
             if (new QualifiedTableName("catalog", "schema", "orders").equals(tableName)) {
-                return new TableStatistics(50_000L, 2_000_000L, Map.of(
+                return new TableStatistics(50_000L, 2_000_000L, -1, Map.of(
                         "id", new TableStatistics.ColumnStatistics(0, 50_000, 1L, 50_000L, 8.0),
                         "price", new TableStatistics.ColumnStatistics(100, 1_000, 0L, 99999L, 8.0)
                 ));

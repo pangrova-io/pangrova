@@ -169,7 +169,7 @@ class CachingFederatedCatalogTest {
         @Override
         public TableStatistics getTableStatistics(String schema, String table) {
             getStatsCalls.incrementAndGet();
-            return new TableStatistics(100L, 1024L);
+            return new TableStatistics(100L, 1024L, -1, Map.of());
         }
 
         @Override

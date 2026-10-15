@@ -26,14 +26,14 @@ final class IcebergTableStatisticsReader {
             Table icebergTable = catalogTables.resolveTable(handle);
             Snapshot snapshot = IcebergReadBindings.selectedSnapshot(icebergTable, handle);
             if (snapshot == null) {
-                return new TableStatistics(0, 0);
+                return new TableStatistics(0, 0, 0, java.util.Map.of());
             }
             // Pin the snapshot for the current query to ensure consistent reads
             String queryId = session.getProperties().get("queryId");
             if (queryId != null) {
                 pinManager.pinSnapshotForQuery(queryId, handle.schemaName(), handle.tableName(), snapshot.snapshotId());
             }
-            return IcebergStatisticsCollector.buildStatistics(snapshot, icebergTable);
+            return IcebergStatisticsCollector.buildStatistics(snapshot, icebergTable, handle);
         } catch (Exception e) {
             throw exceptionClassifier.handleAndClassify(e, "getTableStatistics", tableId);
         }
