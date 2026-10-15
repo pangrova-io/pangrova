@@ -17,6 +17,7 @@
 #   ./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
 #   SKIP_VELOX=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
 #   SKIP_DEPS=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
+#   PANGROVA_NATIVE_BUILD_PHASE=velox|arrow-flight to split Docker cache layers
 #
 # Output layout:
 #   ~/.pangrova/native-deps/     — abseil + protobuf + RE2 + gRPC (hermetic)
@@ -32,6 +33,7 @@ VELOX_DIR="${VELOX_HOME:-$PANGROVA_HOME/velox}"
 VELOX_REF="${VELOX_REF:-v2026.04.17.00}"
 SKIP_VELOX="${SKIP_VELOX:-0}"
 SKIP_DEPS="${SKIP_DEPS:-0}"
+PANGROVA_NATIVE_BUILD_PHASE="${PANGROVA_NATIVE_BUILD_PHASE:-all}"
 PANGROVA_PRODUCTION_BUILD="${PANGROVA_PRODUCTION_BUILD:-OFF}"
 
 GRPC_VERSION="${GRPC_VERSION:-v1.65.0}"
@@ -494,14 +496,17 @@ verify_re2() {
 
 build_arrow_flight() {
   log "Building Arrow Flight from Velox's Arrow source"
-  # Velox builds Arrow via ExternalProject but does NOT enable Flight.
+  # Velox builds Arrow core but does NOT enable Flight.
   # We build IPC (including its declared codecs) and Flight from the same source
   # to ensure ABI compatibility (same Arrow version, same compiler flags).
-  local arrow_ep="$VELOX_DIR/_build/release/CMake/resolve_dependency_modules/arrow/arrow_ep"
-  local arrow_src="$arrow_ep/src/arrow_ep"
-
-  if [[ ! -d "$arrow_src/cpp" ]]; then
-    die "Arrow source not found at $arrow_src/cpp — build Velox first"
+  # Velox's current dependency installer checks out Arrow under deps-download;
+  # older configured builds used the ExternalProject source tree instead.
+  local arrow_src="$VELOX_DIR/deps-download/arrow"
+  if [[ ! -f "$arrow_src/cpp/CMakeLists.txt" ]]; then
+    arrow_src="$VELOX_DIR/_build/release/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep"
+  fi
+  if [[ ! -f "$arrow_src/cpp/CMakeLists.txt" ]]; then
+    die "Arrow source not found in Velox's deps-download or ExternalProject tree — build Velox first"
   fi
 
   step "Building libarrow_flight from $arrow_src"
@@ -682,8 +687,15 @@ main() {
   verify_re2
 
   if [[ "$SKIP_VELOX" != "1" ]]; then
-    build_velox
-    build_arrow_flight
+    case "$PANGROVA_NATIVE_BUILD_PHASE" in
+      all)
+        build_velox
+        build_arrow_flight
+        ;;
+      velox) build_velox ;;
+      arrow-flight) build_arrow_flight ;;
+      *) die "PANGROVA_NATIVE_BUILD_PHASE must be all, velox, or arrow-flight" ;;
+    esac
   else
     step "Skipping Velox build (SKIP_VELOX=1)"
   fi
