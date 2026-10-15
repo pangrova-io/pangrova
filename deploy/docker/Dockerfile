@@ -11,6 +11,9 @@ RUN bash /verify-native-source.sh /expected /workspace \
 
 FROM maven:3.9-eclipse-temurin-17 AS builder
 ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && python3 -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 # The complete reactor defines dependencies; there is no stale manual POM cache inventory.
 COPY . .
