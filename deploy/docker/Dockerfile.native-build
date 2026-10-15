@@ -102,6 +102,8 @@ COPY pangrova-protocol/ /workspace/pangrova-protocol/
 
 FROM builder AS native-build
 WORKDIR /workspace/pangrova-worker-native
+RUN apt-get update && apt-get install -y --no-install-recommends ripgrep \
+    && rm -rf /var/lib/apt/lists/*
 RUN bash -c 'source /opt/pangrova-production/env.sh \
     && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
     && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \
