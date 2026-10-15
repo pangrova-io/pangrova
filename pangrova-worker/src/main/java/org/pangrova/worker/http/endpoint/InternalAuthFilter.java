@@ -19,8 +19,8 @@ import java.security.MessageDigest;
  * unauthorized task submission, cancellation, and exchange source injection
  * from untrusted clients that can reach the Worker HTTP port.</p>
  *
- * <p>Health check endpoint ({@code /v1/health}) is exempt from authentication
- * to allow load balancer probes.</p>
+ * <p>The exact readiness and liveness endpoints ({@code /v1/health} and
+ * {@code /v1/health/live}) are exempt from authentication to allow probes.</p>
  *
  * <p>The shared secret should be configured via environment variable
  * {@code PANGROVA_INTERNAL_AUTH_SECRET} or YAML config
@@ -33,6 +33,7 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
 
     static final String AUTH_HEADER = "X-Internal-Auth";
     private static final String HEALTH_PATH = "v1/health";
+    private static final String LIVE_PATH = "v1/health/live";
 
     private final byte[] expectedSecret;
 
@@ -70,6 +71,7 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
 
     private static boolean isHealthCheck(ContainerRequestContext ctx) {
         String path = ctx.getUriInfo().getPath();
-        return HEALTH_PATH.equals(path) || ("/" + HEALTH_PATH).equals(path);
+        return HEALTH_PATH.equals(path) || ("/" + HEALTH_PATH).equals(path)
+                || LIVE_PATH.equals(path) || ("/" + LIVE_PATH).equals(path);
     }
 }
