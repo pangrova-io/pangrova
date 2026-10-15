@@ -8,7 +8,7 @@
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 1 | ARM64 正式 Bake 镜像 | 从干净 Git archive 完整构建、加载并取得真实 image ID；`cd064b77` 的 r18 代理增量构建正在编译 Lance Rust，Velox/Flight 已缓存；此前各轮没有完整镜像。 |
+| 1 | ARM64 正式 Bake 镜像 | 从干净 Git archive 完整构建、加载并取得真实 image ID；固定 `4945a2ef` 归档加候选链接修复的 r24 已成功链接函数导出器和 JNI `.so`，但生产打包门禁发现 `libcurl.so.4` 动态依赖并拒绝产物；尚无完整镜像。 |
 | 2 | 镜像内 Native/JNI 与 SQL 冒烟 | 核对镜像 Native、Java 包、协议与函数目录指纹，启动真实 Coordinator/Worker，执行 SQL→Native→Arrow/Flight→客户端实值及关闭；必须使用第 1 项同一个 image ID。 |
 | 3 | Linux x86_64 生产镜像 | 在 x86_64 runner 按同一 Bake 配方构建、启动并运行 Native/JNI/SQL；本机 ARM64 通过不能替代。 |
 | 4 | Linux ASan/LSan | 同源码、同依赖和真实夹具的 Linux 全量 sanitizer，地址错误与泄漏均为 0；Mac `detect_leaks=0` 的 4,153 项不证明 LSan。 |
@@ -38,15 +38,15 @@
 | 13 | Gravitino Iceberg REST CRUD | 已有空表 DDL/读/删除 1/1；非空 INSERT/查询/删除 2 项被声明栅栏拒绝。需服务端原子完整 metadata CAS 或等价并发前置条件，不能撤掉保护后算通过。 |
 | 14 | 独立 Paimon REST 服务 | 配置真正的 Paimon REST URI/warehouse，跑非空 CRUD 和故障边界；Gravitino 的 Paimon catalog 不是此协议的服务端。 |
 | 15 | Lance/Paimon 历史版本与写入所有权 | 用真实旧 snapshot 内容、并发 winner/loser、未知提交恢复、取消/drain 和跨 reader 验证最终可见性；已有局部 Lance/Paimon 结果不构成完整矩阵。 |
-| 16 | 大批次 Native 写入容量 | 修复已观察到的首发 `MEM_CAP_EXCEEDED`，再验批量写入、spill/回收、失败后资源归零及非空实际读取；队列错误诊断修复尚未消除容量根因。 |
+| 16 | 大批次 Native 写入容量 | 原 300 行 VECTOR 与新增 1000×16 VECTOR 单语句写入的真实 SQL/JNI/Iceberg E2E 2/2 通过，后者确认实值读取与 Native 活跃池/当前用量归位；容量上限、spill、失败路径资源归零仍待独立故障验证，不能凭这两项推断生产规模。 |
 
 ## 第五批：已知核心功能缺口（8 项，先实现后验收）
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
 | 17 | 唯一 Calcite SQL 前端 | 生产 DDL/DML/时间旅行等全部迁移并删除可达 ANTLR/fallback；逐形式语义、计划与调用链证明。 |
-| 18 | `GENERATE_SERIES` 真 Native 表函数 | 裸调用、二/三参及极值经 Substrait 表函数关系到 Velox operator；现有 3/3 E2E 只证明 Java 展开后的行值。 |
-| 19 | `COPY INTO` 真文件加载 | 授权 URI/文件快照、格式读取、幂等文件身份与提交 journal，真实 S3/对象存储数据核对；旧测试的空成功断言不算验收。 |
+| 18 | `GENERATE_SERIES` 真 Native 表函数 | 裸调用、二/三参及极值经 Substrait 表函数关系到 Velox operator；Parser/Protocol/Planner 全模块与 Mac Native 聚焦已过，但真实 SQL/JNI E2E 首轮 2/6 通过，正向序列精确重复两次；须修复 source 并行度再复验，Linux 同源镜像亦未验。 |
+| 19 | `COPY INTO` 真文件加载 | 无文件选项的 `FROM (SELECT …)` 已接通现有 INSERT SELECT 路径，真实 SQL/JNI/Iceberg 5/5 E2E 通过；URI 仅 fail closed。仍需授权 URI/文件快照、格式读取、幂等文件身份与提交 journal、真实对象存储数据核对；旧空成功断言不算验收。 |
 | 20 | 剩余系统表 | Iceberg `$files/$entries/$manifests/$partitions`、Paimon `$schemas/$branches/$files` 等冻结句柄、typed split、Native reader 与 SQL 实值；`$snapshots/$tags/$options` 的局部结果不能替代。 |
 | 21 | Dynamic Table 真物化刷新 | 接通 RefreshCoordinator、增量 split dispatch、原子版本与物理扫描量；已过的 5/5 仅是直读重写，刷新前亦可见新行。 |
 | 22 | 索引完整生命周期与 DiskANN | scalar 索引持久授权、Iceberg generation snapshot refs、READY/REBUILD/GC；向量 DiskANN 真 ANN operator、过滤与 Recall，不能以候选数据或旧算术性能断言替代。 |

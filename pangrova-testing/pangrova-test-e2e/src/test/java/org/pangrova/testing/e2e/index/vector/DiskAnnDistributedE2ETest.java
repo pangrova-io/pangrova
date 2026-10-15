@@ -13,19 +13,23 @@
  */
 package org.pangrova.testing.e2e.index.vector;
 
-import org.pangrova.testing.e2e.index.VectorIndexE2ETestBase;
+import org.pangrova.protocol.v2.MemorySnapshot;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.index.VectorIndexE2ETestBase;
+import org.pangrova.worker.jni.NativeRuntime;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Real SQL-to-Native DiskANN functional acceptance on the in-process Worker.
@@ -360,6 +364,36 @@ class DiskAnnDistributedE2ETest extends VectorIndexE2ETestBase {
         sqlRunner.executeDdl("DROP INDEX idx_diskann_par ON " + fqn);
         sqlRunner.executeDdl("DROP TABLE " + fqn);
         waitForNativeTaskCleanup();
+    }
+
+    @Test
+    @DisplayName("Bulk VECTOR VALUES INSERT writes 1000 rows and releases Native task memory")
+    void bulkVectorValuesReleaseNativeTaskMemory() throws Exception {
+        String fqn = FQN_PREFIX + "t_vector_bulk_" + System.nanoTime();
+        sqlRunner.executeDdl("CREATE TABLE " + fqn
+                + " (id BIGINT, embedding VECTOR(" + DIM + "))");
+        MemorySnapshot baseline = nativeMemorySnapshot();
+
+        sqlRunner.execute(buildInsertNoCategory(fqn, 1000, DIM));
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            MemorySnapshot after = nativeMemorySnapshot();
+            assertThat(after.getActivePoolCount()).isEqualTo(baseline.getActivePoolCount());
+            assertThat(after.getCurrentUsedBytes()).isLessThanOrEqualTo(baseline.getCurrentUsedBytes());
+        });
+        List<TypedRow> rows = sqlRunner.execute("SELECT id FROM " + fqn + " ORDER BY id");
+        assertThat(rows).hasSize(1000);
+        assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
+        assertThat(rows.get(999).getLong("id")).isEqualTo(1000L);
+
+        sqlRunner.executeDdl("DROP TABLE " + fqn);
+        waitForNativeTaskCleanup();
+    }
+
+    private static MemorySnapshot nativeMemorySnapshot() throws Exception {
+        byte[] bytes = NativeRuntime.nativeGetMemorySnapshot();
+        assertThat(bytes).as("Native runtime memory snapshot").isNotNull();
+        return MemorySnapshot.parseFrom(bytes);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
