@@ -297,3 +297,53 @@ The descriptor change was checked against two complete actual Native fixtures;
 Protocol full-module tests passed 441/441. These in-process results do not
 close independent-image, cross-filesystem, all partition-bound types, or the
 remaining Iceberg `$files`/`$entries`/`$partitions` and Paimon `$files` paths.
+
+### Iceberg `$files` next-path design and misleading legacy facade
+
+The existing `IcebergFilesSystemTable` is **not** an implemented SQL `$files`
+scan. `IcebergSystemTables.getSystemTable` exposes it through the old
+`ConnectorSystemTable.rows()` facade, while the SQL/Calcite lookup still rejects
+`base$files`. Its `table.newScan().planFiles()` loop produces only five Java
+`TypedRow` columns (`content`, `file_path`, `file_format`, `record_count`,
+`file_size_in_bytes`), with `content` rendered as a string. That scan covers
+data-file tasks, not the delete-manifest rows exposed by Iceberg's metadata
+table. Its `IOException` handler logs a warning and returns the rows accumulated
+so far, which is unacceptable for a distributed metadata query. The nearby
+`IcebergSystemTableTest.filesSystemTable_returnsDataFileAfterCommit` tests only
+this facade; it is **not** SQL → typed split → Native → Arrow E2E evidence. Do
+not route a new SELECT path through this facade or treat its five-column schema
+as compatible with the official table.
+
+In fixed Iceberg 1.11.0, `FilesTable.FilesTableScan.manifests()` visits the
+selected snapshot's `allManifests(io)`. `BaseFilesTable.ManifestReadTask.rows()`
+opens each data or delete manifest through `ManifestFiles.open(...).project(...)`.
+`ManifestReader.iterator()` returns `liveEntries()`, excluding `DELETED`
+entries; `$entries` has a different status-preserving contract. The `$files`
+schema starts with the 21 typed `DataFile.getType(...)` fields, drops the empty
+`partition` struct for a fully unpartitioned table, and appends a dynamic
+`readable_metrics` struct derived from the base table's primitive columns.
+`Partitioning.partitionType(table)` unions active partition fields across the
+table's specs by field ID; each manifest's own spec still governs decoding its
+partition tuple. Raw metrics include integer-to-long maps and integer-to-binary
+bound maps; readable bounds must be decoded using the source column type.
+This schema must come from the SDK metadata-table schema at binding time, with
+typed nested projection preserved across Calcite, v2 splits and Velox.
+
+The [Iceberg format specification](https://iceberg.apache.org/spec/) defines
+v1–v3 leaf manifests as Avro and v4 manifests as incompatible Parquet. V1
+entries default absent v2 metadata as specified; v2/v3 entries may inherit
+snapshot and sequence numbers from the manifest list, and v3 `first_row_id`
+may require row-count-based assignment. A new Native manifest-entry reader may
+reuse the bounded Avro OCF decoder from `$manifests`, but it must pin every
+selected child manifest's URI, byte length and SHA-256 alongside the selected
+snapshot/list identity; verify each object's bytes before emitting rows; apply
+the SDK's live-entry and inheritance rules; and handle spec evolution and
+the complete nested output types. Unsupported format/version, missing object,
+changed bytes, malformed metrics or incompatible projection must fail the
+query. V4 remains disabled until its Parquet manifest and changed status/schema
+semantics are independently implemented and tested. Acceptance needs exact
+schema/value comparison against Iceberg 1.11.0 `FilesTable` for empty,
+unpartitioned, multi-spec partitioned, data-plus-delete, metrics, deleted-entry,
+and time-travel cases, followed by packaged-JNI SQL E2E; the old facade test
+cannot satisfy this gate. See also the [Iceberg 1.11 query documentation](https://iceberg.apache.org/docs/1.11.0/spark-queries/)
+for the public `$files` metadata-table contract.
