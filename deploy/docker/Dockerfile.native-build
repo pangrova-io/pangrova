@@ -96,20 +96,42 @@ RUN set -eu; \
         | sha256sum -c -
 RUN PANGROVA_NATIVE_BUILD_PHASE=arrow-flight SKIP_DEPS=1 \
     pangrova-worker-native/bin/setup-native-build-env.sh
-# CMake consumes this fixed source directory before considering FetchContent's
-# Git clone. Production builds must not depend on a live CRoaring Git checkout.
+# Pangrova and OpenTelemetry CMake use these fixed source directories before
+# attempting FetchContent/ExternalProject Git clones. Keep every production
+# source on a pinned archive with a checked digest, including OpenTelemetry's
+# transitive proto and nlohmann_json dependencies.
 RUN set -eu; \
-    archive=/tmp/CRoaring-4.1.7.tar.gz; \
-    curl --http1.1 --proto '=https' --tlsv1.2 -fsSL --retry 6 --retry-all-errors \
-        --connect-timeout 30 --max-time 600 \
-        https://codeload.github.com/RoaringBitmap/CRoaring/tar.gz/refs/tags/v4.1.7 \
-        -o "$archive"; \
-    printf 'ea235796c074c3a8a8c3e5c84bb5f09619723b8e4913cf99cc349f626c193569  %s\n' "$archive" \
-        | sha256sum -c -; \
     mkdir -p "$PANGROVA_DEPS_PREFIX/src"; \
-    tar -xzf "$archive" -C "$PANGROVA_DEPS_PREFIX/src"; \
-    test -f "$PANGROVA_DEPS_PREFIX/src/CRoaring-4.1.7/CMakeLists.txt"; \
-    rm "$archive"
+    fetch_source() { \
+        source_dir="$1"; source_url="$2"; source_sha="$3"; required_file="$4"; \
+        archive="/tmp/${source_dir}.tar.gz"; \
+        curl --http1.1 --proto '=https' --tlsv1.2 -fsSL --retry 6 --retry-all-errors \
+            --connect-timeout 30 --max-time 600 "$source_url" -o "$archive"; \
+        printf '%s  %s\n' "$source_sha" "$archive" | sha256sum -c -; \
+        tar -xzf "$archive" -C "$PANGROVA_DEPS_PREFIX/src"; \
+        test -f "$PANGROVA_DEPS_PREFIX/src/$source_dir/$required_file"; \
+        rm "$archive"; \
+    }; \
+    fetch_source CRoaring-4.1.7 \
+        https://codeload.github.com/RoaringBitmap/CRoaring/tar.gz/refs/tags/v4.1.7 \
+        ea235796c074c3a8a8c3e5c84bb5f09619723b8e4913cf99cc349f626c193569 CMakeLists.txt; \
+    fetch_source opentelemetry-cpp-1.17.0 \
+        https://codeload.github.com/open-telemetry/opentelemetry-cpp/tar.gz/refs/tags/v1.17.0 \
+        13542725463f1ea106edaef078c2276065cf3da998cb1d3dcf92630daa3f64d4 CMakeLists.txt; \
+    fetch_source opentelemetry-proto-1.3.2 \
+        https://codeload.github.com/open-telemetry/opentelemetry-proto/tar.gz/refs/tags/v1.3.2 \
+        c069c0d96137cf005d34411fa67dd3b6f1f8c64af1e7fb2fe0089a41c425acd7 opentelemetry/proto/common/v1/common.proto; \
+    fetch_source simdjson-4.1.0 \
+        https://codeload.github.com/simdjson/simdjson/tar.gz/refs/tags/v4.1.0 \
+        78115e37b2e88ec63e6ae20bb148063a9112c55bcd71404c8572078fd8a6ac3e CMakeLists.txt; \
+    fetch_source json-3.11.3 \
+        https://codeload.github.com/nlohmann/json/tar.gz/refs/tags/v3.11.3 \
+        0d8ef5af7f9794e3263480193c491549b2ba6cc74bb018906202ada498a79406 CMakeLists.txt; \
+    cmake -S "$PANGROVA_DEPS_PREFIX/src/json-3.11.3" -B /tmp/pangrova-nlohmann-json-build \
+        -DJSON_BuildTests=OFF -DJSON_Install=ON -DCMAKE_INSTALL_PREFIX="$PANGROVA_DEPS_PREFIX"; \
+    cmake --install /tmp/pangrova-nlohmann-json-build; \
+    test -f "$PANGROVA_DEPS_PREFIX/share/cmake/nlohmann_json/nlohmann_jsonConfig.cmake"; \
+    rm -r /tmp/pangrova-nlohmann-json-build
 
 FROM builder AS native-build
 ENV RUSTUP_TOOLCHAIN=1.98.1
