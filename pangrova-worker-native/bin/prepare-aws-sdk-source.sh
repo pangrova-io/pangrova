@@ -60,4 +60,7 @@ s2n a7862238a9d6703e0a3e2d7ea4341de8d57429bd
 SUBMODULES
 
 test -f "$staging/source/crt/aws-crt-cpp/crt/aws-c-common/CMakeLists.txt"
+# AWS CRT's optional version probe uses Git discovery. Give the archive its
+# own empty boundary so it cannot mistake the enclosing Velox checkout for CRT.
+git init -q "$staging/source"
 mv "$staging/source" "$source_dir"

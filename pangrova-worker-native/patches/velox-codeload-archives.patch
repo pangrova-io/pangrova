@@ -25,3 +25,15 @@ diff --git a/scripts/setup-helper-functions.sh b/scripts/setup-helper-functions.
 +  fi
    mkdir -p "${DEPENDENCY_DIR}"
    pushd "${DEPENDENCY_DIR}" || exit
+diff --git a/scripts/setup-common.sh b/scripts/setup-common.sh
+--- a/scripts/setup-common.sh
++++ b/scripts/setup-common.sh
+@@ -318,3 +318,7 @@ function install_aws_deps {
+   github_checkout $AWS_REPO_NAME "$AWS_SDK_VERSION" --depth 1 --recurse-submodules
+-  cmake_install_dir aws-sdk-cpp -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" -DBUILD_SHARED_LIBS:BOOL=OFF -DMINIMIZE_SIZE:BOOL=ON -DENABLE_TESTING:BOOL=OFF -DBUILD_ONLY:STRING="s3;identity-management"
++  local archive_options=()
++  if [[ -n "${PANGROVA_AWS_PREPARE_SCRIPT:-}" ]]; then
++    archive_options=(-DENFORCE_SUBMODULE_VERSIONS=OFF)
++  fi
++  cmake_install_dir aws-sdk-cpp "${archive_options[@]}" -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" -DBUILD_SHARED_LIBS:BOOL=OFF -DMINIMIZE_SIZE:BOOL=ON -DENABLE_TESTING:BOOL=OFF -DBUILD_ONLY:STRING="s3;identity-management"
+ }
