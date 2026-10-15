@@ -47,6 +47,12 @@ public final class PangrovaCoordinatorMain {
             Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdown, "coordinator-shutdown"));
             bootstrap.start();
             LOG.info("event=coordinator_process_started coordinatorId={}", config.coordinatorId());
+            try {
+                bootstrap.awaitShutdown();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                bootstrap.shutdown();
+            }
         } catch (Exception e) {
             LOG.error("event=coordinator_startup_failed error={}", e.getMessage(), e);
             System.exit(1);

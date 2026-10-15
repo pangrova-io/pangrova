@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
+import java.util.concurrent.CountDownLatch;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -38,6 +39,7 @@ public final class CoordinatorBootstrap {
     private final CoordinatorBootstrapConfig config;
     private final org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle =
             new org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
+    private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
 
     private SecretResolver secretResolver;
     private ObservabilityBootstrap observability;
@@ -178,6 +180,12 @@ public final class CoordinatorBootstrap {
     /** Stops admission and releases every owned subsystem in dependency order. */
     public void shutdown() {
         lifecycle.close(() -> closeResources(null));
+        shutdownCompleted.countDown();
+    }
+
+    /** Keeps the process entry point alive until owned resources finish shutdown. */
+    public void awaitShutdown() throws InterruptedException {
+        shutdownCompleted.await();
     }
 
     private void closeResources(Throwable primary) {

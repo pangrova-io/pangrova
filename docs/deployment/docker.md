@@ -87,6 +87,11 @@ with `native-runtime`. Runtime dependencies are copied from the actual Maven
 dependency graph, including connector providers and JDBC drivers. Native loading
 remains classpath resource extraction followed by `System.load()`; no environment
 library path or host JNI fallback is used.
+The Coordinator and Worker include the SLF4J 2 Logback provider in the runtime
+classpath, so startup failures and process logs remain visible. The image omits
+Hadoop's legacy Jersey 1 server stack, whose shaded classes conflict with the
+Jersey 4 HTTP server, while retaining the Hadoop client libraries. Both process
+entry points remain in the foreground until their owned services shut down.
 
 `--print` validates only the Bake graph. Release acceptance also requires the
 actual Linux image build, Coordinator/Worker startup and SQL-through-JNI container

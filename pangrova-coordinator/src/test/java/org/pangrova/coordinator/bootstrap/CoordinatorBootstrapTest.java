@@ -7,6 +7,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
@@ -43,6 +45,29 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
 
         assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();
         assertThat(bootstrap.isStarted()).isFalse();
+    }
+
+    @Test
+    void processWaitsForOwnedShutdownToComplete() throws Exception {
+        CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-await", 0);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        bootstrap.start();
+
+        CompletableFuture<Void> awaiting = CompletableFuture.runAsync(() -> {
+            try {
+                bootstrap.awaitShutdown();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+        });
+        try {
+            assertThat(awaiting.isDone()).isFalse();
+        } finally {
+            bootstrap.shutdown();
+        }
+        awaiting.get(5, TimeUnit.SECONDS);
+        assertThat(awaiting.isDone()).isTrue();
     }
 
     @Test
