@@ -16,8 +16,8 @@
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 1 | ARM64 正式 Bake 镜像 | `0b9d582a` 干净归档完整 Bake/加载已通过，image ID `sha256:13bbb111f45c5915142b6779bfe44c731888175920b02005e66e3370e980c874`，包含 Worker 首次心跳、Native shuffle 与 Iceberg `$files` 九列；同源 JDK17 install 已通过，但独立双 Worker 单例尚未通过，后续功能源码仍须同源重建。 |
-| 2 | 镜像内 Native/JNI 与 SQL 冒烟 | 新镜像中 Coordinator 已在 JRE17 前台持续运行，真实 `/v1/health` 返回 JSON HTTP 503（`http=true`、尚无 Worker/Catalog），证实 HTTP 路由已可用。独立测试组件的先等 HTTP 200 再启 Worker 启动死锁已修复；随后真双 Worker 首轮 10/10 报错，暴露 Worker live 401 与 Native shuffle spill 容量问题，故 SQL→Native→Arrow/Flight→客户端的同源码镜像冒烟仍待重跑。 |
+| 1 | ARM64 正式 Bake 镜像 | `0352f5af` 干净归档已正式 Bake/加载，image ID `sha256:9b074c9df3d573121001e615e3297b480e7528c9a69e28b69e22e889b07273b7`，同源 JDK17 install 与双 Worker 推测单例 1/1 通过；最终功能源码仍在变更，需在全部功能闭合后同源重建。 |
+| 2 | 镜像内 Native/JNI 与 SQL 冒烟 | `0352f5af` 正式 ARM64 镜像的独立双 Worker SQL/Native 推测执行单例 1/1 通过，实际跨 Worker clone 与结果已验证；完整 activation smoke 和最终功能源码同源镜像仍待验收。 |
 | 3 | Linux x86_64 生产镜像 | 在 x86_64 runner 按同一 Bake 配方构建、启动并运行 Native/JNI/SQL；本机 ARM64 通过不能替代。 |
 | 4 | Linux ASan/LSan | 同源码、同依赖和真实夹具的 Linux 全量 sanitizer，地址错误与泄漏均为 0；Mac `detect_leaks=0` 的 4,153 项不证明 LSan。 |
 
@@ -36,7 +36,7 @@
 | --- | --- | --- |
 | 9 | 完整共享 JVM E2E | `pangrova-test-e2e` 全部适用类、零失败/错误/跳过并记录实际测试数；先前 1,089 项运行受 VM 崩溃连锁污染，不能计通过。 |
 | 10 | 三个隔离 Native runtime owner | 较早源码三个类各独立 JVM 重跑：`WorkerBootstrapE2ETest` 5/5、`NativeExchangeTransportExternalIntegrationTest` 3/3、`WorkerShuffleChannelAdmissionIntegrationTest` 1/1，均 0 失败/错误/跳过；日志分别为 `/tmp/pangrova-worker-bootstrap-owner-current-r1.log`、`/tmp/pangrova-exchange-external-owner-current-r1.log`、`/tmp/pangrova-shuffle-admission-owner-current-r1.log`。仍需第 11 项的镜像双进程搬运。 |
-| 11 | 两个独立 Worker 的推测执行/交换 | `668aa77a` 镜像首轮真双 Worker 10 run/0 failure/10 error/0 skip；9 项等待 clone issued 超时、1 项等待 source task issued 超时，链路日志显示 Worker live 探针 401 与真实 `MAX(payload)` Flight spill 容量错误。Worker HTTP 修复 1/1 与 Native 共享 spill 段 GTest 29/29 已通过。修复入镜像后的 `4095f352` 单例 1 run/0 failure/1 error/0 skip，SQL 准备阶段两 Worker 已注册，但第一次资源心跳未到，调度器观察到可用内存为 0；未触及大批次 shuffle。首次真实心跳改为注册后立即发送，测试 SQL 前等待两个 Worker 的真实资源心跳；最近 HeartbeatSender 11/11、可调度谓词 2/2 和受影响 Worker/E2E 静态检查已过（`/tmp/pangrova-worker-first-heartbeat-focused-r2.log`、`/tmp/pangrova-independent-readiness-focused-r1.log`、`/tmp/pangrova-worker-readiness-static-r1.log`）。新镜像 `0b9d582a` 的单例已执行到两个独立 Worker 的真 Native 任务，但 4 个 split 合成 1 个 source task，终态报告暂扣后 stage 完成率为 0，当前 ≥75% 门槛使推测副本永不发出，单例 1 run/0 failure/1 error/0 skip；需修复源 task 并行度或经过正确性证明的单任务 straggler 策略，再增量重跑该单例及剩余九例（`/tmp/pangrova-independent-spec-0b9d582a-single-r1.log`）。规划代码静态审查另发现该 MAX 的非本地 Aggregate 输入先强制 SINGLETON exchange，且 AggregatePushdownRule 未注册；通用 partial/final 聚合属于独立规模优化缺口，尚待实际 fragment 与性能验证。本项未通过。 |
+| 11 | 两个独立 Worker 的推测执行/交换 | `668aa77a` 镜像首轮真双 Worker 10 run/0 failure/10 error/0 skip；9 项等待 clone issued 超时、1 项等待 source task issued 超时，链路日志显示 Worker live 探针 401 与真实 `MAX(payload)` Flight spill 容量错误。Worker HTTP 修复 1/1 与 Native 共享 spill 段 GTest 29/29 已通过。修复入镜像后的 `4095f352` 单例 1 run/0 failure/1 error/0 skip，SQL 准备阶段两 Worker 已注册，但第一次资源心跳未到，调度器观察到可用内存为 0；未触及大批次 shuffle。首次真实心跳改为注册后立即发送，测试 SQL 前等待两个 Worker 的真实资源心跳；最近 HeartbeatSender 11/11、可调度谓词 2/2 和受影响 Worker/E2E 静态检查已过（`/tmp/pangrova-worker-first-heartbeat-focused-r2.log`、`/tmp/pangrova-independent-readiness-focused-r1.log`、`/tmp/pangrova-worker-readiness-static-r1.log`）。新镜像 `0b9d582a` 的单例已执行到两个独立 Worker 的真 Native 任务，但 4 个 split 合成 1 个 source task，终态报告暂扣后 stage 完成率为 0，当前 ≥75% 门槛使推测副本永不发出，单例 1 run/0 failure/1 error/0 skip；`bed0b815` 源 work unit 并行度和 `0352f5af` 任务计时修复后，干净 ARM64 镜像双 Worker 单例 1/1 通过，跨 Worker clone、Native 终态和 SQL 结果已实证；该组剩余九例待跑（`/tmp/pangrova-independent-spec-0352f5af-single-r1.log`）。规划代码静态审查另发现该 MAX 的非本地 Aggregate 输入先强制 SINGLETON exchange，且 AggregatePushdownRule 未注册；通用 partial/final 聚合属于独立规模优化缺口，尚待实际 fragment 与性能验证。本项未通过。 |
 | 12 | 故障恢复矩阵 | 真实 PG、对象存储、Flight/Toxiproxy 和独立进程验证接管、迟到 RPC、丢 ACK、未知提交、取消、慢读、OOM 与最后 owner 退出；局部用例已过，组合矩阵未全闭合。 |
 
 ## 第四批：外部 Catalog 和真实写入（4 项）
