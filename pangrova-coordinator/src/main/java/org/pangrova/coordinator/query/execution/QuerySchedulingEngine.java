@@ -153,7 +153,7 @@ final class QuerySchedulingEngine {
             }
             DispatchResult result = dispatchByTopology(sm, session, plannedQuery, ctx);
             if (ctx.dmlWriteContext().isPresent()) {
-                awaitTaskCompletion(session.queryId(), result.taskId());
+                awaitWriteCompletion(sm, session.queryId(), result.taskId(), deps.dagDispatchTimeoutMs());
             }
             return result;
         } catch (Exception e) {
@@ -401,12 +401,17 @@ final class QuerySchedulingEngine {
 
     // ── Task completion ──
 
-    private void awaitTaskCompletion(String queryId, String taskId) {
-        long timeoutSec = TimeUnit.MILLISECONDS.toSeconds(
-                deps.dagDispatchTimeoutMs());
+    static void awaitWriteCompletion(QueryStateMachine query, String queryId, String taskId,
+                                     long timeoutMs) {
+        long timeoutSec = TimeUnit.MILLISECONDS.toSeconds(timeoutMs);
         try {
-            deps.taskTracker().awaitTaskCompletion(queryId, taskId)
-                    .get(timeoutSec, TimeUnit.SECONDS);
+            QueryStateMachine.State terminal = query.terminalStateReady().get(timeoutMs, TimeUnit.MILLISECONDS);
+            if (terminal != QueryStateMachine.State.FINISHED) {
+                throw new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
+                        "Native DML task failed: queryId=" + queryId
+                                + " taskId=" + taskId + " state=" + terminal
+                                + " error=" + query.getError().map(error -> error.message()).orElse("none"));
+            }
         } catch (TimeoutException e) {
             throw new PangrovaException(
                     PangrovaErrorCode.RUNTIME_TASK_FAILED,

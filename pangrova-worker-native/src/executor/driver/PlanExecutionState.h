@@ -2,6 +2,8 @@
 
 #include <exception>
 #include <memory>
+#include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -25,7 +27,9 @@ struct PlanExecutionDriver::Execution {
   std::unique_ptr<std::thread> shuffleDrain;
   std::unique_ptr<std::thread> writeDrain;
   std::exception_ptr shuffleFailure;
-  std::exception_ptr writeFailure;
+  // Captured on the drain thread, read only after join. Carry a stable
+  // diagnostic across that boundary instead of rethrowing its exception object.
+  std::optional<std::string> writeFailure;
 };
 
 }  // namespace pangrova::executor

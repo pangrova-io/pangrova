@@ -144,8 +144,12 @@ void PlanExecutionDriver::startOutputDrains(const std::shared_ptr<Execution>& ex
     execution->writeDrain = std::make_unique<std::thread>([this, execution] {
       try {
         drainWriteOutput(execution);
+      } catch (const std::exception& failure) {
+        execution->writeFailure = failure.what();
+        execution->runner->cancel();
+        if (output_queue_) output_queue_->close();
       } catch (...) {
-        execution->writeFailure = std::current_exception();
+        execution->writeFailure = "Unknown Native write drain failure";
         execution->runner->cancel();
         if (output_queue_) output_queue_->close();
       }

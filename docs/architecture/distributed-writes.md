@@ -101,6 +101,13 @@ SQL → Parser/Planner → Stage/Task dispatch → Worker NativeWriteExecutor
     → WriteCommitJournal → ConnectorMetadata.finishDistributedWrite()
 ```
 
+The resultless DML dispatch can acknowledge Worker readiness before execution
+finishes. Its scheduling continuation waits for the query's logical terminal
+state, which is published after the fenced connector commit or failure. A
+speculative winner may replace the original physical task and retire that
+task's execution evidence before this continuation resumes; waiting on the
+original task ID would incorrectly fail a committed write.
+
 Current implementation anchors:
 
 | Area | Status | Code anchor |

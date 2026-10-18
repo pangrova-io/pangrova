@@ -56,7 +56,7 @@ bool PlanExecutionDriver::completeWriteDrain(
   else markWriteProducerFailed(write_producer_outcome_);
   if (output_queue_) output_queue_->close();
   execution->writeDrain->join();
-  if (execution->writeFailure) std::rethrow_exception(execution->writeFailure);
+  if (execution->writeFailure) throw std::runtime_error(*execution->writeFailure);
   return success && !cancelled_.load() &&
       write_producer_outcome_->load(std::memory_order_acquire) ==
           WriteProducerOutcome::FINISHED;

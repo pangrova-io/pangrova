@@ -55,6 +55,7 @@ public class QueryStateMachine {
     private final CompletableFuture<ResultEndpoint> resultEndpointReady =
             new CompletableFuture<>();
     private final CompletableFuture<Void> writeDispatchReady = new CompletableFuture<>();
+    private final CompletableFuture<State> terminalStateReady = new CompletableFuture<>();
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
     private final AtomicBoolean physicalCleanupApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
@@ -284,6 +285,9 @@ public class QueryStateMachine {
             pendingTransitionTarget = null;
         }
         decision.pending().complete(null);
+        if (TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
+            terminalStateReady.complete(target);
+        }
     }
 
     private record Transition(State previous, CompletableFuture<Void> pending) { }
@@ -316,6 +320,11 @@ public class QueryStateMachine {
 
     public boolean isTerminal() {
         return TRANSITIONS.getOrDefault(state.get(), Set.of()).isEmpty();
+    }
+
+    /** Completes when the logical query, including its write commit, reaches a terminal state. */
+    public CompletableFuture<State> terminalStateReady() {
+        return terminalStateReady.copy();
     }
 
     public Instant getCreatedAt() {
