@@ -145,7 +145,12 @@ class JdbcCopyFileClaimStoreTest {
             assertThatThrownBy(() -> statement.executeUpdate("DELETE FROM copy_file_claims"))
                     .isInstanceOf(SQLException.class).hasMessageContaining("immutable");
             assertThatThrownBy(() -> statement.executeUpdate("TRUNCATE copy_file_claims"))
-                    .isInstanceOf(SQLException.class).hasMessageContaining("immutable");
+                    // PostgreSQL can reject at the referencing journal FK before
+                    // the immutable-claim trigger runs. Either ordering preserves
+                    // the same no-truncate invariant checked below.
+                    .isInstanceOf(SQLException.class)
+                    .satisfies(failure -> assertThat(failure.getMessage())
+                            .containsAnyOf("immutable", "cannot truncate a table referenced"));
         }
         assertThat(store.get(original.claimKey(), 0)).contains(original);
     }

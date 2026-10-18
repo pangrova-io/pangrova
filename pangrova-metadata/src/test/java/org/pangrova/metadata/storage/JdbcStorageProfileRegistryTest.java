@@ -272,7 +272,11 @@ class JdbcStorageProfileRegistryTest {
                     "DELETE FROM storage_profile_revisions WHERE name='direct'"))
                     .isInstanceOf(SQLException.class).hasMessageContaining("immutable");
             assertThatThrownBy(() -> statement.execute("TRUNCATE storage_profile_revisions"))
-                    .isInstanceOf(SQLException.class).hasMessageContaining("immutable");
+                    // V59 admissions reference revisions, so PostgreSQL may
+                    // reject at the FK before the immutability trigger runs.
+                    .isInstanceOf(SQLException.class)
+                    .satisfies(failure -> assertThat(failure.getMessage())
+                            .containsAnyOf("immutable", "cannot truncate a table referenced"));
             assertThatThrownBy(() -> statement.executeUpdate("""
                     INSERT INTO storage_profile_revisions
                     (name, incarnation_id, revision, storage_type, bucket,
