@@ -20,6 +20,8 @@ enum class PopResult {
   CLOSED    // Queue is closed and empty — no more items will arrive.
 };
 
+enum class DeferredPushResult { PUSHED, DEFERRED, CLOSED };
+
 // Bounded blocking queue using std::queue + condition_variable.
 // Thread-safe: multiple producers and consumers supported.
 // close() signals no more items; subsequent push returns false,
@@ -60,6 +62,22 @@ class BoundedQueue {
     return true;
   }
 
+  // Atomically enqueue or register a one-shot retry. A separate tryPush()
+  // followed by callback registration can race with another producer.
+  DeferredPushResult tryPushOrDefer(T item, std::function<void()> retry) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (closed_) {
+      return DeferredPushResult::CLOSED;
+    }
+    if (queue_.size() >= capacity_) {
+      space_callbacks_.push_back(std::move(retry));
+      return DeferredPushResult::DEFERRED;
+    }
+    queue_.push(std::move(item));
+    not_empty_.notify_one();
+    return DeferredPushResult::PUSHED;
+  }
+
   // Pop item with timeout. Returns PopResult to distinguish timeout from closed.
   PopResult pop(T& item, std::chrono::milliseconds timeout) {
     std::vector<std::function<void()>> cbs;
@@ -77,10 +95,12 @@ class BoundedQueue {
       item = std::move(queue_.front());
       queue_.pop();
       not_full_.notify_one();
-      // Drain space-available callbacks registered by non-blocking producers
-      // (Velox Consumer backpressure). Callbacks are one-shot: drained here
-      // and invoked outside the lock to avoid deadlock with Velox internals.
-      cbs.swap(space_callbacks_);
+      // One pop frees one slot. Waking every deferred producer here lets the
+      // first callback fill that slot while another blocks this sole consumer.
+      if (!space_callbacks_.empty()) {
+        cbs.push_back(std::move(space_callbacks_.front()));
+        space_callbacks_.erase(space_callbacks_.begin());
+      }
     }
     for (auto& cb : cbs) {
       cb();

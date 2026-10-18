@@ -13,6 +13,45 @@ namespace {
 
 using namespace std::chrono_literals;
 
+TEST(WriteOutputDrainTest, OneFreedQueueSlotWakesOnlyOneDeferredProducer) {
+  OutputQueue queue(1);
+  ASSERT_TRUE(queue.push(nullptr, 10ms));
+  int first = 0;
+  int second = 0;
+  queue.registerSpaceCallback([&] {
+    ++first;
+    EXPECT_TRUE(queue.tryPush(nullptr));
+  });
+  queue.registerSpaceCallback([&] {
+    ++second;
+    EXPECT_TRUE(queue.tryPush(nullptr));
+  });
+
+  facebook::velox::RowVectorPtr batch;
+  EXPECT_EQ(queue.pop(batch, 10ms), PopResult::DATA);
+  EXPECT_EQ(first, 1);
+  EXPECT_EQ(second, 0);
+  EXPECT_EQ(queue.pop(batch, 10ms), PopResult::DATA);
+  EXPECT_EQ(second, 1);
+  EXPECT_EQ(queue.pop(batch, 10ms), PopResult::DATA);
+}
+
+TEST(WriteOutputDrainTest, DeferredPushDoesNotLoseWakeupOrDuplicatePromise) {
+  OutputQueue queue(1);
+  ASSERT_TRUE(queue.push(nullptr, 10ms));
+  int retry = 0;
+  EXPECT_EQ(queue.tryPushOrDefer(nullptr, [&] { ++retry; }),
+            DeferredPushResult::DEFERRED);
+  facebook::velox::RowVectorPtr batch;
+  EXPECT_EQ(queue.pop(batch, 10ms), PopResult::DATA);
+  EXPECT_EQ(retry, 1);
+  EXPECT_EQ(queue.tryPushOrDefer(nullptr, [] {}),
+            DeferredPushResult::PUSHED);
+  queue.close();
+  EXPECT_EQ(queue.tryPushOrDefer(nullptr, [] {}),
+            DeferredPushResult::CLOSED);
+}
+
 TEST(WriteOutputDrainTest, TimeoutDoesNotFinishBeforeDelayedProducerCloses) {
   OutputQueue queue(2);
   auto outcome = std::make_shared<std::atomic<WriteProducerOutcome>>(

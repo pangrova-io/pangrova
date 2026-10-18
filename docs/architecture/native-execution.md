@@ -327,6 +327,9 @@ Arrow IPC bytes synchronously to Java `NativeWriteExecutor`, which decodes
 them for the connector `ConnectorPageSink`. The borrowed direct buffer must
 not outlive that call. The current code in `NativeRuntime`, `JniBridge` and
 `NativeWriteExecutor` is the authoritative interface and lifetime contract.
+Each output-queue pop releases one producer slot. Deferred Velox producers
+are resumed only after their exact batch enters that slot; competing producers
+re-register without blocking the sole write-drain consumer.
 The Arrow C Data bridge exists for columnar interoperability, but does not
 make the network shuffle or result path zero-copy.
 

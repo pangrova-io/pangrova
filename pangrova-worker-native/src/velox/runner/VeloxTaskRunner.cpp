@@ -128,6 +128,27 @@ bool containsJoinBarrier(
   return false;
 }
 
+// A queue-space callback runs on the consumer thread. Never wait for space
+// there: another producer may win the freed slot before this callback does.
+void scheduleDeferredOutput(
+    std::weak_ptr<VeloxTaskRunner> owner,
+    pangrova::executor::OutputQueue* queue,
+    facebook::velox::RowVectorPtr batch,
+    std::shared_ptr<facebook::velox::ContinuePromise> promise) {
+  auto task = owner.lock();
+  if (!task) {
+    promise->setValue();
+    return;
+  }
+  auto result = queue->tryPushOrDefer(
+      batch, [owner, queue, batch, promise]() {
+        scheduleDeferredOutput(owner, queue, batch, promise);
+      });
+  if (result != pangrova::executor::DeferredPushResult::DEFERRED) {
+    promise->setValue();
+  }
+}
+
 }  // namespace
 
 VeloxTaskRunner::VeloxTaskRunner(
@@ -649,47 +670,10 @@ void VeloxTaskRunner::start() {
           auto shared_promise =
               std::make_shared<facebook::velox::ContinuePromise>(
                   std::move(promise));
-          auto weak_retry = weak_self;
-          auto retry_vector = vector;
-          self->output_queue_->registerSpaceCallback(
-              [shared_promise, weak_retry, retry_vector]() {
-                // Space is now available. Push the deferred vector with a
-                // blocking timeout to guarantee delivery. Velox moves the
-                // vector into CallbackSink::addInput() and will NOT retry
-                // with the same vector after unblocking — a failed push
-                // here means permanent data loss.
-                if (auto s = weak_retry.lock()) {
-                  if (!s->output_queue_->tryPush(retry_vector)) {
-                    // tryPush failed (race with another producer). Use
-                    // blocking push with generous timeout as last resort.
-                    if (!s->output_queue_->push(
-                            retry_vector, std::chrono::milliseconds(30000))) {
-                      // A failed producer or writer closes the queue and wakes
-                      // this callback immediately. Preserve that original
-                      // failure; only an open queue can have timed out.
-                      if (!s->output_queue_->isClosed()) {
-                        s->cancelled_.store(true);
-                        {
-                          std::lock_guard<std::mutex> lock(s->error_mutex_);
-                          if (s->error_message_.empty()) {
-                            s->error_message_ =
-                                "OutputQueue push timed out during backpressure "
-                                "recovery (query_id=" + s->config_.query_id +
-                                ", task_id=" + s->config_.task_id + ")";
-                          }
-                        }
-#if __has_include(<glog/logging.h>)
-                        LOG(ERROR) << "output_queue_push_timeout"
-                                   << " query_id=" << s->config_.query_id
-                                   << " task_id=" << s->config_.task_id
-                                   << " error_type=backpressure_data_loss";
-#endif
-                      }
-                    }
-                  }
-                }
-                shared_promise->setValue();
-              });
+          // The deferred vector remains owned by the callback until it has
+          // actually entered the queue; only then may Velox resume its driver.
+          scheduleDeferredOutput(weak_self, self->output_queue_, vector,
+                                 shared_promise);
           *future = std::move(sem_future);
           return facebook::velox::exec::BlockingReason::kWaitForConsumer;
         }
