@@ -238,9 +238,11 @@ public final class TaskCompletionMonitor {
             reportCancelledAfterRelease(info, callback);
             return;
         }
+        // Retain the actual Native drain before a terminal HTTP report can wait for ACK.
+        // The Coordinator may concurrently seal this exact attempt to cancel a losing copy.
+        callback.clearCoordinatorIndex(info);
         reportStatus(info, "FINISHED");
         logTaskCompleted(taskId);
-        callback.clearCoordinatorIndex(info);
         callback.notifyCompletion(info.queryId());
     }
 
@@ -271,8 +273,8 @@ public final class TaskCompletionMonitor {
             boolean nativeUnsupported) {
         if (info.getState() == TaskManager.TaskState.FAILED
                 || callback.transition(taskId, TaskManager.TaskState.FAILED)) {
-            reportErrorStatus(info, cause, nativeUnsupported);
             callback.clearCoordinatorIndex(info);
+            reportErrorStatus(info, cause, nativeUnsupported);
         } else {
             reportCancelledAfterRelease(info, callback);
         }
@@ -295,6 +297,7 @@ public final class TaskCompletionMonitor {
                         || !callback.transition(info.taskId(), TaskManager.TaskState.CANCELLED))) {
             return;
         }
+        callback.clearCoordinatorIndex(info);
         if (statusCollector != null && info.request() != null) {
             statusCollector.reportWorkerTerminalStatus(
                     info,
@@ -303,7 +306,6 @@ public final class TaskCompletionMonitor {
                             "TASK_CANCELLED", "Cancellation", "Task cancelled by control plane"));
         }
         info.markCancellationReported();
-        callback.clearCoordinatorIndex(info);
     }
 
     private static final int MAX_TRANSIENT_RETRIES = 3;

@@ -65,7 +65,10 @@ public final class SpeculativeStageHandler {
         Set<String> existingSpeculative = launcher.getOriginalTasksWithCopies();
         Instant now = Instant.now();
         List<TaskDuration> snapshots =
-                taskTracker.getTaskDurationSnapshots(queryId, stageId, existingSpeculative, now);
+                taskTracker.getTaskDurationSnapshots(queryId, stageId, existingSpeculative, now)
+                        .stream()
+                        .filter(snapshot -> !launcher.isSpeculative(snapshot.taskId()))
+                        .toList();
 
         List<String> stragglers = detector.detectStragglers(snapshots);
         for (String stragglerTaskId : stragglers) {

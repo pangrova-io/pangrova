@@ -83,6 +83,9 @@ public class SpeculativeTaskLauncher {
         if (queryId == null || queryId.isBlank()) {
             throw new IllegalArgumentException("queryId is required for speculative dispatch");
         }
+        if (isSpeculative(originalTaskId)) {
+            return null;
+        }
         if (taskDispatcher == null || workerManager == null || taskTracker == null || cancelRetrier == null) {
             throw new IllegalStateException("speculative dispatch dependencies are not configured");
         }

@@ -11,7 +11,9 @@ import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -69,10 +71,60 @@ class SpeculativeExecutionAlgorithmTest {
         }
     }
 
+    @Test
+    void speculativeCopyIsNotAStagePeerOrANewStraggler() {
+        var tracker = new CoordinatorTaskTracker();
+        for (String peer : List.of("peer-1", "peer-2", "peer-3")) {
+            registerDurationInput(tracker, peer, Instant.now().minusSeconds(1));
+            tracker.updateTaskState("duration-query", peer, "FINISHED");
+        }
+        registerDurationInput(tracker, "original", Instant.now().minusSeconds(40));
+        registerDurationInput(tracker, "spec-copy", Instant.now().minusSeconds(40));
+        var considered = new AtomicReference<List<TaskDuration>>();
+        var launched = new AtomicReference<String>();
+        var detector = new StragglerDetector() {
+            @Override public List<String> detectStragglers(List<TaskDuration> snapshots) {
+                considered.set(List.copyOf(snapshots));
+                return super.detectStragglers(snapshots);
+            }
+        };
+        var launcher = new SpeculativeTaskLauncher() {
+            @Override public boolean isSpeculative(String taskId) { return taskId.equals("spec-copy"); }
+            @Override public String launchSpeculative(String taskId, String workerId, String queryId) {
+                launched.set(taskId);
+                return "spec-new";
+            }
+        };
+        var handler = new SpeculativeStageHandler(new SpeculationConfig(true,
+                SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS),
+                detector, launcher, tracker);
+
+        handler.evaluateStragglers("duration-query", "1");
+
+        assertThat(considered.get()).hasSize(4).noneMatch(snapshot -> snapshot.taskId().equals("spec-copy"));
+        assertThat(launched.get()).isEqualTo("original");
+    }
+
+    @Test
+    void launcherRejectsCopyOfCopyBeforeDispatch() {
+        var launcher = new SpeculativeTaskLauncher() {
+            @Override public boolean isSpeculative(String taskId) { return taskId.equals("spec-copy"); }
+        };
+
+        assertThat(launcher.launchSpeculative("spec-copy", "worker-1", "duration-query")).isNull();
+    }
+
     private static void registerDurationInput(CoordinatorTaskTracker tracker, String taskId) {
         tracker.registerTask("duration-query", taskId);
         tracker.markScheduled("duration-query", taskId);
         tracker.updateTaskState("duration-query", taskId, "RUNNING");
         tracker.recordTaskStart(taskId, "1");
+    }
+
+    private static void registerDurationInput(CoordinatorTaskTracker tracker, String taskId, Instant start) {
+        tracker.registerTask("duration-query", taskId);
+        tracker.markScheduled("duration-query", taskId);
+        tracker.updateTaskState("duration-query", taskId, "RUNNING");
+        tracker.recordTaskStart(taskId, "1", start);
     }
 }

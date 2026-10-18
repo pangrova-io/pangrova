@@ -41,8 +41,8 @@ final class TaskRetirement {
             if (transitioned && info.getState() == TaskManager.TaskState.FINISHED) {
                 completionPending.set(true);
             }
-            collector.reportReleasedTerminal(info);
             callback.clearCoordinatorIndex(info);
+            collector.reportReleasedTerminal(info);
             if (completionPending.get()) {
                 callback.notifyCompletion(info.queryId());
                 completionPending.set(false);
