@@ -253,6 +253,7 @@ struct FileRow {
   std::optional<int32_t> sortOrderId;
   int64_t snapshotId = 0;
   int64_t sequenceNumber = 0;
+  int64_t fileSequenceNumber = 0;
   int32_t status = 0;
   std::optional<int64_t> firstRowId;
 };
@@ -362,7 +363,7 @@ FileRow decodeLiveEntry(const folly::dynamic& entry,
       requiredText(file, "file_format"), specId, recordCount, fileSize,
       optionalColumnSizes(file), std::move(splitOffsets),
       std::move(equalityIds), optionalSortOrderId(file),
-      0, 0, 0, std::nullopt};
+      0, 0, 0, 0, std::nullopt};
 }
 
 }  // namespace
@@ -377,6 +378,7 @@ IcebergManifestEntryReader::IcebergManifestEntryReader(
     facebook::velox::memory::MemoryPool* pool, bool entries)
     : spec_id_(specId), manifest_content_(manifestContent),
       format_version_(formatVersion), entries_(entries),
+      snapshot_sequence_number_(static_cast<int64_t>(sequenceNumber)),
       output_type_(std::move(outputType)), pool_(pool) {
   if (!output_type_ || !pool_ || childUri.empty() || listUri.empty() ||
       childUri == listUri || childLength == 0 || listLength == 0 ||
@@ -410,6 +412,7 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
       const auto expected = name == "file_path" ? TypeKind::VARCHAR
           : name == "status" ? TypeKind::INTEGER : TypeKind::BIGINT;
       if ((name != "status" && name != "snapshot_id" && name != "sequence_number" &&
+              name != "file_sequence_number" &&
               name != "file_path" && name != "data_sequence_number" &&
               name != "first_row_id") ||
           !names.insert(name).second || output_type_->childAt(index)->kind() != expected) {
@@ -463,21 +466,31 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
       auto file = decodeLiveEntry(*record, spec_id_, manifest_content_);
       if (entries_) {
         file.status = status;
-        if (!record->count("snapshot_id") || !record->count("sequence_number")) {
+        if (!record->count("snapshot_id") || !record->count("sequence_number") ||
+            !record->count("file_sequence_number")) {
           throw std::runtime_error("Iceberg manifest entry lineage fields are missing");
         }
         const auto& snapshot = (*record)["snapshot_id"];
         const auto& sequence = (*record)["sequence_number"];
+        const auto& fileSequence = (*record)["file_sequence_number"];
         if ((!snapshot.isNull() && !snapshot.isInt()) ||
             (!sequence.isNull() && !sequence.isInt()) ||
-            (sequence.isNull() && status != 1)) {
+            (!fileSequence.isNull() && !fileSequence.isInt()) ||
+            (snapshot.isNull() && status != 1) ||
+            (sequence.isNull() && status != 1) ||
+            (fileSequence.isNull() && status != 1)) {
           throw std::runtime_error("Invalid Iceberg manifest entry lineage");
         }
         file.snapshotId = snapshot.isNull()
             ? inherited_snapshot_id_ : snapshot.asInt();
         file.sequenceNumber = sequence.isNull()
             ? inherited_sequence_number_ : sequence.asInt();
-        if (file.snapshotId <= 0 || file.sequenceNumber < 0) {
+        file.fileSequenceNumber = fileSequence.isNull()
+            ? inherited_sequence_number_ : fileSequence.asInt();
+        if (file.snapshotId <= 0 || file.sequenceNumber < 0 ||
+            file.fileSequenceNumber < 0 ||
+            file.sequenceNumber > snapshot_sequence_number_ ||
+            file.fileSequenceNumber > snapshot_sequence_number_) {
           throw std::runtime_error("Invalid Iceberg manifest entry lineage value");
         }
         if (format_version_ == 3) {
@@ -538,7 +551,9 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
               row, facebook::velox::StringView(file.path));
         } else {
           vector->asFlatVector<int64_t>()->set(row,
-              name == "snapshot_id" ? file.snapshotId : file.sequenceNumber);
+              name == "snapshot_id" ? file.snapshotId
+              : name == "file_sequence_number" ? file.fileSequenceNumber
+              : file.sequenceNumber);
         }
       }
       columns.push_back(std::move(vector));

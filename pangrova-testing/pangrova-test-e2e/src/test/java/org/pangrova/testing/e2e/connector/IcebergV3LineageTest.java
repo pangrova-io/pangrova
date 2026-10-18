@@ -52,7 +52,7 @@ class IcebergV3LineageTest extends SqlE2ETestBase {
     }
 
     @Test
-    @DisplayName("v3 table entries expose sequence_number and data_sequence_number")
+    @DisplayName("v3 table entries expose data and file sequence numbers")
     void v3TableEntriesHaveFirstRowId() {
         sqlRunner.executeDdl("CREATE TABLE " + fqn()
                 + " (id BIGINT, name VARCHAR)"
@@ -62,7 +62,8 @@ class IcebergV3LineageTest extends SqlE2ETestBase {
                 + " (id, name) VALUES (1, 'alice'), (2, 'bob')");
 
         List<TypedRow> entries = sqlRunner.execute(
-                "SELECT status, snapshot_id, sequence_number, file_path, data_sequence_number, first_row_id"
+                "SELECT status, snapshot_id, sequence_number, file_sequence_number,"
+                + " file_path, data_sequence_number, first_row_id"
                 + " FROM " + fqn() + "$entries");
 
         assertThat(entries).isNotEmpty();
@@ -74,6 +75,9 @@ class IcebergV3LineageTest extends SqlE2ETestBase {
             assertThat(entry.getLong("sequence_number"))
                     .as("sequence_number should be populated")
                     .isNotNull();
+            assertThat(entry.getLong("file_sequence_number"))
+                    .as("file_sequence_number should be populated")
+                    .isEqualTo(entry.getLong("sequence_number"));
             assertThat(entry.getLong("first_row_id"))
                     .as("v3 first_row_id should be assigned")
                     .isNotNull();

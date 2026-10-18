@@ -139,7 +139,8 @@ class IcebergFileReadBindingsTest {
                     new SchemaTableName("db", "lineage$entries"));
             assertThat(selected.entries()).isTrue();
             assertThat(selected.typedColumns().stream().map(c -> c.name()).toList())
-                    .containsExactly("status", "snapshot_id", "sequence_number", "file_path",
+                    .containsExactly("status", "snapshot_id", "sequence_number",
+                            "file_sequence_number", "file_path",
                             "data_sequence_number", "first_row_id");
             metadata.validateColumnAccess(SESSION, selected, List.of("DATA_SEQUENCE_NUMBER"));
             assertThatThrownBy(() -> metadata.validateColumnAccess(SESSION, selected,

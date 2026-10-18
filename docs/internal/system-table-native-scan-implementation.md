@@ -463,9 +463,12 @@ child's membership in the selected list before emitting rows. It retains
 `status` 0/1/2, resolves null `snapshot_id` and `sequence_number` using the
 manifest-list's `added_snapshot_id` and `sequence_number`, and requires explicit
 sequence numbers on existing/deleted v2/v3 entries. The current flattened
-projection is `status`, `snapshot_id`, `sequence_number`, `file_path`, and
-`data_sequence_number` (the latter aliases the resolved data sequence), and
-nullable `first_row_id`. For v3 data files, Native preserves explicit row IDs
+projection is `status`, `snapshot_id`, `sequence_number`,
+`file_sequence_number`, `file_path`, and `data_sequence_number` (the latter
+aliases the resolved data sequence), and nullable `first_row_id`. Native keeps
+the file sequence independent from the data sequence: an added entry inherits
+either null value from the pinned manifest list, while an existing or deleted
+entry must carry both original values. For v3 data files, Native preserves explicit row IDs
 or assigns null IDs from the manifest's first row ID plus preceding null-ID
 files' record counts; v2 returns NULL. This is not the complete Iceberg SDK
 `$entries` nested schema. V1 and v4 continue to fail closed.

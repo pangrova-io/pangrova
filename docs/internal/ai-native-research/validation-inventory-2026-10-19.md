@@ -9,6 +9,10 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 本机独立进程追加验证：一台 Coordinator 加两个独立 Native Worker 的 8 批 Iceberg JDBC 写入、JOIN/shuffle、Worker 停机重启及资源释放通过（`/tmp/pangrova-independent-local-processes-r5-20261019.log`）；预置 Ollama 镜像的真实模型 HTTP/SQL、两名 Worker 分别单独调用模型、重启后双 Worker 查询、审计和资源释放通过（`/tmp/pangrova-independent-ai-processes-r3-20261019.log`）。Coordinator `-Pfull-regression` 根因修复后整模块退出 0；本轮 542 份 Surefire 报告合计 **3,213 项，0 失败、0 错误、0 跳过**（`/tmp/pangrova-coordinator-full-r3-20261019.log`）。上一轮 3,295 项的失败记录不再代表当前结果，完整 Java reactor 仍待验。Worker 405 映射已通过定向测试。上述是功能证据，不代表规模/P99 验收。
 
+冻结提交 `65c7dffa` 的新增滚动复验：`GenerateSeriesE2ETest` 经真实 SQL/JNI **6/6 PASS**（`/tmp/pangrova-generate-series-current-20261019.log`，Surefire XML）；`IcebergShowMetadataTest` **5/6 PASS**，唯一失败为 `SHOW PARTITIONS` 缺 Native reader（`/tmp/pangrova-show-metadata-current-r2-20261019.log`）。后一失败有真实 SQL、真实模型夹具和 Native 启动作为前置，不把它记成已闭环。[Iceberg 规范](https://iceberg.apache.org/spec/)和[官方查询文档](https://iceberg.apache.org/docs/1.11.0/spark-queries/)要求 `$partitions` 按当前快照、分区 spec 和 data/delete 文件汇总；现有 `$files` Native 投影没有分区值，不能用无分区键的简单 SQL 聚合代替。
+
+后续 `$entries` 血缘切片把 Iceberg manifest entry 的 data sequence 与 file sequence 分开暴露并校验：Native reader 定向 **11/11 PASS**，其中明确验证两者不同和超前文件序号拒绝；真实 PostgreSQL/Lance broker 预检 **1/1 PASS**（`/tmp/pangrova-iceberg-file-sequence-native-focused-20261019.log`、`/tmp/pangrova-lance-broker-current-preflight-20261019.log`）；Connector 绑定 **4/4 PASS**（`/tmp/pangrova-iceberg-file-sequence-connector-r2-20261019.log`）；重封 JNI 后的 `IcebergV3LineageTest` 真 SQL **4/4 PASS**（`/tmp/pangrova-iceberg-file-sequence-e2e-20261019.log`）。完整 SDK 嵌套投影和本轮同源码 Native 全量/ASan 仍需完成，不用定向成功替代。
+
 后续提交 `859c1380` 从真 Native/FILE/模型部署重采集了规范 descriptor 夹具，Protocol **447/447 PASS**；提交 `cf767a46` 修复 Worker 关闭与非法任务 400 语义后，Worker 整模块 **1,279/1,279 PASS**、静态 `verify` 通过，且重新封存该提交的 Worker JAR 后，两项独立进程 E2E **2/2 PASS**（`/tmp/pangrova-independent-processes-cf767a46-20261019.log`）。前段的 `a1cdcb60` 进程结果仅作历史证据，不冒充最新源码。
 
 | 批次 | 检查点 | 当前缺口和本机验收动作 |
@@ -28,9 +32,9 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 | C | 15 历史版本和写入所有权 | Lance/Paimon 旧 snapshot、并发 winner/loser、未知提交及跨 reader 故障矩阵未全闭合。 |
 | C | 16 Native 大写入容量 | 已有小规模实值 E2E；容量、spill、失败后的资源归零未全覆盖。 |
 | C | 17 唯一 Calcite 前端 | 全 DDL/DML/时间旅行生产路径迁移和可达旧 fallback 清理未完成。 |
-| C | 18 `GENERATE_SERIES` | 本机真实 SQL/JNI 与 Native 定向曾通过；当前源码完整 E2E/回归待纳入最终批次。 |
+| C | 18 `GENERATE_SERIES` | 提交 `65c7dffa` 当前源码真实 SQL/JNI E2E **6/6 PASS**；最终同源码全功能回归仍待纳入最终批次。 |
 | C | 19 `COPY INTO` | stage-only 和 `FROM (SELECT …)` 局部通过；URI SQL→可信 split→Native Parquet→Iceberg marker/未知提交对账尚未接通。 |
-| C | 20 系统表 | `$files`/`$manifests` 等局部实值通过；Iceberg `$entries` 已有固定 manifest、状态/序列/v3 row ID 继承及 4/4 真 SQL E2E，但完整 SDK 嵌套列尚未闭合；`$partitions`、Paimon `$files` 和复杂列/跨文件系统仍未完整验收。 |
+| C | 20 系统表 | `$files`/`$manifests` 等局部实值通过；Iceberg `$entries` 已有固定 manifest、状态、data/file 序列、v3 row ID 继承及 4/4 真 SQL E2E，但完整 SDK 嵌套列尚未闭合；SHOW 元数据 5/6，`$partitions` 缺 Native reader，Paimon `$files` 和复杂列/跨文件系统仍未完整验收。 |
 | C | 21 Dynamic Table | 手动 full-refresh generation 已有真实 E2E；逻辑授权、持久 attempt/source pin、失败恢复、GC、调度/CDC 未闭合。 |
 | C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多 split、无结果和目标规模质量/成本待验。 |
 | D：AI/Feature/CDC | 23 独立模型服务 | 提交 `cf767a46` 重封 JAR/Native 后预置真实模型的独立双 Worker HTTP/SQL、分别单独调用、重启和审计 1/1 再通过（`/tmp/pangrova-independent-processes-cf767a46-20261019.log`）；异步批量、取消、乱序、超时、未知完成、fencing 未全闭合。 |

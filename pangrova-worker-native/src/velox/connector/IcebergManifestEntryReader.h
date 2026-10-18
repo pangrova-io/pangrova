@@ -38,6 +38,7 @@ class IcebergManifestEntryReader final {
   int32_t manifest_content_;
   int32_t format_version_;
   bool entries_;
+  int64_t snapshot_sequence_number_;
   int64_t inherited_snapshot_id_ = 0;
   int64_t inherited_sequence_number_ = 0;
   std::optional<int64_t> inherited_first_row_id_;

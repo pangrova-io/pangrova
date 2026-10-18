@@ -46,6 +46,7 @@ final class IcebergFileReadBindings {
                 new ConnectorTableMetadata.Column("status", PangrovaType.INTEGER),
                 new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT),
                 new ConnectorTableMetadata.Column("sequence_number", PangrovaType.BIGINT),
+                new ConnectorTableMetadata.Column("file_sequence_number", PangrovaType.BIGINT),
                 new ConnectorTableMetadata.Column("file_path", PangrovaType.VARCHAR),
                 new ConnectorTableMetadata.Column("data_sequence_number", PangrovaType.BIGINT),
                 new ConnectorTableMetadata.Column("first_row_id", PangrovaType.BIGINT));
