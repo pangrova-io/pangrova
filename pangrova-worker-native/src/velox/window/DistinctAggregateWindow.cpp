@@ -169,7 +169,9 @@ void registerDistinctAggregateWindows() {
   for (const auto& [name, entry] : exec::windowFunctions()) {
     if (entry.metadata.isAggregate && exec::getAggregateFunctionEntry(name)) sources.emplace_back(name, entry);
   }
-  for (const auto& [name, entry] : sources) {
+  for (const auto& source : sources) {
+    const std::string name = source.first;
+    const auto& entry = source.second;
     exec::registerWindowFunction(distinctAggregateWindowName(name), entry.signatures,
         {exec::WindowFunction::ProcessMode::kPartition, true},
         [name](const auto& args, const auto& type, bool ignoreNulls, auto* pool, auto* allocator, const auto& config) {

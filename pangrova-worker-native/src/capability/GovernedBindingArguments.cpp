@@ -1,12 +1,13 @@
 #include "capability/GovernedBindingArguments.h"
 #include "StructuralContractIdentities.h"
 
-#include <array>
 #include <algorithm>
 #include <cctype>
-#include <charconv>
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <locale>
+#include <sstream>
 #include <stdexcept>
 
 #include <openssl/evp.h>
@@ -30,11 +31,11 @@ std::string base64(const std::string& bytes) {
 
 std::string exactDouble(double value) {
   if (!std::isfinite(value)) throw std::invalid_argument("Binding floating value must be finite");
-  std::array<char, 64> buffer{};
-  const auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value,
-      std::chars_format::general, std::numeric_limits<double>::max_digits10);
-  if (error != std::errc{}) throw std::runtime_error("Cannot encode exact binding floating value");
-  return {buffer.data(), end};
+  std::ostringstream encoded;
+  encoded.imbue(std::locale::classic());
+  encoded << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
+  if (!encoded) throw std::runtime_error("Cannot encode exact binding floating value");
+  return encoded.str();
 }
 
 std::string encodeField(const Message& message, const FieldDescriptor& field, std::string_view encoding) {

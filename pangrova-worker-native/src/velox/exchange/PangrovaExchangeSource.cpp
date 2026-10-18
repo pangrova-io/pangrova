@@ -755,13 +755,10 @@ PangrovaExchangeSource::Response PangrovaExchangeSource::enqueueFlightBatch(
     int32_t length = 0;
     const uint8_t* value = binaryArray->GetValue(row, &length);
     totalBytes += static_cast<int64_t>(length);
-    auto data = folly::IOBuf::takeOwnership(
-        const_cast<uint8_t*>(value),
-        static_cast<size_t>(length),
-        [](void*, void* owner) {
-          delete static_cast<std::shared_ptr<arrow::RecordBatch>*>(owner);
-        },
-        new std::shared_ptr<arrow::RecordBatch>(batch));
+    // The exchange queue can outlive the Arrow batch. Keep each page in an
+    // owning buffer; Folly's takeOwnership ABI is not portable across the
+    // macOS libc++ versions used by the build and dependency archives.
+    auto data = folly::IOBuf::copyBuffer(value, static_cast<size_t>(length));
     pages.push_back(std::make_unique<SerializedPage>(
         std::move(data), nullptr, std::optional<int64_t>(std::nullopt)));
   }

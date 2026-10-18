@@ -426,9 +426,8 @@ RowVectorPtr serdeRoundTrip(
   auto iobuf = outputStream->getIOBuf();
 
   // Deserialize back to RowVector.
-  auto dataCopy = iobuf->clone();
   auto byteStream = std::make_unique<facebook::velox::BufferInputStream>(
-      facebook::velox::byteRangesFromIOBuf(dataCopy.get()));
+      facebook::velox::byteRangesFromIOBuf(iobuf.get()));
 
   auto rowType = std::dynamic_pointer_cast<const RowType>(input->type());
   RowVectorPtr result;
