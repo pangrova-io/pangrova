@@ -9,7 +9,7 @@ RUN bash /verify-native-source.sh /expected /workspace \
     && pangrova-worker-native/bin/package-native-lib.sh --production \
         /workspace/pangrova-worker-native/build/libpangrova_native.so
 
-FROM maven:3.9-eclipse-temurin-17 AS builder
+FROM maven:3.9-eclipse-temurin-17@sha256:1a352420f7aba21f5ad08df31bab55f74c013fb491f1ae8ab1dd7ff9ed698584 AS builder
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && python3 -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
@@ -80,7 +80,7 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     cp -r bin/. /dist/bin/; cp -r etc/. /dist/config/'
 
 # The system ABI baseline matches the native Ubuntu 22.04 build.
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:17-jre-jammy@sha256:b3054a20e1a851574cdb1692dd0db5310c647e62214a2a7abecbec1b9e3ae8f1
 LABEL description="Pangrova distributed SQL query engine"
 ENV PANGROVA_HOME=/opt/pangrova \
     PANGROVA_CONF_DIR=/opt/pangrova/config \

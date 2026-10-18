@@ -65,6 +65,12 @@ context, not a host library or independently selected image tag. Source equality
 is checked before packaging. Host `target/`, Native build trees and development
 JNI resources are excluded from the Docker context; new source modules are not.
 
+The Ubuntu build base, Maven build base, and Temurin runtime base are pinned to
+image digests. Refresh those digests deliberately as one reviewed dependency
+update, then rebuild and rerun the Linux image and startup/SQL acceptance checks
+for each published architecture. Updating a floating base tag implicitly can
+invalidate the full Native dependency cache and change the produced binary.
+
 Native image builds default to one compilation job. The explicit limit reaches
 both Pangrova's dependency setup and the upstream dependency installer, as well
 as the final CMake build. CPU count alone is not a safe memory budget. On a
