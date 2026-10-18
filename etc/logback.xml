@@ -24,7 +24,7 @@
   Log directory: set PANGROVA_LOG_DIR env var (default: logs/).
   ============================================================
 -->
-<configuration scan="true" scanPeriod="60 seconds">
+<configuration scan="false">
 
   <!-- ── Variables ──────────────────────────────────────── -->
   <property name="LOG_DIR"     value="${PANGROVA_LOG_DIR:-logs}" />
@@ -155,6 +155,9 @@
 
   <!-- Netty: connection lifecycle events at INFO are high-volume -->
   <logger name="io.netty"                      level="WARN" />
+
+  <!-- Jetty DEBUG renders raw HTTP buffers, including private COPY ticket nonces. -->
+  <logger name="org.eclipse.jetty"             level="WARN" />
 
   <!-- Calcite: plan normalization noise at INFO -->
   <logger name="org.apache.calcite"            level="WARN" />
