@@ -36,10 +36,10 @@ Worker 全模块重跑时，Lance 夹具初次因缺 `pangrova.lance.fixture.too
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 1 | ARM64 正式 Bake 镜像 | `0352f5af` 干净归档已正式 Bake/加载，image ID `sha256:9b074c9df3d573121001e615e3297b480e7528c9a69e28b69e22e889b07273b7`，同源 JDK17 install 与双 Worker 推测单例 1/1 通过；最终功能源码仍在变更，需在全部功能闭合后同源重建。 |
-| 2 | 镜像内 Native/JNI 与 SQL 冒烟 | `0352f5af` 正式 ARM64 镜像的独立双 Worker SQL/Native 推测执行单例 1/1 通过，实际跨 Worker clone 与结果已验证；完整 activation smoke 和最终功能源码同源镜像仍待验收。 |
+| 1 | ARM64 正式 Bake 镜像 | `9cc0f8fc` 干净归档已正式 Bake/加载，image ID `sha256:012a9c52cfb6cd013c74d6aa127135a2012050bf02a861a7508998338c199649`；同源独立双 Worker E2E 已执行，最终功能仍有开放缺口，全部闭合后需重建最终同源码产物。 |
+| 2 | 镜像内 Native/JNI 与 SQL 冒烟 | `7ce3b447` 镜像独立双 Worker 的真 SQL/Native 任务、跨 Worker 副本、迟到终态 HTTP 200 已 1/1；`9cc0f8fc` 镜像 QUERY-only 写入上下文与真 Worker 写任务已实证，但写入推测副本未发出。当前源码共享 JVM Activation Smoke 3/3；镜像全功能烟测与最终同源码验收仍待完成。 |
 | 3 | Linux x86_64 生产镜像 | 在 x86_64 runner 按同一 Bake 配方构建、启动并运行 Native/JNI/SQL；本机 ARM64 通过不能替代。 |
-| 4 | Linux ASan/LSan | 同源码、同依赖和真实夹具的 Linux 全量 sanitizer，地址错误与泄漏均为 0；Mac `detect_leaks=0` 的 4,153 项不证明 LSan。 |
+| 4 | Linux ASan/LSan | 同源码、同依赖和真实夹具的 Linux 全量 sanitizer，地址错误与泄漏均为 0；Mac `detect_leaks=0` 的 4,167 项不证明 LSan。 |
 
 ## 第二批：当前源码模块和质量门禁（4 项）
 
@@ -47,7 +47,7 @@ Worker 全模块重跑时，Lance 夹具初次因缺 `pangrova.lance.fixture.too
 | --- | --- | --- |
 | 5 | 最终 Native Release 全量 | 当前 Native/协议源码 Mac Release 在真实 PostgreSQL Lance broker 下 **4,167/4,167 PASS**、0 失败/跳过，耗时 618.14 秒（`/tmp/pangrova-current-native-ctest-r3.log`）；JNI SHA-256 `3ab5f9e19368ec5e6ddaa827c7aa7d0b52f24c7c6d89deae4f76613fc991e644`。这是本机 Mac 门禁，不替代 Linux 镜像。 |
 | 6 | 最终 Native ASan 全量 | 当前 Native/协议源码 Mac ASan 在真实 PostgreSQL Lance broker 下 **4,167/4,167 PASS**、0 失败/跳过，耗时 1,682.93 秒（`/tmp/pangrova-current-native-asan-ctest-r1.log`）；`detect_leaks=0` 只检查地址问题，Linux LSan 仍见第 4 项。 |
-| 7 | JDK 17 全 reactor 完整回归 | 最终同源码执行 `-Pfull-regression verify`，记录各模块实际发现数与 0 失败/错误/非预期跳过；本轮 Worker 1,433 项已过，但之前全 reactor E2E 遇 Docker VM 级联失败。 |
+| 7 | JDK 17 全 reactor 完整回归 | 最终同源码执行 `-Pfull-regression verify`，记录各模块实际发现数与 0 失败/错误/非预期跳过；本轮 Metadata 416/416、Worker 1,234/1,234、Coordinator 2,893/2,893 与共享 Activation Smoke 3/3 已各自通过，但不能代替完整 reactor。 |
 | 8 | 静态、协议与结构门禁 | 当前源码全 reactor `-Pstatic-analysis -DskipTests verify` **39/39 模块 PASS**（`/tmp/pangrova-full-reactor-static-current-r1.log`）；协议 443/443 PASS。最终 descriptor、SPI/JNI、文档引用、E2E 真实性及适用脚本仍须同源码完成。 |
 
 ## 第三批：共享与独立进程 E2E（4 项）
@@ -56,7 +56,7 @@ Worker 全模块重跑时，Lance 夹具初次因缺 `pangrova.lance.fixture.too
 | --- | --- | --- |
 | 9 | 完整共享 JVM E2E | `pangrova-test-e2e` 全部适用类、零失败/错误/跳过并记录实际测试数；先前 1,089 项运行受 VM 崩溃连锁污染，不能计通过。 |
 | 10 | 三个隔离 Native runtime owner | 较早源码三个类各独立 JVM 重跑：`WorkerBootstrapE2ETest` 5/5、`NativeExchangeTransportExternalIntegrationTest` 3/3、`WorkerShuffleChannelAdmissionIntegrationTest` 1/1，均 0 失败/错误/跳过；日志分别为 `/tmp/pangrova-worker-bootstrap-owner-current-r1.log`、`/tmp/pangrova-exchange-external-owner-current-r1.log`、`/tmp/pangrova-shuffle-admission-owner-current-r1.log`。仍需第 11 项的镜像双进程搬运。 |
-| 11 | 两个独立 Worker 的推测执行/交换 | `668aa77a` 镜像首轮真双 Worker 10 run/0 failure/10 error/0 skip；9 项等待 clone issued 超时、1 项等待 source task issued 超时，链路日志显示 Worker live 探针 401 与真实 `MAX(payload)` Flight spill 容量错误。Worker HTTP 修复 1/1 与 Native 共享 spill 段 GTest 29/29 已通过。修复入镜像后的 `4095f352` 单例 1 run/0 failure/1 error/0 skip，SQL 准备阶段两 Worker 已注册，但第一次资源心跳未到，调度器观察到可用内存为 0；未触及大批次 shuffle。首次真实心跳改为注册后立即发送，测试 SQL 前等待两个 Worker 的真实资源心跳；最近 HeartbeatSender 11/11、可调度谓词 2/2 和受影响 Worker/E2E 静态检查已过（`/tmp/pangrova-worker-first-heartbeat-focused-r2.log`、`/tmp/pangrova-independent-readiness-focused-r1.log`、`/tmp/pangrova-worker-readiness-static-r1.log`）。新镜像 `0b9d582a` 的单例已执行到两个独立 Worker 的真 Native 任务，但 4 个 split 合成 1 个 source task，终态报告暂扣后 stage 完成率为 0，当前 ≥75% 门槛使推测副本永不发出，单例 1 run/0 failure/1 error/0 skip；`bed0b815` 源 work unit 并行度和 `0352f5af` 任务计时修复后，干净 ARM64 镜像双 Worker 单例 1/1 通过，跨 Worker clone、Native 终态和 SQL 结果已实证；该组剩余九例待跑（`/tmp/pangrova-independent-spec-0352f5af-single-r1.log`）。规划代码静态审查另发现该 MAX 的非本地 Aggregate 输入先强制 SINGLETON exchange，且 AggregatePushdownRule 未注册；通用 partial/final 聚合属于独立规模优化缺口，尚待实际 fragment 与性能验证。本项未通过。 |
+| 11 | 两个独立 Worker 的推测执行/交换 | `7ce3b447` 镜像单例含真实迟到 HTTP 200 断言 1/1 通过；同镜像剩余九例 6 通过、3 错误。`9cc0f8fc` 镜像使 QUERY-only 写入进入真 Worker，但 4 split/1 write task 无 peer 可触发推测；原始 source 真故障的两例在副本前引发下游 Flight/查询失败。通过用例仍有终态上报耗尽日志，需补错误后接管、写片段安全并行与 ACK 闭环。本项未通过。 |
 | 12 | 故障恢复矩阵 | 真实 PG、对象存储、Flight/Toxiproxy 和独立进程验证接管、迟到 RPC、丢 ACK、未知提交、取消、慢读、OOM 与最后 owner 退出；局部用例已过，组合矩阵未全闭合。 |
 
 ## 第四批：外部 Catalog 和真实写入（4 项）
