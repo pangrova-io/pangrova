@@ -69,7 +69,8 @@ Run AddressSanitizer validation for memory, ownership, JNI, or concurrency chang
 VELOX_BUILD_DIR=/path/to/asan/velox/build \
   cmake --preset dev-asan -S pangrova-worker-native \
   -DPANGROVA_ASAN_PROTOBUF_LIB=/path/to/asan/libprotobuf.a \
-  -Dabsl_DIR=/path/to/asan/absl/lib/cmake/absl
+  -Dabsl_DIR=/path/to/asan/absl/lib/cmake/absl \
+  -DPANGROVA_ASAN_FOLLY_PREFIX=/path/to/asan/folly/install
 cmake --build pangrova-worker-native/build-asan --parallel
 ctest --test-dir pangrova-worker-native/build-asan --output-on-failure
 ```
