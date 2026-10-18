@@ -35,7 +35,9 @@ import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
 import org.pangrova.planner.cost.join.BroadcastJoinConfig;
+import org.pangrova.planner.cost.join.HashJoinConfig;
 import org.pangrova.planner.cost.join.PangrovaBroadcastJoin;
+import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.planner.validation.NativeCapabilityRegistry;
@@ -165,6 +167,69 @@ class PlanFragmenterTest {
                         && containsRel(stage.fragment().relNode(), TableScan.class))
                 .toList()).isNotEmpty().allSatisfy(stage ->
                         assertThat(stage.parallelism()).isOne());
+    }
+
+    @Test
+    void matchingHashExchangesKeepJoinParallel() {
+        var fragmented = PlanFragmenter.fragment(hashJoin(
+                hashExchange(), hashExchange(), JoinRelType.INNER), 8);
+
+        assertThat(fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class))
+                .map(PlanStage::parallelism)).containsExactly(8);
+        assertThat(fragmented.transfers()).filteredOn(transfer ->
+                transfer.shuffleType() == ShuffleType.HASH).hasSize(2);
+    }
+
+    @Test
+    void incompatibleExchangesGatherJoinIntoOneTask() {
+        var fragmented = PlanFragmenter.fragment(hashJoin(
+                roundRobinExchange(), hashExchange(), JoinRelType.INNER), 8);
+
+        assertThat(fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class))
+                .map(PlanStage::parallelism)).containsExactly(1);
+        assertThat(fragmented.transfers()).allSatisfy(transfer ->
+                assertThat(transfer.partitionCount()).isOne());
+    }
+
+    @Test
+    void hashOnDifferentColumnDoesNotPretendToCoPartitionJoinKeys() {
+        var wrongKey = new PangrovaExchange(cluster,
+                cluster.traitSet().replace(PangrovaDistribution.hash(List.of(1))),
+                values(), PangrovaDistribution.hash(List.of(1)));
+        var fragmented = PlanFragmenter.fragment(hashJoin(
+                hashExchange(), wrongKey, JoinRelType.INNER), 8);
+
+        assertThat(fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class))
+                .map(PlanStage::parallelism)).containsExactly(1);
+    }
+
+    @Test
+    void broadcastBuildKeepsInnerJoinParallel() {
+        var right = new PangrovaExchange(cluster,
+                cluster.traitSet().replace(PangrovaDistribution.BROADCAST),
+                values(), PangrovaDistribution.BROADCAST);
+        var fragmented = PlanFragmenter.fragment(hashJoin(
+                hashExchange(), right, JoinRelType.INNER), 8);
+
+        assertThat(fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class))
+                .map(PlanStage::parallelism)).containsExactly(8);
+    }
+
+    @Test
+    void broadcastRightOuterJoinGatheredToAvoidDuplicateUnmatchedRows() {
+        var right = new PangrovaExchange(cluster,
+                cluster.traitSet().replace(PangrovaDistribution.BROADCAST),
+                values(), PangrovaDistribution.BROADCAST);
+        var fragmented = PlanFragmenter.fragment(hashJoin(
+                hashExchange(), right, JoinRelType.RIGHT), 8);
+
+        assertThat(fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class))
+                .map(PlanStage::parallelism)).containsExactly(1);
     }
 
     @Test
@@ -642,6 +707,17 @@ class PlanFragmenterTest {
                 cluster.traitSet().replace(distribution),
                 values(),
                 distribution);
+    }
+
+    private PangrovaHashJoin hashJoin(
+            RelNode left, RelNode right, JoinRelType type) {
+        var condition = cluster.getRexBuilder().makeCall(SqlStdOperatorTable.EQUALS,
+                cluster.getRexBuilder().makeInputRef(left, 0),
+                cluster.getRexBuilder().makeInputRef(
+                        right.getRowType().getFieldList().get(0).getType(),
+                        left.getRowType().getFieldCount()));
+        return new PangrovaHashJoin(new HashJoinConfig(cluster,
+                left.getTraitSet(), left, right, condition, Set.of(), type));
     }
 
     private PangrovaExchange roundRobinExchange() {

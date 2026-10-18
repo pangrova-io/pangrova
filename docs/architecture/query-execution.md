@@ -1567,8 +1567,15 @@ A join stage with any directly scanned table input executes in one task until
 every join input has an explicit compatible exchange distribution. This also
 applies when another branch of the same join stage already has an exchange:
 independent scan split allocation does not co-partition rows by join key and
-could silently return incomplete results. Joins whose inputs are fully supplied
-through compatible partitioned or broadcast exchanges retain their parallelism.
+could silently return incomplete results. A join remains parallel only when
+both direct inputs are hash exchanges on the corresponding equijoin keys, or
+the build input is broadcast for an inner, left, semi, or anti join. Other
+exchange combinations gather to one task, including broadcast right/full
+outer joins that would duplicate unmatched build-side rows.
+This follows the [Trino partitioned-join contract](https://trino.io/docs/current/optimizer/cost-based-optimizations.html#join-distribution-selection),
+which redistributes both inputs by join key, and Calcite's distinct
+[hash distribution trait](https://calcite.apache.org/javadocAggregate/org/apache/calcite/rel/RelDistributions.html).
+Greedy file-split balancing does not establish either distribution property.
 
 ### 4.1 Pipeline Structure
 

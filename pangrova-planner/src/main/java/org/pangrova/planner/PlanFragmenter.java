@@ -18,6 +18,7 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Exchange;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Join;
+import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableModify;
 import org.apache.calcite.rel.core.TableScan;
@@ -373,10 +374,12 @@ final class PlanFragmenter {
             if (containsDirectLocalSourceLeaf(root)) {
                 return SINGLE_PARALLELISM;
             }
-            // Independent split partitions do not contain both inputs of a
-            // local join. Keep its scans together unless the plan provides
-            // explicit exchange boundaries with a distribution contract.
-            if (containsJoin(root) && (boundaries.isEmpty() || containsDirectTableScan(root))) {
+            // A join can run in parallel only when each input has a proven
+            // compatible exchange contract. Merely having an exchange elsewhere
+            // in the stage does not co-locate matching rows.
+            if (containsJoin(root) && (boundaries.isEmpty()
+                    || containsDirectTableScan(root)
+                    || !hasCompatibleJoinExchanges(root))) {
                 return SINGLE_PARALLELISM;
             }
             if (boundaries.stream().anyMatch(FragmentContext::isSingleton)) {
@@ -424,10 +427,42 @@ final class PlanFragmenter {
         }
 
         private static boolean containsJoin(RelNode node) {
+            if (exchangeBoundary(node) != null) {
+                return false;
+            }
             if (node instanceof Join) {
                 return true;
             }
             return node.getInputs().stream().anyMatch(FragmentContext::containsJoin);
+        }
+
+        private static boolean hasCompatibleJoinExchanges(RelNode node) {
+            if (exchangeBoundary(node) != null) {
+                return true;
+            }
+            if (node instanceof Join join) {
+                ExchangeBoundary left = exchangeBoundary(join.getLeft());
+                ExchangeBoundary right = exchangeBoundary(join.getRight());
+                if (left == null || right == null) {
+                    return false;
+                }
+                PangrovaDistribution leftDist = left.distribution();
+                PangrovaDistribution rightDist = right.distribution();
+                if (rightDist.type() == PangrovaDistribution.Type.BROADCAST) {
+                    // Unmatched build-side rows would be emitted on every task.
+                    JoinRelType joinType = join.getJoinType();
+                    return leftDist.type() != PangrovaDistribution.Type.BROADCAST
+                            && (joinType == JoinRelType.INNER || joinType == JoinRelType.LEFT
+                                    || joinType == JoinRelType.SEMI || joinType == JoinRelType.ANTI);
+                }
+                var keys = join.analyzeCondition();
+                return leftDist.type() == PangrovaDistribution.Type.HASH
+                        && rightDist.type() == PangrovaDistribution.Type.HASH
+                        && !keys.leftKeys.isEmpty()
+                        && leftDist.keys().equals(keys.leftKeys)
+                        && rightDist.keys().equals(keys.rightKeys);
+            }
+            return node.getInputs().stream().allMatch(FragmentContext::hasCompatibleJoinExchanges);
         }
 
         /** A scan without an exchange is not partitioned by a downstream join key. */
