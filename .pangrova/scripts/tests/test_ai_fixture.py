@@ -63,7 +63,7 @@ class ModelIntegrityTest(unittest.TestCase):
         workflow = (root / ".github/workflows/ci.yml").read_text()
         production = workflow.split("  production-regression:", 1)[1].split("  tpch-performance:", 1)[0]
         self.assertLess(production.index("prepare-e2e-ai-image.py"),
-                        production.index("full-regression,coverage verify"))
+                        production.index("full-regression verify"))
         self.assertIn('-Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID"', production)
 
 

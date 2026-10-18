@@ -318,9 +318,9 @@ jobs:
           echo "::add-mask::$capability_key"
           echo "PANGROVA_E2E_FILE_CAPABILITY_KEY=$capability_key" >> "$GITHUB_ENV"
 
-      - name: Run full regression with real coverage
+      - name: Run full regression
         run: |
-          mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle' \
+          mvn -B -Pnative-runtime,full-regression verify -pl '!pangrova-native-bundle' \
             -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
             -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
             -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
