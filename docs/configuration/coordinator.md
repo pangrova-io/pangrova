@@ -21,7 +21,7 @@ in the `pangrova-config` module. The bundled defaults ship in
 | `coordinator.id` | string | `"coordinator-1"` | Unique identifier for this coordinator instance. Used in HA leader election |
 | `coordinator.host` | string | `"0.0.0.0"` | Bind address for the coordinator HTTP server |
 | `coordinator.port` | int | `8080` | Listen port for the coordinator HTTP server |
-| `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve queries only), `MAINTENANCE` (background tasks only), or `COMBINED` (both) |
+| `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve reads and writes without background maintenance), `MAINTENANCE` (background tasks only), or `COMBINED` (both). Writes to generated-column tables still require an active durable materialization owner. |
 | `coordinator.internal-auth-secret` | string | — | Shared internal control-plane secret, identical to `worker.internal-auth-secret`. The production process rejects absent, blank or fewer than 32 UTF-8 bytes, independently of client authentication. Inject through the YAML `${PANGROVA_INTERNAL_AUTH_SECRET}` placeholder. |
 
 ## coordinator.speculation

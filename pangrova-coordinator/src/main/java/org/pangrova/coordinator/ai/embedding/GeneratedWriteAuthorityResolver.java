@@ -37,7 +37,7 @@ final class GeneratedWriteAuthorityResolver {
                                      GeneratedValueMaterializationCoordinator coordinator) {
         this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
-        this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
+        this.coordinator = coordinator;
     }
 
     WriteAuthorizationReceipt resolve(WriteAuthorityRequest request) {
@@ -61,6 +61,10 @@ final class GeneratedWriteAuthorityResolver {
         }
         var user = new UserIdentity(session.getUser(), Set.of(), Map.of("tenant_id", tenant), Instant.EPOCH);
         if (declaration.hasGeneratedColumns()) {
+            if (coordinator == null) {
+                throw new AuthorizationDeniedException(
+                        "Generated-column writes require an active durable materialization owner");
+            }
             coordinator.requireWriteAdmission(table, definitions, user, request.writeMode());
         }
         Set<String> sourceColumns = definitions.getDefinitionsList().stream()

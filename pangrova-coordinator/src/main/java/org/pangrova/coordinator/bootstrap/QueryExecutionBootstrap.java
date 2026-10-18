@@ -98,8 +98,10 @@ final class QueryExecutionBootstrap {
         this.metadataDataSource = metadataDataSource;
         this.writeCommitTracker = writeCommitTracker;
         this.generatedValueMaterialization = generatedValueMaterialization;
-        this.writeAuthoritySupplier = generatedValueMaterialization == null ? null
-                : generatedValueMaterialization::writeAuthority;
+        var catalogs = metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry();
+        this.writeAuthoritySupplier = catalogs == null || metadataDataSource == null ? null
+                : org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
+                        .writeAuthoritySupplier(catalogs, metadataDataSource, generatedValueMaterialization);
         this.semanticViewStore = semanticViewStore;
         this.featureViewServiceFactory = featureViewServiceFactory;
         this.embeddingModelRegistry = embeddingModelRegistry;

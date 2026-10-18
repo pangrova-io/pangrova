@@ -62,6 +62,12 @@ public final class GeneratedValueMaterializationCoordinator implements CommitLis
         return writeAuthorityResolver.resolve(request);
     }
 
+    /** Keeps plain-table write authority active on query-only coordinators. */
+    public static org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier writeAuthoritySupplier(
+            CatalogRegistry catalogs, DataSource dataSource, GeneratedValueMaterializationCoordinator owner) {
+        return new GeneratedWriteAuthorityResolver(catalogs, dataSource, owner)::resolve;
+    }
+
     public void bindSourceCompiler(GeneratedSourceCompiler compiler) {
         buildService.bindSourceCompiler(compiler);
     }
