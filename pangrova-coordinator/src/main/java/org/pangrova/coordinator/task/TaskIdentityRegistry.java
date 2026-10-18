@@ -343,9 +343,33 @@ final class TaskIdentityRegistry {
                 && actual.getAttempt().getStageId() == report.stageId()
                 && actual.getAttempt().getPartitionId() == report.partitionId()
                 && identity.attempt().equals(report.attempt())
-                && org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(actual)
-                        .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
-                                .compactExecutionDrainReceipt(identity.drainReceipt()));
+                && sameExecutionDrain(actual, identity.drainReceipt());
+    }
+
+    private static boolean sameExecutionDrain(org.pangrova.protocol.v2.TaskReport first,
+            org.pangrova.protocol.v2.TaskReport second) {
+        var observed = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                .compactExecutionDrainReceipt(first);
+        var retained = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                .compactExecutionDrainReceipt(second);
+        if (observed.equals(retained)) return true;
+        // A Worker-reconciled terminal report can carry the same Native exit
+        // evidence as a cancellation response. Only the envelope origin differs;
+        // attempt, state, failure classification and drain checkpoint must match.
+        if (observed.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
+                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
+                || retained.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
+                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) return false;
+        boolean reconciledNativePair = (observed.getReportOrigin()
+                == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED
+                && retained.getReportOrigin()
+                == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                || (observed.getReportOrigin()
+                == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                && retained.getReportOrigin()
+                == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
+        return reconciledNativePair && observed.toBuilder().clearReportOrigin().build()
+                .equals(retained.toBuilder().clearReportOrigin().build());
     }
 
     synchronized boolean acknowledgesPublication(org.pangrova.protocol.rest.task.TaskStatusReport report) {
@@ -397,10 +421,7 @@ final class TaskIdentityRegistry {
         if (!request.taskRequest().getAttempt().equals(receipt.getAttempt())
                 || !identity.attempt().equals(org.pangrova.protocol.rest.task.TaskAttemptDescriptor
                         .from(receipt.getAttempt()))
-                || !org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
-                        .compactExecutionDrainReceipt(identity.drainReceipt())
-                        .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
-                                .compactExecutionDrainReceipt(receipt))) {
+                || !sameExecutionDrain(identity.drainReceipt(), receipt)) {
             throw new IllegalArgumentException("Task compaction drain receipt changed");
         }
         // A settled task can already be compacted while an in-flight report
@@ -461,10 +482,7 @@ final class TaskIdentityRegistry {
             if (existing == null || !request.equals(retainedRequest(taskId, existing))) {
                 throw new IllegalStateException("Execution drain receipt has no exact live task request");
             }
-            if (existing.drainReceipt() != null && !org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
-                    .compactExecutionDrainReceipt(existing.drainReceipt())
-                    .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
-                            .compactExecutionDrainReceipt(report))) {
+            if (existing.drainReceipt() != null && !sameExecutionDrain(existing.drainReceipt(), report)) {
                 throw new IllegalStateException("Exact execution drain evidence changed after first acceptance");
             }
             if (existing.drainReceipt() != null) {

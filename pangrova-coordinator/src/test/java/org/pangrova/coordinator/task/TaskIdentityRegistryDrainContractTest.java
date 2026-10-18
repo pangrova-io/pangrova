@@ -10,6 +10,8 @@ import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.ExecutionError;
+import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
@@ -165,6 +167,35 @@ class TaskIdentityRegistryDrainContractTest {
     }
 
     @Test
+    void retiredNativeFailureAcknowledgesOnlyItsMatchingWorkerReconciliation() {
+        var registry = new TaskIdentityRegistry();
+        var request = request();
+        issue(registry, request);
+        registry.enterDispatch(request);
+        var nativeFailure = receipt(request).toBuilder()
+                .setState(TaskState.TASK_STATE_FAILED)
+                .setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_INTERNAL)
+                        .setCode("NATIVE_TASK_FAILED").setFailedComponent("native-execution")
+                        .setMessage("attempt failed"))
+                .build();
+        var reconciled = nativeFailure.toBuilder()
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED).build();
+        registry.recordExecutionDrain(request, nativeFailure);
+        assertThat(registry.acknowledgesDrain(failedProjection(request, reconciled))).isFalse();
+        registry.recordExecutionDrain(request, reconciled);
+        registry.compactDrainedTask("task", request, reconciled);
+        assertThat(registry.acknowledgesDrain(failedProjection(request, reconciled))).isTrue();
+        assertThat(registry.acknowledgesDrain(failedProjection(request,
+                reconciled.toBuilder().setError(reconciled.getError().toBuilder()
+                        .setCode("DIFFERENT_FAILURE")).build()))).isFalse();
+        assertThat(registry.acknowledgesDrain(failedProjection(request,
+                reconciled.toBuilder().setState(TaskState.TASK_STATE_CANCELLED).build()))).isFalse();
+        assertThat(registry.acknowledgesDrain(failedProjection(request,
+                reconciled.toBuilder().setAttempt(reconciled.getAttempt().toBuilder()
+                        .setTaskId("different-task")).build()))).isFalse();
+    }
+
+    @Test
     void undrainedScopeIsNotPurgedAfterItsExecutionDeadline() {
         AtomicLong clock = new AtomicLong(1000);
         var registry = new TaskIdentityRegistry(clock::get);
@@ -196,6 +227,12 @@ class TaskIdentityRegistryDrainContractTest {
 
     private static TaskStatusReport projection(SubmitTaskRequest request, TaskReport actual) {
         return new TaskStatusReport("task", "query", 0, 0, "OUTPUT", "worker", "FINISHED",
+                null, null, null, 1L, 1000L, null, null,
+                TaskAttemptDescriptor.from(request.taskRequest().getAttempt()), actual.toByteArray());
+    }
+
+    private static TaskStatusReport failedProjection(SubmitTaskRequest request, TaskReport actual) {
+        return new TaskStatusReport("task", "query", 0, 0, "OUTPUT", "worker", "FAILED",
                 null, null, null, 1L, 1000L, null, null,
                 TaskAttemptDescriptor.from(request.taskRequest().getAttempt()), actual.toByteArray());
     }

@@ -102,12 +102,19 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
                 processes, SpeculativeProcessScenario.Fault.ORIGINAL_READ, false, insertSql(table))) {
             var original = scenario.original();
             var copy = scenario.copy();
-            assertThat(scenario.report(id(original), "FAILED").report().error()).isNotNull();
+            var failedOriginal = scenario.report(id(original), "FAILED");
+            assertThat(failedOriginal.report().error()).isNotNull();
             scenario.report(id(copy), "FINISHED");
             scenario.complete(true);
             assertThat(processes.input().committedRows(table)).isEqualTo(ProcessInputSnapshot.ROW_COUNT);
             scenario.awaitExecutionDrain(id(original));
             assertThat(processes.queryStatus(queryId(original)).error()).isNull();
+            await("retired failed original terminal ACK").atMost(Duration.ofSeconds(60))
+                    .untilAsserted(() -> {
+                        var response = failedOriginal.response().get();
+                        assertThat(response).isNotNull();
+                        assertThat(response.statusCode()).isEqualTo(200);
+                    });
         }
     }
 

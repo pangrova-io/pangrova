@@ -16,6 +16,12 @@ execution drain, and required statistics before using the staged return. It does
 not send shuffle-stop or exchange-control commands to an already retired owner.
 The existing handle CAS and shared release futures still govern budget release.
 An actual receipt belonging to another attempt is rejected before any budget release.
+After a speculative loser is explicitly retired, its delayed Worker terminal HTTP
+report may carry the same Native-owner-released receipt with a Worker-reconciled
+origin. Coordinator acknowledges that report only when the issued attempt, worker,
+terminal state, error identity, and drain checkpoint match the retained Native
+receipt. The acknowledgement does not republish output or revive the retired task.
+Different failures and closed-without-owner receipts remain distinct.
 
 TaskReport has no SecurityContext field. Security provenance remains the admitted
 immutable TaskRequest in NativeTaskExecutor's actual creation owner; its final release
