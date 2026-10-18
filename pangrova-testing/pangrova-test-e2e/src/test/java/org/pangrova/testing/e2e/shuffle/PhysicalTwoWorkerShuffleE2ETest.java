@@ -191,6 +191,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             taskWorkers.add(taskTracker.getWorkerForTask(taskId));
         }
         assertThat(taskWorkers).contains(WORKER_ID, SECOND_WORKER_ID);
+        Awaitility.await("both physical Workers release every issued task")
+                .atMost(Duration.ofSeconds(90))
+                .pollInterval(Duration.ofMillis(100))
+                .ignoreExceptionsInstanceOf(IllegalStateException.class)
+                .untilAsserted(() -> taskTracker.requireQueryExecutionDrained(queryId));
     }
 
     private static void seedTablesBeforeSecondWorkerJoins() {

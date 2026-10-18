@@ -1563,11 +1563,12 @@ runs the join with ordinary scan scheduling. Other requested Velox options remai
 in effect. This guard is specific to the pinned Velox execution behavior and
 must be reconsidered with a tested upstream fix.
 
-A local join whose inputs are table scans without exchange distribution
-contracts executes in one stage task. Splitting the scans across independent
-tasks would leave each task with only part of the join inputs and could silently
-return incomplete results. Explicitly partitioned or broadcast joins retain
-their exchange-defined parallelism.
+A join stage with any directly scanned table input executes in one task until
+every join input has an explicit compatible exchange distribution. This also
+applies when another branch of the same join stage already has an exchange:
+independent scan split allocation does not co-partition rows by join key and
+could silently return incomplete results. Joins whose inputs are fully supplied
+through compatible partitioned or broadcast exchanges retain their parallelism.
 
 ### 4.1 Pipeline Structure
 

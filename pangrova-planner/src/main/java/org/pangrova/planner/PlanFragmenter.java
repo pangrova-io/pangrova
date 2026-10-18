@@ -20,6 +20,7 @@ import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.core.TableModify;
+import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.core.Uncollect;
 import org.apache.calcite.rel.core.Values;
 import org.apache.calcite.rel.core.Window;
@@ -375,7 +376,7 @@ final class PlanFragmenter {
             // Independent split partitions do not contain both inputs of a
             // local join. Keep its scans together unless the plan provides
             // explicit exchange boundaries with a distribution contract.
-            if (boundaries.isEmpty() && containsJoin(root)) {
+            if (containsJoin(root) && (boundaries.isEmpty() || containsDirectTableScan(root))) {
                 return SINGLE_PARALLELISM;
             }
             if (boundaries.stream().anyMatch(FragmentContext::isSingleton)) {
@@ -427,6 +428,17 @@ final class PlanFragmenter {
                 return true;
             }
             return node.getInputs().stream().anyMatch(FragmentContext::containsJoin);
+        }
+
+        /** A scan without an exchange is not partitioned by a downstream join key. */
+        private static boolean containsDirectTableScan(RelNode node) {
+            if (exchangeBoundary(node) != null) {
+                return false;
+            }
+            if (node instanceof TableScan) {
+                return true;
+            }
+            return node.getInputs().stream().anyMatch(FragmentContext::containsDirectTableScan);
         }
 
         private static boolean isSingleton(ExchangeBoundary boundary) {

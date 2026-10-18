@@ -25,6 +25,7 @@ import org.apache.calcite.rex.RexWindowBounds;
 import org.apache.calcite.rex.RexWindowExclusion;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
@@ -127,6 +128,43 @@ class PlanFragmenterTest {
         assertThat(fragmented.transfers()).isEmpty();
         assertThat(fragmented.stages()).singleElement().satisfies(stage ->
                 assertThat(stage.parallelism()).isOne());
+    }
+
+    @Test
+    void mixedExchangeAndLocalJoinScansStayInOneTask() {
+        var schema = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false);
+        schema.add("orders", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT)
+                        .add("score", SqlTypeName.BIGINT).build();
+            }
+        });
+        schema.add("customers", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT)
+                        .add("label", SqlTypeName.VARCHAR, 20).build();
+            }
+        });
+        schema.add("regions", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT)
+                        .add("region", SqlTypeName.VARCHAR, 20).build();
+            }
+        });
+        var plan = new PangrovaPlanner(schema).plan(
+                "SELECT o.id, MAX(o.score) AS score, c.label, r.region FROM orders o "
+                        + "JOIN customers c ON o.id = c.id "
+                        + "JOIN regions r ON o.id = r.id "
+                        + "GROUP BY o.id, c.label, r.region ORDER BY score DESC LIMIT 10").plan();
+
+        var fragmented = PlanFragmenter.fragment(plan, 8);
+
+        assertThat(fragmented.transfers()).isNotEmpty();
+        assertThat(fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class)
+                        && containsRel(stage.fragment().relNode(), TableScan.class))
+                .toList()).isNotEmpty().allSatisfy(stage ->
+                        assertThat(stage.parallelism()).isOne());
     }
 
     @Test
@@ -659,6 +697,11 @@ class PlanFragmenterTest {
                 .map(PlanFragmenterTest::findExchangeInput)
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private static boolean containsRel(RelNode node, Class<? extends RelNode> type) {
+        return type.isInstance(node) || node.getInputs().stream()
+                .anyMatch(input -> containsRel(input, type));
     }
 
     private static io.substrait.proto.Rel serialize(RelNode node) throws Exception {
