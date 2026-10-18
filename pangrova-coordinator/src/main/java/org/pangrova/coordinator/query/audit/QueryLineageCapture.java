@@ -99,7 +99,9 @@ public final class QueryLineageCapture {
         List<String> sources = new ArrayList<>();
         List<String> targets = new ArrayList<>();
         for (List<String> ref : plannedQuery.tableReferences()) {
-            sources.add(String.join(".", ref));
+            var physical = org.pangrova.spi.connector.metadata.table.QualifiedTableName.resolve(ref);
+            sources.add(plannedQuery.physicalToLogicalDynamicTables()
+                    .getOrDefault(physical, physical).toString());
         }
         plannedQuery.dmlWriteTarget().ifPresent(t ->
                 targets.add(String.join(".", t.qualifiedTableName())));

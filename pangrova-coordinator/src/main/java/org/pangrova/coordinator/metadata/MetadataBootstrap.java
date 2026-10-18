@@ -9,6 +9,7 @@ import org.pangrova.metadata.catalog.ConnectorHandleFactory;
 import org.pangrova.metadata.catalog.FederationHandleFactory;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.mv.InMemoryMaterializedViewStore;
+import org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore;
 import org.pangrova.metadata.mv.MaterializedViewStore;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.service.DefaultMetadataService;
@@ -18,6 +19,8 @@ import org.pangrova.metadata.sync.MetadataSyncService;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.sql.DataSource;
 
 /**
  * Encapsulates the metadata subsystem initialization sequence for Coordinator startup.
@@ -33,6 +36,7 @@ public final class MetadataBootstrap {
     private final MetadataEventDispatcher eventDispatcher;
     private final MetadataSyncService syncService;
     private final MaterializedViewStore materializedViewStore;
+    private final DataSource dynamicTablePublicationDataSource;
 
     private MetadataBootstrap(
             CatalogRegistry catalogRegistry,
@@ -40,13 +44,15 @@ public final class MetadataBootstrap {
             TieredMetadataCache metadataCache,
             MetadataEventDispatcher eventDispatcher,
             MetadataSyncService syncService,
-            MaterializedViewStore materializedViewStore) {
+            MaterializedViewStore materializedViewStore,
+            DataSource dynamicTablePublicationDataSource) {
         this.catalogRegistry = catalogRegistry;
         this.metadataService = metadataService;
         this.metadataCache = metadataCache;
         this.eventDispatcher = eventDispatcher;
         this.syncService = syncService;
         this.materializedViewStore = materializedViewStore;
+        this.dynamicTablePublicationDataSource = dynamicTablePublicationDataSource;
     }
 
     /**
@@ -74,6 +80,15 @@ public final class MetadataBootstrap {
             MetadataStore store,
             ConnectorHandleFactory connectorHandleFactory,
             FederationHandleFactory federationHandleFactory) {
+        return initialize(store, connectorHandleFactory, federationHandleFactory, null);
+    }
+
+    /** Initializes durable Dynamic Table publications when the metadata JDBC authority is present. */
+    public static MetadataBootstrap initialize(
+            MetadataStore store,
+            ConnectorHandleFactory connectorHandleFactory,
+            FederationHandleFactory federationHandleFactory,
+            javax.sql.DataSource publicationDataSource) {
         TieredMetadataCache cache = new TieredMetadataCache();
         MetadataEventDispatcher dispatcher = new MetadataEventDispatcher();
         dispatcher.addListener(cache);
@@ -91,7 +106,8 @@ public final class MetadataBootstrap {
         registry.initialize();
         LOG.info("event=metadata_subsystem_initialized");
 
-        return new MetadataBootstrap(registry, service, cache, dispatcher, syncService, materializedViewStore);
+        return new MetadataBootstrap(registry, service, cache, dispatcher, syncService,
+                materializedViewStore, publicationDataSource);
     }
 
     /**
@@ -126,6 +142,12 @@ public final class MetadataBootstrap {
 
     public MaterializedViewStore materializedViewStore() {
         return materializedViewStore;
+    }
+
+    /** Returns the durable Dynamic Table publication authority, or null without JDBC metadata. */
+    public JdbcDynamicTablePublicationStore dynamicTablePublicationStore() {
+        return dynamicTablePublicationDataSource == null ? null
+                : new JdbcDynamicTablePublicationStore(dynamicTablePublicationDataSource);
     }
 
     /**

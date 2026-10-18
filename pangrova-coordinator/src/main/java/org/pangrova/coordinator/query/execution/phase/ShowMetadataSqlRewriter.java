@@ -19,7 +19,14 @@ final class ShowMetadataSqlRewriter {
         if (!(statement instanceof ShowMetadataStatement show)) {
             return null;
         }
-        if (!(show instanceof ShowMetadataStatement.ShowSnapshots)) {
+        String systemTable;
+        if (show instanceof ShowMetadataStatement.ShowSnapshots) {
+            systemTable = "snapshots";
+        } else if (show instanceof ShowMetadataStatement.ShowFiles) {
+            systemTable = "files";
+        } else if (show instanceof ShowMetadataStatement.ShowManifests) {
+            systemTable = "manifests";
+        } else {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "SHOW metadata kind has no Native system-table reader: "
                             + show.getClass().getSimpleName());
@@ -28,8 +35,8 @@ final class ShowMetadataSqlRewriter {
         if (parts.isEmpty() || parts.stream().anyMatch(
                 part -> !SIMPLE_NAME.matcher(part).matches())) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "SHOW SNAPSHOTS requires a simple ASCII table name until typed relation identity is available");
+                    "SHOW metadata requires a simple ASCII table name until typed relation identity is available");
         }
-        return "SELECT * FROM " + String.join(".", parts) + "$snapshots";
+        return "SELECT * FROM " + String.join(".", parts) + "$" + systemTable;
     }
 }

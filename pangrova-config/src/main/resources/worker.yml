@@ -37,6 +37,11 @@ worker:
       root-ca-path: ""
       identity: ""  # DNS identity present in the worker certificate
 
+  # Private COPY task control uses the transport TLS certificate and CA.
+  # Set a fixed nonzero port in distributed deployments for firewall routing.
+  copy:
+    task-tls-port: 0  # 0 = disabled; set a fixed port to enable private COPY control
+
   # ---- Task Execution ----
   task:
     result-retention-seconds: 300

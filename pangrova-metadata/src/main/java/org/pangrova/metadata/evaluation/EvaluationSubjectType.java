@@ -23,6 +23,7 @@ public enum EvaluationSubjectType {
     EMBEDDING_MODEL,
     SEARCH_SERVICE,
     SEMANTIC_VIEW,
+    FEATURE_VIEW,
     INDEX,
     CAPABILITY
 }

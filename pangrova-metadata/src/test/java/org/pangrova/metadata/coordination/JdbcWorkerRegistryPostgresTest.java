@@ -27,12 +27,13 @@ class JdbcWorkerRegistryPostgresTest {
                 "worker-1", "host-1", 8080, 9090, 2,
                 "rack-a", List.of("s3://bucket"),
                 "NONE", 0.1, 1, 1024L, now, now,
-                9191, null, inventory);
+                9191, null, inventory, 9443);
 
         registry.register(worker);
         WorkerSnapshot recovered = registry.getWorker("worker-1").orElseThrow();
 
         assertThat(recovered.resultServerPort()).isEqualTo(9191);
+        assertThat(recovered.copyTaskTlsPort()).isEqualTo(9443);
         assertThat(recovered.capabilityInventory()).isEqualTo(inventory);
 
         try (var connection = dataSource.getConnection();

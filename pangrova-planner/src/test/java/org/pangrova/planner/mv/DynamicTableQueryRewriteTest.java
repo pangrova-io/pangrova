@@ -2,11 +2,17 @@ package org.pangrova.planner.mv;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.parser.ast.RefreshStrategy;
+import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -112,6 +118,60 @@ class DynamicTableQueryRewriteTest {
     @Test
     void targetPrefixIsConsistent() {
         assertThat(DynamicTableRewriter.TARGET_PREFIX).isEqualTo("__dt_");
+    }
+
+    @Test
+    void selfJoinPinsOnePublishedGenerationBeforeSecondReference() {
+        var logical = new QualifiedTableName("lake", "analytics", "rollup");
+        var physical = new QualifiedTableName("lake", "analytics", "__pg_dt_first");
+        var reads = new AtomicInteger();
+        DynamicTableRewriter.PublishedTargetResolver resolver =
+                new DynamicTableRewriter.PublishedTargetResolver() {
+                    @Override
+                    public Optional<QualifiedTableName> canonicalLogical(List<String> nameParts) {
+                        return Optional.of(logical);
+                    }
+
+                    @Override
+                    public Optional<DynamicTableRewriter.PublishedTarget> resolve(List<String> nameParts) {
+                        if (reads.incrementAndGet() != 1) {
+                            throw new IllegalStateException("Publication changed during one SQL rewrite");
+                        }
+                        return Optional.of(new DynamicTableRewriter.PublishedTarget(logical, physical));
+                    }
+                };
+        var sqlRewriter = new DynamicTableSqlRewriter(
+                new PangrovaParserFactory(), new DynamicTableRewriter(resolver));
+
+        var rewritten = sqlRewriter.rewriteWithAuthority("SELECT a.id FROM lake.analytics.rollup a "
+                + "JOIN lake.analytics.rollup b ON a.id = b.id");
+
+        assertThat(reads).hasValue(1);
+        assertThat(rewritten.sql()).contains("FROM lake.analytics.__pg_dt_first a",
+                "JOIN lake.analytics.__pg_dt_first b");
+        assertThat(rewritten.physicalToLogical()).containsEntry(physical, logical);
+    }
+
+    @Test
+    void explicitPhysicalGenerationInSameSqlCannotInheritLogicalAuthority() {
+        var logical = new QualifiedTableName("lake", "analytics", "rollup");
+        var physical = new QualifiedTableName("lake", "analytics", "__pg_dt_first");
+        var sqlRewriter = new DynamicTableSqlRewriter(new PangrovaParserFactory(),
+                new DynamicTableRewriter(parts -> Optional.of(
+                        new DynamicTableRewriter.PublishedTarget(logical, physical))));
+
+        for (String sql : List.of(
+                "SELECT a.id FROM lake.analytics.rollup a JOIN lake.analytics.__pg_dt_first b ON a.id=b.id",
+                "SELECT a.id FROM lake.analytics.rollup a, lake.analytics.__pg_dt_first b",
+                "WITH c AS (SELECT id FROM lake.analytics.__pg_dt_first) "
+                        + "SELECT id FROM lake.analytics.rollup")) {
+            assertThatThrownBy(() -> sqlRewriter.rewriteWithAuthority(sql))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("Direct access");
+        }
+        assertThat(sqlRewriter.rewriteWithAuthority(
+                "SELECT id AS __pg_dt_alias FROM lake.analytics.rollup").sql())
+                .contains("lake.analytics.__pg_dt_first");
     }
 
     // --- helper ---

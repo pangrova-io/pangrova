@@ -36,11 +36,28 @@ All worker-side configuration keys, as defined by `WorkerOptions` in the
 | `worker.transport.tls.private-key-path` | string | `""` | Mounted PEM private key for the worker certificate |
 | `worker.transport.tls.root-ca-path` | string | `""` | Mounted PEM root CA used to verify both server and client peers |
 | `worker.transport.tls.identity` | string | `""` | Certificate DNS identity advertised to peer workers |
+| `worker.copy.task-tls-port` | int | `0` | Dedicated mTLS COPY task-control listen port; `0` disables it, and a fixed nonzero port enables it for distributed firewall and Service routing |
 
 When TLS is enabled, all four TLS values are mandatory. Partial configuration,
 unreadable PEM files, a TLS endpoint received by a plaintext worker, or a
 plaintext endpoint received by a TLS worker fail startup/task admission; there
 is no plaintext fallback.
+
+With transport TLS enabled and `worker.internal-auth-secret` configured, the
+Worker also binds a dedicated HTTPS task-control port for private
+COPY admission. It advertises this actual port in its Coordinator registration;
+the Coordinator stores it in the JDBC worker registry for leader recovery.
+This port requires a client certificate trusted by
+`worker.transport.tls.root-ca-path` and the normal `X-Internal-Auth` service
+secret. A COPY ticket on the ordinary HTTP task port receives HTTP 403. The
+Worker certificate must include `worker.advertised-host` in its DNS/IP SAN,
+because the Coordinator verifies the HTTPS hostname when it connects. Network
+policy must allow Coordinator nodes to reach the advertised private port.
+Production deployments should configure a fixed `worker.copy.task-tls-port` and
+expose it only to Coordinator nodes. A nonzero port without transport TLS is
+rejected during configuration.
+The URI form of `COPY INTO` remains disabled until source staging, Native scan,
+claim publication, and Iceberg commit reconciliation are connected.
 
 ## worker.task
 

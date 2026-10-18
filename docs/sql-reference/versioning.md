@@ -167,6 +167,11 @@ SHOW PARTITIONS FROM table_name;
 
 Returns partition information for the table.
 
+The distributed Native reader for `SHOW PARTITIONS` is not yet available;
+the statement currently fails with a planner error rather than returning
+unverified metadata. `SHOW SNAPSHOTS`, `SHOW FILES`, and `SHOW MANIFESTS` use
+the authorized system-table scan path for supported connectors.
+
 **Example:**
 
 ```sql

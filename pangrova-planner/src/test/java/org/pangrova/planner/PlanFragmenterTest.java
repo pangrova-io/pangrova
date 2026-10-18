@@ -13,6 +13,7 @@ import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalWindow;
 import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rel.core.Window;
+import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.TableModify;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.type.RelDataType;
@@ -167,6 +168,13 @@ class PlanFragmenterTest {
                         && containsRel(stage.fragment().relNode(), TableScan.class))
                 .toList()).isNotEmpty().allSatisfy(stage ->
                         assertThat(stage.parallelism()).isOne());
+        assertThat(fragmented.transfers().stream()
+                .filter(transfer -> containsRel(stage(fragmented, transfer.downstreamStageId())
+                        .fragment().relNode(), Aggregate.class))
+                .toList()).isNotEmpty().allSatisfy(transfer -> {
+                    assertThat(transfer.shuffleType()).isEqualTo(ShuffleType.SINGLETON);
+                    assertThat(transfer.partitionCount()).isOne();
+                });
     }
 
     @Test

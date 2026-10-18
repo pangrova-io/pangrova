@@ -46,15 +46,15 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                     + "(worker_id, host, http_port, transport_port, protocol_version, "
                     + "rack_id, data_locality, memory_pressure, cpu_utilization, "
                     + "running_task_count, available_memory_bytes, last_heartbeat_ms, registered_at_ms, "
-                    + "result_server_port, capability_inventory_proto) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "result_server_port, capability_inventory_proto, copy_task_tls_port) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SQL_UPDATE_REGISTRATION =
             "UPDATE worker_registry SET host=?, http_port=?, transport_port=?, "
                     + "protocol_version=?, rack_id=?, data_locality=?, "
                     + "memory_pressure=?, cpu_utilization=?, running_task_count=?, "
                     + "available_memory_bytes=?, last_heartbeat_ms=?, result_server_port=?, "
-                    + "capability_inventory_proto=? WHERE worker_id=?";
+                    + "capability_inventory_proto=?, copy_task_tls_port=? WHERE worker_id=?";
 
     private static final String SQL_HEARTBEAT =
             "UPDATE worker_registry SET memory_pressure=?, cpu_utilization=?, "
@@ -89,6 +89,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
     private static final int PARAM_REGISTERED_AT_MS = 13;
     private static final int PARAM_RESULT_SERVER_PORT = 14;
     private static final int PARAM_CAPABILITY_INVENTORY = 15;
+    private static final int PARAM_COPY_TASK_TLS_PORT = 16;
 
     private static final int MAX_REGISTER_ATTEMPTS = 3;
 
@@ -164,6 +165,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             ps.setLong(parameter++, w.lastHeartbeatMs());
             ps.setInt(parameter++, w.resultServerPort());
             ps.setString(parameter++, w.capabilityInventory());
+            ps.setInt(parameter++, w.copyTaskTlsPort());
             ps.setString(parameter, w.workerId());
             return ps.executeUpdate();
         }
@@ -185,6 +187,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
         ps.setLong(PARAM_REGISTERED_AT_MS, w.registeredAtMs());
         ps.setInt(PARAM_RESULT_SERVER_PORT, w.resultServerPort());
         ps.setString(PARAM_CAPABILITY_INVENTORY, w.capabilityInventory());
+        ps.setInt(PARAM_COPY_TASK_TLS_PORT, w.copyTaskTlsPort());
     }
 
     private static boolean isUniqueViolation(SQLException failure) {
@@ -303,7 +306,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 rs.getLong("registered_at_ms"),
                 rs.getInt("result_server_port"),
                 null,
-                rs.getString("capability_inventory_proto")
+                rs.getString("capability_inventory_proto"),
+                rs.getInt("copy_task_tls_port")
         );
     }
 

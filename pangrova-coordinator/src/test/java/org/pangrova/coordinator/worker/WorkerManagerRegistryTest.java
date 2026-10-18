@@ -42,7 +42,7 @@ class WorkerManagerRegistryTest {
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, null,
                 2, null, List.of(), null,
-                TestWorkerInfoBuilder.canonicalInventory());
+                TestWorkerInfoBuilder.canonicalInventory(), 8443);
     }
 
     private static WorkerSnapshot workerSnapshot(String id, long lastHeartbeatMs) {
@@ -52,7 +52,7 @@ class WorkerManagerRegistryTest {
                 "NONE", 0.1, 0, 1024L * 1024 * 1024,
                 lastHeartbeatMs, lastHeartbeatMs, 0, null,
                 org.pangrova.protocol.CapabilityInventoryCodec.encode(
-                        TestWorkerInfoBuilder.canonicalInventory()));
+                        TestWorkerInfoBuilder.canonicalInventory()), 8443);
     }
 
     // --- test cases ---
@@ -72,6 +72,7 @@ class WorkerManagerRegistryTest {
         assertThat(snapshot.host()).isEqualTo("host-w-1");
         assertThat(snapshot.httpPort()).isEqualTo(8080);
         assertThat(snapshot.transportPort()).isEqualTo(9090);
+        assertThat(snapshot.copyTaskTlsPort()).isEqualTo(8443);
     }
 
     /**
@@ -93,6 +94,7 @@ class WorkerManagerRegistryTest {
         // static fields unchanged
         assertThat(snapshot.host()).isEqualTo("host-w-2");
         assertThat(snapshot.httpPort()).isEqualTo(8080);
+        assertThat(snapshot.copyTaskTlsPort()).isEqualTo(8443);
     }
 
     /**
@@ -127,6 +129,8 @@ class WorkerManagerRegistryTest {
         assertThat(active).hasSize(3);
         assertThat(active).extracting(WorkerInfo::workerId)
                 .containsExactlyInAnyOrder("w-10", "w-11", "w-12");
+        assertThat(active).extracting(WorkerInfo::copyTaskTlsPort)
+                .containsOnly(8443);
     }
 
     /**

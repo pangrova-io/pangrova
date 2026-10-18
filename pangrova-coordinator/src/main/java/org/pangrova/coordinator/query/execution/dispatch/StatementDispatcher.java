@@ -182,9 +182,14 @@ public final class StatementDispatcher {
             return null;
         }
         if (resultService != null) {
-            return DispatchResult.fromControlPlane(
-                    resultService.dispatchControlPlaneRows(
-                            queryId, result.rows(), result.columnNames(), sm.toFinisher()));
+            var control = resultService.dispatchControlPlaneRows(
+                    queryId, result.rows(), result.columnNames(), () -> { });
+            // The response bytes and endpoint must be visible before FINISHED:
+            // Native CTAS may already have completed, while an outer DDL still
+            // needs to publish its metadata head and acknowledge the statement.
+            sm.setResultEndpoint(control.resultEndpoint());
+            sm.toFinisher().run();
+            return DispatchResult.fromControlPlane(control);
         }
         sm.tryTransition(QueryStateMachine.State.SCHEDULING);
         sm.tryTransition(QueryStateMachine.State.RUNNING);

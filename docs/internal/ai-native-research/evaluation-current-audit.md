@@ -97,3 +97,84 @@ The current executor documents that a row passes only when the rule predicate is
 The seven former precomputed-runner tests are replaced with real PostgreSQL 16 SQL executions. They retain successful/violating rules, blank rejection, genuine query failure, aggregate/sample construction, and no sampling on success. The former manufactured connection failure is now an actual dropped-relation failure with exact PostgreSQL SQLSTATE 42P01 and exact propagated server message. Two further cases cover twenty UNKNOWN rows with the existing ten-row sample cap and an empty real table. All nine passed with no skips; the twelve-module nearest verification also passed Checkstyle and SpotBugs. The initial missing test-scoped PostgreSQL container dependency compile failure is retained, and the dependency is now declared explicitly.
 
 This independent SQL oracle proves predicate construction and result handling. Production still instantiates DefaultQualityRuleExecutor, and no real GovernanceQueryRunner currently connects quality execution to the sole Calcite/Substrait/Velox chain. Count and sample snapshots, authenticated/fenced result publication, bounded native diagnostics, and replacing the production placeholder remain unfinished.
+
+## 2026-10-18 — numerical evaluation release policy
+
+The release gate previously checked `passed` and metric names/units but did not read
+`metric_value`. It could approve a candidate with a worse numeric result when the
+caller marked `passed=true`. A new tenant-scoped `EvaluationMetricPolicy` now pins an
+explicit policy version to a list of metric names, units, directions, absolute
+thresholds, and maximum **absolute** baseline regressions. The direction is
+mandatory (`HIGHER_IS_BETTER` or `LOWER_IS_BETTER`); no metric-name heuristic is
+used. A candidate must provide exactly the policy's named metrics, each with the
+declared unit, and meet both the absolute threshold and its pinned baseline
+comparison. The existing `passed=false` rejection remains an additional gate.
+Approval checks the persisted PostgreSQL values in the release-decision transaction.
+
+Policy publication inserts all rules and seals the version in one transaction.
+PostgreSQL guards prevent later policy/rule UPDATE, DELETE, TRUNCATE or additions to
+a sealed policy. A new run cannot start without a sealed policy version; a database
+trigger records that the sealed policy existed at run insertion and prevents that
+pin, the run's policy version, baseline, subject, dataset, and other identity
+fields from being changed. It also permits only one terminal transition.
+The V63 database fence stamps that transition with its PostgreSQL transaction
+ID and permits metric INSERTs only in that same transaction. Later INSERTs and
+all metric UPDATE, DELETE, and TRUNCATE operations are rejected. Evaluation
+dataset versions and release decisions likewise reject UPDATE, DELETE, and
+TRUNCATE, so an approved decision cannot silently point to edited evidence.
+Evaluation runs also reject DELETE and TRUNCATE, including unpublished runs with
+no dependent metric or decision rows.
+The database also rejects a terminal `completed_at` before `started_at` and
+checks that a directly inserted release decision matches a terminal run and is
+dated at or after its completion. These checks mirror the Java API's time order
+and prevent direct SQL from persisting an inverted audit timeline.
+Pre-V62 runs have no such
+proof and cannot be approved.
+API and database
+checks reject non-finite threshold and regression values, negative regression
+allowances, empty policies, and duplicate names; the existing metric value checks
+reject NaN and infinities. Existing runs that predate V62 remain in history. A rejected decision can
+still be recorded for audit.
+
+This contract follows the explicit metric direction and absolute threshold semantics
+documented by [MLflow `MetricThreshold`](https://mlflow.org/docs/latest/api_reference/python_api/mlflow.models.html)
+and its distinct metric identity/version concept in
+[MLflow `EvaluationMetric`](https://mlflow.org/docs/latest/api_reference/python_api/mlflow.metrics.html).
+Pangrova's `maximumBaselineRegression` is its own bounded non-regression allowance,
+not MLflow's minimum-improvement setting. We deliberately do not implement a
+relative percentage here: zero or negative baselines need a separately specified
+policy before that can be safe.
+
+The nearest Testcontainers/PostgreSQL 16 test inserts actual label/prediction rows,
+computes 9/10 and 8/10 accuracy with SQL, durably publishes both results, and proves
+that `passed=true` cannot approve the degraded candidate. Other cases exercise
+lower-is-better latency, absolute threshold, allowed regression, missing policy,
+and sealed-policy mutation. This is a real persistence and numerical-release-gate
+slice; the SQL aggregation in that test is an independent oracle, **not** a
+production Pangrova evaluator. There is still no production evaluation task caller
+or Native Worker computation of metrics from version-pinned datasets, no manifest
+digest verification at execution, and no deployment/index release consumer of the
+recorded decision. Those remain separate production gaps.
+
+### Published Feature View materialization-volume evidence
+
+`EvaluationStore.completeFeatureViewMaterializationRun` reads a `FEATURE_VIEW`
+run's artifact ID and generation, joins the tenant-scoped catalog export request
+to its immutable Feature View definition, published artifact job, and tabular
+generation, then verifies the run's dataset pins that publication's source
+snapshot, manifest URI/SHA-256, and row count. It atomically records the
+`materialized_rows` metric in `rows`. The numerical release gate rechecks the
+publication and rejects a caller-supplied or subsequently altered count. Counts
+above 2^53 are rejected because the existing evaluation metric column is a
+double and could otherwise silently round an integer. A retired generation
+remains addressable as historical evidence after a newer publication.
+
+This measures exported row volume. It does **not** measure feature correctness,
+freshness, leakage, model accuracy, or candidate quality. The policy's explicit
+`HIGHER_IS_BETTER` minimum row threshold is an operational volume gate, not a
+general recommendation that more rows are better. The real Native Feature View
+E2E covers an approved two-row export, a rejected one-row export after policy
+changes, and rejection of a forged two-row metric for that one-row publication.
+The call is a production metadata API invoked by that end-to-end flow; automated
+evaluation scheduling, multi-source point-in-time joining, and quality metric
+computation in Native workers remain open gaps.

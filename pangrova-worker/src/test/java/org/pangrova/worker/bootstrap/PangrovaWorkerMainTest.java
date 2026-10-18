@@ -115,7 +115,8 @@ class PangrovaWorkerMainTest {
                 "worker.transport.tls.certificate-chain-path", "/secrets/worker.crt",
                 "worker.transport.tls.private-key-path", "/secrets/worker.key",
                 "worker.transport.tls.root-ca-path", "/secrets/ca.crt",
-                "worker.transport.tls.identity", "worker-1.internal"));
+                "worker.transport.tls.identity", "worker-1.internal",
+                "worker.copy.task-tls-port", "8443"));
 
         WorkerBootstrapConfig.TransportSecurityConfig security =
                 PangrovaWorkerMain.buildBootstrapConfig(config).transportSecurityConfig();
@@ -125,6 +126,7 @@ class PangrovaWorkerMainTest {
         assertThat(security.privateKeyPath()).isEqualTo("/secrets/worker.key");
         assertThat(security.rootCaPath()).isEqualTo("/secrets/ca.crt");
         assertThat(security.tlsIdentity()).isEqualTo("worker-1.internal");
+        assertThat(security.copyTaskTlsPort()).isEqualTo(8443);
     }
 
     @Test
@@ -137,6 +139,16 @@ class PangrovaWorkerMainTest {
                 () -> PangrovaWorkerMain.buildBootstrapConfig(config))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("requires certificate, private key, root CA and identity");
+    }
+
+    @Test
+    void copyTaskPortRequiresTransportTls() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(
+                Map.of("worker.copy.task-tls-port", "8443"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> PangrovaWorkerMain.buildBootstrapConfig(config))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("COPY task TLS port requires transport TLS");
     }
 
     @Test

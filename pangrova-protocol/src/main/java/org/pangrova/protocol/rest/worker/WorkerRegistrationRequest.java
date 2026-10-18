@@ -27,9 +27,19 @@ public record WorkerRegistrationRequest(
         @JsonProperty("rack_id") String rackId,
         @JsonProperty("data_locality") List<String> dataLocality,
         @JsonProperty("shuffle_mode") String shuffleMode,
-        @JsonProperty(WorkerRegistrationRequest.INVENTORY_PROPERTY) String capabilityInventory) {
+        @JsonProperty(WorkerRegistrationRequest.INVENTORY_PROPERTY) String capabilityInventory,
+        @JsonProperty("copy_task_tls_port") int copyTaskTlsPort) {
+
+    public WorkerRegistrationRequest(String workerId, String httpHost, int httpPort,
+                                     int transportPort, int resultServerPort, int protocolVersion,
+                                     String rackId, List<String> dataLocality, String shuffleMode,
+                                     String capabilityInventory) {
+        this(workerId, httpHost, httpPort, transportPort, resultServerPort, protocolVersion,
+                rackId, dataLocality, shuffleMode, capabilityInventory, 0);
+    }
 
     public static final String INVENTORY_PROPERTY = "capability_inventory";
+    private static final int MAX_TCP_PORT = 65535;
     public static final int MAX_METADATA_JSON_BYTES = 1024 * 1024;
     /** Maximum serialized body: bounded metadata plus Base64 inventory and its JSON field. */
     public static final int MAX_REGISTRATION_BODY_BYTES = MAX_METADATA_JSON_BYTES
@@ -45,6 +55,10 @@ public record WorkerRegistrationRequest(
         requireNonNegative(httpPort, "httpPort");
         requireNonNegative(transportPort, "transportPort");
         requireNonNegative(resultServerPort, "resultServerPort");
+        requireNonNegative(copyTaskTlsPort, "copyTaskTlsPort");
+        if (copyTaskTlsPort > MAX_TCP_PORT) {
+            throw new IllegalArgumentException("copyTaskTlsPort must be <= 65535");
+        }
         if (protocolVersion != CanonicalTaskRequests.PROTOCOL_MAJOR) {
             throw new IllegalArgumentException(
                     "protocolVersion must equal canonical v2");

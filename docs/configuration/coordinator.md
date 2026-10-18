@@ -45,6 +45,14 @@ disabled is rejected. `coordinator.host` is an HTTP bind address and does not
 set the advertised result address. Configure the advertised host explicitly for
 clients on other machines; the loopback default is only locally reachable.
 
+The Coordinator uses the same transport TLS certificate, private key, and root CA
+for ticket-bearing private COPY task submissions. It dials the Worker's registered
+HTTPS task-control port and verifies the certificate against the registered Worker
+hostname. A missing TLS configuration, secure port, or internal service secret
+rejects the submission before the bearer ticket is serialized or sent. The
+ordinary task HTTP route remains for tasks without a COPY ticket. URI-source
+`COPY INTO` SQL is still rejected until the source and commit chain is completed.
+
 ## coordinator.speculation
 
 | Key | Type | Default | Description |

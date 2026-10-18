@@ -46,6 +46,59 @@ public final class JdbcEvaluationStore implements EvaluationStore {
     }
 
     @Override
+    public void createMetricPolicy(EvaluationMetricPolicy policy) {
+        Objects.requireNonNull(policy, "policy must not be null");
+        String parentSql = "INSERT INTO evaluation_metric_policies (tenant_id,policy_version) VALUES (?,?)";
+        String ruleSql = "INSERT INTO evaluation_metric_policy_rules "
+                + "(tenant_id,policy_version,metric_name,metric_unit,direction,"
+                + "threshold_value,maximum_baseline_regression) VALUES (?,?,?,?,?,?,?)";
+        String sealSql = "UPDATE evaluation_metric_policies SET sealed=TRUE "
+                + "WHERE tenant_id=? AND policy_version=?";
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement parent = connection.prepareStatement(parentSql);
+                    PreparedStatement rule = connection.prepareStatement(ruleSql)) {
+                parent.setString(1, policy.tenantId());
+                parent.setString(2, policy.version());
+                parent.executeUpdate();
+                for (EvaluationMetricRule metric : policy.rules()) {
+                    rule.setString(1, policy.tenantId());
+                    rule.setString(2, policy.version());
+                    rule.setString(3, metric.name());
+                    rule.setString(4, metric.unit());
+                    rule.setString(5, metric.direction().name());
+                    rule.setDouble(6, metric.threshold());
+                    rule.setDouble(7, metric.maximumBaselineRegression());
+                    rule.addBatch();
+                }
+                rule.executeBatch();
+                try (PreparedStatement seal = connection.prepareStatement(sealSql)) {
+                    seal.setString(1, policy.tenantId());
+                    seal.setString(2, policy.version());
+                    seal.executeUpdate();
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException failure) {
+                rollback(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to create evaluation metric policy", failure);
+        }
+    }
+
+    @Override
+    public Optional<EvaluationMetricPolicy> findMetricPolicy(String tenantId, String version) {
+        EvaluationValidation.requireText(tenantId, "tenantId");
+        EvaluationValidation.requireText(version, "version");
+        try (Connection connection = dataSource.getConnection()) {
+            return JdbcEvaluationReleaseGate.loadPolicy(connection, tenantId, version);
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to find evaluation metric policy", failure);
+        }
+    }
+
+    @Override
     public void createDatasetVersion(EvaluationDatasetVersion dataset) {
         Objects.requireNonNull(dataset, "dataset must not be null");
         String sql = "INSERT INTO evaluation_dataset_versions (tenant_id,dataset_id,version,"
@@ -98,6 +151,11 @@ public final class JdbcEvaluationStore implements EvaluationStore {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
+                if (JdbcEvaluationReleaseGate.loadPolicy(
+                        connection, run.tenantId(), run.policyVersion()).isEmpty()) {
+                    throw new IllegalStateException(
+                            "Evaluation metric policy does not exist: " + run.policyVersion());
+                }
                 validateBaseline(connection, run);
                 insertRun(connection, run);
                 connection.commit();
@@ -166,6 +224,44 @@ public final class JdbcEvaluationStore implements EvaluationStore {
             }
         } catch (SQLException failure) {
             throw new MetastoreException("Failed to complete evaluation run", failure);
+        }
+    }
+
+    @Override
+    public boolean completeFeatureViewMaterializationRun(
+            String tenantId, String runId, Instant completedAt) {
+        EvaluationValidation.requireText(tenantId, "tenantId");
+        EvaluationValidation.requireText(runId, "runId");
+        Objects.requireNonNull(completedAt, "completedAt must not be null");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                EvaluationRun run = findRun(connection, tenantId, runId, false)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Evaluation run does not exist: " + runId));
+                if (run.state() != EvaluationRunState.RUNNING) {
+                    connection.rollback();
+                    return false;
+                }
+                EvaluationMetric metric = JdbcFeatureViewEvaluationEvidence
+                        .load(connection, run).metric();
+                int changed = updateTerminalRun(
+                        connection, tenantId, runId, EvaluationRunState.SUCCEEDED,
+                        metric.evidenceReference(), null, completedAt);
+                if (changed == 0) {
+                    connection.rollback();
+                    return false;
+                }
+                insertMetrics(connection, tenantId, runId, List.of(metric));
+                connection.commit();
+                return true;
+            } catch (SQLException | RuntimeException failure) {
+                rollback(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException(
+                    "Failed to complete Feature View materialization evaluation", failure);
         }
     }
 
@@ -275,6 +371,19 @@ public final class JdbcEvaluationStore implements EvaluationStore {
             String traceReference,
             String failureClass,
             Instant completedAt) throws SQLException {
+        String startSql = "SELECT started_at FROM evaluation_runs "
+                + "WHERE tenant_id=? AND run_id=? AND state='RUNNING'";
+        try (PreparedStatement start = connection.prepareStatement(startSql)) {
+            start.setString(1, tenantId);
+            start.setString(2, runId);
+            try (ResultSet result = start.executeQuery()) {
+                if (result.next()
+                        && completedAt.isBefore(getInstant(result, "started_at"))) {
+                    throw new IllegalArgumentException(
+                            "completedAt must not precede startedAt");
+                }
+            }
+        }
         String sql = "UPDATE evaluation_runs SET state=?,completed_at=?,trace_reference=?,"
                 + "failure_class=? WHERE tenant_id=? AND run_id=? AND state='RUNNING' RETURNING started_at";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -365,6 +474,14 @@ public final class JdbcEvaluationStore implements EvaluationStore {
         if (run.state() != EvaluationRunState.SUCCEEDED) {
             throw new IllegalStateException("Only a successful evaluation can be approved");
         }
+        if (run.subjectType() == EvaluationSubjectType.FEATURE_VIEW) {
+            JdbcFeatureViewEvaluationEvidence.requirePublishedMetric(connection, run);
+        }
+        if (!JdbcEvaluationReleaseGate.hasPinnedPolicy(
+                connection, run.tenantId(), run.runId())) {
+            throw new IllegalStateException(
+                    "Approval requires a metric policy pinned before evaluation run creation");
+        }
         MetricGate gate = loadMetricGate(connection, run.tenantId(), run.runId());
         if (gate.metricCount() == 0 || gate.failedCount() != 0) {
             throw new IllegalStateException(
@@ -382,6 +499,9 @@ public final class JdbcEvaluationStore implements EvaluationStore {
             JdbcEvaluationReleaseGate.requireComparableMetrics(
                     connection, run.tenantId(), run.runId(), run.baselineRunId());
         }
+        JdbcEvaluationReleaseGate.requireNumericalPolicy(
+                connection, run.tenantId(), run.runId(), run.baselineRunId(),
+                run.policyVersion());
     }
 
     private static MetricGate loadMetricGate(

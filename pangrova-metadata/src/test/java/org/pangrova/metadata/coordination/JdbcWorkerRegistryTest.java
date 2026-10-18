@@ -40,6 +40,7 @@ class JdbcWorkerRegistryTest {
                     http_port INT NOT NULL,
                     transport_port INT NOT NULL,
                     result_server_port INT NOT NULL DEFAULT 0,
+                    copy_task_tls_port INT NOT NULL DEFAULT 0,
                     protocol_version INT NOT NULL DEFAULT 2 CHECK (protocol_version = 2),
                     capability_inventory_proto TEXT NOT NULL,
                     rack_id VARCHAR(128),

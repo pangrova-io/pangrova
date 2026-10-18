@@ -212,6 +212,8 @@ final class QuerySchedulingEngine {
                     tableHandle, dmlCtx, catalogHandle, deferredAuthority, allocationIntent));
             LOG.info("event=write_context_auto_registered queryId={} table={} writeMode={}",
                     queryId, targetTable, dmlCtx.writeMode());
+        } catch (org.pangrova.spi.security.AccessDeniedException denied) {
+            throw denied;
         } catch (Exception e) {
             throw new IllegalStateException(
                     "Distributed write context registration failed for queryId="
@@ -405,7 +407,8 @@ final class QuerySchedulingEngine {
                                      long timeoutMs) {
         long timeoutSec = TimeUnit.MILLISECONDS.toSeconds(timeoutMs);
         try {
-            QueryStateMachine.State terminal = query.terminalStateReady().get(timeoutMs, TimeUnit.MILLISECONDS);
+            QueryStateMachine.State terminal = query.nativeWriteCompletionReady()
+                    .get(timeoutMs, TimeUnit.MILLISECONDS);
             if (terminal != QueryStateMachine.State.FINISHED) {
                 throw new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
                         "Native DML task failed: queryId=" + queryId

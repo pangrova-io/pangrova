@@ -85,6 +85,10 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
     private StatementResult executeDml(Statement statement, StatementExecutionContext ctx) {
         validateInsertValuesGovernance(statement, ctx.session());
         requireGeneratedColumnPlanIfNeeded(statement, ctx.session());
+        // The Native write can finish before the dispatcher publishes its bounded
+        // control-plane acknowledgement. Keep FINISHED hidden until that endpoint exists.
+        checkNotNull(ctx.stateMachine(), "DML query state")
+                .deferTerminalUntilControlPlaneResult();
         DispatchResult result = dmlDispatch.apply(ctx.stateMachine(), ctx.session(),
                 statement);
         if (result == null) {

@@ -31,6 +31,7 @@ import org.pangrova.common.http.HttpClientFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
@@ -68,6 +69,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     private static final long EPOCH_CATCHUP_RETRY_MS = 250;
 
     private final HttpClient httpClient;
+    private volatile HttpClient copyTaskTlsClient;
     private final org.pangrova.common.http.ManagedHttpClient managedClient;
     private final ObjectMapper mapper;
     private final CircuitBreakerPolicy circuitBreakerPolicy;
@@ -79,6 +81,16 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     // reject stale-epoch submissions during split-brain windows.
     private volatile LongSupplier controlEpochSupplier;
     private volatile Function<String, ExecutionOwnerIdentity> executionOwnerResolver;
+
+    /** Installs explicit mutual-TLS identity and CA for private COPY task submissions. */
+    public void configureCopyTaskTls(ShuffleTlsConfig config) {
+        checkNotNull(config, "config must not be null");
+        this.copyTaskTlsClient = HttpClient.newBuilder()
+                .sslContext(org.pangrova.common.http.PemMutualTls.context(
+                        config.certificateChain(), config.privateKey(), config.rootCa()))
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+    }
 
     public RemoteTaskDispatcher(CircuitBreakerPolicy circuitBreakerPolicy, TracingProvider tracingProvider) {
         this(circuitBreakerPolicy, tracingProvider, null);
@@ -236,7 +248,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
         SubmitTaskRequest stamped = bindControlIdentity(request);
-        requireEncryptedCopyTaskTransport(stamped);
+        requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
         while (true) {
@@ -244,7 +256,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                 throw epochCatchupExpired(worker);
             }
             verifyControlIdentityStillCurrent(stamped, worker);
-            HttpResponse<String> response = sendPost(worker, body, deadline);
+            HttpResponse<String> response = sendPost(stamped, worker, body, deadline);
             if (response.statusCode() != HTTP_EPOCH_AHEAD) {
                 return handleResponse(worker, response, stamped);
             }
@@ -320,8 +332,9 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
     }
 
-    private HttpResponse<String> sendPost(WorkerInfo worker, byte[] body, long deadline) {
-        String url = "http://" + worker.host() + ":" + worker.httpPort() + "/v1/task";
+    private HttpResponse<String> sendPost(SubmitTaskRequest request, WorkerInfo worker,
+                                          byte[] body, long deadline) {
+        String url = taskUrl(request, worker);
         LOG.debug("event=task_dispatch url={}", url);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -334,7 +347,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         injectInternalAuth(builder);
 
         try {
-            return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            return taskClient(request).send(builder.build(), HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED,
@@ -411,7 +424,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
         // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
         SubmitTaskRequest stamped = bindControlIdentity(request);
-        requireEncryptedCopyTaskTransport(stamped);
+        requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
 
@@ -427,13 +440,24 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                 });
     }
 
-    private static void requireEncryptedCopyTaskTransport(SubmitTaskRequest request) {
+    private void requireEncryptedCopyTaskTransport(SubmitTaskRequest request, WorkerInfo worker) {
         if (request.copySourceRead() != null) {
-            // Both current dispatch paths build http:// Worker URLs. A bearer
-            // nonce cannot enter that transport even if the Worker rejects it.
-            throw new IllegalStateException(
-                    "COPY private task dispatch requires authenticated encrypted transport");
+            if (copyTaskTlsClient == null || worker.copyTaskTlsPort() == 0
+                    || internalAuthSecret == null || internalAuthSecret.isBlank()) {
+                throw new IllegalStateException(
+                        "COPY private task dispatch requires registered mTLS port and service identity");
+            }
         }
+    }
+
+    private HttpClient taskClient(SubmitTaskRequest request) {
+        return request.copySourceRead() == null ? httpClient : copyTaskTlsClient;
+    }
+
+    private static String taskUrl(SubmitTaskRequest request, WorkerInfo worker) {
+        boolean privateCopy = request.copySourceRead() != null;
+        return (privateCopy ? "https://" : "http://") + worker.host() + ":"
+                + (privateCopy ? worker.copyTaskTlsPort() : worker.httpPort()) + "/v1/task";
     }
 
     private CompletableFuture<DispatchResult> sendAsyncWithEpochCatchup(
@@ -446,7 +470,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         } catch (RuntimeException e) {
             return CompletableFuture.failedFuture(e);
         }
-        return httpClient.sendAsync(buildAsyncRequest(worker, body, deadline),
+        return taskClient(stamped).sendAsync(buildAsyncRequest(stamped, worker, body, deadline),
                         HttpResponse.BodyHandlers.ofString())
                 .thenCompose(response -> {
                     if (response.statusCode() != HTTP_EPOCH_AHEAD) {
@@ -469,8 +493,9 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                 });
     }
 
-    private HttpRequest buildAsyncRequest(WorkerInfo worker, byte[] body, long deadline) {
-        String url = "http://" + worker.host() + ":" + worker.httpPort() + "/v1/task";
+    private HttpRequest buildAsyncRequest(SubmitTaskRequest request, WorkerInfo worker,
+                                          byte[] body, long deadline) {
+        String url = taskUrl(request, worker);
         LOG.debug("event=async_task_dispatch url={}", url);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()

@@ -46,6 +46,7 @@ descriptions live in the per-component pages.
 | `worker.transport.tls.private-key-path` | `""` | Worker PEM private key |
 | `worker.transport.tls.root-ca-path` | `""` | Peer-verification PEM root CA |
 | `worker.transport.tls.identity` | `""` | Advertised certificate DNS identity |
+| `worker.copy.task-tls-port` | `0` | Dedicated mTLS COPY task-control port; `0` disables it, and a fixed port enables it for distributed deployment |
 | `worker.task.result-retention-seconds` | `300` | Result retention window |
 | `worker.shuffle.buffer-capacity` | `100` | Batches per shuffle partition buffer |
 | `worker.shuffle.max-memory-bytes` | 512 MB | Total shuffle memory budget |

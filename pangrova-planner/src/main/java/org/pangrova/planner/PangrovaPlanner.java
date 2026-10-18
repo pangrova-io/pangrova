@@ -145,7 +145,8 @@ public final class PangrovaPlanner {
         // Collect merge-on-read resolutions during SQL rewrite
         List<DynamicTableResolution.MergeOnRead> mergeOnReadHints =
                 dynamicTablePlanningSupport.collectMergeOnReadHints(sql);
-        String rewrittenSql = dynamicTablePlanningSupport.rewriteIfWired(sql);
+        var rewrite = dynamicTablePlanningSupport.rewriteIfWired(sql);
+        String rewrittenSql = rewrite.sql();
         dynamicTablePlanningSupport.logCteMaterializationHints(rewrittenSql);
         SqlNode sqlNode = parse(rewrittenSql);
         SqlValidator validator = buildValidator();
@@ -162,7 +163,8 @@ public final class PangrovaPlanner {
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
         if (containsMutation(relNode)) {
             verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of(), mergeOnReadHints);
+            return new PlanResult(relNode, preOptColumnNames, List.of(), mergeOnReadHints,
+                    rewrite.physicalToLogical());
         }
         RelNode optimized = optimizationRunner.optimize(relNode);
         List<RuntimeFilterDescriptor> filterDescriptors =
@@ -173,21 +175,24 @@ public final class PangrovaPlanner {
         // Verify metadata versions unchanged after compilation
         verifyMetadataVersions(pinnedVersions);
 
-        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors, mergeOnReadHints);
+        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors,
+                mergeOnReadHints, rewrite.physicalToLogical());
     }
 
     /** Binds SQL without deriving facts from expressions that security policies may replace. */
     public PlanResult planForPolicyApplication(String sql) {
         List<DynamicTableResolution.MergeOnRead> mergeOnReadHints =
                 dynamicTablePlanningSupport.collectMergeOnReadHints(sql);
-        String rewrittenSql = dynamicTablePlanningSupport.rewriteIfWired(sql);
+        var rewrite = dynamicTablePlanningSupport.rewriteIfWired(sql);
+        String rewrittenSql = rewrite.sql();
         dynamicTablePlanningSupport.logCteMaterializationHints(rewrittenSql);
         SqlValidator validator = buildValidator();
         SqlNode validated = validate(validator, parse(rewrittenSql));
         RelNode relation = convert(validator, buildCluster(), validated);
         Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of(), mergeOnReadHints);
+        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of(),
+                mergeOnReadHints, rewrite.physicalToLogical());
     }
 
     /** Optimizes only after authorization and policies; mutations retain their physical target until COW. */
@@ -199,7 +204,8 @@ public final class PangrovaPlanner {
         List<RuntimeFilterDescriptor> descriptors = materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         // An MV substitution would introduce a different source that has not passed this query's authority.
         recordConstantFold(optimized);
-        return new PlannedQuery(optimized, query.columnNames(), descriptors, query.mergeOnReadHints());
+        return new PlannedQuery(optimized, query.columnNames(), descriptors,
+                query.mergeOnReadHints(), query.physicalToLogicalDynamicTables());
     }
 
     /**

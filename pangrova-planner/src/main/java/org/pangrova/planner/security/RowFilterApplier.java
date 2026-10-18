@@ -47,19 +47,29 @@ public final class RowFilterApplier {
 
     private final AccessControl accessControl;
     private final PolicyObservationSink observations;
+    private final java.util.Map<QualifiedTableName, QualifiedTableName> physicalToLogical;
 
     public RowFilterApplier(AccessControl accessControl) {
-        this(accessControl, null);
+        this(accessControl, null, java.util.Map.of());
     }
 
-    private RowFilterApplier(AccessControl accessControl, PolicyObservationSink observations) {
+    private RowFilterApplier(AccessControl accessControl, PolicyObservationSink observations,
+            java.util.Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         this.accessControl = java.util.Objects.requireNonNull(accessControl, "accessControl");
         this.observations = observations;
+        this.physicalToLogical = java.util.Map.copyOf(physicalToLogical);
     }
 
     /** Binds observations to this query without changing the policy authority. */
     public RowFilterApplier observing(PolicyObservationSink sink) {
-        return new RowFilterApplier(accessControl, java.util.Objects.requireNonNull(sink, "sink"));
+        return new RowFilterApplier(accessControl, java.util.Objects.requireNonNull(sink, "sink"),
+                physicalToLogical);
+    }
+
+    /** Uses logical Dynamic Table policy identity for this query's physical scans. */
+    public RowFilterApplier withAuthorityMapping(
+            java.util.Map<QualifiedTableName, QualifiedTableName> mapping) {
+        return new RowFilterApplier(accessControl, observations, mapping);
     }
 
     /**
@@ -92,8 +102,9 @@ public final class RowFilterApplier {
 
     private RelNode applyFilterToScan(TableScan scan, UserIdentity identity) {
         QualifiedTableName ref = PlanNodeTransform.extractTableRef(scan);
+        QualifiedTableName authority = physicalToLogical.getOrDefault(ref, ref);
         Optional<String> filter = accessControl.getRowFilter(
-                identity, ref.catalog(), ref.schema(), ref.table());
+                identity, authority.catalog(), authority.schema(), authority.table());
         if (observations != null) {
             observations.rowFilter(ref, filter);
         }

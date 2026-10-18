@@ -241,6 +241,8 @@ class IncrementalAggregationE2ETest extends SqlE2ETestBase {
             List<TypedRow> fullRecompute = sqlRunner.execute(
                     "SELECT region, COUNT(*) AS cnt, MIN(price) AS min_price, MAX(price) AS max_price FROM "
                             + SOURCE + " GROUP BY region ORDER BY region");
+            assertThat(fullRecompute).extracting(row -> row.getRaw("region"))
+                    .containsExactly("EAST", "SOUTH", "WEST");
 
             // Build delta result (batch 2 aggregated independently)
             IncrementalResult deltaResult = buildIncrementalDelta(

@@ -88,6 +88,8 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-planner:ValidationStatus",
             "pangrova-metadata:RefreshStatus",
             "pangrova-metadata:DynamicTableLifecycleState",
+            // Durable definition/head publication state, distinct from refresh-job lifecycle.
+            "pangrova-metadata:DynamicTablePublication.State",
             "pangrova-metadata:MaterializedViewState",
             "pangrova-coordinator:SchedulerCancelResult.Status",
             "pangrova-security:AuthenticatorHealthStatus",

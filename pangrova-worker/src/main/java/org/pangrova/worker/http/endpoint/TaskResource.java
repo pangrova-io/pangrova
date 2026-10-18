@@ -8,8 +8,10 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.servlet.http.HttpServletRequest;
 import org.pangrova.observability.logging.LogContext;
 import org.pangrova.observability.tracing.NativeTraceExporter;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
@@ -133,12 +135,19 @@ public final class TaskResource implements Closeable {
 
     /** Submits a new task for execution. */
     @POST
-    public Response submitTask(SubmitTaskRequest request) {
+    public Response submitTask(SubmitTaskRequest request, @Context HttpServletRequest transport) {
         if (request == null) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(
                             new org.pangrova.protocol.rest.error.ErrorDetail(
                                     "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
+                    .build();
+        }
+        if (request.copySourceRead() != null && (transport == null || !transport.isSecure())) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
+                            "COPY_SECURE_TRANSPORT_REQUIRED", "SECURITY_ERROR",
+                            "COPY private task requires mutual-TLS transport"))
                     .build();
         }
         LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
@@ -151,6 +160,11 @@ public final class TaskResource implements Closeable {
             endSpan(span);
             LogContext.clear();
         }
+    }
+
+    /** Direct-call compatibility for tests that do not host an HTTP transport. */
+    public Response submitTask(SubmitTaskRequest request) {
+        return submitTask(request, null);
     }
 
     private Response executeSubmit(SubmitTaskRequest request) {

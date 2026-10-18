@@ -34,6 +34,10 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
     }
 
     static WritePolicyObservation capture(ObservedPlan observed, SqlCompiler compiler, Statement statement) {
+        if (!observed.plan().physicalToLogicalDynamicTables().isEmpty()) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Dynamic Table write sources require logical-identity deferred authorization");
+        }
         var schemas = AuthorizedRelationSchemas.extract(observed.plan().serializeValidated(compiler));
         if (!schemas.keySet().equals(observed.policies().keySet())) {
             throw new org.pangrova.spi.security.AccessDeniedException(

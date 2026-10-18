@@ -322,7 +322,7 @@ public final class WorkerManager {
                 existing.performanceScore(), existing.resourcePoolId(),
                 existing.protocolVersion(),
                 existing.rackId(), existing.dataLocality(), newSummary,
-                existing.capabilityInventory());
+                existing.capabilityInventory(), existing.copyTaskTlsPort());
     }
 
     /**
@@ -402,7 +402,8 @@ public final class WorkerManager {
                 info.lastHeartbeat().toEpochMilli(),
                 info.resultServerPort(),
                 info.cacheSummary(),
-                inventoryPool.encode(info.capabilityInventory()));
+                inventoryPool.encode(info.capabilityInventory()),
+                info.copyTaskTlsPort());
     }
 
     private static HeartbeatSnapshot toHeartbeatSnapshot(HeartbeatData data) {
@@ -433,7 +434,8 @@ public final class WorkerManager {
                 snapshot.rackId(),
                 snapshot.dataLocality(),
                 snapshot.cacheSummary(),
-                CapabilityInventoryCodec.decode(snapshot.capabilityInventory()));
+                CapabilityInventoryCodec.decode(snapshot.capabilityInventory()),
+                snapshot.copyTaskTlsPort());
     }
 
     private HealthState classifyHealth(long elapsedMs) {

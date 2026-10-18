@@ -51,7 +51,6 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         try (var fixture = new SchedulingWriteFixture(warehouse, generated)) {
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
                     session("missing-authority"), fixture.context()))
-                    .isInstanceOf(IllegalStateException.class).rootCause()
                     .isInstanceOf(AccessDeniedException.class).hasMessageContaining("before connector allocation");
 
             assertNoAllocation(fixture, "missing-authority");
@@ -83,7 +82,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             });
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
                     session("revoked"), fixture.context()))
-                    .isInstanceOf(IllegalStateException.class).rootCause().isInstanceOf(AccessDeniedException.class);
+                    .isInstanceOf(AccessDeniedException.class);
             assertThat(fixture.observations).hasSize(1);
             assertNoAllocation(fixture, "revoked");
         }
@@ -110,7 +109,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
                     session("wrong-declaration"), fixture.context()))
-                    .isInstanceOf(IllegalStateException.class).rootCause().isInstanceOf(AccessDeniedException.class)
+                    .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("current table declaration");
             assertNoAllocation(fixture, "wrong-declaration");
         }
@@ -233,7 +232,6 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
                     Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.DELETE), fixture.declaration())));
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(session("changed"), changed))
-                    .isInstanceOf(IllegalStateException.class).rootCause()
                     .isInstanceOf(AccessDeniedException.class).hasMessageContaining("different authority or declaration");
             assertThat(fixture.observations).hasSize(2);
             assertThat(fixture.metadata.inserts).isEqualTo(1);
@@ -252,7 +250,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             fixture.evolveActualSchema();
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(session("schema-change"), context))
-                    .isInstanceOf(IllegalStateException.class).rootCause().isInstanceOf(AccessDeniedException.class)
+                    .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("changed before admission");
             assertThat(fixture.observations).hasSize(1);
             assertThat(fixture.metadata.inserts).isEqualTo(1);
@@ -272,7 +270,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
                     new UserIdentity(principal, Set.of(), Map.of(), Instant.EPOCH), tenant);
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(changed, context))
-                    .isInstanceOf(IllegalStateException.class).rootCause().isInstanceOf(AccessDeniedException.class)
+                    .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("different authority or declaration");
             assertThat(fixture.observations).hasSize(2);
             assertThat(fixture.metadata.inserts).isEqualTo(1);

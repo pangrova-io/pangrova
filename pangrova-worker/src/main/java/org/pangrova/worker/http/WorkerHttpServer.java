@@ -14,28 +14,45 @@ import org.pangrova.worker.http.endpoint.TaskResource;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.operations.bootstrap.HealthCheckEndpoint;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.HttpConfiguration;
+import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.SecureRequestCustomizer;
+import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.servlet.FilterHolder;
+import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.glassfish.jersey.jackson.JacksonFeature;
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.ServerProperties;
 import org.glassfish.jersey.servlet.ServletContainer;
 
+import java.nio.file.Path;
+import java.util.EnumSet;
+
 /**
  * Embedded HTTP server for Worker task operations and health checks.
  * Uses Jetty + Jersey for JAX-RS endpoint hosting.
  */
-public class WorkerHttpServer {
+public final class WorkerHttpServer {
 
     static final int WORKER_MAX_THREADS = 64;
 
     private final Server server;
+    private final ServerConnector copyTaskTlsConnector;
     private final TaskResource taskResource;
     private final org.pangrova.worker.dataset.NativeDatasetControlService datasetControl;
+    private final org.pangrova.worker.copy.CopyStageLeases copyStageLeases;
 
     /** Worker HTTP server configuration. */
     public record WorkerHttpConfig(int port, String workerHost, int transportPort,
-                                   String internalAuthSecret, String resultProtocol) {
+                                   String internalAuthSecret, String resultProtocol,
+                                   CopyTaskTls copyTaskTls) {
+        public WorkerHttpConfig(int port, String workerHost, int transportPort,
+                                String internalAuthSecret, String resultProtocol) {
+            this(port, workerHost, transportPort, internalAuthSecret, resultProtocol, null);
+        }
         /** Convenience constructor without auth secret (no auth). */
         public WorkerHttpConfig(int port, String workerHost, int transportPort) {
             this(port, workerHost, transportPort, null, "grpc");
@@ -44,6 +61,21 @@ public class WorkerHttpServer {
         public WorkerHttpConfig(
                 int port, String workerHost, int transportPort, String internalAuthSecret) {
             this(port, workerHost, transportPort, internalAuthSecret, "grpc");
+        }
+    }
+
+    /** Worker identity and trusted Coordinator CA for a dedicated private task listener. */
+    public record CopyTaskTls(Path certificateChain, Path privateKey, Path rootCa, int port) {
+        private static final int MAX_TCP_PORT = 65535;
+
+        public CopyTaskTls(Path certificateChain, Path privateKey, Path rootCa) {
+            this(certificateChain, privateKey, rootCa, 0);
+        }
+
+        public CopyTaskTls {
+            if (port < 0 || port > MAX_TCP_PORT) {
+                throw new IllegalArgumentException("COPY task TLS port must be in [0, 65535]");
+            }
         }
     }
 
@@ -71,23 +103,63 @@ public class WorkerHttpServer {
                             ExchangeTransport exchangeTransport, HealthCheckEndpoint healthCheckEndpoint,
                             org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
                             org.pangrova.worker.result.ResultReadTickets resultTickets) {
+        this(config, taskManager, exchangeTransport, healthCheckEndpoint, datasetControl,
+                resultTickets, null);
+    }
+
+    /** Optionally serves the separate pre-claim COPY staging operation. */
+    public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
+                            ExchangeTransport exchangeTransport, HealthCheckEndpoint healthCheckEndpoint,
+                            org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
+                            org.pangrova.worker.result.ResultReadTickets resultTickets,
+                            org.pangrova.worker.copy.CopyStageLeases copyStageLeases) {
         checkNotNull(config, "config must not be null");
         checkNotNull(taskManager, "taskManager must not be null");
         checkNotNull(exchangeTransport, "exchangeTransport must not be null");
         this.datasetControl = datasetControl;
+        this.copyStageLeases = copyStageLeases;
         this.taskResource = new TaskResource(
                 taskManager, exchangeTransport,
                 new org.pangrova.worker.exchange.source.ExchangeSourceRegistry(),
                 config.workerHost(), config.transportPort(), null,
                 new TaskResource.ResultBinding(config.resultProtocol(), resultTickets));
         ResourceConfig resourceConfig = buildResourceConfig(
-                healthCheckEndpoint, taskResource, config.internalAuthSecret(), datasetControl);
+                healthCheckEndpoint, taskResource, config.internalAuthSecret(), datasetControl,
+                copyStageLeases == null ? null
+                        : new org.pangrova.worker.http.endpoint.CopyStageResource(
+                                taskManager, copyStageLeases));
         ServletContainer servletContainer = new ServletContainer(resourceConfig);
         ServletContextHandler handler = new ServletContextHandler();
         handler.setContextPath("/");
+        if (copyStageLeases != null) {
+            handler.addFilter(new FilterHolder(new org.pangrova.worker.http.endpoint.CopyStageTlsFilter()),
+                    "/v1/task/copy-stage", EnumSet.of(jakarta.servlet.DispatcherType.REQUEST));
+        }
         handler.addServlet(new ServletHolder(servletContainer), "/*");
         this.server = EmbeddedHttpServerFactory.create(
                 config.port(), handler, WORKER_MAX_THREADS);
+        if (config.copyTaskTls() == null) {
+            this.copyTaskTlsConnector = null;
+        } else {
+            CopyTaskWireLoggingPolicy.requireSafeJettyLogging();
+            if (config.internalAuthSecret() == null || config.internalAuthSecret().isBlank()) {
+                throw new IllegalArgumentException(
+                        "COPY private task listener requires internal service authentication");
+            }
+            SslContextFactory.Server tls = new SslContextFactory.Server();
+            tls.setSslContext(org.pangrova.common.http.PemMutualTls.context(
+                    config.copyTaskTls().certificateChain(),
+                    config.copyTaskTls().privateKey(), config.copyTaskTls().rootCa()));
+            tls.setNeedClientAuth(true);
+            tls.setIncludeProtocols("TLSv1.3", "TLSv1.2");
+            HttpConfiguration https = new HttpConfiguration();
+            https.addCustomizer(new SecureRequestCustomizer());
+            this.copyTaskTlsConnector = new ServerConnector(server,
+                    new SslConnectionFactory(tls, "http/1.1"),
+                    new HttpConnectionFactory(https));
+            this.copyTaskTlsConnector.setPort(config.copyTaskTls().port());
+            server.addConnector(copyTaskTlsConnector);
+        }
     }
 
     public void start() throws Exception {
@@ -102,7 +174,8 @@ public class WorkerHttpServer {
         } catch (Exception stopFailure) {
             failure = stopFailure;
         }
-        for (AutoCloseable endpoint : new AutoCloseable[] {datasetControl, taskResource}) {
+        for (AutoCloseable endpoint : new AutoCloseable[] {
+                datasetControl, taskResource, copyStageLeases}) {
             if (endpoint == null) continue;
             try {
                 endpoint.close();
@@ -118,11 +191,18 @@ public class WorkerHttpServer {
         return EmbeddedHttpServerFactory.getPort(server);
     }
 
+    /** Zero means no private mTLS task listener is configured. */
+    public int getCopyTaskTlsPort() {
+        return copyTaskTlsConnector == null ? 0 : copyTaskTlsConnector.getLocalPort();
+    }
+
     private static ResourceConfig buildResourceConfig(
             HealthCheckEndpoint healthCheckEndpoint, TaskResource taskResource,
-            String internalAuthSecret, org.pangrova.worker.dataset.NativeDatasetControlService datasetControl) {
+            String internalAuthSecret, org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
+            org.pangrova.worker.http.endpoint.CopyStageResource copyStageResource) {
         ResourceConfig rc = new ResourceConfig();
         rc.register(taskResource);
+        if (copyStageResource != null) rc.register(copyStageResource);
         if (datasetControl != null) {
             rc.register(new org.pangrova.worker.http.endpoint.NativeDatasetControlResource(datasetControl));
         }

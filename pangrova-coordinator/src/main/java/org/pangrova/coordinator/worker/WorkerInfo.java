@@ -33,7 +33,23 @@ public record WorkerInfo(
         String rackId,
         List<String> dataLocality,
         CacheCatalogSummary cacheSummary,
-        CapabilityInventory capabilityInventory) {
+        CapabilityInventory capabilityInventory,
+        int copyTaskTlsPort) {
+    private static final int MAX_TCP_PORT = 65535;
+
+    /** Compatibility constructor for snapshots without a dedicated COPY task listener. */
+    @SuppressWarnings("checkstyle:ParameterNumber")
+    public WorkerInfo(String workerId, String host, int httpPort, int transportPort,
+                      int resultServerPort, HealthState healthState, MemoryPressure memoryPressure,
+                      double cpuUtilization, int runningTaskCount, long availableMemoryBytes,
+                      Instant lastHeartbeat, double performanceScore, String resourcePoolId,
+                      int protocolVersion, String rackId, List<String> dataLocality,
+                      CacheCatalogSummary cacheSummary, CapabilityInventory capabilityInventory) {
+        this(workerId, host, httpPort, transportPort, resultServerPort, healthState,
+                memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes,
+                lastHeartbeat, performanceScore, resourcePoolId, protocolVersion, rackId,
+                dataLocality, cacheSummary, capabilityInventory, 0);
+    }
 
     public WorkerInfo {
         checkNotNull(workerId, "workerId must not be null");
@@ -41,6 +57,9 @@ public record WorkerInfo(
         checkNotNull(healthState, "healthState must not be null");
         checkNotNull(memoryPressure, "memoryPressure must not be null");
         checkNotNull(lastHeartbeat, "lastHeartbeat must not be null");
+        if (copyTaskTlsPort < 0 || copyTaskTlsPort > MAX_TCP_PORT) {
+            throw new IllegalArgumentException("copyTaskTlsPort must be a valid optional TCP port");
+        }
         if (protocolVersion != CanonicalTaskRequests.PROTOCOL_MAJOR) {
             throw new IllegalArgumentException(
                     "protocolVersion must equal canonical v2");
@@ -61,7 +80,7 @@ public record WorkerInfo(
                 newState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, cacheSummary, capabilityInventory);
+                rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort);
     }
 
     /** Returns a Worker snapshot with the updated cache summary. */
@@ -70,13 +89,13 @@ public record WorkerInfo(
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, summary, capabilityInventory);
+                rackId, dataLocality, summary, capabilityInventory, copyTaskTlsPort);
     }
 
     WorkerInfo withCapabilityInventory(CapabilityInventory inventory) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, resultServerPort,
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore, resourcePoolId,
-                protocolVersion, rackId, dataLocality, cacheSummary, inventory);
+                protocolVersion, rackId, dataLocality, cacheSummary, inventory, copyTaskTlsPort);
     }
 }

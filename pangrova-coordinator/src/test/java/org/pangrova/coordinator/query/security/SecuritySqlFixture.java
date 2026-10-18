@@ -17,6 +17,7 @@ import org.pangrova.metadata.catalog.CatalogState;
 import org.pangrova.metadata.catalog.CatalogType;
 import org.pangrova.metadata.store.JdbcMetadataStore;
 import org.pangrova.planner.PangrovaPlanner;
+import org.pangrova.planner.PlannerContext;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
@@ -38,6 +39,11 @@ import org.pangrova.security.store.PersistentGrantStore;
 import org.pangrova.security.store.PersistentRoleStore;
 import org.pangrova.security.store.PersistentRowPolicyStore;
 import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
+import org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore;
+import org.pangrova.planner.mv.DynamicTableRewriter;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -58,9 +64,10 @@ final class SecuritySqlFixture implements AutoCloseable {
     private final PersistentRowPolicyStore policies;
     private final PersistentColumnMaskStore masks;
     private final DynamicRbacAccessControl authority;
+    private final DataSource dataSource;
 
     SecuritySqlFixture(Path warehouse) throws Exception {
-        var dataSource = SharedPostgresContainer.migratedDataSource("security_sql");
+        dataSource = SharedPostgresContainer.migratedDataSource("security_sql");
         var roles = new PersistentRoleStore(dataSource);
         roles.initSchema();
         for (String role : ROLES) {
@@ -76,7 +83,7 @@ final class SecuritySqlFixture implements AutoCloseable {
         configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
         catalog = new HadoopCatalog(configuration, warehouse.toString());
         catalog.createNamespace(Namespace.of("default"));
-        for (String table : List.of("orders", "source_orders")) {
+        for (String table : List.of("orders", "source_orders", "__pg_dt_secure_generation")) {
             catalog.createTable(TableIdentifier.of("default", table), ordersSchema());
         }
         var store = new JdbcMetadataStore(dataSource);
@@ -96,8 +103,40 @@ final class SecuritySqlFixture implements AutoCloseable {
     }
 
     SecurityPolicyApplier applier() {
-        return new SecurityPolicyApplier(compiler, new AccessControlEnforcer(authority),
+        return applier(compiler);
+    }
+
+    SecurityPolicyApplier applier(SqlCompiler selectedCompiler) {
+        return new SecurityPolicyApplier(selectedCompiler, new AccessControlEnforcer(authority),
                 new ColumnMaskApplier(authority), new RowFilterApplier(authority));
+    }
+
+    SqlCompiler dynamicTableCompiler() {
+        var publications = new JdbcDynamicTablePublicationStore(dataSource);
+        publications.create("security-test-tenant", "default.default.rollup",
+                "SELECT id FROM default.default.orders", "default", "default");
+        publications.publish(publications.load("security-test-tenant", "default.default.rollup")
+                .orElseThrow(), "default.default.__pg_dt_secure_generation");
+        var schema = metadata.buildCalciteSchema(SessionContextConverter.toConnectorSession(
+                session("schema_reader", Set.of())));
+        var rewrite = new DynamicTableRewriter(new DurableDynamicTableResolver(publications,
+                "security-test-tenant", "default", "default"));
+        var context = new PlannerContext(null, null, null, null, null, rewrite, null, null, null);
+        return new SqlCompiler(new PangrovaPlanner(schema, List.of("default", "default"), context),
+                new SubstraitConverter(), new SubstraitPlanSerializer());
+    }
+
+    void grantTable(String role, Privilege privilege, String table) {
+        grants.addGrant(PrivilegeGrant.of(role, privilege,
+                "TABLE", "default", "default", table, null));
+    }
+
+    void savePolicy(RowPolicy policy) {
+        policies.savePolicy(policy);
+    }
+
+    void saveMask(ColumnMask mask) {
+        masks.saveColumnMask(mask);
     }
 
     SecurityPolicyApplier withoutAccessEnforcer() {

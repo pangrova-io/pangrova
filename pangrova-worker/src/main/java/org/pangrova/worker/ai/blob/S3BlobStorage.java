@@ -51,6 +51,11 @@ public final class S3BlobStorage implements BlobStorage {
         this(buildClient(settings), settings, true);
     }
 
+    /** Dedicated managed backend for COPY staging with bounded S3 network I/O. */
+    public static S3BlobStorage forCopyStaging(Settings settings) {
+        return new S3BlobStorage(buildCopyClient(settings), settings, true);
+    }
+
     /** Uses a caller-configured S3 client while retaining all publication and read checks. */
     public S3BlobStorage(S3Client client, Settings settings) {
         this(client, settings, false);
@@ -96,7 +101,13 @@ public final class S3BlobStorage implements BlobStorage {
                         stream.response().ssekmsKeyId());
                 return stream;
             } catch (IOException failure) {
-                stream.close();
+                // Apache close drains unread bodies; a rejected object must not
+                // hold the staging thread while the remote endpoint trickles data.
+                try {
+                    stream.abort();
+                } catch (RuntimeException abortFailure) {
+                    failure.addSuppressed(abortFailure);
+                }
                 throw failure;
             }
         } catch (SdkException failure) {
@@ -278,6 +289,20 @@ public final class S3BlobStorage implements BlobStorage {
         if (settings.endpoint() != null) {
             builder.endpointOverride(settings.endpoint());
         }
+        return builder.build();
+    }
+
+    private static S3Client buildCopyClient(Settings settings) {
+        Objects.requireNonNull(settings, "settings must not be null");
+        var builder = S3Client.builder()
+                .region(Region.of(settings.region()))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(settings.pathStyleAccess()).build());
+        if (settings.endpoint() != null) {
+            builder.endpointOverride(settings.endpoint());
+        }
+        CopyS3ClientPolicy.configure(builder);
         return builder.build();
     }
 

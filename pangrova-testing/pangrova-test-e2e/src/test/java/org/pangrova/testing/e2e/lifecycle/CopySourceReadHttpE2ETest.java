@@ -26,6 +26,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.http.EmbeddedHttpServerFactory;
+import org.pangrova.common.http.PemMutualTls;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
@@ -39,6 +41,14 @@ import org.pangrova.metadata.storage.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.store.SchemaMigrationRunner;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.v2.Checksum;
+import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.SecurityContext;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.security.authn.OAuth2Authenticator;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
@@ -62,7 +72,10 @@ import org.pangrova.spi.storage.StorageType;
 import org.pangrova.testing.ContainerTestBase;
 import org.pangrova.worker.ai.blob.S3BlobStorage;
 import org.pangrova.worker.copy.CopySourceReadClient;
+import org.pangrova.worker.copy.CopyStageLeases;
 import org.pangrova.worker.copy.CopySourceStagingCommand;
+import org.pangrova.worker.http.WorkerHttpServer;
+import org.pangrova.worker.task.TaskManager;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -84,6 +97,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -95,6 +109,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CopySourceReadHttpE2ETest extends ContainerTestBase {
     private static final String ACCESS_KEY = "copy-http-e2e";
     private static final String SECRET_KEY = "copy-http-e2e-secret";
+    private static final org.pangrova.shuffle.exchange.ExchangeTransport NO_EXCHANGE =
+            new org.pangrova.shuffle.exchange.ExchangeTransport() {
+                @Override public void bindInputs(long executorHandle,
+                        org.pangrova.shuffle.exchange.ExchangeTaskAttempt attempt,
+                        List<org.pangrova.shuffle.exchange.ExchangeInput> inputs) {
+                    throw new AssertionError("COPY staging must not bind Native exchange");
+                }
+                @Override public void releaseInputs(long executorHandle) {}
+            };
 
     @TempDir Path stagingRoot;
     private Level priorJettyLevel;
@@ -185,15 +208,43 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                         scope.deadlineEpochMs()))))
                                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
 
-                        var proof = command.execute(ticket.nonce(), wireScope);
+                        var stagedTask = copyTask(wireScope, ticket.nonce());
+                        var certs = certificates();
+                        CopySourceReadHttp.StagedSource proof;
+                        try (var tasks = TaskManager.forHttpWiringOnly()) {
+                            tasks.requireControlEpochHandshake();
+                            tasks.observeControlEpoch(wireScope.controlEpoch());
+                            var worker = new WorkerHttpServer(
+                                    new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0,
+                                            authority.secret(), "grpc",
+                                            new WorkerHttpServer.CopyTaskTls(
+                                                    certs.serverCert(), certs.serverKey(), certs.ca())),
+                                    tasks, NO_EXCHANGE, null, null, null,
+                                    new CopyStageLeases(command, null));
+                            try {
+                                worker.start();
+                                var stageClient = HttpClient.newBuilder().sslContext(
+                                        PemMutualTls.context(certs.clientCert(),
+                                                certs.clientKey(), certs.ca())).build();
+                                var stageUri = URI.create("https://localhost:"
+                                        + worker.getCopyTaskTlsPort() + "/v1/task/copy-stage");
+                                proof = postStage(stageClient, stageUri, authority.secret(), stagedTask);
+                                assertThat(postStage(stageClient, stageUri, authority.secret(), stagedTask))
+                                        .isEqualTo(proof);
+                                objects.deleteObject(request -> request.bucket(sourceBucket)
+                                        .key("data/part.parquet").versionId(version));
+                                assertThat(postStage(stageClient, stageUri, authority.secret(), stagedTask))
+                                        .isEqualTo(proof);
+                            } finally {
+                                worker.stop();
+                            }
+                        }
                         assertThat(proof.sourceVersionId()).isEqualTo(version);
                         assertThat(proof.managedObjectUri()).startsWith(managed.rootUri() + "/tenants/");
                         try (var input = managed.open(proof.tenantScope(), proof.contentSha256(),
                                 proof.contentSize())) {
                             assertThat(input.readAllBytes()).isEqualTo(bytes);
                         }
-                        objects.deleteObject(request -> request.bucket(sourceBucket)
-                                .key("data/part.parquet").versionId(version));
                         assertThat(command.execute(ticket.nonce(), wireScope)).isEqualTo(proof);
                         java.nio.file.Path localPath;
                         try (var local = command.executeForNative(ticket.nonce(), wireScope)) {
@@ -305,6 +356,89 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
     private static StaticCredentialsProvider credentials() {
         return StaticCredentialsProvider.create(AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY));
     }
+
+    private static SubmitTaskRequest copyTask(CopySourceReadHttp.Scope scope, String nonce) {
+        byte[] plan = {1};
+        var canonical = TaskRequest.newBuilder()
+                .setProtocol(CanonicalTaskRequests.protocolVersion())
+                .setAttempt(TaskAttemptId.newBuilder()
+                        .setQueryOrJobId(scope.executionId())
+                        .setTaskId(scope.stagingAttemptId())
+                        .setPlanEpoch(1)
+                        .setFencingToken((1L << 32) | 1L)
+                        .setControlEpoch(scope.controlEpoch())
+                        .setExecutionOwner(ExecutionOwnerIdentity.newBuilder()
+                                .setOwnerId(scope.ownerId())
+                                .setOwnerIncarnation(scope.ownerIncarnation())
+                                .setFencingToken(scope.ownerFencingToken())))
+                .setTaskKind(TaskKind.TASK_KIND_WRITE)
+                .setSecurity(SecurityContext.newBuilder()
+                        .setTenantId(scope.tenantId()).setPrincipal(scope.principal()))
+                .setSubstraitPlan(com.google.protobuf.ByteString.copyFrom(plan))
+                .setSubstraitPlanChecksum(CanonicalTaskRequests.sha256(plan))
+                .setCopySourceStagingCommandSha256(Checksum.newBuilder()
+                        .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
+                        .setDigest(com.google.protobuf.ByteString.copyFrom(
+                                HexFormat.of().parseHex(scope.commandSha256()))))
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                        .setGrantId(scope.stagingAttemptId() + ":grant")
+                        .setCpuSlots(1).setNativeMemoryBytes(64L * 1024 * 1024))
+                .setDeadlineEpochMs(scope.deadlineEpochMs())
+                .build();
+        return SubmitTaskRequest.from(canonical,
+                new CopySourceReadHttp.RedeemRequest(nonce, scope));
+    }
+
+    private static CopySourceReadHttp.StagedSource postStage(HttpClient client, URI uri,
+            String secret, SubmitTaskRequest task) throws Exception {
+        var request = HttpRequest.newBuilder(uri)
+                .header("Content-Type", "application/json")
+                .header("X-Internal-Auth", secret)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(
+                        JsonMapperFactory.shared().writeValueAsBytes(task)))
+                .build();
+        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(200);
+        return JsonMapperFactory.shared().readValue(response.body(),
+                CopySourceReadHttp.StagedSource.class);
+    }
+
+    private CertificateFiles certificates() throws Exception {
+        Path ca = stagingRoot.resolve("ca.pem");
+        Path caKey = stagingRoot.resolve("ca.key");
+        run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", caKey.toString(), "-out", ca.toString(),
+                "-subj", "/CN=Pangrova test CA", "-days", "1");
+        Path serverCert = issue("server", ca, caKey, "subjectAltName=DNS:localhost");
+        Path clientCert = issue("client", ca, caKey, "extendedKeyUsage=clientAuth");
+        return new CertificateFiles(ca, serverCert, stagingRoot.resolve("server.key"),
+                clientCert, stagingRoot.resolve("client.key"));
+    }
+
+    private Path issue(String name, Path ca, Path caKey, String extension) throws Exception {
+        Path key = stagingRoot.resolve(name + ".key");
+        Path csr = stagingRoot.resolve(name + ".csr");
+        Path cert = stagingRoot.resolve(name + ".pem");
+        run("openssl", "genpkey", "-algorithm", "RSA", "-out", key.toString(),
+                "-pkeyopt", "rsa_keygen_bits:2048");
+        run("openssl", "req", "-new", "-key", key.toString(), "-out", csr.toString(),
+                "-subj", "/CN=" + name);
+        Path ext = stagingRoot.resolve(name + ".ext");
+        java.nio.file.Files.writeString(ext, extension + System.lineSeparator());
+        run("openssl", "x509", "-req", "-in", csr.toString(), "-CA", ca.toString(),
+                "-CAkey", caKey.toString(), "-CAcreateserial", "-out", cert.toString(),
+                "-days", "1", "-extfile", ext.toString());
+        return cert;
+    }
+
+    private static void run(String... command) throws Exception {
+        Process process = new ProcessBuilder(List.of(command)).redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes());
+        if (process.waitFor() != 0) throw new IllegalStateException(output);
+    }
+
+    private record CertificateFiles(Path ca, Path serverCert, Path serverKey,
+                                    Path clientCert, Path clientKey) {}
 
     private byte[] actualParquetBytes() throws Exception {
         Path file = stagingRoot.resolve("actual-source.parquet");

@@ -53,20 +53,43 @@ public final class WorkerHttpBootstrap {
                             workerHost,
                             resultPort,
                             config.internalAuthSecret(),
-                            resultProtocol);
+                            resultProtocol,
+                            copyTaskTls(config.transportSecurityConfig()));
             HealthCheckEndpoint healthEndpoint = buildHealthEndpoint(started, refs);
             ExchangeTransport exchangeTransport = refs.exchangeTransport();
             var control = datasetControl(refs);
-            WorkerHttpServer server =
-                    new WorkerHttpServer(
+            var stageLeases = copyStageLeases(config);
+            WorkerHttpServer server;
+            try {
+                server = new WorkerHttpServer(
                             httpConfig,
                             refs.taskManager(),
                             exchangeTransport,
                             healthEndpoint,
                             control,
                             new org.pangrova.worker.result.ResultReadTickets(
-                                    refs.shuffleHmacCurrentKey()));
-            server.start();
+                                    refs.shuffleHmacCurrentKey()),
+                            stageLeases);
+            } catch (RuntimeException | Error failure) {
+                if (stageLeases != null) {
+                    try {
+                        stageLeases.close();
+                    } catch (Exception cleanup) {
+                        failure.addSuppressed(cleanup);
+                    }
+                }
+                throw failure;
+            }
+            try {
+                server.start();
+            } catch (Exception failure) {
+                try {
+                    server.stop();
+                } catch (Exception cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
+                throw failure;
+            }
             refs.setHttpServer(server);
             refs.setWorker(new PangrovaWorker(new WorkerComponents(refs.taskManager())));
             LOG.info(
@@ -76,6 +99,44 @@ public final class WorkerHttpBootstrap {
         } catch (Exception e) {
             throw new BootstrapFailedException("HTTP", e);
         }
+    }
+
+    private static org.pangrova.worker.copy.CopyStageLeases copyStageLeases(
+            WorkerBootstrapConfig config) {
+        if (config.transportSecurityConfig().copyTaskTlsPort() == 0) return null;
+        var file = config.nativeFunctionConfig().configForPlugin("ai-inference");
+        if (!"s3".equals(file.get("file.storage-backend"))) {
+            throw new IllegalArgumentException(
+                    "COPY stage listener requires managed S3 FILE storage");
+        }
+        String stagingRoot = file.get("file.storage-staging-root");
+        if (stagingRoot == null || stagingRoot.isBlank()) {
+            throw new IllegalArgumentException("COPY stage listener requires a staging root");
+        }
+        var storage = org.pangrova.worker.ai.blob.S3BlobStorage.forCopyStaging(
+                org.pangrova.worker.ai.blob.S3BlobStorageSettingsParser.parse(file));
+        try {
+            var command = new org.pangrova.worker.copy.CopySourceStagingCommand(
+                    new org.pangrova.worker.copy.CopySourceReadClient(
+                            config.coordinatorUrl(), config.internalAuthSecret()),
+                    storage, java.nio.file.Path.of(stagingRoot).resolve("copy-source"),
+                    1024L * 1024 * 1024);
+            return new org.pangrova.worker.copy.CopyStageLeases(command, storage);
+        } catch (RuntimeException failure) {
+            storage.close();
+            throw failure;
+        }
+    }
+
+    /** Flight TLS remains independent of the explicitly enabled private COPY listener. */
+    static WorkerHttpServer.CopyTaskTls copyTaskTls(
+            WorkerBootstrapConfig.TransportSecurityConfig security) {
+        if (security.copyTaskTlsPort() == 0) return null;
+        return new WorkerHttpServer.CopyTaskTls(
+                java.nio.file.Path.of(security.certificateChainPath()),
+                java.nio.file.Path.of(security.privateKeyPath()),
+                java.nio.file.Path.of(security.rootCaPath()),
+                security.copyTaskTlsPort());
     }
 
     private static org.pangrova.worker.dataset.NativeDatasetControlService datasetControl(

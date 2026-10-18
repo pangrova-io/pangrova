@@ -115,13 +115,28 @@ public record WorkerBootstrapConfig(
             String certificateChainPath,
             String privateKeyPath,
             String rootCaPath,
-            String tlsIdentity) {
+            String tlsIdentity,
+            int copyTaskTlsPort) {
+        private static final int MAX_TCP_PORT = 65535;
+
+        public TransportSecurityConfig(boolean enabled, String certificateChainPath,
+                                       String privateKeyPath, String rootCaPath,
+                                       String tlsIdentity) {
+            this(enabled, certificateChainPath, privateKeyPath, rootCaPath,
+                    tlsIdentity, 0);
+        }
 
         public TransportSecurityConfig {
             certificateChainPath = normalize(certificateChainPath);
             privateKeyPath = normalize(privateKeyPath);
             rootCaPath = normalize(rootCaPath);
             tlsIdentity = normalize(tlsIdentity);
+            if (copyTaskTlsPort < 0 || copyTaskTlsPort > MAX_TCP_PORT) {
+                throw new IllegalArgumentException("COPY task TLS port must be in [0, 65535]");
+            }
+            if (!enabled && copyTaskTlsPort != 0) {
+                throw new IllegalArgumentException("COPY task TLS port requires transport TLS");
+            }
             checkDisabledConfiguration(
                     enabled, certificateChainPath, privateKeyPath, rootCaPath, tlsIdentity);
             checkEnabledConfiguration(
@@ -129,7 +144,7 @@ public record WorkerBootstrapConfig(
         }
 
         public static TransportSecurityConfig disabled() {
-            return new TransportSecurityConfig(false, "", "", "", "");
+            return new TransportSecurityConfig(false, "", "", "", "", 0);
         }
 
         private static String normalize(String value) {

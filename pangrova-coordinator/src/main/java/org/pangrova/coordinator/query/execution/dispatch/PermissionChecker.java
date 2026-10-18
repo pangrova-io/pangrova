@@ -2,9 +2,12 @@ package org.pangrova.coordinator.query.execution.dispatch;
 
 import org.pangrova.coordinator.query.statement.StatementClassifier;
 import org.pangrova.coordinator.query.statement.TableResolver;
+import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.CreateCatalogStatement;
+import org.pangrova.parser.ast.CreateDynamicTableStatement;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
@@ -47,16 +50,42 @@ public final class PermissionChecker {
             accessControl.checkCanManageStorageProfile(user, profileName);
             return;
         }
+        QualifiedTableName parts = context == null ? null
+                : StatementClassifier.extractTableParts(stmt, context);
+        checkReservedDynamicTableGeneration(stmt, parts);
         if (accessControl == null || user == null) return;
         if (checkCatalogOrSchema(stmt, context, accessControl, user)) return;
-        QualifiedTableName parts = StatementClassifier.extractTableParts(stmt, context);
         if (parts == null) return;
         switch (StatementCategory.categorize(stmt)) {
             case DML -> checkDml(stmt, user, accessControl, parts.catalog(), parts.schema(), parts.table());
             case DDL -> checkDdl(stmt, user, accessControl, parts);
-            case INDEX, CLUSTERING, DYNAMIC_TABLE ->
+            case DYNAMIC_TABLE -> checkDynamicTable(stmt, user, accessControl, parts);
+            case INDEX, CLUSTERING ->
                     accessControl.checkCanAlterTable(user, parts.catalog(), parts.schema(), parts.table());
             default -> { /* Non-table operations have their own authority boundary. */ }
+        }
+    }
+
+    private static void checkReservedDynamicTableGeneration(Statement stmt, QualifiedTableName parts) {
+        if (parts != null && AccessControlEnforcer.isReservedDynamicTableGeneration(parts.table())) {
+            throw new AccessDeniedException("Dynamic Table physical generation names are reserved");
+        }
+        if (stmt instanceof AlterTableStatement.RenameTable rename && parts != null) {
+            var target = TableResolver.resolveRenameTarget(rename.newName().parts(), parts);
+            if (AccessControlEnforcer.isReservedDynamicTableGeneration(target.table())) {
+                throw new AccessDeniedException("Dynamic Table physical generation names are reserved");
+            }
+        }
+    }
+
+    private static void checkDynamicTable(Statement stmt, UserIdentity user,
+            AccessControl accessControl, QualifiedTableName table) {
+        if (stmt instanceof CreateDynamicTableStatement) {
+            accessControl.checkCanCreateTable(user, table.catalog(), table.schema(), table.table());
+        } else if (stmt instanceof DropDynamicTableStatement) {
+            accessControl.checkCanDropTable(user, table.catalog(), table.schema(), table.table());
+        } else {
+            accessControl.checkCanAlterTable(user, table.catalog(), table.schema(), table.table());
         }
     }
 

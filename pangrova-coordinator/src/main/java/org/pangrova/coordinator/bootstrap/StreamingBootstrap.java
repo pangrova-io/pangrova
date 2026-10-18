@@ -50,8 +50,6 @@ import java.util.Optional;
  * which stops all pipelines and shuts down the thread pool.</p>
  */
 final class StreamingBootstrap implements AutoCloseable {
-    private static final int EXECUTOR_SHUTDOWN_SECONDS = 30;
-
     private static final Logger LOG = LoggerFactory.getLogger(StreamingBootstrap.class);
 
     private final StreamDdlExecutor ddlExecutor;
@@ -93,13 +91,6 @@ final class StreamingBootstrap implements AutoCloseable {
                 state -> createSourceReader(state),
                 state -> createWriteSink(state, catalogRegistry));
         StreamScheduler scheduler = new StreamScheduler(schedulerDeps);
-
-        // Start the continuous query consumer with a log-only executor as default.
-        // Production deployments replace this via DynamicTableDdlExecutor registration,
-        // which provides a real incremental refresh executor bound to the planner.
-        scheduler.startContinuousQueryConsumer(
-                cqName -> LOG.debug("event=continuous_query_refresh_tick cqName={}", cqName),
-                java.time.Duration.ofSeconds(EXECUTOR_SHUTDOWN_SECONDS));
 
         StreamDdlContext ddlDeps = new StreamDdlContext(
                 stateStore, offsetStore, scheduler, config);

@@ -465,6 +465,9 @@ public class QueryManager {
             completeFinishedQuery(queryId, sm);
             return;
         }
+        if (sm.signalNativeWriteCompletedForControlPlane()) {
+            return;
+        }
         sm.tryTransition(QueryStateMachine.State.RUNNING);
         sm.tryTransition(QueryStateMachine.State.FINISHING);
         if (!sm.tryTransition(QueryStateMachine.State.FINISHED)) {

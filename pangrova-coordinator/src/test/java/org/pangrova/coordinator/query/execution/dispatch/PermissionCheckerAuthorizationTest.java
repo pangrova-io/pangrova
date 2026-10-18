@@ -45,6 +45,35 @@ class PermissionCheckerAuthorizationTest {
     }
 
     @Test
+    void dynamicTableLifecycleUsesCreateAlterAndDropPrivilegesOnQualifiedName() {
+        var create = new SqlParser().parse("CREATE DYNAMIC TABLE secured.source_schema.rollup "
+                + "TARGET_LAG = 'PT0S' AS SELECT 1 AS id");
+        var refresh = new SqlParser().parse("ALTER DYNAMIC TABLE secured.source_schema.rollup REFRESH");
+        var drop = new SqlParser().parse("DROP DYNAMIC TABLE secured.source_schema.rollup");
+        var createOnly = accessControl(grant(Privilege.CREATE_TABLE,
+                "secured", "source_schema", "rollup"));
+        assertThatCode(() -> PermissionChecker.check(create, SESSION, createOnly)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> PermissionChecker.check(refresh, SESSION, createOnly))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("ALTER");
+        assertThatThrownBy(() -> PermissionChecker.check(drop, SESSION, createOnly))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("DROP");
+    }
+
+    @Test
+    void physicalGenerationNamesAreReservedEvenForWildcardTableGrants() {
+        var broad = accessControl(grant(Privilege.ALL, "*", "*", "*"));
+        for (String sql : new String[]{
+                "CREATE TABLE secured.source_schema.__pg_dt_spoof (id BIGINT)",
+                "DROP TABLE secured.source_schema.__pg_dt_spoof",
+                "INSERT INTO secured.source_schema.__pg_dt_spoof VALUES (1)",
+                "ALTER TABLE secured.source_schema.docs RENAME TO __pg_dt_spoof"}) {
+            assertThatThrownBy(() -> PermissionChecker.check(new SqlParser().parse(sql), SESSION, broad))
+                    .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                    .hasMessageContaining("reserved");
+        }
+    }
+
+    @Test
     void createSchemaRequiresItsExactCatalogAndSchemaPrivilege() {
         var create = new SqlParser().parse("CREATE SCHEMA new_schema");
         var selectOnly = accessControl(grant(Privilege.SELECT, "secured", "new_schema", null));

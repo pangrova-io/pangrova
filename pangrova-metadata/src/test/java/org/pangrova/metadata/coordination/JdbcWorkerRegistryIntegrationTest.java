@@ -83,14 +83,14 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 "w-dup", "host-old", 8080, 9090, 2,
                 "rack-a", List.of("/data/0"),
                 "NONE", 0.1, 1, 512L, now, now,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY, 8443);
         registry.register(first);
 
         WorkerSnapshot second = new WorkerSnapshot(
                 "w-dup", "host-new", 9999, 7777, 2,
                 "rack-b", List.of("/data/1"),
                 "HIGH", 0.9, 5, 2048L, now + 1000, now + 1000,
-                0, null, UPDATED_CANONICAL_INVENTORY);
+                0, null, UPDATED_CANONICAL_INVENTORY, 9443);
         registry.register(second);
 
         // Verify only one row exists
@@ -107,6 +107,7 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         assertThat(result).isPresent();
         WorkerSnapshot got = result.get();
         assertThat(got.host()).isEqualTo("host-new");
+        assertThat(got.copyTaskTlsPort()).isEqualTo(9443);
         assertThat(got.httpPort()).isEqualTo(9999);
         assertThat(got.transportPort()).isEqualTo(7777);
         assertThat(got.protocolVersion()).isEqualTo(2);
@@ -240,6 +241,7 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                         http_port INT NOT NULL,
                         transport_port INT NOT NULL,
                         result_server_port INT NOT NULL DEFAULT 0,
+                        copy_task_tls_port INT NOT NULL DEFAULT 0,
                         protocol_version INT NOT NULL DEFAULT 2 CHECK (protocol_version = 2),
                         capability_inventory_proto TEXT NOT NULL,
                         rack_id VARCHAR(128) DEFAULT NULL,

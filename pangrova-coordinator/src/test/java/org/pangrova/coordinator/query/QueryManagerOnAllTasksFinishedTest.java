@@ -25,6 +25,36 @@ class QueryManagerOnAllTasksFinishedTest {
     }
 
     @Test
+    void heldNativeWriteSignalsCommitWithoutFinishingOuterControlPlaneStatement() {
+        String id = fixture.registerRunningQuery();
+        var state = fixture.manager.getStateMachine(id);
+        state.deferTerminalUntilControlPlaneResult();
+
+        fixture.manager.onAllTasksFinished(id);
+
+        assertThat(state.nativeWriteCompletionReady().getNow(null))
+                .isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(state.terminalStateReady()).isNotDone();
+        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        state.toFinisher().run();
+        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        fixture.manager.onAllTasksFinished(id);
+    }
+
+    @Test
+    void heldNativeWriteFailureWakesOuterStatementWithoutReportingSuccess() {
+        String id = fixture.registerRunningQuery();
+        var state = fixture.manager.getStateMachine(id);
+        state.deferTerminalUntilControlPlaneResult();
+
+        fixture.manager.onTaskFailed(id, new ErrorDetail("RUNTIME_INTERNAL", "execution", "write failed"));
+
+        assertThat(state.nativeWriteCompletionReady().getNow(null))
+                .isEqualTo(QueryStateMachine.State.FAILED);
+        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FAILED);
+    }
+
+    @Test
     void onAllTasksFinished_alreadyFailed_bailsOut() {
         String id = fixture.registerRunningQuery();
         fixture.manager.onTaskFailed(id, new ErrorDetail("RUNTIME_INTERNAL", "execution", "task crashed"));

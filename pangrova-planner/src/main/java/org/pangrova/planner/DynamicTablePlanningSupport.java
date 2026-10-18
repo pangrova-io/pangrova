@@ -30,11 +30,11 @@ final class DynamicTablePlanningSupport {
     /**
      * Pre-parse rewrite: delegates to {@link DynamicTableSqlRewriter} when wired.
      */
-    String rewriteIfWired(String sql) {
+    DynamicTableSqlRewriter.RewriteWithAuthority rewriteIfWired(String sql) {
         if (dynamicTableSqlRewriter == null) {
-            return sql;
+            return new DynamicTableSqlRewriter.RewriteWithAuthority(sql, java.util.Map.of());
         }
-        return dynamicTableSqlRewriter.rewrite(sql);
+        return dynamicTableSqlRewriter.rewriteWithAuthority(sql);
     }
 
     /**
@@ -55,6 +55,9 @@ final class DynamicTablePlanningSupport {
         DynamicTableRewriter rewriter = dynamicTableSqlRewriter.getDynamicTableRewriter();
         if (rewriter == null) {
             return List.of();
+        }
+        if (!rewriter.usesRegistry()) {
+            return List.of(); // durable full-refresh publications have no delta leg
         }
         List<String> tableNames = dynamicTableSqlRewriter.extractTableNames(sql);
         List<DynamicTableResolution.MergeOnRead> hints = new ArrayList<>();

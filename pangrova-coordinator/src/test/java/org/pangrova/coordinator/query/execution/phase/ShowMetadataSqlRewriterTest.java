@@ -19,9 +19,19 @@ class ShowMetadataSqlRewriterTest {
     }
 
     @Test
+    void showFilesAndManifestsUseAuthorizedNativeScans() {
+        assertThat(ShowMetadataSqlRewriter.rewrite(
+                new ShowMetadataStatement.ShowFiles(List.of("db", "orders"))))
+                .isEqualTo("SELECT * FROM db.orders$files");
+        assertThat(ShowMetadataSqlRewriter.rewrite(
+                new ShowMetadataStatement.ShowManifests(List.of("db", "orders"))))
+                .isEqualTo("SELECT * FROM db.orders$manifests");
+    }
+
+    @Test
     void unsupportedKindsFailClosedWithoutCoordinatorRows() {
         assertThatThrownBy(() -> ShowMetadataSqlRewriter.rewrite(
-                new ShowMetadataStatement.ShowFiles(List.of("db", "orders"))))
+                new ShowMetadataStatement.ShowPartitions(List.of("db", "orders"))))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("no Native system-table reader");
     }

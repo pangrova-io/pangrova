@@ -56,6 +56,8 @@ public class QueryStateMachine {
             new CompletableFuture<>();
     private final CompletableFuture<Void> writeDispatchReady = new CompletableFuture<>();
     private final CompletableFuture<State> terminalStateReady = new CompletableFuture<>();
+    private final CompletableFuture<State> nativeWriteCompletionReady = new CompletableFuture<>();
+    private volatile boolean controlPlaneWriteFinalization;
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
     private final AtomicBoolean physicalCleanupApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
@@ -287,6 +289,7 @@ public class QueryStateMachine {
         decision.pending().complete(null);
         if (TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
             terminalStateReady.complete(target);
+            nativeWriteCompletionReady.complete(target);
         }
     }
 
@@ -325,6 +328,31 @@ public class QueryStateMachine {
     /** Completes when the logical query, including its write commit, reaches a terminal state. */
     public CompletableFuture<State> terminalStateReady() {
         return terminalStateReady.copy();
+    }
+
+    /** Holds query termination while a Native write is followed by control-plane publication. */
+    public synchronized void deferTerminalUntilControlPlaneResult() {
+        if (controlPlaneWriteFinalization || isTerminal()) {
+            throw new IllegalStateException(
+                    "Control-plane write finalization cannot be installed twice or after termination");
+        }
+        controlPlaneWriteFinalization = true;
+    }
+
+    /** Completes Native-write waiters without exposing FINISHED before publication. */
+    public boolean signalNativeWriteCompletedForControlPlane() {
+        if (!controlPlaneWriteFinalization) {
+            return false;
+        }
+        State current = getState();
+        nativeWriteCompletionReady.complete(current == State.FAILED || current == State.CANCELLED
+                ? current : State.FINISHED);
+        return true;
+    }
+
+    /** Waits for Native commit for a held control-plane write, or ordinary query termination. */
+    public CompletableFuture<State> nativeWriteCompletionReady() {
+        return controlPlaneWriteFinalization ? nativeWriteCompletionReady.copy() : terminalStateReady();
     }
 
     public Instant getCreatedAt() {

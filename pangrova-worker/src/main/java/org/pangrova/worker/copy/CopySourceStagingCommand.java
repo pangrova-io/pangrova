@@ -5,6 +5,7 @@ import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.storage.CopySourceEndpointPolicy;
 import org.pangrova.spi.storage.StorageProfile;
 import org.pangrova.worker.ai.blob.S3BlobStorage;
+import org.pangrova.worker.ai.blob.CopyS3ClientPolicy;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -88,6 +89,15 @@ public final class CopySourceStagingCommand {
         return admissions.record(nonce, scope, proof);
     }
 
+    /** Rechecks current authority before returning a locally cached attempt proof. */
+    public void verifyRecordedProof(String nonce, CopySourceReadHttp.Scope scope,
+                                    CopySourceReadHttp.StagedSource proof) {
+        var redeemed = admissions.redeem(nonce, scope);
+        if (!proof.equals(redeemed.stagedSource())) {
+            throw new AccessDeniedException("COPY cached staged proof is no longer admitted");
+        }
+    }
+
     /** Produces a verified task-private Parquet file without trusting a network file path. */
     public VerifiedLocalCopySource executeForNative(String nonce, CopySourceReadHttp.Scope scope)
             throws IOException {
@@ -146,6 +156,7 @@ public final class CopySourceStagingCommand {
                         .pathStyleAccessEnabled(profile.isPathStyleAccess()).build());
         builder.endpointOverride(CopySourceEndpointPolicy.require(
                 profile.endpoint(), allowLoopbackSourceTest));
+        CopyS3ClientPolicy.configure(builder);
         return builder.build();
     }
 

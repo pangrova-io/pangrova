@@ -97,11 +97,15 @@ public class SecurityPolicyApplier {
             throw new org.pangrova.spi.security.AccessDeniedException(
                     "Protected compilation requires complete authorization and policy enforcement");
         }
-        accessControlEnforcer.checkTableAccess(plan.tableReferences(), session.userIdentity());
+        var physicalToLogical = plan.physicalToLogicalDynamicTables();
+        accessControlEnforcer.checkTableAccess(plan.tableReferences(), session.userIdentity(),
+                physicalToLogical);
         ObservedQueryPolicies observations = new ObservedQueryPolicies();
         PlannedQuery protectedPlan = plan
-                .applyColumnMasks(columnMaskApplier.observing(observations), session.userIdentity())
-                .applyRowFilters(rowFilterApplier.observing(observations), session.userIdentity());
+                .applyColumnMasks(columnMaskApplier.withAuthorityMapping(physicalToLogical)
+                        .observing(observations), session.userIdentity())
+                .applyRowFilters(rowFilterApplier.withAuthorityMapping(physicalToLogical)
+                        .observing(observations), session.userIdentity());
         return new ObservedPlan(protectedPlan, observations.snapshot());
     }
 

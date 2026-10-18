@@ -141,6 +141,16 @@ class PlanExecutionFactoryInsertTest {
         assertThat(fixture.dispatched).containsExactly(statement);
     }
 
+    @Test
+    void nativeInsertCompletionCannotFinishBeforeControlPlaneAcknowledgement() {
+        Fixture fixture = new Fixture();
+        fixture.execute(new InsertStatement(TABLE, Optional.of(List.of("id")),
+                List.of(List.of(Literal.ofInteger(1)))));
+
+        assertThat(fixture.stateMachine.signalNativeWriteCompletedForControlPlane()).isTrue();
+        assertThat(fixture.stateMachine.terminalStateReady()).isNotDone();
+    }
+
     private static final class Fixture {
         final List<String> events = new ArrayList<>();
         final List<Statement> dispatched = new ArrayList<>();
@@ -151,6 +161,7 @@ class PlanExecutionFactoryInsertTest {
         final CoordinatorSessionContext session = new CoordinatorSessionContext(
                 "insert-query", Map.of(), new org.pangrova.spi.security.UserIdentity(
                         "insert-user", Set.of(), Map.of(), java.time.Instant.EPOCH), "tenant");
+        QueryStateMachine stateMachine;
 
         StatementResult execute(Statement statement) {
             PlanExecutionFactory factory = new PlanExecutionFactory(new PlanExecutionFactoryContext(
@@ -161,10 +172,10 @@ class PlanExecutionFactoryInsertTest {
                                 new ResultEndpoint("worker.invalid", 1, "ticket", "grpc"));
                     }, callback, (sql, ignored) -> sql,
                     registry, null));
-            QueryStateMachine state = new QueryStateMachine();
-            state.tryTransition(QueryStateMachine.State.PLANNING);
+            stateMachine = new QueryStateMachine();
+            stateMachine.tryTransition(QueryStateMachine.State.PLANNING);
             return factory.execute(statement, new StatementExecutionContext(
-                    state, "insert-query", session, null, null));
+                    stateMachine, "insert-query", session, null, null));
         }
     }
 

@@ -60,7 +60,7 @@ class CompiledWriteAdmissionIntegrationTest extends ContainerTestBase {
 
     private static void rejectsBeforeAllocation(SchedulingWriteFixture fixture, WritePolicyObservation compiled) {
         assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(actor(), context(compiled)))
-                .rootCause().isInstanceOf(AccessDeniedException.class).hasMessageContaining("changed before admission");
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("changed before admission");
         assertThat(fixture.observations).isEmpty();
         assertThat(fixture.metadata.inserts).isZero();
         assertThat(fixture.metadata.overwrites).isZero();

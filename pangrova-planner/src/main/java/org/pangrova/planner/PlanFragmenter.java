@@ -195,7 +195,11 @@ final class PlanFragmenter {
             }
             if (node instanceof Aggregate aggregate
                     && !hasOnlyLocalSourceLeaves(aggregate.getInput())) {
-                PangrovaDistribution distribution = (aggregate.getGroupSets() == null
+                // Repartitioning a singleton producer creates multiple independent
+                // aggregate owners without adding scan parallelism. Gather its rows
+                // at one owner so each group has exactly one final result.
+                boolean parallelProducer = resolveStageParallelism(aggregate.getInput()) > SINGLE_PARALLELISM;
+                PangrovaDistribution distribution = parallelProducer && (aggregate.getGroupSets() == null
                         || aggregate.getGroupSets().size() == 1)
                         && !aggregate.getGroupSet().isEmpty()
                         ? PangrovaDistribution.hash(aggregate.getGroupSet().asList())

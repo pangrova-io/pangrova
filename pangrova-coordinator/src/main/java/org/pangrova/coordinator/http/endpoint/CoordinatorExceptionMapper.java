@@ -98,6 +98,12 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
         if (exception instanceof TenantQuotaExceededException) {
             return HTTP_STATUS_TOO_MANY_REQUESTS;
         }
+        if (exception instanceof AuthenticationRequiredException) {
+            return HTTP_STATUS_UNAUTHORIZED;
+        }
+        if (exception instanceof AccessDeniedException) {
+            return HTTP_STATUS_FORBIDDEN;
+        }
         Integer status = HTTP_STATUS_MAP.get(exception.getClass());
         if (status != null) {
             return status;

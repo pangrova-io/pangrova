@@ -15,6 +15,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class WorkerHttpBootstrapTest {
 
+    @Test
+    void flightTlsWithoutCopyPortDoesNotCreatePrivateListener() {
+        var flightOnly = new WorkerBootstrapConfig.TransportSecurityConfig(
+                true, "/cert.pem", "/key.pem", "/ca.pem", "worker-1");
+        assertThat(WorkerHttpBootstrap.copyTaskTls(flightOnly)).isNull();
+        var withCopy = new WorkerBootstrapConfig.TransportSecurityConfig(
+                true, "/cert.pem", "/key.pem", "/ca.pem", "worker-1", 8443);
+        assertThat(WorkerHttpBootstrap.copyTaskTls(withCopy).port()).isEqualTo(8443);
+    }
+
     private static WorkerBootstrapConfig config(String httpHost, String advertisedHost) {
         return new WorkerBootstrapConfig(
                 "w-1", 0, 0, null,

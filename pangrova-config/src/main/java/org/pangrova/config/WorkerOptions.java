@@ -77,6 +77,13 @@ public final class WorkerOptions {
             .withDescription("Require mutual TLS for native shuffle and result transport")
             .build();
 
+    public static final ConfigOption<Integer> COPY_TASK_TLS_PORT =
+            ConfigOptions.key("worker.copy.task-tls-port")
+            .intType()
+            .defaultValue(0)
+            .withDescription("Dedicated mutual-TLS COPY task-control port (0 = disabled)")
+            .build();
+
     public static final ConfigOption<String> TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH =
             ConfigOptions.key("worker.transport.tls.certificate-chain-path")
             .stringType()

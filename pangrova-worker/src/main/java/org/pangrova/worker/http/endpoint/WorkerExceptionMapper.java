@@ -40,7 +40,7 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
         // A malformed private task envelope can be rejected during JSON decoding,
         // before TaskResource sees it. Do not log parser source text or echo it.
         boolean privateTaskRequest = requestUri != null
-                && requestUri.getPath().matches("v1/task/?");
+                && requestUri.getPath().matches("/?v1/task(/copy-stage)?/?");
         String message = privateTaskRequest
                 ? "Task submission request rejected" : resolveMessage(exception);
 
@@ -58,6 +58,23 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
     }
 
     private static int resolveHttpStatus(Exception exception) {
+        if (exception instanceof org.pangrova.worker.task.ControlEpochFenceException fence) {
+            return switch (fence.reason()) {
+                case CONTROL_PLANE_NOT_READY -> 503;
+                case EPOCH_AHEAD -> 425;
+                default -> 409;
+            };
+        }
+        if (exception instanceof org.pangrova.worker.task.ExecutionOwnerFenceException) {
+            return 409;
+        }
+        if (exception instanceof org.pangrova.worker.task.TaskAdmissionException admission) {
+            return switch (admission.reason()) {
+                case EXPIRED -> 408;
+                case IDENTITY_CONFLICT, SEALED -> 409;
+                case CAPACITY, CLOSED -> 503;
+            };
+        }
         if (exception instanceof IllegalArgumentException) {
             return 400;
         }
@@ -78,6 +95,10 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
             case 400 -> "BAD_REQUEST";
             case 403 -> "ACCESS_DENIED";
             case 404 -> "NOT_FOUND";
+            case 408 -> "ADMISSION_EXPIRED";
+            case 409 -> "ADMISSION_CONFLICT";
+            case 425 -> "CONTROL_EPOCH_AHEAD";
+            case 503 -> "SERVICE_UNAVAILABLE";
             default -> "INTERNAL_ERROR";
         };
     }

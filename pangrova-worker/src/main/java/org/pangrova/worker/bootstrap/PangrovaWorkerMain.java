@@ -144,7 +144,8 @@ public final class PangrovaWorkerMain {
                 config.getString(WorkerOptions.TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH),
                 config.getString(WorkerOptions.TRANSPORT_TLS_PRIVATE_KEY_PATH),
                 config.getString(WorkerOptions.TRANSPORT_TLS_ROOT_CA_PATH),
-                config.getString(WorkerOptions.TRANSPORT_TLS_IDENTITY));
+                config.getString(WorkerOptions.TRANSPORT_TLS_IDENTITY),
+                config.getInt(WorkerOptions.COPY_TASK_TLS_PORT));
     }
 
     private static org.pangrova.worker.jni.NativeFunctionConfig loadNativeFunctionConfig(

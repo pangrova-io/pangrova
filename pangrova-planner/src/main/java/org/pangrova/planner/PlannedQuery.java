@@ -24,6 +24,7 @@ import org.pangrova.planner.stability.PlanHasher;
 import org.pangrova.planner.vector.VectorSearchNode;
 import org.pangrova.planner.vector.VectorSearchRewriter;
 import org.pangrova.spi.index.IndexDescriptor;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.security.UserIdentity;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableModify;
@@ -37,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
@@ -60,14 +62,28 @@ public final class PlannedQuery {
     private final List<String> columnNames;
     private final List<RuntimeFilterDescriptor> runtimeFilterDescriptors;
     private final List<DynamicTableResolution.MergeOnRead> mergeOnReadHints;
+    private final Map<QualifiedTableName, QualifiedTableName> physicalToLogical;
 
     PlannedQuery(RelNode plan, List<String> columnNames,
                  List<RuntimeFilterDescriptor> runtimeFilterDescriptors,
-                 List<DynamicTableResolution.MergeOnRead> mergeOnReadHints) {
+                 List<DynamicTableResolution.MergeOnRead> mergeOnReadHints,
+                 Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         this.plan = plan;
         this.columnNames = List.copyOf(columnNames);
         this.runtimeFilterDescriptors = List.copyOf(runtimeFilterDescriptors);
         this.mergeOnReadHints = List.copyOf(mergeOnReadHints);
+        this.physicalToLogical = Map.copyOf(physicalToLogical);
+    }
+
+    PlannedQuery(RelNode plan, List<String> columnNames,
+                 List<RuntimeFilterDescriptor> runtimeFilterDescriptors,
+                 List<DynamicTableResolution.MergeOnRead> mergeOnReadHints) {
+        this(plan, columnNames, runtimeFilterDescriptors, mergeOnReadHints, Map.of());
+    }
+
+    /** Physical generation to logical Dynamic Table authority captured during this query's rewrite. */
+    public Map<QualifiedTableName, QualifiedTableName> physicalToLogicalDynamicTables() {
+        return Map.copyOf(physicalToLogical);
     }
 
     /**
@@ -401,13 +417,13 @@ public final class PlannedQuery {
     public PlannedQuery reoptimize(PangrovaPlanner planner) {
         RelNode reoptimized = planner.reoptimize(plan);
         return new PlannedQuery(reoptimized, columnNames,
-                runtimeFilterDescriptors, mergeOnReadHints);
+                runtimeFilterDescriptors, mergeOnReadHints, physicalToLogical);
     }
 
     /** Package-private: returns a copy with the plan replaced (used by security appliers). */
     PlannedQuery withPlan(RelNode newPlan) {
         return new PlannedQuery(newPlan, columnNames,
-                runtimeFilterDescriptors, mergeOnReadHints);
+                runtimeFilterDescriptors, mergeOnReadHints, physicalToLogical);
     }
 
     /**

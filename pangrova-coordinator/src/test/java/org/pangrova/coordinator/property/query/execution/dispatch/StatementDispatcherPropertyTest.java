@@ -593,7 +593,7 @@ class StatementDispatcherPropertyTest {
     }
 
     /**
-     * Property 2 (DYNAMIC_TABLE): Dynamic table statements invoke checkCanAlterTable.
+     * Property 2 (DYNAMIC_TABLE): Dynamic table statements invoke the matching table permission.
      *
      * <p><b>Validates: Requirements 2.1, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 8.3</b></p>
      */
@@ -604,9 +604,11 @@ class StatementDispatcherPropertyTest {
         var recorder = new RecordingAccessControl();
         PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
+        String permission = stmt instanceof CreateDynamicTableStatement ? "checkCanCreateTable"
+                : stmt instanceof DropDynamicTableStatement ? "checkCanDropTable" : "checkCanAlterTable";
         assertThat(recorder.calls)
-                .as("DYNAMIC_TABLE must invoke checkCanAlterTable")
-                .containsExactly("checkCanAlterTable");
+                .as("DYNAMIC_TABLE must invoke its matching table permission")
+                .containsExactly(permission);
     }
 
     // ── Property 3: Null access control skips permission checks ──

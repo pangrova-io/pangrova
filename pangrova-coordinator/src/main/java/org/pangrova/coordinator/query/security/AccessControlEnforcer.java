@@ -20,6 +20,8 @@ import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.UserIdentity;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -51,14 +53,29 @@ public final class AccessControlEnforcer {
     public void checkTableAccess(List<List<String>> tableReferences,
                                   List<DmlWriteTarget> dmlWriteTargets,
                                   UserIdentity identity) {
+        checkTableAccess(tableReferences, dmlWriteTargets, identity, Map.of());
+    }
+
+    /** Checks physical scans against their query-owned logical Dynamic Table identity. */
+    public void checkTableAccess(List<List<String>> tableReferences,
+                                  List<DmlWriteTarget> dmlWriteTargets,
+                                  UserIdentity identity,
+                                  Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         rejectAnonymous(identity);
         for (List<String> qualifiedName : tableReferences) {
             QualifiedTableName ref = QualifiedTableName.resolve(qualifiedName);
+            QualifiedTableName logical = physicalToLogical.get(ref);
+            if (isReservedDynamicTableGeneration(ref.table()) && logical == null) {
+                throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
+            }
+            QualifiedTableName authorized = logical == null ? ref : logical;
             accessControl.checkCanSelectFromTable(
-                    identity, ref.catalog(), ref.schema(), authorizedReadTable(ref.table()));
+                    identity, authorized.catalog(), authorized.schema(),
+                    authorizedReadTable(authorized.table()));
         }
         for (DmlWriteTarget target : dmlWriteTargets) {
             QualifiedTableName ref = QualifiedTableName.resolve(target.qualifiedTableName());
+            rejectReservedGeneration(ref.table());
             enforceWritePrivilege(identity, ref, target.operation());
         }
     }
@@ -77,6 +94,7 @@ public final class AccessControlEnforcer {
     public void checkColumnAccess(String catalog, String schema, String table,
                                    java.util.Set<String> columns, UserIdentity identity) {
         rejectAnonymous(identity);
+        rejectReservedGeneration(table);
         if (columns != null && !columns.isEmpty()) {
             accessControl.checkCanSelectFromColumns(identity, catalog, schema, table, columns);
         }
@@ -88,6 +106,17 @@ public final class AccessControlEnforcer {
      */
     public void checkTableAccess(List<List<String>> tableReferences, UserIdentity identity) {
         checkTableAccess(tableReferences, List.of(), identity);
+    }
+
+    /** A read-only mapped scan must have come from the durable planner rewrite. */
+    public void checkTableAccess(List<List<String>> tableReferences, UserIdentity identity,
+                                  Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
+        checkTableAccess(tableReferences, List.of(), identity, physicalToLogical);
+    }
+
+    /** Reserved physical names cannot be directly selected or created by users. */
+    public static boolean isReservedDynamicTableGeneration(String table) {
+        return table.toLowerCase(Locale.ROOT).startsWith("__pg_dt_");
     }
 
     private void enforceWritePrivilege(UserIdentity identity, QualifiedTableName ref,
@@ -171,7 +200,14 @@ public final class AccessControlEnforcer {
      */
     public void checkSelectFromTable(UserIdentity identity, String catalog, String schema, String table) {
         rejectAnonymous(identity);
+        rejectReservedGeneration(table);
         accessControl.checkCanSelectFromTable(identity, catalog, schema, authorizedReadTable(table));
+    }
+
+    private static void rejectReservedGeneration(String table) {
+        if (isReservedDynamicTableGeneration(table)) {
+            throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
+        }
     }
 
     /** Metadata-table contents belong to the base table, never a separate grant. */

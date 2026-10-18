@@ -18,6 +18,8 @@ import org.pangrova.planner.cost.CboConfig;
 import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.mv.MaterializedViewQueryRewriter;
 import org.pangrova.planner.mv.MaterializedViewRegistry;
+import org.pangrova.planner.mv.DynamicTableRewriter;
+import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
 import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.planner.stats.StatisticsCollector;
@@ -72,10 +74,18 @@ final class PlannerWiring {
                 mvRegistry, MV_FRESHNESS_WINDOW);
         var path = session.getCatalog().map(catalog -> session.getSchema()
                 .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));
+        DynamicTableRewriter dynamicTableRewriter = null;
+        var publications = metadataBootstrap.dynamicTablePublicationStore();
+        if (publications != null) {
+            String tenantId = session.getProperties().getOrDefault("tenant_id", "default");
+            dynamicTableRewriter = new DynamicTableRewriter(new DurableDynamicTableResolver(
+                    publications, tenantId, session.getCatalog().orElse(null),
+                    session.getSchema().orElse(null)));
+        }
         return new PangrovaPlanner(rootSchema, path,
                 new PlannerContext(stats, mvRewriter, cache,
                         DynamicPartitionPruningConfig.DEFAULT, reg,
-                        null, null, CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT));
+                        dynamicTableRewriter, null, CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT));
     }
 
     /** Rebuilds the in-memory registry from the persisted definitions before serving queries. */

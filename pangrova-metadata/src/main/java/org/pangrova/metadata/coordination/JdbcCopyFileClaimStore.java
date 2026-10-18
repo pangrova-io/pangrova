@@ -1,5 +1,6 @@
 package org.pangrova.metadata.coordination;
 
+import org.pangrova.common.annotation.DeadCode;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.spi.coordination.CopyFileClaim;
 import org.pangrova.spi.coordination.CopyFileClaimStore;
@@ -14,7 +15,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-/** PostgreSQL authority for immutable COPY source-file admissions. */
+/** PostgreSQL authority for immutable COPY source-file admissions; awaiting URI execution wiring. */
+@DeadCode(issueReference = "#19 COPY INTO URI execution and publication")
 public final class JdbcCopyFileClaimStore implements CopyFileClaimStore {
 
     private static final Pattern SHA_256 = Pattern.compile("[0-9a-f]{64}");

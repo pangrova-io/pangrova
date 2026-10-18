@@ -2,6 +2,7 @@ package org.pangrova.coordinator.http.endpoint;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.rest.error.ErrorDetail;
+import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.tenant.quota.TenantQuotaExceededException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +27,16 @@ class CoordinatorExceptionMapperTest {
         try (var response = mapper.toResponse(specializedQuota)) {
             assertThat(response.getStatus()).isEqualTo(429);
             assertThat(((ErrorDetail) response.getEntity()).errorCode()).isEqualTo("TENANT-0001");
+        }
+    }
+
+    @Test
+    void deferredPermissionSubtypeReturnsForbiddenAtHttpBoundary() {
+        try (var response = mapper.toResponse(new AuthorizationDeniedException(
+                "Current deferred permission was revoked"))) {
+            assertThat(response.getStatus()).isEqualTo(403);
+            assertThat(response.getEntity()).isEqualTo(new ErrorDetail("SECURITY-0002", "USER_ERROR",
+                    "Current deferred permission was revoked"));
         }
     }
 

@@ -36,7 +36,7 @@ class CrossNodeProtocolTest {
      */
     private static final Set<String> WORKER_REGISTRATION_REQUIRED_FIELDS = Set.of(
             "workerId", "httpHost", "httpPort", "transportPort",
-            "resultServerPort", "protocolVersion",
+            "resultServerPort", "copyTaskTlsPort", "protocolVersion",
             "capabilityInventory");
 
     /**
@@ -69,7 +69,7 @@ class CrossNodeProtocolTest {
             WorkerRegistrationRequest original = new WorkerRegistrationRequest(
                     "worker-1", "10.0.0.1", 8080, 9090, 0, 2,
                     null, null, null,
-                    CanonicalCapabilityInventoryTestFixture.encodedInventory());
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), 8443);
             byte[] bytes = mapper.writeValueAsBytes(original);
             WorkerRegistrationRequest restored = mapper.readValue(bytes, WorkerRegistrationRequest.class);
 
@@ -77,6 +77,7 @@ class CrossNodeProtocolTest {
             assertThat(restored.httpHost()).isEqualTo(original.httpHost());
             assertThat(restored.httpPort()).isEqualTo(original.httpPort());
             assertThat(restored.transportPort()).isEqualTo(original.transportPort());
+            assertThat(restored.copyTaskTlsPort()).isEqualTo(8443);
             assertThat(restored.protocolVersion()).isEqualTo(original.protocolVersion());
             assertThat(restored.capabilityInventory())
                     .isEqualTo(original.capabilityInventory());

@@ -273,6 +273,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // Coordinator-side resources that leak HttpClient thread pools if not closed.
     private static volatile RemoteTaskDispatcher sharedTaskDispatcher;
     private static volatile QueryDispatcher sharedQueryDispatcher;
+    private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
+            sharedStatementDispatcher;
+    private static volatile org.pangrova.coordinator.dynamictable.DynamicTableDdlExecutor
+            sharedTestDynamicTableDdlExecutor;
+    private static volatile org.pangrova.planner.mv.DynamicTableRewriter
+            originalTestDynamicTableRewriter;
     private static volatile org.pangrova.spi.security.AccessControl featureAccessControl;
     private static volatile boolean durableStorageProfileScenario;
     private static volatile org.pangrova.spi.security.AccessControl currentAccessControl;
@@ -789,6 +795,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         E2eCurrentAuthority.removeDefault(stateStoreDataSource, E2E_USER_PRINCIPAL);
         featureAccessControl = java.util.Objects.requireNonNull(accessControl);
         rebuildQueryPipeline();
+    }
+
+    /** Removes the broad fixture role while retaining the live PostgreSQL RBAC authority. */
+    protected static void restrictDefaultSqlAuthority() {
+        E2eCurrentAuthority.removeDefault(stateStoreDataSource, E2E_USER_PRINCIPAL);
+    }
+
+    /** Restores the ordinary fixture role after a scoped-authority E2E scenario. */
+    protected static void restoreDefaultSqlAuthority() {
+        E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL);
     }
 
     /** Releases a scenario's policy wiring; no alternative compilation path is retained. */
@@ -2103,6 +2119,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var statementDispatcher = buildStatementDispatcher(
                 dmlDispatch, queryDispatcherRef, taskTracker, resultSvc,
                 embeddingRegistry, workerManager);
+        sharedStatementDispatcher = statementDispatcher;
         var indexAwareSplitFetcher = registerIndexHandlers(statementDispatcher);
         SqlCompiler compiler = buildSqlCompiler();
         statementDispatcher.updateCompiler(compiler);
@@ -2321,6 +2338,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
         var dtExecutor = buildDynamicTableDdlExecutor();
+        sharedTestDynamicTableDdlExecutor = dtExecutor;
 
         // 2-Factory architecture: MetadataExecutionFactory + PlanExecutionFactory
         var tasks = new java.util.HashMap<Class<? extends org.pangrova.parser.ast.Statement>,
@@ -2419,18 +2437,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     metadataFactory, embeddingRegistry, embeddingWorkers);
         }
         if (dtExecutor != null) {
-            metadataFactory.registerTask(org.pangrova.parser.ast.CreateDynamicTableStatement.class,
-                    new org.pangrova.coordinator.query.execution.dispatch.task.CreateDynamicTableTask(dtExecutor));
-            metadataFactory.registerTask(org.pangrova.parser.ast.CreateContinuousQueryStatement.class,
-                    new org.pangrova.coordinator.query.execution.dispatch.task.stream.CreateContinuousQueryTask(dtExecutor));
-            metadataFactory.registerTask(org.pangrova.parser.ast.statement.AlterDynamicTableStatement.class,
-                    new org.pangrova.coordinator.query.execution.dispatch.task.AlterDynamicTableTask(dtExecutor));
-            metadataFactory.registerTask(org.pangrova.parser.ast.statement.DropDynamicTableStatement.class,
-                    new org.pangrova.coordinator.query.execution.dispatch.task.DropDynamicTableTask(dtExecutor));
-            metadataFactory.registerTask(org.pangrova.parser.ast.statement.ShowDynamicTablesStatement.class,
-                    new org.pangrova.coordinator.query.execution.dispatch.task.ShowDynamicTablesTask(dtExecutor));
-            metadataFactory.registerTask(org.pangrova.parser.ast.statement.DescribeDynamicTableStatement.class,
-                    new org.pangrova.coordinator.query.execution.dispatch.task.DescribeDynamicTableTask(dtExecutor));
+            registerTestDynamicTableTasks(metadataFactory, dtExecutor);
         }
 
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
@@ -2448,6 +2455,66 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
                 null, resultSvc, List.copyOf(factories), List.of(), currentAccessControl);
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
+    }
+
+    /** Installs the same durable handlers used by production bootstrap for one E2E class. */
+    protected static synchronized org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore
+            installDurableDynamicTableRuntime() {
+        if (originalTestDynamicTableRewriter != null) {
+            throw new IllegalStateException("Durable Dynamic Table runtime is already installed");
+        }
+        var publications = new org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore(
+                java.util.Objects.requireNonNull(stateStoreDataSource));
+        originalTestDynamicTableRewriter = sharedDtRewriter;
+        sharedDtRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(
+                new org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver(
+                        publications, E2E_TENANT_ID, "iceberg_catalog", "default"));
+        var factory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(
+                new java.util.HashMap<>());
+        org.pangrova.coordinator.dynamictable.DynamicTableTaskRegistration.register(
+                factory, publications, java.util.Objects.requireNonNull(sharedDdlExecutor),
+                (sm, session, stmt) -> java.util.Objects.requireNonNull(sharedQueryDispatcher)
+                        .executeDmlStatement(sm, stmt, session));
+        java.util.Objects.requireNonNull(sharedStatementDispatcher).registerFactory(factory);
+        return publications;
+    }
+
+    /** Reopens the persisted publication authority as a coordinator restart would. */
+    protected static org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore
+            reopenDynamicTablePublicationStore() {
+        return new org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore(
+                java.util.Objects.requireNonNull(stateStoreDataSource));
+    }
+
+    /** Restores the pre-existing test handlers so other E2E classes keep their own fixtures. */
+    protected static synchronized void restoreTestDynamicTableRuntime() {
+        if (originalTestDynamicTableRewriter == null) {
+            return;
+        }
+        var factory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(
+                new java.util.HashMap<>());
+        registerTestDynamicTableTasks(factory,
+                java.util.Objects.requireNonNull(sharedTestDynamicTableDdlExecutor));
+        java.util.Objects.requireNonNull(sharedStatementDispatcher).registerFactory(factory);
+        sharedDtRewriter = originalTestDynamicTableRewriter;
+        originalTestDynamicTableRewriter = null;
+    }
+
+    private static void registerTestDynamicTableTasks(
+            org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
+            org.pangrova.coordinator.dynamictable.DynamicTableDdlExecutor executor) {
+        factory.registerTask(org.pangrova.parser.ast.CreateDynamicTableStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.CreateDynamicTableTask(executor));
+        factory.registerTask(org.pangrova.parser.ast.CreateContinuousQueryStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.stream.CreateContinuousQueryTask(executor));
+        factory.registerTask(org.pangrova.parser.ast.statement.AlterDynamicTableStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.AlterDynamicTableTask(executor));
+        factory.registerTask(org.pangrova.parser.ast.statement.DropDynamicTableStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.DropDynamicTableTask(executor));
+        factory.registerTask(org.pangrova.parser.ast.statement.ShowDynamicTablesStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.ShowDynamicTablesTask(executor));
+        factory.registerTask(org.pangrova.parser.ast.statement.DescribeDynamicTableStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.DescribeDynamicTableTask(executor));
     }
 
     private static org.pangrova.coordinator.dynamictable.DynamicTableDdlExecutor buildDynamicTableDdlExecutor() {

@@ -49,9 +49,9 @@ declared public schema.
 - SHOW SNAPSHOTS is rewritten before compilation into the same authorized
   `SELECT * FROM base$snapshots` distributed query, preserving original SQL
   for audit. The former Coordinator `ConnectorSystemTable.rows()` task is
-  removed. SHOW FILES/MANIFESTS/PARTITIONS still fail closed; the SHOW MANIFESTS
-  rewrite has not yet been wired to the new direct `$manifests` SELECT path,
-  while the other SHOW readers remain absent. Direct SELECT for Iceberg
+  removed. SHOW FILES and SHOW MANIFESTS now use their existing direct Native
+  `$files` and `$manifests` SELECT paths; SHOW PARTITIONS still fails closed
+  because its Native reader is absent. Direct SELECT for Iceberg
   `$files` has the nine-column validated scalar/array slice plus a tenth typed
   `column_sizes` map under final SQL validation below; full `$files`,
   `$entries`, `$partitions`, Paimon `$files`, and nonlocal `$branches`

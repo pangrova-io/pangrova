@@ -9,6 +9,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import java.util.List;
 
 /**
  * Resolves Dynamic Table names to their physical target tables ({@code __dt_NAME}).
@@ -38,6 +40,7 @@ public final class DynamicTableRewriter {
 
     private final MaterializedViewRegistry materializedViewManager;
     private final SnapshotInfoProvider snapshotInfoProvider;
+    private final PublishedTargetResolver publishedTargetResolver;
     private final Map<String, String> targetOverrides = new ConcurrentHashMap<>();
 
     /**
@@ -58,6 +61,50 @@ public final class DynamicTableRewriter {
                                 SnapshotInfoProvider snapshotInfoProvider) {
         this.materializedViewManager = Objects.requireNonNull(materializedViewManager, "materializedViewManager");
         this.snapshotInfoProvider = snapshotInfoProvider;
+        this.publishedTargetResolver = null;
+    }
+
+    /** Resolves only durable, published physical generations for the current session. */
+    public DynamicTableRewriter(PublishedTargetResolver publishedTargetResolver) {
+        this.materializedViewManager = null;
+        this.snapshotInfoProvider = null;
+        this.publishedTargetResolver = Objects.requireNonNull(publishedTargetResolver,
+                "publishedTargetResolver");
+    }
+
+    /** Component-preserving query-local authority for one published generation. */
+    public record PublishedTarget(QualifiedTableName logical, QualifiedTableName physical) { }
+
+    /** Resolves an AST identifier without flattening quoted components. */
+    @FunctionalInterface
+    public interface PublishedTargetResolver {
+        Optional<PublishedTarget> resolve(List<String> nameParts);
+
+        /** Qualifies an AST name without reading a publication, for query-local pin lookup. */
+        default Optional<QualifiedTableName> canonicalLogical(List<String> nameParts) {
+            return Optional.empty();
+        }
+    }
+
+    /** Returns both identities for an AST reference in the durable publication mode. */
+    public Optional<PublishedTarget> resolvePublishedTarget(List<String> nameParts) {
+        if (publishedTargetResolver == null) {
+            throw new IllegalStateException("Published target resolver is not wired");
+        }
+        return publishedTargetResolver.resolve(List.copyOf(nameParts));
+    }
+
+    /** Returns the durable logical identity before a publication read, when available. */
+    public Optional<QualifiedTableName> canonicalPublishedLogical(List<String> nameParts) {
+        if (publishedTargetResolver == null) {
+            throw new IllegalStateException("Published target resolver is not wired");
+        }
+        return publishedTargetResolver.canonicalLogical(List.copyOf(nameParts));
+    }
+
+    /** Whether this instance uses the historical in-memory definition registry. */
+    public boolean usesRegistry() {
+        return publishedTargetResolver == null;
     }
 
     /**
@@ -130,6 +177,12 @@ public final class DynamicTableRewriter {
      *         has not completed
      */
     public DynamicTableResolution resolve(String tableName) {
+        if (publishedTargetResolver != null) {
+            return publishedTargetResolver.resolve(List.of(tableName))
+                    .<DynamicTableResolution>map(target ->
+                            new DynamicTableResolution.DirectTarget(target.physical().toString()))
+                    .orElse(null);
+        }
         String normalized = tableName.toLowerCase(java.util.Locale.ROOT);
         Optional<MaterializedViewDefinition> def = materializedViewManager.getDefinition(normalized);
         if (def.isEmpty() || def.get().refreshStrategy() != RefreshStrategy.INCREMENTAL) {

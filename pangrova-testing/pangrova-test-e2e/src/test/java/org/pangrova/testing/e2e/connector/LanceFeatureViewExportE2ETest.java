@@ -7,6 +7,16 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
 import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
 import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore;
+import org.pangrova.metadata.evaluation.EvaluationDatasetId;
+import org.pangrova.metadata.evaluation.EvaluationDatasetVersion;
+import org.pangrova.metadata.evaluation.EvaluationMetric;
+import org.pangrova.metadata.evaluation.EvaluationMetricDirection;
+import org.pangrova.metadata.evaluation.EvaluationMetricPolicy;
+import org.pangrova.metadata.evaluation.EvaluationMetricRule;
+import org.pangrova.metadata.evaluation.EvaluationReleaseDecision;
+import org.pangrova.metadata.evaluation.EvaluationRun;
+import org.pangrova.metadata.evaluation.EvaluationRunState;
+import org.pangrova.metadata.evaluation.EvaluationSubjectType;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;
@@ -39,6 +49,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /** Authenticated SQL to real Worker/JNI export, persisted publication and policy-filtered artifact bytes. */
@@ -94,12 +105,14 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         TypedRow first = executeQuery("MATERIALIZE FEATURE VIEW " + view + " VERSION 1 SNAPSHOT '" + snapshot + "'")
                 .get(0);
         assertThat(readPublished(first, snapshot)).containsExactlyInAnyOrder("2:hidden", "3:hidden");
+        assertPublishedRowCountGatesRelease(first, snapshot, 2, true);
         corruptAuditPlan(view.substring(view.lastIndexOf('.') + 1));
         replacePolicies(3, "'current-mask'");
         TypedRow second = executeQuery("MATERIALIZE FEATURE VIEW " + view + " VERSION 1 SNAPSHOT '" + snapshot + "'")
                 .get(0);
         assertThat(second.getString("generation")).isNotEqualTo(first.getString("generation"));
         assertThat(readPublished(second, snapshot)).containsExactly("3:current-mask");
+        assertPublishedRowCountGatesRelease(second, snapshot, 1, false);
         replacePolicies(100, "'empty-mask'");
         TypedRow empty = executeQuery("MATERIALIZE FEATURE VIEW " + view + " VERSION 1 SNAPSHOT '" + snapshot + "'")
                 .get(0);
@@ -185,6 +198,88 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
             }
         }
         return rows;
+    }
+
+    private void assertPublishedRowCountGatesRelease(
+            TypedRow result, long snapshot, long expectedRows, boolean shouldApprove) {
+        var manifest = new JdbcArtifactBuildStore(stateStoreDataSource())
+                .findPublishedGeneration(tenant, result.getString("artifact_id"),
+                        result.getString("generation"), Long.toString(snapshot))
+                .orElseThrow();
+        String suffix = UUID.randomUUID().toString();
+        String datasetId = "feature-export-" + suffix;
+        String policyVersion = "minimum-two-rows-" + suffix;
+        String runId = "feature-export-" + suffix;
+        Instant now = Instant.now();
+        var evaluations = org.pangrova.metadata.ai.AiInfrastructureStores
+                .jdbc(stateStoreDataSource()).evaluations();
+        evaluations.createDatasetVersion(new EvaluationDatasetVersion(
+                new EvaluationDatasetId(tenant, datasetId), 1, "feature-e2e",
+                manifest.sourceSnapshot(), manifest.manifestUri(),
+                manifest.manifestSha256(), manifest.rowCount(), "{}", now));
+        evaluations.createMetricPolicy(new EvaluationMetricPolicy(tenant, policyVersion,
+                List.of(new EvaluationMetricRule("materialized_rows", "rows",
+                        EvaluationMetricDirection.HIGHER_IS_BETTER, 2, 0))));
+        evaluations.createRun(new EvaluationRun(
+                tenant, runId, datasetId, 1, EvaluationSubjectType.FEATURE_VIEW,
+                manifest.artifactId(), manifest.generation(), null, policyVersion,
+                EvaluationRunState.RUNNING, now, null, null, null));
+        assertThat(evaluations.completeFeatureViewMaterializationRun(
+                tenant, runId, now.plusSeconds(1))).isTrue();
+        assertThat(evaluations.listMetrics(tenant, runId)).singleElement()
+                .satisfies(metric -> {
+                    assertThat(metric.name()).isEqualTo("materialized_rows");
+                    assertThat(metric.value()).isEqualTo((double) expectedRows);
+                    assertThat(metric.evidenceReference()).isEqualTo(manifest.manifestUri());
+                });
+        var approval = new EvaluationReleaseDecision(
+                tenant, runId, true, policyVersion, "published feature row count",
+                "feature-e2e", now.plusSeconds(2));
+        if (shouldApprove) {
+            evaluations.recordReleaseDecision(approval);
+            assertThat(evaluations.findReleaseDecision(tenant, runId)).contains(approval);
+        } else {
+            assertThatThrownBy(() -> evaluations.recordReleaseDecision(approval))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("violates numerical threshold");
+            assertThat(evaluations.findReleaseDecision(tenant, runId)).isEmpty();
+            String forgedRunId = runId + "-forged";
+            evaluations.createRun(new EvaluationRun(
+                    tenant, forgedRunId, datasetId, 1, EvaluationSubjectType.FEATURE_VIEW,
+                    manifest.artifactId(), manifest.generation(), null, policyVersion,
+                    EvaluationRunState.RUNNING, now, null, null, null));
+            assertThat(evaluations.completeRun(tenant, forgedRunId,
+                    EvaluationRunState.SUCCEEDED,
+                    List.of(new EvaluationMetric("materialized_rows", 2, "rows", true,
+                            manifest.manifestUri())), null, null, now.plusSeconds(1)))
+                    .isTrue();
+            assertThatThrownBy(() -> evaluations.recordReleaseDecision(
+                    new EvaluationReleaseDecision(tenant, forgedRunId, true,
+                            policyVersion, "forged row count", "feature-e2e",
+                            now.plusSeconds(2))))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("differs from published export");
+            assertThat(evaluations.findReleaseDecision(tenant, forgedRunId)).isEmpty();
+            String wrongDatasetId = datasetId + "-wrong-manifest";
+            String wrongRunId = runId + "-wrong-manifest";
+            String wrongSha = (manifest.manifestSha256().charAt(0) == 'a' ? "b" : "a")
+                    .repeat(64);
+            evaluations.createDatasetVersion(new EvaluationDatasetVersion(
+                    new EvaluationDatasetId(tenant, wrongDatasetId), 1, "feature-e2e",
+                    manifest.sourceSnapshot(), manifest.manifestUri(),
+                    wrongSha, manifest.rowCount(), "{}", now));
+            evaluations.createRun(new EvaluationRun(
+                    tenant, wrongRunId, wrongDatasetId, 1,
+                    EvaluationSubjectType.FEATURE_VIEW, manifest.artifactId(),
+                    manifest.generation(), null, policyVersion,
+                    EvaluationRunState.RUNNING, now, null, null, null));
+            assertThatThrownBy(() -> evaluations.completeFeatureViewMaterializationRun(
+                    tenant, wrongRunId, now.plusSeconds(1)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("does not pin the published Feature View output");
+            assertThat(evaluations.findRun(tenant, wrongRunId).orElseThrow().state())
+                    .isEqualTo(EvaluationRunState.RUNNING);
+        }
     }
 
     private void corruptAuditPlan(String view) throws Exception {

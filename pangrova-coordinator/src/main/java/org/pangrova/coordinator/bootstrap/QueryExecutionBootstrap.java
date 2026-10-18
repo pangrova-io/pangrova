@@ -114,15 +114,22 @@ final class QueryExecutionBootstrap {
             SpeculativeStageHandler speculativeStageHandler,
             QueryStateJournal stateJournal) {
         this.workerManager = java.util.Objects.requireNonNull(wm, "workerManager must not be null");
-        SqlCompiler compiler = mc.require(SqlCompiler.class).withNativeCapabilities(() ->
-                org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(
-                        wm.getActiveWorkers().stream().map(
-                                org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()));
+        SqlCompiler compiler = mc.require(SqlCompiler.class).withNativeCapabilities(() -> {
+            var inventories = wm.getActiveWorkers().stream().map(
+                    org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList();
+            if (inventories.isEmpty()) {
+                throw new org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException();
+            }
+            return org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(inventories);
+        });
         mc.bind(SqlCompiler.class, compiler);
         CircuitBreakerPolicy cb = circuitBreaker;
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
                 cb != null ? cb : CircuitBreakerPolicy.noOp(), tracingProvider,
                 config.internalAuthSecret());
+        if (config.shuffleTlsConfig() != null) {
+            rtd.configureCopyTaskTls(config.shuffleTlsConfig());
+        }
         if (coordinationService != null) {
             rtd.setControlEpochSupplier(coordinationService::getCurrentEpoch);
             rtd.setExecutionOwnerResolver(executionId -> {
@@ -243,6 +250,9 @@ final class QueryExecutionBootstrap {
         }
         if (streamingBootstrap != null && streamingBootstrap.getDdlExecutor() != null) {
             registerStreamTasks(metadataFactory, streamingBootstrap.getDdlExecutor());
+        }
+        if (metadataBootstrap.dynamicTablePublicationStore() != null) {
+            registerDynamicTableTasks(metadataFactory, ddlExecutor, dmlDispatch);
         }
         registerBranchTasks(metadataFactory, catalog);
         registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
@@ -384,6 +394,14 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.stream.ShowStreamsTask(streamExecutor));
         factory.registerTask(org.pangrova.parser.ast.statement.stream.DescribeStreamStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.stream.DescribeStreamTask(streamExecutor));
+    }
+
+    private void registerDynamicTableTasks(
+            org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
+            org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
+            org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch) {
+        org.pangrova.coordinator.dynamictable.DynamicTableTaskRegistration.register(
+                factory, metadataBootstrap.dynamicTablePublicationStore(), ddlExecutor, dmlDispatch);
     }
 
     private static void registerBranchTasks(

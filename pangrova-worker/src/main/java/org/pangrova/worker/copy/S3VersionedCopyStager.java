@@ -25,6 +25,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Objects;
 
@@ -36,14 +37,21 @@ import java.util.Objects;
 final class S3VersionedCopyStager {
 
     private static final int BUFFER_BYTES = 64 * 1024;
+    private static final Duration MAX_STAGE_WALL_TIME = Duration.ofMinutes(10);
 
     private final S3Client source;
     private final S3BlobStorage managedStorage;
     private final Path stagingRoot;
     private final long maxSourceBytes;
+    private final long maxStageNanos;
 
     S3VersionedCopyStager(S3Client source, S3BlobStorage managedStorage,
                           Path stagingRoot, long maxSourceBytes) {
+        this(source, managedStorage, stagingRoot, maxSourceBytes, MAX_STAGE_WALL_TIME);
+    }
+
+    S3VersionedCopyStager(S3Client source, S3BlobStorage managedStorage,
+                          Path stagingRoot, long maxSourceBytes, Duration maxStageWallTime) {
         this.source = Objects.requireNonNull(source, "source must not be null");
         this.managedStorage = Objects.requireNonNull(managedStorage, "managedStorage must not be null");
         this.stagingRoot = Objects.requireNonNull(stagingRoot, "stagingRoot must not be null")
@@ -52,9 +60,15 @@ final class S3VersionedCopyStager {
             throw new IllegalArgumentException("maxSourceBytes must be positive");
         }
         this.maxSourceBytes = maxSourceBytes;
+        if (maxStageWallTime == null || maxStageWallTime.isZero()
+                || maxStageWallTime.isNegative()) {
+            throw new IllegalArgumentException("COPY stage wall time must be positive");
+        }
+        this.maxStageNanos = maxStageWallTime.toNanos();
     }
 
     StagedSource stage(StorageProfile profile, String sourceUrl, String tenantId) throws IOException {
+        long deadlineNanos = System.nanoTime() + maxStageNanos;
         Objects.requireNonNull(profile, "profile must not be null");
         if (profile.type() != StorageType.S3 || !profile.matchesUrl(sourceUrl)) {
             throw new AccessDeniedException("S3 COPY source is outside the bound storage profile");
@@ -76,15 +90,22 @@ final class S3VersionedCopyStager {
                 throw new IOException("S3 COPY source must have a non-null object version");
             }
             Long expectedSize = head.contentLength();
+            requireWithinDeadline(deadlineNanos);
             if (expectedSize == null || expectedSize < 0 || expectedSize > maxSourceBytes) {
                 throw new IOException("S3 COPY source size is unavailable or exceeds the staging limit");
             }
             Files.createDirectories(stagingRoot);
+            if (Files.isSymbolicLink(stagingRoot)) {
+                throw new AccessDeniedException("S3 COPY staging root must not be a symbolic link");
+            }
             Path draft = Files.createTempFile(stagingRoot, "copy-", ".part");
             try {
-                String checksum = downloadExactVersion(bucket, key, version, expectedSize, draft);
+                String checksum = downloadExactVersion(bucket, key, version, expectedSize,
+                        draft, deadlineNanos);
+                requireWithinDeadline(deadlineNanos);
                 managedStorage.publish(scope, checksum, expectedSize, draft);
-                verifyManagedObject(scope, checksum, expectedSize);
+                requireWithinDeadline(deadlineNanos);
+                verifyManagedObject(scope, checksum, expectedSize, deadlineNanos);
                 return new StagedSource(profile.name(), canonicalSourceUrl, version,
                         managedStorage.objectUri(scope, checksum), scope, checksum, expectedSize);
             } finally {
@@ -98,18 +119,20 @@ final class S3VersionedCopyStager {
     /** A durable proof retries from managed storage without reading the original S3 source. */
     StagedSource resume(StorageProfile profile, String sourceUrl, String tenantId,
                         StagedSource staged) throws IOException {
+        long deadlineNanos = System.nanoTime() + maxStageNanos;
         Objects.requireNonNull(staged, "staged source must not be null");
         requireRetrySource(profile, sourceUrl, tenantId);
         String scope = HexFormat.of().formatHex(
                 sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
         requireRetryProof(profile, sourceUrl, staged, scope);
-        verifyManagedObject(scope, staged.contentSha256(), staged.contentSize());
+        verifyManagedObject(scope, staged.contentSha256(), staged.contentSize(), deadlineNanos);
         return staged;
     }
 
     /** Materializes only verified managed bytes into a task-private local scan file. */
     VerifiedLocalCopySource materialize(StorageProfile profile, String sourceUrl, String tenantId,
                                         StagedSource staged) throws IOException {
+        long deadlineNanos = System.nanoTime() + maxStageNanos;
         requireRetrySource(profile, sourceUrl, tenantId);
         String scope = HexFormat.of().formatHex(
                 sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
@@ -125,17 +148,22 @@ final class S3VersionedCopyStager {
         try {
             MessageDigest digest = sha256();
             try (InputStream input = managedStorage.open(scope, staged.contentSha256(),
-                    staged.contentSize());
-                    FileChannel channel = FileChannel.open(local, StandardOpenOption.CREATE_NEW,
-                            StandardOpenOption.WRITE);
-                    OutputStream output = Channels.newOutputStream(channel)) {
-                long bytes = transfer(input, output, digest, staged.contentSize());
-                if (bytes != staged.contentSize()
-                        || !staged.contentSha256().equals(HexFormat.of().formatHex(digest.digest()))) {
-                    throw new IOException("S3 COPY managed scan bytes failed SHA-256/size verification");
+                    staged.contentSize())) {
+                try (FileChannel channel = FileChannel.open(local, StandardOpenOption.CREATE_NEW,
+                        StandardOpenOption.WRITE);
+                        OutputStream output = Channels.newOutputStream(channel)) {
+                    long bytes = transfer(input, output, digest, staged.contentSize(),
+                            deadlineNanos);
+                    if (bytes != staged.contentSize()
+                            || !staged.contentSha256().equals(HexFormat.of().formatHex(digest.digest()))) {
+                        throw new IOException("S3 COPY managed scan bytes failed SHA-256/size verification");
+                    }
+                    output.flush();
+                    channel.force(true);
+                } catch (IOException | RuntimeException | Error failure) {
+                    abortOnFailure(input, failure);
+                    throw failure;
                 }
-                output.flush();
-                channel.force(true);
             }
             return new VerifiedLocalCopySource(local, stagingRoot);
         } catch (IOException | RuntimeException failure) {
@@ -170,48 +198,75 @@ final class S3VersionedCopyStager {
     }
 
     private String downloadExactVersion(String bucket, String key, String version,
-                                        long expectedSize, Path draft) throws IOException {
+                                        long expectedSize, Path draft, long deadlineNanos)
+            throws IOException {
         GetObjectRequest request = GetObjectRequest.builder()
                 .bucket(bucket).key(key).versionId(version).build();
         try (ResponseInputStream<GetObjectResponse> input = source.getObject(request)) {
-            if (!version.equals(input.response().versionId())
-                    || input.response().contentLength() == null
-                    || input.response().contentLength() != expectedSize) {
-                throw new IOException("S3 COPY GET response differs from the pinned HEAD version");
-            }
-            MessageDigest digest = sha256();
-            try (FileChannel channel = FileChannel.open(draft,
-                    StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
-                    var output = Channels.newOutputStream(channel)) {
-                long size = transfer(input, output, digest, expectedSize);
-                if (size != expectedSize) {
-                    throw new IOException("S3 COPY source ended before its declared length");
+            try {
+                if (!version.equals(input.response().versionId())
+                        || input.response().contentLength() == null
+                        || input.response().contentLength() != expectedSize) {
+                    throw new IOException("S3 COPY GET response differs from the pinned HEAD version");
                 }
-                output.flush();
-                channel.force(true);
+                MessageDigest digest = sha256();
+                try (FileChannel channel = FileChannel.open(draft,
+                        StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+                        var output = Channels.newOutputStream(channel)) {
+                    long size = transfer(input, output, digest, expectedSize, deadlineNanos);
+                    if (size != expectedSize) {
+                        throw new IOException("S3 COPY source ended before its declared length");
+                    }
+                    output.flush();
+                    channel.force(true);
+                }
+                return HexFormat.of().formatHex(digest.digest());
+            } catch (IOException | RuntimeException | Error failure) {
+                abortOnFailure(input, failure);
+                throw failure;
             }
-            return HexFormat.of().formatHex(digest.digest());
         }
     }
 
-    private void verifyManagedObject(String scope, String checksum, long expectedSize)
-            throws IOException {
+    private void verifyManagedObject(String scope, String checksum, long expectedSize,
+                                     long deadlineNanos) throws IOException {
         MessageDigest digest = sha256();
         try (InputStream input = managedStorage.open(scope, checksum, expectedSize)) {
-            long size = transfer(input, OutputStream.nullOutputStream(), digest, expectedSize);
-            if (size != expectedSize
-                    || !checksum.equals(HexFormat.of().formatHex(digest.digest()))) {
-                throw new IOException("S3 COPY managed staging object failed byte integrity verification");
+            try {
+                long size = transfer(input, OutputStream.nullOutputStream(), digest,
+                        expectedSize, deadlineNanos);
+                if (size != expectedSize
+                        || !checksum.equals(HexFormat.of().formatHex(digest.digest()))) {
+                    throw new IOException("S3 COPY managed staging object failed byte integrity verification");
+                }
+            } catch (IOException | RuntimeException | Error failure) {
+                abortOnFailure(input, failure);
+                throw failure;
+            }
+        }
+    }
+
+    private static void abortOnFailure(InputStream input, Throwable failure) {
+        if (input instanceof ResponseInputStream<?> response) {
+            try {
+                response.abort();
+            } catch (RuntimeException abortFailure) {
+                failure.addSuppressed(abortFailure);
             }
         }
     }
 
     private static long transfer(InputStream input, OutputStream output,
-                                 MessageDigest digest, long limit) throws IOException {
+                                 MessageDigest digest, long limit, long deadlineNanos)
+            throws IOException {
         byte[] buffer = new byte[BUFFER_BYTES];
         long size = 0;
         int read;
-        while ((read = input.read(buffer)) != -1) {
+        while (true) {
+            requireWithinDeadline(deadlineNanos);
+            read = input.read(buffer);
+            requireWithinDeadline(deadlineNanos);
+            if (read == -1) break;
             if (read == 0) {
                 continue;
             }
@@ -227,6 +282,12 @@ final class S3VersionedCopyStager {
             output.write(buffer, 0, read);
         }
         return size;
+    }
+
+    private static void requireWithinDeadline(long deadlineNanos) throws IOException {
+        if (System.nanoTime() - deadlineNanos >= 0) {
+            throw new IOException("S3 COPY staging wall time exceeded");
+        }
     }
 
     private static MessageDigest sha256() {

@@ -38,6 +38,23 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     }
 
     @Test
+    void productionBootstrapWiresMigratedDynamicTablePublicationAuthority() {
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(
+                CoordinatorBootstrapConfig.withDefaults("coord-dynamic-publication", 0)));
+        try {
+            bootstrap.start();
+            var publications = bootstrap.getMetadataBootstrap().dynamicTablePublicationStore();
+            assertThat(publications).isNotNull();
+            publications.create("bootstrap-tenant", "lake.analytics.rollup",
+                    "SELECT 1 AS id", "lake", "analytics");
+            assertThat(publications.load("bootstrap-tenant", "lake.analytics.rollup"))
+                    .isPresent();
+        } finally {
+            bootstrap.shutdown();
+        }
+    }
+
+    @Test
     void shutdownCompletesWithoutError() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-2", 0);
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));

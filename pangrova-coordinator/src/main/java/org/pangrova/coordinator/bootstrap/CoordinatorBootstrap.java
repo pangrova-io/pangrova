@@ -255,7 +255,8 @@ public final class CoordinatorBootstrap {
             connectorHandleFactory = new PluginConnectorHandleFactory(
                     cl, secretResolver, nativeDatasetControl::forCatalog, nativeDatasetControl::sourceForCatalog);
             var federationFactory = new PluginFederationHandleFactory(cl, secretResolver);
-            metadataBootstrap = MetadataBootstrap.initialize(store, connectorHandleFactory, federationFactory);
+            metadataBootstrap = MetadataBootstrap.initialize(
+                    store, connectorHandleFactory, federationFactory, metadataDataSource);
             // P2-3: persist column governance tags across restarts now that a metadata
             // datasource is configured (the service defaults to in-memory otherwise).
             if (metadataBootstrap.metadataService()

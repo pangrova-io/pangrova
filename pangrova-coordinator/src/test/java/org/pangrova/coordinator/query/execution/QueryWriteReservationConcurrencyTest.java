@@ -111,13 +111,13 @@ class QueryWriteReservationConcurrencyTest {
             fixture.installOrdinaryAuthority();
             fixture.engine.ensureWriteContextRegistered(actor(), context(fixture, "INSERT", Map.of()));
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(actor(), context(fixture, "OVERWRITE", Map.of())))
-                    .rootCause().hasMessageContaining("different authority or declaration");
+                    .hasMessageContaining("different authority or declaration");
             assertThat(fixture.metadata.inserts).isEqualTo(1);
             assertThat(fixture.metadata.overwrites).isZero();
             fixture.tracker.clearWriteState("reservation-query");
             fixture.engine.ensureWriteContextRegistered(actor(), context(fixture, "OVERWRITE", Map.of("day", "a")));
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(actor(), context(fixture, "OVERWRITE", Map.of("day", "b"))))
-                    .rootCause().hasMessageContaining("different authority or declaration");
+                    .hasMessageContaining("different authority or declaration");
             assertThat(fixture.metadata.overwrites).isEqualTo(1);
         }
     }

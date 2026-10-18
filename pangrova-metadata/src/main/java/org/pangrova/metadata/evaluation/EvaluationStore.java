@@ -24,6 +24,11 @@ import java.util.Optional;
 /** Durable contract for evaluation datasets, runs, evidence, and release gates. */
 public interface EvaluationStore {
 
+    /** Publishes one immutable tenant-scoped policy version and all of its metric rules. */
+    void createMetricPolicy(EvaluationMetricPolicy policy);
+
+    Optional<EvaluationMetricPolicy> findMetricPolicy(String tenantId, String version);
+
     void createDatasetVersion(EvaluationDatasetVersion dataset);
 
     Optional<EvaluationDatasetVersion> findDatasetVersion(
@@ -45,6 +50,14 @@ public interface EvaluationStore {
             String traceReference,
             String failureClass,
             Instant completedAt);
+
+    /**
+     * Atomically records the row count of a published Feature View generation.
+     * This is a materialization-volume check, not a model-quality evaluation.
+     * The run must pin that generation and its exact published manifest as its dataset.
+     */
+    boolean completeFeatureViewMaterializationRun(
+            String tenantId, String runId, Instant completedAt);
 
     List<EvaluationMetric> listMetrics(String tenantId, String runId);
 

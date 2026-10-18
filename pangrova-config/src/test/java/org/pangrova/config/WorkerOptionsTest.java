@@ -65,6 +65,11 @@ class WorkerOptionsTest {
     // ---- Transport ----
 
     @Test
+    void copyTaskTlsPortDefaultsToAutomaticLocalAssignment() {
+        assertThat(WorkerOptions.COPY_TASK_TLS_PORT.defaultValue()).isZero();
+    }
+
+    @Test
     void transportPortDefaultsToZero() {
         assertThat(WorkerOptions.TRANSPORT_PORT.defaultValue()).isEqualTo(0);
     }

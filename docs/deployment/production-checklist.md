@@ -156,6 +156,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 - [ ] Coordinator nodes reachable from clients on port 8080 (HTTP) or 443 (HTTPS behind load balancer)
 - [ ] Coordinator nodes reachable from Worker nodes on port 8080
 - [ ] Worker nodes reachable from Coordinator on port 8081 (management) and 9090 (transport/shuffle)
+- [ ] If private COPY task transport is configured, set a fixed `worker.copy.task-tls-port`, expose that port only to Coordinator nodes, and verify the Worker certificate SAN covers `worker.advertised-host`
 - [ ] Worker-to-Worker ports open: 9090 (Arrow Flight shuffle)
 - [ ] All inter-node communication BLOCKED from public internet (firewall rules or security groups)
 - [ ] Load balancer health check configured:

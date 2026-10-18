@@ -303,7 +303,8 @@ public final class WorkerResource {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 0L, Instant.now(), 0.0, null,
                 req.protocolVersion(),
-                req.rackId(), req.dataLocality(), null, capabilityInventory);
+                req.rackId(), req.dataLocality(), null, capabilityInventory,
+                req.copyTaskTlsPort());
     }
 
     private static final java.util.regex.Pattern VALID_HOST_PATTERN =
