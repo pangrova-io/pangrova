@@ -199,7 +199,8 @@ final class IndependentSpeculationProcesses implements AutoCloseable {
     private void configureProcesses() {
         cluster.configureCoordinator(container -> container
                 .withCommand("start", "coordinator", "--config", "/opt/pangrova/config/process-coordinator.yml")
-                .withEnv("PANGROVA_JAVA_OPTS", "-Xms128m -Xmx512m")
+                .withEnv("PANGROVA_JAVA_OPTS", "-Xms128m -Xmx512m"
+                        + " -Dpangrova.speculation.single-task-duration-threshold-ms=15000")
                 .withEnv("PANGROVA_INTERNAL_AUTH_SECRET", "independent-process-internal-secret")
                 .withEnv("PANGROVA_DB_USERNAME", "pangrova").withEnv("PANGROVA_DB_PASSWORD", "pangrova_test")
                 .withCopyToContainer(Transferable.of(coordinatorConfig()), "/opt/pangrova/config/process-coordinator.yml")

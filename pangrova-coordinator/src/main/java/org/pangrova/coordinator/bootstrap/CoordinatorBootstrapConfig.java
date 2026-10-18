@@ -79,6 +79,11 @@ public record CoordinatorBootstrapConfig(
     }
     public boolean operationsEnabled() { return featureFlags.operations(); }
     public boolean speculationEnabled() { return featureFlags.speculation(); }
+
+    /** Optional threshold for speculation in a stage with one running task. */
+    public long speculationSingleTaskDurationThresholdMs() {
+        return Long.getLong("pangrova.speculation.single-task-duration-threshold-ms", 0L);
+    }
     public boolean pullModeSplitAssignmentEnabled() { return featureFlags.pullModeSplitAssignment(); }
     public boolean cacheWritebackEnabled() { return featureFlags.cacheWriteback(); }
     public boolean indexingEnabled() { return featureFlags.indexing(); }

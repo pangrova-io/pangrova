@@ -417,9 +417,14 @@ final class QueryBootstrap {
             return;
         }
         speculativeTaskLauncher = new SpeculativeTaskLauncher();
+        var speculationConfig = new SpeculationConfig(true,
+                SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS, true, true,
+                SpeculationConfig.DEFAULT_DATA_SKEW_MULTIPLIER, java.util.Map.of(),
+                SpeculationConfig.DEFAULT_MEDIAN_MULTIPLIER,
+                config.speculationSingleTaskDurationThresholdMs());
         speculativeStageHandler = new SpeculativeStageHandler(
-                new SpeculationConfig(true, SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS),
-                new StragglerDetector(), speculativeTaskLauncher, taskTracker);
+                speculationConfig, new StragglerDetector(speculationConfig),
+                speculativeTaskLauncher, taskTracker);
         LOG.info("event=speculation_initialized");
     }
 

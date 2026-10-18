@@ -13,6 +13,7 @@ import java.util.Map;
  * @param dataSkewMultiplier     input size ratio above median to consider skewed (default: 3.0)
  * @param queryTypeThresholds    per-query-type median multiplier overrides (e.g., "SCAN" → 1.2)
  * @param defaultMedianMultiplier default median multiplier when no query-type override exists (default: 1.5)
+ * @param singleTaskDurationThresholdMs explicit duration threshold for a one-task stage; zero disables it
  */
 public record SpeculationConfig(
         boolean enabled,
@@ -21,7 +22,8 @@ public record SpeculationConfig(
         boolean dataSkewEnabled,
         double dataSkewMultiplier,
         Map<String, Double> queryTypeThresholds,
-        double defaultMedianMultiplier) {
+        double defaultMedianMultiplier,
+        long singleTaskDurationThresholdMs) {
 
     /** Default detection interval: 5 seconds. */
     public static final long DEFAULT_DETECTION_INTERVAL_MS = 5_000L;
@@ -35,7 +37,7 @@ public record SpeculationConfig(
     /** Disabled configuration singleton. */
     public static final SpeculationConfig DISABLED = new SpeculationConfig(
             false, DEFAULT_DETECTION_INTERVAL_MS, true, true,
-            DEFAULT_DATA_SKEW_MULTIPLIER, Map.of(), DEFAULT_MEDIAN_MULTIPLIER);
+            DEFAULT_DATA_SKEW_MULTIPLIER, Map.of(), DEFAULT_MEDIAN_MULTIPLIER, 0L);
 
     public SpeculationConfig {
         if (detectionIntervalMs <= 0) {
@@ -50,7 +52,19 @@ public record SpeculationConfig(
             throw new IllegalArgumentException(
                     "defaultMedianMultiplier must be positive, got " + defaultMedianMultiplier);
         }
+        if (singleTaskDurationThresholdMs < 0) {
+            throw new IllegalArgumentException("singleTaskDurationThresholdMs must not be negative");
+        }
         queryTypeThresholds = Map.copyOf(queryTypeThresholds);
+    }
+
+    /** Preserves the peer-based policy for existing callers. */
+    public SpeculationConfig(boolean enabled, long detectionIntervalMs,
+            boolean progressRateEnabled, boolean dataSkewEnabled,
+            double dataSkewMultiplier, Map<String, Double> queryTypeThresholds,
+            double defaultMedianMultiplier) {
+        this(enabled, detectionIntervalMs, progressRateEnabled, dataSkewEnabled,
+                dataSkewMultiplier, queryTypeThresholds, defaultMedianMultiplier, 0L);
     }
 
     /**
@@ -58,7 +72,7 @@ public record SpeculationConfig(
      */
     public SpeculationConfig(boolean enabled, long detectionIntervalMs) {
         this(enabled, detectionIntervalMs, true, true,
-                DEFAULT_DATA_SKEW_MULTIPLIER, Map.of(), DEFAULT_MEDIAN_MULTIPLIER);
+                DEFAULT_DATA_SKEW_MULTIPLIER, Map.of(), DEFAULT_MEDIAN_MULTIPLIER, 0L);
     }
 
     /**

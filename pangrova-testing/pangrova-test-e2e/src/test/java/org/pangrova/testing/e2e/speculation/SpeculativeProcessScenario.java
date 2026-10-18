@@ -3,6 +3,7 @@ package org.pangrova.testing.e2e.speculation;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.TaskKind;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -174,10 +175,16 @@ final class SpeculativeProcessScenario implements AutoCloseable {
                         task -> task, (first, duplicate) -> first)).values().stream().toList();
     }
     private void assertSourcePartitions() throws IOException {
-        var identity = original().request().taskRequest().getAttempt();
+        var request = original().request().taskRequest();
+        var identity = request.getAttempt();
+        int expectedPartitions = request.getTaskKind() == TaskKind.TASK_KIND_WRITE ? 1 : 4;
+        if (expectedPartitions == 1) {
+            assertThat(request.getSplitsCount()).as("one fenced writer covers all four source splits").isEqualTo(4);
+        }
         assertThat(tasks().stream().map(task -> task.request().taskRequest())
-                .filter(request -> !request.getAttempt().getTaskId().startsWith("spec-") && request.getAttempt().getStageId() == identity.getStageId())
-                .map(request -> request.getAttempt().getPartitionId()).distinct().toList()).hasSize(4);
+                .filter(source -> !source.getAttempt().getTaskId().startsWith("spec-")
+                        && source.getAttempt().getStageId() == identity.getStageId())
+                .map(source -> source.getAttempt().getPartitionId()).distinct().toList()).hasSize(expectedPartitions);
     }
 
     @Override public void close() throws Exception {

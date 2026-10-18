@@ -57,6 +57,13 @@ public class StragglerDetector {
         if (tasks.isEmpty()) {
             return List.of();
         }
+        if (tasks.size() == 1 && config.singleTaskDurationThresholdMs() > 0) {
+            TaskDuration task = tasks.get(0);
+            return !task.completed() && !task.hasSpeculativeCopy()
+                    && task.durationMs() > Math.max(MIN_DURATION_MS,
+                            config.singleTaskDurationThresholdMs())
+                    ? List.of(task.taskId()) : List.of();
+        }
         if (!hasEnoughCompletion(tasks)) {
             return List.of();
         }

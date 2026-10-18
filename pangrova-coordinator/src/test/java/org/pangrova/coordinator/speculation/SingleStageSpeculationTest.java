@@ -15,6 +15,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SingleStageSpeculationTest {
 
     @Test
+    void oneTaskStageRequiresExplicitDurationThreshold() {
+        var task = new TaskDuration("single", 20_000, false, false);
+        assertThat(new StragglerDetector().detectStragglers(List.of(task))).isEmpty();
+
+        var config = new SpeculationConfig(true, 5_000L, true, true,
+                SpeculationConfig.DEFAULT_DATA_SKEW_MULTIPLIER, Map.of(),
+                SpeculationConfig.DEFAULT_MEDIAN_MULTIPLIER, 15_000L);
+        var detector = new StragglerDetector(config);
+        assertThat(detector.detectStragglers(List.of(new TaskDuration("single", 15_000, false, false))))
+                .isEmpty();
+        assertThat(detector.detectStragglers(List.of(task))).containsExactly("single");
+        assertThat(detector.detectStragglers(List.of(new TaskDuration("single", 20_000, false, true))))
+                .isEmpty();
+        assertThat(detector.detectStragglers(List.of(new TaskDuration("single", 20_000, true, false))))
+                .isEmpty();
+    }
+
+    @Test
     void singleStageSlowTask_elapsedTimeDetection_triggersSpeculation() {
         var detector = new StragglerDetector();
         // 3 fast tasks completed in ~5s, 1 slow task running for 50s

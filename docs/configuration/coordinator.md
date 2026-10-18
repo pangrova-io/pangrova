@@ -48,6 +48,7 @@ system properties (`-D...`) on every coordinator:
 
 | System property | Default | Description |
 |-----------------|---------|-------------|
+| `pangrova.speculation.single-task-duration-threshold-ms` | `0` (disabled) | When speculation is enabled, a one-task stage may launch one copy on another Worker after this elapsed time. Values below 10,000 ms still use the detector's 10-second minimum; peer-based stages retain the 75% completion rule. |
 | `pangrova.coordination.lease.backend` | `jdbc` | Lease backend: `jdbc` (single DB) or `zookeeper` (quorum) |
 | `pangrova.coordination.lease.zookeeper.connectString` | — | Required when backend=`zookeeper`. ZK ensemble, e.g. `zk1:2181,zk2:2181,zk3:2181` |
 | `pangrova.coordination.lease.zookeeper.basePath` | `/pangrova/leases` | Parent znode under which lease nodes are stored |
