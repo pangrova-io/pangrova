@@ -134,6 +134,9 @@ public final class WorkerShutdownSequence {
 
     private static void stopExecutor(ScheduledExecutorService executor) {
         if (executor == null) return;
+        if (Thread.currentThread().isInterrupted()) {
+            throw new IllegalStateException("Worker scheduler drain interrupted");
+        }
         executor.shutdownNow();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {

@@ -175,8 +175,14 @@ public final class TaskResource implements Closeable {
                 request.taskRequest().getAttempt().getControlEpoch());
         taskManager.verifyAdmissionDeadline(request.taskRequest().getDeadlineEpochMs());
         // Validate the one canonical contract before any admission side effect.
-        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(
-                request.taskRequest());
+        try {
+            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(
+                    request.taskRequest());
+        } catch (IllegalArgumentException invalidRequest) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(new SubmitTaskResponse(false, invalidRequest.getMessage(), null, null, null))
+                    .build();
+        }
         taskManager.verifyExecutionOwnerForAdmission(request);
         ResultEndpoint endpoint = resultEndpoint(request.taskRequest());
         TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);

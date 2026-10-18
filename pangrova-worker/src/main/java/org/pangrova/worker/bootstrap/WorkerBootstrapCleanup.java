@@ -21,14 +21,17 @@ final class WorkerBootstrapCleanup {
             WorkerBootstrapConfig config,
             WorkerObservabilitySetup observability,
             boolean deregister) {
-        if (deregister) {
-            steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
-        }
+        steps.attempt(this::closeCdc);
         steps.attempt(this::closeHeartbeat);
         steps.attempt(() -> WorkerHttpBootstrap.stopHttp(refs));
-        steps.attempt(this::closeCdc);
         steps.attempt(() -> WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager()));
         steps.attempt(this::closeTasks);
+        steps.requireSuccess();
+        if (deregister) {
+            steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
+            steps.requireSuccess();
+        }
+        steps.attempt(this::closeRegistrationClient);
         steps.requireSuccess();
         steps.attempt(this::closeWriter);
         steps.attempt(() -> NativeFunctionBootstrap.close(refs));
@@ -38,6 +41,9 @@ final class WorkerBootstrapCleanup {
 
     private void closeHeartbeat() {
         WorkerHeartbeatBootstrap.stopHeartbeat(refs);
+    }
+
+    private void closeRegistrationClient() {
         var client = refs.registrationClient();
         if (client == null) {
             return;
