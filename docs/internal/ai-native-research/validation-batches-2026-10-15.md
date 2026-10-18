@@ -30,6 +30,8 @@ Worker 全模块重跑时，Lance 夹具初次因缺 `pangrova.lance.fixture.too
 
 `9cc0f8fc` 干净归档 ARM64 Bake/加载成功，image ID `sha256:012a9c52cfb6cd013c74d6aa127135a2012050bf02a861a7508998338c199649`（`/tmp/pangrova-arm64-bake-9cc0f8fc.log`）；QUERY-only 写入授权已使 `INSERT ... SELECT` 的 `write_context_auto_registered` 与真实 Worker 写任务启动，但并发写入聚焦 E2E **1 run/0 failure/1 error/0 skip**：`production speculative clone issued` 90 秒超时（`/tmp/pangrova-independent-spec-9cc0f8fc-write-r1.log`）。实际日志 `stageId=0 splits=4 tasks=1 shufflePartitions=0`：四个 source split 被压到单个输出/写入 task，没有同 stage 已完成 peer 供当前 straggler detector 触发副本。不能只调大超时；需核对安全的写入分区并行、每分区 fragment fencing、winner-only 提交与单次 Iceberg commit 后再验收。受影响授权定向 18/18、静态门禁退出 0（`/tmp/pangrova-query-role-write-focused-r2.log`、`/tmp/pangrova-query-role-write-static-r3.log`）。
 
+最新提交 `8c5ba88a` 的 JDK17 E2E reactor `-am -DskipTests install` **33/33 模块 PASS**（`/tmp/pangrova-current-reactor-install-8c5ba88a.log`）；同源码 `ActivationSmokeE2ETest` **3/3 PASS**，0 失败/错误/跳过，覆盖启动、真实 JNI 表外表达式及 Iceberg 建表/写入/读取/删除（`/tmp/pangrova-activation-smoke-8c5ba88a-r1.log`）。这只确认共享 JVM 的基础 SQL/JNI 链路；独立进程推测执行组仍为 7 个方法通过、3 个方法错误，且通过的方法中还有跨用例终态上报耗尽，#11/#12 不关闭。
+
 ## 第一批：Linux 可部署产物（4 项，进行中）
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
