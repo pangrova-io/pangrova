@@ -115,7 +115,7 @@ public final class TaskStatusReceiver {
         try (var publication = taskTracker.enterReportPublication(expectedRequest, report,
                 taskAttemptIsNoLongerActive(report))) {
             report = publication.report();
-            if (expectedRequest != null) recordExecutionDrain(expectedRequest, validation);
+            recordExecutionDrain(expectedRequest, validation);
             boolean accepted = publication.publicationCompleted();
             if (!accepted) {
                 journalTaskEvent(report, expectedRequest);
