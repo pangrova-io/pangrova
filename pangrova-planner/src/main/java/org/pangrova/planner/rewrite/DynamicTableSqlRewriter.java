@@ -196,7 +196,10 @@ public final class DynamicTableSqlRewriter {
             }
             int last = matchingIdentifier(tokens, depths, i + 1, queryDepth, parts);
             if (last >= 0) {
-                return sql.substring(0, tokens.get(i + 1).getStartIndex()) + newName
+                String replacement = newName.contains(".") ? newName
+                        : sql.substring(tokens.get(i + 1).getStartIndex(), tokens.get(last).getStartIndex())
+                                + newName;
+                return sql.substring(0, tokens.get(i + 1).getStartIndex()) + replacement
                         + sql.substring(tokens.get(last).getStopIndex() + 1);
             }
         }
@@ -221,7 +224,10 @@ public final class DynamicTableSqlRewriter {
                         token.getText().substring(1, token.getText().length() - 1).replace("\"\"", "\"");
                 case PangrovaSqlLexer.BACKTICK_IDENTIFIER ->
                         token.getText().substring(1, token.getText().length() - 1).replace("``", "`");
-                default -> null;
+                // The parsed AST has already established that this is an identifier.
+                // Non-reserved SQL keywords such as DEFAULT are legal name parts but
+                // have their own lexer token type rather than IDENTIFIER.
+                default -> token.getText();
             };
             if (actual == null || !actual.equalsIgnoreCase(parts.get(part))) return -1;
         }

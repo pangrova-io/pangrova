@@ -88,5 +88,10 @@ class PlannerServiceOwnershipTest {
                 .isEqualTo("SELECT logical FROM physical");
         assertThat(rewrite.rewrite("SELECT 1 /* logical */ FROM logical"))
                 .isEqualTo("SELECT 1 /* logical */ FROM physical");
+        assertThat(rewrite.rewrite("SELECT * FROM iceberg_catalog.default.logical WHERE id = 1"))
+                .isEqualTo("SELECT * FROM iceberg_catalog.default.physical WHERE id = 1");
+        dynamic.registerTargetOverride("logical", "paimon_catalog.default.source_table");
+        assertThat(rewrite.rewrite("SELECT * FROM paimon_catalog.default.logical"))
+                .isEqualTo("SELECT * FROM paimon_catalog.default.source_table");
     }
 }
