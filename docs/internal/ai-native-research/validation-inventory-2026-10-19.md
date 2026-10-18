@@ -12,7 +12,7 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 | A：同源码基础门禁 | 5 Native Release | **本机通过**，4,175/4,175；源码变化涉及 Native 时重跑受影响测试，最终功能封版后再做一次全量。 |
 | A | 6 Native ASan | 当前集成源码未跑全量 ASan；使用匹配的 Velox、Folly、Protobuf 插桩依赖重建并运行。 |
 | A | 7 Java reactor | 当前集成源码只完成编译安装和部分模块/定向测试；跑完整 `-Pfull-regression verify`，逐模块记录实际发现数。 |
-| A | 8 静态/协议/结构 | 协议 447/447、文档类引用 183 项和 E2E 真实性已通过；最终同源码仍需全 reactor 静态、descriptor、SPI/JNI 门禁。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
+| A | 8 静态/协议/结构 | 协议 447/447、文档类引用 183 项、E2E 真实性、descriptor、SPI 注解 147 类型、JNI 22 方法对称性及 dead-stub 检查已通过；最终同源码仍需全 reactor 静态。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
 | A | 10 隔离 Native owner | 三类 Native runtime owner 测试须各用独立 JVM 在当前源码重跑。 |
 | B：真实 SQL 与分布式 | 1 ARM64 镜像 | 旧源码镜像已构建；本机功能验收可用独立 JVM，不要求先打包镜像。若要交付镜像，再按交付源码重建。 |
 | B | 2 镜像内 JNI/SQL 冒烟 | 本机 JNI/SQL 先以同源码独立进程验证；镜像内资格仅随镜像交付检查。 |
