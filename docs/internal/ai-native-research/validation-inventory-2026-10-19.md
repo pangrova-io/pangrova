@@ -5,7 +5,7 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
-本清单以 `codex/ai-native-semantic-closure` 为唯一交付分支，沿用[27 项验收定义](validation-batches-2026-10-15.md)。提交 `04fadbcf` 的 macOS ARM64 Native Release 加真实 PostgreSQL/Lance broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-ctest-20261019.log`），匹配插桩 Velox/Folly/Protobuf 的 Native ASan 加真实 broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-asan-final-20261019.log`，macOS `detect_leaks=0`）；协议全模块 **447/447 PASS**（`/tmp/pangrova-integrated-protocol-full-r2-20261019.log`），独立双 Worker SQL/JNI E2E **1/1 PASS**（`/tmp/pangrova-integrated-two-worker-e2e-r3-20261019.log`），隔离 Native owner 三类独立 JVM **9/9 PASS**（`/tmp/pangrova-owner-{worker-bootstrap,native-exchange,shuffle-admission}-20261019.log`）。之后新增的 `$entries` Native/协议修改已有定向 Java、Release Native 和 4/4 真 SQL E2E 通过，**尚未重跑最终源码全量 Release/ASan/Java reactor/E2E**。仓库发现 **195 个 `*E2ETest.java` 类**；旧提交、其他工作树或镜像的结果只保留精确来源，不能转记为最终源码全绿。
+本清单以 `codex/ai-native-semantic-closure` 为唯一交付分支，沿用[27 项验收定义](validation-batches-2026-10-15.md)。提交 `04fadbcf` 的 macOS ARM64 Native Release 加真实 PostgreSQL/Lance broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-ctest-20261019.log`），匹配插桩 Velox/Folly/Protobuf 的 Native ASan 加真实 broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-asan-final-20261019.log`，macOS `detect_leaks=0`）；隔离 Native owner 三类独立 JVM **9/9 PASS**（`/tmp/pangrova-owner-{worker-bootstrap,native-exchange,shuffle-admission}-20261019.log`）。新增 `$entries` 的提交 `a1cdcb60` 已通过定向 Java、Release/ASan Native 各 10/10、4/4 真 SQL E2E、完整 Java reactor 无测试安装、协议全模块 **447/447 PASS**（`/tmp/pangrova-protocol-a1cdcb60-r2-20261019.log`）；当前提交的 TPC-H Q11–Q22 **12/12 PASS**、本地独立双 Worker 和独立 AI 进程分别 **1/1 PASS**。**尚未重跑最终源码全量 Release/ASan/Java 测试 reactor/E2E**。仓库发现 **195 个 `*E2ETest.java` 类**；旧提交、其他工作树或镜像的结果只保留精确来源，不能转记为最终源码全绿。
 
 本机独立进程追加验证：一台 Coordinator 加两个独立 Native Worker 的 8 批 Iceberg JDBC 写入、JOIN/shuffle、Worker 停机重启及资源释放通过（`/tmp/pangrova-independent-local-processes-r5-20261019.log`）；预置 Ollama 镜像的真实模型 HTTP/SQL、两名 Worker 分别单独调用模型、重启后双 Worker 查询、审计和资源释放通过（`/tmp/pangrova-independent-ai-processes-r3-20261019.log`）。Coordinator `-Pfull-regression` 根因修复后整模块退出 0；本轮 542 份 Surefire 报告合计 **3,213 项，0 失败、0 错误、0 跳过**（`/tmp/pangrova-coordinator-full-r3-20261019.log`）。上一轮 3,295 项的失败记录不再代表当前结果，完整 Java reactor 仍待验。Worker 405 映射已通过定向测试。上述是功能证据，不代表规模/P99 验收。
 
@@ -13,13 +13,13 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 | --- | --- | --- |
 | A：同源码基础门禁 | 5 Native Release | 提交 `04fadbcf` **通过** 4,175/4,175；`$entries` 修改后已做定向 Release，最终源码还须全量重跑。 |
 | A | 6 Native ASan | 提交 `04fadbcf` **通过** 4,175/4,175；`$entries` 修改后的定向 ASan 10/10 通过（`/tmp/pangrova-iceberg-row-id-asan-focused-20261019.log`），最终源码还须全量重跑；macOS 不覆盖 Linux LeakSanitizer。 |
-| A | 7 Java reactor | 提交 `04fadbcf` Coordinator 整模块 3,213/3,213 通过；新增 `$entries` 后 Planner/Connector/Coordinator 定向及受影响静态 `verify` 通过（`/tmp/pangrova-iceberg-entries-static-final-20261019.log`），最终源码仍需完整 `-Pfull-regression verify`。 |
-| A | 8 静态/协议/结构 | 协议 447/447、文档类引用 183 项、E2E 真实性、descriptor、SPI 注解 147 类型、JNI 22 方法对称性及 dead-stub 检查已通过；最终同源码仍需全 reactor 静态。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
+| A | 7 Java reactor | 提交 `04fadbcf` Coordinator 整模块 3,213/3,213 通过；提交 `a1cdcb60` 完整 Java reactor 无测试安装、Planner/Connector/Coordinator 定向及受影响静态 `verify` 通过（`/tmp/pangrova-reactor-install-a1cdcb60-20261019.log`、`/tmp/pangrova-iceberg-entries-static-final-20261019.log`），最终源码仍需完整 `-Pfull-regression verify`。 |
+| A | 8 静态/协议/结构 | 提交 `a1cdcb60` 协议夹具从真 Native 重采集后 447/447，通过日志 `/tmp/pangrova-protocol-a1cdcb60-r2-20261019.log`；文档类引用 183 项、E2E 真实性、descriptor、SPI 注解 147 类型、JNI 22 方法对称性及 dead-stub 检查此前通过；最终同源码仍需全 reactor 静态。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
 | A | 10 隔离 Native owner | 提交 `04fadbcf` 三类各自独立 JVM：5 + 3 + 1 = 9/9，零跳过；Native 协议修改后最终源码还须复验。 |
 | B：真实 SQL 与分布式 | 1 ARM64 镜像 | 旧源码镜像已构建；本机功能验收可用独立 JVM，不要求先打包镜像。若要交付镜像，再按交付源码重建。 |
 | B | 2 镜像内 JNI/SQL 冒烟 | 本机 JNI/SQL 先以同源码独立进程验证；镜像内资格仅随镜像交付检查。 |
-| B | 9 共享 SQL E2E | 完整发现/执行尚未通过；当前 195 个 E2E 类正在滚动运行，按首个根因修复。 |
-| B | 11 两独立 Worker | 真实 JOIN/shuffle/TopK **1/1 通过**，含不同 PID/端口、两端任务和 drain；另有独立进程 8 批 JDBC 写入、重启后 JOIN/资源释放通过。同源码推测执行 10 场景仍待全组复验。 |
+| B | 9 共享 SQL E2E | 完整发现/执行尚未通过；当前提交的 Iceberg `$entries` 4/4、TPC-H Q11–Q22 12/12 已增量通过；195 个 E2E 类继续按首个根因滚动修复。 |
+| B | 11 两独立 Worker | 真实 JOIN/shuffle/TopK **1/1 通过**，含不同 PID/端口、两端任务和 drain；提交 `a1cdcb60` 重封 JAR/Native 后 8 批 JDBC 写入、重启后 JOIN/资源释放 1/1 再通过（`/tmp/pangrova-independent-local-a1cdcb60-r3-20261019.log`）。同源码推测执行 10 场景仍待全组复验。 |
 | B | 12 故障恢复矩阵 | 丢 ACK、未知提交、取消、慢读、进程退出、OOM 等组合仍未完整验收；按单一故障根因增量跑。 |
 | C：SQL/存储/写入 | 13 Iceberg REST | 用户决定当前先验 JDBC；非空 REST 发布 CAS/竞态未闭合，列为**暂缓协议范围**。 |
 | C | 14 Paimon REST | 生产对象是 **Paimon REST Catalog 协议**，不是 `paimon-rust`；用户决定先验 JDBC，跨服务 CAS/fencing 列为**暂缓协议范围**。 |
@@ -31,7 +31,7 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 | C | 20 系统表 | `$files`/`$manifests` 等局部实值通过；Iceberg `$entries` 已有固定 manifest、状态/序列/v3 row ID 继承及 4/4 真 SQL E2E，但完整 SDK 嵌套列尚未闭合；`$partitions`、Paimon `$files` 和复杂列/跨文件系统仍未完整验收。 |
 | C | 21 Dynamic Table | 手动 full-refresh generation 已有真实 E2E；逻辑授权、持久 attempt/source pin、失败恢复、GC、调度/CDC 未闭合。 |
 | C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多 split、无结果和目标规模质量/成本待验。 |
-| D：AI/Feature/CDC | 23 独立模型服务 | 预置真实模型的独立双 Worker HTTP/SQL、分别单独调用、重启和审计通过；异步批量、取消、乱序、超时、未知完成、fencing 未全闭合。 |
+| D：AI/Feature/CDC | 23 独立模型服务 | 提交 `a1cdcb60` 重封 JAR/Native 后预置真实模型的独立双 Worker HTTP/SQL、分别单独调用、重启和审计 1/1 再通过（`/tmp/pangrova-independent-ai-a1cdcb60-20261019.log`）；异步批量、取消、乱序、超时、未知完成、fencing 未全闭合。 |
 | D | 24 Feature/CDC/评估 | 单源 Feature View 与数值评估局部通过；多源 point-in-time、真实 Kafka→sink→重启→SQL 和发布闭环未完成。 |
 | E：发布/规模环境 | 3 Linux x86_64 镜像 | 当前无 x86_64 runner；不阻断本机独立 Worker 功能验收，交付 Linux 镜像时必须验。 |
 | E | 4 Linux ASan/LSan | 当前无 Linux runner；macOS `detect_leaks=0` 不能代替。 |

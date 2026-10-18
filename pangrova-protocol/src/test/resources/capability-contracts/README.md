@@ -7,29 +7,31 @@ the generated-values materializer, whose availability depends on the actual
 immutable-cache readiness gate. It is distinct from the cache-disabled function
 exporter catalogue used by function-contract tests.
 
-The snapshot was recaptured on 2026-10-18 from the matching packaged Release
-Native library after the typed COPY source-read task changed the canonical
-protocol descriptor. The cache-disabled function catalogue was captured
-separately from the rebuilt `pangrova_function_export --catalogue` executable
-(SHA-256 `5af168fb2bc097b0d4d21975aaaaa0ede26267986aac7f45d7b26ad7539facde`):
+The snapshot was recaptured on 2026-10-19 from the matching packaged Release
+Native library after `ICEBERG_ENTRIES` changed the canonical protocol descriptor.
+The cache-disabled function catalogue was captured separately from the rebuilt
+`pangrova_function_export --catalogue` executable
+(SHA-256 `fef0d58fe75089d965841fc85fa8a491a64610f8b861815d163f1ca066de009f`):
 
 - Exported catalogue: 781,796 raw bytes, SHA-256
-  `418fb13d777f9ec53c54757513e0f3988f9a8053ef2b45efaa6b0454cbb4b57e`
+  `38b3190b624b9916773de951cef99150068f8002ad88c5c125ae38201d02ae12`
   (9 capabilities and 83 functions).
 
 The complete cache-enabled inventory came from actual E2E JNI startup with
 `PANGROVA_E2E_FILE_CAPABILITY_KEY` set, which deployed the governed FILE
 callbacks before Native catalogue publication:
 
-- Native library SHA-256: `3ab5f9e19368ec5e6ddaa827c7aa7d0b52f24c7c6d89deae4f76613fc991e644`.
-- Inventory: 793,767 raw bytes, SHA-256
-  `c3a93626932fc9b5ba23a318a7ad8f8f247375766710479642eea992d1b66405`.
+- Native library SHA-256: `d879accaa07f2f8ddcf47dfa9c5f03032a4bc9bfab22760a05a3eb7a5ebb1d76`.
+- Inventory: 794,415 raw bytes, SHA-256
+  `2e82f87cfc66259ffe0a09887a650c8938680252fcc22c6eb6ef00065a0c641c`.
 
 The E2E capture retained all 19 capabilities and 99 functions, including both
-`file_from_url` and `file_from_bytes`. Text-format comparison against each
-previous complete inventory changed only the canonical descriptor hash in the
-protocol and function catalogue plus its derived manifest hash. No capability,
-function, or relation advertisement changed.
+`file_from_url` and `file_from_bytes`, and advertised the two deployed local
+model revisions. Wire-format comparison against the previous complete inventory
+showed the canonical descriptor hash and derived catalogue manifest hash changed,
+along with those two live model-availability records. No capability, function,
+or relation advertisement changed. The cache-disabled catalogue differed only
+in the descriptor and derived manifest hashes.
 
 Tests retain every actual capability and function in the positive round trip.
 Negative inputs mutate the actual inventory while retaining capability identity.
