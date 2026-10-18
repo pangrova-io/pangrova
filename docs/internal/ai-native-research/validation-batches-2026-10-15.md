@@ -1,5 +1,21 @@
 # 2026-10-15 未闭合验收清单与滚动批次
 
+## 2026-10-18 本机验收盘点与执行队列
+
+下面按**最终同源码端到端闭合**计数，而不是把历史聚焦测试再次算作未运行：27 个检查点中，22 个可在本机继续验证或修复，5 个需要目前没有的 Linux x86_64／规模集群环境（#3、#4、#25、#26、#27）。历史证据对 #5、#6、#10 等已有局部或当时源码的通过记录，但本轮 Native 输出队列、协调器和启动脚本变动后仍需最终源码复证。当前不能宣布“所有本地 E2E 已通过”或“生产级验收完成”。
+
+| 滚动批次 | 检查点 | 当前首要未闭合证据 | 并行条件 |
+| --- | --- | --- | --- |
+| A. 产物、Native/JNI、容量 | #1、#2、#5、#6、#10、#16（6 项） | 新源码 Release/ASan 全量、打包后的同源 ARM64 镜像、真实 SQL 写入容量和独立 Native owner | Native 编译与独立 Java 测试可并行；JNI/E2E 必须等新库和镜像 |
+| B. Java、共享 E2E、SQL 前端 | #7、#8、#9、#17、#18、#20（6 项） | JDK17 全 reactor、静态/协议、共享 E2E 及前端/表函数/系统表全形式断言 | 与 Native 编译并行；加载 JNI 的用例等同源打包 |
+| C. 分布式、Catalog、历史所有权 | #11、#12、#13、#14、#15（5 项） | 双 Worker 推测写入与故障矩阵、Gravitino 非空 Iceberg、Paimon/Lance 历史快照及 winner 可见性 | 与 B 的纯 Java 测试并行；独立进程用同一新镜像顺序复用，避免 Docker 资源争用 |
+| D. 剩余功能链 | #19、#21、#22、#23、#24（5 项） | COPY 文件/URI、Dynamic Table、索引/DiskANN、模型服务、Feature Store/CDC/评估的真实端到端证据 | 按各功能独立聚焦；共享对象存储/模型服务夹具不并发冲突 |
+| E. 外部发布资格 | #3、#4、#25、#26、#27（5 项） | Linux x86_64 镜像和 LSan、SF100/SF1000、千万/亿向量、4–8 Worker 集群 | 用户确认目前无可接入环境；仅保留待外部复证，不以 ARM64 本机代替 |
+
+每批先执行能否证伪修复的最近测试，再在同源码上扩面。通过项只引用本轮新证据；失败项记录根因与下一增量，不原样重复运行。覆盖率百分比门禁已移除，JaCoCo 为可选诊断；重复 Java 构建和独立 ArchUnit CI job 已移除。保留的协议、SPI、静态、Native/ASan、真实 E2E 门禁对应不同缺陷边界，不能因执行耗时直接删除。
+
+本轮 `d409ae20` 增量：JDK17 协调器异步提交/单任务推测调度聚焦 27/27、受影响静态门禁退出 0；Native Release 使用真实 PostgreSQL/Lance broker **4,169/4,169 PASS**（`/tmp/pangrova-write-queue-native-ctest-r2.log`），队列聚焦 Release 与 ASan 各 7/7。首轮 Release 因遗漏 broker 在 Lance `SetUp()` 失败，已停止且不计通过；原失败项接入 broker 后 1/1 预检通过。完整 ASan 与 ARM64 同源镜像仍待结束；ASan 初轮与镜像并行编译时本机交换内存逼近 6 GiB，主动停止并留待镜像完成后独立重跑。独立双 Worker 写入尚未在新镜像上验证，不能把 Native 局部通过当作此 E2E 通过。
+
 本清单按**独立验收检查点**计数，共 6 批、27 项。它不把某个局部测试通过等同于整条链通过；“已知缺口”表示现有实现或安全前置条件尚不满足，须先修复再验收。每项通过证据需绑定提交、依赖/协议、Native 或镜像指纹、实际执行命令、测试发现数、失败/错误/跳过数及日志。历史结果见 [validation-current.md](validation-current.md)，原始目标见仓库外的当前计划；最终生产资格仍以 `.pangrova/rules/build-pipeline.md`、`ci-gates.md` 为准。
 
 2026-10-16 盘点：历史批次曾完成 3 项（#5 Mac Native Release、#6 Mac ASan 地址检查、#10 三个隔离 Native runtime owner）；这些结果早于本轮 Native/协议/执行源码变化，最终同源码资格仍为 0/27，不能把历史 3 项算进最终通过数。`668aa77a` 干净归档的 ARM64 镜像 `pangrova/pangrova:verify-668aa77a` 已完整 Bake/加载，image ID `sha256:381696b0abc77b14212c910695f4d4b32ce5b382cc6d696fbeabb02258c32e47`（861,013,799 B；`/tmp/pangrova-arm64-final-bake-668aa77a.log`）；独立双 Worker 推测执行首轮 Surefire 10 run/0 failure/10 error/0 skip（`/tmp/pangrova-independent-spec-668aa77a-r1.log`）。实际运行暴露 Worker `/v1/health/live` 被鉴权拦截为 401，以及 8,053,064 行聚合的 Native Flight shuffle spill 容量错误。健康鉴权精确修复 `9ba739f9` 已推送，真 HTTP 最近测试 1/1、Worker 静态检查退出 0。Shuffle 多批共享匿名段与 byte/file 区分诊断修复 `2a752251` 已推送，最近 Native 聚焦 71/71（其中 Shuffle 29/29）通过。随后包含这两项和 Iceberg `$files` 六列的 `4095f352` 干净归档已完整构建 ARM64 镜像 `pangrova/pangrova:verify-4095f352`，image ID `sha256:5569cac9ef3bee35d5cc9390814e1599fca89bceef8f16b0703a65862d580334`（`/tmp/pangrova-arm64-bake-4095f352.log`）；独立双 Worker 单例首轮在测试 SQL 准备阶段因 Worker 已注册但首次资源心跳未到而报调度容量不足，1 run/0 failure/1 error/0 skip（`/tmp/pangrova-independent-spec-4095f352-single-r1.log`）。该失败尚未执行到 8,053,064 行 shuffle，不能解释为修复通过或回归。 首次心跳与 `$files` 九列增量进入 `0b9d582a` 干净归档，ARM64 正式 Bake/加载完成，镜像 `pangrova/pangrova:verify-0b9d582a`、ID `sha256:13bbb111f45c5915142b6779bfe44c731888175920b02005e66e3370e980c874`、JNI SHA-256 `fb27d826fb4bf45aa463e0114a0cd09c52c588b5da78c33d40147c381bf3b9ba`（`/tmp/pangrova-arm64-bake-0b9d582a.log`）；同源 JDK17 install 退出 0。双 Worker 先前失败单例已进入真实 Native 任务，仍 1 run/0 failure/1 error/0 skip（`/tmp/pangrova-independent-spec-0b9d582a-single-r1.log`）：4 个 split 被压为 1 个 source task，终态报告暂扣时同 stage 完成率为 0，达不到当前 ≥75% straggler 检测前置，90 秒内没有 speculative clone。查询取消/报表重试是后续连锁；不能把这次当做 shuffle 修复已通过。用户将验收重心明确为功能覆盖与端到端通过；强制覆盖率和重复 CI 门禁已移除，行为/集成/安全检查保留。互不争用的模块可分别滚动验证；同一 Docker VM 的镜像构建与重型容器 E2E 顺序执行。磁盘按批检查，仅清理本任务生成且已失效的产物。
