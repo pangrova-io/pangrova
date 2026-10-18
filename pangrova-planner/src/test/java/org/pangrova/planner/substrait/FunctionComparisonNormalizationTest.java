@@ -4,6 +4,7 @@ import io.substrait.expression.Expression;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -67,6 +68,34 @@ class FunctionComparisonNormalizationTest {
         assertThat(normalized.values().get(0).getType().nullable()).isEqualTo(nullable);
         assertThat(normalized.values().get(1).getType().nullable()).isFalse();
         assertThat(normalized.outputType()).isEqualTo(mapper.map(outputType));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void mixedDecimalAndDoubleArithmeticHasExactFloatingSignatureInBothOrders(boolean nullable) {
+        var types = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+        var rex = new RexBuilder(types);
+        var mapper = new TypeMapper();
+        var normalizer = new FunctionArgumentNormalizer(rex, new LiteralConverter(mapper), mapper);
+        var decimal = rex.makeInputRef(types.createTypeWithNullability(
+                types.createSqlType(SqlTypeName.DECIMAL, 5, 2), nullable), 0);
+        var floating = rex.makeInputRef(types.createSqlType(SqlTypeName.DOUBLE), 1);
+        for (List<RexNode> operands : List.<List<RexNode>>of(
+                List.of(decimal, floating), List.of(floating, decimal))) {
+            var resultType = types.createTypeWithNullability(types.createSqlType(SqlTypeName.DOUBLE), nullable);
+            var call = (RexCall) rex.makeCall(resultType, SqlStdOperatorTable.MULTIPLY, operands);
+            List<Expression> arguments = operands.stream()
+                    .map(node -> (Expression) io.substrait.expression.FieldReference.newRootStructReference(
+                            node == decimal ? 0 : 1, mapper.map(node.getType())))
+                    .toList();
+            var normalized = normalizer.normalize(new FunctionMapper().map(SqlStdOperatorTable.MULTIPLY),
+                    call, arguments);
+            assertThat(normalized.values()).allSatisfy(value ->
+                    assertThat(value.getType()).isInstanceOf(io.substrait.type.Type.FP64.class));
+            assertThat(normalized.values().get(0).getType().nullable()).isEqualTo(operands.get(0).getType().isNullable());
+            assertThat(normalized.values().get(1).getType().nullable()).isEqualTo(operands.get(1).getType().isNullable());
+            assertThat(normalized.outputType()).isEqualTo(mapper.map(resultType));
+        }
     }
 
     @ParameterizedTest

@@ -58,9 +58,12 @@ final class FunctionArgumentNormalizer {
                     GREATER_THAN, GREATER_THAN_OR_EQUAL, IS_DISTINCT_FROM, IS_NOT_DISTINCT_FROM -> true;
             default -> false;
         };
+        boolean mixedDecimalApproximate = arithmetic && floatingNumber(call.getType().getSqlTypeName())
+                && call.getOperands().stream().anyMatch(node -> node.getType().getSqlTypeName() == SqlTypeName.DECIMAL);
         if ((!arithmetic && !comparison) || call.getOperands().size() != 2
                 || (arithmetic && !primitiveNumber(call.getType().getSqlTypeName()))
-                || call.getOperands().stream().anyMatch(node -> !primitiveNumber(node.getType().getSqlTypeName()))) {
+                || call.getOperands().stream().anyMatch(node -> !primitiveNumber(node.getType().getSqlTypeName())
+                        && !(mixedDecimalApproximate && node.getType().getSqlTypeName() == SqlTypeName.DECIMAL))) {
             return new Arguments(arguments, output);
         }
         var factory = rexBuilder.getTypeFactory();
@@ -68,7 +71,10 @@ final class FunctionArgumentNormalizer {
                 call.getOperands().stream().map(RexNode::getType).toList());
         // Arithmetic must also honor the validated result width, including floating division.
         if (arithmetic) numericTypes.add(call.getType());
-        var common = factory.leastRestrictive(numericTypes);
+        // Calcite may derive an approximate result for DECIMAL mixed with FLOAT/DOUBLE
+        // without inserting operand casts. Native signatures require both operands to
+        // match the derived floating result exactly.
+        var common = mixedDecimalApproximate ? call.getType() : factory.leastRestrictive(numericTypes);
         if (common == null) throw invalid("Primitive numeric call has no validated common type");
         List<Expression> widened = new ArrayList<>(arguments.size());
         for (int ordinal = 0; ordinal < arguments.size(); ordinal++) {
@@ -88,6 +94,10 @@ final class FunctionArgumentNormalizer {
             case TINYINT, SMALLINT, INTEGER, BIGINT, FLOAT, REAL, DOUBLE -> true;
             default -> false;
         };
+    }
+
+    private static boolean floatingNumber(SqlTypeName type) {
+        return type == SqlTypeName.FLOAT || type == SqlTypeName.REAL || type == SqlTypeName.DOUBLE;
     }
 
     private Expression defaultArgument(FunctionNormalizedArgument definition) {

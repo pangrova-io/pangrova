@@ -101,6 +101,13 @@ SQL Query
 
 **Substrait serialization boundary**: After the Plan Fragmenter completes Stage division on the Coordinator, the Substrait Converter serializes the Calcite RelNode subtree of each Stage into a Substrait Plan (Protobuf bytes). The serialized bytes are carried as `TaskDescriptor.substraitPlan` (base64-encoded) and dispatched to the Worker over HTTP REST. Upon receipt, the Worker passes the bytes directly to the Native layer (`TaskRequest.substrait_plan`) without re-serialization.
 
+The converter materializes Calcite's validated numeric result type in the function
+arguments. When an arithmetic expression has a floating result and a DECIMAL
+operand, it emits an explicit DECIMAL-to-floating cast before serializing the
+function call. Native binding then checks the exact argument and result signature;
+it does not guess an implicit conversion. Exact DECIMAL arithmetic retains its
+DECIMAL arguments and precision/scale contract.
+
 ```
 Serialization timing and location:
   Coordinator:
