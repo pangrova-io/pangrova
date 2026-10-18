@@ -1,6 +1,11 @@
 package org.pangrova.testing.e2e.index;
 
+import org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore;
+import org.pangrova.metadata.index.model.IndexFileMapping;
 import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.spi.index.IndexDescriptor;
+import org.pangrova.spi.index.IndexState;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
@@ -10,6 +15,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -208,9 +215,40 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_drop2 ON " + fqn()
                     + "(status) USING BLOOM_FILTER");
             IndexReadiness.awaitReady(sqlRunner, fqn(), "idx_drop2");
+            JdbcIndexMetadataStore store = new JdbcIndexMetadataStore(stateStoreDataSource());
+            IndexDescriptor initial = requireIndex(store, "idx_drop2");
+            long initialSnapshot = Long.parseLong(initial.buildSnapshotId());
+            SnapshotPinProvider pins = snapshotPins();
+            assertThat(pins.getPinnedSnapshotsForIndex(CATALOG, SCHEMA, tableName, initial.indexId()))
+                    .contains(initialSnapshot);
+            List<IndexFileMapping> initialFiles = store.getIndexFileMappings(initial.indexId());
+            assertThat(initialFiles).isNotEmpty().allSatisfy(mapping -> {
+                assertThat(mapping.generation()).isEqualTo(initial.generation());
+                assertPhysicalIndexFile(mapping);
+            });
+
+            // Force a distinct Iceberg snapshot so the rebuild must own another tag.
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (id, value, status) VALUES (3, 30, 'R')");
 
             // Rebuild → gen 2
             sqlRunner.executeDdl("ALTER INDEX idx_drop2 ON " + fqn() + " REBUILD");
+            await("rebuilt scalar generation and physical files")
+                    .atMost(Duration.ofSeconds(30))
+                    .untilAsserted(() -> {
+                        IndexDescriptor rebuilt = requireIndex(store, "idx_drop2");
+                        assertThat(rebuilt.state()).isEqualTo(IndexState.READY);
+                        assertThat(rebuilt.generation()).isEqualTo(initial.generation() + 1);
+                        assertThat(rebuilt.buildSnapshotId()).isNotEqualTo(initial.buildSnapshotId());
+                        long rebuiltSnapshot = Long.parseLong(rebuilt.buildSnapshotId());
+                        assertThat(pins.getPinnedSnapshotsForIndex(
+                                CATALOG, SCHEMA, tableName, initial.indexId()))
+                                .containsExactlyInAnyOrder(initialSnapshot, rebuiltSnapshot);
+                        List<IndexFileMapping> files = store.getIndexFileMappings(initial.indexId());
+                        assertThat(files).extracting(IndexFileMapping::generation)
+                                .contains(initial.generation(), rebuilt.generation());
+                        files.forEach(mapping -> assertPhysicalIndexFile(mapping));
+                    });
 
             // Verify index still active after rebuild
             List<TypedRow> indexesMid = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
@@ -219,6 +257,13 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
 
             // DROP INDEX — should mark ALL generations (gen 1 + gen 2) as DROPPED
             sqlRunner.executeDdl("DROP INDEX idx_drop2 ON " + fqn());
+            assertThat(store.findIndex(initial.indexId()).orElseThrow().state())
+                    .isEqualTo(IndexState.DROPPED);
+            // DROP retires query use immediately. The default grace period keeps
+            // both physical generations and Iceberg refs until the GC cycle.
+            assertThat(pins.getPinnedSnapshotsForIndex(CATALOG, SCHEMA, tableName, initial.indexId()))
+                    .hasSize(2);
+            store.getIndexFileMappings(initial.indexId()).forEach(mapping -> assertPhysicalIndexFile(mapping));
 
             // Verify no active index remains
             List<TypedRow> indexesAfter = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
@@ -296,6 +341,31 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Cannot inspect persisted index generations", e);
+        }
+    }
+
+    private IndexDescriptor requireIndex(JdbcIndexMetadataStore store, String indexName) {
+        return store.findIndexesByTable(
+                        authenticatedCatalogSession(CATALOG).getProperties().get("tenant_id"),
+                        CATALOG, SCHEMA, tableName).stream()
+                .filter(index -> index.indexName().equals(indexName))
+                .findFirst().orElseThrow();
+    }
+
+    private SnapshotPinProvider snapshotPins() {
+        return metadataBootstrap.catalogRegistry().getCatalog(CATALOG)
+                .getMetadata(authenticatedCatalogSession(CATALOG))
+                .getIndexSupport().orElseThrow()
+                .getSnapshotPinProvider().orElseThrow();
+    }
+
+    private void assertPhysicalIndexFile(IndexFileMapping mapping) {
+        Path path = Path.of(mapping.indexFilePath());
+        assertThat(Files.isRegularFile(path)).as("persisted scalar index file: %s", path).isTrue();
+        try {
+            assertThat(Files.size(path)).isEqualTo(mapping.indexSizeBytes());
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Cannot read persisted scalar index file " + path, failure);
         }
     }
 

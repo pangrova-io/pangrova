@@ -48,7 +48,7 @@ class IndexGcIcebergPinIntegrationTest {
     @TempDir Path warehouse;
 
     @Test
-    void droppedIndexReleasesDurableTagBeforePurgingPostgresIdentity() throws Exception {
+    void droppedIndexReleasesAllGenerationTagsAndFilesBeforePurgingPostgresIdentity() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_pin");
         var indexes = new JdbcIndexMetadataStore(dataSource);
         var registry = new CatalogRegistry(new JdbcMetadataStore(dataSource));
@@ -65,17 +65,42 @@ class IndexGcIcebergPinIntegrationTest {
                     .withPath(table.location() + "/data/items.parquet")
                     .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(32).build();
             table.newFastAppend().appendFile(file).commit();
-            long snapshot = table.currentSnapshot().snapshotId();
+            long firstSnapshot = table.currentSnapshot().snapshotId();
+            var nextFile = DataFiles.builder(table.spec())
+                    .withPath(table.location() + "/data/next.parquet")
+                    .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(32).build();
+            table.newFastAppend().appendFile(nextFile).commit();
+            long rebuiltSnapshot = table.currentSnapshot().snapshotId();
+            assertThat(rebuiltSnapshot).isNotEqualTo(firstSnapshot);
             var pin = new IcebergMetadata(catalog, "cat").getIndexSupport().orElseThrow()
                     .getSnapshotPinProvider().orElseThrow();
             var old = Instant.now().minusSeconds(3600);
             var descriptor = new IndexDescriptor("index-gc", "idx", "cat", "db", "items",
                     List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.DROPPED,
-                    null, 0, Long.toString(snapshot), Long.toString(snapshot), old, old, "tenant-a");
+                    null, 1, Long.toString(rebuiltSnapshot), Long.toString(rebuiltSnapshot), old, old, "tenant-a");
             indexes.registerIndex(descriptor);
-            pin.pinSnapshot("cat", "db", "items", snapshot, descriptor.indexId());
+            pin.pinSnapshot("cat", "db", "items", firstSnapshot, descriptor.indexId());
+            pin.pinSnapshot("cat", "db", "items", rebuiltSnapshot, descriptor.indexId());
             assertThat(pin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
-                    .containsExactly(snapshot);
+                    .containsExactlyInAnyOrder(firstSnapshot, rebuiltSnapshot);
+            Path firstIndexFile = warehouse.resolve("index-files/g0/one.idx");
+            Path rebuiltIndexFile = warehouse.resolve("index-files/g1/two.idx");
+            Files.createDirectories(firstIndexFile.getParent());
+            Files.createDirectories(rebuiltIndexFile.getParent());
+            byte[] firstBytes = {1, 2, 3};
+            byte[] rebuiltBytes = {4, 5, 6, 7};
+            Files.write(firstIndexFile, firstBytes);
+            Files.write(rebuiltIndexFile, rebuiltBytes);
+            indexes.registerIndexFile(new IndexFileMapping(descriptor.indexId(),
+                    file.path().toString(), firstIndexFile.toString(), 1, firstBytes.length,
+                    org.pangrova.common.util.DigestUtils.sha256Hex(firstBytes),
+                    0, Long.toString(firstSnapshot), 0, old, 0));
+            indexes.registerIndexFile(new IndexFileMapping(descriptor.indexId(),
+                    nextFile.path().toString(), rebuiltIndexFile.toString(), 1, rebuiltBytes.length,
+                    org.pangrova.common.util.DigestUtils.sha256Hex(rebuiltBytes),
+                    1, Long.toString(rebuiltSnapshot), 0, old, 0));
+            assertThat(indexes.getIndexFileMappings(descriptor.indexId()))
+                    .extracting(IndexFileMapping::generation).containsExactlyInAnyOrder(0, 1);
 
             var context = new IndexGcContext(indexes, new IndexStorageManager(),
                     descriptorForFile -> new org.pangrova.indexing.fs.LocalFileSystemAccessor(),
@@ -84,6 +109,9 @@ class IndexGcIcebergPinIntegrationTest {
                 assertThat(gc.runGc().purgedCount()).isEqualTo(1);
             }
             assertThat(indexes.findIndex(descriptor.indexId())).isEmpty();
+            assertThat(indexes.getIndexFileMappings(descriptor.indexId())).isEmpty();
+            assertThat(Files.exists(firstIndexFile)).isFalse();
+            assertThat(Files.exists(rebuiltIndexFile)).isFalse();
             assertThat(pin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
                     .isEmpty();
         }
