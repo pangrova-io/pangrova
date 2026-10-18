@@ -30,6 +30,8 @@ import org.pangrova.testing.TestObservability;
 import org.pangrova.worker.task.RemoteTaskStatusReporter;
 
 import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -95,6 +97,14 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
         relay = new StatusReportHttpRelay(coordinatorUri());
         relay.select(state, drained, before, after);
         http = HttpClientFactory.createDefault();
+        // Jetty can report started before Jersey serves its first request. This
+        // fixture has only TaskResource; GET must resolve its route to HTTP 405.
+        var live = http.httpClient().send(HttpRequest.newBuilder(URI.create(
+                "http://127.0.0.1:" + worker.httpServer().getPort() + "/v1/task"))
+                .timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding());
+        if (live.statusCode() != 405) {
+            throw new IllegalStateException("Actual Worker task route is not live: HTTP " + live.statusCode());
+        }
         reporter = new RemoteTaskStatusReporter(relay.uri().toString(), http.httpClient(),
                 TestObservability.TRACING, metrics.provider(), SECRET);
         worker.deliverReportsTo(report -> {

@@ -7,17 +7,19 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 本清单以 `codex/ai-native-semantic-closure` 为唯一交付分支，沿用[27 项验收定义](validation-batches-2026-10-15.md)。当前源码的 macOS ARM64 Native Release 加真实 PostgreSQL/Lance broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-ctest-20261019.log`）；受影响 Native **272/272 PASS**，协议全模块 **447/447 PASS**（`/tmp/pangrova-integrated-protocol-full-r2-20261019.log`），独立双 Worker SQL/JNI E2E **1/1 PASS**（`/tmp/pangrova-integrated-two-worker-e2e-r3-20261019.log`）。仓库当前发现 **195 个 `*E2ETest.java` 类**；完整共享 E2E、隔离 owner 类、全 Java reactor 和同源码 ASan 尚不能宣称通过。曾经通过的旧提交、其他工作树或其他镜像仅是历史证据。
 
+本机独立进程追加验证：一台 Coordinator 加两个独立 Native Worker 的 8 批 Iceberg JDBC 写入、JOIN/shuffle、Worker 停机重启及资源释放通过（`/tmp/pangrova-independent-local-processes-r5-20261019.log`）；预置 Ollama 镜像的真实模型 HTTP/SQL、两名 Worker 分别单独调用模型、重启后双 Worker 查询、审计和资源释放通过（`/tmp/pangrova-independent-ai-processes-r3-20261019.log`）。Coordinator `-Pfull-regression` 本轮发现 3,295 项，1 失败、1 错误（`/tmp/pangrova-coordinator-full-r2-20261019.log`）；两项根因已修正并分别做了治理库单测和 12 场景回执整类增量复验，最终同源码全套尚未重跑。Worker 405 映射已通过定向测试。上述是功能证据，不代表规模/P99 验收。
+
 | 批次 | 检查点 | 当前缺口和本机验收动作 |
 | --- | --- | --- |
 | A：同源码基础门禁 | 5 Native Release | **本机通过**，4,175/4,175；源码变化涉及 Native 时重跑受影响测试，最终功能封版后再做一次全量。 |
 | A | 6 Native ASan | 当前集成源码未跑全量 ASan；使用匹配的 Velox、Folly、Protobuf 插桩依赖重建并运行。 |
-| A | 7 Java reactor | 当前集成源码只完成编译安装和部分模块/定向测试；跑完整 `-Pfull-regression verify`，逐模块记录实际发现数。 |
+| A | 7 Java reactor | Coordinator 全套首轮 3,295 项、1 失败和 1 错误；根因修复的定向复验通过，仍需最终同源码全套和完整 `-Pfull-regression verify`。 |
 | A | 8 静态/协议/结构 | 协议 447/447、文档类引用 183 项、E2E 真实性、descriptor、SPI 注解 147 类型、JNI 22 方法对称性及 dead-stub 检查已通过；最终同源码仍需全 reactor 静态。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
 | A | 10 隔离 Native owner | 三类 Native runtime owner 测试须各用独立 JVM 在当前源码重跑。 |
 | B：真实 SQL 与分布式 | 1 ARM64 镜像 | 旧源码镜像已构建；本机功能验收可用独立 JVM，不要求先打包镜像。若要交付镜像，再按交付源码重建。 |
 | B | 2 镜像内 JNI/SQL 冒烟 | 本机 JNI/SQL 先以同源码独立进程验证；镜像内资格仅随镜像交付检查。 |
 | B | 9 共享 SQL E2E | 完整发现/执行尚未通过；当前 195 个 E2E 类正在滚动运行，按首个根因修复。 |
-| B | 11 两独立 Worker | 真实 JOIN/shuffle/TopK **1/1 通过**，含不同 PID/端口、两端任务和 drain；同源码推测执行 10 场景仍待全组复验。 |
+| B | 11 两独立 Worker | 真实 JOIN/shuffle/TopK **1/1 通过**，含不同 PID/端口、两端任务和 drain；另有独立进程 8 批 JDBC 写入、重启后 JOIN/资源释放通过。同源码推测执行 10 场景仍待全组复验。 |
 | B | 12 故障恢复矩阵 | 丢 ACK、未知提交、取消、慢读、进程退出、OOM 等组合仍未完整验收；按单一故障根因增量跑。 |
 | C：SQL/存储/写入 | 13 Iceberg REST | 用户决定当前先验 JDBC；非空 REST 发布 CAS/竞态未闭合，列为**暂缓协议范围**。 |
 | C | 14 Paimon REST | 生产对象是 **Paimon REST Catalog 协议**，不是 `paimon-rust`；用户决定先验 JDBC，跨服务 CAS/fencing 列为**暂缓协议范围**。 |
@@ -29,7 +31,7 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 | C | 20 系统表 | `$files`/`$manifests` 等局部实值通过；Iceberg `$entries`/`$partitions`、Paimon `$files` 和复杂列/跨文件系统仍未完整验收。 |
 | C | 21 Dynamic Table | 手动 full-refresh generation 已有真实 E2E；逻辑授权、持久 attempt/source pin、失败恢复、GC、调度/CDC 未闭合。 |
 | C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多 split、无结果和目标规模质量/成本待验。 |
-| D：AI/Feature/CDC | 23 独立模型服务 | 真实模型 HTTP/SQL 局部通过；异步批量、取消、乱序、超时、未知完成、fencing 未全闭合。 |
+| D：AI/Feature/CDC | 23 独立模型服务 | 预置真实模型的独立双 Worker HTTP/SQL、分别单独调用、重启和审计通过；异步批量、取消、乱序、超时、未知完成、fencing 未全闭合。 |
 | D | 24 Feature/CDC/评估 | 单源 Feature View 与数值评估局部通过；多源 point-in-time、真实 Kafka→sink→重启→SQL 和发布闭环未完成。 |
 | E：发布/规模环境 | 3 Linux x86_64 镜像 | 当前无 x86_64 runner；不阻断本机独立 Worker 功能验收，交付 Linux 镜像时必须验。 |
 | E | 4 Linux ASan/LSan | 当前无 Linux runner；macOS `detect_leaks=0` 不能代替。 |

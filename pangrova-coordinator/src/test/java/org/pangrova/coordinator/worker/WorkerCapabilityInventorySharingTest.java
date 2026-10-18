@@ -11,14 +11,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Real full catalogue registration/recovery contracts; not independent Worker processes or a throughput claim. */
 class WorkerCapabilityInventorySharingTest {
     @Test
-    void fortySeparatelyDecodedWorkersShareOnlyTheirIdenticalImmutableInventory() {
+    void fortySeparatelyDecodedWorkersShareOnlyTheirIdenticalImmutableInventory() throws Exception {
         var registry = new InMemoryWorkerRegistry();
         var manager = new WorkerManager(20_000, 60_000, registry);
         CapabilityInventory first = null;
         String encoded = null;
         for (int index = 0; index < 40; index++) {
             String id = "density-worker-" + index;
-            WorkerInfo original = TestWorkerInfoBuilder.active(id, "host-" + index, 8080, 9090);
+            WorkerInfo template = TestWorkerInfoBuilder.active(id, "host-" + index, 8080, 9090);
+            WorkerInfo original = template.withCapabilityInventory(
+                    CapabilityInventory.parseFrom(template.capabilityInventory().toByteArray()));
             if (first != null) assertThat(original.capabilityInventory()).isNotSameAs(first);
             manager.registerWorker(original);
             WorkerInfo registered = manager.getWorker(id);

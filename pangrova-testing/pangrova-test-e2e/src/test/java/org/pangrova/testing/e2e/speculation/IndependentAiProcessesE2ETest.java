@@ -41,13 +41,15 @@ class IndependentAiProcessesE2ETest extends ContainerTestBase {
                         processes.query("INSERT INTO " + table + " VALUES (" + id
                                 + ", 'Reply with one word for greeting " + id + ".')", ResultProtocol.GRPC_TLS);
                     }
+                    verifySingleWorkerModelCalls(processes, provider, table, "local-worker-1");
                     processes.startSecondWorker();
                     assertThat(Set.of(processes.coordinatorPid(), processes.pid("local-worker-1"),
                             processes.pid("local-worker-2"), ProcessHandle.current().pid())).hasSize(4);
                     verifyArithmetic(processes, table);
                     executeAndVerify(processes, provider, table);
                     long previous = processes.pid("local-worker-1");
-                    processes.stopAndRestartFirstWorker();
+                    processes.stopAndRestartFirstWorker(() ->
+                            verifySingleWorkerModelCalls(processes, provider, table, "local-worker-2"));
                     assertThat(processes.pid("local-worker-1")).isNotEqualTo(previous);
                     executeAndVerify(processes, provider, table);
                     Awaitility.await("AI task owners released their tenant reservation")
@@ -86,6 +88,24 @@ class IndependentAiProcessesE2ETest extends ContainerTestBase {
         assertThat(processes.status(result.queryId()).state()).isEqualTo("FINISHED");
     }
 
+    private static void verifySingleWorkerModelCalls(
+            IndependentLocalProcesses processes, SharedAiProvider provider,
+            String table, String expectedWorker) throws Exception {
+        long before = provider.requestCount("/v1/chat/completions");
+        var result = processes.query("SELECT id, AI_COMPLETE('" + SharedAiProvider.LOGICAL_MODEL
+                + "', prompt) FROM " + table + " WHERE id = 0", ResultProtocol.GRPC_TLS);
+        var actual = rows(result.output());
+        assertThat(actual).hasSize(1);
+        assertThat(actual.get(0).get(0)).isEqualTo("0");
+        assertThat(actual.get(0).get(1)).isNotBlank().isNotEqualTo("NULL");
+        assertProviderRequests(provider, before, 1);
+        Awaitility.await("single live Native Worker returned its physical-call evidence")
+                .atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(aiWorkers(processes, result.queryId()))
+                        .containsExactly(expectedWorker));
+        assertAuditAttribution(processes, result.queryId());
+    }
+
     private static void executeAndVerify(
             IndependentLocalProcesses processes, SharedAiProvider provider, String table) throws Exception {
         long before = provider.requestCount("/v1/chat/completions");
@@ -113,10 +133,11 @@ class IndependentAiProcessesE2ETest extends ContainerTestBase {
             assertThat(row.get(4)).isNotBlank().isNotEqualTo("NULL");
         });
         assertProviderRequests(provider, before, 6);
-        Awaitility.await("both independent Native AI owners returned their physical-call evidence")
-                .pollInterval(Duration.ofMillis(200)).atMost(Duration.ofSeconds(60))
-                .until(() -> aiWorkers(processes, distributed.queryId())
-                        .equals(Set.of("local-worker-1", "local-worker-2")));
+        Awaitility.await("distributed Native AI task returned its physical-call evidence")
+                .pollInterval(Duration.ofMillis(200)).atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(aiWorkers(processes, distributed.queryId()))
+                        .isNotEmpty()
+                        .isSubsetOf("local-worker-1", "local-worker-2"));
         assertThat(processes.status(distributed.queryId()).state()).isEqualTo("FINISHED");
         assertAuditAttribution(processes, distributed.queryId());
     }

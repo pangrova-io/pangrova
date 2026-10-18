@@ -64,8 +64,11 @@ its slot still depends on the issuing query's physical-drain lifecycle.
 
 ## HTTP Rate Limiting
 
-The coordinator HTTP server applies a per-minute request rate limit through
-its request-limit filter.
+The coordinator HTTP server applies a per-minute request rate limit per
+transport peer. Caller-supplied forwarding headers cannot change that identity.
+Authenticated internal Worker control requests do not spend the public request
+budget; they still pass their route-specific body-size limits. Exceeding a
+declared or streamed body limit returns HTTP 413.
 
 | System property | Default | Description |
 |-----------------|---------|-------------|

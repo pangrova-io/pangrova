@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
+import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.testing.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 
@@ -30,10 +31,11 @@ class GovernanceStoreInitializationIntegrationTest extends ContainerTestBase {
 
         try (var modules = new ModuleIntegrationBootstrap()) {
             assertThatThrownBy(() -> modules.startGovernance(config, source))
-                    .isInstanceOf(PangrovaException.class)
+                    .isInstanceOf(MetastoreException.class)
+                    .hasMessageContaining("Failed to initialize quality rule schema")
                     .satisfies(failure -> {
                         assertThat(((PangrovaException) failure).getErrorCode())
-                                .isEqualTo(PangrovaErrorCode.GOVERNANCE_QUALITY_CHECK_FAILED);
+                                .isEqualTo(PangrovaErrorCode.METADATA_METASTORE_ERROR);
                         assertThat(failure.getCause()).isInstanceOf(SQLException.class);
                         assertThat(((SQLException) failure.getCause()).getSQLState()).isEqualTo("3F000");
                     });

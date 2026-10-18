@@ -20,6 +20,7 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
+import org.pangrova.resource.scheduler.WeightedFairScheduler;
 import org.pangrova.coordinator.speculation.DuplicateTaskResolver;
 import org.pangrova.coordinator.speculation.SpeculationConfig;
 import org.pangrova.coordinator.speculation.SpeculativeStageHandler;
@@ -81,6 +82,7 @@ final class QueryBootstrap {
     private org.pangrova.coordinator.speculation.SpeculativeExecutionScheduler speculationScheduler;
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private TaskScheduler taskScheduler;
+    private WeightedFairScheduler fairScheduler;
     private org.pangrova.planner.cache.QueryResultCache queryResultCache;
     private org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
@@ -184,6 +186,7 @@ final class QueryBootstrap {
                 ? new org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker() : null;
         DefaultModuleContext moduleContext = new QueryModuleLoader(
                 config, metadataBootstrap, moduleWiring, accessControl).load();
+        fairScheduler = moduleContext.optional(WeightedFairScheduler.class);
         taskScheduler = moduleContext.require(TaskScheduler.class);
         queryResultCache = moduleContext.require(org.pangrova.planner.SqlCompiler.class).queryResultCache();
         if (metadataDataSource != null) {
@@ -304,7 +307,8 @@ final class QueryBootstrap {
                                 shuffleCleanupExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
                     }
                 },
-                () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor));
+                () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor),
+                () -> { if (fairScheduler != null) fairScheduler.close(); });
     }
 
     private void closeQueryResources(

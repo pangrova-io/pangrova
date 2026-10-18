@@ -11,6 +11,7 @@ import org.pangrova.protocol.rest.query.ResultProtocol;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.pangrova.testing.e2e.SharedTestContainers;
+import org.pangrova.testing.TestProjectPaths;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
 import org.pangrova.security.tenant.quota.JdbcClusterConcurrencySlots;
 import org.slf4j.Logger;
@@ -82,6 +83,10 @@ final class IndependentLocalProcesses implements AutoCloseable {
         if (Runtime.version().feature() != 17) {
             throw new IllegalStateException("Independent local process test requires JDK 17");
         }
+        if (!"UTF-8".equalsIgnoreCase(System.getProperty("native.encoding"))) {
+            throw new IllegalStateException("Independent local process test requires a UTF-8 "
+                    + "native locale so non-ASCII CLI credentials survive ProcessBuilder");
+        }
         javaExecutable = Path.of(System.getProperty("java.home"), "bin", "java");
         artifacts = LocalRuntimeArtifacts.fromRequiredProperties();
         advertisedAddress = routableHostAddress();
@@ -135,7 +140,10 @@ final class IndependentLocalProcesses implements AutoCloseable {
         coordinator = launch("coordinator",
                 "org.pangrova.coordinator.bootstrap.PangrovaCoordinatorMain",
                 coordinatorYaml(), "-Xms128m", "-Xmx512m",
-                "-XX:MaxDirectMemorySize=128m");
+                "-XX:MaxDirectMemorySize=128m",
+                // CLI status polling and multi-file seeding exceed the public default of 100/min.
+                // Rate-limit behavior is covered by dedicated HTTP integration tests.
+                "-Dpangrova.http.max-requests-per-minute=1000");
         awaitCoordinatorControlPlane();
         reports.connect(URI.create("http://127.0.0.1:" + coordinatorPort));
         startWorker("local-worker-1");
@@ -189,6 +197,15 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     void stopAndRestartFirstWorker() throws Exception {
+        stopAndRestartFirstWorker(() -> {});
+    }
+
+    @FunctionalInterface
+    interface WhileFirstWorkerStopped {
+        void run() throws Exception;
+    }
+
+    void stopAndRestartFirstWorker(WhileFirstWorkerStopped whileStopped) throws Exception {
         OwnedProcess old = workers.get("local-worker-1");
         long oldPid = old.process().pid();
         RegisteredWorker previous = acceptedWorkers.get("local-worker-1");
@@ -196,6 +213,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
         workers.remove("local-worker-1");
         acceptedWorkers.remove("local-worker-1");
         query("SELECT 42", ResultProtocol.GRPC_TLS); // second Worker serves a public query alone
+        whileStopped.run();
         startWorker("local-worker-1");
         if (workers.get("local-worker-1").process().pid() == oldPid) {
             throw new IllegalStateException("Restart reused the old Worker process");
@@ -211,10 +229,11 @@ final class IndependentLocalProcesses implements AutoCloseable {
     long coordinatorPid() { return coordinator.process().pid(); }
 
     boolean hasAttributedQueryAudit(String queryId) throws IOException {
-        String record = "pangrova.audit.query - query=" + queryId + " user=" + ProcessSecurityAuthority.USER
+        String record = " msg=query=" + queryId + " user=" + ProcessSecurityAuthority.USER
                 + " tenant=" + ProcessSecurityAuthority.TENANT + " ";
-        try (var lines = Files.lines(coordinator.log(), StandardCharsets.UTF_8)) {
-            return lines.anyMatch(line -> line.contains(record));
+        try (var lines = Files.lines(workspace.resolve("logs/coordinator.log"), StandardCharsets.UTF_8)) {
+            return lines.anyMatch(line -> line.contains("logger=pangrova.audit.query ")
+                    && line.contains(record));
         }
     }
     Path retainDiagnostics() {
@@ -413,6 +432,12 @@ final class IndependentLocalProcesses implements AutoCloseable {
         List<String> command = new ArrayList<>();
         command.add(javaExecutable.toString());
         command.addAll(Arrays.asList(jvmArgs));
+        Path loggingConfig = TestProjectPaths.findProjectRoot()
+                .resolve("etc/logback.xml").toRealPath();
+        Path logDirectory = Files.createDirectories(workspace.resolve("logs"));
+        command.add("-Dlogback.configurationFile=" + loggingConfig);
+        command.add("-DPANGROVA_LOG_DIR=" + logDirectory);
+        command.add("-DPANGROVA_ROLE=" + name);
         command.add("-Dpangrova.test.runtime-manifest=" + artifacts.manifestPath());
         command.add("-Dpangrova.test.runtime-manifest-sha256=" + artifacts.manifestSha256());
         command.add("-Dpangrova.test.native-sha256=" + artifacts.nativeSha256());

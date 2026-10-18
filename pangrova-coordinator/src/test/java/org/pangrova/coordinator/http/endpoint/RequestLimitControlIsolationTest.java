@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.http.EmbeddedHttpServerFactory;
 import org.pangrova.coordinator.http.RequestLimitConfig;
+import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.security.authn.AuthenticationRequest;
 import org.pangrova.security.authn.AuthenticationResult;
@@ -131,7 +132,8 @@ class RequestLimitControlIsolationTest {
     @Test
     void authenticatedRegistrationRejectsDeclaredEnvelopeOverflow() throws Exception {
         var response = postRegistration("Bearer " + SECRET,
-                HttpRequest.BodyPublishers.ofByteArray(new byte[4 * 1024 * 1024 + 64 * 1024 + 1]));
+                HttpRequest.BodyPublishers.ofByteArray(
+                        new byte[WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES + 1]));
         assertThat(response.statusCode()).isEqualTo(413);
     }
 
@@ -139,7 +141,8 @@ class RequestLimitControlIsolationTest {
     void authenticatedRegistrationRejectsChunkedEnvelopeOverflow() throws Exception {
         var response = postRegistration("Bearer " + SECRET,
                 HttpRequest.BodyPublishers.ofInputStream(() ->
-                        new java.io.ByteArrayInputStream(new byte[4 * 1024 * 1024 + 64 * 1024 + 1])));
+                        new java.io.ByteArrayInputStream(
+                                new byte[WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES + 1])));
         assertThat(response.statusCode()).isEqualTo(413);
         assertThat(response.body()).contains("PAYLOAD_TOO_LARGE");
     }

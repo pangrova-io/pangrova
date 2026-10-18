@@ -2,6 +2,8 @@ package org.pangrova.coordinator.http.endpoint;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
+import jakarta.annotation.Priority;
+import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.core.MediaType;
@@ -31,15 +33,16 @@ import java.util.Map;
  * resets the counter.</p>
  */
 @Provider
+@Priority(Priorities.AUTHENTICATION)
 public final class AuthenticationFilter implements ContainerRequestFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuthenticationFilter.class);
 
     /** Request property key for the authenticated UserIdentity. */
     public static final String USER_IDENTITY_PROPERTY = "pangrova.userIdentity";
-    private static final String INTERNAL_IDENTITY_PROPERTY = "pangrova.internalServiceIdentity";
+    static final String INTERNAL_IDENTITY_PROPERTY = "pangrova.internalServiceIdentity";
 
-    private enum InternalServiceIdentity { AUTHENTICATED }
+    enum InternalServiceIdentity { AUTHENTICATED }
 
     private static final String HEALTH_PATH = "v1/health";
     private static final String HEALTH_LIVE_PATH = "v1/health/live";
@@ -60,32 +63,35 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
     private final AuthenticationManager authenticationManager;
     private final String internalAuthSecret;
     private final BruteForceGuard bruteForceGuard;
-    private final int trustedProxyCount;
 
     public AuthenticationFilter(AuthenticationManager authenticationManager) {
-        this(authenticationManager, null, new BruteForceGuard(), 1);
+        this(authenticationManager, null, new BruteForceGuard());
     }
 
     public AuthenticationFilter(AuthenticationManager authenticationManager, String internalAuthSecret) {
-        this(authenticationManager, internalAuthSecret, new BruteForceGuard(), 1);
+        this(authenticationManager, internalAuthSecret, new BruteForceGuard());
     }
 
+    /** Full constructor with a configurable brute-force guard. */
     public AuthenticationFilter(AuthenticationManager authenticationManager,
                                 String internalAuthSecret,
                                 BruteForceGuard bruteForceGuard) {
-        this(authenticationManager, internalAuthSecret, bruteForceGuard, 1);
-    }
-
-    /** Full constructor with configurable brute-force guard and trusted proxy count. */
-    public AuthenticationFilter(AuthenticationManager authenticationManager,
-                                String internalAuthSecret,
-                                BruteForceGuard bruteForceGuard,
-                                int trustedProxyCount) {
         this.authenticationManager = checkNotNull(authenticationManager,
                 "authenticationManager must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.bruteForceGuard = checkNotNull(bruteForceGuard, "bruteForceGuard must not be null");
-        this.trustedProxyCount = Math.max(1, trustedProxyCount);
+    }
+
+    /**
+     * Kept for source and binary compatibility. Forwarded headers cannot establish
+     * client identity; the transport peer is used regardless of the old proxy count.
+     */
+    @Deprecated
+    public AuthenticationFilter(AuthenticationManager authenticationManager,
+                                String internalAuthSecret,
+                                BruteForceGuard bruteForceGuard,
+                                int trustedProxyCount) {
+        this(authenticationManager, internalAuthSecret, bruteForceGuard);
     }
 
     @Override
@@ -131,10 +137,14 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
      * @throws jakarta.ws.rs.ForbiddenException when no internal service was authenticated
      */
     public static void requireInternalServiceIdentity(ContainerRequestContext context) {
-        if (context == null || context.getProperty(INTERNAL_IDENTITY_PROPERTY)
-                != InternalServiceIdentity.AUTHENTICATED) {
+        if (!hasInternalServiceIdentity(context)) {
             throw new jakarta.ws.rs.ForbiddenException("Authenticated internal service identity is required");
         }
+    }
+
+    static boolean hasInternalServiceIdentity(ContainerRequestContext context) {
+        return context != null && context.getProperty(INTERNAL_IDENTITY_PROPERTY)
+                == InternalServiceIdentity.AUTHENTICATED;
     }
 
     private boolean isInternalToken(ContainerRequestContext ctx) {
@@ -173,21 +183,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
     }
 
     private static String extractClientIp(ContainerRequestContext ctx) {
-        return extractClientIp(ctx, 1);
-    }
-
-    /**
-     * Extracts the client IP from X-Forwarded-For, respecting the trustedProxyCount.
-     * The Nth entry from the right is the real client IP when N proxies are trusted.
-     */
-    private static String extractClientIp(ContainerRequestContext ctx, int trustedProxyCount) {
-        String forwarded = ctx.getHeaderString("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            String[] parts = forwarded.split(",");
-            int idx = parts.length - trustedProxyCount;
-            return parts[Math.max(0, idx)].trim();
-        }
-        return null;
+        return RequestPeerAddressFilter.resolve(ctx);
     }
 
     /**

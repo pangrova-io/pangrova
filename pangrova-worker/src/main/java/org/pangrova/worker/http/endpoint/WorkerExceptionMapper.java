@@ -1,6 +1,7 @@
 package org.pangrova.worker.http.endpoint;
 
 import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
@@ -51,13 +52,18 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
         }
 
         ErrorDetail detail = new ErrorDetail(errorCode, errorType, message);
-        return Response.status(status)
+        Response.ResponseBuilder response = exception instanceof WebApplicationException webException
+                ? Response.fromResponse(webException.getResponse()) : Response.status(status);
+        return response.header("Content-Length", null).header("Content-Encoding", null)
                 .type(MediaType.APPLICATION_JSON_TYPE)
                 .entity(detail)
                 .build();
     }
 
     private static int resolveHttpStatus(Exception exception) {
+        if (exception instanceof WebApplicationException webException) {
+            return webException.getResponse().getStatus();
+        }
         if (exception instanceof org.pangrova.worker.task.ControlEpochFenceException fence) {
             return switch (fence.reason()) {
                 case CONTROL_PLANE_NOT_READY -> 503;
@@ -95,6 +101,7 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
             case 400 -> "BAD_REQUEST";
             case 403 -> "ACCESS_DENIED";
             case 404 -> "NOT_FOUND";
+            case 405 -> "METHOD_NOT_ALLOWED";
             case 408 -> "ADMISSION_EXPIRED";
             case 409 -> "ADMISSION_CONFLICT";
             case 425 -> "CONTROL_EPOCH_AHEAD";

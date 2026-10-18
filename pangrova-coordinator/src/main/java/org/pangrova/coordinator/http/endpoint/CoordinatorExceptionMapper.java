@@ -46,6 +46,7 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
     private static final int HTTP_STATUS_NOT_FOUND = 404;
     private static final int HTTP_STATUS_METHOD_NOT_ALLOWED = 405;
     private static final int HTTP_STATUS_NOT_ACCEPTABLE = 406;
+    private static final int HTTP_STATUS_PAYLOAD_TOO_LARGE = 413;
     private static final int HTTP_STATUS_CONFLICT = 409;
     private static final int HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE = 415;
     private static final int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
@@ -124,6 +125,7 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
             case HTTP_STATUS_FORBIDDEN -> "ACCESS_DENIED";
             case HTTP_STATUS_METHOD_NOT_ALLOWED -> "METHOD_NOT_ALLOWED";
             case HTTP_STATUS_NOT_ACCEPTABLE -> "NOT_ACCEPTABLE";
+            case HTTP_STATUS_PAYLOAD_TOO_LARGE -> "PAYLOAD_TOO_LARGE";
             case HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE -> "UNSUPPORTED_MEDIA_TYPE";
             case HTTP_STATUS_TOO_MANY_REQUESTS -> "RATE_LIMITED";
             case HTTP_STATUS_SERVICE_UNAVAILABLE -> "SERVICE_UNAVAILABLE";

@@ -4,6 +4,9 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import jakarta.annotation.Priority;
+import jakarta.ws.rs.Priorities;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.core.MediaType;
@@ -29,7 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * exceeds the limit during read.</p>
  *
  * <p>Rate limiting: uses a Caffeine cache to track request counts per IP within
- * a sliding 1-minute window. Rejects with HTTP 429 (Too Many Requests) when
+ * a 1-minute expiration window. Rejects with HTTP 429 (Too Many Requests) when
  * the configured threshold is exceeded.</p>
  *
  * <p>Health check endpoint ({@code /v1/health}) is exempt from both checks.</p>
@@ -37,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @ThreadSafe
  */
 @Provider
+@Priority(Priorities.AUTHENTICATION + 100)
 public final class RequestLimitFilter implements ContainerRequestFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RequestLimitFilter.class);
@@ -44,8 +48,6 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
     private static final String HEALTH_PATH = "v1/health";
     private static final String REGISTRATION_PATH = "v1/workers/register";
     private static final String STATUS_REPORT_PATH = "v1/task/status-report";
-    private static final String UNKNOWN_IP = "unknown";
-
     private static final int HTTP_STATUS_PAYLOAD_TOO_LARGE = 413;
     private static final int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
 
@@ -75,7 +77,8 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
         String clientIp = resolveClientIp(requestContext);
 
-        if (isRateLimitExceeded(clientIp)) {
+        if (!AuthenticationFilter.hasInternalServiceIdentity(requestContext)
+                && isRateLimitExceeded(clientIp)) {
             rejectTooManyRequests(requestContext, clientIp);
             return;
         }
@@ -97,11 +100,13 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
     private int bodyLimit(ContainerRequestContext requestContext) {
         String path = requestContext.getUriInfo().getPath();
-        if ("POST".equals(requestContext.getMethod())
+        if (AuthenticationFilter.hasInternalServiceIdentity(requestContext)
+                && "POST".equals(requestContext.getMethod())
                 && (REGISTRATION_PATH.equals(path) || ("/" + REGISTRATION_PATH).equals(path))) {
             return WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES;
         }
-        if ("POST".equals(requestContext.getMethod())
+        if (AuthenticationFilter.hasInternalServiceIdentity(requestContext)
+                && "POST".equals(requestContext.getMethod())
                 && (STATUS_REPORT_PATH.equals(path) || ("/" + STATUS_REPORT_PATH).equals(path))) {
             return TaskStatusReport.MAX_HTTP_BODY_BYTES;
         }
@@ -122,11 +127,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
     }
 
     private static String resolveClientIp(ContainerRequestContext ctx) {
-        String forwarded = ctx.getHeaderString("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return UNKNOWN_IP;
+        return RequestPeerAddressFilter.resolve(ctx);
     }
 
     private static boolean isHealthCheck(ContainerRequestContext ctx) {
@@ -167,7 +168,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
     /**
      * InputStream wrapper that enforces a byte-count limit during read.
-     * Throws IOException if the stream exceeds the configured maximum.
+     * Throws HTTP 413 if the stream exceeds the configured maximum.
      */
     static final class SizeLimitedInputStream extends InputStream {
 
@@ -184,12 +185,12 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         @Override
         public int read() throws IOException {
             if (exceeded) {
-                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
+                throw tooLarge();
             }
             if (bytesRead >= maxBytes) {
                 if (delegate.read() == -1) return -1;
                 exceeded = true;
-                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
+                throw tooLarge();
             }
             int b = delegate.read();
             if (b != -1) {
@@ -203,12 +204,12 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
             java.util.Objects.checkFromIndexSize(off, len, buf.length);
             if (len == 0) return 0;
             if (exceeded) {
-                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
+                throw tooLarge();
             }
             if (bytesRead >= maxBytes) {
                 if (delegate.read() == -1) return -1;
                 exceeded = true;
-                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
+                throw tooLarge();
             }
             int allowedLen = Math.min(len, maxBytes - bytesRead);
             int n = delegate.read(buf, off, allowedLen);
@@ -221,6 +222,11 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         @Override
         public void close() throws IOException {
             delegate.close();
+        }
+
+        private WebApplicationException tooLarge() {
+            return new WebApplicationException("Request body exceeds maximum size of " + maxBytes + " bytes",
+                    Response.status(HTTP_STATUS_PAYLOAD_TOO_LARGE).build());
         }
     }
 }

@@ -65,6 +65,7 @@ class AuthenticationFilterBruteForceIntegrationTest {
         AuthenticationFilter filter = new AuthenticationFilter(authManager, null, guard);
 
         ResourceConfig config = new ResourceConfig();
+        config.register(RequestPeerAddressFilter.class);
         config.register(filter);
         config.register(ProtectedResource.class);
         config.register(HealthResource.class);

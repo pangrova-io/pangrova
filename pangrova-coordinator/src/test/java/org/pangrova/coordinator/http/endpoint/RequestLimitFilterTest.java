@@ -62,6 +62,7 @@ class RequestLimitFilterTest {
     void registrationAcceptsCanonicalInventoryEnvelopeButOtherRoutesKeepOriginalLimit() throws IOException {
         int bodyBytes = MAX_SIZE + 1;
         StubRequestContext registration = new StubRequestContext("/v1/workers/register");
+        authenticatedInternal(registration);
         registration.setContentLength(bodyBytes);
         registration.setEntityStream(new ByteArrayInputStream(new byte[bodyBytes]));
         filter.filter(registration);
@@ -85,6 +86,7 @@ class RequestLimitFilterTest {
     void terminalReportEnvelopeHasItsOwnBoundWhilePublicRoutesKeepTheDefault() throws IOException {
         int bodyBytes = RequestLimitConfig.DEFAULT_MAX_REQUEST_SIZE_BYTES + 24_071;
         StubRequestContext status = new StubRequestContext("/v1/task/status-report");
+        authenticatedInternal(status);
         status.setContentLength(bodyBytes);
         status.setEntityStream(new ByteArrayInputStream(new byte[bodyBytes]));
         filter.filter(status);
@@ -97,6 +99,7 @@ class RequestLimitFilterTest {
         assertThat(publicRequest.getAbortedStatus()).isEqualTo(413);
 
         StubRequestContext oversized = new StubRequestContext("/v1/task/status-report");
+        authenticatedInternal(oversized);
         oversized.setContentLength(TaskStatusReport.MAX_HTTP_BODY_BYTES + 1);
         filter.filter(oversized);
         assertThat(oversized.getAbortedStatus()).isEqualTo(413);
@@ -106,23 +109,26 @@ class RequestLimitFilterTest {
     void registrationBodyBoundAppliesToDeclaredAndStreamingLengths() throws IOException {
         int exact = WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES;
         StubRequestContext declaredTooLarge = new StubRequestContext("v1/workers/register");
+        authenticatedInternal(declaredTooLarge);
         declaredTooLarge.setContentLength(exact + 1);
         filter.filter(declaredTooLarge);
         assertThat(declaredTooLarge.getAbortedStatus()).isEqualTo(413);
 
         StubRequestContext unknownLength = new StubRequestContext("v1/workers/register");
+        authenticatedInternal(unknownLength);
         unknownLength.setEntityStream(new ByteArrayInputStream(new byte[exact + 1]));
         filter.filter(unknownLength);
         assertThat(unknownLength.isAborted()).isFalse();
         assertThat(unknownLength.getEntityStream().readNBytes(exact)).hasSize(exact);
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> unknownLength.getEntityStream().read())
-                .isInstanceOf(IOException.class);
+                .isInstanceOf(jakarta.ws.rs.WebApplicationException.class);
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> unknownLength.getEntityStream().read())
-                .isInstanceOf(IOException.class);
+                .isInstanceOf(jakarta.ws.rs.WebApplicationException.class);
 
         StubRequestContext exactLength = new StubRequestContext("v1/workers/register");
+        authenticatedInternal(exactLength);
         exactLength.setEntityStream(new ByteArrayInputStream(new byte[exact]));
         filter.filter(exactLength);
         assertThat(exactLength.getEntityStream().readAllBytes()).hasSize(exact);
@@ -258,6 +264,11 @@ class RequestLimitFilterTest {
         filter.filter(ctx);
 
         assertThat(filter.getRequestCount(ip)).isEqualTo(1);
+    }
+
+    private static void authenticatedInternal(StubRequestContext context) {
+        context.setProperty(AuthenticationFilter.INTERNAL_IDENTITY_PROPERTY,
+                AuthenticationFilter.InternalServiceIdentity.AUTHENTICATED);
     }
 
     /**
