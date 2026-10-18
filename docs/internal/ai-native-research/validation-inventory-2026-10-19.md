@@ -5,14 +5,14 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
-本清单以 `codex/ai-native-semantic-closure` 为唯一交付分支，沿用[27 项验收定义](validation-batches-2026-10-15.md)。当前源码的 macOS ARM64 Native Release 加真实 PostgreSQL/Lance broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-ctest-20261019.log`）；受影响 Native **272/272 PASS**，独立双 Worker SQL/JNI E2E **1/1 PASS**（`/tmp/pangrova-integrated-two-worker-e2e-r3-20261019.log`）。仓库当前发现 **195 个 `*E2ETest.java` 类**；完整共享 E2E、隔离 owner 类、全 Java reactor 和同源码 ASan 尚不能宣称通过。曾经通过的旧提交、其他工作树或其他镜像仅是历史证据。
+本清单以 `codex/ai-native-semantic-closure` 为唯一交付分支，沿用[27 项验收定义](validation-batches-2026-10-15.md)。当前源码的 macOS ARM64 Native Release 加真实 PostgreSQL/Lance broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-ctest-20261019.log`）；受影响 Native **272/272 PASS**，协议全模块 **447/447 PASS**（`/tmp/pangrova-integrated-protocol-full-r2-20261019.log`），独立双 Worker SQL/JNI E2E **1/1 PASS**（`/tmp/pangrova-integrated-two-worker-e2e-r3-20261019.log`）。仓库当前发现 **195 个 `*E2ETest.java` 类**；完整共享 E2E、隔离 owner 类、全 Java reactor 和同源码 ASan 尚不能宣称通过。曾经通过的旧提交、其他工作树或其他镜像仅是历史证据。
 
 | 批次 | 检查点 | 当前缺口和本机验收动作 |
 | --- | --- | --- |
 | A：同源码基础门禁 | 5 Native Release | **本机通过**，4,175/4,175；源码变化涉及 Native 时重跑受影响测试，最终功能封版后再做一次全量。 |
 | A | 6 Native ASan | 当前集成源码未跑全量 ASan；使用匹配的 Velox、Folly、Protobuf 插桩依赖重建并运行。 |
 | A | 7 Java reactor | 当前集成源码只完成编译安装和部分模块/定向测试；跑完整 `-Pfull-regression verify`，逐模块记录实际发现数。 |
-| A | 8 静态/协议/结构 | 当前集成源码静态曾定向通过；最终同源码执行静态、descriptor、SPI/JNI、文档和 E2E 真实性门禁。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
+| A | 8 静态/协议/结构 | 协议 447/447、文档类引用 183 项和 E2E 真实性已通过；最终同源码仍需全 reactor 静态、descriptor、SPI/JNI 门禁。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
 | A | 10 隔离 Native owner | 三类 Native runtime owner 测试须各用独立 JVM 在当前源码重跑。 |
 | B：真实 SQL 与分布式 | 1 ARM64 镜像 | 旧源码镜像已构建；本机功能验收可用独立 JVM，不要求先打包镜像。若要交付镜像，再按交付源码重建。 |
 | B | 2 镜像内 JNI/SQL 冒烟 | 本机 JNI/SQL 先以同源码独立进程验证；镜像内资格仅随镜像交付检查。 |

@@ -116,11 +116,15 @@ class CapabilityInventoryCodecTest {
                 .setLimits(org.pangrova.protocol.v2.CapabilityLimits.newBuilder()
                         .setMaxInputBytes(1_048_576).setMaxOutputBytes(1_048_576))
                 .build();
-        var inventory = baseInventory().clearCandidateSchemaVersion().clearSupportedRelationTypeUrls()
+        var inventory = baseInventory().clearCandidateSchemaVersion()
                 .addCapabilities(materializer).build();
 
         assertThat(CapabilityInventoryCodec.decode(CapabilityInventoryCodec.encode(inventory)))
                 .isEqualTo(inventory);
+        assertThatThrownBy(() -> CapabilityInventoryCodec.encode(inventory.toBuilder()
+                .clearSupportedRelationTypeUrls().build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("materializer capabilities are missing their typed relation contract");
     }
 
     @ParameterizedTest
