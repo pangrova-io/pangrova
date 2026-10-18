@@ -684,7 +684,7 @@ Step 0–8 完成。统一 canonical v2 仍是唯一任务/结果协议；Coordi
   时还会向独立 `RefreshScheduler` 注册周期任务，故不能推断组件级周期刷新也
   不工作；但仓库生产源码没有构造该 DDL executor 或注册
   `CreateContinuousQueryTask`，仅 E2E fixture 条件注册，公开 SQL 入口未接通。
-  consumer 原来在构造时复制空注册表，使之后的 `CREATE` 永远不可见，`DROP`
+  consumer 原来在构造时复制空注册表，使之后新增的注册永远不可见，移除注册
   也不会撤销已安排任务；现改为扫描并同步实时并发注册表，定向回归 1/1、
   Streaming 模块 JDK17 测试 224/224 通过。该调度修复不代表生产刷新接线完成。
   整改应删除空转路径，并把唯一真实、持久且可恢复的刷新作业接到生产入口。
