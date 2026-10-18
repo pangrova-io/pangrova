@@ -7,10 +7,12 @@ import org.pangrova.resource.MemoryPressure;
 import org.pangrova.resource.QueueType;
 import org.pangrova.resource.scheduler.WeightedFairScheduler;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.ArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,10 +21,22 @@ import static org.assertj.core.api.Assertions.assertThat;
  * when pool-id is present — the observable effect required by task #139.
  */
 class TaskSchedulerFairShareSelectionTest {
+    private final List<WeightedFairScheduler> ownedSchedulers = new ArrayList<>();
+
+    private WeightedFairScheduler newOwnedScheduler() {
+        var owner = new WeightedFairScheduler();
+        ownedSchedulers.add(owner);
+        return owner;
+    }
+
+    @AfterEach
+    void closeOwnedSchedulers() {
+        ownedSchedulers.forEach(WeightedFairScheduler::close);
+    }
 
     @Test
     void fairShareChangesSelectionBasedOnQueueWeight() {
-        WeightedFairScheduler fairScheduler = new WeightedFairScheduler();
+        WeightedFairScheduler fairScheduler = newOwnedScheduler();
         fairScheduler.submitTask(() -> {}, QueueType.INTERACTIVE);
         fairScheduler.submitTask(() -> {}, QueueType.BATCH);
 
@@ -47,7 +61,7 @@ class TaskSchedulerFairShareSelectionTest {
 
     @Test
     void fairSharePoolFilteringChangesSelectionVsDefault() {
-        WeightedFairScheduler fairScheduler = new WeightedFairScheduler();
+        WeightedFairScheduler fairScheduler = newOwnedScheduler();
         fairScheduler.submitTask(() -> {}, QueueType.INTERACTIVE);
         fairScheduler.submitTask(() -> {}, QueueType.BATCH);
 
@@ -81,7 +95,7 @@ class TaskSchedulerFairShareSelectionTest {
         // Critical regression: when pool-id matches workers AND fairScheduler is non-null,
         // the selectWithFairShare branch must be entered (not selectFromCandidates).
         // We verify by checking that the log output / scoring changes with active queues.
-        WeightedFairScheduler fairScheduler = new WeightedFairScheduler();
+        WeightedFairScheduler fairScheduler = newOwnedScheduler();
         fairScheduler.submitTask(() -> {}, QueueType.INTERACTIVE);
 
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer(), fairScheduler);

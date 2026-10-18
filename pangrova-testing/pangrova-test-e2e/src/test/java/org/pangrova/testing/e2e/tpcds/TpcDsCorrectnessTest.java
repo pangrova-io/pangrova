@@ -13,7 +13,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * TPC-DS standard query correctness tests.
+ * TPC-DS-inspired SQL pattern correctness tests on synthetic data.
  *
  * <p>Validates representative TPC-DS queries through the full pipeline.
  * TPC-DS exercises decision-support workloads with complex analytics:
@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Requirements validated: 9.3, 14.1</p>
  */
-@DisplayName("TPC-DS Correctness Tests")
+@DisplayName("TPC-DS SQL Pattern Correctness Tests")
 class TpcDsCorrectnessTest extends SqlE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";

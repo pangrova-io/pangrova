@@ -121,6 +121,12 @@ final class TaskIdentityRegistry {
 
     private synchronized void completeReport(Scope scope, Fact fact) { fact.completed = true; }
 
+    synchronized boolean hasPendingPublication(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        Scope scope = scopes.get(report.queryId());
+        Fact fact = scope == null ? null : scope.publications.get(report.taskId());
+        return fact != null && !fact.notificationsCompleted && !fact.resourceOnly && fact.matches(report);
+    }
+
     private void exitReport(Scope scope, Fact fact, Runnable notifyDrain,
             Runnable operationExited) {
         boolean notify;

@@ -61,17 +61,15 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     private static RemoteTaskDispatcher routingDispatcher;
     private static ExecutorService routingAsyncExecutor;
     private static RemoteTaskStatusReporter routingStatusReporter;
-    private static TestCluster sharedCluster;
-    private static E2ETestFramework sharedFramework;
-    private static SqlTestRunner sharedSqlRunner;
-    private static TestDataSetup sharedDataSetup;
+    private static E2ETestFramework routingFramework;
+    protected static SqlTestRunner routingSqlRunner;
 
     protected static SqlTestRunner setupRunner() {
-        return java.util.Objects.requireNonNull(sharedSqlRunner, "Shared SQL setup runner is absent");
+        return java.util.Objects.requireNonNull(sqlRunner, "Shared SQL setup runner is absent");
     }
 
     protected static TestDataSetup setupData() {
-        return java.util.Objects.requireNonNull(sharedDataSetup, "Shared table setup is absent");
+        return java.util.Objects.requireNonNull(dataSetup, "Shared table setup is absent");
     }
 
     // -----------------------------------------------------------------------
@@ -81,46 +79,66 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     @BeforeAll
     static void initVirtualWorkerRoutingHarness() {
         isDockerReady();
-        sharedCluster = testCluster;
-        sharedFramework = framework;
-        sharedSqlRunner = sqlRunner;
-        sharedDataSetup = dataSetup;
-        testCluster = createRoutingHarness();
-        framework = new E2ETestFramework(
-                testCluster, VirtualWorkerRoutingIntegrationTestBase::executeViaRoutingPipeline);
-        sqlRunner = new SqlTestRunner(framework);
-        dataSetup = new TestDataSetup(sqlRunner);
-        framework.setup();
+        initializeRoutingHarness(createRoutingHarness());
+    }
+
+    static void initializeRoutingHarness(TestCluster harness) {
+        if (routingFramework != null) {
+            throw new IllegalStateException("A routing harness is already owned");
+        }
+        routingFramework = new E2ETestFramework(
+                harness, VirtualWorkerRoutingIntegrationTestBase::executeViaRoutingPipeline);
+        routingSqlRunner = new SqlTestRunner(routingFramework);
+        routingFramework.setup();
     }
 
     @AfterAll
     static void stopVirtualWorkerRoutingHarness() {
+        Throwable primary = null;
         try {
-            if (framework != null) framework.teardown();
-            if (routingDispatcher != null) routingDispatcher.close();
-            if (routingAsyncExecutor != null) routingAsyncExecutor.shutdownNow();
-            if (routingStatusReporter != null) routingStatusReporter.close();
-            stopCoordinatorQuietly(coordinatorServer);
+            closeRoutingHarness();
+        } catch (RuntimeException | Error failure) {
+            primary = failure;
+            throw failure;
         } finally {
-            coordinatorServer = null;
-            routingDispatcher = null;
-            routingAsyncExecutor = null;
-            routingStatusReporter = null;
-            routingQueryManager = null;
-            routingWorkerManager = null;
-            routingTaskTracker = null;
-            routingPipelineRefreshed = false;
-            testCluster = sharedCluster;
-            framework = sharedFramework;
-            sqlRunner = sharedSqlRunner;
-            dataSetup = sharedDataSetup;
-            sharedCluster = null;
-            sharedFramework = null;
-            sharedSqlRunner = null;
-            sharedDataSetup = null;
-            restoreSharedStatusDelivery();
-            configureStatusReporter();
+            try {
+                restoreSharedStatusDelivery();
+                configureStatusReporter();
+            } catch (RuntimeException | Error cleanup) {
+                if (primary == null) throw cleanup;
+                primary.addSuppressed(cleanup);
+            }
         }
+    }
+
+    private static void closeRoutingHarness() {
+        // Retain each owner until its actual teardown returns so failed cleanup can be retried.
+        if (routingFramework != null) {
+            routingFramework.teardown();
+            routingFramework = null;
+        }
+        routingSqlRunner = null;
+        if (routingDispatcher != null) {
+            routingDispatcher.close();
+            routingDispatcher = null;
+        }
+        if (routingAsyncExecutor != null) {
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(routingAsyncExecutor, 5000L);
+            routingAsyncExecutor = null;
+        }
+        if (routingStatusReporter != null) {
+            routingStatusReporter.close();
+            routingStatusReporter = null;
+        }
+        if (routingQueryManager != null) {
+            routingQueryManager.stopPeriodicCleanup();
+            routingQueryManager = null;
+        }
+        stopCoordinator(coordinatorServer);
+        coordinatorServer = null;
+        routingWorkerManager = null;
+        routingTaskTracker = null;
+        routingPipelineRefreshed = false;
     }
 
     // -----------------------------------------------------------------------
@@ -155,7 +173,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         configureVirtualRoutingStatusDelivery(
                 VirtualWorkerRoutingIntegrationTestBase::deliverStatusToOwningCoordinator);
 
-        return () -> stopCoordinatorQuietly(coordinatorServer);
+        return () -> stopCoordinator(coordinatorServer);
     }
 
     /**
@@ -400,8 +418,15 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         }
     }
 
-    private static void stopCoordinatorQuietly(CoordinatorHttpServer server) {
+    private static void stopCoordinator(CoordinatorHttpServer server) {
         if (server == null) return;
-        try { server.stop(); } catch (Exception ignored) { }
+        try {
+            server.stop();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while stopping the routing coordinator", interrupted);
+        } catch (Exception failure) {
+            throw new IllegalStateException("Routing coordinator cleanup did not complete", failure);
+        }
     }
 }

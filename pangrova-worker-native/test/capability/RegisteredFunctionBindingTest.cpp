@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include "../TestMemoryHelper.h"
 #include "capability/RegisteredFunctionBinding.h"
@@ -16,6 +17,19 @@ using namespace facebook::velox;
 
 core::TypedExprPtr field(const TypePtr& type) {
   return std::make_shared<core::FieldAccessTypedExpr>(type, "input");
+}
+
+TEST(RegisteredFunctionBindingTest, EqualityBindsExactPhysicalKeyTypes) {
+  pangrova::test::detail::ensureRuntimeInitialized();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  const std::vector<TypePtr> keys = {BOOLEAN(), TINYINT(), SMALLINT(), INTEGER(), BIGINT(),
+      REAL(), DOUBLE(), VARCHAR(), VARBINARY(), DATE(), TIMESTAMP(), DECIMAL(15, 2)};
+  for (const auto& type : keys) {
+    SCOPED_TRACE(type->toString());
+    EXPECT_NO_THROW(bindRegisteredScalar(*registry, "eq", BOOLEAN(), {field(type), field(type)}));
+  }
+  EXPECT_THROW(bindRegisteredScalar(*registry, "eq", BOOLEAN(), {field(BIGINT()), field(VARCHAR())}),
+      std::runtime_error);
 }
 
 TEST(RegisteredFunctionBindingTest, RoundUsesActualDecimalFormulaWithoutCoercion) {

@@ -267,12 +267,23 @@ public record CoordinatorBootstrapConfig(
             String advertisedHost,
             ShuffleTlsConfig shuffleTls) {
         public static final int DEFAULT_PORT = 0;
+        private static final int MAX_PORT = 65_535;
         public static final long DEFAULT_ALLOCATOR_LIMIT_BYTES = 256L * 1024 * 1024;
         public static final String DEFAULT_ADVERTISED_HOST = "localhost";
 
         public TransportConfig {
+            if (port < 0 || port > MAX_PORT) {
+                throw new IllegalArgumentException("transport port must be in 0..65535");
+            }
+            if (allocatorLimitBytes <= 0) {
+                throw new IllegalArgumentException("transport allocatorLimitBytes must be positive");
+            }
             if (advertisedHost == null || advertisedHost.isBlank()) {
                 throw new IllegalArgumentException("advertisedHost must not be blank");
+            }
+            advertisedHost = advertisedHost.trim();
+            if (java.util.Set.of("0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0", "*").contains(advertisedHost)) {
+                throw new IllegalArgumentException("transport advertisedHost must not be a wildcard bind address");
             }
         }
 

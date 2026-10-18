@@ -11,10 +11,8 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Proves bulk renewal count changes do not fence live queries during concurrent admission. */
 class QueryOwnershipRegistryRenewalTest {
@@ -58,7 +56,7 @@ class QueryOwnershipRegistryRenewalTest {
     }
 
     @Test
-    void durableReleaseCompletesBeforeTheRenewalSnapshot() throws Exception {
+    void retiringFenceIsExcludedWhileDurableReleaseReturns() throws Exception {
         var store = new HookedAnchorStore();
         var registry = new QueryOwnershipRegistry(10, Duration.ofSeconds(30), store);
         assertThat(registry.acquire("finishing", OWNER, INCARNATION)).isTrue();
@@ -79,8 +77,9 @@ class QueryOwnershipRegistryRenewalTest {
                 return registry.renewOwned(OWNER, INCARNATION);
             });
             await(renewalStarted);
-            assertThatThrownBy(() -> renewal.get(100, TimeUnit.MILLISECONDS))
-                    .isInstanceOf(TimeoutException.class);
+            assertThat(renewal.get(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(registry.localAnchor("finishing")).isEmpty();
+            assertThat(store.current("finishing")).isEmpty();
             allowReleaseReturn.countDown();
             assertThat(release.get(5, TimeUnit.SECONDS)).isTrue();
             assertThat(renewal.get(5, TimeUnit.SECONDS)).isTrue();
@@ -111,7 +110,7 @@ class QueryOwnershipRegistryRenewalTest {
         }
 
         @Override
-        public int renewOwned(String ownerId, String ownerIncarnation, Duration leaseDuration) {
+        public List<ExecutionAnchor> renewOwned(String ownerId, String ownerIncarnation, Duration leaseDuration) {
             beforeRenew.run();
             return delegate.renewOwned(ownerId, ownerIncarnation, leaseDuration);
         }

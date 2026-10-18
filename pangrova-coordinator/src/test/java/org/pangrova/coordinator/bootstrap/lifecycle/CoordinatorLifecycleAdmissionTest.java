@@ -1,14 +1,88 @@
 package org.pangrova.coordinator.bootstrap.lifecycle;
 
 import java.nio.channels.Pipe;
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 /** Pure process-control failures; no task execution, ACK, or database durability is simulated. */
 class CoordinatorLifecycleAdmissionTest {
+    @Test
+    void processWaitRetainsOwnershipAcrossPreStartCloseAndFailedCleanup() throws Exception {
+        var lifecycle = new CoordinatorLifecycleAdmission();
+        var pipe = Pipe.open();
+        var returned = new CountDownLatch(1);
+        Thread waiter = new Thread(() -> {
+            try {
+                lifecycle.awaitShutdown();
+                returned.countDown();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }, "coordinator-process-wait-test");
+        waiter.start();
+        try {
+            await().atMost(Duration.ofSeconds(5))
+                    .until(() -> waiter.getState() == Thread.State.WAITING);
+            lifecycle.close(() -> { throw new AssertionError("Pre-start close must not claim cleanup"); });
+            lifecycle.beginStart();
+            lifecycle.endStart(true);
+            var failure = new IllegalStateException("real owner still open");
+            assertThatThrownBy(() -> lifecycle.close(() -> { throw failure; })).isSameAs(failure);
+            assertThat(returned.getCount()).isEqualTo(1);
+            assertThat(pipe.source().isOpen()).isTrue();
+            lifecycle.close(() -> {
+                try { pipe.source().close(); pipe.sink().close(); }
+                catch (java.io.IOException cleanup) { throw new IllegalStateException(cleanup); }
+            });
+            assertThat(returned.await(5, TimeUnit.SECONDS)).isTrue();
+            waiter.join(5000);
+            assertThat(waiter.isAlive()).isFalse();
+            assertThat(pipe.source().isOpen()).isFalse();
+            assertThat(pipe.sink().isOpen()).isFalse();
+            lifecycle.awaitShutdown();
+        } finally {
+            waiter.interrupt();
+            waiter.join(5000);
+            pipe.source().close();
+            pipe.sink().close();
+        }
+    }
+
+    @Test
+    void processWaitIsInterruptibleWithoutClaimingShutdown() throws Exception {
+        var lifecycle = new CoordinatorLifecycleAdmission();
+        lifecycle.beginStart();
+        lifecycle.endStart(true);
+        var interrupted = new CountDownLatch(1);
+        Thread waiter = new Thread(() -> {
+            try { lifecycle.awaitShutdown(); }
+            catch (InterruptedException expected) { interrupted.countDown(); }
+        }, "coordinator-process-interrupt-test");
+        waiter.start();
+        try {
+            await().atMost(Duration.ofSeconds(5))
+                    .until(() -> waiter.getState() == Thread.State.WAITING);
+            waiter.interrupt();
+            assertThat(interrupted.await(5, TimeUnit.SECONDS)).isTrue();
+            waiter.join(5000);
+            assertThat(waiter.isAlive()).isFalse();
+            assertThat(lifecycle.isRunning()).isTrue();
+            lifecycle.close(() -> { });
+            lifecycle.awaitShutdown();
+        } finally {
+            waiter.interrupt();
+            waiter.join(5000);
+            lifecycle.close(() -> { });
+        }
+    }
+
     @Test
     void failedDependencyRetainsCloseObligationAndSuccessfulExitIsNotRepeated() throws Exception {
         var lifecycle = new CoordinatorLifecycleAdmission();

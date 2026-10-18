@@ -9,10 +9,13 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Unit tests for {@link WeightedFairScheduler}.
@@ -125,6 +128,101 @@ class WeightedFairSchedulerTest {
     }
 
     @Test
+    void closeDrainsPreviouslyAcceptedTasksBeforeDispatcherActuallyExits() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var queuedRan = new CountDownLatch(1);
+        var dispatcher = new AtomicReference<Thread>();
+        var failure = new AtomicReference<Throwable>();
+        scheduler.submitTask(() -> {
+            dispatcher.set(Thread.currentThread());
+            entered.countDown();
+            awaitRelease(release);
+        }, QueueType.INTERACTIVE);
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+        scheduler.submitTask(queuedRan::countDown, QueueType.BATCH);
+        var closer = new Thread(() -> {
+            try {
+                scheduler.close();
+            } catch (Throwable error) {
+                failure.set(error);
+            }
+        }, "actual-fair-scheduler-close");
+        closer.start();
+        try {
+            await().atMost(Duration.ofSeconds(5)).until(() ->
+                    closer.getState() == Thread.State.TIMED_WAITING);
+            assertThat(dispatcher.get().isAlive()).isTrue();
+            assertThat(queuedRan.getCount()).isEqualTo(1);
+            assertThatThrownBy(() -> scheduler.submitTask(() -> {}, QueueType.BATCH))
+                    .isInstanceOf(IllegalStateException.class);
+        } finally {
+            release.countDown();
+            closer.join(5_000);
+        }
+        assertThat(closer.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        assertThat(queuedRan.getCount()).isZero();
+        assertThat(dispatcher.get().isAlive()).isFalse();
+        assertThat(scheduler.getMetrics().totalPendingTasks()).isZero();
+    }
+
+    @Test
+    void interruptedCloseRetainsActualDispatcherOwnershipForRetry() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var dispatcher = new AtomicReference<Thread>();
+        scheduler.submitTask(() -> {
+            dispatcher.set(Thread.currentThread());
+            entered.countDown();
+            awaitRelease(release);
+        }, QueueType.INTERACTIVE);
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+        try {
+            Thread.currentThread().interrupt();
+            assertThatThrownBy(scheduler::close).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Interrupted awaiting actual executor termination");
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            assertThat(dispatcher.get().isAlive()).isTrue();
+        } finally {
+            Thread.interrupted();
+            release.countDown();
+            scheduler.close();
+        }
+        assertThat(dispatcher.get().isAlive()).isFalse();
+    }
+
+    @Test
+    void dispatcherCannotAcknowledgeItsOwnExit() throws Exception {
+        var checked = new CountDownLatch(1);
+        var failure = new AtomicReference<Throwable>();
+        scheduler.submitTask(() -> {
+            try {
+                assertThatThrownBy(scheduler::close).isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("cannot join its own owner");
+            } catch (Throwable error) {
+                failure.set(error);
+            } finally {
+                checked.countDown();
+            }
+        }, QueueType.BATCH);
+        assertThat(checked.await(5, TimeUnit.SECONDS)).isTrue();
+        scheduler.close();
+        assertThat(failure.get()).isNull();
+    }
+
+    private static void awaitRelease(CountDownLatch release) {
+        try {
+            if (!release.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("Test did not release the actual entered callback");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Actual callback was interrupted instead of being joined", interrupted);
+        }
+    }
+
+    @Test
     void dispatcherActuallyConsumesFromQueue() throws InterruptedException {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch finish = new CountDownLatch(1);
@@ -158,5 +256,104 @@ class WeightedFairSchedulerTest {
         assertThat(afterError.await(5, TimeUnit.SECONDS))
                 .as("Dispatcher should continue after task exception")
                 .isTrue();
+    }
+
+    @Test
+    void aCompletedCallbacksInterruptDoesNotCancelAnotherAcceptedCallback() throws Exception {
+        var next = new CountDownLatch(1);
+        var inheritedInterrupt = new AtomicReference<Boolean>();
+        scheduler.submitTask(() -> {
+            scheduler.submitTask(() -> {
+                inheritedInterrupt.set(Thread.currentThread().isInterrupted());
+                next.countDown();
+            }, QueueType.INTERACTIVE);
+            Thread.currentThread().interrupt();
+        }, QueueType.INTERACTIVE);
+
+        assertThat(next.await(5, TimeUnit.SECONDS)).isTrue();
+        scheduler.close();
+        assertThat(inheritedInterrupt.get()).isFalse();
+        assertThat(scheduler.getMetrics().totalPendingTasks()).isZero();
+    }
+
+    @Test
+    void fatalDispatcherExitNeverAcknowledgesUnexecutedAcceptedCallbacks() throws Exception {
+        scheduler.close();
+        var owner = new WeightedFairScheduler();
+        var exited = new CountDownLatch(1);
+        owner.submitTask(() -> {
+            owner.submitTask(() -> { throw new AssertionError("Unexecuted callback must remain pending"); },
+                    QueueType.BATCH);
+            exited.countDown();
+            throw new AssertionError("Actual fatal dispatcher failure");
+        }, QueueType.INTERACTIVE);
+
+        assertThat(exited.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accepted callbacks still pending");
+        assertThat(owner.getMetrics().totalPendingTasks()).isEqualTo(1);
+        assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accepted callbacks still pending");
+        assertThatThrownBy(() -> owner.submitTask(() -> {}, QueueType.BATCH))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void fatalDispatcherExitRejectsNewAdmissionWithoutWaitingForOwnerShutdown() throws Exception {
+        var owner = new WeightedFairScheduler();
+        var failing = new CountDownLatch(1);
+        try {
+            owner.submitTask(() -> {
+                failing.countDown();
+                throw new AssertionError("Actual fatal dispatcher failure before owner shutdown");
+            }, QueueType.INTERACTIVE);
+            assertThat(failing.await(5, TimeUnit.SECONDS)).isTrue();
+
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThatThrownBy(() -> owner.submitTask(() -> {}, QueueType.BATCH))
+                            .isInstanceOf(IllegalStateException.class));
+        } finally {
+            assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
+    void terminalDispatcherFailureWithoutPendingCallbacksRetainsTheOriginalCause() throws Exception {
+        var owner = new WeightedFairScheduler();
+        var failing = new CountDownLatch(1);
+        var original = new AssertionError("Original fatal callback failure");
+        owner.submitTask(() -> {
+            failing.countDown();
+            throw original;
+        }, QueueType.INTERACTIVE);
+        try {
+            assertThat(failing.await(5, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class).hasCause(original);
+        }
+
+        assertThat(owner.getMetrics().totalPendingTasks()).isZero();
+        assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class).hasCause(original);
+    }
+
+    @Test
+    void interruptOutsideACompletedCallbackSealsAdmissionAndFailsTheActualDrain() {
+        var owner = new WeightedFairScheduler();
+        var dispatcher = new AtomicReference<Thread>();
+        owner.submitTask(() -> dispatcher.set(Thread.currentThread()), QueueType.INTERACTIVE);
+        try {
+            await().atMost(Duration.ofSeconds(5)).until(() ->
+                    dispatcher.get() != null && dispatcher.get().getState() == Thread.State.TIMED_WAITING);
+            dispatcher.get().interrupt();
+
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThatThrownBy(() -> owner.submitTask(() -> {}, QueueType.BATCH))
+                            .isInstanceOf(IllegalStateException.class));
+        } finally {
+            assertThatThrownBy(owner::close).isInstanceOf(IllegalStateException.class)
+                    .hasRootCauseInstanceOf(InterruptedException.class);
+        }
+
+        assertThat(dispatcher.get().isAlive()).isFalse();
     }
 }

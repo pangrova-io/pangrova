@@ -21,10 +21,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests for sync fallback (incremental failure → full sync) and schema drift
- * detection/correction in {@link MetadataSyncService}.
+ * Legacy component checks for sync fallback (incremental failure → full sync).
+ * Drift detection/correction is exercised against actual PostgreSQL inventory in
+ * {@link MetadataDriftSamplingIntegrationTest}.
  */
-@DisplayName("MetadataSync Fallback & Schema Drift")
+@DisplayName("MetadataSync Fallback")
 class MetadataSyncFallbackAndDriftTest {
 
     private InMemoryStore store;

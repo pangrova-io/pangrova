@@ -47,6 +47,23 @@ public final class CoordinatorOptions {
 
     // ---- Internal transport security ----
 
+    public static final ConfigOption<Integer> TRANSPORT_PORT = ConfigOptions.key("coordinator.transport.port")
+            .intType().defaultValue(0)
+            .withDescription("Coordinator acknowledgement listen port; zero selects an ephemeral port")
+            .build();
+
+    public static final ConfigOption<String> TRANSPORT_ADVERTISED_HOST =
+            ConfigOptions.key("coordinator.transport.advertised-host")
+                    .stringType().defaultValue("localhost")
+                    .withDescription("Routable acknowledgement endpoint host matching its TLS certificate SAN")
+                    .build();
+
+    public static final ConfigOption<Long> TRANSPORT_ALLOCATOR_LIMIT_BYTES =
+            ConfigOptions.key("coordinator.transport.allocator-limit-bytes")
+                    .longType().defaultValue(256L * 1024 * 1024)
+                    .withDescription("Positive maximum memory for Coordinator acknowledgement transport")
+                    .build();
+
     public static final ConfigOption<String> INTERNAL_AUTH_SECRET =
             ConfigOptions.key("coordinator.internal-auth-secret")
                     .stringType()
@@ -58,7 +75,7 @@ public final class CoordinatorOptions {
             ConfigOptions.key("coordinator.transport.tls.enabled")
                     .booleanType()
                     .defaultValue(false)
-                    .withDescription("Require mutual TLS for Coordinator control-plane clients")
+                    .withDescription("Require mutual TLS for Coordinator transport server and control-plane clients")
                     .build();
 
     public static final ConfigOption<String> TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH =

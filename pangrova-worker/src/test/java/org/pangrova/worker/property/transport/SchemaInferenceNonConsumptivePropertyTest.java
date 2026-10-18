@@ -58,7 +58,7 @@ class SchemaInferenceNonConsumptivePropertyTest {
         registry.clear();
         ticketCounter.set(0);
         server = new TransportServer(
-                ticket -> {
+                ticket -> () -> {
                     OneShotBatch state = registry.get(ticket.queryId());
                     if (state == null) {
                         return new byte[0]; // unknown ticket → EOF

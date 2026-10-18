@@ -32,6 +32,22 @@ public abstract class SignedOidcCoordinatorTestBase extends ContainerTestBase {
         return issuer.uri();
     }
 
+    /** Configures real HTTP control authentication without granting query permissions or enabling tenancy. */
+    protected CoordinatorBootstrapConfig withControlAuthentication(CoordinatorBootstrapConfig original) {
+        var flags = original.featureFlags();
+        var securedFlags = new CoordinatorBootstrapConfig.FeatureFlags(flags.observability(), true,
+                flags.metadata() && original.metadataJdbcConfig() != null,
+                flags.streaming(), flags.governance(), flags.resilience(), flags.tenant(), flags.operations(),
+                flags.speculation(), flags.pullModeSplitAssignment(), flags.cacheWriteback(), flags.indexing(),
+                flags.embedding(), flags.ddlLeaderRouting(), flags.shuffleMode(), flags.shuffleEndpoints());
+        var security = new CoordinatorBootstrapConfig.SecurityConfig(
+                CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                "bootstrap-test-internal-secret", Map.of("issuerUri", issuerUri(), "audience", "bootstrap-tests"));
+        return SecuredCoordinatorFixtures.withAuthority(new CoordinatorBootstrapConfig(
+                original.core(), securedFlags, original.query(), original.transport(), original.workerHealth(),
+                original.metadataJdbcConfig(), security, original.observabilityBootstrapConfig()));
+    }
+
     /** Starts the real secured pipeline with an explicit active tenant and signed subject. */
     protected CoordinatorBootstrap startAuthorizedCoordinator(CoordinatorBootstrapConfig original) {
         return startAuthorizedCoordinator(original, new ResourceQuota(

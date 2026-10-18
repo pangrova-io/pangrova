@@ -274,7 +274,8 @@ public final class IndexAwareSplitFetcher {
                         session, catalogName, schemaName));
         String snapshotToken = resolveSnapshotToken(tableKey, snapshotOverrides);
         Map<String, List<FileColumnStatistics>> fileStats =
-                fetchFileStatistics(catalogName, schemaName, tableName, splits, hints, queryAccessors);
+                fetchFileStatistics(session.tenantId(), catalogName, schemaName, tableName,
+                        snapshotToken, splits, hints, queryAccessors);
         List<ConnectorSplit> result = splitFilter.filterSplits(
                 splits, hints, catalogName, queryAccessors, snapshotToken,
                 fileStats, 0);
@@ -294,9 +295,13 @@ public final class IndexAwareSplitFetcher {
      *
      * @return file path → column statistics map; empty map if fetch fails or no columns
      */
-    private Map<String, List<FileColumnStatistics>> fetchFileStatistics(
-            String catalog, String schema, String table,
+    Map<String, List<FileColumnStatistics>> fetchFileStatistics(
+            String tenantId, String catalog, String schema, String table, String snapshotToken,
             List<ConnectorSplit> splits, List<IndexHint> hints, ConnectorAccessorResolver queryAccessors) {
+        // Unpinned queries cannot use statistics whose source snapshot is unknown.
+        if (snapshotToken == null || snapshotToken.isBlank()) {
+            return Map.of();
+        }
         List<String> predicateColumns = extractPredicateColumns(hints);
         if (predicateColumns.isEmpty()) {
             return Map.of();
@@ -311,7 +316,7 @@ public final class IndexAwareSplitFetcher {
         try {
             Map<String, List<FileColumnStatistics>> stats =
                     metadataStore.getFileStatistics(
-                            catalog, schema, table, dataFilePaths, predicateColumns);
+                            tenantId, catalog, schema, table, snapshotToken, dataFilePaths, predicateColumns);
             if (stats != null && !stats.isEmpty()) {
                 return stats;
             }
@@ -322,11 +327,11 @@ public final class IndexAwareSplitFetcher {
                     catalog, schema, table, e.getMessage());
         }
         return fetchFileStatisticsFromConnector(
-                catalog, schema, table, dataFilePaths, predicateColumns, queryAccessors);
+                catalog, schema, table, snapshotToken, dataFilePaths, predicateColumns, queryAccessors);
     }
 
     private Map<String, List<FileColumnStatistics>> fetchFileStatisticsFromConnector(
-            String catalog, String schema, String table,
+            String catalog, String schema, String table, String snapshotToken,
             List<String> dataFilePaths, List<String> predicateColumns, ConnectorAccessorResolver queryAccessors) {
         if (queryAccessors == null) {
             return Map.of();
@@ -339,8 +344,12 @@ public final class IndexAwareSplitFetcher {
                 return Map.of();
             }
             java.util.Set<String> columnFilter = new java.util.HashSet<>(predicateColumns);
+            java.util.Set<String> requestedFiles = java.util.Set.copyOf(dataFilePaths);
             Map<String, List<FileColumnStatistics>> result = new java.util.HashMap<>();
             for (DataFileStatistics dfs : connectorStats) {
+                if (!snapshotToken.equals(dfs.snapshotId()) || !requestedFiles.contains(dfs.dataFilePath())) {
+                    continue;
+                }
                 List<FileColumnStatistics> filtered = dfs.columnStatistics().stream()
                         .filter(cs -> columnFilter.contains(cs.columnName()))
                         .toList();

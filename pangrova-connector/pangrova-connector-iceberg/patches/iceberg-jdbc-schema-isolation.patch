@@ -1,0 +1,148 @@
+--- a/core/src/main/java/org/apache/iceberg/jdbc/JdbcCatalog.java
++++ b/core/src/main/java/org/apache/iceberg/jdbc/JdbcCatalog.java
+@@ -36,7 +36,6 @@
+ import java.util.Set;
+ import java.util.function.Consumer;
+ import java.util.function.Function;
+-import java.util.function.Predicate;
+ import java.util.stream.Collectors;
+ import java.util.stream.Stream;
+ import org.apache.iceberg.CatalogProperties;
+@@ -168,27 +167,10 @@
+     connections.run(
+         conn -> {
+           DatabaseMetaData dbMeta = conn.getMetaData();
++          String catalog = currentCatalog(conn, dbMeta);
++          String schema = currentSchema(conn, dbMeta);
+ 
+-          // check the existence of a table name
+-          Predicate<String> tableTest =
+-              name -> {
+-                try (ResultSet result =
+-                    dbMeta.getTables(
+-                        null /* catalog name */,
+-                        null /* schemaPattern */,
+-                        name /* tableNamePattern */,
+-                        null /* types */)) {
+-                  return result.next();
+-                } catch (SQLException e) {
+-                  return false;
+-                }
+-              };
+-
+-          // some databases force table name to upper case -- check that last.
+-          Predicate<String> tableExists =
+-              name -> tableTest.test(name) || tableTest.test(name.toUpperCase(Locale.ROOT));
+-
+-          if (tableExists.test(tableName)) {
++          if (tableExists(dbMeta, catalog, schema, tableName)) {
+             return true;
+           }
+ 
+@@ -198,14 +180,79 @@
+             return true;
+           } catch (SQLException e) {
+             // see if table was created by another thread or process.
+-            if (tableExists.test(tableName)) {
++            if (tableExists(dbMeta, catalog, schema, tableName)) {
+               return true;
+             }
+             throw e;
+           }
+         });
++  }
++
++  private static String currentCatalog(Connection conn, DatabaseMetaData metadata)
++      throws SQLException {
++    return metadata.supportsCatalogsInTableDefinitions() ? conn.getCatalog() : null;
++  }
++
++  private static String currentSchema(Connection conn, DatabaseMetaData metadata)
++      throws SQLException {
++    return metadata.supportsSchemasInTableDefinitions() ? conn.getSchema() : null;
++  }
++
++  private static String exactMetadataPattern(DatabaseMetaData metadata, String identifier)
++      throws SQLException {
++    if (identifier == null) {
++      return null;
++    }
++
++    String escape = metadata.getSearchStringEscape();
++    if (escape == null || escape.isEmpty()) {
++      // Drivers without pattern escaping still require exact result-row validation.
++      return identifier;
++    }
++
++    return identifier
++        .replace(escape, escape + escape)
++        .replace("_", escape + "_")
++        .replace("%", escape + "%");
++  }
++
++  private static boolean tableExists(
++      DatabaseMetaData metadata, String catalog, String schema, String name) throws SQLException {
++    if (exactTableExists(metadata, catalog, schema, name)) {
++      return true;
++    }
++
++    // Some databases fold unquoted identifiers to upper case.
++    return exactTableExists(metadata, catalog, schema, name.toUpperCase(Locale.ROOT));
+   }
+ 
++  private static boolean exactTableExists(
++      DatabaseMetaData metadata, String catalog, String schema, String name) throws SQLException {
++    try (ResultSet result =
++        metadata.getTables(
++            catalog,
++            exactMetadataPattern(metadata, schema),
++            exactMetadataPattern(metadata, name),
++            null)) {
++      return exactObjectExists(result, catalog, schema, name, null);
++    }
++  }
++
++  private static boolean exactObjectExists(
++      ResultSet rows, String catalog, String schema, String table, String column)
++      throws SQLException {
++    while (rows.next()) {
++      if ((catalog == null || catalog.equals(rows.getString("TABLE_CAT")))
++          && (schema == null || schema.equals(rows.getString("TABLE_SCHEM")))
++          && table.equals(rows.getString("TABLE_NAME"))
++          && (column == null || column.equals(rows.getString("COLUMN_NAME")))) {
++        return true;
++      }
++    }
++
++    return false;
++  }
++
+   private void initializeCatalogTables() {
+     LOG.trace("Creating database tables (if missing) to store iceberg catalog");
+ 
+@@ -235,10 +282,23 @@
+       connections.run(
+           conn -> {
+             DatabaseMetaData dbMeta = conn.getMetaData();
++            String tableName = JdbcUtil.CATALOG_TABLE_VIEW_NAME;
++            String columnName = JdbcUtil.RECORD_TYPE;
++            if (dbMeta.storesUpperCaseIdentifiers()) {
++              tableName = tableName.toUpperCase(Locale.ROOT);
++              columnName = columnName.toUpperCase(Locale.ROOT);
++            }
++
++            String catalog = currentCatalog(conn, dbMeta);
++            String schema = currentSchema(conn, dbMeta);
++
+             try (ResultSet typeColumn =
+                 dbMeta.getColumns(
+-                    null, null, JdbcUtil.CATALOG_TABLE_VIEW_NAME, JdbcUtil.RECORD_TYPE)) {
+-              if (typeColumn.next()) {
++                    catalog,
++                    exactMetadataPattern(dbMeta, schema),
++                    exactMetadataPattern(dbMeta, tableName),
++                    exactMetadataPattern(dbMeta, columnName))) {
++              if (exactObjectExists(typeColumn, catalog, schema, tableName, columnName)) {
+                 LOG.debug("{} already supports views", JdbcUtil.CATALOG_TABLE_VIEW_NAME);
+                 schemaVersion = JdbcUtil.SchemaVersion.V1;
+                 return true;

@@ -70,6 +70,15 @@ public final class PlannerTypeFactory extends JavaTypeFactoryImpl {
     }
 
     @Override
+    public RelDataType createSqlType(SqlTypeName typeName) {
+        // Calcite interns types across factories by their digest. An unparameterized
+        // FLOAT could otherwise reuse a default factory's double-precision type.
+        return typeName == SqlTypeName.FLOAT
+                ? super.createSqlType(typeName, getTypeSystem().getDefaultPrecision(typeName))
+                : super.createSqlType(typeName);
+    }
+
+    @Override
     public RelDataType createSqlType(SqlTypeName typeName, int precision, int scale) {
         if (typeName == SqlTypeName.DECIMAL) {
             PlannerTypeSystem.INSTANCE.validateDecimal(precision, scale);

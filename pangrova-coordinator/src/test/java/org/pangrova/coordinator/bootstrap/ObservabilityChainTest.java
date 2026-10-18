@@ -80,7 +80,14 @@ class ObservabilityChainTest extends org.pangrova.coordinator.testinfra.SignedOi
         stubServer.createContext("/v1/workers/", ex -> {
             try (ex) {
                 ex.getRequestBody().readAllBytes();
-                ex.sendResponseHeaders("DELETE".equals(ex.getRequestMethod()) ? 200 : 405, -1);
+                if (!"DELETE".equals(ex.getRequestMethod())) {
+                    ex.sendResponseHeaders(405, -1);
+                    return;
+                }
+                byte[] response = "{\"status\":\"deregistered\",\"coordinator_epoch\":1}"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                ex.sendResponseHeaders(200, response.length);
+                ex.getResponseBody().write(response);
             }
         });
         stubServer.start();

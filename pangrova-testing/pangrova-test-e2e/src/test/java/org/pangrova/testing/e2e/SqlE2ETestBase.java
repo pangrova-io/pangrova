@@ -2028,22 +2028,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * Worker-side result serving is handled by the C++ FlightResultServer via NativeResultTransport.
      */
     private static TransportServer startCoordinatorTransportServer() {
-        // Track consumed queries to ensure single-delivery semantics.
-        // coordinatorResultBuffer.get() is non-destructive (returns same data on every call),
-        // but the DataProducer SPI contract requires: data bytes → byte[0] (EOF).
-        // Without this, streamRemainingBatches loops forever re-delivering the same batch.
-        var consumed = java.util.concurrent.ConcurrentHashMap.<String>newKeySet();
-        org.pangrova.spi.transport.DataProducer coordinatorProducer = ticket -> {
-            if (coordinatorResultBuffer != null) {
-                if (consumed.add(ticket.queryId())) {
-                    byte[] buffered = coordinatorResultBuffer.get(ticket.queryId());
-                    if (buffered != null) {
-                        return buffered;
-                    }
-                }
-            }
-            return new byte[0];
-        };
+        var coordinatorProducer = new org.pangrova.coordinator.result.CoordinatorDataProducer(
+                coordinatorResultBuffer);
         TransportServer server = new TransportServer(
                 coordinatorProducer, new org.pangrova.spi.transport.TransportServerConfig(0));
         server.start();
@@ -2631,6 +2617,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         PangrovaPlanner template = new PangrovaPlanner(
                 CalciteSchema.createRootSchema(false, false), schemaPath);
         return new SqlCompiler(template, new SubstraitConverter(), new SubstraitPlanSerializer())
+                .withNativeCapabilities(() ->
+                        org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(
+                                workerManager.getActiveWorkers().stream().map(
+                                        org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
                 .withSessionPlanner(session -> {
                     var bindings = new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
                             metadataBootstrap.catalogRegistry(), session);

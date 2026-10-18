@@ -3,11 +3,16 @@ package org.pangrova.coordinator.result;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.awaitility.Awaitility;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -160,6 +165,83 @@ class CoordinatorResultBufferTest {
 
         buffer.remove("q1");
         assertThat(buffer.bufferedBytes()).isEqualTo(2);
+    }
+
+    @Test
+    void closeCancelsOwnedExpirationAndSealsWrites() throws Exception {
+        var buffer = new CoordinatorResultBuffer(executor, TimeUnit.HOURS.toMillis(1));
+        buffer.put("retained-ack", new byte[]{1});
+
+        buffer.close();
+        executor.shutdown();
+
+        assertThat(executor.awaitTermination(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(buffer.size()).isZero();
+        assertThat(buffer.bufferedBytes()).isZero();
+        assertThatThrownBy(() -> buffer.put("late-ack", new byte[]{2}))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void expirationAdmissionFailureRollsBackBufferedOwnership() {
+        var buffer = new CoordinatorResultBuffer(executor, 10_000L);
+        executor.shutdown();
+
+        assertThatThrownBy(() -> buffer.put("rejected-ack", new byte[]{1, 2}))
+                .isInstanceOf(RejectedExecutionException.class);
+        assertThat(buffer.get("rejected-ack")).isNull();
+        assertThat(buffer.bufferedBytes()).isZero();
+    }
+
+    @Test
+    void capacityRejectionCannotBecomeSuccessfulAcknowledgement() {
+        var buffer = new CoordinatorResultBuffer(executor, 10_000L, 1, 2);
+        buffer.put("retained-ack", new byte[]{1});
+
+        assertThatThrownBy(() -> buffer.put("missing-ack", new byte[]{2}))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(buffer.get("retained-ack")).containsExactly((byte) 1);
+        assertThat(buffer.get("missing-ack")).isNull();
+        assertThat(buffer.bufferedBytes()).isEqualTo(1);
+    }
+
+    @Test
+    void stoppedExpirationRetainsBytesUntilTransportOwnerCloses() throws Exception {
+        var buffer = new CoordinatorResultBuffer(executor, TimeUnit.HOURS.toMillis(1));
+        buffer.put("retained-ack", new byte[]{1, 2});
+
+        buffer.stopExpirationScheduling();
+        executor.shutdown();
+
+        assertThat(executor.awaitTermination(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(buffer.get("retained-ack")).containsExactly((byte) 1, (byte) 2);
+        assertThatThrownBy(() -> buffer.put("late-ack", new byte[]{3}))
+                .isInstanceOf(IllegalStateException.class);
+        buffer.close();
+        assertThat(buffer.size()).isZero();
+        assertThat(buffer.bufferedBytes()).isZero();
+    }
+
+    @Test
+    void alreadyEnteredExpirationCannotRemoveSealedAcknowledgement() throws Exception {
+        var timer = (ScheduledThreadPoolExecutor) ManagedExecutorFactory
+                .newSingleThreadScheduledExecutor("entered-ack-expiration");
+        var buffer = new CoordinatorResultBuffer(timer, 1);
+        try {
+            synchronized (buffer) {
+                buffer.put("retained-ack", new byte[]{1});
+                Awaitility.await("actual expiration callback entry")
+                        .atMost(Duration.ofSeconds(2)).until(() -> timer.getActiveCount() == 1);
+                buffer.stopExpirationScheduling();
+            }
+            timer.shutdown();
+            assertThat(timer.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(buffer.get("retained-ack")).containsExactly((byte) 1);
+        } finally {
+            buffer.close();
+            timer.shutdownNow();
+            assertThat(timer.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
 }

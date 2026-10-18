@@ -23,6 +23,10 @@ final class QueryCleanupScheduler {
     private static final Logger LOG = LoggerFactory.getLogger(QueryCleanupScheduler.class);
 
     private volatile ScheduledFuture<?> cleanupFuture;
+    private volatile ScheduledFuture<?> completionFuture;
+    private static final long COMPLETION_RETRY_MILLIS = 100;
+    private final java.util.concurrent.atomic.AtomicBoolean completionRunning =
+            new java.util.concurrent.atomic.AtomicBoolean();
     private static final int MAX_CONCURRENT_SWEEPS = 2;
     private final AtomicInteger cleanupRunning = new AtomicInteger();
     private final ConcurrentHashMap<String, QueryStateMachine> queries;
@@ -63,6 +67,9 @@ final class QueryCleanupScheduler {
     void startPeriodicCleanup(ScheduledExecutorService executor,
                               Executor cleanupExecutor,
                               Duration retention, Duration interval) {
+        completionFuture = executor.scheduleWithFixedDelay(
+                () -> submitCompletionRetry(cleanupExecutor), COMPLETION_RETRY_MILLIS,
+                COMPLETION_RETRY_MILLIS, TimeUnit.MILLISECONDS);
         cleanupFuture = executor.scheduleAtFixedRate(
                 () -> submitCleanup(cleanupExecutor, retention),
                 interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
@@ -70,9 +77,31 @@ final class QueryCleanupScheduler {
     }
 
     void stopPeriodicCleanup() {
+        ScheduledFuture<?> completion = completionFuture;
+        if (completion != null) completion.cancel(false);
         ScheduledFuture<?> future = cleanupFuture;
         if (future != null) {
             future.cancel(false);
+        }
+    }
+
+    private void submitCompletionRetry(Executor executor) {
+        if (!completionRunning.compareAndSet(false, true)) return;
+        try {
+            executor.execute(() -> {
+                try {
+                    // QueryTerminalCleanup enforces its per-tick attempt cap and backoff.
+                    // This path must not scan/evict retained query history.
+                    retryPendingCompletions.run();
+                } catch (RuntimeException failure) {
+                    LOG.warn("event=query_completion_retry_error", failure);
+                } finally {
+                    completionRunning.set(false);
+                }
+            });
+        } catch (RejectedExecutionException rejected) {
+            completionRunning.set(false);
+            LOG.warn("event=query_completion_retry_rejected", rejected);
         }
     }
 

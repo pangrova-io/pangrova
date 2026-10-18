@@ -49,12 +49,12 @@ class TaskResourceStructuredErrorTest {
 
         Response response = resource.submitTask(request);
 
-        assertThat(response.getStatus()).isEqualTo(500);
+        assertThat(response.getStatus()).isEqualTo(400);
         Object entity = response.getEntity();
         assertThat(entity).isInstanceOf(SubmitTaskResponse.class);
         SubmitTaskResponse errorResponse = (SubmitTaskResponse) entity;
         assertThat(errorResponse.accepted()).isFalse();
-        assertThat(errorResponse.rejectReason()).isNotNull();
+        assertThat(errorResponse.rejectReason()).contains("checksum is invalid");
     }
 
     private static TaskResource buildResource() {

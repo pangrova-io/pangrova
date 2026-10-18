@@ -6,6 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 E2E_ROOT="${E2E_TRUTHFULNESS_ROOT:-${PROJECT_ROOT}/pangrova-testing/pangrova-test-e2e/src/test/java}"
 
+if ! command -v rg >/dev/null 2>&1; then
+  echo "E2E truthfulness gate requires ripgrep (rg) on PATH." >&2
+  exit 2
+fi
+
 if [[ ! -d "${E2E_ROOT}" ]]; then
   echo "E2E source root is missing: ${E2E_ROOT}" >&2
   exit 1

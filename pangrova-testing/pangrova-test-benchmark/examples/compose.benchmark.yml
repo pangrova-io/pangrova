@@ -1,0 +1,42 @@
+# Copy outside the checkout and supply runtime configuration directories through env.
+# This is one Docker host with four worker processes, not four physical nodes.
+x-worker: &worker
+  image: ${PANGROVA_BENCHMARK_IMAGE:?build the same-source image first}
+  command: [start, worker]
+  cpus: 8
+  mem_limit: 40g
+  environment:
+    PANGROVA_JAVA_OPTS: -Xms2g -Xmx16g -XX:MaxDirectMemorySize=4g
+  ports: ['127.0.0.1::8081']
+  healthcheck:
+    test: [CMD, curl, -f, http://localhost:8081/v1/health]
+    interval: 2s
+    timeout: 2s
+    retries: 60
+services:
+  coordinator:
+    image: ${PANGROVA_BENCHMARK_IMAGE:?build the same-source image first}
+    command: [start, coordinator]
+    cpus: 2
+    mem_limit: 12g
+    environment:
+      PANGROVA_JAVA_OPTS: -Xms2g -Xmx8g
+    volumes: ['${TPC_COORDINATOR_CONFIG:?supply rendered config}:/opt/pangrova/config:ro']
+    ports: ['127.0.0.1::8080']
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:8080/v1/health]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+  worker-1:
+    <<: *worker
+    volumes: ['${TPC_WORKER_1_CONFIG:?supply rendered config}:/opt/pangrova/config:ro']
+  worker-2:
+    <<: *worker
+    volumes: ['${TPC_WORKER_2_CONFIG:?supply rendered config}:/opt/pangrova/config:ro']
+  worker-3:
+    <<: *worker
+    volumes: ['${TPC_WORKER_3_CONFIG:?supply rendered config}:/opt/pangrova/config:ro']
+  worker-4:
+    <<: *worker
+    volumes: ['${TPC_WORKER_4_CONFIG:?supply rendered config}:/opt/pangrova/config:ro']

@@ -142,8 +142,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
     void observabilityInitializedWithNoOpFallback() {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-obs", 0);
-        bootstrap = new CoordinatorBootstrap(withAuthority(config));
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(config);
 
         assertThat(bootstrap.getTracingProvider()).isNotNull();
     }
@@ -161,8 +160,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        bootstrap = new CoordinatorBootstrap(withAuthority(config));
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(config);
 
         assertThat(bootstrap.isStarted()).isTrue();
     }

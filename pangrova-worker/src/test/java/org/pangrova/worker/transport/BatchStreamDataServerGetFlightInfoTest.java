@@ -45,7 +45,7 @@ class BatchStreamDataServerGetFlightInfoTest {
     void setUp() {
         allocator = new RootAllocator(Long.MAX_VALUE);
         registry.clear();
-        DataProducer producer = ticket -> {
+        DataProducer producer = ticket -> () -> {
             OneShotBatch state = registry.get(ticket.queryId());
             if (state == null) {
                 return new byte[0]; // unknown ticket → EOF

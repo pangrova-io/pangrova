@@ -1,6 +1,7 @@
 package org.pangrova.resource.scheduler;
 
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.resource.QueueType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,11 +31,11 @@ import java.util.stream.Collectors;
  * dispatcher wake-up. All public methods are safe for concurrent access.</p>
  */
 @ThreadSafe
-public class WeightedFairScheduler implements AutoCloseable {
+public final class WeightedFairScheduler implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(WeightedFairScheduler.class);
 
-    private static final long SHUTDOWN_TIMEOUT_SECONDS = 10;
+    private static final long SHUTDOWN_TIMEOUT_MILLIS = 10_000;
 
     private final ConcurrentHashMap<QueueType, Queue<Runnable>> taskQueues = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<QueueType, AtomicLong> cpuTimeNanos = new ConcurrentHashMap<>();
@@ -42,6 +43,8 @@ public class WeightedFairScheduler implements AutoCloseable {
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final AtomicLong dispatchedCount = new AtomicLong(0);
     private final ExecutorService dispatcherExecutor;
+    private final Object submissionLock = new Object();
+    private volatile Throwable dispatcherFailure;
 
     /**
      * Creates a new scheduler and starts the dispatcher thread.
@@ -52,7 +55,7 @@ public class WeightedFairScheduler implements AutoCloseable {
             t.setDaemon(true);
             return t;
         });
-        this.dispatcherExecutor.submit(this::dispatchLoop);
+        this.dispatcherExecutor.submit(() -> ExecutorDrain.runOwned(dispatcherExecutor, this::runDispatcher));
         LOG.info("WeightedFairScheduler started");
     }
 
@@ -75,13 +78,15 @@ public class WeightedFairScheduler implements AutoCloseable {
      * @throws IllegalStateException if the scheduler has been shut down
      */
     public void submitTask(Runnable task, QueueType queueType) {
-        if (!running.get()) {
-            throw new IllegalStateException("WeightedFairScheduler is shut down");
+        synchronized (submissionLock) {
+            if (!running.get()) {
+                throw new IllegalStateException("WeightedFairScheduler is shut down");
+            }
+            taskQueues
+                    .computeIfAbsent(queueType, k -> new ConcurrentLinkedQueue<>())
+                    .add(task);
+            taskAvailable.release();
         }
-        taskQueues
-                .computeIfAbsent(queueType, k -> new ConcurrentLinkedQueue<>())
-                .add(task);
-        taskAvailable.release();
         LOG.debug("Task submitted to queue: {}", queueType);
     }
 
@@ -96,7 +101,8 @@ public class WeightedFairScheduler implements AutoCloseable {
     }
 
     public Queue<Runnable> getQueue(QueueType queueType) {
-        return taskQueues.getOrDefault(queueType, new ConcurrentLinkedQueue<>());
+        return new ConcurrentLinkedQueue<>(
+                taskQueues.getOrDefault(queueType, new ConcurrentLinkedQueue<>()));
     }
 
     /**
@@ -130,20 +136,19 @@ public class WeightedFairScheduler implements AutoCloseable {
 
     @Override
     public void close() {
-        if (!running.compareAndSet(true, false)) {
-            return;
-        }
-        taskAvailable.release(); // unblock dispatcher if parked
-        dispatcherExecutor.shutdown();
-        try {
-            if (!dispatcherExecutor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                dispatcherExecutor.shutdownNow();
-                LOG.warn("Dispatcher thread did not terminate within {}s, forced shutdown",
-                        SHUTDOWN_TIMEOUT_SECONDS);
+        synchronized (submissionLock) {
+            if (running.getAndSet(false)) {
+                taskAvailable.release(); // unblock dispatcher if parked
             }
-        } catch (InterruptedException e) {
-            dispatcherExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
+        }
+        ExecutorDrain.shutdownAndAwait(dispatcherExecutor, SHUTDOWN_TIMEOUT_MILLIS);
+        if (!getActiveQueues().isEmpty()) {
+            throw new IllegalStateException("Owned dispatcher exited with accepted callbacks still pending",
+                    dispatcherFailure);
+        }
+        if (dispatcherFailure != null) {
+            throw new IllegalStateException("Owned dispatcher failed before completing its accepted callback",
+                    dispatcherFailure);
         }
         LOG.info("WeightedFairScheduler shut down, dispatched {} tasks total", dispatchedCount.get());
     }
@@ -157,7 +162,7 @@ public class WeightedFairScheduler implements AutoCloseable {
      */
     private void dispatchLoop() {
         LOG.debug("Dispatcher thread started");
-        while (running.get()) {
+        while (running.get() || !getActiveQueues().isEmpty()) {
             try {
                 if (!taskAvailable.tryAcquire(100, TimeUnit.MILLISECONDS)) {
                     // Even without permits, check if queues have residual tasks
@@ -173,12 +178,29 @@ public class WeightedFairScheduler implements AutoCloseable {
                 dispatchBatch(totalToDispatch);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                break;
+                throw new IllegalStateException("Owned dispatcher was interrupted outside a completed callback", e);
             } catch (Exception e) {
                 LOG.error("Unexpected error in dispatcher loop", e);
             }
         }
         LOG.debug("Dispatcher thread exiting");
+    }
+
+    private void runDispatcher() {
+        try {
+            dispatchLoop();
+        } catch (RuntimeException | Error failure) {
+            synchronized (submissionLock) {
+                dispatcherFailure = failure;
+                running.set(false);
+            }
+            LOG.error("event=owned_dispatcher_failed component=WeightedFairScheduler", failure);
+            throw failure;
+        } finally {
+            synchronized (submissionLock) {
+                running.set(false);
+            }
+        }
     }
 
     /**
@@ -253,6 +275,14 @@ public class WeightedFairScheduler implements AutoCloseable {
         } finally {
             long elapsed = System.nanoTime() - startNanos;
             cpuTimeNanos.computeIfAbsent(queueType, k -> new AtomicLong(0)).addAndGet(elapsed);
+            // This dedicated dispatcher owns its thread, not the completed callback.
+            // As with a thread-pool task boundary, one callback's cancellation
+            // must not interrupt another accepted callback or the queue wait.
+            // Owner shutdown is signalled by running; close still preserves the
+            // interrupt status of its separate calling thread.
+            if (Thread.interrupted()) {
+                LOG.debug("event=completed_callback_interrupt_cleared queueType={}", queueType);
+            }
         }
     }
 

@@ -9,7 +9,7 @@ import org.pangrova.worker.jni.NativeRuntime;
 
 /** One deployment, registration and publication owner for the shared E2E Native runtime. */
 final class SharedNativeFunctionStartup implements AutoCloseable {
-    private final SharedAiProvider provider = new SharedAiProvider();
+    private SharedAiProvider provider;
     private final SharedGovernedFileStorage files = new SharedGovernedFileStorage();
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
     private NativeFunctionConfig config;
@@ -19,6 +19,9 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
     NativeFunctionConfig prepare() {
         if (config == null) {
             try {
+                if (provider == null) {
+                    provider = new SharedAiProvider();
+                }
                 var prepared = provider.prepare();
                 var fileConfiguration = files.prepareConfiguredDeployment();
                 if (fileConfiguration.isEmpty()) {
@@ -96,6 +99,7 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
         }
         Exception failure = null;
         for (AutoCloseable owner : new AutoCloseable[]{() -> NativeFunctionBootstrap.close(refs), provider, files}) {
+            if (owner == null) continue;
             try { owner.close(); } catch (Exception cleanup) {
                 if (failure == null) {
                     failure = cleanup;

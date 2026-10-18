@@ -132,7 +132,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
     }
 
     void failDuringExecution() {
-        begin("SELECT 10 / n FROM (VALUES (0), (1)) AS t(n)");
+        begin("SELECT 10 / n FROM (SELECT 0 AS n UNION ALL SELECT 1 AS n) t");
         if (endpoint != null) {
             try { worker.consume(endpoint); }
             catch (RuntimeException failure) { resultFailure = failure; }

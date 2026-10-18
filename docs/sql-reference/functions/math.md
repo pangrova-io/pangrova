@@ -18,6 +18,11 @@ description: "Arithmetic operators and numeric functions"
 | `%` | Modulo | `id % 10` |
 | `-expr` | Unary negation | `-amount` |
 
+Mixed primitive numeric operands use their common numeric type through explicit
+casts in the execution plan. A `BIGINT` plus an `INTEGER` is evaluated as
+`BIGINT + BIGINT`, without narrowing the larger operand. NULL operands remain
+nullable. Decimal precision/scale follows its separate decimal type rules.
+
 ---
 
 ## ABS
@@ -38,7 +43,7 @@ SELECT ABS(price_change) AS magnitude FROM stocks;
 ## MOD
 
 ```sql
-MOD(dividend, divisor) → same type
+MOD(dividend, divisor) → divisor type for primitive integers
 -- or: dividend % divisor
 ```
 
@@ -46,6 +51,9 @@ MOD(dividend, divisor) → same type
 SELECT MOD(17, 5) AS result;  -- 2
 SELECT id, MOD(id, 3) AS bucket FROM events;
 ```
+
+For mixed integer widths, computation uses the common argument type and the
+result is explicitly converted to the validated divisor type.
 
 ---
 

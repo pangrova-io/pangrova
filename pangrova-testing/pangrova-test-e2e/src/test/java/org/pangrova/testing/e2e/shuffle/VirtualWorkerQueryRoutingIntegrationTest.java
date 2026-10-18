@@ -60,7 +60,7 @@ class VirtualWorkerQueryRoutingIntegrationTest extends VirtualWorkerRoutingInteg
                 "SELECT id, amount FROM %s.%s.%s ORDER BY amount ASC",
                 CATALOG, SCHEMA, ordersTable);
 
-        List<TypedRow> rows = sqlRunner.execute(sql);
+        List<TypedRow> rows = routingSqlRunner.execute(sql);
 
         assertThat(rows).hasSize(ROW_COUNT);
         assertSortedAscending(rows, "amount");
@@ -76,7 +76,7 @@ class VirtualWorkerQueryRoutingIntegrationTest extends VirtualWorkerRoutingInteg
         String sql = String.format(
                 "SELECT * FROM %s.%s.%s", CATALOG, SCHEMA, ordersTable);
 
-        List<TypedRow> rows = sqlRunner.execute(sql);
+        List<TypedRow> rows = routingSqlRunner.execute(sql);
 
         assertThat(rows).hasSize(ROW_COUNT);
         assertNoDuplicateIds(rows, "id");
@@ -96,7 +96,7 @@ class VirtualWorkerQueryRoutingIntegrationTest extends VirtualWorkerRoutingInteg
                 CATALOG, SCHEMA, ordersTable,
                 CATALOG, SCHEMA, customersTable);
 
-        List<TypedRow> rows = sqlRunner.execute(sql);
+        List<TypedRow> rows = routingSqlRunner.execute(sql);
 
         assertThat(rows).hasSize(ROW_COUNT);
         rows.forEach(row -> {
@@ -120,7 +120,7 @@ class VirtualWorkerQueryRoutingIntegrationTest extends VirtualWorkerRoutingInteg
                 + "FROM %s.%s.%s",
                 CATALOG, SCHEMA, ordersTable);
 
-        List<TypedRow> rows = sqlRunner.execute(sql);
+        List<TypedRow> rows = routingSqlRunner.execute(sql);
 
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).getLong("cnt"))

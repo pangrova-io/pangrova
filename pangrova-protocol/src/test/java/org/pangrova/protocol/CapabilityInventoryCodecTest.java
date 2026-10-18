@@ -6,6 +6,8 @@ import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.protocol.v2.ArtifactFormatRef;
 import org.pangrova.protocol.v2.CapabilityDescriptor;
 import org.pangrova.protocol.v2.CapabilityInventory;
@@ -103,6 +105,37 @@ class CapabilityInventoryCodecTest {
         assertThat(decoded).isEqualTo(inventory);
         assertThat(decoded.getCapabilities(0).getSupportedArtifactFormats(0)
                 .getWriterBuildId()).isEqualTo("native-test");
+    }
+
+    @Test
+    void materializationDoesNotRequireARetrievalCandidateSchemaOrLimit() {
+        var materializer = validCapability().toBuilder()
+                .setRef(BuiltInCapabilityCatalog.generatedValuesOverlayPlanRef().toBuilder()
+                        .setImplementationBuildId("native-test"))
+                .setKind(CapabilityKind.CAPABILITY_KIND_MATERIALIZER)
+                .setLimits(org.pangrova.protocol.v2.CapabilityLimits.newBuilder()
+                        .setMaxInputBytes(1_048_576).setMaxOutputBytes(1_048_576))
+                .build();
+        var inventory = baseInventory().clearCandidateSchemaVersion().clearSupportedRelationTypeUrls()
+                .addCapabilities(materializer).build();
+
+        assertThat(CapabilityInventoryCodec.decode(CapabilityInventoryCodec.encode(inventory)))
+                .isEqualTo(inventory);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CapabilityKind.class, names = {"CAPABILITY_KIND_RETRIEVAL_SOURCE",
+            "CAPABILITY_KIND_RETRIEVAL_MERGE", "CAPABILITY_KIND_RERANK"})
+    void retrievalStillRequiresCandidateBoundsAndTheTypedRelationContract(CapabilityKind kind) {
+        var descriptor = validCapability().toBuilder().setKind(kind).build();
+        assertThatThrownBy(() -> CapabilityInventoryCodec.encode(
+                baseInventory().addCapabilities(descriptor).build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("candidate bound");
+        var bounded = descriptor.toBuilder().setLimits(org.pangrova.protocol.v2.CapabilityLimits.newBuilder()
+                .setMaxCandidateRows(100)).build();
+        assertThatThrownBy(() -> CapabilityInventoryCodec.encode(baseInventory()
+                .clearCandidateSchemaVersion().clearSupportedRelationTypeUrls().addCapabilities(bounded).build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("typed relation contract");
     }
 
     @Test

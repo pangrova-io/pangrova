@@ -60,3 +60,7 @@ Thumbs.db
 .env
 .env.local
 *.local
+
+# Python tooling bytecode
+__pycache__/
+*.py[cod]

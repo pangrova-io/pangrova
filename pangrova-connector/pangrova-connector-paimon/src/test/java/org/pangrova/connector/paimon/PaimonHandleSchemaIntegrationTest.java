@@ -23,7 +23,7 @@ import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.write.PaimonPhysicalSchemas;
-import org.pangrova.protocol.type.PhysicalWriteTypes;
+import org.pangrova.protocol.type.DeclaredLogicalTypes;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
@@ -136,9 +136,9 @@ class PaimonHandleSchemaIntegrationTest {
             assertThat(child.nullable()).isEqualTo(elementNullable);
             assertThat(child.signature().base()).isEqualTo(doubled ? "DOUBLE" : "REAL");
         });
-        assertThat(PhysicalWriteTypes.logicalType(column.declaredType())).isEqualTo(VectorLogicalType.create(7,
+        assertThat(DeclaredLogicalTypes.logicalType(column.declaredType())).isEqualTo(VectorLogicalType.create(7,
                 doubled ? VectorLogicalType.FLOAT64 : VectorLogicalType.FLOAT32, nullable, elementNullable));
-        var history = PhysicalWriteTypes.logicalType(physical.columns().get(2).declaredType())
+        var history = DeclaredLogicalTypes.logicalType(physical.columns().get(2).declaredType())
                 .getSubstraitType().getList().getType().getList().getType().getDecimal();
         assertThat(history.getPrecision()).isEqualTo(21);
         assertThat(history.getScale()).isEqualTo(7);
@@ -219,11 +219,11 @@ class PaimonHandleSchemaIntegrationTest {
             assertThat(physical.columns().get(2).logicalType().parameters().get(0).longValue()).isEqualTo(3L);
             assertThat(physical.columns().get(2).logicalType().parameters().get(1).typeSignature().base())
                     .isEqualTo("DOUBLE");
-            var logical = PhysicalWriteTypes.logicalType(physical.columns().get(2).declaredType());
+            var logical = DeclaredLogicalTypes.logicalType(physical.columns().get(2).declaredType());
             assertThat(VectorLogicalType.requireStorageDimension(logical)).isEqualTo(3);
             assertThat(logical.getSubstraitType().getList().getType().getFp64().getNullability())
                     .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE);
-            var nested = PhysicalWriteTypes.logicalType(physical.columns().get(3).declaredType());
+            var nested = DeclaredLogicalTypes.logicalType(physical.columns().get(3).declaredType());
             assertThat(nested.getSubstraitType().getList().getType().getStruct().getTypes(1)
                     .getList().getType().getI32().getNullability())
                     .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
@@ -235,7 +235,7 @@ class PaimonHandleSchemaIntegrationTest {
                                        org.apache.arrow.vector.types.pojo.Schema physical) {
         var key = physical.getFields().get(4).getChildren().get(0).getChildren().get(0);
         assertThat(key.isNullable()).isFalse();
-        var logical = PhysicalWriteTypes.logicalType(schema.columns().get(4).declaredType());
+        var logical = DeclaredLogicalTypes.logicalType(schema.columns().get(4).declaredType());
         assertThat(logical.getSubstraitType().getMap().getKey().getString().getNullability())
                 .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
         assertThat(logical.getSubstraitType().getMap().getValue().getI64().getNullability())

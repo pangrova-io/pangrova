@@ -85,6 +85,11 @@ class CoordinatorTaskTrackerDrainNotificationTest {
         assertThat(rejectingCalls).hasValue(1);
         assertThat(successfulCalls).hasValue(1);
         assertThat(tracker.acknowledgesExecutionDrain(report)).isFalse();
+        assertThat(tracker.hasPendingReportPublication(report)).isTrue();
+        var differentFact = new TaskStatusReport("task", "query", 0, 0, "READ", "worker", "FINISHED",
+                null, null, null, 1L, 1001L, null, null,
+                TaskAttemptDescriptor.from(request.taskRequest().getAttempt()), receipt.toByteArray());
+        assertThat(tracker.hasPendingReportPublication(differentFact)).isFalse();
         assertThat(tracker.getTaskRequest("task")).isEqualTo(request);
         assertThatThrownBy(() -> tracker.retireQueryIssuance("query"))
                 .hasMessageContaining("publication");
@@ -99,6 +104,7 @@ class CoordinatorTaskTrackerDrainNotificationTest {
         assertThat(rejectingCalls).hasValue(2);
         assertThat(successfulCalls).hasValue(2);
         assertThat(tracker.acknowledgesExecutionDrain(report)).isTrue();
+        assertThat(tracker.hasPendingReportPublication(report)).isFalse();
         tracker.requireQueryExecutionDrained("query");
     }
 

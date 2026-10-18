@@ -35,8 +35,16 @@ class NativeWorkerLifecycleFixtureTest {
         });
         server.createContext("/v1/workers/", exchange -> {
             try (exchange) {
-                if ("DELETE".equals(exchange.getRequestMethod())) deleted.incrementAndGet();
-                exchange.sendResponseHeaders(200, -1);
+                exchange.getRequestBody().readAllBytes();
+                if (!"DELETE".equals(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+                deleted.incrementAndGet();
+                byte[] result = "{\"status\":\"deregistered\",\"coordinator_epoch\":1}"
+                        .getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, result.length);
+                exchange.getResponseBody().write(result);
             }
         });
         server.start();

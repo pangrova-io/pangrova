@@ -3,6 +3,8 @@
 
 #include "capability/LogicalTypeContract.h"
 
+#include <array>
+
 #include <gtest/gtest.h>
 
 namespace pangrova::capability {
@@ -27,6 +29,25 @@ protocol::v2::LogicalType vectorType(uint32_t dimension) {
 
 TEST(LogicalTypeContractTest, AcceptsCanonicalFloatVector) {
   EXPECT_EQ(requireFloatVectorDimension(vectorType(1536)), 1536);
+}
+
+TEST(LogicalTypeContractTest, CanonicalTextUsesTheSameDimensionBoundsAsTheTypedContract) {
+  for (const uint32_t dimension : {1U, 384U, 65'535U}) {
+    const auto type = vectorType(dimension);
+    EXPECT_EQ(requireCanonicalFloatVectorDimension(type.canonical_sql()), dimension);
+    EXPECT_EQ(requireFloatVectorDimension(type), dimension);
+  }
+}
+
+TEST(LogicalTypeContractTest, RejectsNonCanonicalTextWithoutLegacyMetricOrPrecisionAliases) {
+  const std::array invalid{
+      "", "VECTOR()", "VECTOR(0)", "VECTOR(-1)", "VECTOR(65536)",
+      "VECTOR(01)", "VECTOR(2, COSINE)", "VECTOR(2,DOUBLE)",
+      "VECTOR( 2)", "VECTOR(2 )", "vector(2)", "VECTOR(2)extra", "ARRAY(REAL)"};
+  for (const auto* declaration : invalid) {
+    EXPECT_THROW(requireCanonicalFloatVectorDimension(declaration), std::invalid_argument)
+        << declaration;
+  }
 }
 
 TEST(LogicalTypeContractTest, RejectsMissingDimensionConstraint) {

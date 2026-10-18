@@ -43,7 +43,9 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=?";
     private static final String RENEW_OWNED =
             "UPDATE execution_anchor SET expires_at=?, version=version+1 "
-                    + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>? AND execution_id=ANY(?)";
+                    + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>? AND execution_id=ANY(?) "
+                    + "RETURNING execution_id, owner_id, owner_incarnation, fencing_token, "
+                    + "acquired_at, expires_at, version";
     private static final String RELEASE =
             "DELETE FROM execution_anchor WHERE execution_id=? AND owner_id=? "
                     + "AND owner_incarnation=? AND fencing_token=? AND expires_at>?";
@@ -146,14 +148,17 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     }
 
     @Override
-    public int renewOwned(
+    public List<ExecutionAnchor> renewOwned(
             String ownerId, String ownerIncarnation, Duration leaseDuration) {
         requireOwner(ownerId, ownerIncarnation);
         requireDuration(leaseDuration);
-        return updateOwnedLeases(ownerId, ownerIncarnation, Optional.of(leaseDuration));
+        return updateOwnedLeases(ownerId, ownerIncarnation, Optional.of(leaseDuration)).receipts();
     }
 
-    private int updateOwnedLeases(String ownerId, String ownerIncarnation, Optional<Duration> extension) {
+    private record LeaseUpdate(int count, List<ExecutionAnchor> receipts) {}
+
+    private LeaseUpdate updateOwnedLeases(
+            String ownerId, String ownerIncarnation, Optional<Duration> extension) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             List<String> locked = lockOwned(connection, ownerId, ownerIncarnation);
@@ -166,9 +171,18 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                 statement.setString(3, ownerIncarnation);
                 setInstant(statement, 4, now);
                 statement.setArray(5, identities);
-                int updated = statement.executeUpdate();
+                List<ExecutionAnchor> renewed = new ArrayList<>();
+                int updated = 0;
+                try (ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        updated++;
+                        if (extension.isPresent()) {
+                            renewed.add(anchor(rows.getString("execution_id"), mapRow(rows)));
+                        }
+                    }
+                }
                 connection.commit();
-                return updated;
+                return new LeaseUpdate(updated, List.copyOf(renewed));
             } finally {
                 identities.free();
             }
@@ -225,7 +239,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     @Override
     public int yieldOwned(String ownerId, String ownerIncarnation) {
         requireOwner(ownerId, ownerIncarnation);
-        return updateOwnedLeases(ownerId, ownerIncarnation, Optional.empty());
+        return updateOwnedLeases(ownerId, ownerIncarnation, Optional.empty()).count();
     }
 
     @Override

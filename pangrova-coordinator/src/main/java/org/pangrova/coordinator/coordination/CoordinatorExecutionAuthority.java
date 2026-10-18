@@ -9,6 +9,7 @@ import org.pangrova.spi.coordination.ExecutionAnchorStore;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
@@ -18,7 +19,7 @@ import javax.annotation.concurrent.GuardedBy;
 @ThreadSafe
 public final class CoordinatorExecutionAuthority implements AutoCloseable {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(CoordinatorExecutionAuthority.class);
-    private static final long DRAIN_TIMEOUT_MS = 5_000;
+    private static final long SHUTDOWN_TIMEOUT_MS = 5000;
     private final ExecutionAnchorStore backend;
     private final String coordinatorId;
     private final String incarnation;
@@ -26,6 +27,7 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
     private final ScheduledExecutorService renewal;
     private final Object lifecycle = new Object();
     private final ExecutionAuthorityOperations operations = new ExecutionAuthorityOperations();
+    private final AtomicReference<QueryOwnershipRegistry> queryOwnership = new AtomicReference<>();
     @GuardedBy("lifecycle")
     private CompletableFuture<Void> closeExit;
     @GuardedBy("lifecycle")
@@ -48,11 +50,9 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
                     leaseDuration.toMillis() / 3, leaseDuration.toMillis() / 3, TimeUnit.MILLISECONDS);
         } catch (RuntimeException | Error failure) {
             try {
-                ExecutorDrain.shutdownAndAwait(renewal, DRAIN_TIMEOUT_MS);
+                ExecutorDrain.shutdownAndAwait(renewal, SHUTDOWN_TIMEOUT_MS);
             } catch (RuntimeException | Error cleanup) {
-                if (cleanup != failure) {
-                    failure.addSuppressed(cleanup);
-                }
+                if (cleanup != failure) failure.addSuppressed(cleanup);
             }
             throw failure;
         }
@@ -100,6 +100,21 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
     /** Actual single startup identity shared across roles. */
     public String incarnation() { return incarnation; }
 
+    Duration leaseDuration() { return leaseDuration; }
+
+    void bindQueryOwnership(QueryOwnershipRegistry registry) {
+        if (!registry.usesStore(backend)) {
+            throw new IllegalArgumentException("Query ownership requires the exact process backend");
+        }
+        if (!queryOwnership.compareAndSet(null, registry) && queryOwnership.get() != registry) {
+            throw new IllegalStateException("Process authority already has a query ownership registry");
+        }
+    }
+
+    void unbindQueryOwnership(QueryOwnershipRegistry registry) {
+        queryOwnership.compareAndSet(registry, null);
+    }
+
     private void requireProcess(ExecutionAnchor anchor) {
         Objects.requireNonNull(anchor, "anchor");
         if (!coordinatorId.equals(anchor.ownerId()) || !incarnation.equals(anchor.ownerIncarnation())) {
@@ -115,7 +130,13 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
             return;
         }
         try {
-            backend.renewOwned(coordinatorId, incarnation, leaseDuration);
+            QueryOwnershipRegistry registry = queryOwnership.get();
+            var expected = registry == null ? java.util.List.<ExecutionAnchor>of()
+                    : registry.renewalSnapshot(coordinatorId, incarnation);
+            var receipt = backend.renewOwned(coordinatorId, incarnation, leaseDuration);
+            if (registry != null && !registry.applyRenewal(expected, receipt)) {
+                throw new IllegalStateException("Process renewal lost one or more exact query fences");
+            }
         } catch (RuntimeException failure) {
             LOG.error("event=execution_authority_renewal_failed coordinatorId={}", coordinatorId, failure);
         } finally {
@@ -130,9 +151,7 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
         CompletableFuture<Void> completion;
         boolean claimed;
         synchronized (lifecycle) {
-            if (closer == Thread.currentThread()) {
-                throw new IllegalStateException("Authority close cannot join itself");
-            }
+            if (closer == Thread.currentThread()) throw new IllegalStateException("Authority close cannot join itself");
             claimed = closer == null && (closeExit == null || closeExit.isCompletedExceptionally());
             if (claimed) {
                 closeExit = new CompletableFuture<>();
@@ -146,8 +165,8 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
         }
         try {
             // Actual scheduler and synchronous backend operations exit before the final exact-process yield.
-            ExecutorDrain.shutdownAndAwait(renewal, DRAIN_TIMEOUT_MS);
-            operations.awaitExit(DRAIN_TIMEOUT_MS);
+            ExecutorDrain.shutdownAndAwait(renewal, SHUTDOWN_TIMEOUT_MS);
+            operations.awaitExit(SHUTDOWN_TIMEOUT_MS);
             backend.yieldOwned(coordinatorId, incarnation);
             completion.complete(null);
         } catch (RuntimeException | Error failure) {

@@ -3,6 +3,10 @@ package org.pangrova.planner.validation;
 import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.util.Set;
+import java.util.Collection;
+import java.util.HashSet;
+import org.pangrova.protocol.CapabilityInventoryCodec;
+import org.pangrova.protocol.v2.CapabilityInventory;
 
 /**
  * Registry of native engine capabilities for Substrait plan validation.
@@ -12,9 +16,9 @@ import java.util.Set;
  * replacement — each {@link #update} publishes a new immutable {@code Set}
  * through a volatile write, and every read sees a consistent snapshot.</p>
  *
- * <p>This class has zero dependency on protobuf types. The proto→Set
- * conversion is performed by {@code pangrova-worker} side before calling
- * {@link #update}.</p>
+ * <p>Production snapshots come from validated Worker inventories. This is a
+ * coarse serialization precheck; exact function identity, overload and target
+ * compatibility are checked again by the task admission boundary.</p>
  */
 @ThreadSafe
 public final class NativeCapabilityRegistry {
@@ -44,8 +48,29 @@ public final class NativeCapabilityRegistry {
     }
 
     /**
-     * Creates a registry pre-populated with the default capability set,
-     * aligned with {@code NativePlanConverter} supported operators.
+     * Coarse serialization precheck from active Worker inventories. A union avoids
+     * rejecting a function available on an eligible worker; exact kind, signature,
+     * implementation and placement admission remain mandatory at task binding.
+     */
+    public static NativeCapabilityRegistry fromInventories(Collection<CapabilityInventory> inventories) {
+        if (inventories.isEmpty()) {
+            throw new IllegalStateException("Native planner validation requires an active Worker inventory");
+        }
+        Set<String> relations = new HashSet<>();
+        Set<String> expressions = new HashSet<>();
+        Set<String> functions = new HashSet<>();
+        for (var inventory : inventories) {
+            CapabilityInventoryCodec.validate(inventory);
+            relations.addAll(inventory.getSupportedSubstraitRelTypesList());
+            expressions.addAll(inventory.getSupportedSubstraitExpressionTypesList());
+            inventory.getFunctionsList().forEach(function -> functions.add(function.getRef().getName()));
+        }
+        return new NativeCapabilityRegistry(relations, expressions, functions);
+    }
+
+    /**
+     * Creates conservative defaults for standalone compilation and isolated tests.
+     * Production dispatch must use current Worker inventories instead.
      */
     public static NativeCapabilityRegistry defaults() {
         Set<String> defaultRelTypes = Set.of(
@@ -55,6 +80,7 @@ public final class NativeCapabilityRegistry {
                 "AggregateRel",
                 "HashJoinRel",
                 "MergeJoinRel",
+                "NestedLoopJoinRel",
                 "JoinRel",
                 "ExchangeRel",
                 "ExtensionLeafRel",
@@ -124,8 +150,8 @@ public final class NativeCapabilityRegistry {
     /**
      * Replaces the capability snapshot with runtime-discovered values.
      *
-     * <p>Called by {@code pangrova-worker} after converting the proto
-     * {@code NativeCapabilityResponse} into plain Java sets.</p>
+     * <p>Explicit custom/isolated validation only. Production dispatch captures
+     * actual Worker inventories through {@link #fromInventories}.</p>
      *
      * @param relTypes  supported Substrait Rel type names
      * @param exprTypes supported Substrait Expression type names

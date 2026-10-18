@@ -168,6 +168,12 @@ public final class DdlExecutor {
     /** Alters a table using the resolved catalog and session. */
     public List<TypedRow> executeAlterTable(
             AlterTableStatement stmt, CoordinatorSessionContext context) {
+        if (stmt instanceof AlterTableStatement.SetColumnTag
+                || stmt instanceof AlterTableStatement.UnsetColumnTag) {
+            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
+                    "ALTER TABLE column tags are not supported until durable tag storage and "
+                            + "policy enforcement are wired");
+        }
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
@@ -260,19 +266,6 @@ public final class DdlExecutor {
         }
         if (stmt instanceof AlterTableStatement.SetPartitionSpec spec) {
             applySetPartitionSpec(metadata, session, handle, spec);
-            return;
-        }
-        if (stmt instanceof AlterTableStatement.SetColumnTag setTag) {
-            // Column-level tags are governance metadata stored outside connector layer.
-            // ConnectorMetadata does not expose column-level properties; tag persistence
-            // is handled by MetadataService.setTag() at a higher layer.
-            LOG.debug("event=set_column_tag column={} tag={}={}", setTag.columnName(),
-                    setTag.tagKey(), setTag.tagValue());
-            return;
-        }
-        if (stmt instanceof AlterTableStatement.UnsetColumnTag unsetTag) {
-            LOG.debug("event=unset_column_tag column={} tag={}", unsetTag.columnName(),
-                    unsetTag.tagKey());
             return;
         }
         if (stmt instanceof AlterTableStatement.RenameTable rename) {

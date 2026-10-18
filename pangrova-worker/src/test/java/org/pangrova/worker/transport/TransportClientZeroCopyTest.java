@@ -46,7 +46,7 @@ class TransportClientZeroCopyTest {
         dataRegistry.clear();
         // remove() ensures first call returns data, subsequent calls return EOF (empty byte[]).
         // This matches the DataProducer SPI contract: non-empty = data, empty = stream ended.
-        DataProducer producer = ticket -> {
+        DataProducer producer = ticket -> () -> {
             byte[] data = dataRegistry.remove(ticket.queryId());
             return data != null ? data : new byte[0];
         };

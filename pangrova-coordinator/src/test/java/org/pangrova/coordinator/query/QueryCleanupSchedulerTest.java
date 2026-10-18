@@ -13,6 +13,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 class QueryCleanupSchedulerTest {
 
     @Test
+    void physicalCompletionRetriesDoNotWaitForRetentionSweep() throws Exception {
+        var retried = new java.util.concurrent.CountDownLatch(1);
+        var scheduler = new QueryCleanupScheduler(new ConcurrentHashMap<>(), ignored -> true, retried::countDown);
+        var timer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        var cleanup = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            scheduler.startPeriodicCleanup(timer, cleanup, Duration.ofHours(1), Duration.ofHours(1));
+            assertThat(retried.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            scheduler.stopPeriodicCleanup();
+            timer.shutdownNow();
+            cleanup.shutdownNow();
+            assertThat(timer.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(cleanup.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
     void cleanupRemovesTerminalQueryState() {
         ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
         QueryCleanupScheduler scheduler = new QueryCleanupScheduler(

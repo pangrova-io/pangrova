@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code src/test/resources/golden-plans/tpch/}.
  *
  * <p>Every selected query must have a reviewed golden file. Any plan change
- * requires explicit approval via the CI plan-stability-check gate.
+ * must be explained and reviewed with the updated golden diff.
  */
 @Tag("plan-stability")
 class TpchPlanStabilityTest {

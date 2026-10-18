@@ -180,7 +180,7 @@ class StructuralPolicyTest(unittest.TestCase):
             prop = config.find(f'.//module[@name="{module}"]/property[@name="max"]')
             self.assertEqual(int(prop.get('value')), maximum)
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        self.assertIn('native-runtime,full-regression verify', workflow)
+        self.assertRegex(workflow, r'native-runtime,full-regression(?:,coverage)? verify')
         self.assertNotIn('diff-coverage-check.sh', workflow)
         self.assertEqual(workflow.count('verify -Pstatic-analysis'), 1)
 

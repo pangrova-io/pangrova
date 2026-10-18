@@ -6,8 +6,6 @@ import com.github.dockerjava.api.exception.NotFoundException;
 import org.pangrova.worker.jni.NativeFunctionConfig;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import java.io.IOException;
 import java.net.URI;
@@ -16,14 +14,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
@@ -47,55 +42,26 @@ public final class SharedAiProvider implements AutoCloseable {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final GenericContainer<?> deployment;
+    private final Map<String, String> expectedModels;
     private final Duration deploymentTimeout;
-    private final boolean verifyPulls;
-    private final Runnable beforePull;
     private final StringBuilder diagnosticTail = new StringBuilder();
     private GenericContainer<?> container;
     private NativeFunctionConfig config;
 
     /** Creates one isolated deployment with a single three-minute setup budget. */
     public SharedAiProvider() {
-        this(cachedDeployment(), DEPLOYMENT_TIMEOUT);
-    }
-
-    /** Verifies real pull requests even when the shared model cache is warm. */
-    SharedAiProvider(boolean verifyPulls) {
-        this(cachedDeployment(), DEPLOYMENT_TIMEOUT, verifyPulls, () -> { });
-    }
-
-    private static GenericContainer<?> cachedDeployment() {
-        Path cache = Path.of(System.getProperty("user.dir"), "target", "ollama-models")
-                .toAbsolutePath().normalize();
-        try {
-            Files.createDirectories(cache);
-        } catch (IOException failure) {
-            throw new IllegalStateException("Cannot create E2E Ollama model cache", failure);
-        }
-        // Models survive test runs; each provider still owns a fresh isolated
-        // Ollama process and verifies immutable digests from its live inventory.
-        return new GenericContainer<>(DockerImageName.parse("ollama/ollama:0.6.2"))
-                .withFileSystemBind(cache.toString(), "/root/.ollama/models")
-                .withExposedPorts(11434)
-                .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200));
+        this(AiProviderDeployment.configured(), DEPLOYMENT_TIMEOUT);
     }
 
     /** Owns the actual test deployment; fault tests may shorten, but never enlarge, the budget. */
     SharedAiProvider(GenericContainer<?> deployment, Duration timeout) {
-        this(deployment, timeout, false, () -> { });
+        this(new AiProviderDeployment(Objects.requireNonNull(deployment, "deployment"), Map.of()), timeout);
     }
 
-    /** Runs an actual fault action immediately before a model pull. */
-    SharedAiProvider(GenericContainer<?> deployment, Duration timeout, Runnable beforePull) {
-        this(deployment, timeout, false, beforePull);
-    }
-
-    private SharedAiProvider(GenericContainer<?> deployment, Duration timeout,
-                             boolean verifyPulls, Runnable beforePull) {
-        this.deployment = Objects.requireNonNull(deployment, "deployment");
+    SharedAiProvider(AiProviderDeployment selected, Duration timeout) {
+        this.deployment = selected.container();
+        this.expectedModels = selected.expectedModels();
         this.deploymentTimeout = Objects.requireNonNull(timeout, "timeout");
-        this.verifyPulls = verifyPulls;
-        this.beforePull = Objects.requireNonNull(beforePull, "beforePull");
         if (deployment.getContainerId() != null) {
             throw new IllegalArgumentException("Model deployment must not borrow an already-created container");
         }
@@ -120,21 +86,14 @@ public final class SharedAiProvider implements AutoCloseable {
             container.withLogConsumer(frame -> retainDiagnostic(frame.getUtf8String()));
             container.start();
             phase = "immutable model inventory";
-            String digest = findLoadedModelDigest(PROVIDER_MODEL, deadline).orElse(null);
-            if (verifyPulls || digest == null) {
-                phase = "pull " + PROVIDER_MODEL;
-                beforePull.run();
-                pull(PROVIDER_MODEL, deadline);
-                digest = requireLoadedModelDigest(PROVIDER_MODEL, deadline);
+            String digest = loadedModelDigest(PROVIDER_MODEL, deadline);
+            String embeddingDigest = loadedModelDigest(EMBEDDING_PROVIDER_MODEL, deadline);
+            for (var actual : Map.of(PROVIDER_MODEL, digest, EMBEDDING_PROVIDER_MODEL, embeddingDigest).entrySet()) {
+                String expected = expectedModels.get(actual.getKey());
+                if (expected != null && !expected.equals(actual.getValue())) {
+                    throw new IllegalStateException("Prepared AI model identity changed: " + actual.getKey());
+                }
             }
-            String embeddingDigest = findLoadedModelDigest(EMBEDDING_PROVIDER_MODEL, deadline).orElse(null);
-            if (verifyPulls || embeddingDigest == null) {
-                phase = "pull " + EMBEDDING_PROVIDER_MODEL;
-                beforePull.run();
-                pull(EMBEDDING_PROVIDER_MODEL, deadline);
-                embeddingDigest = requireLoadedModelDigest(EMBEDDING_PROVIDER_MODEL, deadline);
-            }
-            phase = "immutable model inventory";
             remaining(deadline);
             config = configuration(digest, embeddingDigest);
             return config;
@@ -150,37 +109,7 @@ public final class SharedAiProvider implements AutoCloseable {
         }
     }
 
-    private void pull(String model, long deadline) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint("/api/pull")))
-                .timeout(remaining(deadline))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(
-                        MAPPER.writeValueAsBytes(Map.of("model", model, "stream", false))))
-                .build();
-        HttpResponse<byte[]> response = send(request, deadline);
-        String body = new String(response.body(), StandardCharsets.UTF_8);
-        if (response.statusCode() != 200) {
-            throw new IllegalStateException("Ollama model pull failed for " + model
-                    + ": HTTP " + response.statusCode() + ": " + body);
-        }
-        JsonNode result;
-        try {
-            result = MAPPER.readTree(body);
-        } catch (IOException failure) {
-            failure.addSuppressed(new IllegalStateException("Actual Ollama pull response: " + body));
-            throw failure;
-        }
-        if (result == null || result.hasNonNull("error") || !"success".equals(result.path("status").asText())) {
-            throw new IllegalStateException("Ollama model pull did not complete for " + model + ": " + body);
-        }
-    }
-
-    private String requireLoadedModelDigest(String providerModel, long deadline) throws Exception {
-        return findLoadedModelDigest(providerModel, deadline).orElseThrow(() ->
-                new IllegalStateException("Ollama did not list pulled model " + providerModel));
-    }
-
-    private Optional<String> findLoadedModelDigest(String providerModel, long deadline) throws Exception {
+    private String loadedModelDigest(String providerModel, long deadline) throws Exception {
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(endpoint("/api/tags")))
                 .timeout(remaining(deadline)).GET().build();
         HttpResponse<byte[]> response = send(request, deadline);
@@ -196,10 +125,10 @@ public final class SharedAiProvider implements AutoCloseable {
                 if (!digest.matches("(?:sha256:)?[a-fA-F0-9]{64}")) {
                     throw new IllegalStateException("Ollama did not provide an immutable digest for " + providerModel);
                 }
-                return Optional.of(digest);
+                return digest;
             }
         }
-        return Optional.empty();
+        throw new IllegalStateException("Prepared Ollama fixture is missing model " + providerModel);
     }
 
     private HttpResponse<byte[]> send(HttpRequest request, long deadline) throws Exception {
@@ -235,6 +164,12 @@ public final class SharedAiProvider implements AutoCloseable {
 
     private synchronized String diagnostics() {
         return diagnosticTail.toString();
+    }
+
+    /** Retains bounded actual deployment evidence on inference failures before owned cleanup. */
+    public String deploymentDiagnostics() {
+        requirePreparedContainer();
+        return diagnostics();
     }
 
     /** Bounds the complete HTTP entity before retaining it, including error responses. */
@@ -319,7 +254,7 @@ public final class SharedAiProvider implements AutoCloseable {
         config.put(prefix + "max-batch-size", "8");
         config.put(prefix + "max-requests-per-second", "32");
         config.put(prefix + "timeout-seconds", "120");
-        config.put(prefix + "max-input-tokens", "2048");
+        config.put(prefix + "max-input-tokens", Integer.toString(AiProviderDeployment.MAX_INPUT_TOKENS));
         config.put(prefix + "max-concurrency", "2");
         config.put(prefix + "max-provider-items-per-task", "16");
         config.put(prefix + "max-provider-attempts-per-task", "16");

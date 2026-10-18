@@ -72,4 +72,11 @@ public record WorkerInfo(
                 resourcePoolId, protocolVersion,
                 rackId, dataLocality, summary, capabilityInventory);
     }
+
+    WorkerInfo withCapabilityInventory(CapabilityInventory inventory) {
+        return new WorkerInfo(workerId, host, httpPort, transportPort, resultServerPort,
+                healthState, memoryPressure, cpuUtilization, runningTaskCount,
+                availableMemoryBytes, lastHeartbeat, performanceScore, resourcePoolId,
+                protocolVersion, rackId, dataLocality, cacheSummary, inventory);
+    }
 }

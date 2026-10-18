@@ -123,6 +123,62 @@ class CanonicalExpressionSqlProtocolTest {
         assertThat(literal.getDecimal().getScale()).isZero();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"+", "-", "*", "/"})
+    void mixedIntegerArithmeticMaterializesTheValidatedWideningCast(String operator) throws Exception {
+        var invocation = expression("SELECT CAST(x AS BIGINT) " + operator
+                + " y FROM (SELECT 1 AS x, 2 AS y) t").getScalarFunction();
+        assertThat(invocation.getOutputType().hasI64()).isTrue();
+        var right = invocation.getArguments(1).getValue();
+        assertThat(right.hasCast()).isTrue();
+        assertThat(right.getCast().getType().hasI64()).isTrue();
+        assertThat(right.getCast().getInput().hasSelection()).isTrue();
+        assertThat(right.getCast().getFailureBehavior())
+                .isEqualTo(Expression.Cast.FailureBehavior.FAILURE_BEHAVIOR_THROW_EXCEPTION);
+    }
+
+    @Test
+    void mixedIntegerModulusComputesWideAndPreservesTheSqlDivisorReturnType() throws Exception {
+        var result = expression("SELECT CAST(x AS BIGINT) % y FROM (SELECT 1 AS x, 2 AS y) t");
+        assertThat(result.hasCast()).isTrue();
+        assertThat(result.getCast().getType().hasI32()).isTrue();
+        var invocation = result.getCast().getInput().getScalarFunction();
+        assertThat(invocation.getOutputType().hasI64()).isTrue();
+        assertThat(invocation.getArguments(1).getValue().getCast().getType().hasI64()).isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"TINYINT,SMALLINT,I16", "SMALLINT,INTEGER,I32", "INTEGER,BIGINT,I64",
+            "BIGINT,INTEGER,I64", "FLOAT,DOUBLE,FP64", "DOUBLE,FLOAT,FP64", "BIGINT,DOUBLE,FP64"})
+    void primitiveArithmeticUsesTheCommonTypeForBothDeclaredOperands(
+            String left, String right, String expected) throws Exception {
+        var invocation = expression("SELECT CAST(x AS " + left + ") + CAST(y AS " + right
+                + ") FROM (SELECT 1 AS x, 2 AS y) t").getScalarFunction();
+        assertThat(invocation.getOutputType().getKindCase().name()).isEqualTo(expected);
+        for (var argument : invocation.getArgumentsList()) {
+            var value = argument.getValue();
+            if (value.hasCast()) {
+                assertThat(value.getCast().getType().getKindCase().name()).isEqualTo(expected);
+            } else {
+                // Both source fields are INTEGER; an already exact operand needs no CAST.
+                assertThat(value.hasSelection()).isTrue();
+                assertThat(expected).isEqualTo("I32");
+            }
+        }
+    }
+
+    @Test
+    void wideningKeepsNullableOperandsAndTheNullableResult() throws Exception {
+        var invocation = expression("SELECT (CASE WHEN x=1 THEN CAST(NULL AS BIGINT) "
+                + "ELSE CAST(y AS BIGINT) END) + x FROM (SELECT 1 AS x, 2 AS y) t")
+                .getScalarFunction();
+        assertThat(invocation.getOutputType().getI64().getNullability())
+                .isEqualTo(Type.Nullability.NULLABILITY_NULLABLE);
+        assertThat(invocation.getArguments(0).getValue().getIfThen().getIfs(0).getThen()
+                .getLiteral().getNull().hasI64()).isTrue();
+        assertThat(invocation.getArguments(1).getValue().getCast().getType().hasI64()).isTrue();
+    }
+
     @Test
     void mixedIntegerArithmeticPromotesTheNarrowOperand() throws Exception {
         var add = expression("SELECT CAST(x AS BIGINT) + 1 FROM (SELECT 1 AS x) t")
@@ -199,7 +255,8 @@ class CanonicalExpressionSqlProtocolTest {
             "'ROUND(CAST(x AS DECIMAL(38,18)),CAST(y AS BIGINT))',38,18"})
     void roundUsesNativeDecimalReturnParametersAndDeclaredIntegerPosition(String call, int precision, int scale)
             throws Exception {
-        var invocation = expression("SELECT " + call + " FROM (SELECT 1 AS x, 1 AS y) t").getScalarFunction();
+        var invocation = expression("SELECT " + call
+                + " FROM (SELECT 1 AS x, CAST(1 AS BIGINT) AS y) t").getScalarFunction();
         assertDecimal(invocation.getOutputType(), precision, scale);
         assertDecimal(invocation.getArguments(0).getValue().getCast().getType(),
                 call.contains("38,18") ? 38 : 20, call.contains("38,18") ? 18 : 2);

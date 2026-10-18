@@ -10,7 +10,7 @@ import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
 
 /**
- * Converts a logical join to a physical broadcast join when the build side
+ * Converts a logical join with equality keys to a physical broadcast hash join when the build side
  * is smaller than the broadcast threshold (10 MB by default).
  * The smaller side is broadcast to all nodes holding the probe side.
  *

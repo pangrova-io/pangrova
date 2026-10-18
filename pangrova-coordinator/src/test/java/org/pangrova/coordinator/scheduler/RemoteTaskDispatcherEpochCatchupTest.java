@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.protocol.rest.query.ResultEndpoint;
+
 import org.pangrova.coordinator.scheduler.failure.TaskDispatchException;
 
 import org.pangrova.coordinator.scheduler.failure.ErrorCategory;
@@ -90,7 +92,9 @@ class RemoteTaskDispatcherEpochCatchupTest {
                 return new Reply(425, "epoch ahead");
             }
             second.set(body);
-            var accepted = new SubmitTaskResponse(true, null, "task-epoch", null, null);
+            var endpoint = new ResultEndpoint("127.0.0.1", 1, "ticket",
+                    org.pangrova.protocol.rest.query.ResultProtocol.GRPC.value());
+            var accepted = new SubmitTaskResponse(true, null, "task-epoch", endpoint, null);
             return new Reply(200, JsonMapperFactory.shared().writeValueAsString(accepted));
         });
         try (RemoteTaskDispatcher dispatcher = dispatcher(new AtomicLong(2))) {
@@ -99,6 +103,9 @@ class RemoteTaskDispatcherEpochCatchupTest {
                     ? dispatcher.dispatchAsync(request(), worker).get(5, TimeUnit.SECONDS)
                     : dispatcher.dispatch(request(), worker);
             assertThat(result.taskId()).isEqualTo("task-epoch");
+            assertThat(result.resultEndpoint()).isEqualTo(
+                    new ResultEndpoint("127.0.0.1", 1, "ticket",
+                            org.pangrova.protocol.rest.query.ResultProtocol.GRPC.value()));
             assertThat(requests).hasValue(2);
             assertThat(Arrays.equals(first.get(), second.get())).isTrue();
             SubmitTaskRequest sent = JsonMapperFactory.shared()
@@ -129,6 +136,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
         return SubmitTaskRequest.from(canonical.toBuilder()
                 .setAttempt(canonical.getAttempt().toBuilder()
                         .setControlEpoch(0).clearExecutionOwner())
+                .setExecutionOptions(canonical.getExecutionOptions().toBuilder().setDirectResultOutput(true))
                 .build());
     }
 

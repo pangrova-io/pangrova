@@ -652,6 +652,14 @@ public class ProfilerEndpoint {
 
 ### Resource audit admission and shutdown
 
+Terminal query records preserve the query-owned submitting principal and resolved
+tenant for both success and failure. Anonymous rejection is explicitly attributed
+to `anonymous`, without inventing a tenant. The record persistence branch receives
+the same immutable attribution as the security event branch; it must not drop
+identity when the event backend is absent. This does not yet close the resource
+audit integration gap: terminal resource records currently lack actual stage/task
+and Native usage aggregation, and zero placeholders are not measured usage.
+
 `JdbcAuditStore.save` admits records into a bounded in-memory queue without caller-thread
 JDBC. Capacity includes queued and in-flight records: failed batches keep their permits
 and are retried without competing with new producers for space. Exhausted capacity or

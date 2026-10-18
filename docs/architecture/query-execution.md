@@ -192,6 +192,22 @@ public class PangrovaTable extends AbstractTable implements ScannableTable {
 
 ### 2.3 Custom Optimization Rules
 
+Equality-based join algorithms require at least one paired equality key.
+`HashJoinRule`, `BroadcastJoinRule` and `SortMergeJoinRule` check this before
+considering cost or input size. Cross joins and pure theta joins retain the
+general join representation for Native execution. CBO join reassociation matches
+logical joins only: changing the inputs or predicate of an already selected
+physical join would invalidate its algorithm and required exchanges. Stage
+serialization continues to reject equality joins with empty keys and broadcast
+joins without a broadcast exchange.
+
+Production fragment validation captures the union of current active Workers'
+validated relation, expression and function inventories. The standalone compiler's
+conservative name defaults do not represent cluster support. This coarse check
+admits a name available on an eligible Worker; exact kind/URN/signature, build
+identity and placement admission still run for the selected execution target.
+An empty or invalid Worker inventory fails instead of substituting defaults.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           Pangrova Optimization Rules                              │

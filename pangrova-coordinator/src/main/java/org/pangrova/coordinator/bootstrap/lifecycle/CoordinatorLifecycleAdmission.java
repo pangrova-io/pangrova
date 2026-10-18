@@ -28,6 +28,8 @@ public final class CoordinatorLifecycleAdmission {
     private CompletableFuture<Void> closeExit;
     @GuardedBy("this")
     private final Map<String, Step> steps = new HashMap<>();
+    private final java.util.concurrent.CountDownLatch shutdownCompleted =
+            new java.util.concurrent.CountDownLatch(1);
 
     /** Claims the sole start attempt; a stopped or failed-start process cannot be restarted. */
     public synchronized void beginStart() {
@@ -95,6 +97,7 @@ public final class CoordinatorLifecycleAdmission {
             synchronized (this) {
                 stopped = true;
             }
+            shutdownCompleted.countDown();
             attempt.complete(null);
         } catch (RuntimeException | Error failure) {
             attempt.completeExceptionally(failure);
@@ -143,6 +146,11 @@ public final class CoordinatorLifecycleAdmission {
             step.exit.completeExceptionally(failure);
             throw failure;
         }
+    }
+
+    /** Waits for actual successful owner cleanup; failed cleanup remains retryable. */
+    public void awaitShutdown() throws InterruptedException {
+        shutdownCompleted.await();
     }
 
     private record Step(Thread owner, CompletableFuture<Void> exit) { }

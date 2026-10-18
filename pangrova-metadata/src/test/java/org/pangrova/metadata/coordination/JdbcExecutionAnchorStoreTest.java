@@ -52,8 +52,15 @@ class JdbcExecutionAnchorStoreTest {
         store.tryAcquire("q-2", "a", "a-1", Duration.ofMinutes(1)).orElseThrow();
         store.tryAcquire("q-3", "a", "a-2", Duration.ofMinutes(1)).orElseThrow();
 
-        assertThat(store.renewOwned("a", "a-1", Duration.ofMinutes(2))).isEqualTo(2);
-        assertThat(store.renewOwned("a", "missing", Duration.ofMinutes(2))).isZero();
+        var receipts = store.renewOwned("a", "a-1", Duration.ofMinutes(2));
+        assertThat(receipts).extracting(ExecutionAnchor::executionId)
+                .containsExactlyInAnyOrder("q-1", "q-2");
+        for (var receipt : receipts) {
+            assertThat(receipt.ownerId()).isEqualTo("a");
+            assertThat(receipt.ownerIncarnation()).isEqualTo("a-1");
+            assertThat(store.current(receipt.executionId())).contains(receipt);
+        }
+        assertThat(store.renewOwned("a", "missing", Duration.ofMinutes(2))).isEmpty();
     }
 
     @Test
@@ -83,7 +90,7 @@ class JdbcExecutionAnchorStoreTest {
         var original = lease();
         var result = afterDeadline(original,
                 () -> store.renewOwned("a", "a-1", Duration.ofSeconds(5)));
-        assertThat(result.value()).isZero();
+        assertThat(result.value()).isEmpty();
         assertExpiredRowUnchanged(original);
     }
 
@@ -94,7 +101,7 @@ class JdbcExecutionAnchorStoreTest {
         var result = afterDeadline(original,
                 () -> store.renewOwned("a", "a-1", Duration.ofSeconds(5)),
                 Optional.of(() -> fresh.set(store.tryAcquire("q-new", "a", "a-1", Duration.ofSeconds(5)).orElseThrow())));
-        assertThat(result.value()).isZero();
+        assertThat(result.value()).isEmpty();
         assertExpiredRowUnchanged(original);
         assertThat(store.current("q-new")).contains(fresh.get());
     }
@@ -130,7 +137,7 @@ class JdbcExecutionAnchorStoreTest {
         assertThat(acquired.acquiredAt()).isAfterOrEqualTo(result.releasedAt());
         assertThat(acquired.expiresAt()).isEqualTo(acquired.acquiredAt().plusSeconds(5));
         assertThat(store.current("q-lock")).contains(acquired);
-        assertThat(store.renewOwned("a", "a-1", Duration.ofSeconds(5))).isZero();
+        assertThat(store.renewOwned("a", "a-1", Duration.ofSeconds(5))).isEmpty();
     }
 
     @Test

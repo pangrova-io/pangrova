@@ -32,9 +32,14 @@ public interface ExecutionAnchorStore {
     /**
      * Renews every live anchor held by one exact process incarnation in one batch.
      *
-     * @return number of anchors renewed before their existing deadline
+     * <p>The immutable receipt contains the exact execution identity, process,
+     * fencing token and backend-clock deadline committed by this batch. Counts
+     * alone cannot establish ownership while executions are acquired or released
+     * concurrently. Expired anchors must never be revived.</p>
+     *
+     * @return exact anchors renewed before their existing deadline
      */
-    int renewOwned(
+    List<ExecutionAnchor> renewOwned(
             String ownerId,
             String ownerIncarnation,
             Duration leaseDuration);

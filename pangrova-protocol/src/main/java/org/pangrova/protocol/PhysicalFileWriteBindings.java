@@ -6,7 +6,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.MessageLite;
-import org.pangrova.protocol.type.PhysicalWriteTypes;
+import org.pangrova.protocol.type.DeclaredLogicalTypes;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.FileFormat;
@@ -42,7 +42,7 @@ public final class PhysicalFileWriteBindings {
                 .setPolicy(policy(allocation.policy())).setAllocationPrefix(allocation.allocationPrefix());
         for (var column : schema.columns()) {
             binding.addColumns(PhysicalWriteColumn.newBuilder().setFieldId(column.fieldId())
-                    .setName(column.name()).setLogicalType(PhysicalWriteTypes.logicalType(column.declaredType()))
+                    .setName(column.name()).setLogicalType(DeclaredLogicalTypes.logicalType(column.declaredType()))
                     .setNullable(column.nullable()));
         }
         allocation.files().forEach(file -> binding.addFiles(fileAllocation(file)));

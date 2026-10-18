@@ -26,7 +26,7 @@ class AdvertisedHostPropertyTest {
         TransportConfig config = new TransportConfig(
                 0, 256L * 1024 * 1024, host, null);
         assertThat(config.isLoopbackAdvertisedHost()).isFalse();
-        assertThat(config.advertisedHost()).isEqualTo(host);
+        assertThat(config.advertisedHost()).isEqualTo(host.trim());
     }
 
     @Property(tries = 10)
@@ -42,7 +42,7 @@ class AdvertisedHostPropertyTest {
             @ForAll("validHosts") String host) {
         TransportConfig config = new TransportConfig(
                 8080, 128L * 1024 * 1024, host, null);
-        assertThat(config.advertisedHost()).isEqualTo(host);
+        assertThat(config.advertisedHost()).isEqualTo(host.trim());
         assertThat(config.port()).isEqualTo(8080);
         assertThat(config.allocatorLimitBytes()).isEqualTo(128L * 1024 * 1024);
     }
@@ -70,6 +70,18 @@ class AdvertisedHostPropertyTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Property(tries = 10)
+    void wildcardBindAddressCannotBeAdvertised(@ForAll("wildcardHosts") String host) {
+        assertThatThrownBy(() -> new TransportConfig(0, 256L * 1024 * 1024, host, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("wildcard bind address");
+    }
+
+    @Provide
+    Arbitrary<String> wildcardHosts() {
+        return Arbitraries.of("0.0.0.0", "::", "[::]", "0:0:0:0:0:0:0:0", "*", " 0.0.0.0 ");
+    }
+
     @Provide
     Arbitrary<String> nonLoopbackHosts() {
         return Arbitraries.of(
@@ -79,7 +91,6 @@ class AdvertisedHostPropertyTest {
                 "my-coordinator-host",
                 "172.16.0.5",
                 "coordinator-0.coordinator.default.svc.cluster.local",
-                "0.0.0.0",
                 "host.docker.internal",
                 "2001:db8::1"
         );

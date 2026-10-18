@@ -25,7 +25,7 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     @Test
     void startCompletesWithMinimalConfig() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-1", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
 
         bootstrap.start();
 
@@ -40,7 +40,7 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     @Test
     void shutdownCompletesWithoutError() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-2", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();
@@ -73,7 +73,7 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     @Test
     void startThenShutdownIsIdempotent() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-3", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
 
         bootstrap.start();
         bootstrap.shutdown();
@@ -86,7 +86,7 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     @Test
     void doubleStartThrowsIllegalState() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-4", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         try {
@@ -119,7 +119,9 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
+                null, new CoordinatorBootstrapConfig.SecurityConfig(
+                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.NOOP,
+                        "bootstrap-test-internal-secret", java.util.Map.of()), null);
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
 
         bootstrap.start();
@@ -229,7 +231,9 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
+                null, new CoordinatorBootstrapConfig.SecurityConfig(
+                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.NOOP,
+                        "bootstrap-test-internal-secret", java.util.Map.of()), null);
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 

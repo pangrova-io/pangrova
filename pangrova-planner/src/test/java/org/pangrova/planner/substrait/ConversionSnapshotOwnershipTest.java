@@ -45,7 +45,7 @@ class ConversionSnapshotOwnershipTest {
     @Test
     void canonicalDistinctMeasuresAreFrozenBeforeSerialization() {
         var input = new PangrovaPlanner().plan("SELECT COUNT(DISTINCT X), COUNT(DISTINCT Y) "
-                + "FROM (VALUES (1, 2), (1, 3)) AS t(X, Y)");
+                + "FROM (SELECT 1 AS X, 2 AS Y UNION ALL SELECT 1 AS X, 3 AS Y) t");
         var plan = new SubstraitConverter().convert(input.plan());
         var aggregate = findAggregate(plan.getRoots().get(0).getInput());
         assertThat(aggregate).isNotNull();

@@ -66,6 +66,7 @@ public final class CoordinatorResultBuffer implements Closeable {
     private final long maxBufferedBytes;
     private final AtomicLong currentBufferedBytes = new AtomicLong(0);
     private boolean closed;
+    private boolean expirationSealed;
 
     public CoordinatorResultBuffer(
             ScheduledExecutorService expirationExecutor, long retentionMs) {
@@ -133,8 +134,17 @@ public final class CoordinatorResultBuffer implements Closeable {
         return currentBufferedBytes.get();
     }
 
+    /** Stops acknowledgement expiry after accepted publication owners drain, retaining readable bytes. */
+    public synchronized void stopExpirationScheduling() {
+        expirationSealed = true;
+        for (var entry : results.values()) {
+            entry.release();
+        }
+    }
+
     @Override
     public synchronized void close() {
+        stopExpirationScheduling();
         closed = true;
         for (String queryId : results.keySet()) {
             releaseEntry(queryId);
@@ -145,7 +155,7 @@ public final class CoordinatorResultBuffer implements Closeable {
     // ── Internal ──
 
     private boolean tryInsert(String queryId, ResultEntry entry) {
-        if (closed) {
+        if (closed || expirationSealed) {
             throw new IllegalStateException("Control result publication is closed");
         }
         ResultEntry previous = results.get(queryId);
@@ -182,7 +192,7 @@ public final class CoordinatorResultBuffer implements Closeable {
     }
 
     private synchronized void releaseExactEntry(String queryId, ResultEntry expected) {
-        if (results.get(queryId) == expected) {
+        if (!expirationSealed && results.get(queryId) == expected) {
             releaseEntry(queryId);
         }
     }

@@ -280,21 +280,56 @@ public final class SplitFetcher {
         ConnectorSplitSource source = catalog.getSplitManager().getSplits(
                 ConnectorTransactionHandle.EMPTY, session, tableHandle,
                 DynamicFilter.ALL, constraint);
+        return drainSource(source, timeoutMs);
+    }
+
+    /** Owns enumeration and the exact source close, including interruption and close failures. */
+    static List<ConnectorSplit> drainSource(ConnectorSplitSource source, long timeoutMs) {
         List<ConnectorSplit> splits = new ArrayList<>();
         long deadline = System.currentTimeMillis() + timeoutMs;
+        Throwable primaryFailure = null;
         try {
+            requireUninterruptedEnumeration();
             while (!source.isFinished()) {
-                if (Thread.currentThread().isInterrupted()) {
-                    LOG.debug("event=split_drain_interrupted splitsSoFar={}", splits.size());
-                    break;
-                }
+                requireUninterruptedEnumeration();
                 checkSplitFetchLimits(splits, deadline);
                 splits.addAll(source.getNextBatch(1000));
+                requireUninterruptedEnumeration();
+            }
+            requireUninterruptedEnumeration();
+        } catch (RuntimeException | Error failure) {
+            primaryFailure = failure;
+            throw failure;
+        } finally {
+            closeSource(source, primaryFailure);
+        }
+        requireUninterruptedEnumeration();
+        return splits;
+    }
+
+    private static void requireUninterruptedEnumeration() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
+                    "Connector split enumeration was interrupted",
+                    new InterruptedException("Connector split enumeration was interrupted"));
+        }
+    }
+
+    private static void closeSource(ConnectorSplitSource source, Throwable primaryFailure) {
+        boolean interruptedBeforeClose = Thread.currentThread().isInterrupted();
+        try {
+            if (primaryFailure == null) {
+                source.close();
+                return;
+            }
+            try {
+                source.close();
+            } catch (RuntimeException | Error closeFailure) {
+                if (closeFailure != primaryFailure) primaryFailure.addSuppressed(closeFailure);
             }
         } finally {
-            source.close();
+            if (interruptedBeforeClose) Thread.currentThread().interrupt();
         }
-        return splits;
     }
 
     /**

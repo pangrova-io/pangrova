@@ -66,7 +66,7 @@ public final class QueryAuditEmitter {
             emitter.emit(buildEvent(AuditEventType.QUERY_COMPLETED, queryId, null,
                     subject, true, null, durationMs));
         }
-        persistAuditRecord(queryId, durationMs, true);
+        persistAuditRecord(queryId, durationMs, true, subject);
     }
 
     /** Emits failure with the same attribution as the query, including anonymous rejection. */
@@ -76,7 +76,7 @@ public final class QueryAuditEmitter {
             emitter.emit(buildEvent(AuditEventType.QUERY_FAILED, queryId, null,
                     subject, false, errorMessage, durationMs));
         }
-        persistAuditRecord(queryId, durationMs, false);
+        persistAuditRecord(queryId, durationMs, false, subject);
     }
 
     public void emitTableAccessed(String queryId, String catalog, String schema,
@@ -93,12 +93,13 @@ public final class QueryAuditEmitter {
         emitter.emit(event);
     }
 
-    private void persistAuditRecord(String queryId, long durationMs, boolean success) {
+    private void persistAuditRecord(String queryId, long durationMs, boolean success, AuditSubject subject) {
         if (auditService == null) {
             return;
         }
         QueryAuditRecord record = new QueryAuditRecord(
-                queryId, null, 0, durationMs, 0, 0, 0, 0, 0, 0, 0, 0,
+                queryId, subject.principal(), null, subject.tenantId(), 0, 0,
+                0, durationMs, 0, 0, 0, 0, 0, 0, 0, 0,
                 Instant.now(), success);
         auditService.persist(record);
     }

@@ -293,7 +293,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                 return;
             }
             store.batchInsertFileStatistics(
-                    files.catalog, files.schema, files.table, statistics);
+                    files.tenantId, files.catalog, files.schema, files.table, statistics);
             LOG.info("action=file_statistics_collected catalog={} schema={} table={} "
                             + "filesRequested={} statsReturned={}",
                     files.catalog, files.schema, files.table,
@@ -316,7 +316,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         }
         try {
             store.deleteFileStatistics(
-                    files.catalog, files.schema, files.table, files.removedFiles);
+                    files.tenantId, files.catalog, files.schema, files.table, files.removedFiles);
             LOG.debug("action=file_statistics_deleted catalog={} schema={} table={} removedFiles={}",
                     files.catalog, files.schema, files.table, files.removedFiles.size());
         } catch (Exception e) {

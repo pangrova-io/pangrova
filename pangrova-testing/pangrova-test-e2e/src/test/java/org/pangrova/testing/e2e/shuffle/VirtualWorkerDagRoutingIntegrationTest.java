@@ -85,7 +85,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
                     CATALOG, SCHEMA, ordersTable,
                     CATALOG, SCHEMA, customersTable);
 
-            List<TypedRow> rows = sqlRunner.execute(sql);
+            List<TypedRow> rows = routingSqlRunner.execute(sql);
 
             assertThat(rows)
                     .as("Every customer with orders must appear")
@@ -128,7 +128,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
                     CATALOG, SCHEMA, ordersTable,
                     CATALOG, SCHEMA, customersTable);
 
-            List<TypedRow> rows = sqlRunner.execute(sql);
+            List<TypedRow> rows = routingSqlRunner.execute(sql);
 
             assertThat(rows)
                     .as("All %d orders must appear in JOIN result", ORDER_COUNT)
@@ -192,7 +192,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
                             CATALOG, SCHEMA, ordersTable, regionFilter);
 
                     futures.add(CompletableFuture.supplyAsync(
-                            () -> sqlRunner.execute(sql), executor));
+                            () -> routingSqlRunner.execute(sql), executor));
                 }
 
                 // Wait for all queries to complete
@@ -248,7 +248,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
                 List<CompletableFuture<Long>> futures = new ArrayList<>();
                 for (int q = 0; q < CONCURRENT_QUERY_COUNT; q++) {
                     futures.add(CompletableFuture.supplyAsync(() -> {
-                        List<TypedRow> rows = sqlRunner.execute(sql);
+                        List<TypedRow> rows = routingSqlRunner.execute(sql);
                         return rows.stream()
                                 .mapToLong(r -> r.getLong("total"))
                                 .sum();
@@ -300,7 +300,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
                     "SELECT id, amount FROM %s.%s.%s ORDER BY id",
                     CATALOG, SCHEMA, ordersTable);
 
-            List<TypedRow> rows = sqlRunner.execute(sql);
+            List<TypedRow> rows = routingSqlRunner.execute(sql);
 
             assertThat(rows)
                     .as("All %d rows must be returned", LARGE_ROW_COUNT)
@@ -323,7 +323,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
                     "SELECT SUM(amount) AS total FROM %s.%s.%s",
                     CATALOG, SCHEMA, ordersTable);
 
-            List<TypedRow> rows = sqlRunner.execute(sql);
+            List<TypedRow> rows = routingSqlRunner.execute(sql);
 
             assertThat(rows).hasSize(1);
             long total = rows.get(0).getLong("total");
@@ -339,7 +339,7 @@ class VirtualWorkerDagRoutingIntegrationTest extends VirtualWorkerRoutingIntegra
                     "SELECT id FROM %s.%s.%s ORDER BY id",
                     CATALOG, SCHEMA, ordersTable);
 
-            List<TypedRow> rows = sqlRunner.execute(sql);
+            List<TypedRow> rows = routingSqlRunner.execute(sql);
 
             assertThat(rows).hasSize(LARGE_ROW_COUNT);
 

@@ -226,8 +226,14 @@ task members so reverse member destruction releases the plan before its pools.
 
 ### 3.7 NativeLibraryLoader Safety
 
-- Dependency pre-loading disabled by default (dylib's `@rpath` sufficient for dyld)
-- Two-strategy loading: `java.library.path` first (dev/test), classpath extraction second (production)
+- One loading strategy: extract the canonical classpath Native resource and
+  load that exact file; no `java.library.path` fallback or dependency pre-loading.
+- Local builds first stage the library with `package-native-lib.sh`, then Maven
+  copies the resource. Deployment uses the matching Native bundle classifier.
+- Before loading, compare every same-name classpath resource with the extracted
+  bytes. Conflicting bundles fail regardless of classpath order; identical
+  duplicates are accepted. Availability and successful library loading do not
+  prove every JNI declaration or execution path is compatible.
 
 ---
 

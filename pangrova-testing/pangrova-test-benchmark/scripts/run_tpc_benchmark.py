@@ -73,6 +73,17 @@ def arguments():
 def query_files(args):
     maximum = 22 if args.benchmark == "tpch" else 99
     requested = args.queries.split(",") if args.queries is not None else [f"q{i:02d}" for i in range(1, maximum + 1)]
+    manifest = args.queries_dir / args.benchmark / 'workload.json'
+    steps = {}
+    if manifest.is_file():
+        with manifest.open(encoding='utf-8') as source:
+            document = json.load(source, object_pairs_hook=unique_object)
+        if not isinstance(document, dict) or not isinstance(document.get('queries'), list):
+            raise ValueError('invalid workload manifest')
+        for query in document['queries']:
+            if not isinstance(query, dict) or not isinstance(query.get('steps'), list) or not query.get('id'):
+                raise ValueError('invalid workload query steps')
+            steps[query['id']] = query['steps']
     files = {}
     for name in requested:
         if not re.fullmatch(r"[qQ][0-9]{1,2}", name) or not 1 <= int(name[1:]) <= maximum:
@@ -80,6 +91,8 @@ def query_files(args):
         canonical = f"q{int(name[1:]):02d}"
         if canonical in files:
             raise ValueError(f"duplicate query {canonical}")
+        if canonical in steps and len(steps[canonical]) != 1:
+            raise ValueError(f'{canonical} requires multiple execution steps; use run-tpc-suite.sh; no queries were executed')
         path = args.queries_dir / args.benchmark / f"{canonical}.sql"
         if not path.is_file():
             raise ValueError(f"query file missing: {canonical}.sql; no queries were executed")

@@ -112,8 +112,17 @@ public final class TaskStatusReceiver {
 
     private boolean publishReport(SubmitTaskRequest expectedRequest, TaskStatusReport report,
             StatusValidation validation, ReportOwnership ownership, boolean durableWork) {
-        try (var publication = taskTracker.enterReportPublication(expectedRequest, report,
-                taskAttemptIsNoLongerActive(report))) {
+        boolean resourceOnly = taskAttemptIsNoLongerActive(report);
+        if (resourceOnly && validation.canonicalStatus().filter(status -> status.getExecutionDrainState()
+                != org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED).isEmpty()
+                && !taskTracker.hasPendingReportPublication(report)) {
+            // Neither a new winner nor a physical-exit receipt can be acknowledged.
+            // Do not freeze a rejected PENDING report: its exact retry must remain
+            // eligible after real scheduling. Already-owned publication retries
+            // preserve their first disposition and required observer obligations.
+            return false;
+        }
+        try (var publication = taskTracker.enterReportPublication(expectedRequest, report, resourceOnly)) {
             report = publication.report();
             recordExecutionDrain(expectedRequest, validation);
             boolean accepted = publication.publicationCompleted();

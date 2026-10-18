@@ -60,7 +60,7 @@ final class ExpressionConverter {
         this.rexBuilder = rexBuilder;
         this.literalConverter = literalConverter;
         this.aiInvocationBinder = new AiInvocationBinder(aiInvocationSink);
-        this.argumentNormalizer = new FunctionArgumentNormalizer(rexBuilder, literalConverter);
+        this.argumentNormalizer = new FunctionArgumentNormalizer(rexBuilder, literalConverter, typeMapper);
     }
 
     void setCorrelateOuterFieldOffset(int offset) {
@@ -375,85 +375,22 @@ final class ExpressionConverter {
         FunctionReference ref = functionMapper.map(call.getOperator());
         var variant = functionMapper.resolveScalarVariant(ref);
         List<Expression> args = call.getOperands().stream().map(this::convert).toList();
-        if ("comparison".equals(ref.namespace()) && args.size() == 2) {
-            SqlTypeName left = call.getOperands().get(0).getType().getSqlTypeName();
-            SqlTypeName right = call.getOperands().get(1).getType().getSqlTypeName();
-            int widest = Math.max(integralRank(left), integralRank(right));
-            if (widest > 0 && integralRank(left) > 0 && integralRank(right) > 0
-                    && left != right) {
-                SqlTypeName target = switch (widest) {
-                    case 4 -> SqlTypeName.BIGINT;
-                    case 3 -> SqlTypeName.INTEGER;
-                    case 2 -> SqlTypeName.SMALLINT;
-                    default -> SqlTypeName.TINYINT;
-                };
-                args = call.getOperands().stream().map(operand -> {
-                    if (operand.getType().getSqlTypeName() == target) return convert(operand);
-                    var type = rexBuilder.getTypeFactory().createTypeWithNullability(
-                            rexBuilder.getTypeFactory().createSqlType(target),
-                            operand.getType().isNullable());
-                    return convert(rexBuilder.makeCast(type, operand));
-                }).toList();
-            }
-        }
-        if ("arithmetic".equals(ref.namespace()) && !"round".equals(ref.name()) && args.size() == 2
-                && call.getType().getSqlTypeName() == SqlTypeName.DOUBLE) {
-            // Calcite may retain an exact integer literal beside a DOUBLE
-            // column (for example 1 - discount). Velox resolves only exact
-            // homogeneous numeric overloads, so materialize SQL promotion.
-            args = call.getOperands().stream().map(operand -> {
-                if (operand.getType().getSqlTypeName() == SqlTypeName.DOUBLE) return convert(operand);
-                var doubleType = rexBuilder.getTypeFactory().createTypeWithNullability(
-                        rexBuilder.getTypeFactory().createSqlType(SqlTypeName.DOUBLE),
-                        operand.getType().isNullable());
-                return convert(rexBuilder.makeCast(doubleType, operand));
-            }).toList();
-        }
-        if ("arithmetic".equals(ref.namespace()) && !"round".equals(ref.name()) && args.size() == 2
-                && integralRank(call.getType().getSqlTypeName()) > 0
-                && call.getOperands().stream().allMatch(operand ->
-                        integralRank(operand.getType().getSqlTypeName()) > 0)) {
-            // Calcite can retain a narrower integer literal beside BIGINT
-            // while declaring the arithmetic result BIGINT. Velox resolves
-            // exact homogeneous signatures, so encode the proven promotion.
-            SqlTypeName target = call.getType().getSqlTypeName();
-            args = call.getOperands().stream().map(operand -> {
-                if (operand.getType().getSqlTypeName() == target) return convert(operand);
-                var promoted = rexBuilder.getTypeFactory().createTypeWithNullability(
-                        rexBuilder.getTypeFactory().createSqlType(target),
-                        operand.getType().isNullable());
-                return convert(rexBuilder.makeCast(promoted, operand));
-            }).toList();
-        }
-        if ("round".equals(ref.name()) && args.size() == 2) {
-            var position = call.getOperands().get(1);
-            var integerType = rexBuilder.getTypeFactory().createTypeWithNullability(
-                    rexBuilder.getTypeFactory().createSqlType(SqlTypeName.INTEGER),
-                    position.getType().isNullable());
-            args = List.of(args.get(0), convert(rexBuilder.makeCast(integerType, position)));
-        }
-        args = argumentNormalizer.normalize(ref, call, args);
+        var normalized = argumentNormalizer.normalize(ref, call, args);
+        args = normalized.values();
         args = aiInvocationBinder.bind(ref, call, opName, args);
         Type outputType = typeMapper.map(call.getType());
         var rewrite = org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
                 .rewrite(ref.namespace(), ref.name());
         if (rewrite.isPresent()) return DeclaredScalarProgram.lower(
                 rewrite.orElseThrow(), args, outputType, functionMapper);
-        return ImmutableExpression.ScalarFunctionInvocation.builder()
+        Expression invocation = ImmutableExpression.ScalarFunctionInvocation.builder()
                 .declaration(variant)
-                .outputType(outputType)
+                .outputType(normalized.outputType())
                 .arguments(args)
                 .build();
-    }
-
-    private static int integralRank(SqlTypeName type) {
-        return switch (type) {
-            case TINYINT -> 1;
-            case SMALLINT -> 2;
-            case INTEGER -> 3;
-            case BIGINT -> 4;
-            default -> 0;
-        };
+        return normalized.outputType().equals(outputType) ? invocation : ImmutableExpression.Cast.builder()
+                .input(invocation).type(outputType)
+                .failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION).build();
     }
 
     private Expression convertVariantGet(RexCall call) {

@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for CoordinatorDataProducer — doGet returns buffered data
+ * Tests for CoordinatorDataProducer — request cursors return buffered data
  * or throws DataProducerException(NOT_FOUND) for missing queryId.
  * Uses real CoordinatorResultBuffer (no mocks).
  */
@@ -42,7 +42,7 @@ class CoordinatorDataProducerTest {
         buffer.put("q1", expected);
 
         DataTicket ticket = new DataTicket("q1", "t1", 0, DataTicket.TicketType.RESULT);
-        byte[] result = producer.doGet(ticket);
+        byte[] result = producer.openStream(ticket).next();
 
         assertThat(result).isEqualTo(expected);
     }
@@ -51,7 +51,7 @@ class CoordinatorDataProducerTest {
     void doGetThrowsNotFoundForMissingQuery() {
         DataTicket ticket = new DataTicket("missing", "t1", 0, DataTicket.TicketType.RESULT);
 
-        assertThatThrownBy(() -> producer.doGet(ticket))
+        assertThatThrownBy(() -> producer.openStream(ticket))
                 .isInstanceOf(DataProducerException.class)
                 .satisfies(ex -> assertThat(((DataProducerException) ex).getStatus())
                         .isEqualTo(TransportStatus.NOT_FOUND))
@@ -63,17 +63,21 @@ class CoordinatorDataProducerTest {
         buffer.put("q1", new byte[]{1});
         buffer.put("q2", new byte[]{2});
 
-        assertThat(producer.doGet(ticket("q1"))).isEqualTo(new byte[]{1});
-        assertThat(producer.doGet(ticket("q2"))).isEqualTo(new byte[]{2});
+        assertThat(producer.openStream(ticket("q1")).next()).isEqualTo(new byte[]{1});
+        assertThat(producer.openStream(ticket("q2")).next()).isEqualTo(new byte[]{2});
     }
 
     @Test
-    void doGetRetainsDataAcrossMultipleCalls() {
+    void independentRequestsRetainDataWhileEachCursorReachesEof() {
         buffer.put("q1", new byte[]{42});
-
-        assertThat(producer.singleResponsePerRequest()).isTrue();
-        assertThat(producer.doGet(ticket("q1"))).isEqualTo(new byte[]{42});
-        assertThat(producer.doGet(ticket("q1"))).isEqualTo(new byte[]{42});
+        var first = producer.openStream(ticket("q1"));
+        var second = producer.openStream(ticket("q1"));
+        assertThat(first.next()).containsExactly((byte) 42);
+        assertThat(first.next()).isEmpty();
+        assertThat(second.next()).containsExactly((byte) 42);
+        assertThat(second.next()).isEmpty();
+        assertThat(first.next()).isEmpty();
+        assertThat(buffer.contains("q1")).isTrue();
     }
 
     @Test

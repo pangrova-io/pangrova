@@ -15,7 +15,7 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.util.ImmutableIntList;
 
 /**
- * Converts a logical join to a physical hash join when the build side
+ * Converts a logical join with equality keys to a physical hash join when the build side
  * (smaller input) fits within the per-task memory budget.
  *
  * <p>Declares required HASH distribution on both child inputs using the
@@ -66,21 +66,18 @@ public final class HashJoinRule extends RelOptRule {
         ImmutableIntList leftKeys = joinInfo.leftKeys;
         ImmutableIntList rightKeys = joinInfo.rightKeys;
 
-        // When equi-join keys are available, declare required HASH distribution
-        // on child inputs so the enforcer inserts PangrovaExchange when needed.
-        if (!leftKeys.isEmpty()) {
-            PangrovaDistribution leftDist = PangrovaDistribution.hash(List.copyOf(leftKeys));
-            PangrovaDistribution rightDist = PangrovaDistribution.hash(List.copyOf(rightKeys));
+        // Equality keys are required by matches(), so both inputs must be partitioned on them.
+        PangrovaDistribution leftDist = PangrovaDistribution.hash(List.copyOf(leftKeys));
+        PangrovaDistribution rightDist = PangrovaDistribution.hash(List.copyOf(rightKeys));
 
-            RelTraitSet leftTraitSet = left.getTraitSet().plus(leftDist);
-            RelTraitSet rightTraitSet = right.getTraitSet().plus(rightDist);
+        RelTraitSet leftTraitSet = left.getTraitSet().plus(leftDist);
+        RelTraitSet rightTraitSet = right.getTraitSet().plus(rightDist);
 
-            left = convert(left, leftTraitSet);
-            right = convert(right, rightTraitSet);
+        left = convert(left, leftTraitSet);
+        right = convert(right, rightTraitSet);
 
-            // Propagate HASH distribution on the join's own traitSet
-            joinTraitSet = joinTraitSet.plus(leftDist);
-        }
+        // Propagate HASH distribution on the join's own traitSet
+        joinTraitSet = joinTraitSet.plus(leftDist);
 
         PangrovaHashJoin hashJoin = new PangrovaHashJoin(
                 new HashJoinConfig(

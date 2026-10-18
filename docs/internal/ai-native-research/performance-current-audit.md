@@ -163,3 +163,30 @@ This section records local pinned SDK source and thread evidence, not a model
 or performance measurement. The scoped fixture edit passed whitespace checks
 and test-body preservation checks; Release rebuild/full CTest and ASan are
 delegated to the main task and are not claimed passed here.
+
+## TPC harness follow-up — 2026-10-18
+
+The earlier sections record the October 7 state and remain historical. The
+[dedicated TPC audit](../tpc-benchmark-audit.md) and
+[methodology](../../testing/tpc-benchmark-methodology.md) now supersede their TPC
+workflow/corpus gap inventory. The benchmark owns 22 H templates and 99 DS
+templates / 103 DS steps, explicit 8/24-table streaming conversion, controlled
+snapshot/reference/environment contracts and a persistent Java-client suite.
+
+PRs validate workload/evidence/HTTP-Flight transport contracts; actual scale
+comparisons run on exclusive hardware using three independent five-round windows.
+The old strict CLI/R7/P99 comparator is preserved as a separate tail experiment.
+The Java small-fixture smoke suite now reports observed maxima and no longer
+produces incompatible P99 calibration JSON. Historical baseline numbers remain
+unchanged and unqualified.
+
+Real generator SF1 data and client transport were validated; no SF100/1000 or
+cross-engine calibration is claimed. The focused Java latency suite produced six
+passes, a 969ms constant-query maximum exceeding its unchanged 500ms budget, and
+three native query-path errors. Those failures and missing dedicated-host/reference
+configuration remain blockers for scale-performance acceptance, not passing
+measurements or replaced baselines.
+
+The later focused Q9 root-cause repair and successful real execution acceptance
+are recorded in the dedicated TPC audit. They supersede the Q9 error above only;
+the other latency cases and SF100/1000 acceptance are not reclassified as passed.

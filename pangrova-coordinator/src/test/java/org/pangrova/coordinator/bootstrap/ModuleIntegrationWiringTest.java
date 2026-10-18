@@ -144,7 +144,7 @@ class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.Sig
     void observabilityInitializedWithNoOpFallback() {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-obs", 0);
-        bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThat(bootstrap.getTracingProvider()).isNotNull();
@@ -163,7 +163,7 @@ class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.Sig
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();

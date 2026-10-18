@@ -391,7 +391,7 @@ class IcebergSplitManagerTest {
 
     /**
      * Validates: Requirements R7.3, R7.4
-     * Time-travel split serializes read_mode and snapshot_id to proto.
+     * Time-travel selection serializes a physical snapshot scan with its exact historical snapshot.
      */
     @Test
     void getSplits_timeTravelSplitSerializesToProto() throws Exception {
@@ -410,7 +410,7 @@ class IcebergSplitManagerTest {
 
         var detail = DataSplitProtoCodec.fileDetail(info).getIceberg();
         assertThat(detail.getReadMode())
-                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_TIME_TRAVEL);
+                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT);
         assertThat(detail.getSnapshotId()).isEqualTo(snapshot1);
         assertThat(info.getSourceSnapshot()).isEqualTo(Long.toString(snapshot1));
         assertThat(info.getSourceId()).isEqualTo("test_catalog.db.tt_proto");

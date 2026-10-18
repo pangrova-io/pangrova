@@ -12,6 +12,8 @@ import io.substrait.relation.Project;
 import io.substrait.relation.Rel;
 import io.substrait.relation.Sort;
 import io.substrait.relation.physical.HashJoin;
+import io.substrait.relation.physical.MergeJoin;
+import io.substrait.relation.physical.NestedLoopJoin;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +32,7 @@ import org.pangrova.planner.extension.GenerateSeriesRelDetail;
  */
 public final class SubstraitPlanValidator {
 
-    private final NativeCapabilityRegistry registry;
+    private final java.util.function.Supplier<NativeCapabilityRegistry> capabilities;
 
     /**
      * Maps Substrait SDK Rel class simple names to the registry's canonical
@@ -60,6 +62,12 @@ public final class SubstraitPlanValidator {
             Map.entry("ExtensionMulti", "ExtensionMultiRel")
     );
 
+    /** Physical join capabilities follow the SDK relation contract, not implementation names. */
+    private static final Map<Class<? extends Rel>, String> PHYSICAL_JOIN_TYPE_NAMES = Map.of(
+            HashJoin.class, "HashJoinRel",
+            MergeJoin.class, "MergeJoinRel",
+            NestedLoopJoin.class, "NestedLoopJoinRel");
+
     /**
      * Maps Substrait SDK Expression class simple names to the registry's
      * canonical Expression type names.
@@ -68,36 +76,46 @@ public final class SubstraitPlanValidator {
             Map.entry("FieldReference", "FieldReference"),
             Map.entry("ScalarFunctionInvocation", "ScalarFunction"),
             Map.entry("WindowFunctionInvocation", "WindowFunction"),
-            Map.entry("NestedList", "Nested"),
-            Map.entry("NestedStruct", "Nested"),
             Map.entry("Cast", "Cast"),
-            Map.entry("IfThen", "IfThen")
+            Map.entry("IfThen", "IfThen"),
+            Map.entry("NestedList", "Nested"),
+            Map.entry("NestedStruct", "Nested")
     );
 
     public SubstraitPlanValidator(NativeCapabilityRegistry registry) {
-        this.registry = registry;
+        this(() -> java.util.Objects.requireNonNull(registry, "registry"));
+    }
+
+    /** Captures one actual capability snapshot per validation, never a cached name allowlist. */
+    public SubstraitPlanValidator(java.util.function.Supplier<NativeCapabilityRegistry> capabilities) {
+        this.capabilities = java.util.Objects.requireNonNull(capabilities, "capabilities");
     }
 
     /**
      * Validates every root in the plan and returns an aggregate result.
      */
     public PlanValidationResult validate(Plan plan) {
+        NativeCapabilityRegistry registry = java.util.Objects.requireNonNull(capabilities.get(), "capability snapshot");
         List<UnsupportedNode> unsupported = new ArrayList<>();
         int[] relCount = {0};
         for (Plan.Root root : plan.getRoots()) {
-            validateRel(root.getInput(), unsupported, 0, relCount);
+            validateRel(root.getInput(), registry, unsupported, 0, relCount);
         }
         return buildResult(unsupported, relCount[0]);
     }
 
     // ---- Rel tree traversal ------------------------------------------------
 
-    private void validateRel(Rel rel, List<UnsupportedNode> unsupported,
+    private void validateRel(Rel rel, NativeCapabilityRegistry registry, List<UnsupportedNode> unsupported,
                              int depth, int[] relCount) {
         relCount[0]++;
         String className = stripImmutablePrefix(rel.getClass().getSimpleName());
 
-        String registryName = REL_TYPE_NAMES.get(className);
+        String registryName = PHYSICAL_JOIN_TYPE_NAMES.entrySet().stream()
+                .filter(entry -> entry.getKey().isInstance(rel))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElseGet(() -> REL_TYPE_NAMES.get(className));
         boolean unsupportedDetail = (rel instanceof ExtensionLeaf leaf
                 && !(leaf.getDetail() instanceof ExchangeInputLeafDetail)
                 && !(leaf.getDetail() instanceof GenerateSeriesRelDetail))
@@ -115,17 +133,17 @@ public final class SubstraitPlanValidator {
 
         // Validate expressions embedded in this Rel.
         collectExpressions(rel).forEach(
-                expr -> validateExpression(expr, unsupported, depth));
+                expr -> validateExpression(expr, registry, unsupported, depth));
 
         // Recurse into child Rels.
         for (Rel child : rel.getInputs()) {
-            validateRel(child, unsupported, depth + 1, relCount);
+            validateRel(child, registry, unsupported, depth + 1, relCount);
         }
     }
 
     // ---- Expression tree traversal -----------------------------------------
 
-    private void validateExpression(Expression expr,
+    private void validateExpression(Expression expr, NativeCapabilityRegistry registry,
                                     List<UnsupportedNode> unsupported, int depth) {
         // Literals are universally supported — skip validation.
         if (expr instanceof Expression.Literal) {
@@ -142,18 +160,18 @@ public final class SubstraitPlanValidator {
         }
 
         // Function-level validation: check if the specific function is supported.
-        validateFunctionIfApplicable(expr, unsupported, depth);
+        validateFunctionIfApplicable(expr, registry, unsupported, depth);
 
         // Recurse into child expressions.
         collectChildExpressions(expr).forEach(
-                child -> validateExpression(child, unsupported, depth));
+                child -> validateExpression(child, registry, unsupported, depth));
     }
 
     /**
      * Validates function-level support for ScalarFunction and WindowFunction
      * invocations against the native capability registry.
      */
-    private void validateFunctionIfApplicable(Expression expr,
+    private void validateFunctionIfApplicable(Expression expr, NativeCapabilityRegistry registry,
                                                List<UnsupportedNode> unsupported, int depth) {
         String functionName = extractFunctionName(expr);
         if (functionName == null || functionName.isEmpty()) {
@@ -203,6 +221,8 @@ public final class SubstraitPlanValidator {
             Project.class, (r, out) -> out.addAll(((Project) r).getExpressions()),
             Join.class, (r, out) -> collectJoinExpressions((Join) r, out),
             HashJoin.class, (r, out) -> collectHashJoinExpressions((HashJoin) r, out),
+            MergeJoin.class, (r, out) -> collectMergeJoinExpressions((MergeJoin) r, out),
+            NestedLoopJoin.class, (r, out) -> out.add(((NestedLoopJoin) r).getCondition()),
             Sort.class, (r, out) -> ((Sort) r).getSortFields().forEach(sf -> out.add(sf.expr())),
             Aggregate.class, (r, out) -> collectAggregateExpressions((Aggregate) r, out)
     );
@@ -225,6 +245,14 @@ public final class SubstraitPlanValidator {
         result.addAll(hj.getRightKeys());
     }
 
+    private static void collectMergeJoinExpressions(MergeJoin join, List<Expression> result) {
+        join.getPostJoinFilter().ifPresent(result::add);
+        join.getKeys().forEach(key -> {
+            result.add(key.getLeft());
+            result.add(key.getRight());
+        });
+    }
+
     private static void collectAggregateExpressions(Aggregate a, List<Expression> result) {
         a.getGroupings().forEach(g -> result.addAll(g.getExpressions()));
         a.getMeasures().forEach(m -> m.getPreMeasureFilter().ifPresent(result::add));
@@ -239,6 +267,10 @@ public final class SubstraitPlanValidator {
                     (e, out) -> out.add(((Expression.Cast) e).input())),
             new ExprChildExtractor(Expression.IfThen.class,
                     (e, out) -> collectIfThenChildren((Expression.IfThen) e, out)),
+            new ExprChildExtractor(Expression.NestedList.class,
+                    (e, out) -> out.addAll(((Expression.NestedList) e).values())),
+            new ExprChildExtractor(Expression.NestedStruct.class,
+                    (e, out) -> out.addAll(((Expression.NestedStruct) e).fields())),
             new ExprChildExtractor(Expression.ScalarFunctionInvocation.class,
                     (e, out) -> collectFunctionArgChildren(
                             ((Expression.ScalarFunctionInvocation) e).arguments(), out)),

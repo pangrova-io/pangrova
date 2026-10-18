@@ -3,6 +3,7 @@ package org.pangrova.testing.testkit.security;
 import org.pangrova.common.concurrent.NotThreadSafe;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,6 +54,19 @@ public final class TestTlsAuthority implements AutoCloseable {
         if (!name.matches("[a-z0-9][a-z0-9-]*") || !hostname.matches("[A-Za-z0-9.-]+")) {
             throw new IllegalArgumentException("Invalid test certificate identity");
         }
+        return issueWithSan(name, "DNS:" + hostname, expired);
+    }
+
+    public Identity issue(String name, InetAddress address, boolean expired) throws Exception {
+        if (!name.matches("[a-z0-9][a-z0-9-]*") || address == null
+                || address.isAnyLocalAddress() || address.isLoopbackAddress()
+                || address.isLinkLocalAddress()) {
+            throw new IllegalArgumentException("Invalid test certificate IP identity");
+        }
+        return issueWithSan(name, "IP:" + address.getHostAddress(), expired);
+    }
+
+    private Identity issueWithSan(String name, String san, boolean expired) throws Exception {
         generateKey(name, "CN=" + name, List.of("-validity", "30"));
         Path request = directory.resolve(name + ".csr");
         Path chain = directory.resolve(name + ".pem");
@@ -60,7 +74,7 @@ public final class TestTlsAuthority implements AutoCloseable {
         run(List.of("-certreq", "-alias", name, "-file", request.toString()));
         var options = new ArrayList<>(List.of("-gencert", "-alias", "root", "-rfc", "-infile", request.toString(),
                 "-outfile", chain.toString(), "-ext", "BC=ca:false", "-ext", "EKU=serverAuth,clientAuth",
-                "-ext", "KU=digitalSignature,keyEncipherment", "-ext", "SAN=DNS:" + hostname));
+                "-ext", "KU=digitalSignature,keyEncipherment", "-ext", "SAN=" + san));
         if (expired) {
             options.addAll(List.of("-startdate", "2020/01/01 00:00:00", "-validity", "1"));
         } else {

@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,18 +32,39 @@ class CoordinatorResultServiceTest {
     private CoordinatorResultBuffer buffer;
     private CoordinatorResultWriter writer;
     private CoordinatorResultService service;
+    private RootAllocator allocator;
 
     @BeforeEach
     void setUp() {
         executor = Executors.newSingleThreadScheduledExecutor();
         buffer = new CoordinatorResultBuffer(executor, 60_000L);
-        writer = new CoordinatorResultWriter(new RootAllocator());
+        allocator = new RootAllocator();
+        writer = new CoordinatorResultWriter(allocator);
         service = new CoordinatorResultService(buffer, writer, TRANSPORT_ENDPOINT);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws InterruptedException {
+        service.close();
+        buffer.close();
         executor.shutdownNow();
+        assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        allocator.close();
+    }
+
+    @Test
+    void rejectedBufferAdmissionDoesNotPublishFinished() {
+        buffer.close();
+        buffer = new CoordinatorResultBuffer(executor, 60_000L, 1, 1);
+        service = new CoordinatorResultService(buffer, writer, TRANSPORT_ENDPOINT);
+        AtomicBoolean finished = new AtomicBoolean();
+
+        assertThatThrownBy(() -> service.dispatchControlPlaneRows(
+                QUERY_ID, List.of(), List.of(), () -> finished.set(true)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(finished).isFalse();
+        assertThat(buffer.get(QUERY_ID)).isNull();
+        assertThat(buffer.bufferedBytes()).isZero();
     }
 
     @Test

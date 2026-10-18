@@ -88,13 +88,13 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     private volatile ElectionScheduler electionScheduler;
     private final CoordinatorRegistryClient registryBridge = new CoordinatorRegistryClient();
     private volatile CoordinatorRegistry coordinatorRegistryRef;
-    private volatile boolean processAuthorityBound;
+    private volatile CoordinatorExecutionAuthority processAuthority;
 
     public HighAvailabilityCoordinationService(DistributedLease lease) {
         this(lease, CoordinationConfig.defaults());
     }
 
-    /** Creates coordination using the supplied durable lease and HA timing configuration. */
+    /** Creates coordination with explicit bounded query ownership and heartbeat configuration. */
     public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config) {
         Objects.requireNonNull(lease, "lease must not be null");
         this.leaseElection = new LeaseBackedLeaderElection(lease);
@@ -107,16 +107,24 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     /** Installs the shared durable execution-anchor backend before query admission. */
     public void setExecutionAnchorStore(ExecutionAnchorStore store) {
-        ownership.setStore(Objects.requireNonNull(store, "store must not be null"));
+        if (processAuthority != null) {
+            throw new IllegalStateException("Bound process execution backend cannot change");
+        }
+        ownership.setStore(Objects.requireNonNull(store, "store must not be null"),
+                Duration.ofMillis(config.leaseTimeoutMs()));
     }
 
     /** Uses the process-wide backend/incarnation binding without adding a second ownership authority. */
     public void bindExecutionAuthority(CoordinatorExecutionAuthority authority) {
         Objects.requireNonNull(authority, "authority");
         if (running.get()) throw new IllegalStateException("execution authority must be bound before HA starts");
-        setExecutionAnchorStore(authority.backend());
+        if (processAuthority != null) {
+            throw new IllegalStateException("Execution authority is already bound");
+        }
+        ownership.setStore(authority.backend(), authority.leaseDuration());
+        authority.bindQueryOwnership(ownership);
         localIncarnation.set(authority.incarnation());
-        processAuthorityBound = true;
+        processAuthority = authority;
     }
 
     /** Configures registry self-registration, heartbeats, role updates and shutdown. */
@@ -133,7 +141,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return coordinatorRegistryRef;
     }
 
-    /** Tries to acquire the cluster-control lease for this Coordinator. */
+    /** Acquires the singleton control term independently of query ownership. */
     public boolean tryBecomeLeader(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
         Optional<LeaseEntry> acquired = leaseElection.tryAcquire(
@@ -166,7 +174,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         }
     }
 
-    /** Renews only the lease currently held by this Coordinator. */
+    /** Renews only the current local control term. */
     public boolean renewLease(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
         LeaseEntry held = localLease.get();
@@ -199,10 +207,14 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     public boolean acquireQueryOwnership(String queryId, String coordinatorId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
+        CoordinatorExecutionAuthority authority = processAuthority;
+        if (authority != null && !authority.coordinatorId().equals(coordinatorId)) {
+            return false;
+        }
         return ownership.acquire(queryId, coordinatorId, requireLocalIncarnation());
     }
 
-    /** Releases a durable query anchor held by this Coordinator incarnation. */
+    /** Completes only a query fenced to this exact local process. */
     public boolean releaseQueryOwnership(String queryId, String coordinatorId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
@@ -318,6 +330,10 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
      */
     public void start(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
+        CoordinatorExecutionAuthority authority = processAuthority;
+        if (authority != null && !authority.coordinatorId().equals(coordinatorId)) {
+            throw new IllegalArgumentException("HA node differs from bound process authority");
+        }
         if (!running.compareAndSet(false, true)) {
             LOG.warn("event=ha_start_ignored coordinatorId={} reason=already_running", coordinatorId);
             return;
@@ -413,6 +429,10 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         }
         role.set(Role.STOPPED);
         ownership.clear();
+        CoordinatorExecutionAuthority authority = processAuthority;
+        if (authority != null) {
+            authority.unbindQueryOwnership(ownership);
+        }
         localIncarnation.set(null);
         LOG.info("event=ha_service_closed epoch={}", epoch.get());
     }
@@ -448,7 +468,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     private void renewExecutionAnchors(String coordinatorId) {
-        if (processAuthorityBound) return;
+        if (processAuthority != null) return;
         String incarnation = requireLocalIncarnation();
         if (!ownership.renewOwned(coordinatorId, incarnation)) {
             throw new IllegalStateException(

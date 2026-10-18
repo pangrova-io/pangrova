@@ -15,7 +15,7 @@ import java.util.Objects;
  * SELECT, constant, LIMIT 0, cache and system-table query results must be
  * produced by a Worker/Native task and served from its direct endpoint.</p>
  */
-public final class CoordinatorResultService {
+public final class CoordinatorResultService implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorResultService.class);
 
@@ -64,5 +64,16 @@ public final class CoordinatorResultService {
                 queryId,
                 transportEndpoint.protocol());
         return new ControlPlaneDispatchResult("coordinator-control", queryId, endpoint);
+    }
+
+    /** Retires acknowledgement timers only after accepted query/publication owners drain. */
+    public void stopExpirationScheduling() {
+        buffer.stopExpirationScheduling();
+    }
+
+    /** Releases retained acknowledgement bytes after the serving transport exits. */
+    @Override
+    public void close() {
+        buffer.close();
     }
 }

@@ -6,8 +6,8 @@ import org.apache.calcite.rel.logical.LogicalJoin;
 
 /**
  * Converts a logical join to a physical sort-merge join.
- * Always applicable as a fallback — sort-merge works for any equi-join
- * regardless of input size. Preferred when inputs are pre-sorted on join keys
+ * Applicable to joins with equality keys regardless of input size.
+ * Preferred when inputs are pre-sorted on join keys
  * or when both sides are too large for hash join.
  */
 public final class SortMergeJoinRule extends RelOptRule {

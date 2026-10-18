@@ -7,11 +7,13 @@ import org.pangrova.resource.MemoryPressure;
 import org.pangrova.resource.QueueType;
 import org.pangrova.resource.scheduler.WeightedFairScheduler;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,6 +23,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * for tenant-aware resource allocation (R10.10).
  */
 class TaskSchedulerFairSchedulingTest {
+    private final List<WeightedFairScheduler> ownedSchedulers = new ArrayList<>();
+
+    private WeightedFairScheduler newOwnedScheduler() {
+        var owner = new WeightedFairScheduler();
+        ownedSchedulers.add(owner);
+        return owner;
+    }
+
+    @AfterEach
+    void closeOwnedSchedulers() {
+        ownedSchedulers.forEach(WeightedFairScheduler::close);
+    }
 
     @Test
     void selectWorkerWithoutFairSchedulerUsesDefaultScoring() {
@@ -53,7 +67,7 @@ class TaskSchedulerFairSchedulingTest {
     @Test
     void equalScoreFairShareWorkersAlsoRotate() {
         TaskScheduler scheduler = new TaskScheduler(
-                new WorkerPerformanceScorer(), new WeightedFairScheduler());
+                new WorkerPerformanceScorer(), newOwnedScheduler());
         List<WorkerInfo> candidates = List.of(
                 worker("w2", "pool-a", MemoryPressure.NONE),
                 worker("w1", "pool-a", MemoryPressure.NONE));
@@ -66,7 +80,7 @@ class TaskSchedulerFairSchedulingTest {
 
     @Test
     void selectWorkerWithFairSchedulerUsesWeightedShares() {
-        WeightedFairScheduler fairScheduler = new WeightedFairScheduler();
+        WeightedFairScheduler fairScheduler = newOwnedScheduler();
         fairScheduler.submitTask(() -> {}, QueueType.INTERACTIVE);
         fairScheduler.submitTask(() -> {}, QueueType.BATCH);
 
@@ -83,7 +97,7 @@ class TaskSchedulerFairSchedulingTest {
 
     @Test
     void selectWorkerWithNullResourcePoolFallsToDefault() {
-        WeightedFairScheduler fairScheduler = new WeightedFairScheduler();
+        WeightedFairScheduler fairScheduler = newOwnedScheduler();
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer(), fairScheduler);
         List<WorkerInfo> candidates = List.of(worker("w1", null, MemoryPressure.NONE));
 
@@ -94,7 +108,7 @@ class TaskSchedulerFairSchedulingTest {
 
     @Test
     void selectWorkerWithFairSchedulerAndNoActiveQueuesStillSelects() {
-        WeightedFairScheduler fairScheduler = new WeightedFairScheduler();
+        WeightedFairScheduler fairScheduler = newOwnedScheduler();
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer(), fairScheduler);
         List<WorkerInfo> candidates = List.of(worker("w1", "batch-pool", MemoryPressure.NONE));
 
@@ -115,7 +129,7 @@ class TaskSchedulerFairSchedulingTest {
 
     @Test
     void fairSchedulerRespectsMemoryPressureFilter() {
-        WeightedFairScheduler fairScheduler = new WeightedFairScheduler();
+        WeightedFairScheduler fairScheduler = newOwnedScheduler();
         fairScheduler.submitTask(() -> {}, QueueType.BATCH);
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer(), fairScheduler);
 
