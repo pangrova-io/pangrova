@@ -5,14 +5,14 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
-本清单以 `codex/ai-native-semantic-closure` 为唯一交付分支，沿用[27 项验收定义](validation-batches-2026-10-15.md)。当前源码的 macOS ARM64 Native Release 加真实 PostgreSQL/Lance broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-ctest-20261019.log`）；受影响 Native **272/272 PASS**，协议全模块 **447/447 PASS**（`/tmp/pangrova-integrated-protocol-full-r2-20261019.log`），独立双 Worker SQL/JNI E2E **1/1 PASS**（`/tmp/pangrova-integrated-two-worker-e2e-r3-20261019.log`）。仓库当前发现 **195 个 `*E2ETest.java` 类**；完整共享 E2E、隔离 owner 类、全 Java reactor 和同源码 ASan 尚不能宣称通过。曾经通过的旧提交、其他工作树或其他镜像仅是历史证据。
+本清单以 `codex/ai-native-semantic-closure` 为唯一交付分支，沿用[27 项验收定义](validation-batches-2026-10-15.md)。当前源码的 macOS ARM64 Native Release 加真实 PostgreSQL/Lance broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-ctest-20261019.log`），匹配插桩 Velox/Folly/Protobuf 的 Native ASan 加真实 broker **4,175/4,175 PASS**（`/tmp/pangrova-integrated-native-asan-final-20261019.log`，macOS `detect_leaks=0`）；协议全模块 **447/447 PASS**（`/tmp/pangrova-integrated-protocol-full-r2-20261019.log`），独立双 Worker SQL/JNI E2E **1/1 PASS**（`/tmp/pangrova-integrated-two-worker-e2e-r3-20261019.log`）。仓库当前发现 **195 个 `*E2ETest.java` 类**；完整共享 E2E、隔离 owner 类和全 Java reactor 尚不能宣称通过。曾经通过的旧提交、其他工作树或其他镜像仅是历史证据。
 
 本机独立进程追加验证：一台 Coordinator 加两个独立 Native Worker 的 8 批 Iceberg JDBC 写入、JOIN/shuffle、Worker 停机重启及资源释放通过（`/tmp/pangrova-independent-local-processes-r5-20261019.log`）；预置 Ollama 镜像的真实模型 HTTP/SQL、两名 Worker 分别单独调用模型、重启后双 Worker 查询、审计和资源释放通过（`/tmp/pangrova-independent-ai-processes-r3-20261019.log`）。Coordinator `-Pfull-regression` 本轮发现 3,295 项，1 失败、1 错误（`/tmp/pangrova-coordinator-full-r2-20261019.log`）；两项根因已修正并分别做了治理库单测和 12 场景回执整类增量复验，最终同源码全套尚未重跑。Worker 405 映射已通过定向测试。上述是功能证据，不代表规模/P99 验收。
 
 | 批次 | 检查点 | 当前缺口和本机验收动作 |
 | --- | --- | --- |
 | A：同源码基础门禁 | 5 Native Release | **本机通过**，4,175/4,175；源码变化涉及 Native 时重跑受影响测试，最终功能封版后再做一次全量。 |
-| A | 6 Native ASan | 当前集成源码未跑全量 ASan；使用匹配的 Velox、Folly、Protobuf 插桩依赖重建并运行。 |
+| A | 6 Native ASan | **本机通过**，匹配插桩 Velox/Folly/Protobuf 加真实 PostgreSQL/Lance broker，4,175/4,175；macOS 不覆盖 Linux LeakSanitizer。 |
 | A | 7 Java reactor | Coordinator 全套首轮 3,295 项、1 失败和 1 错误；根因修复的定向复验通过，仍需最终同源码全套和完整 `-Pfull-regression verify`。 |
 | A | 8 静态/协议/结构 | 协议 447/447、文档类引用 183 项、E2E 真实性、descriptor、SPI 注解 147 类型、JNI 22 方法对称性及 dead-stub 检查已通过；最终同源码仍需全 reactor 静态。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
 | A | 10 隔离 Native owner | 三类 Native runtime owner 测试须各用独立 JVM 在当前源码重跑。 |
@@ -39,4 +39,4 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 | E | 26 向量质量/成本 | 缺 1,000 万/1 亿向量目标规模资源；本机只做正确性和小样本 oracle。 |
 | E | 27 多 Worker 扩展/稳定性 | 缺 2 Coordinator、4–8 Worker 的指定规模环境；本机独立进程验证功能与故障，不冒充吞吐、P99 或长稳验收。 |
 
-**计数与执行次序：**27 项中 1 项当前源码本机全量通过（#5），19 项本机仍需验证或实现（含镜像交付项 #1/#2 和已局部通过的 #11），2 项 REST 协议按用户决定暂缓（#13/#14），5 项需要当前没有的发布/规模环境（#3/#4/#25–#27）。A 的轻量规则检查可与 B 的共享 E2E 并行；Native ASan、完整 E2E 和其他高内存容器批次不能同时挤占本机 16 GiB RAM/Docker VM。B 的首个失败修复后滚动扩面，C/D 按独立纵切进行，最后在**同一最终源码**做一次完整功能回归。每批记录实测数量、失败根因、日志、commit 和磁盘余量；不把未运行的测试记作通过。
+**计数与执行次序：**27 项中 2 项当前源码本机全量通过（#5/#6），18 项本机仍需验证或实现（含镜像交付项 #1/#2 和已局部通过的 #11），2 项 REST 协议按用户决定暂缓（#13/#14），5 项需要当前没有的发布/规模环境（#3/#4/#25–#27）。A 的轻量规则检查可与 B 的共享 E2E 并行；Native ASan、完整 E2E 和其他高内存容器批次不能同时挤占本机 16 GiB RAM/Docker VM。B 的首个失败修复后滚动扩面，C/D 按独立纵切进行，最后在**同一最终源码**做一次完整功能回归。每批记录实测数量、失败根因、日志、commit 和磁盘余量；不把未运行的测试记作通过。

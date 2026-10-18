@@ -201,6 +201,17 @@ if(_DEPS_INSTALL)
           NOT EXISTS "${PANGROVA_ASAN_FOLLY_PREFIX}/include/folly/Executor.h")
         message(FATAL_ERROR "ASan Folly install is incomplete: ${PANGROVA_ASAN_FOLLY_PREFIX}")
       endif()
+      execute_process(
+        COMMAND "${CMAKE_NM}" -u "${_ASAN_FOLLY_ARCHIVE}"
+        OUTPUT_VARIABLE _ASAN_FOLLY_UNDEFINED
+        RESULT_VARIABLE _ASAN_FOLLY_NM_RESULT
+        ERROR_QUIET)
+      if(NOT _ASAN_FOLLY_NM_RESULT EQUAL 0 OR
+          NOT _ASAN_FOLLY_UNDEFINED MATCHES "_+asan_init")
+        message(FATAL_ERROR
+          "PANGROVA_ASAN_FOLLY_PREFIX does not contain an ASan-instrumented Folly archive")
+      endif()
+      unset(_ASAN_FOLLY_UNDEFINED)
       list(FIND _DEPS_INSTALL_LIBS "${_DEPS_INSTALL}/lib/libfolly.a" _FOLLY_INDEX)
       if(_FOLLY_INDEX EQUAL -1)
         message(FATAL_ERROR "Velox deps-install libfolly.a is missing")

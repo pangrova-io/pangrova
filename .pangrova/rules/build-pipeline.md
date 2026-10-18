@@ -79,7 +79,7 @@ cd pangrova-worker-native/build && ./pangrova_native_tests --gtest_filter="Suite
 # Folly's JSON builder must also be ASan-instrumented; point
 # PANGROVA_ASAN_FOLLY_PREFIX at an isolated Folly install built with the same
 # compiler and FOLLY_LIBRARY_SANITIZE_ADDRESS=ON. The configure rejects a
-# missing Folly prefix rather than producing mixed-instrumentation findings.
+# missing or unsanitized Folly archive rather than producing mixed-instrumentation findings.
 # On macOS pass CMAKE_PROJECT_folly_INCLUDE=<repository>/pangrova-worker-native/
 # cmake/AsanFollyCompat.cmake to Folly's configure to disable only the
 # unsupported UBSan vptr subcheck while retaining ASan container annotations.
@@ -93,6 +93,10 @@ cmake --preset dev-asan -S pangrova-worker-native \
 cmake --build pangrova-worker-native/build-asan --parallel
 cd pangrova-worker-native/build-asan && ctest --output-on-failure
 ```
+
+macOS does not provide LeakSanitizer for this toolchain; run its ASan CTest with
+`ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`. Linux ASan/LSan is a separate
+release gate and must not be inferred from the macOS result.
 
 ### Package (native lib → Java classpath)
 
