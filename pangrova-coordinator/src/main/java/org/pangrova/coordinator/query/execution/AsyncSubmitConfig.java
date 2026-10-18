@@ -6,8 +6,8 @@ import org.pangrova.coordinator.query.QueryManager;
  * Configuration for asynchronous query submission behavior.
  *
  * <p>When {@code enabled} is true, {@link QueryManager#submitQuery} returns
- * as soon as the query reaches RUNNING state (OUTPUT stage dispatched,
- * resultEndpoint known), rather than blocking until the entire DAG completes.
+ * as soon as the query reaches RUNNING state (readable result endpoint, or
+ * resultless WRITE task dispatched), rather than blocking until the entire DAG completes.
  * Execution continues in a background executor detached from the request thread.
  *
  * <p>The {@code submitTimeoutMs} bounds only the compilation + initial dispatch

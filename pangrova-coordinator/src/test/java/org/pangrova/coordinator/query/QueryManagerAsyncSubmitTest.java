@@ -103,6 +103,38 @@ class QueryManagerAsyncSubmitTest {
     }
 
     @Test
+    void resultlessWriteDispatchReturnsBeforeLongCommit() throws Exception {
+        CountDownLatch commit = new CountDownLatch(1);
+        QueryDispatcher dispatcher = new SlowQueryDispatcher(new CountDownLatch(1), commit) {
+            @Override
+            public DispatchResult execute(QueryStateMachine sm, String sql,
+                                          CoordinatorSessionContext session) {
+                sm.tryTransition(QueryStateMachine.State.PLANNING);
+                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
+                sm.tryTransition(QueryStateMachine.State.RUNNING);
+                sm.markWriteDispatchReady();
+                await(commit);
+                sm.tryTransition(QueryStateMachine.State.FINISHING);
+                sm.tryTransition(QueryStateMachine.State.FINISHED);
+                return null;
+            }
+        };
+        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+                dispatcher, TestObservability.TRACING,
+                new AsyncSubmitConfig(true, 200), asyncExecutor));
+
+        try {
+            SubmitQueryResponse response = manager.submitQuery(
+                    "long-write", "INSERT INTO t VALUES (1)", testSession("long-write"));
+            assertThat(response.state()).isEqualTo("RUNNING");
+            assertThat(response.resultEndpoint()).isNull();
+            assertThat(manager.getQueryState("long-write")).contains(QueryStateMachine.State.RUNNING);
+        } finally {
+            commit.countDown();
+        }
+    }
+
+    @Test
     @DisplayName("async submit: query eventually reaches FINISHED after background execution completes")
     void asyncSubmitQueryEventuallyCompletes() throws Exception {
         SubmitQueryResponse response = queryManager.submitQuery(

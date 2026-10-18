@@ -54,6 +54,7 @@ public class QueryStateMachine {
     private volatile ResultEndpoint resultEndpoint;
     private final CompletableFuture<ResultEndpoint> resultEndpointReady =
             new CompletableFuture<>();
+    private final CompletableFuture<Void> writeDispatchReady = new CompletableFuture<>();
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
     private final AtomicBoolean physicalCleanupApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
@@ -377,6 +378,22 @@ public class QueryStateMachine {
 
     CompletableFuture<ResultEndpoint> resultEndpointReady() {
         return resultEndpointReady;
+    }
+
+    /** Signals that a resultless write has reached its actual Worker dispatch. */
+    public void markWriteDispatchReady() {
+        State current = state.get();
+        if (current == State.RUNNING || current == State.FINISHING || current == State.FINISHED) {
+            writeDispatchReady.complete(null);
+        }
+    }
+
+    CompletableFuture<Void> writeDispatchReady() {
+        return writeDispatchReady;
+    }
+
+    boolean isWriteDispatchReady() {
+        return writeDispatchReady.isDone();
     }
 
     boolean claimTerminalEffects() {

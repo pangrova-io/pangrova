@@ -43,6 +43,7 @@ final class QueryAsyncSubmission {
             String queryId, String sql, CoordinatorSessionContext session, QueryStateMachine state) {
         Context context = new Context(queryId, sql, session, state, new CountDownLatch(1), new AtomicReference<>());
         state.resultEndpointReady().thenRun(context.ready()::countDown);
+        state.writeDispatchReady().thenRun(context.ready()::countDown);
         state.addStateChangeListener((previous, current) -> {
             if ((current == QueryStateMachine.State.FAILED && state.getError().isPresent())
                     || current == QueryStateMachine.State.CANCELLED) {
@@ -88,9 +89,9 @@ final class QueryAsyncSubmission {
             if (!context.ready().await(config.submitTimeoutMs(), TimeUnit.MILLISECONDS)) {
                 dispatch.cancel(true);
                 fail(context, "QUERY_TIMEOUT", "ASYNC_SUBMIT_TIMEOUT",
-                        "Result endpoint was not ready before submit timeout", "async_submit_timeout");
+                        "Result endpoint or write dispatch was not ready before submit timeout", "async_submit_timeout");
                 throw new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
-                        "Result endpoint was not ready before submit timeout: " + context.queryId());
+                        "Result endpoint or write dispatch was not ready before submit timeout: " + context.queryId());
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
@@ -116,16 +117,16 @@ final class QueryAsyncSubmission {
                     context.state().getError().map(ErrorDetail::message)
                             .orElse("Query ended before the result endpoint was ready"));
         }
-        if (context.state().getResultEndpoint().isEmpty()
+        if (context.state().getResultEndpoint().isEmpty() && !context.state().isWriteDispatchReady()
                 || state != QueryStateMachine.State.RUNNING && state != QueryStateMachine.State.FINISHING
                     && state != QueryStateMachine.State.FINISHED) {
             if (!context.state().isTerminal()) {
                 fail(context, "INTERNAL_ERROR", "RESULT_ENDPOINT_UNAVAILABLE",
-                        "Query dispatch completed without a ready result endpoint",
+                        "Query dispatch completed without a ready result endpoint or write dispatch",
                         "async_result_endpoint_unavailable");
             }
             throw new IllegalStateException(
-                    "Query dispatch completed without a ready result endpoint: " + context.queryId());
+                    "Query dispatch completed without a ready result endpoint or write dispatch: " + context.queryId());
         }
     }
 

@@ -371,6 +371,9 @@ final class QuerySchedulingEngine {
             sm.setResultEndpoint(endpoint);
         }
         sm.tryTransition(QueryStateMachine.State.RUNNING);
+        if (context.dmlWriteContext().isPresent()) {
+            sm.markWriteDispatchReady();
+        }
     }
 
     private String connectorWriteBinding(String queryId) {

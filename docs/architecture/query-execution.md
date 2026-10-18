@@ -1484,6 +1484,11 @@ SDK internal flow:
    automatic reconnection after a broken Flight stream
 ```
 
+For resultless DML, the submit response may return `RUNNING` after the actual
+WRITE task is dispatched, with no Flight endpoint. The client polls canonical
+query status through the final catalog commit. The 30-second submit timeout
+bounds compilation and initial dispatch, not data-file writing or commit.
+
 `Statement.execute()` and `executeQuery()` use this same Flight endpoint path.
 An absent endpoint is waited for while the query runs and is an error if the
 query finishes without one. The historical REST `/v1/query/{id}/result` page
