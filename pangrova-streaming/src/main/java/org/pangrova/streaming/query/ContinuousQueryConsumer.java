@@ -7,9 +7,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
  * Periodically polls registered continuous queries and invokes the executor
  * to refresh materialized views or incremental aggregations.
  */
+@ThreadSafe
 public class ContinuousQueryConsumer implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ContinuousQueryConsumer.class);
@@ -32,15 +34,17 @@ public class ContinuousQueryConsumer implements AutoCloseable {
             ConcurrentMap<String, Duration> queries,
             ContinuousQueryExecutor executor,
             Duration scanInterval) {
-        // CREATE/DROP can occur after startup, so the registration map must stay live.
+        // Registrations can be added or removed after startup, so the map must stay live.
         this.queries = Objects.requireNonNull(queries, "queries must not be null");
         this.executor = Objects.requireNonNull(executor, "executor must not be null");
         this.scanInterval = Objects.requireNonNull(scanInterval, "scanInterval must not be null");
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        var scheduledExecutor = new ScheduledThreadPoolExecutor(1, r -> {
             Thread t = new Thread(r, "cq-consumer");
             t.setDaemon(true);
             return t;
         });
+        scheduledExecutor.setRemoveOnCancelPolicy(true);
+        this.scheduler = scheduledExecutor;
     }
 
     /** Starts the scan loop that discovers and schedules continuous queries. */
