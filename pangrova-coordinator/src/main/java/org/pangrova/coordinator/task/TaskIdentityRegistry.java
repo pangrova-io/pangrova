@@ -352,14 +352,18 @@ final class TaskIdentityRegistry {
                 .compactExecutionDrainReceipt(first);
         var retained = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
                 .compactExecutionDrainReceipt(second);
-        if (observed.equals(retained)) return true;
+        if (observed.equals(retained)) {
+            return true;
+        }
         // A Worker-reconciled terminal report can carry the same Native exit
         // evidence as a cancellation response. Only the envelope origin differs;
         // attempt, state, failure classification and drain checkpoint must match.
         if (observed.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
                 .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
                 || retained.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
-                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) return false;
+                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
+            return false;
+        }
         boolean reconciledNativePair = (observed.getReportOrigin()
                 == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED
                 && retained.getReportOrigin()
