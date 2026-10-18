@@ -187,6 +187,11 @@ if(_DEPS_INSTALL)
     # for release builds and opt in to an isolated, matching ASan installation.
     set(PANGROVA_ASAN_FOLLY_PREFIX "" CACHE PATH
       "Isolated ASan Folly install prefix for sanitized native builds")
+    if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address" AND
+        NOT PANGROVA_ASAN_FOLLY_PREFIX)
+      message(FATAL_ERROR
+        "ASan native builds require PANGROVA_ASAN_FOLLY_PREFIX with an ASan-instrumented Folly archive")
+    endif()
     if(PANGROVA_ASAN_FOLLY_PREFIX)
       if(NOT CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
         message(FATAL_ERROR "ASan Folly override requires an ASan native build")

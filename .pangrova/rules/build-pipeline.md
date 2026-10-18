@@ -76,12 +76,20 @@ cd pangrova-worker-native/build && ./pangrova_native_tests --gtest_filter="Suite
 # PANGROVA_ASAN_PROTOBUF_LIB at a v25.3 libprotobuf.a built with ASan
 # using the same compiler and ASan-instrumented Abseil as Pangrova. The
 # matching Abseil package must also be selected for the Native configure.
+# Folly's JSON builder must also be ASan-instrumented; point
+# PANGROVA_ASAN_FOLLY_PREFIX at an isolated Folly install built with the same
+# compiler and FOLLY_LIBRARY_SANITIZE_ADDRESS=ON. The configure rejects a
+# missing Folly prefix rather than producing mixed-instrumentation findings.
+# On macOS pass CMAKE_PROJECT_folly_INCLUDE=<repository>/pangrova-worker-native/
+# cmake/AsanFollyCompat.cmake to Folly's configure to disable only the
+# unsupported UBSan vptr subcheck while retaining ASan container annotations.
 # The default Release archives are
 # rejected because mixed instrumentation can mask or fabricate findings.
 export VELOX_BUILD_DIR=/path/to/asan/velox/build
 cmake --preset dev-asan -S pangrova-worker-native \
   -DPANGROVA_ASAN_PROTOBUF_LIB=/path/to/asan/libprotobuf.a \
-  -Dabsl_DIR=/path/to/asan/absl/lib/cmake/absl
+  -Dabsl_DIR=/path/to/asan/absl/lib/cmake/absl \
+  -DPANGROVA_ASAN_FOLLY_PREFIX=/path/to/asan/folly/install
 cmake --build pangrova-worker-native/build-asan --parallel
 cd pangrova-worker-native/build-asan && ctest --output-on-failure
 ```
@@ -144,6 +152,7 @@ ordering for tests that consume the native bundle.
 │   cmake --preset dev-asan -S pangrova-worker-native              │
 │     -DPANGROVA_ASAN_PROTOBUF_LIB=<ASan v25.3 archive>            │
 │     -Dabsl_DIR=<ASan Abseil CMake package>                       │
+│     -DPANGROVA_ASAN_FOLLY_PREFIX=<ASan Folly install>             │
 │   cmake --build pangrova-worker-native/build-asan --parallel       │
 │   ctest --test-dir pangrova-worker-native/build-asan               │
 │     --output-on-failure                                          │
