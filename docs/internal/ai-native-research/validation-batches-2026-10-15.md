@@ -14,7 +14,11 @@
 
 每批先执行能否证伪修复的最近测试，再在同源码上扩面。通过项只引用本轮新证据；失败项记录根因与下一增量，不原样重复运行。覆盖率百分比门禁已移除，JaCoCo 为可选诊断；重复 Java 构建和独立 ArchUnit CI job 已移除。保留的协议、SPI、静态、Native/ASan、真实 E2E 门禁对应不同缺陷边界，不能因执行耗时直接删除。
 
-本轮 `d409ae20` 增量：JDK17 协调器异步提交/单任务推测调度聚焦 27/27、受影响静态门禁退出 0；Native Release 使用真实 PostgreSQL/Lance broker **4,169/4,169 PASS**（`/tmp/pangrova-write-queue-native-ctest-r2.log`），队列聚焦 Release 与 ASan 各 7/7。首轮 Release 因遗漏 broker 在 Lance `SetUp()` 失败，已停止且不计通过；原失败项接入 broker 后 1/1 预检通过。完整 ASan 与 ARM64 同源镜像仍待结束；ASan 初轮与镜像并行编译时本机交换内存逼近 6 GiB，主动停止并留待镜像完成后独立重跑。独立双 Worker 写入尚未在新镜像上验证，不能把 Native 局部通过当作此 E2E 通过。
+本轮 `d409ae20` 增量：JDK17 协调器异步提交/单任务推测调度聚焦 27/27、Worker 聚焦 94/94、受影响静态门禁退出 0；Native Release 使用真实 PostgreSQL/Lance broker **4,169/4,169 PASS**（`/tmp/pangrova-write-queue-native-ctest-r2.log`），队列聚焦 Release 与 ASan 各 7/7。首轮 Release 因遗漏 broker 在 Lance `SetUp()` 失败，已停止且不计通过；原失败项接入 broker 后 1/1 预检通过。完整 ASan 初轮与镜像并行编译时本机交换内存逼近 6 GiB，主动停止并留待镜像完成后独立重跑。干净归档 Bake/加载的同源 ARM64 镜像 `pangrova/pangrova:verify-d409ae20`，image ID `sha256:847acd412fc56e9746c25ddbadb041587f1852e31c5df01a045684da007e4599`，已在真实 Coordinator + 双独立 Worker + SQL/JNI/Native 的并发推测写入 E2E 中通过 1/1（`/tmp/pangrova-independent-spec-write-d409ae20-r1.log`）：原任务与副本各自处理 8,053,064 行，只有胜者片段提交，目标表精确 8,053,064 行；其余故障矩阵及最终全量回归仍待验收。
+
+Iceberg REST 写入的设计复核：官方 [REST Catalog 协议](https://iceberg.apache.org/docs/nightly/rest-protocol/)由服务端原子校验请求中的 requirements 并应用 updates；现有标准条件覆盖表 UUID、分支快照及若干 schema/spec ID，但没有任意表属性或表位置的条件比较。官方[表格式规范](https://iceberg.apache.org/spec/)要求元数据更新以原子操作提交，具体 catalog 机制可不同。由此推断，标准 REST 的分支快照 CAS 本身不能证明 Pangrova 当前含任意属性/位置的完整写入声明在提交瞬间未变；不能仅因 Gravitino 空表 CRUD 通过就撤除 `IcebergDeclarationCommit` 的 fail-closed 栅栏。后续需明确缩小声明语义并证明标准 requirements 足够，或由 catalog 服务提供可验证的完整声明/元数据版本条件，再运行并发属性/位置变更与非空写入 E2E。
+
+同镜像双 Worker 读取/故障/取消/资源清理回归 7/7 通过（`/tmp/pangrova-independent-spec-read-d409ae20-r1.log`，0 失败/错误/跳过）。`failedOriginalCanBeReplacedBySuccessfulCopy` 和 `bothFailedAttemptsFailTheirLogicalTaskOnce` 仍未通过：当前夹具在副本建立前隐藏原始数据文件，日志中另有读取任务在副本建立前失败；需把真实故障精确约束到已配对的原任务/副本，再验证最终逻辑终态。
 
 本清单按**独立验收检查点**计数，共 6 批、27 项。它不把某个局部测试通过等同于整条链通过；“已知缺口”表示现有实现或安全前置条件尚不满足，须先修复再验收。每项通过证据需绑定提交、依赖/协议、Native 或镜像指纹、实际执行命令、测试发现数、失败/错误/跳过数及日志。历史结果见 [validation-current.md](validation-current.md)，原始目标见仓库外的当前计划；最终生产资格仍以 `.pangrova/rules/build-pipeline.md`、`ci-gates.md` 为准。
 
