@@ -116,6 +116,10 @@ else
     JAVA_OPTS="$DEFAULT_JAVA_OPTS"
 fi
 
+# Arrow's direct-buffer view and Netty's native channel access are required
+# even when a deployment overrides memory sizing through PANGROVA_JAVA_OPTS.
+JAVA_OPTS="${JAVA_OPTS} --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
+
 # logback.xml uses ${PANGROVA_ROLE:-pangrova} and ${PANGROVA_LOG_DIR:-logs} as Logback
 # property substitutions — they are resolved only when passed as Java system properties.
 JAVA_OPTS="${JAVA_OPTS} -DPANGROVA_LOG_DIR=${PANGROVA_LOG_DIR} -DPANGROVA_ROLE=${ROLE}"

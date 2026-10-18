@@ -357,4 +357,9 @@ Recommended JVM flags: `-XX:+UseG1GC`, `-XX:+ExitOnOutOfMemoryError`,
 `-XX:+HeapDumpOnOutOfMemoryError`, `-Dfile.encoding=UTF-8`,
 `-Duser.timezone=UTC`, `-Djava.net.preferIPv4Stack=true`.
 
+The Worker and Coordinator launch scripts always add the JDK module access required
+by Arrow direct buffers and Netty channels (`java.nio` and `sun.nio.ch`). This
+also applies when `PANGROVA_JAVA_OPTS` replaces the configured JVM sizing options;
+otherwise a Native write can fail on its first Arrow IPC batch under JDK 17.
+
 **See Also:** [Configuration model](index.md), [Coordinator](coordinator.md), [Quick Reference](reference.md)

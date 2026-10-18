@@ -270,6 +270,8 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
             appendToSink(ws.sink(), projected);
             ws.rowsAppended().addAndGet(decoded.rowCount());
         } catch (IOException e) {
+            LOG.error("event=write_batch_decode_failed handle={} rows={} columns={} bytes={}",
+                    writeHandle, rowCount, columnCount, data == null ? 0 : data.remaining(), e);
             NativeRuntimeException failure =
                     new NativeRuntimeException(
                             PangrovaErrorCode.NATIVE_DATA_INTERFACE_ERROR,
