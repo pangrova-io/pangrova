@@ -2045,7 +2045,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      */
     private static TransportServer startCoordinatorTransportServer() {
         var coordinatorProducer = new org.pangrova.coordinator.result.CoordinatorDataProducer(
-                coordinatorResultBuffer);
+                ensureCoordinatorResultBuffer());
         TransportServer server = new TransportServer(
                 coordinatorProducer, new org.pangrova.spi.transport.TransportServerConfig(0));
         server.start();
@@ -2308,6 +2308,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         if (coordinatorTransportServer == null || !coordinatorTransportServer.isRunning()) {
             return null;
         }
+        CoordinatorResultBuffer buffer = ensureCoordinatorResultBuffer();
+        closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
+        coordinatorArrowAllocator = new org.apache.arrow.memory.RootAllocator(128L * 1024 * 1024);
+        var writer = new CoordinatorResultWriter(coordinatorArrowAllocator);
+        var endpoint = new ResultEndpoint("localhost", coordinatorTransportServer.getPort(), "coordinator", "grpc");
+        coordinatorResultService = new CoordinatorResultService(buffer, writer, endpoint);
+        return coordinatorResultService;
+    }
+
+    private static synchronized CoordinatorResultBuffer ensureCoordinatorResultBuffer() {
+        if (coordinatorResultBuffer != null) {
+            return coordinatorResultBuffer;
+        }
         if (resultBufferExecutor == null) {
             resultBufferExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "result-buffer-expiry");
@@ -2315,13 +2328,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 return t;
             });
         }
-        closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
         coordinatorResultBuffer = new CoordinatorResultBuffer(resultBufferExecutor, 300_000L);
-        coordinatorArrowAllocator = new org.apache.arrow.memory.RootAllocator(128L * 1024 * 1024);
-        var writer = new CoordinatorResultWriter(coordinatorArrowAllocator);
-        var endpoint = new ResultEndpoint("localhost", coordinatorTransportServer.getPort(), "coordinator", "grpc");
-        coordinatorResultService = new CoordinatorResultService(coordinatorResultBuffer, writer, endpoint);
-        return coordinatorResultService;
+        return coordinatorResultBuffer;
     }
 
     protected static org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher buildStatementDispatcher(
