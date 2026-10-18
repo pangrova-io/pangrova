@@ -858,9 +858,24 @@ bin/pangrova-cli.sh                      # Interactive SQL
 
 ### Running Tests
 
+Native E2E tests require a matching packaged JNI library and an immutable real
+model fixture. Prepare the fixture before Maven; test startup does not download
+models or require the public model registry:
+
+```bash
+docker pull ollama/ollama:0.6.2
+python3.12 .pangrova/scripts/prepare-e2e-ai-image.py --receipt /tmp/pangrova-ai-fixture.json
+ai_fixture_id=$(python3.12 -c 'import json; print(json.load(open("/tmp/pangrova-ai-fixture.json"))["imageId"])')
+```
+
+Use a fresh receipt path when building another artifact. See the
+[real SQL regression prerequisite](../testing/tpc-benchmark-methodology.md#real-sqlnative-regression-prerequisite)
+for offline model imports, fixture integrity checks and the focused Q9 command.
+
 ```bash
 mvn test -pl pangrova-coordinator -am                  # Unit tests
-mvn test -pl pangrova-testing/pangrova-test-e2e -am      # E2E tests (Docker required)
+mvn test -pl pangrova-testing/pangrova-test-e2e -am -Pnative-runtime \
+  -Dpangrova.e2e.ai.image-id="$ai_fixture_id"           # Real E2E tests
 mvn test -pl pangrova-testing/pangrova-test-benchmark -am # TPC-H benchmark
 ```
 

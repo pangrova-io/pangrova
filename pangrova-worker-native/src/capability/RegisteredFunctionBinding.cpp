@@ -58,7 +58,16 @@ facebook::velox::core::CallTypedExprPtr bindRegisteredScalar(
   // The target is consumed only by the selected special-form type programme
   // (e.g. CAST), never used to choose a different ordinary overload.
   const auto resolved = registry.bindScalar(name, argumentTypes(arguments), output);
-  requireOutput(name, output, resolved ? resolved->resultType : nullptr, "scalar");
+  if (!resolved) {
+    std::string signature = name + "(";
+    for (size_t ordinal = 0; ordinal < arguments.size(); ++ordinal) {
+      if (ordinal != 0) signature += ", ";
+      signature += arguments[ordinal]->type()->toString();
+    }
+    throw std::runtime_error("VeloxPlanConverter: no exact scalar signature: " + signature +
+        ") output=" + (output ? output->toString() : "<absent>"));
+  }
+  requireOutput(name, output, resolved->resultType, "scalar");
   if (resolved->implementation.signature) requireConstants(name, *resolved->implementation.signature, arguments);
   return call(name, output, std::move(arguments));
 }

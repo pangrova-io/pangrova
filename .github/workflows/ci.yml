@@ -261,6 +261,15 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      - name: Retain same-source CLI for benchmark transport checks
+        if: matrix.java == '17'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpc-client-cli
+          path: pangrova-client/pangrova-client-cli/target/pangrova-client-cli-0.1.0-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 1
+
   production-regression:
     name: Production image and full regression (JDK 17)
     runs-on: ubuntu-latest
@@ -306,9 +315,18 @@ jobs:
       - name: Compile the complete Java reactor
         run: mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
 
+      - name: Prepare immutable real AI models before regression
+        run: |
+          docker pull ollama/ollama:0.6.2
+          receipt="$RUNNER_TEMP/pangrova-ai-fixture.json"
+          python3 .pangrova/scripts/prepare-e2e-ai-image.py --receipt "$receipt"
+          image_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["imageId"])' "$receipt")
+          echo "PANGROVA_E2E_AI_IMAGE_ID=$image_id" >> "$GITHUB_ENV"
+
       - name: Run full regression with real coverage
         run: |
           mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle' \
+            -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
             -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
             -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
@@ -320,6 +338,7 @@ jobs:
         run: |
           mvn -B -Pnative-runtime,full-regression \
             -pl pangrova-testing/pangrova-test-e2e -am test \
+            -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
             -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
             -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
@@ -328,6 +347,7 @@ jobs:
             -Dpangrova.e2e.local.source-commit="$GITHUB_SHA"
           mvn -B -Pnative-runtime -pl pangrova-testing/pangrova-test-e2e \
             -Dtest=ActivationSmokeE2ETest test \
+            -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
 
       - name: Diff Coverage Gate
@@ -352,84 +372,39 @@ jobs:
           name: production-runtime-provenance
           if-no-files-found: warn
           path: |
+            ${{ runner.temp }}/pangrova-ai-fixture.json
             ${{ runner.temp }}/pangrova-local-runtime.*/runtime.sha256
             ${{ runner.temp }}/pangrova-local-runtime.*/image-provenance.properties
             /tmp/pangrova-local-process-*/*.log
 
   tpch-performance:
-    name: TPC-H Performance Regression
+    name: TPC workload and evidence contracts
     runs-on: ubuntu-latest
     needs: [java-build, change-scope]
     if: github.event_name == 'pull_request' && needs.change-scope.outputs.performance == 'true'
     steps:
       - uses: actions/checkout@v7
-
-      - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-
-      - name: Download native library
-        uses: actions/download-artifact@v4
-        with:
-          name: native-library-linux-x86_64
-          path: ${{ env.NATIVE_LIB_DIR }}
-
-      - name: Download classifier JAR
-        uses: actions/download-artifact@v4
-        with:
-          name: native-bundle-linux-x86_64
-          path: native-bundle-jar
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
+      - name: Install pinned benchmark tooling
+        run: python -m pip install -r pangrova-testing/pangrova-test-benchmark/requirements.txt
+      - name: Verify complete workloads, real Parquet conversion, runner and comparison contracts
+        run: python -m unittest discover -s pangrova-testing/pangrova-test-benchmark/scripts/tests -v
+      - uses: actions/setup-java@v5
         with:
           java-version: '17'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
-
-      - name: Install classifier JAR to local Maven repo
-        run: |
-          JAR_FILE=$(ls native-bundle-jar/pangrova-native-bundle-*-linux-x86_64.jar | head -1)
-          mvn install:install-file \
-            -Dfile="${JAR_FILE}" \
-            -DgroupId=org.pangrova \
-            -DartifactId=pangrova-native-bundle \
-            -Dversion=0.1.0-SNAPSHOT \
-            -Dclassifier=linux-x86_64 \
-            -Dpackaging=jar
-
-      - name: Run TPC-H Q1, Q5, Q9 performance tests
-        run: |
-          mvn -B test -Pfull-regression \
-            -pl pangrova-testing/pangrova-test-e2e \
-            -Dgroups=performance \
-            -Dtest="SqlLatencyBaselineTest" \
-            -Djava.library.path=${{ env.NATIVE_LIB_DIR }} \
-            -Dpangrova.benchmark.output=target/tpch-results.json \
-            -Dpangrova.benchmark.queries=Q1,Q5,Q9
-        env:
-          LD_LIBRARY_PATH: ${{ env.NATIVE_LIB_DIR }}
-          MAVEN_OPTS: "-Xmx4g"
-
-      - name: Compare against baseline
-        run: |
-          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/tpch-regression-check.sh
-          pangrova-testing/pangrova-test-benchmark/scripts/tpch-regression-check.sh \
-            pangrova-testing/pangrova-test-e2e/target/tpch-results.json \
-            pangrova-testing/pangrova-test-benchmark/baseline/tpch-performance-baseline.json
-
-      - name: Upload performance results
-        if: always()
-        uses: actions/upload-artifact@v4
+          distribution: temurin
+      - uses: actions/download-artifact@v4
         with:
-          name: tpch-performance-results
-          path: pangrova-testing/pangrova-test-e2e/target/tpch-results.json
-          retention-days: 30
-
+          name: tpc-client-cli
+          path: tpc-client
+      - name: Verify persistent production client over real HTTP and Flight transport
+        run: >-
+          python pangrova-testing/pangrova-test-benchmark/scripts/integration/test_persistent_transport.py
+          --classpath tpc-client/pangrova-client-cli-0.1.0-SNAPSHOT.jar
+      # Actual SF100/1000 comparisons run on exclusive hardware in nightly-tpc-benchmark.yml.
+      # Short E2E latency samples are never submitted to a P99 calibration comparator.
   native-sanitizers:
     name: Native Sanitizer (${{ matrix.sanitizer.name }})
     runs-on: ubuntu-latest

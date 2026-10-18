@@ -9,7 +9,7 @@ import org.pangrova.worker.jni.NativeRuntime;
 
 /** One deployment, registration and publication owner for the shared E2E Native runtime. */
 final class SharedNativeFunctionStartup implements AutoCloseable {
-    private final SharedAiProvider provider = new SharedAiProvider();
+    private SharedAiProvider provider;
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
     private NativeFunctionConfig config;
     private NativeCapabilityAdvertisement.Advertisement advertisement;
@@ -18,6 +18,9 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
     NativeFunctionConfig prepare() {
         if (config == null) {
             try {
+                if (provider == null) {
+                    provider = new SharedAiProvider();
+                }
                 config = provider.prepare();
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
@@ -59,6 +62,8 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
             throw new IllegalStateException("Native callback owners must exit before closing their provider");
         }
         NativeFunctionBootstrap.close(refs);
-        provider.close();
+        if (provider != null) {
+            provider.close();
+        }
     }
 }

@@ -58,7 +58,7 @@ public final class SharedAiProvider implements AutoCloseable {
         this(new AiProviderDeployment(Objects.requireNonNull(deployment, "deployment"), Map.of()), timeout);
     }
 
-    private SharedAiProvider(AiProviderDeployment selected, Duration timeout) {
+    SharedAiProvider(AiProviderDeployment selected, Duration timeout) {
         this.deployment = selected.container();
         this.expectedModels = selected.expectedModels();
         this.deploymentTimeout = Objects.requireNonNull(timeout, "timeout");
@@ -85,10 +85,6 @@ public final class SharedAiProvider implements AutoCloseable {
             container.withStartupTimeout(remaining(deadline));
             container.withLogConsumer(frame -> retainDiagnostic(frame.getUtf8String()));
             container.start();
-            phase = "pull " + PROVIDER_MODEL;
-            pull(PROVIDER_MODEL, deadline);
-            phase = "pull " + EMBEDDING_PROVIDER_MODEL;
-            pull(EMBEDDING_PROVIDER_MODEL, deadline);
             phase = "immutable model inventory";
             String digest = loadedModelDigest(PROVIDER_MODEL, deadline);
             String embeddingDigest = loadedModelDigest(EMBEDDING_PROVIDER_MODEL, deadline);
@@ -113,31 +109,6 @@ public final class SharedAiProvider implements AutoCloseable {
         }
     }
 
-    private void pull(String model, long deadline) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint("/api/pull")))
-                .timeout(remaining(deadline))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(
-                        MAPPER.writeValueAsBytes(Map.of("model", model, "stream", false))))
-                .build();
-        HttpResponse<byte[]> response = send(request, deadline);
-        String body = new String(response.body(), StandardCharsets.UTF_8);
-        if (response.statusCode() != 200) {
-            throw new IllegalStateException("Ollama model pull failed for " + model
-                    + ": HTTP " + response.statusCode() + ": " + body);
-        }
-        JsonNode result;
-        try {
-            result = MAPPER.readTree(body);
-        } catch (IOException failure) {
-            failure.addSuppressed(new IllegalStateException("Actual Ollama pull response: " + body));
-            throw failure;
-        }
-        if (result == null || result.hasNonNull("error") || !"success".equals(result.path("status").asText())) {
-            throw new IllegalStateException("Ollama model pull did not complete for " + model + ": " + body);
-        }
-    }
-
     private String loadedModelDigest(String providerModel, long deadline) throws Exception {
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(endpoint("/api/tags")))
                 .timeout(remaining(deadline)).GET().build();
@@ -157,7 +128,7 @@ public final class SharedAiProvider implements AutoCloseable {
                 return digest;
             }
         }
-        throw new IllegalStateException("Ollama did not list pulled model " + providerModel);
+        throw new IllegalStateException("Prepared Ollama fixture is missing model " + providerModel);
     }
 
     private HttpResponse<byte[]> send(HttpRequest request, long deadline) throws Exception {

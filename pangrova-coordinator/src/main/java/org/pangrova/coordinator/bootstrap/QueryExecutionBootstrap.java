@@ -107,7 +107,11 @@ final class QueryExecutionBootstrap {
             SpeculativeStageHandler speculativeStageHandler,
             QueryStateJournal stateJournal) {
         this.workerManager = java.util.Objects.requireNonNull(wm, "workerManager must not be null");
-        SqlCompiler compiler = mc.require(SqlCompiler.class);
+        SqlCompiler compiler = mc.require(SqlCompiler.class).withNativeCapabilities(() ->
+                org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(
+                        wm.getActiveWorkers().stream().map(
+                                org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()));
+        mc.bind(SqlCompiler.class, compiler);
         CircuitBreakerPolicy cb = circuitBreaker;
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
                 cb != null ? cb : CircuitBreakerPolicy.noOp(), tracingProvider,

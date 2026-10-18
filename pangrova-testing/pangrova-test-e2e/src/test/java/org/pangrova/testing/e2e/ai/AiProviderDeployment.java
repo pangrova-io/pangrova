@@ -23,20 +23,19 @@ record AiProviderDeployment(GenericContainer<?> container, Map<String, String> e
     }
 
     static AiProviderDeployment select(String image) {
-        Map<String, String> expected = Map.of();
-        String selected = "ollama/ollama:0.6.2";
-        if (image != null) {
-            if (!image.matches("sha256:[0-9a-f]{64}")) {
-                throw new IllegalArgumentException("Prepared AI image must be an immutable SHA-256 image ID");
-            }
-            var actual = DockerClientFactory.instance().client().inspectImageCmd(image).exec();
-            if (!image.equals(actual.getId()) || actual.getConfig() == null) {
-                throw new IllegalStateException("Prepared AI image differs from its immutable identity");
-            }
-            expected = expectedModels(actual.getConfig().getLabels());
-            selected = image;
+        if (image == null) {
+            throw new IllegalArgumentException("Real model fixture is required: run "
+                    + ".pangrova/scripts/prepare-e2e-ai-image.py and set -D" + IMAGE_PROPERTY);
         }
-        var container = new GenericContainer<>(DockerImageName.parse(selected))
+        if (!image.matches("sha256:[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("Prepared AI image must be an immutable SHA-256 image ID");
+        }
+        var actual = DockerClientFactory.instance().client().inspectImageCmd(image).exec();
+        if (!image.equals(actual.getId()) || actual.getConfig() == null) {
+            throw new IllegalStateException("Prepared AI image differs from its immutable identity");
+        }
+        Map<String, String> expected = expectedModels(actual.getConfig().getLabels());
+        var container = new GenericContainer<>(DockerImageName.parse(image))
                 .withEnv("OLLAMA_NUM_PARALLEL", "1")
                 .withEnv("OLLAMA_MAX_LOADED_MODELS", "1")
                 .withEnv("OLLAMA_CONTEXT_LENGTH", Integer.toString(CONTEXT_LENGTH))

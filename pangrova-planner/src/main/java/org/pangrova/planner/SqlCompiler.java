@@ -77,6 +77,12 @@ public class SqlCompiler {
         this.sessionScope = sessionScope;
     }
 
+    /** Uses active Worker inventories for coarse validation; exact task binding is still required. */
+    public SqlCompiler withNativeCapabilities(java.util.function.Supplier<NativeCapabilityRegistry> capabilities) {
+        return new SqlCompiler(planner, converter, serializer, new SubstraitPlanValidator(capabilities),
+                sessionPlanner, queryResultCache, sessionScope);
+    }
+
     /** Installs the metadata boundary without depending on its implementation. */
     public SqlCompiler withSessionPlanner(Function<ConnectorSession, PangrovaPlanner> factory) {
         return new SqlCompiler(planner, converter, serializer, validator,

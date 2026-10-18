@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code src/test/resources/golden-plans/tpc-ds/}.
  *
  * <p>Every selected query must have a reviewed golden file. Any plan change
- * requires explicit approval via the CI plan-stability-check gate.
+ * must be explained and reviewed with the updated golden diff.
  *
  * <p>Coverage today: Q1-Q31 (Q1-Q30 are the first batch, Q31 demonstrates the
  * extension pattern). Remaining Q32-Q99 are tracked as a follow-up — adapting

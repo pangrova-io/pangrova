@@ -10,7 +10,7 @@ import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
 
 /**
- * Converts a logical join to a physical broadcast join when the build side
+ * Converts a logical join with equality keys to a physical broadcast hash join when the build side
  * is smaller than the broadcast threshold (10 MB by default).
  * The smaller side is broadcast to all nodes holding the probe side.
  *
@@ -33,6 +33,9 @@ public final class BroadcastJoinRule extends RelOptRule {
     @Override
     public boolean matches(RelOptRuleCall call) {
         Join join = call.rel(0);
+        if (join.analyzeCondition().leftKeys.isEmpty()) {
+            return false;
+        }
         RelMetadataQuery mq = call.getMetadataQuery();
         // The native HashJoin build input is the right side. Do not admit a
         // join because the *left* is small and then broadcast a large right.

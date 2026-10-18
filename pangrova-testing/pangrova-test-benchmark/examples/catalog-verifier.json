@@ -1,0 +1,15 @@
+{
+  "catalog": "benchmark",
+  "schema": "sf100",
+  "catalogIdentity": "REPLACE_WITH_SHARED_CATALOG_AND_WAREHOUSE_IDENTITY",
+  "sparkConf": {
+    "spark.master": "local[1]",
+    "spark.ui.enabled": "false",
+    "spark.sql.shuffle.partitions": "1",
+    "spark.sql.catalog.benchmark": "org.apache.iceberg.spark.SparkCatalog",
+    "spark.sql.catalog.benchmark.type": "rest",
+    "spark.sql.catalog.benchmark.uri": "REPLACE_WITH_REST_CATALOG_URI",
+    "spark.sql.catalog.benchmark.warehouse": "REPLACE_WITH_SHARED_WAREHOUSE",
+    "spark.jars": "REPLACE_WITH_PINNED_ICEBERG_SPARK_RUNTIME_JAR"
+  }
+}

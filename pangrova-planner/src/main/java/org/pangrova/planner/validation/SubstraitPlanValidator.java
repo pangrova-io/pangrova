@@ -29,7 +29,7 @@ import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
  */
 public final class SubstraitPlanValidator {
 
-    private final NativeCapabilityRegistry registry;
+    private final java.util.function.Supplier<NativeCapabilityRegistry> capabilities;
 
     /**
      * Maps Substrait SDK Rel class simple names to the registry's canonical
@@ -76,24 +76,30 @@ public final class SubstraitPlanValidator {
     );
 
     public SubstraitPlanValidator(NativeCapabilityRegistry registry) {
-        this.registry = registry;
+        this(() -> java.util.Objects.requireNonNull(registry, "registry"));
+    }
+
+    /** Captures one actual capability snapshot per validation, never a cached name allowlist. */
+    public SubstraitPlanValidator(java.util.function.Supplier<NativeCapabilityRegistry> capabilities) {
+        this.capabilities = java.util.Objects.requireNonNull(capabilities, "capabilities");
     }
 
     /**
      * Validates every root in the plan and returns an aggregate result.
      */
     public PlanValidationResult validate(Plan plan) {
+        NativeCapabilityRegistry registry = java.util.Objects.requireNonNull(capabilities.get(), "capability snapshot");
         List<UnsupportedNode> unsupported = new ArrayList<>();
         int[] relCount = {0};
         for (Plan.Root root : plan.getRoots()) {
-            validateRel(root.getInput(), unsupported, 0, relCount);
+            validateRel(root.getInput(), registry, unsupported, 0, relCount);
         }
         return buildResult(unsupported, relCount[0]);
     }
 
     // ---- Rel tree traversal ------------------------------------------------
 
-    private void validateRel(Rel rel, List<UnsupportedNode> unsupported,
+    private void validateRel(Rel rel, NativeCapabilityRegistry registry, List<UnsupportedNode> unsupported,
                              int depth, int[] relCount) {
         relCount[0]++;
         String className = stripImmutablePrefix(rel.getClass().getSimpleName());
@@ -117,17 +123,17 @@ public final class SubstraitPlanValidator {
 
         // Validate expressions embedded in this Rel.
         collectExpressions(rel).forEach(
-                expr -> validateExpression(expr, unsupported, depth));
+                expr -> validateExpression(expr, registry, unsupported, depth));
 
         // Recurse into child Rels.
         for (Rel child : rel.getInputs()) {
-            validateRel(child, unsupported, depth + 1, relCount);
+            validateRel(child, registry, unsupported, depth + 1, relCount);
         }
     }
 
     // ---- Expression tree traversal -----------------------------------------
 
-    private void validateExpression(Expression expr,
+    private void validateExpression(Expression expr, NativeCapabilityRegistry registry,
                                     List<UnsupportedNode> unsupported, int depth) {
         // Literals are universally supported — skip validation.
         if (expr instanceof Expression.Literal) {
@@ -144,18 +150,18 @@ public final class SubstraitPlanValidator {
         }
 
         // Function-level validation: check if the specific function is supported.
-        validateFunctionIfApplicable(expr, unsupported, depth);
+        validateFunctionIfApplicable(expr, registry, unsupported, depth);
 
         // Recurse into child expressions.
         collectChildExpressions(expr).forEach(
-                child -> validateExpression(child, unsupported, depth));
+                child -> validateExpression(child, registry, unsupported, depth));
     }
 
     /**
      * Validates function-level support for ScalarFunction and WindowFunction
      * invocations against the native capability registry.
      */
-    private void validateFunctionIfApplicable(Expression expr,
+    private void validateFunctionIfApplicable(Expression expr, NativeCapabilityRegistry registry,
                                                List<UnsupportedNode> unsupported, int depth) {
         String functionName = extractFunctionName(expr);
         if (functionName == null || functionName.isEmpty()) {

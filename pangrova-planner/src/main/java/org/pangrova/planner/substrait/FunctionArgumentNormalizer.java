@@ -44,23 +44,28 @@ final class FunctionArgumentNormalizer {
                 throw invalid("Optional arguments cannot skip required argument positions");
             }
         }
-        return normalizePrimitiveArithmetic(call, List.copyOf(normalized));
+        return normalizePrimitiveNumbers(call, List.copyOf(normalized));
     }
 
-    private Arguments normalizePrimitiveArithmetic(RexCall call, List<Expression> arguments) {
+    private Arguments normalizePrimitiveNumbers(RexCall call, List<Expression> arguments) {
         Type output = typeMapper.map(call.getType());
         boolean arithmetic = switch (call.getKind()) {
             case PLUS, MINUS, TIMES, DIVIDE, MOD -> true;
             default -> false;
         };
-        if (!arithmetic || call.getOperands().size() != 2
-                || !primitiveNumber(call.getType().getSqlTypeName())
+        boolean comparison = switch (call.getKind()) {
+            case EQUALS, NOT_EQUALS, LESS_THAN, LESS_THAN_OR_EQUAL,
+                    GREATER_THAN, GREATER_THAN_OR_EQUAL, IS_DISTINCT_FROM, IS_NOT_DISTINCT_FROM -> true;
+            default -> false;
+        };
+        if ((!arithmetic && !comparison) || call.getOperands().size() != 2
+                || (arithmetic && !primitiveNumber(call.getType().getSqlTypeName()))
                 || call.getOperands().stream().anyMatch(node -> !primitiveNumber(node.getType().getSqlTypeName()))) {
             return new Arguments(arguments, output);
         }
         var factory = rexBuilder.getTypeFactory();
         var common = factory.leastRestrictive(call.getOperands().stream().map(RexNode::getType).toList());
-        if (common == null) throw invalid("Primitive arithmetic has no validated common numeric type");
+        if (common == null) throw invalid("Primitive numeric call has no validated common type");
         List<Expression> widened = new ArrayList<>(arguments.size());
         for (int ordinal = 0; ordinal < arguments.size(); ordinal++) {
             Expression argument = arguments.get(ordinal);
@@ -69,8 +74,9 @@ final class FunctionArgumentNormalizer {
             widened.add(argument.getType().equals(target) ? argument : ImmutableExpression.Cast.builder()
                     .input(argument).type(target).failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION).build());
         }
-        return new Arguments(List.copyOf(widened), typeMapper.map(factory.createTypeWithNullability(
-                common, call.getType().isNullable())));
+        // Comparisons retain the validated BOOLEAN result, including null-safe predicates.
+        return new Arguments(List.copyOf(widened), comparison ? output
+                : typeMapper.map(factory.createTypeWithNullability(common, call.getType().isNullable())));
     }
 
     private static boolean primitiveNumber(SqlTypeName type) {

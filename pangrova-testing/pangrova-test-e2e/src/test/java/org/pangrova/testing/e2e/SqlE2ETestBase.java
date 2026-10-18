@@ -2534,6 +2534,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         PangrovaPlanner template = new PangrovaPlanner(
                 CalciteSchema.createRootSchema(false, false), schemaPath);
         return new SqlCompiler(template, new SubstraitConverter(), new SubstraitPlanSerializer())
+                .withNativeCapabilities(() ->
+                        org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(
+                                workerManager.getActiveWorkers().stream().map(
+                                        org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
                 .withSessionPlanner(session -> {
                     var bindings = new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
                             metadataBootstrap.catalogRegistry(), session);

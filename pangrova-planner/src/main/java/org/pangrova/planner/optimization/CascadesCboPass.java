@@ -111,7 +111,9 @@ public final class CascadesCboPass implements OptimizationPass {
 
     private static final List<RelOptRule> STATIC_RULES = List.of(
             CoreRules.JOIN_COMMUTE,
-            CoreRules.JOIN_ASSOCIATE,
+            // Reassociation changes predicates and inputs. Physical join copies would
+            // retain an obsolete algorithm and distribution after that transformation.
+            CoreRules.JOIN_ASSOCIATE.config.withOperandFor(LogicalJoin.class).toRule(),
             new BroadcastJoinRule(),
             new SortMergeJoinRule()
     );

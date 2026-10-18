@@ -17,21 +17,25 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.awaitility.Awaitility.await;
 
-/** Real model deployment, immutable inventory binding, and paused-server timeout cleanup. */
+/** Offline real model deployment, immutable inventory binding, and timeout cleanup. */
 class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
-    void realHttpPullFreezesBothExactInventoryDigestsBeforePublishingConfiguration() throws Exception {
-        try (var provider = new SharedAiProvider()) {
+    void realModelsStartAndInferWithoutRegistryAccess() throws Exception {
+        var selected = AiProviderDeployment.configured();
+        selected.container().withExtraHost("registry.ollama.ai", "127.0.0.1");
+        try (var provider = new SharedAiProvider(selected, Duration.ofMinutes(3))) {
             var config = provider.prepare();
+            assertThat(selected.container().execInContainer("getent", "hosts", "registry.ollama.ai")
+                    .getStdout()).contains("127.0.0.1");
             HttpRequest request = HttpRequest.newBuilder(URI.create(provider.endpoint("/api/tags")))
                     .timeout(Duration.ofSeconds(10)).GET().build();
             HttpResponse<String> inventory = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
@@ -56,10 +60,58 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
                         .isEqualTo(Integer.toString(AiProviderDeployment.MAX_INPUT_TOKENS));
             }
             assertThat(provider.prepare()).isSameAs(config);
-            await("two actual completed non-streaming model pulls")
-                    .atMost(Duration.ofSeconds(5))
-                    .untilAsserted(() -> assertThat(provider.requestCount("/api/pull")).isEqualTo(2));
+            assertThat(provider.requestCount("/api/pull")).isZero();
+            JsonNode completion = infer(provider, "/api/generate", Map.of(
+                    "model", SharedAiProvider.PROVIDER_MODEL, "prompt", "Say hello", "stream", false,
+                    "options", Map.of("num_predict", 4, "num_ctx", 512)));
+            assertThat(completion.path("response").asText()).isNotBlank();
+            JsonNode embedding = infer(provider, "/api/embeddings", Map.of(
+                    "model", SharedAiProvider.EMBEDDING_PROVIDER_MODEL, "prompt", "hello"));
+            assertThat(embedding.path("embedding").size()).isEqualTo(SharedAiProvider.EMBEDDING_DIMENSION);
+            assertThat(provider.requestCount("/api/pull")).isZero();
         }
+    }
+
+    @Test
+    void wrongPreparedDigestFailsAndRemovesTheOwnedContainer() {
+        var selected = AiProviderDeployment.configured();
+        var wrongModels = new HashMap<>(selected.expectedModels());
+        wrongModels.put(SharedAiProvider.PROVIDER_MODEL, "0".repeat(64));
+        try (var provider = new SharedAiProvider(new AiProviderDeployment(
+                selected.container(), wrongModels), Duration.ofMinutes(3))) {
+            assertThatThrownBy(provider::prepare).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Prepared AI model identity changed");
+            assertContainerRemoved(selected.container());
+        }
+    }
+
+    @Test
+    void missingModelFailsLocallyWithoutAttemptingDownload() {
+        var empty = new GenericContainer<>(DockerImageName.parse("ollama/ollama:0.6.2"))
+                .withExposedPorts(11434)
+                .waitingFor(new HttpWaitStrategy().forPath("/api/tags").forStatusCode(200));
+        try (var provider = new SharedAiProvider(empty, Duration.ofMinutes(3))) {
+            assertThatThrownBy(provider::prepare).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Prepared Ollama fixture is missing model");
+            assertContainerRemoved(empty);
+        }
+    }
+
+    private static void assertContainerRemoved(GenericContainer<?> container) {
+        assertThat(container.isRunning()).isFalse();
+        assertThat(container.getContainerId()).isNull();
+    }
+
+    private static JsonNode infer(SharedAiProvider provider, String path, Map<String, Object> body)
+            throws Exception {
+        var request = HttpRequest.newBuilder(URI.create(provider.endpoint(path)))
+                .timeout(Duration.ofSeconds(60)).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(MAPPER.writeValueAsBytes(body))).build();
+        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        var result = MAPPER.readTree(response.body());
+        assertThat(result.hasNonNull("error")).isFalse();
+        return result;
     }
 
     @Test
@@ -74,7 +126,7 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
                     .isInstanceOfAny(TimeoutException.class, HttpTimeoutException.class)
                     .satisfies(failure -> assertThat(failure.getSuppressed())
                             .anySatisfy(diagnostic -> assertThat(diagnostic)
-                                    .hasMessageContaining("pull " + SharedAiProvider.PROVIDER_MODEL)
+                                    .hasMessageContaining("immutable model inventory")
                                     .hasMessageContaining("container diagnostics")));
             assertThat(Duration.ofNanos(System.nanoTime() - started))
                     .isLessThan(Duration.ofSeconds(30));

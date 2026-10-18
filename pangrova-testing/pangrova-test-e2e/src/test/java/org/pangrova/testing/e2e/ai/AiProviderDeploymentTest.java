@@ -20,6 +20,14 @@ class AiProviderDeploymentTest {
     }
 
     @Test
+    void missingPreparedArtifactFailsBeforeStartingAnOnlineDeployment() {
+        assertThatThrownBy(() -> AiProviderDeployment.select(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("prepare-e2e-ai-image.py")
+                .hasMessageContaining(AiProviderDeployment.IMAGE_PROPERTY);
+    }
+
+    @Test
     void exactBaseAndBothModelDigestsAreRequired() {
         assertThat(AiProviderDeployment.expectedModels(labels())).containsExactlyInAnyOrderEntriesOf(
                 Map.of(SharedAiProvider.PROVIDER_MODEL, "a".repeat(64),

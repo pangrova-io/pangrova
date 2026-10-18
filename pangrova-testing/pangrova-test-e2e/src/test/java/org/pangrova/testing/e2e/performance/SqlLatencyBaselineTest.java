@@ -2,7 +2,6 @@ package org.pangrova.testing.e2e.performance;
 
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -11,19 +10,13 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Performance baseline tests measuring p50/p99 latency for representative SQL workloads.
+ * Performance baseline tests measuring median/maximum observed latency for representative SQL workloads.
  *
  * <p>Excluded from default CI runs via {@code @Tag("performance")}.
  * Run explicitly with {@code -Dgroups=performance} or a dedicated profile.
@@ -31,9 +24,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Thresholds are generous baselines, not strict SLAs. They exist to detect
  * severe regressions, not to enforce production-grade latency targets.
  *
- * <p>When run with {@code -Dpangrova.benchmark.output=<path>}, writes a JSON results file
- * for CI regression comparison. Use {@code -Dpangrova.benchmark.queries=Q1,Q5,Q9} to
- * restrict which TPC-H queries are included in the output.
  */
 @Tag("performance")
 @DisplayName("SQL Latency Baselines")
@@ -49,15 +39,6 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
 
     private static final String FQN_PREFIX = CATALOG + "." + SCHEMA + ".";
 
-    /**
-     * Collects TPC-H query p99 results for JSON output.
-     * Key: query ID (e.g., "Q1"), Value: p99 latency in milliseconds.
-     */
-    private static final Map<String, Long> TPCH_RESULTS = new ConcurrentHashMap<>();
-
-    private static final String OUTPUT_PROPERTY = "pangrova.benchmark.output";
-    private static final String QUERIES_PROPERTY = "pangrova.benchmark.queries";
-
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
         return List.of(
@@ -72,43 +53,6 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
         dataSetup.loadTpcHDataViaConnector(
                 org.pangrova.testing.e2e.setup.TestConnectorFactory.createIcebergConnector(icebergWarehouse()),
                 1);
-    }
-
-    @AfterAll
-    static void writeResultsJson() {
-        String outputPath = System.getProperty(OUTPUT_PROPERTY);
-        if (outputPath == null || outputPath.isBlank()) {
-            return;
-        }
-        String queriesFilter = System.getProperty(QUERIES_PROPERTY, "");
-        Set<String> allowedQueries = queriesFilter.isBlank()
-                ? TPCH_RESULTS.keySet()
-                : Set.of(queriesFilter.split(","));
-
-        StringBuilder json = new StringBuilder();
-        json.append("{\n  \"queries\": {\n");
-        boolean first = true;
-        for (Map.Entry<String, Long> entry : TPCH_RESULTS.entrySet()) {
-            if (!allowedQueries.contains(entry.getKey())) {
-                continue;
-            }
-            if (!first) {
-                json.append(",\n");
-            }
-            json.append("    \"").append(entry.getKey()).append("\": { \"p99Ms\": ")
-                    .append(entry.getValue()).append(" }");
-            first = false;
-        }
-        json.append("\n  }\n}\n");
-
-        try {
-            Path path = Path.of(outputPath);
-            Files.createDirectories(path.getParent());
-            Files.writeString(path, json.toString());
-            LOG.info("Benchmark results written to {}", outputPath);
-        } catch (IOException e) {
-            LOG.error("Failed to write benchmark results to {}", outputPath, e);
-        }
     }
 
     // -- Benchmark infrastructure --
@@ -130,23 +74,24 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
         return latencies;
     }
 
-    private static long p50(long[] sorted) {
-        return sorted[sorted.length / 2];
+    private static double p50(long[] sorted) {
+        int middle = sorted.length / 2;
+        return sorted.length % 2 == 0
+                ? sorted[middle - 1] / 2.0 + sorted[middle] / 2.0 : sorted[middle];
     }
 
-    private static long p99(long[] sorted) {
-        int index = (int) Math.ceil(sorted.length * 0.99) - 1;
-        return sorted[Math.min(index, sorted.length - 1)];
+    private static long max(long[] sorted) {
+        return sorted[sorted.length - 1];
     }
 
-    private void assertLatency(String label, String sql, long p99ThresholdMs) {
+    private void assertLatency(String label, String sql, long maxThresholdMs) {
         long[] latencies = measureLatencies(sql);
-        long measuredP50 = p50(latencies);
-        long measuredP99 = p99(latencies);
-        LOG.info("[{}] p50={}ms  p99={}ms  threshold={}ms", label, measuredP50, measuredP99, p99ThresholdMs);
-        assertThat(measuredP99)
-                .as("%s p99 latency should be below %dms", label, p99ThresholdMs)
-                .isLessThan(p99ThresholdMs);
+        double measuredP50 = p50(latencies);
+        long measuredMax = max(latencies);
+        LOG.info("[{}] p50={}ms  max={}ms  threshold={}ms", label, measuredP50, measuredMax, maxThresholdMs);
+        assertThat(measuredMax)
+                .as("%s max latency should be below %dms", label, maxThresholdMs)
+                .isLessThan(maxThresholdMs);
     }
 
     /**
@@ -154,7 +99,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
      * Uses 3 warmup + 10 measured iterations to avoid SIGABRT from
      * repeated native engine execution in single-worker test cluster.
      */
-    private void assertLatencyReduced(String label, String sql, long p99ThresholdMs) {
+    private void assertLatencyReduced(String label, String sql, long maxThresholdMs) {
         int reducedWarmup = 3;
         int reducedMeasured = 10;
         for (int i = 0; i < reducedWarmup; i++) {
@@ -167,13 +112,13 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
             latencies[i] = (System.nanoTime() - start) / 1_000_000;
         }
         Arrays.sort(latencies);
-        long measuredP50 = p50(latencies);
-        long measuredP99 = p99(latencies);
-        LOG.info("[{}] p50={}ms  p99={}ms  threshold={}ms (reduced iterations)",
-                label, measuredP50, measuredP99, p99ThresholdMs);
-        assertThat(measuredP99)
-                .as("%s p99 latency should be below %dms", label, p99ThresholdMs)
-                .isLessThan(p99ThresholdMs);
+        double measuredP50 = p50(latencies);
+        long measuredMax = max(latencies);
+        LOG.info("[{}] p50={}ms  max={}ms  threshold={}ms (reduced iterations)",
+                label, measuredP50, measuredMax, maxThresholdMs);
+        assertThat(measuredMax)
+                .as("%s max latency should be below %dms", label, maxThresholdMs)
+                .isLessThan(maxThresholdMs);
     }
 
     // -- Test scenarios organized by query type --
@@ -183,7 +128,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
     class ConstantExpression {
 
         @Test
-        @DisplayName("SELECT 1+2 — p99 < 500ms")
+        @DisplayName("SELECT 1+2 — max < 500ms")
         void constantExprLatency() {
             assertLatency("constant-expr", "SELECT 1+2", 500);
         }
@@ -194,7 +139,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
     class MetadataQuery {
 
         @Test
-        @DisplayName("SHOW TABLES — p99 < 1000ms")
+        @DisplayName("SHOW TABLES — max < 1000ms")
         void showTablesLatency() {
             assertLatency("metadata", "SHOW TABLES FROM " + CATALOG + "." + SCHEMA, 1000);
         }
@@ -205,7 +150,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
     class SimpleScan {
 
         @Test
-        @DisplayName("SELECT * FROM orders LIMIT 100 — p99 < 2000ms")
+        @DisplayName("SELECT * FROM orders LIMIT 100 — max < 2000ms")
         void scanWithLimitLatency() {
             // Reduced iterations to avoid native SIGABRT from repeated execution
             assertLatencyReduced("scan-limit",
@@ -218,7 +163,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
     class Aggregation {
 
         @Test
-        @DisplayName("SELECT COUNT(*) FROM orders — p99 < 3000ms")
+        @DisplayName("SELECT COUNT(*) FROM orders — max < 3000ms")
         void countAggregationLatency() {
             // Reduced iterations to avoid native SIGABRT from repeated execution
             assertLatencyReduced("count-agg",
@@ -231,7 +176,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
     class JoinQuery {
 
         @Test
-        @DisplayName("orders JOIN customer — p99 < 5000ms")
+        @DisplayName("orders JOIN customer — max < 5000ms")
         void joinLatency() {
             String sql = "SELECT o_orderkey, o_totalprice, c_name "
                     + "FROM orders JOIN customer ON o_custkey = c_custkey "
@@ -261,14 +206,13 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
                 + "ORDER BY l_returnflag, l_linestatus";
 
         @Test
-        @DisplayName("TPC-H Q1 pricing summary — p99 < 10000ms")
+        @DisplayName("TPC-H Q1 pricing summary — max < 10000ms")
         void tpchQ1Latency() {
             long[] latencies = measureLatencies(TPCH_Q1);
-            long measuredP99 = p99(latencies);
-            TPCH_RESULTS.put("Q1", measuredP99);
-            LOG.info("[tpch-q1] p50={}ms  p99={}ms  threshold=10000ms", p50(latencies), measuredP99);
-            assertThat(measuredP99)
-                    .as("TPC-H Q1 p99 latency should be below 10000ms")
+            long measuredMax = max(latencies);
+            LOG.info("[tpch-q1] p50={}ms  max={}ms  threshold=10000ms", p50(latencies), measuredMax);
+            assertThat(measuredMax)
+                    .as("TPC-H Q1 max latency should be below 10000ms")
                     .isLessThan(10_000);
         }
     }
@@ -294,14 +238,13 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
                 + "ORDER BY revenue DESC";
 
         @Test
-        @DisplayName("TPC-H Q5 local supplier volume — p99 < 15000ms")
+        @DisplayName("TPC-H Q5 local supplier volume — max < 15000ms")
         void tpchQ5Latency() {
             long[] latencies = measureLatencies(TPCH_Q5);
-            long measuredP99 = p99(latencies);
-            TPCH_RESULTS.put("Q5", measuredP99);
-            LOG.info("[tpch-q5] p50={}ms  p99={}ms  threshold=15000ms", p50(latencies), measuredP99);
-            assertThat(measuredP99)
-                    .as("TPC-H Q5 p99 latency should be below 15000ms")
+            long measuredMax = max(latencies);
+            LOG.info("[tpch-q5] p50={}ms  max={}ms  threshold=15000ms", p50(latencies), measuredMax);
+            assertThat(measuredMax)
+                    .as("TPC-H Q5 max latency should be below 15000ms")
                     .isLessThan(15_000);
         }
     }
@@ -328,14 +271,13 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
                 + "ORDER BY nation, o_year DESC";
 
         @Test
-        @DisplayName("TPC-H Q9 product type profit — p99 < 20000ms")
+        @DisplayName("TPC-H Q9 product type profit — max < 20000ms")
         void tpchQ9Latency() {
             long[] latencies = measureLatencies(TPCH_Q9);
-            long measuredP99 = p99(latencies);
-            TPCH_RESULTS.put("Q9", measuredP99);
-            LOG.info("[tpch-q9] p50={}ms  p99={}ms  threshold=20000ms", p50(latencies), measuredP99);
-            assertThat(measuredP99)
-                    .as("TPC-H Q9 p99 latency should be below 20000ms")
+            long measuredMax = max(latencies);
+            LOG.info("[tpch-q9] p50={}ms  max={}ms  threshold=20000ms", p50(latencies), measuredMax);
+            assertThat(measuredMax)
+                    .as("TPC-H Q9 max latency should be below 20000ms")
                     .isLessThan(20_000);
         }
     }
@@ -345,7 +287,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
     class InsertQuery {
 
         @Test
-        @DisplayName("INSERT INTO ... VALUES — p99 < 3000ms")
+        @DisplayName("INSERT INTO ... VALUES — max < 3000ms")
         void insertLatency() {
             // Create a scratch table for insert benchmarking
             String table = FQN_PREFIX + "perf_insert_target";
@@ -370,12 +312,12 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
                     latencies[i] = (System.nanoTime() - start) / 1_000_000;
                 }
                 Arrays.sort(latencies);
-                long measuredP50 = p50(latencies);
-                long measuredP99 = p99(latencies);
-                LOG.info("[insert] p50={}ms  p99={}ms  threshold=3000ms",
-                        measuredP50, measuredP99);
-                assertThat(measuredP99)
-                        .as("INSERT p99 latency should be below 3000ms")
+                double measuredP50 = p50(latencies);
+                long measuredMax = max(latencies);
+                LOG.info("[insert] p50={}ms  max={}ms  threshold=3000ms",
+                        measuredP50, measuredMax);
+                assertThat(measuredMax)
+                        .as("INSERT max latency should be below 3000ms")
                         .isLessThan(3000);
             } finally {
                 sqlRunner.execute("DROP TABLE IF EXISTS " + table);
@@ -388,7 +330,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
     class DdlQuery {
 
         @Test
-        @DisplayName("CREATE TABLE / DROP TABLE — p99 < 2000ms")
+        @DisplayName("CREATE TABLE / DROP TABLE — max < 2000ms")
         void ddlLatency() {
             // Warmup
             for (int i = 0; i < WARMUP_ITERATIONS; i++) {
@@ -406,12 +348,12 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
                 latencies[i] = (System.nanoTime() - start) / 1_000_000;
             }
             Arrays.sort(latencies);
-            long measuredP50 = p50(latencies);
-            long measuredP99 = p99(latencies);
-            LOG.info("[ddl] p50={}ms  p99={}ms  threshold=5000ms",
-                    measuredP50, measuredP99);
-            assertThat(measuredP99)
-                    .as("DDL p99 latency should be below 5000ms")
+            double measuredP50 = p50(latencies);
+            long measuredMax = max(latencies);
+            LOG.info("[ddl] p50={}ms  max={}ms  threshold=5000ms",
+                    measuredP50, measuredMax);
+            assertThat(measuredMax)
+                    .as("DDL max latency should be below 5000ms")
                     .isLessThan(5000);
         }
     }
