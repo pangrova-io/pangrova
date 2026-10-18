@@ -268,11 +268,20 @@ class CanonicalExpressionSqlProtocolTest {
 
     @Test
     void roundDoubleKeepsAnIntegerPositionAfterNumericPromotion() throws Exception {
-        var invocation = expression("SELECT ROUND(CAST(x AS DOUBLE), CAST(y AS BIGINT)) "
-                + "FROM (SELECT 1 AS x, 0 AS y) t").getScalarFunction();
+        var compiler = new SqlCompiler();
+        var compiled = compiler.compileForPolicyApplication(
+                "SELECT ROUND(CAST(x AS DOUBLE), CAST(y AS BIGINT)) "
+                        + "FROM (SELECT 1 AS x, 0 AS y) t");
+        var plan = Plan.parseFrom(compiler.convertValidateAndSerialize(compiled.plan(),
+                compiled.preOptimizationColumnNames()));
+        var project = plan.getRelations(0).getRoot().getInput().getProject();
+        var invocation = project.getExpressions(0).getScalarFunction();
         assertThat(invocation.getOutputType().hasFp64()).isTrue();
         assertThat(invocation.getArguments(0).getValue().getCast().getType().hasFp64()).isTrue();
-        assertThat(invocation.getArguments(1).getValue().getCast().getType().hasI32()).isTrue();
+        assertThat(invocation.getArguments(1).getValue().hasSelection()).isTrue();
+        assertThat(invocation.getArguments(1).getValue().getSelection()
+                .getDirectReference().getStructField().getField()).isEqualTo(1);
+        assertThat(project.getInput().getRead().getBaseSchema().getStruct().getTypes(1).hasI32()).isTrue();
     }
 
     @Test

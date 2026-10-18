@@ -64,7 +64,7 @@ class SubstraitProtoNormalizerTest {
         addDeprecatedKey(join, "left_keys", field(0));
         addDeprecatedKey(join, "right_keys", field(1));
 
-        assertRejected(join, relationField);
+        assertRejected(join, relationField, "Deprecated join keys differ from canonical keys");
     }
 
     @ParameterizedTest
@@ -74,7 +74,7 @@ class SubstraitProtoNormalizerTest {
         addCanonicalKey(join, equalKey());
         addDeprecatedKey(join, "left_keys", field(0));
 
-        assertRejected(join, relationField);
+        assertRejected(join, relationField, "Deprecated join keys differ from canonical keys");
     }
 
     @ParameterizedTest
@@ -86,7 +86,7 @@ class SubstraitProtoNormalizerTest {
         addDeprecatedKey(join, "left_keys", field(0));
         addDeprecatedKey(join, "right_keys", field(1));
 
-        assertRejected(join, relationField);
+        assertRejected(join, relationField, "Deprecated join keys differ from canonical keys");
     }
 
     @ParameterizedTest
@@ -97,7 +97,7 @@ class SubstraitProtoNormalizerTest {
         addDeprecatedKey(join, "left_keys", field(2));
         addDeprecatedKey(join, "right_keys", field(1));
 
-        assertRejected(join, relationField);
+        assertRejected(join, relationField, "Deprecated join keys differ from canonical keys");
     }
 
     @ParameterizedTest
@@ -111,14 +111,14 @@ class SubstraitProtoNormalizerTest {
         addDeprecatedKey(join, "left_keys", field(0));
         addDeprecatedKey(join, "right_keys", field(1));
 
-        assertRejected(join, relationField);
+        assertRejected(join, relationField, "Deprecated join keys require canonical EQ comparison");
     }
 
-    private static void assertRejected(Message.Builder join, String relationField) {
+    private static void assertRejected(Message.Builder join, String relationField, String expectedMessage) {
         Plan input = nestedPlan(join.build(), relationField);
         assertThatThrownBy(() -> SubstraitProtoNormalizer.normalize(input))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("non-canonical or conflicting deprecated keys");
+                .hasMessage(expectedMessage);
     }
 
     private static Message.Builder newJoin(String relationField) {

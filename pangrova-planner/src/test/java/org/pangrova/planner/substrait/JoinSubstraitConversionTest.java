@@ -248,8 +248,8 @@ class JoinSubstraitConversionTest {
         var join = new PangrovaSortMergeJoin(new SortMergeJoinConfig(
                 cluster, left.getTraitSet(), left, right, condition, Set.of(), JoinRelType.INNER));
         NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
-        registry.update(Set.of("ReadRel", "SortRel", "MergeJoinRel"),
-                Set.of("FieldReference", "ScalarFunction"), Set.of("equal"));
+        registry.update(Set.of("ReadRel", "SortRel", "MergeJoinRel", "JoinRel"),
+                Set.of("FieldReference", "ScalarFunction"), Set.of("equal", "and"));
         Plan plan = new SubstraitConverter().convert(join);
 
         var result = new SubstraitPlanValidator(registry).validate(plan);

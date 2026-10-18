@@ -14,7 +14,9 @@ import org.pangrova.protocol.v2.CapabilityInventory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,7 +37,14 @@ class RuntimeCapabilityValidationTest {
 
         assertThat(compiler.compile(QUERY)).isNotEmpty();
         // The same compiler must not cache an earlier permissive snapshot.
-        current.set(NativeCapabilityRegistry.defaults());
+        // Standalone defaults also advertise year, so remove only that function
+        // from an otherwise equivalent Worker inventory.
+        var withoutYear = NativeCapabilityRegistry.defaults();
+        withoutYear.update(Set.copyOf(actual.getSupportedSubstraitRelTypesList()),
+                Set.copyOf(actual.getSupportedSubstraitExpressionTypesList()),
+                actual.getFunctionsList().stream().map(function -> function.getRef().getName())
+                        .filter(name -> !name.equals("year")).collect(Collectors.toSet()));
+        current.set(withoutYear);
         assertThatThrownBy(() -> compiler.compile(QUERY)).isInstanceOf(PlannerException.class)
                 .hasMessageContaining("year");
         current.set(advertised);
