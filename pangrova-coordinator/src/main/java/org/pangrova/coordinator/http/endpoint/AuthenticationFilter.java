@@ -85,6 +85,8 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
     /**
      * Kept for source and binary compatibility. Forwarded headers cannot establish
      * client identity; the transport peer is used regardless of the old proxy count.
+     *
+     * @deprecated use the constructor without the ignored proxy count
      */
     @Deprecated
     public AuthenticationFilter(AuthenticationManager authenticationManager,

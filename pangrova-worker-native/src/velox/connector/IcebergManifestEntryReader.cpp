@@ -189,10 +189,16 @@ std::optional<int32_t> optionalSortOrderId(const folly::dynamic& file) {
   return value;
 }
 
-void verifyParentMembership(IcebergAvroContainerReader& list,
+struct ParentManifestIdentity {
+  int64_t addedSnapshotId = 0;
+  int64_t sequenceNumber = 0;
+  std::optional<int64_t> firstRowId;
+};
+
+ParentManifestIdentity verifyParentMembership(IcebergAvroContainerReader& list,
     const std::string& childUri, uint64_t childLength,
     uint64_t snapshotId, uint64_t sequenceNumber, int32_t formatVersion,
-    int32_t specId, int32_t content) {
+    int32_t specId, int32_t content, bool requireEntryMetadata) {
   if (snapshotId == 0 || headerLong(list, "snapshot-id") !=
           static_cast<int64_t>(snapshotId) ||
       headerLong(list, "sequence-number") != static_cast<int64_t>(sequenceNumber) ||
@@ -200,6 +206,7 @@ void verifyParentMembership(IcebergAvroContainerReader& list,
     throw std::runtime_error("Pinned Iceberg manifest-list header differs");
   }
   int matches = 0;
+  ParentManifestIdentity identity;
   while (auto record = list.nextRecord()) {
     if (!record->isObject()) {
       throw std::runtime_error("Invalid Iceberg manifest-list record");
@@ -211,11 +218,26 @@ void verifyParentMembership(IcebergAvroContainerReader& list,
         requiredInt(*record, "content") != content) {
       throw std::runtime_error("Pinned Iceberg child differs from manifest list");
     }
+    if (requireEntryMetadata) {
+      identity.addedSnapshotId = requiredLong(*record, "added_snapshot_id");
+      identity.sequenceNumber = requiredLong(*record, "sequence_number");
+      if (identity.addedSnapshotId <= 0 || identity.sequenceNumber < 0 ||
+          identity.sequenceNumber > static_cast<int64_t>(sequenceNumber)) {
+        throw std::runtime_error("Invalid Iceberg manifest entry inheritance");
+      }
+      if (formatVersion == 3 && record->count("first_row_id") &&
+          !(*record)["first_row_id"].isNull()) {
+        const auto first = requiredLong(*record, "first_row_id");
+        if (first < 0) throw std::runtime_error("Negative Iceberg manifest first row ID");
+        identity.firstRowId = first;
+      }
+    }
     ++matches;
   }
   if (matches != 1) {
     throw std::runtime_error("Pinned Iceberg child is missing or duplicated in manifest list");
   }
+  return identity;
 }
 
 struct FileRow {
@@ -229,6 +251,10 @@ struct FileRow {
   std::optional<std::vector<int64_t>> splitOffsets;
   std::optional<std::vector<int32_t>> equalityIds;
   std::optional<int32_t> sortOrderId;
+  int64_t snapshotId = 0;
+  int64_t sequenceNumber = 0;
+  int32_t status = 0;
+  std::optional<int64_t> firstRowId;
 };
 
 template <typename T>
@@ -335,7 +361,8 @@ FileRow decodeLiveEntry(const folly::dynamic& entry,
   return {content, requiredText(file, "file_path"),
       requiredText(file, "file_format"), specId, recordCount, fileSize,
       optionalColumnSizes(file), std::move(splitOffsets),
-      std::move(equalityIds), optionalSortOrderId(file)};
+      std::move(equalityIds), optionalSortOrderId(file),
+      0, 0, 0, std::nullopt};
 }
 
 }  // namespace
@@ -347,8 +374,9 @@ IcebergManifestEntryReader::IcebergManifestEntryReader(
     uint64_t snapshotId, uint64_t sequenceNumber, int32_t formatVersion,
     int32_t specId, int32_t manifestContent,
     facebook::velox::RowTypePtr outputType,
-    facebook::velox::memory::MemoryPool* pool)
+    facebook::velox::memory::MemoryPool* pool, bool entries)
     : spec_id_(specId), manifest_content_(manifestContent),
+      format_version_(formatVersion), entries_(entries),
       output_type_(std::move(outputType)), pool_(pool) {
   if (!output_type_ || !pool_ || childUri.empty() || listUri.empty() ||
       childUri == listUri || childLength == 0 || listLength == 0 ||
@@ -358,8 +386,11 @@ IcebergManifestEntryReader::IcebergManifestEntryReader(
     throw std::invalid_argument("Invalid Iceberg files reader selection");
   }
   auto list = openPinned(listUri, listLength, listSha256);
-  verifyParentMembership(*list, childUri, childLength, snapshotId,
-      sequenceNumber, formatVersion, specId, manifestContent);
+  const auto parent = verifyParentMembership(*list, childUri, childLength,
+      snapshotId, sequenceNumber, formatVersion, specId, manifestContent, entries_);
+  inherited_snapshot_id_ = parent.addedSnapshotId;
+  inherited_sequence_number_ = parent.sequenceNumber;
+  inherited_first_row_id_ = parent.firstRowId;
   child_ = openPinned(childUri, childLength, childSha256);
   if (headerLong(*child_, "format-version") != formatVersion ||
       headerLong(*child_, "partition-spec-id") != specId ||
@@ -375,6 +406,17 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
   std::unordered_set<std::string> names;
   for (size_t index = 0; index < output_type_->size(); ++index) {
     const auto& name = output_type_->nameOf(index);
+    if (entries_) {
+      const auto expected = name == "file_path" ? TypeKind::VARCHAR
+          : name == "status" ? TypeKind::INTEGER : TypeKind::BIGINT;
+      if ((name != "status" && name != "snapshot_id" && name != "sequence_number" &&
+              name != "file_path" && name != "data_sequence_number" &&
+              name != "first_row_id") ||
+          !names.insert(name).second || output_type_->childAt(index)->kind() != expected) {
+        throw std::runtime_error("Unsupported Iceberg $entries output column: " + name);
+      }
+      continue;
+    }
     const auto expected = name == "column_sizes" ? TypeKind::MAP
         : name == "split_offsets" || name == "equality_ids"
         ? TypeKind::ARRAY : name == "content" || name == "spec_id" ||
@@ -417,8 +459,48 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
     if (status < 0 || status > 2) {
       throw std::runtime_error("Invalid Iceberg manifest entry status");
     }
-    if (status != 2) {
-      rows.push_back(decodeLiveEntry(*record, spec_id_, manifest_content_));
+    if (status != 2 || entries_) {
+      auto file = decodeLiveEntry(*record, spec_id_, manifest_content_);
+      if (entries_) {
+        file.status = status;
+        if (!record->count("snapshot_id") || !record->count("sequence_number")) {
+          throw std::runtime_error("Iceberg manifest entry lineage fields are missing");
+        }
+        const auto& snapshot = (*record)["snapshot_id"];
+        const auto& sequence = (*record)["sequence_number"];
+        if ((!snapshot.isNull() && !snapshot.isInt()) ||
+            (!sequence.isNull() && !sequence.isInt()) ||
+            (sequence.isNull() && status != 1)) {
+          throw std::runtime_error("Invalid Iceberg manifest entry lineage");
+        }
+        file.snapshotId = snapshot.isNull()
+            ? inherited_snapshot_id_ : snapshot.asInt();
+        file.sequenceNumber = sequence.isNull()
+            ? inherited_sequence_number_ : sequence.asInt();
+        if (file.snapshotId <= 0 || file.sequenceNumber < 0) {
+          throw std::runtime_error("Invalid Iceberg manifest entry lineage value");
+        }
+        if (format_version_ == 3) {
+          const auto& dataFile = (*record)["data_file"];
+          if (dataFile.count("first_row_id") && !dataFile["first_row_id"].isNull()) {
+            const auto first = requiredLong(dataFile, "first_row_id");
+            if (first < 0 || file.content != 0) {
+              throw std::runtime_error("Invalid Iceberg data file first row ID");
+            }
+            file.firstRowId = first;
+          } else if (file.content == 0 && inherited_first_row_id_) {
+            if (*inherited_first_row_id_ >
+                    std::numeric_limits<int64_t>::max() - inherited_row_offset_ ||
+                file.recordCount >
+                    std::numeric_limits<int64_t>::max() - inherited_row_offset_) {
+              throw std::runtime_error("Iceberg inherited first row ID overflow");
+            }
+            file.firstRowId = *inherited_first_row_id_ + inherited_row_offset_;
+            inherited_row_offset_ += file.recordCount;
+          }
+        }
+      }
+      rows.push_back(std::move(file));
     }
   }
   if (rows.empty()) return nullptr;
@@ -437,6 +519,29 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
     }
     if (name == "equality_ids") {
       columns.push_back(arrayColumn(rows, type, &FileRow::equalityIds, pool_));
+      continue;
+    }
+    if (entries_) {
+      auto vector = facebook::velox::BaseVector::create(type, rows.size(), pool_);
+      for (size_t row = 0; row < rows.size(); ++row) {
+        const auto& file = rows[row];
+        if (name == "first_row_id") {
+          if (file.firstRowId) {
+            vector->asFlatVector<int64_t>()->set(row, *file.firstRowId);
+          } else {
+            vector->setNull(row, true);
+          }
+        } else if (name == "status") {
+          vector->asFlatVector<int32_t>()->set(row, file.status);
+        } else if (name == "file_path") {
+          vector->asFlatVector<facebook::velox::StringView>()->set(
+              row, facebook::velox::StringView(file.path));
+        } else {
+          vector->asFlatVector<int64_t>()->set(row,
+              name == "snapshot_id" ? file.snapshotId : file.sequenceNumber);
+        }
+      }
+      columns.push_back(std::move(vector));
       continue;
     }
     auto vector = facebook::velox::BaseVector::create(

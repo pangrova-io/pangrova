@@ -10,7 +10,13 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 public record IcebergFileTableHandle(
         IcebergManifestTableHandle manifestSelection,
         List<ManifestObject> manifests,
-        List<ConnectorTableMetadata.Column> typedColumns) implements ConnectorTableHandle {
+        List<ConnectorTableMetadata.Column> typedColumns,
+        boolean entries) implements ConnectorTableHandle {
+
+    public IcebergFileTableHandle(IcebergManifestTableHandle manifestSelection,
+            List<ManifestObject> manifests, List<ConnectorTableMetadata.Column> typedColumns) {
+        this(manifestSelection, manifests, typedColumns, false);
+    }
 
     private static final String SHA256_HEX_PATTERN = "[0-9a-f]{64}";
 
@@ -39,6 +45,6 @@ public record IcebergFileTableHandle(
     }
 
     public String tableName() {
-        return baseTable().tableName() + "$files";
+        return baseTable().tableName() + (entries ? "$entries" : "$files");
     }
 }

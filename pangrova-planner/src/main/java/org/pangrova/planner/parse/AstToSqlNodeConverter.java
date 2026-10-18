@@ -250,7 +250,8 @@ public final class AstToSqlNodeConverter {
                     && !kind.equalsIgnoreCase("schemas")
                     && !kind.equalsIgnoreCase("branches")
                     && !kind.equalsIgnoreCase("manifests")
-                    && !kind.equalsIgnoreCase("files")) {
+                    && !kind.equalsIgnoreCase("files")
+                    && !kind.equalsIgnoreCase("entries")) {
                 throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                         "System table has no Native reader: " + kind);
             }

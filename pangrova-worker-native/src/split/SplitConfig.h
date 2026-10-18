@@ -65,6 +65,7 @@ enum class SystemTableKind : uint8_t {
   PAIMON_BRANCHES,
   ICEBERG_MANIFESTS,
   ICEBERG_FILES,
+  ICEBERG_ENTRIES,
 };
 
 struct IcebergManifestPartitionField {

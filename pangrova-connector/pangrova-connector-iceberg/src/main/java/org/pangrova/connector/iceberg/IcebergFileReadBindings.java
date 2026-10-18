@@ -14,6 +14,8 @@ import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 /** Pins the child manifests behind Iceberg's exact metadata-table schema. */
 final class IcebergFileReadBindings {
@@ -36,6 +38,18 @@ final class IcebergFileReadBindings {
                     "Iceberg $files Native schema differs from the supported typed projection");
         }
         return new IcebergFileTableHandle(list, childObjects(list, table), columns);
+    }
+
+    static IcebergFileTableHandle selectEntries(IcebergTableHandle base, Table table) {
+        IcebergManifestTableHandle list = IcebergManifestReadBindings.select(base, table);
+        var columns = List.of(
+                new ConnectorTableMetadata.Column("status", PangrovaType.INTEGER),
+                new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT),
+                new ConnectorTableMetadata.Column("sequence_number", PangrovaType.BIGINT),
+                new ConnectorTableMetadata.Column("file_path", PangrovaType.VARCHAR),
+                new ConnectorTableMetadata.Column("data_sequence_number", PangrovaType.BIGINT),
+                new ConnectorTableMetadata.Column("first_row_id", PangrovaType.BIGINT));
+        return new IcebergFileTableHandle(list, childObjects(list, table), columns, true);
     }
 
     static void validate(IcebergFileTableHandle bound, Table table) {

@@ -7,7 +7,6 @@ import org.pangrova.parser.SqlParser;
 import org.pangrova.planner.parse.AstToSqlNodeConverter;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SystemTableSqlConversionTest {
 
@@ -23,12 +22,13 @@ class SystemTableSqlConversionTest {
     }
 
     @Test
-    void unsupportedSystemTableFailsBeforePhysicalTableLookup() {
+    void entriesIdentifierRetainsSystemTableSuffix() {
         var ast = new SqlParser().parse("SELECT * FROM lake.analytics.orders$entries");
 
-        assertThatThrownBy(() -> new AstToSqlNodeConverter().convert(ast))
-                .isInstanceOf(PlannerException.class)
-                .hasMessageContaining("no Native reader: entries");
+        var calcite = (SqlSelect) new AstToSqlNodeConverter().convert(ast);
+
+        assertThat(((SqlIdentifier) calcite.getFrom()).names)
+                .containsExactly("lake", "analytics", "orders$entries");
     }
 
     @Test

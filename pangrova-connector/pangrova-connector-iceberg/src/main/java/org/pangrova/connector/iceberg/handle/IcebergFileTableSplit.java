@@ -35,7 +35,9 @@ public record IcebergFileTableSplit(IcebergFileTableHandle selection,
     public byte[] toSplitInfoProto() {
         var list = selection.manifestSelection();
         var system = SystemTableSplitDetail.newBuilder()
-                .setKind(SystemTableSplitDetail.Kind.ICEBERG_FILES)
+                .setKind(selection.entries()
+                        ? SystemTableSplitDetail.Kind.ICEBERG_ENTRIES
+                        : SystemTableSplitDetail.Kind.ICEBERG_FILES)
                 .setSnapshotId(list.snapshotId().orElseThrow())
                 .setObjectSha256(com.google.protobuf.ByteString.copyFrom(
                         HexFormat.of().parseHex(manifest.sha256())))

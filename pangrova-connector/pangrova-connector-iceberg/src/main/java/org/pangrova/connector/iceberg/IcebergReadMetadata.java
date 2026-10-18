@@ -112,6 +112,13 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
         int separator = tableName.table().lastIndexOf('$');
         if (separator > 0 && separator < tableName.table().length() - 1) {
+            if ("entries".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
+                String baseName = tableName.table().substring(0, separator);
+                IcebergTableHandle base = (IcebergTableHandle) catalogTables.getTableHandle(
+                        new SchemaTableName(tableName.schema(), baseName));
+                return base == null ? null : IcebergFileReadBindings.selectEntries(
+                        base, catalogTables.resolveTable(base));
+            }
             if ("files".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
                 String baseName = tableName.table().substring(0, separator);
                 IcebergTableHandle base = (IcebergTableHandle) catalogTables.getTableHandle(
@@ -242,10 +249,16 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     public void validateColumnAccess(ConnectorSession session, ConnectorTableHandle table,
                                      List<String> projectedColumns) {
         if (table instanceof IcebergFileTableHandle) {
+            IcebergFileTableHandle files = (IcebergFileTableHandle) table;
             for (String column : projectedColumns) {
-                if (!SUPPORTED_FILES_COLUMNS.contains(column.toLowerCase(Locale.ROOT))) {
+                boolean supported = files.entries()
+                        ? files.typedColumns().stream()
+                                .anyMatch(typed -> typed.name().equalsIgnoreCase(column))
+                        : SUPPORTED_FILES_COLUMNS.contains(column.toLowerCase(Locale.ROOT));
+                if (!supported) {
                     throw new UnsupportedOperationException(
-                            "Iceberg $files Native reader does not support projected column: " + column);
+                            "Iceberg " + (files.entries() ? "$entries" : "$files")
+                                    + " Native reader does not support projected column: " + column);
                 }
             }
             return;

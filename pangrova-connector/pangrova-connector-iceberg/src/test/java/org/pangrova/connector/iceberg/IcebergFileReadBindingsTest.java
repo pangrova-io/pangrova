@@ -119,6 +119,53 @@ class IcebergFileReadBindingsTest {
     }
 
     @Test
+    void entriesBindTheSamePinnedManifestGraphWithTheirOwnKind() throws Exception {
+        try (var catalog = catalog()) {
+            Table table = catalog.createTable(TableIdentifier.of("db", "lineage"), SCHEMA,
+                    PartitionSpec.unpartitioned(), Map.of("format-version", "2"));
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var manager = new IcebergSplitManager("bound", catalog, new IcebergExpressionToSubstrait());
+            var empty = metadata.getTableHandle(SESSION,
+                    new SchemaTableName("db", "lineage$entries"));
+            var emptySource = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+                    empty, DynamicFilter.ALL, Constraint.EMPTY);
+            try {
+                assertThat(emptySource.getNextBatch(10)).isEmpty();
+            } finally {
+                emptySource.close();
+            }
+            append(table);
+            var selected = (IcebergFileTableHandle) metadata.getTableHandle(SESSION,
+                    new SchemaTableName("db", "lineage$entries"));
+            assertThat(selected.entries()).isTrue();
+            assertThat(selected.typedColumns().stream().map(c -> c.name()).toList())
+                    .containsExactly("status", "snapshot_id", "sequence_number", "file_path",
+                            "data_sequence_number", "first_row_id");
+            metadata.validateColumnAccess(SESSION, selected, List.of("DATA_SEQUENCE_NUMBER"));
+            assertThatThrownBy(() -> metadata.validateColumnAccess(SESSION, selected,
+                    List.of("record_count"))).isInstanceOf(UnsupportedOperationException.class);
+            var binding = metadata.bindRead(SESSION, selected);
+            metadata.validateReadBinding(SESSION, binding);
+            var fileSelection = metadata.getTableHandle(SESSION,
+                    new SchemaTableName("db", "lineage$files"));
+            assertThat(binding.sourceIdentity())
+                    .isNotEqualTo(metadata.bindRead(SESSION, fileSelection).sourceIdentity());
+            var source = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+                    binding.handle(), DynamicFilter.ALL, Constraint.EMPTY);
+            try {
+                var splits = source.getNextBatch(10);
+                assertThat(splits).hasSize(1);
+                DataSplit split = DataSplit.parseFrom(splits.get(0).toSplitInfoProto());
+                assertThat(split.getSourceId()).endsWith("$entries");
+                assertThat(DataSplitProtoCodec.fileDetail(split).getSystemTable().getKind())
+                        .isEqualTo(SystemTableSplitDetail.Kind.ICEBERG_ENTRIES);
+            } finally {
+                source.close();
+            }
+        }
+    }
+
+    @Test
     void rejectsSameLengthChildManifestMutation() throws Exception {
         try (var catalog = catalog()) {
             Table table = catalog.createTable(TableIdentifier.of("db", "tamper"), SCHEMA,

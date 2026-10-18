@@ -150,6 +150,9 @@ final class IcebergReadBindings {
 
     private static String fileSourceIdentity(IcebergFileTableHandle files) {
         StringBuilder identity = new StringBuilder(manifestSourceIdentity(files.manifestSelection()));
+        if (files.entries()) {
+            identity.append("\0entries");
+        }
         for (var manifest : files.manifests()) {
             identity.append('\0').append(manifest.uri()).append('\0')
                     .append(manifest.length()).append('\0').append(manifest.sha256())

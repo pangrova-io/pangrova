@@ -1,13 +1,15 @@
 # System-table SQL: Native scan implementation contract
 
-Status: **IN PROGRESS — not production-ready** (2026-10-16). Iceberg
+Status: **IN PROGRESS — not production-ready** (2026-10-19). Iceberg
 `$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
 v2 splits, Worker Native readers, and focused SQL E2E coverage. Paimon
 `$branches` now has the same chain for local filesystem catalogs only. Iceberg
 `$manifests` has a pinned Avro manifest-list Native reader. Iceberg `$files`
 has a nine-column fixed scalar/array Native manifest-entry slice; its complete SDK schema,
 large-table throughput, and independent image are not yet validated. Iceberg
-`$entries`/`$partitions` still lack Native readers;
+`$entries` now has a pinned, status-preserving Native lineage slice with v3
+`first_row_id` inheritance; its complete SDK nested schema remains open. Iceberg
+`$partitions` lacks a Native reader;
 Paimon `$branches` on distributed/object storage, `$files`, and the final full-chain gate remain
 open. This is an implementation specification and failure record, not a
 production-readiness assertion.
@@ -451,3 +453,25 @@ whole-source Mac ASan CTest passed 4,167/4,167 with the real PostgreSQL Lance
 broker and no address finding (`detect_leaks=0`); Linux LSan remains an external
 gate. The full SDK schema, parent-list O(M²) cost, and the full
 production image gate remain open.
+
+### Iceberg `$entries` pinned lineage slice (2026-10-19)
+
+Direct SQL `base$entries` now resolves to a typed, read-only selection over the
+same pinned manifest list and child objects as `$files`. The v2 split carries a
+distinct `ICEBERG_ENTRIES` kind, and Native checks both object digests and the
+child's membership in the selected list before emitting rows. It retains
+`status` 0/1/2, resolves null `snapshot_id` and `sequence_number` using the
+manifest-list's `added_snapshot_id` and `sequence_number`, and requires explicit
+sequence numbers on existing/deleted v2/v3 entries. The current flattened
+projection is `status`, `snapshot_id`, `sequence_number`, `file_path`, and
+`data_sequence_number` (the latter aliases the resolved data sequence), and
+nullable `first_row_id`. For v3 data files, Native preserves explicit row IDs
+or assigns null IDs from the manifest's first row ID plus preceding null-ID
+files' record counts; v2 returns NULL. This is not the complete Iceberg SDK
+`$entries` nested schema. V1 and v4 continue to fail closed.
+
+The nearest Planner test, Coordinator lookup test, Connector binding test,
+Native reader suite and packaged-JNI `IcebergV3LineageTest` all pass on the
+2026-10-19 source. The SQL suite runs four real Iceberg JDBC cases, including
+v2 and v3 writes, sequence-number progression, v3 inherited row IDs, v2 NULL
+row IDs, and direct Native reads.

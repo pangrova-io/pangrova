@@ -253,7 +253,8 @@ void PangrovaVeloxDataSource::addSplit(
           splitConfig.system_table_object_sha256,
           splitConfig.system_table_iceberg_partition_specs,
           output_type_, pool_);
-    } else if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_FILES) {
+    } else if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_FILES ||
+        *splitConfig.system_table == split::SystemTableKind::ICEBERG_ENTRIES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
         throw std::runtime_error("Iceberg files split requires metadata Avro format");
       }
@@ -268,7 +269,8 @@ void PangrovaVeloxDataSource::addSplit(
           splitConfig.system_table_iceberg_format_version,
           splitConfig.system_table_iceberg_child_spec_id,
           splitConfig.system_table_iceberg_child_content,
-          output_type_, pool_);
+          output_type_, pool_,
+          *splitConfig.system_table == split::SystemTableKind::ICEBERG_ENTRIES);
     } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_DIRECTORY) {
         throw std::runtime_error("Paimon branches split requires directory format");

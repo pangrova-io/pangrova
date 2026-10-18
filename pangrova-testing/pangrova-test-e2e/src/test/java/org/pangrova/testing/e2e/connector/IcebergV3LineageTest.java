@@ -62,16 +62,20 @@ class IcebergV3LineageTest extends SqlE2ETestBase {
                 + " (id, name) VALUES (1, 'alice'), (2, 'bob')");
 
         List<TypedRow> entries = sqlRunner.execute(
-                "SELECT snapshot_id, sequence_number, file_path, data_sequence_number"
+                "SELECT status, snapshot_id, sequence_number, file_path, data_sequence_number, first_row_id"
                 + " FROM " + fqn() + "$entries");
 
         assertThat(entries).isNotEmpty();
         for (TypedRow entry : entries) {
+            assertThat(entry.getInt("status")).isBetween(0, 1);
             assertThat(entry.getLong("data_sequence_number"))
                     .as("data_sequence_number should be populated")
                     .isNotNull();
             assertThat(entry.getLong("sequence_number"))
                     .as("sequence_number should be populated")
+                    .isNotNull();
+            assertThat(entry.getLong("first_row_id"))
+                    .as("v3 first_row_id should be assigned")
                     .isNotNull();
         }
     }
@@ -149,13 +153,16 @@ class IcebergV3LineageTest extends SqlE2ETestBase {
                 + " (id, name) VALUES (1, 'alice'), (2, 'bob')");
 
         List<TypedRow> entries = sqlRunner.execute(
-                "SELECT sequence_number, data_sequence_number FROM " + fqn() + "$entries");
+                "SELECT sequence_number, data_sequence_number, first_row_id FROM " + fqn() + "$entries");
 
         assertThat(entries).isNotEmpty();
         for (TypedRow entry : entries) {
             assertThat(entry.getLong("sequence_number"))
                     .as("v2 table should have populated sequence_number")
                     .isNotNull();
+            assertThat(entry.getLong("first_row_id"))
+                    .as("v2 table must not synthesize v3 row IDs")
+                    .isNull();
         }
     }
 }

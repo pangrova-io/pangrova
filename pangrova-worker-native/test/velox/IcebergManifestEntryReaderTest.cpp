@@ -228,6 +228,43 @@ std::string listRow(const std::string& childUri, uint64_t length,
   return row;
 }
 
+std::string lineageSchema(const char* schema, const char* fieldName,
+    const char* prefix) {
+  std::string result(schema);
+  const auto position = result.find(fieldName);
+  if (position == std::string::npos) throw std::runtime_error("Fixture schema field missing");
+  result.insert(position, prefix);
+  return result;
+}
+
+std::string lineageChildRow(int32_t status, const std::string& path,
+    std::optional<int64_t> snapshotId, std::optional<int64_t> sequenceNumber) {
+  const auto base = childRow(status, path);
+  std::string row = base.substr(0, 1);
+  appendLong(row, snapshotId ? 1 : 0);
+  if (snapshotId) appendLong(row, *snapshotId);
+  appendLong(row, sequenceNumber ? 1 : 0);
+  if (sequenceNumber) appendLong(row, *sequenceNumber);
+  row += base.substr(1);
+  return row;
+}
+
+std::string lineageListRow(const AvroFile& child, uint64_t length,
+    int64_t addedSnapshotId, int64_t sequenceNumber) {
+  auto row = listRow(child, length);
+  appendLong(row, addedSnapshotId);
+  appendLong(row, sequenceNumber);
+  return row;
+}
+
+auto entriesProjectionType() {
+  return facebook::velox::ROW(
+      {"status", "snapshot_id", "sequence_number", "file_path",
+       "data_sequence_number", "first_row_id"},
+      {facebook::velox::INTEGER(), facebook::velox::BIGINT(), facebook::velox::BIGINT(),
+       facebook::velox::VARCHAR(), facebook::velox::BIGINT(), facebook::velox::BIGINT()});
+}
+
 auto projectedType() {
   return facebook::velox::ROW(
       {"content", "file_path", "file_format", "spec_id",
@@ -388,6 +425,86 @@ TEST(IcebergManifestEntryReaderTest, ReadsLiveScalarProjectionAndSkipsDeleted) {
   EXPECT_EQ(batch->childAt(4)->asFlatVector<int64_t>()->valueAt(0), 3);
   EXPECT_EQ(batch->childAt(5)->asFlatVector<int64_t>()->valueAt(0), 4096);
   EXPECT_EQ(reader.next(10), nullptr);
+}
+
+TEST(IcebergManifestEntryReaderTest, EntriesInheritAndPreserveActualLineage) {
+  facebook::velox::filesystems::registerLocalFileSystem();
+  auto pool = pangrova::test::testLeafPool("IcebergEntriesLineage");
+  const auto childSchema = lineageSchema(kChildSchema, "{\"name\":\"data_file\"",
+      R"({"name":"snapshot_id","type":["null","long"]},)"
+      R"({"name":"sequence_number","type":["null","long"]},)");
+  const auto listSchema = lineageSchema(kListSchema, "]}",
+      R"(,{"name":"added_snapshot_id","type":"long"},)"
+      R"({"name":"sequence_number","type":"long"})");
+  const auto childBytes = container(childSchema,
+      {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "data"}},
+      3, lineageChildRow(1, "file:/data/new.parquet", std::nullopt, std::nullopt) +
+          lineageChildRow(0, "file:/data/existing.parquet", 3, 2) +
+          lineageChildRow(2, "file:/data/deleted.parquet", 3, 2));
+  AvroFile child(childBytes);
+  const auto listBytes = container(listSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "5"}},
+      1, lineageListRow(child, childBytes.size(), 7, 5));
+  AvroFile list(listBytes);
+  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
+      list.path(), listBytes.size(), digest(listBytes), 7, 5, 2, 0, 0,
+      entriesProjectionType(), pool.get(), true);
+  auto batch = reader.next(10);
+  ASSERT_NE(batch, nullptr);
+  ASSERT_EQ(batch->size(), 3);
+  EXPECT_EQ(batch->childAt(0)->asFlatVector<int32_t>()->valueAt(0), 1);
+  EXPECT_EQ(batch->childAt(1)->asFlatVector<int64_t>()->valueAt(0), 7);
+  EXPECT_EQ(batch->childAt(2)->asFlatVector<int64_t>()->valueAt(0), 5);
+  EXPECT_EQ(batch->childAt(3)->asFlatVector<facebook::velox::StringView>()
+                ->valueAt(0).str(), "file:/data/new.parquet");
+  EXPECT_EQ(batch->childAt(4)->asFlatVector<int64_t>()->valueAt(0), 5);
+  EXPECT_EQ(batch->childAt(0)->asFlatVector<int32_t>()->valueAt(1), 0);
+  EXPECT_EQ(batch->childAt(1)->asFlatVector<int64_t>()->valueAt(1), 3);
+  EXPECT_EQ(batch->childAt(4)->asFlatVector<int64_t>()->valueAt(1), 2);
+  EXPECT_EQ(batch->childAt(0)->asFlatVector<int32_t>()->valueAt(2), 2);
+  EXPECT_TRUE(batch->childAt(5)->isNullAt(0));
+  EXPECT_TRUE(batch->childAt(5)->isNullAt(1));
+  EXPECT_EQ(reader.next(10), nullptr);
+}
+
+TEST(IcebergManifestEntryReaderTest, VersionThreeInheritsFirstRowIdsAcrossFiles) {
+  facebook::velox::filesystems::registerLocalFileSystem();
+  auto pool = pangrova::test::testLeafPool("IcebergEntriesRowIds");
+  auto childSchema = lineageSchema(kChildSchema, "{\"name\":\"data_file\"",
+      R"({"name":"snapshot_id","type":["null","long"]},)"
+      R"({"name":"sequence_number","type":["null","long"]},)");
+  const std::string sortOrder = R"({"name":"sort_order_id","type":["null","int"]})";
+  const auto position = childSchema.find(sortOrder);
+  ASSERT_NE(position, std::string::npos);
+  childSchema.insert(position + sortOrder.size(),
+      R"(,{"name":"first_row_id","type":["null","long"]})");
+  const auto listSchema = lineageSchema(kListSchema, "]}",
+      R"(,{"name":"added_snapshot_id","type":"long"},)"
+      R"({"name":"sequence_number","type":"long"},)"
+      R"({"name":"first_row_id","type":["null","long"]})");
+  auto first = lineageChildRow(1, "file:/data/first.parquet", std::nullopt, std::nullopt);
+  appendLong(first, 0);
+  auto second = lineageChildRow(1, "file:/data/second.parquet", std::nullopt, std::nullopt);
+  appendLong(second, 0);
+  const auto childBytes = container(childSchema,
+      {{"format-version", "3"}, {"partition-spec-id", "0"}, {"content", "data"}},
+      2, first + second);
+  AvroFile child(childBytes);
+  auto listRowBytes = lineageListRow(child, childBytes.size(), 7, 5);
+  appendLong(listRowBytes, 1);
+  appendLong(listRowBytes, 1000);
+  const auto listBytes = container(listSchema,
+      {{"format-version", "3"}, {"snapshot-id", "7"}, {"sequence-number", "5"}},
+      1, listRowBytes);
+  AvroFile list(listBytes);
+  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
+      list.path(), listBytes.size(), digest(listBytes), 7, 5, 3, 0, 0,
+      entriesProjectionType(), pool.get(), true);
+  auto batch = reader.next(10);
+  ASSERT_NE(batch, nullptr);
+  ASSERT_EQ(batch->size(), 2);
+  EXPECT_EQ(batch->childAt(5)->asFlatVector<int64_t>()->valueAt(0), 1000);
+  EXPECT_EQ(batch->childAt(5)->asFlatVector<int64_t>()->valueAt(1), 1003);
 }
 
 TEST(IcebergManifestEntryReaderTest, RejectsParentOrChildMutation) {

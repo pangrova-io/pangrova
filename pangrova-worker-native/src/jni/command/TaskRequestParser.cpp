@@ -663,9 +663,11 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         proto::SystemTableSplitDetail::PAIMON_BRANCHES;
     const bool avro = detail.system_table().kind() ==
             proto::SystemTableSplitDetail::ICEBERG_MANIFESTS ||
-        detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_FILES;
+        detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_FILES ||
+        detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_ENTRIES;
     const bool files = detail.system_table().kind() ==
-        proto::SystemTableSplitDetail::ICEBERG_FILES;
+            proto::SystemTableSplitDetail::ICEBERG_FILES ||
+        detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_ENTRIES;
     if ((directory && (config.file_format != split::FileFormatType::METADATA_DIRECTORY ||
             split.start_offset() != 0 || split.length() != 0)) ||
         (!directory && (config.file_format != (avro
@@ -757,10 +759,13 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         break;
       }
       case proto::SystemTableSplitDetail::ICEBERG_FILES:
+      case proto::SystemTableSplitDetail::ICEBERG_ENTRIES:
       {
         const auto& system = detail.system_table();
         if (split.connector_id() != "iceberg" ||
-            !split.source_id().ends_with("$files") ||
+            !split.source_id().ends_with(system.kind() ==
+                    proto::SystemTableSplitDetail::ICEBERG_ENTRIES
+                    ? "$entries" : "$files") ||
             split.source_snapshot() != system.iceberg_manifest_list_uri() ||
             split.data_object_id() != split.opaque_location() ||
             split.partition_values_size() != 0 ||
@@ -780,7 +785,10 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
             !system.tag_name().empty() || system.schema_id() != 0) {
           throw std::runtime_error("Iceberg files split identity or kind mismatch");
         }
-        config.system_table = split::SystemTableKind::ICEBERG_FILES;
+        config.system_table = system.kind() ==
+                proto::SystemTableSplitDetail::ICEBERG_ENTRIES
+                ? split::SystemTableKind::ICEBERG_ENTRIES
+                : split::SystemTableKind::ICEBERG_FILES;
         config.system_table_snapshot_id = system.snapshot_id();
         config.system_table_object_sha256 = system.object_sha256();
         config.system_table_iceberg_format_version = system.iceberg_format_version();
