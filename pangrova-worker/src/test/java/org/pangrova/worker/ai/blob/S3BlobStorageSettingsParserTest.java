@@ -29,7 +29,7 @@ class S3BlobStorageSettingsParserTest {
 
         assertThat(settings.bucket()).isEqualTo("governed-files");
         assertThat(settings.region()).isEqualTo("us-east-1");
-        assertThat(settings.endpoint()).isEqualTo(URI.create("https://storage.example/"));
+        assertThat(settings.endpoint()).isEqualTo(URI.create("https://storage.example"));
         assertThat(settings.prefix()).isEqualTo("production/files");
         assertThat(settings.encryption().mode())
                 .isEqualTo(ServerSideEncryption.AWS_KMS);

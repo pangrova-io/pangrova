@@ -18,6 +18,12 @@
 
 当前已通过但不能替代以下开放检查点：Mac Native Release/ASan 地址检查各 4,138/4,138（ASan 设置 `detect_leaks=0`）；JDK 17 Worker 1,433/1,433、Coordinator 先前 3,098/3,098；全 reactor 静态从起点退出 0；Gravitino Iceberg REST 空表 DDL/读/删除 1/1；DynamicTable 直读重写 5/5；真实 Ollama Worker HTTP 13/13 与共享 SQL E2E 13/13。`$files` 九列增量当前已通过 Native 6/6 和 SQL E2E 1/1（包含真实 DATA/position/equality DELETE），Worker 首次心跳修复当前已通过最近 11/11 和 E2E 可调度谓词 2/2；二者均尚未进入同源码镜像独立验收。它们各有源码批次和作用范围，不能合并成“生产全绿”。
 
+2026-10-18 同源码增量（运行源码至 `dd39f557`；后续 `08201770` 只校正 PostgreSQL 测试断言）：Mac Release Native 使用真实 PostgreSQL Lance broker 的 CTest **4,167/4,167 PASS**，0 失败/跳过（`/tmp/pangrova-current-native-ctest-r3.log`）；Native JNI SHA-256 `3ab5f9e19368ec5e6ddaa827c7aa7d0b52f24c7c6d89deae4f76613fc991e644`。协议全模块 **443/443 PASS**（`/tmp/pangrova-protocol-current-full-r2.log`），真实 JNI/缓存清单与日志配置 3/3，COPY 私有 HTTP+真 PostgreSQL/MinIO 4/4，Iceberg/Paimon 系统表 SQL 24/24（`/tmp/pangrova-current-inventory-e2e-r1.log`、`/tmp/pangrova-current-copy-systemtable-e2e-r1.log`）；Iceberg 依赖链静态、Coordinator 和 Worker 受影响静态均退出 0。模型缓存经本机核验后，真实 Ollama Worker HTTP **13/13**、SQL→Native→模型服务 E2E **13/13**，均 0 失败/错误/跳过（`/tmp/pangrova-worker-ollama-current-r1.log`、`/tmp/pangrova-ollama-sql-current-source-r2.log`）。推测执行 Coordinator 6/6、Worker 终态证据 5/5（`/tmp/pangrova-spec-worker-terminal-focused-r1.log`）；独立双 Worker 的新镜像 E2E 仍待运行。Mac ASan 全量 **4,167/4,167 PASS**，0 失败/跳过，耗时 1,682.93 秒（`/tmp/pangrova-current-native-asan-ctest-r1.log`；`detect_leaks=0`，不替代 Linux LSan）。全 reactor `-Pstatic-analysis -DskipTests verify` **39/39 模块 PASS**（`/tmp/pangrova-full-reactor-static-current-r1.log`）。
+
+同轮 Gravitino 1.2.0 服务 `/iceberg/v1/config` 与 `default` namespace 真实启动；`RestCatalogTest` 选中 2 例，空表创建/读取/删除 1 例通过，`dropTable` 例先执行非空 INSERT，按现有 REST 声明栅栏拒绝，故 Maven 2 run/1 error（`/tmp/pangrova-gravitino-rest-current-r1.log`）。这不是 REST 非空写入验收。GitHub CI Native 任务目前裸跑 CTest，没有构建/启动真实 PostgreSQL Lance broker；托管 macOS runner 的容器前置条件也未解决。用户没有 Linux x86_64 与规模集群；本机 ARM64 镜像和性能小样本不能替代 #3、#4、#25–#27。上述增量没有关闭全部 27 项，最后仍须同一最终源码的门禁和跨模块全链回归。
+
+Worker 全模块重跑时，Lance 夹具初次因缺 `pangrova.lance.fixture.tool` 启动参数而报 6 项错误；补齐当前源码的 fixture tool 后聚焦 7/7 通过（`/tmp/pangrova-lance-tool-focused-r2.log`）。随后 Metadata **416/416 PASS**；Worker 首次 1,234 项仅 `S3BlobStorageSettingsParserTest` 一项失败：旧断言要求末尾 `/`，但存储配置构造器明确把 HTTPS origin 规范化为无路径，后端身份比较也依赖该规范值。校正断言后聚焦 2/2、Worker 全模块 **1,234/1,234 PASS**，0 失败/错误/跳过（`/tmp/pangrova-s3-settings-focused-r2.log`、`/tmp/pangrova-worker-current-full-r4.log`）。这些结果不替代尚未完成的镜像独立进程和全 reactor 回归。
+
 ## 第一批：Linux 可部署产物（4 项，进行中）
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
@@ -31,10 +37,10 @@
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |
 | --- | --- | --- |
-| 5 | 最终 Native Release 全量 | 历史 `91bc121c` 同源码 Mac Release 在真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 600.34 秒；日志 `/tmp/pangrova-native-release-current-full-r2.log`。这是 Mac Native 门禁，不替代 Linux 镜像。 |
-| 6 | 最终 Native ASan 全量 | 较早源码 ASan 增量构建 PASS，真实 PostgreSQL Lance broker 下 4,138/4,138 PASS、0 失败/跳过，耗时 1,674.73 秒（`/tmp/pangrova-native-asan-current-full-r1.log`）；Mac `detect_leaks=0` 只检查地址问题，LSan 仍见第 4 项。 |
+| 5 | 最终 Native Release 全量 | 当前 Native/协议源码 Mac Release 在真实 PostgreSQL Lance broker 下 **4,167/4,167 PASS**、0 失败/跳过，耗时 618.14 秒（`/tmp/pangrova-current-native-ctest-r3.log`）；JNI SHA-256 `3ab5f9e19368ec5e6ddaa827c7aa7d0b52f24c7c6d89deae4f76613fc991e644`。这是本机 Mac 门禁，不替代 Linux 镜像。 |
+| 6 | 最终 Native ASan 全量 | 当前 Native/协议源码 Mac ASan 在真实 PostgreSQL Lance broker 下 **4,167/4,167 PASS**、0 失败/跳过，耗时 1,682.93 秒（`/tmp/pangrova-current-native-asan-ctest-r1.log`）；`detect_leaks=0` 只检查地址问题，Linux LSan 仍见第 4 项。 |
 | 7 | JDK 17 全 reactor 完整回归 | 最终同源码执行 `-Pfull-regression verify`，记录各模块实际发现数与 0 失败/错误/非预期跳过；本轮 Worker 1,433 项已过，但之前全 reactor E2E 遇 Docker VM 级联失败。 |
-| 8 | 静态、协议与结构门禁 | `9b85f68e` 源码全 reactor `-Pstatic-analysis -DskipTests verify` 从起点退出 0（`/tmp/pangrova-reactor-static-current-r2.log`）；首轮发现 Iceberg 跨行 `if` 缺大括号，最近模块检查通过后全量重跑。最终 descriptor、SPI/JNI、文档引用、E2E 真实性及适用脚本仍须同源码完成。 |
+| 8 | 静态、协议与结构门禁 | 当前源码全 reactor `-Pstatic-analysis -DskipTests verify` **39/39 模块 PASS**（`/tmp/pangrova-full-reactor-static-current-r1.log`）；协议 443/443 PASS。最终 descriptor、SPI/JNI、文档引用、E2E 真实性及适用脚本仍须同源码完成。 |
 
 ## 第三批：共享与独立进程 E2E（4 项）
 

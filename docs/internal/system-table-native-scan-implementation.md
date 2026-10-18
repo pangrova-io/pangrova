@@ -447,6 +447,7 @@ The optional `PANGROVA_ASAN_FOLLY_PREFIX` build input selects that matching
 archive only in ASan configurations; `cmake/AsanFollyCompat.cmake` disables
 macOS libc++'s unavailable UBSan vptr RTTI dependency without disabling ASan.
 The affected Iceberg Maven dependency-chain static-analysis gate passed. The
-whole-source ASan rerun remains pending for this increment. The full SDK
-schema, parent-list O(M²) cost, and the full
+whole-source Mac ASan CTest passed 4,167/4,167 with the real PostgreSQL Lance
+broker and no address finding (`detect_leaks=0`); Linux LSan remains an external
+gate. The full SDK schema, parent-list O(M²) cost, and the full
 production image gate remain open.
