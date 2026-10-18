@@ -1789,6 +1789,10 @@ std::string serializeCallbackContext(const proto::TaskRequest& request) {
 }
 
 executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
+  if (request.has_copy_source_staging_command_sha256()) {
+    throw std::runtime_error(
+        "COPY source task requires verified Worker-local split binding");
+  }
   const auto& attempt = request.attempt();
   if (request.task_kind() == proto::TASK_KIND_UNSPECIFIED) {
     throw std::runtime_error("TaskRequest task_kind is unspecified");
@@ -1937,6 +1941,10 @@ protocol::v2::TaskRequest parseTaskRequest(const std::vector<uint8_t>& data) {
   if (!request.has_protocol() || !request.has_attempt() ||
       !request.GetReflection()->GetUnknownFields(request).empty()) {
     throw std::runtime_error("TaskRequest requires known protocol and attempt identity");
+  }
+  if (request.has_copy_source_staging_command_sha256()) {
+    throw std::runtime_error(
+        "COPY source task requires verified Worker-local split binding");
   }
   validateProtocol(request.protocol());
   validatePlanChecksum(request);

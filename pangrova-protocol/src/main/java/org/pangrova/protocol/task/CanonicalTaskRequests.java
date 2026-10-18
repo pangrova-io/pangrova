@@ -26,6 +26,7 @@ public final class CanonicalTaskRequests {
     public static final int PROTOCOL_MINOR = 0;
     public static final String ROLLOUT_EPOCH = "ai-native-function-resource-r3";
     public static final int MAX_COVERAGE_IDENTITIES = 4_096;
+    private static final int SHA256_BYTES = 32;
 
     private CanonicalTaskRequests() {}
 
@@ -147,6 +148,7 @@ public final class CanonicalTaskRequests {
         validateProtocol(request.getProtocol());
         validateAttempt(request.getAttempt());
         requireTaskKind(request);
+        validateCopySourceStagingCommand(request);
         requireSecurityContext(request.getSecurity());
         requireValidPlanChecksum(request);
         requireDeadline(request.getDeadlineEpochMs());
@@ -191,6 +193,19 @@ public final class CanonicalTaskRequests {
     private static void requireTaskKind(TaskRequest request) {
         if (request.getTaskKindValue() == 0) {
             throw new IllegalArgumentException("TaskRequest task_kind is required");
+        }
+    }
+
+    private static void validateCopySourceStagingCommand(TaskRequest request) {
+        if (!request.hasCopySourceStagingCommandSha256()) {
+            return;
+        }
+        var checksum = request.getCopySourceStagingCommandSha256();
+        if (request.getTaskKind() != org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE
+                || checksum.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
+                || checksum.getDigest().size() != SHA256_BYTES
+                || !checksum.getUnknownFields().asMap().isEmpty()) {
+            throw new IllegalArgumentException("COPY staging command requires a write task and SHA-256 digest");
         }
     }
 

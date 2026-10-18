@@ -145,6 +145,15 @@ public final class CoordinatorBootstrap {
                 metadataBootstrap != null ? metadataBootstrap.metadataService() : null);
     }
 
+    org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource copySourceReadResource() {
+        if (metadataDataSource == null || security.accessControl() == null || ha == null) {
+            return null;
+        }
+        return new org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource(
+                new org.pangrova.metadata.storage.JdbcCopySourceReadAdmissions(
+                        metadataDataSource, security.accessControl()), ha.haService());
+    }
+
     private HighAvailabilityBootstrap buildHighAvailabilityBootstrap() {
         org.pangrova.spi.coordination.DistributedLease lease = ensureDistributedLease();
         var haBootstrap = new HighAvailabilityBootstrap(config, query.queryManager(), query.workerManager(),

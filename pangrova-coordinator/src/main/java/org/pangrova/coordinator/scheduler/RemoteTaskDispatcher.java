@@ -148,7 +148,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         var canonical = request.taskRequest();
         var attempt = canonical.getAttempt();
         if (!requiresControlBinding(canonical)) {
-            return SubmitTaskRequest.from(org.pangrova.protocol.NativeWriteBindings.bindAttempt(canonical));
+            return request.withBoundTask(org.pangrova.protocol.NativeWriteBindings.bindAttempt(canonical));
         }
         long controlEpoch = attempt.getControlEpoch() > 0
                 ? attempt.getControlEpoch()
@@ -172,7 +172,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                         .setControlEpoch(controlEpoch)
                         .setExecutionOwner(canonicalOwner));
         bindShuffleExecutionOwner(bound, canonical, canonicalOwner);
-        return SubmitTaskRequest.from(org.pangrova.protocol.NativeWriteBindings.bindAttempt(bound.build()));
+        return request.withBoundTask(org.pangrova.protocol.NativeWriteBindings.bindAttempt(bound.build()));
     }
 
     private boolean requiresControlBinding(org.pangrova.protocol.v2.TaskRequest request) {
@@ -236,6 +236,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
         SubmitTaskRequest stamped = bindControlIdentity(request);
+        requireEncryptedCopyTaskTransport(stamped);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
         while (true) {
@@ -410,6 +411,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
         // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
         SubmitTaskRequest stamped = bindControlIdentity(request);
+        requireEncryptedCopyTaskTransport(stamped);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
 
@@ -423,6 +425,15 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                     settleCircuitBreaker(breakerKey, classified);
                     throw classified;
                 });
+    }
+
+    private static void requireEncryptedCopyTaskTransport(SubmitTaskRequest request) {
+        if (request.copySourceRead() != null) {
+            // Both current dispatch paths build http:// Worker URLs. A bearer
+            // nonce cannot enter that transport even if the Worker rejects it.
+            throw new IllegalStateException(
+                    "COPY private task dispatch requires authenticated encrypted transport");
+        }
     }
 
     private CompletableFuture<DispatchResult> sendAsyncWithEpochCatchup(

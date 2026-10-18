@@ -1,7 +1,9 @@
 package org.pangrova.worker.http.endpoint;
 
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.common.exception.PangrovaException;
@@ -28,14 +30,25 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerExceptionMapper.class);
 
+    @Context private UriInfo requestUri;
+
     @Override
     public Response toResponse(Exception exception) {
         int status = resolveHttpStatus(exception);
         String errorCode = resolveErrorCode(exception, status);
         String errorType = resolveErrorType(status);
-        String message = resolveMessage(exception);
+        // A malformed private task envelope can be rejected during JSON decoding,
+        // before TaskResource sees it. Do not log parser source text or echo it.
+        boolean privateTaskRequest = requestUri != null
+                && requestUri.getPath().matches("v1/task/?");
+        String message = privateTaskRequest
+                ? "Task submission request rejected" : resolveMessage(exception);
 
-        logException(status, errorCode, message, exception);
+        if (privateTaskRequest) {
+            LOG.warn("Task submission request rejected: status={} errorCode={}", status, errorCode);
+        } else {
+            logException(status, errorCode, message, exception);
+        }
 
         ErrorDetail detail = new ErrorDetail(errorCode, errorType, message);
         return Response.status(status)

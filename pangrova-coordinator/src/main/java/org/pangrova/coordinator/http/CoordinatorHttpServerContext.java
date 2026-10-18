@@ -5,6 +5,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
+import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.observability.profiling.ProfilerEndpoint;
@@ -44,7 +45,8 @@ public record CoordinatorHttpServerContext(
         QueryProfileService queryProfileService,
         MetadataService metadataService,
         String internalAuthSecret,
-        LongSupplier coordinatorEpochSupplier) {
+        LongSupplier coordinatorEpochSupplier,
+        CopySourceReadResource copySourceReadResource) {
 
     public CoordinatorHttpServerContext {
         checkNotNull(receiver, "receiver must not be null");
@@ -52,6 +54,29 @@ public record CoordinatorHttpServerContext(
                 ? () -> 1L
                 : coordinatorEpochSupplier;
     }
+
+    // CHECKSTYLE.OFF: ParameterNumber
+    /** Existing HTTP context without a COPY source-read endpoint. */
+    public CoordinatorHttpServerContext(
+            TaskStatusReceiver receiver,
+            QueryManager queryManager,
+            TracingHttpFilter tracingHttpFilter,
+            AuthenticationManager authenticationManager,
+            HealthCheckEndpoint healthCheckEndpoint,
+            WorkerManager workerManager,
+            ProfilerEndpoint profilerEndpoint,
+            CdcLifecycleManager cdcHandler,
+            SplitAssignmentManager splitAssignmentManager,
+            QueryProfileService queryProfileService,
+            MetadataService metadataService,
+            String internalAuthSecret,
+            LongSupplier coordinatorEpochSupplier) {
+        this(receiver, queryManager, tracingHttpFilter, authenticationManager,
+                healthCheckEndpoint, workerManager, profilerEndpoint, cdcHandler,
+                splitAssignmentManager, queryProfileService, metadataService,
+                internalAuthSecret, coordinatorEpochSupplier, null);
+    }
+    // CHECKSTYLE.ON: ParameterNumber
 
     // CHECKSTYLE.OFF: ParameterNumber
     /** Backward-compatible constructor with internal auth and single-node epoch. */

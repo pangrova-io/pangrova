@@ -96,6 +96,10 @@ message TaskRequest {
   // Worker -> JNI only. Network admission rejects any populated value.
   repeated ObjectStoreExecutionBinding worker_local_storage_bindings = 17;
   FunctionRequirements function_requirements = 18;
+  // Non-secret digest of the exact Coordinator-admitted COPY staging command.
+  // The bearer ticket and source credentials belong only to the private HTTP
+  // submission envelope and must never enter this Native-visible message.
+  Checksum copy_source_staging_command_sha256 = 19;
 }
 
 // Resolved Worker-local storage authority, scoped to one immutable deployment,

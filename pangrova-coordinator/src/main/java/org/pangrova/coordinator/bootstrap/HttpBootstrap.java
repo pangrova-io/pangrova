@@ -74,7 +74,8 @@ final class HttpBootstrap {
                     authenticationManager, healthEndpoint, workerManager,
                     profilerEndpoint, cdcLifecycleManager, splitAssignmentManager,
                     queryProfileService, metadataService, config.internalAuthSecret(),
-                    coordinatorBootstrap::currentCoordinatorEpoch);
+                    coordinatorBootstrap::currentCoordinatorEpoch,
+                    coordinatorBootstrap.copySourceReadResource());
             httpServer = new CoordinatorHttpServer(config.httpPort(), httpDeps);
             httpServer.start();
             LOG.info("Phase: HTTP — listening on port {}", httpServer.getPort());

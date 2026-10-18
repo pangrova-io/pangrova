@@ -15,10 +15,16 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Map;
@@ -33,6 +39,8 @@ public final class S3BlobStorage implements BlobStorage {
     private static final Pattern REGION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9-]{0,62}");
     private static final Pattern PREFIX = Pattern.compile("[A-Za-z0-9!_.*'()/=-]*");
     private static final int PRECONDITION_FAILED = 412;
+    private static final int HTTPS_PORT = 443;
+    private static final int HTTP_PORT = 80;
 
     private final S3Client client;
     private final Settings settings;
@@ -184,6 +192,82 @@ public final class S3BlobStorage implements BlobStorage {
         return settings.prefix().isEmpty() ? base : settings.prefix() + "/" + base;
     }
 
+    /** Stable physical identity of an object published through this managed backend. */
+    public String objectUri(String tenantScope, String checksum) {
+        return "s3://" + settings.bucket() + "/" + objectKey(tenantScope, checksum);
+    }
+
+    /** Canonical bucket/prefix identity bound into a COPY staging admission. */
+    public String rootUri() {
+        return "s3://" + settings.bucket()
+                + (settings.prefix().isEmpty() ? "" : "/" + settings.prefix());
+    }
+
+    /**
+     * Non-secret identity of the configured physical backend, distinct from the
+     * logical s3:// bucket/prefix. Production clients are built from these same
+     * settings; a task admission must bind this digest before any managed I/O.
+     */
+    public String backendIdentitySha256() {
+        if (ownsClient && settings.endpoint() == null) {
+            throw new IllegalStateException(
+                    "COPY managed backend requires an explicit HTTPS endpoint override");
+        }
+        URI configuredEndpoint = client.serviceClientConfiguration().endpointOverride()
+                .orElseThrow(() -> new IllegalStateException(
+                        "COPY managed backend has no explicit client endpoint override"));
+        URI physicalEndpoint = canonicalPhysicalEndpoint(configuredEndpoint);
+        if (settings.endpoint() != null && !settings.endpoint().equals(physicalEndpoint)) {
+            throw new IllegalStateException(
+                    "COPY managed backend client endpoint differs from its storage settings");
+        }
+        try (var bytes = new ByteArrayOutputStream(); var out = new DataOutputStream(bytes)) {
+            out.writeInt(1);
+            writeIdentityField(out, physicalEndpoint.toString());
+            writeIdentityField(out, settings.region());
+            writeIdentityField(out, settings.bucket());
+            writeIdentityField(out, settings.prefix());
+            writeIdentityField(out, settings.expectedBucketOwner());
+            writeIdentityField(out, settings.encryption().mode().toString());
+            writeIdentityField(out, settings.encryption().kmsKeyId());
+            out.writeBoolean(settings.pathStyleAccess());
+            out.flush();
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(bytes.toByteArray()));
+        } catch (IOException | NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("S3 backend identity cannot be encoded", failure);
+        }
+    }
+
+    private static URI canonicalPhysicalEndpoint(URI endpoint) {
+        if (endpoint.getHost() == null || endpoint.getRawUserInfo() != null
+                || endpoint.getRawQuery() != null || endpoint.getRawFragment() != null
+                || !("http".equalsIgnoreCase(endpoint.getScheme())
+                    || "https".equalsIgnoreCase(endpoint.getScheme()))
+                || (endpoint.getRawPath() != null && !endpoint.getRawPath().isEmpty()
+                    && !"/".equals(endpoint.getRawPath()))) {
+            throw new IllegalStateException("COPY managed backend endpoint is not an origin");
+        }
+        String scheme = endpoint.getScheme().toLowerCase(java.util.Locale.ROOT);
+        int port = endpoint.getPort();
+        if (("https".equals(scheme) && port == HTTPS_PORT)
+                || ("http".equals(scheme) && port == HTTP_PORT)) {
+            port = -1;
+        }
+        try {
+            return new URI(scheme, null, endpoint.getHost().toLowerCase(
+                    java.util.Locale.ROOT), port, null, null, null);
+        } catch (URISyntaxException failure) {
+            throw new IllegalStateException("COPY managed backend endpoint is invalid", failure);
+        }
+    }
+
+    private static void writeIdentityField(DataOutputStream out, String value) throws IOException {
+        byte[] encoded = value.getBytes(StandardCharsets.UTF_8);
+        out.writeInt(encoded.length);
+        out.write(encoded);
+    }
+
     private static S3Client buildClient(Settings settings) {
         Objects.requireNonNull(settings, "settings must not be null");
         var builder = S3Client.builder()
@@ -261,6 +345,20 @@ public final class S3BlobStorage implements BlobStorage {
                         "S3 FILE expected bucket owner must be a 12-digit account id");
             }
             validateEndpoint(endpoint);
+            endpoint = canonicalEndpoint(endpoint);
+        }
+
+        private static URI canonicalEndpoint(URI value) {
+            if (value == null) {
+                return null;
+            }
+            int port = value.getPort() == HTTPS_PORT ? -1 : value.getPort();
+            try {
+                return new URI("https", null, value.getHost().toLowerCase(
+                        java.util.Locale.ROOT), port, null, null, null);
+            } catch (URISyntaxException failure) {
+                throw new IllegalArgumentException("S3 FILE endpoint is invalid", failure);
+            }
         }
 
         private static String normalizePrefix(String value) {

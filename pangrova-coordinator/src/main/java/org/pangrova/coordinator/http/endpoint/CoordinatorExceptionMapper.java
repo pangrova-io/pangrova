@@ -1,8 +1,10 @@
 package org.pangrova.coordinator.http.endpoint;
 
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.common.exception.PangrovaException;
@@ -34,6 +36,9 @@ import org.slf4j.LoggerFactory;
 public final class CoordinatorExceptionMapper implements ExceptionMapper<Exception> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorExceptionMapper.class);
+    private static final String COPY_SOURCE_READ_PATH = "v1/internal/copy-source-read/";
+
+    @Context private UriInfo requestUri;
 
     private static final int HTTP_STATUS_BAD_REQUEST = 400;
     private static final int HTTP_STATUS_UNAUTHORIZED = 401;
@@ -52,9 +57,18 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
         int status = resolveHttpStatus(exception);
         String errorCode = resolveErrorCode(exception, status);
         String errorType = resolveErrorType(status);
-        String message = resolveMessage(exception);
+        // JSON decoding fails before the resource method runs. Jackson can include
+        // offending source text in an exception, which may contain the bearer nonce.
+        boolean privateCopyRequest = requestUri != null
+                && requestUri.getPath().startsWith(COPY_SOURCE_READ_PATH);
+        String message = privateCopyRequest
+                ? "COPY source-read request rejected" : resolveMessage(exception);
 
-        logException(status, errorCode, message, exception);
+        if (privateCopyRequest) {
+            LOG.warn("COPY source-read request rejected: status={} errorCode={}", status, errorCode);
+        } else {
+            logException(status, errorCode, message, exception);
+        }
 
         ErrorDetail detail = new ErrorDetail(errorCode, errorType, message);
         Response.ResponseBuilder response = exception instanceof WebApplicationException webException

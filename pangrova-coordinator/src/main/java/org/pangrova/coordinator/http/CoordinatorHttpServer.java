@@ -22,6 +22,7 @@ import org.pangrova.coordinator.http.endpoint.catalog.CatalogDeploymentResource;
 import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestOperations;
 import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResource;
 import org.pangrova.coordinator.http.endpoint.catalog.OAuth2TokenResource;
+import org.pangrova.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.observability.tracing.TracingHttpFilter;
@@ -45,6 +46,7 @@ public final class CoordinatorHttpServer {
     static final int COORDINATOR_MAX_THREADS = 256;
 
     private final Server server;
+    private final boolean copySourceReadEnabled;
 
     /**
      * Primary constructor accepting a dependencies parameter object.
@@ -56,6 +58,7 @@ public final class CoordinatorHttpServer {
      */
     public CoordinatorHttpServer(int port, CoordinatorHttpServerContext deps) {
         checkNotNull(deps, "deps must not be null");
+        this.copySourceReadEnabled = deps.copySourceReadResource() != null;
 
         ResourceConfig config = buildResourceConfig(deps);
         ServletContainer servletContainer = new ServletContainer(config);
@@ -102,6 +105,9 @@ public final class CoordinatorHttpServer {
 
     /** Starts the Jetty server. */
     public void start() throws Exception {
+        if (copySourceReadEnabled) {
+            CopySourceWireLoggingPolicy.requireSafeJettyLogging();
+        }
         server.start();
     }
 
@@ -140,6 +146,14 @@ public final class CoordinatorHttpServer {
         registerIfPresent(config, deps.cdcHandler(), StreamingResource::new);
         registerIfPresent(config, deps.splitAssignmentManager(), SplitResource::new);
         registerCatalogRestResources(config, deps);
+        if (deps.copySourceReadResource() != null) {
+            if (deps.authenticationManager() == null || deps.internalAuthSecret() == null
+                    || deps.internalAuthSecret().isBlank()) {
+                throw new IllegalArgumentException(
+                        "COPY source-read endpoint requires internal-service authentication");
+            }
+            config.register(deps.copySourceReadResource());
+        }
         registerWebUiResource(config, deps);
     }
 

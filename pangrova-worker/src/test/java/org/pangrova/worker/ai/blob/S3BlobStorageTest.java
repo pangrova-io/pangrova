@@ -117,6 +117,44 @@ class S3BlobStorageTest {
                 .hasMessageContaining("key id");
     }
 
+    @Test
+    void backendIdentityBindsPhysicalOriginEvenWhenLogicalRootMatches() {
+        var encryption = new S3BlobStorage.Encryption(ServerSideEncryption.AES256, "");
+        var firstSettings = new S3BlobStorage.Settings("governed-files", "us-east-1",
+                URI.create("https://STORE-A.example:443/"), "pangrova/ai-files",
+                encryption, "", true);
+        var sameOrigin = new S3BlobStorage.Settings("governed-files", "us-east-1",
+                URI.create("https://store-a.example"), "pangrova/ai-files",
+                encryption, "", true);
+        var otherOrigin = new S3BlobStorage.Settings("governed-files", "us-east-1",
+                URI.create("https://store-b.example"), "pangrova/ai-files",
+                encryption, "", true);
+        try (var first = new S3BlobStorage(firstSettings);
+                var canonical = new S3BlobStorage(sameOrigin);
+                var other = new S3BlobStorage(otherOrigin)) {
+            assertThat(first.rootUri()).isEqualTo(other.rootUri());
+            assertThat(first.backendIdentitySha256()).isEqualTo(canonical.backendIdentitySha256());
+            assertThat(first.backendIdentitySha256()).isNotEqualTo(other.backendIdentitySha256());
+        }
+    }
+
+    @Test
+    void copyBackendIdentityRejectsImplicitSdkEndpointOverrides() {
+        String previous = System.getProperty("aws.endpointUrl.s3");
+        System.setProperty("aws.endpointUrl.s3", "https://unexpected-store.example");
+        try (var storage = new S3BlobStorage(settings())) {
+            assertThatThrownBy(storage::backendIdentitySha256)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("explicit HTTPS endpoint override");
+        } finally {
+            if (previous == null) {
+                System.clearProperty("aws.endpointUrl.s3");
+            } else {
+                System.setProperty("aws.endpointUrl.s3", previous);
+            }
+        }
+    }
+
     private static S3BlobStorage.Settings settings() {
         return new S3BlobStorage.Settings(
                 "governed-files", "us-east-1", null, "pangrova/ai-files",

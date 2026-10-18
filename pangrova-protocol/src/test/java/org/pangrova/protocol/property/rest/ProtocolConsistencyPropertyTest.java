@@ -38,7 +38,8 @@ class ProtocolConsistencyPropertyTest {
                 .filter(field -> !Modifier.isStatic(field.getModifiers()))
                 .map(field -> field.getName()).toList())
                 .containsExactlyInAnyOrder(
-                        "canonicalTaskRequest", "canonicalBytes", "taskRequest");
+                        "canonicalTaskRequest", "canonicalBytes", "taskRequest",
+                        "copySourceRead");
         assertThat(TaskRequest.getDescriptor().getFields())
                 .extracting(FieldDescriptor::getName)
                 .doesNotContain("exchange_sources", "dynamic_filters", "output_config",

@@ -53,7 +53,8 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
      * endpoints (e.g., /v1/query) where it would bypass user identity resolution.
      */
     private static final String[] INTERNAL_ROUTE_PREFIXES = {
-            "v1/worker", "v1/workers", "v1/task", "v1/internal/catalog-deployments"
+            "v1/worker", "v1/workers", "v1/task", "v1/internal/catalog-deployments",
+            "v1/internal/copy-source-read"
     };
 
     private final AuthenticationManager authenticationManager;

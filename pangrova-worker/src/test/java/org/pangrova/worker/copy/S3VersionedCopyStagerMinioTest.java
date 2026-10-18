@@ -1,14 +1,15 @@
 package org.pangrova.worker.copy;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.testing.ContainerTestBase;
 import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.storage.StorageProfile;
 import org.pangrova.spi.storage.StorageType;
 import org.pangrova.worker.ai.blob.S3BlobStorage;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
@@ -37,13 +38,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real S3-compatible version semantics; no SQL or production COPY wiring is implied. */
-@Testcontainers
-class S3VersionedCopyStagerMinioTest {
+class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
 
     private static final String ACCESS_KEY = "copy-version-test";
     private static final String SECRET_KEY = "copy-version-test-secret";
 
-    @Container
     static final GenericContainer<?> MINIO = new GenericContainer<>(
             "minio/minio:RELEASE.2024-12-18T13-15-44Z")
             .withExposedPorts(9000)
@@ -52,6 +51,17 @@ class S3VersionedCopyStagerMinioTest {
             .withEnv("MINIO_KMS_SECRET_KEY",
                     "copy-test-key:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
             .withCommand("server", "/data");
+
+    @BeforeAll
+    static void startMinio() {
+        isDockerReady();
+        MINIO.start();
+    }
+
+    @AfterAll
+    static void stopMinio() {
+        MINIO.stop();
+    }
 
     @TempDir
     Path temporaryDirectory;
@@ -143,6 +153,49 @@ class S3VersionedCopyStagerMinioTest {
     }
 
     @Test
+    void durableRetryReadsManagedObjectAfterOriginalVersionIsDeleted() throws Exception {
+        String bucket = bucketName();
+        String managedBucket = bucketName();
+        byte[] bytes = "durable-retry-parquet-bytes".getBytes(StandardCharsets.UTF_8);
+        try (S3Client objects = client()) {
+            createVersionedBucket(objects, bucket);
+            objects.createBucket(request -> request.bucket(managedBucket));
+            String version = objects.putObject(request -> request.bucket(bucket)
+                    .key("data/part.parquet"), RequestBody.fromBytes(bytes)).versionId();
+            var managed = managed(objects, managedBucket);
+            String url = "s3://" + bucket + "/data/part.parquet";
+            var first = new S3VersionedCopyStager(objects, managed,
+                    temporaryDirectory.resolve("first-draft"), 1024)
+                    .stage(profile(bucket), url, "tenant-one");
+            assertThat(first.sourceVersionId()).isEqualTo(version);
+            assertThat(first.managedObjectUri()).isEqualTo("s3://" + managedBucket + "/" + managedKey(first));
+
+            objects.deleteObject(request -> request.bucket(bucket).key("data/part.parquet")
+                    .versionId(version));
+            assertThatThrownBy(() -> objects.headObject(request -> request.bucket(bucket)
+                    .key("data/part.parquet"))).isInstanceOf(RuntimeException.class);
+
+            var restarted = new S3VersionedCopyStager(objects, managed,
+                    temporaryDirectory.resolve("retry-draft"), 1024);
+            assertThat(restarted.resume(profile(bucket), url, "tenant-one", first)).isEqualTo(first);
+            Path verifiedPath;
+            try (var verified = restarted.materialize(profile(bucket), url, "tenant-one", first)) {
+                verifiedPath = verified.path();
+                assertThat(java.nio.file.Files.readAllBytes(verifiedPath)).isEqualTo(bytes);
+            }
+            assertThat(verifiedPath).doesNotExist();
+            assertThatThrownBy(() -> restarted.resume(profile(bucket), url, "tenant-two", first))
+                    .isInstanceOf(AccessDeniedException.class);
+            var redirected = new S3VersionedCopyStager.StagedSource(first.profileName(),
+                    first.sourceUrl(), first.sourceVersionId(),
+                    "s3://" + bucket + "/" + managedKey(first), first.tenantScope(),
+                    first.contentSha256(), first.contentSize());
+            assertThatThrownBy(() -> restarted.resume(profile(bucket), url, "tenant-one", redirected))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+    }
+
+    @Test
     void existingManagedObjectWithForgedMetadataCannotPassByteVerification() throws Exception {
         String bucket = bucketName();
         String managedBucket = bucketName();
@@ -169,6 +222,12 @@ class S3VersionedCopyStagerMinioTest {
             assertThatThrownBy(() -> stager.stage(profile(bucket), url, "tenant-one"))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("byte integrity verification");
+            assertThatThrownBy(() -> stager.resume(profile(bucket), url, "tenant-one", staged))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("byte integrity verification");
+            assertThatThrownBy(() -> stager.materialize(profile(bucket), url, "tenant-one", staged))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("SHA-256/size verification");
         }
     }
 

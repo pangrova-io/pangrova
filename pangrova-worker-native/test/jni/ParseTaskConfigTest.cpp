@@ -187,6 +187,16 @@ proto::TaskRequest validRequest() {
   return request;
 }
 
+TEST(ParseTaskConfigTest, CopyStagingDigestCannotBypassWorkerStaging) {
+  auto request = validRequest();
+  request.set_task_kind(proto::TASK_KIND_WRITE);
+  auto* checksum = request.mutable_copy_source_staging_command_sha256();
+  checksum->set_algorithm(proto::Checksum::ALGORITHM_SHA256);
+  checksum->set_digest(std::string(32, '\x5a'));
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  EXPECT_THROW(taskConfigFromRequest(request), std::runtime_error);
+}
+
 TEST(ParseTaskConfigTest, DirectResultRequiresPositiveExactSerializedBufferGrant) {
   auto request = validRequest();
   request.mutable_execution_options()->set_direct_result_output(true);

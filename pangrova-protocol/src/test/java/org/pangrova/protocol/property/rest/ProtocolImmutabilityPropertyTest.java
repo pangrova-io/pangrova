@@ -92,7 +92,7 @@ class ProtocolImmutabilityPropertyTest {
      * Property 8: All record components use immutable types.
      *
      * <p>For any REST DTO record, every component type must be either
-     * a primitive, a known immutable type (String, boxed primitives),
+     * a primitive, enum, a known immutable type (String, boxed primitives),
      * a {@link List}, {@link Map}, or {@link Set} (defensively copied in compact
      * constructors), or another protocol record.</p>
      *
@@ -124,6 +124,9 @@ class ProtocolImmutabilityPropertyTest {
 
     private static boolean isImmutableComponentType(Class<?> type) {
         if (type.isPrimitive()) {
+            return true;
+        }
+        if (type.isEnum()) {
             return true;
         }
         if (ALLOWED_IMMUTABLE_TYPES.contains(type)) {

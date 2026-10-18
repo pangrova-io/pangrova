@@ -11,6 +11,7 @@ public final class AuthorizationTransactionGate {
     private static final List<String> AUTHORITY_TABLES = List.of(
             "pangrova_roles", "pangrova_user_roles", "pangrova_group_roles", "security_grants",
             "row_policy", "column_mask", "tenants", "tenant_user_memberships",
+            "tenant", "tenant_membership",
             "pangrova_embedding_models", "storage_profile_definitions");
 
     private AuthorizationTransactionGate() {}
@@ -45,6 +46,10 @@ public final class AuthorizationTransactionGate {
                         RAISE EXCEPTION 'Authority tables cannot be truncated; use gated DELETE';
                     END IF;
                     PERFORM pg_advisory_xact_lock(207578817, 1);
+                    IF to_regclass('pangrova_authorization_revision') IS NOT NULL THEN
+                        UPDATE pangrova_authorization_revision
+                        SET revision = revision + 1 WHERE singleton = TRUE;
+                    END IF;
                     RETURN NULL;
                 END
                 $gate$

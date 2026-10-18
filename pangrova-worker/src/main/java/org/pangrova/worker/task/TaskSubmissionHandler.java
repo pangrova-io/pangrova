@@ -47,6 +47,12 @@ final class TaskSubmissionHandler {
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
         owner.verifyExecutionOwnerForAdmission(request);
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
+        if (canonical.hasCopySourceStagingCommandSha256()) {
+            // A COPY task must stage and verify the exact managed object before
+            // Native creation. No Worker task may bypass that pending wiring.
+            throw new IllegalStateException(
+                    "COPY source task admission requires pre-Native staging integration");
+        }
         if (owner.drainExecutor.isDraining()) {
             throw new IllegalStateException("Worker is draining — new tasks are rejected");
         }

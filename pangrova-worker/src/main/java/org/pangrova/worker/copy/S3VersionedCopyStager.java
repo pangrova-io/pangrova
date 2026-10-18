@@ -3,7 +3,7 @@ package org.pangrova.worker.copy;
 import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.storage.StorageProfile;
 import org.pangrova.spi.storage.StorageType;
-import org.pangrova.worker.ai.blob.BlobStorage;
+import org.pangrova.worker.ai.blob.S3BlobStorage;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -37,11 +38,11 @@ final class S3VersionedCopyStager {
     private static final int BUFFER_BYTES = 64 * 1024;
 
     private final S3Client source;
-    private final BlobStorage managedStorage;
+    private final S3BlobStorage managedStorage;
     private final Path stagingRoot;
     private final long maxSourceBytes;
 
-    S3VersionedCopyStager(S3Client source, BlobStorage managedStorage,
+    S3VersionedCopyStager(S3Client source, S3BlobStorage managedStorage,
                           Path stagingRoot, long maxSourceBytes) {
         this.source = Objects.requireNonNull(source, "source must not be null");
         this.managedStorage = Objects.requireNonNull(managedStorage, "managedStorage must not be null");
@@ -85,12 +86,86 @@ final class S3VersionedCopyStager {
                 managedStorage.publish(scope, checksum, expectedSize, draft);
                 verifyManagedObject(scope, checksum, expectedSize);
                 return new StagedSource(profile.name(), canonicalSourceUrl, version,
-                        scope, checksum, expectedSize);
+                        managedStorage.objectUri(scope, checksum), scope, checksum, expectedSize);
             } finally {
                 Files.deleteIfExists(draft);
             }
         } catch (SdkException failure) {
             throw new IOException("Failed to stage exact S3 COPY source version", failure);
+        }
+    }
+
+    /** A durable proof retries from managed storage without reading the original S3 source. */
+    StagedSource resume(StorageProfile profile, String sourceUrl, String tenantId,
+                        StagedSource staged) throws IOException {
+        Objects.requireNonNull(staged, "staged source must not be null");
+        requireRetrySource(profile, sourceUrl, tenantId);
+        String scope = HexFormat.of().formatHex(
+                sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
+        requireRetryProof(profile, sourceUrl, staged, scope);
+        verifyManagedObject(scope, staged.contentSha256(), staged.contentSize());
+        return staged;
+    }
+
+    /** Materializes only verified managed bytes into a task-private local scan file. */
+    VerifiedLocalCopySource materialize(StorageProfile profile, String sourceUrl, String tenantId,
+                                        StagedSource staged) throws IOException {
+        requireRetrySource(profile, sourceUrl, tenantId);
+        String scope = HexFormat.of().formatHex(
+                sha256().digest(("copy\0" + tenantId).getBytes(StandardCharsets.UTF_8)));
+        requireRetryProof(profile, sourceUrl, staged, scope);
+        Files.createDirectories(stagingRoot);
+        if (Files.isSymbolicLink(stagingRoot)) {
+            throw new AccessDeniedException("S3 COPY staging root must not be a symbolic link");
+        }
+        Path privateDirectory = Files.createTempDirectory(stagingRoot, "copy-scan-",
+                PosixFilePermissions.asFileAttribute(
+                        PosixFilePermissions.fromString("rwx------")));
+        Path local = privateDirectory.resolve("source.parquet");
+        try {
+            MessageDigest digest = sha256();
+            try (InputStream input = managedStorage.open(scope, staged.contentSha256(),
+                    staged.contentSize());
+                    FileChannel channel = FileChannel.open(local, StandardOpenOption.CREATE_NEW,
+                            StandardOpenOption.WRITE);
+                    OutputStream output = Channels.newOutputStream(channel)) {
+                long bytes = transfer(input, output, digest, staged.contentSize());
+                if (bytes != staged.contentSize()
+                        || !staged.contentSha256().equals(HexFormat.of().formatHex(digest.digest()))) {
+                    throw new IOException("S3 COPY managed scan bytes failed SHA-256/size verification");
+                }
+                output.flush();
+                channel.force(true);
+            }
+            return new VerifiedLocalCopySource(local, stagingRoot);
+        } catch (IOException | RuntimeException failure) {
+            try {
+                Files.deleteIfExists(local);
+                Files.deleteIfExists(privateDirectory);
+            } catch (IOException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+    }
+
+    private static void requireRetrySource(StorageProfile profile, String sourceUrl, String tenantId) {
+        if (profile == null || profile.type() != StorageType.S3 || !profile.matchesUrl(sourceUrl)
+                || tenantId == null || tenantId.isBlank()) {
+            throw new AccessDeniedException("S3 COPY retry is outside the bound storage profile");
+        }
+    }
+
+    private void requireRetryProof(StorageProfile profile, String sourceUrl,
+                                   StagedSource staged, String scope) {
+        if (!profile.name().equals(staged.profileName()) || !sourceUrl.equals(staged.sourceUrl())
+                || !scope.equals(staged.tenantScope()) || staged.sourceVersionId() == null
+                || staged.sourceVersionId().isBlank() || "null".equals(staged.sourceVersionId())
+                || staged.contentSha256() == null || !staged.contentSha256().matches("[0-9a-f]{64}")
+                || staged.contentSize() < 0 || staged.contentSize() > maxSourceBytes
+                || !managedStorage.objectUri(scope, staged.contentSha256())
+                        .equals(staged.managedObjectUri())) {
+            throw new AccessDeniedException("S3 COPY staged proof does not match the retry scope");
         }
     }
 
@@ -164,5 +239,6 @@ final class S3VersionedCopyStager {
 
     /** Exact source and verified managed-object identity; contains no credentials or file bytes. */
     record StagedSource(String profileName, String sourceUrl, String sourceVersionId,
-                        String tenantScope, String contentSha256, long contentSize) {}
+                        String managedObjectUri, String tenantScope,
+                        String contentSha256, long contentSize) {}
 }
