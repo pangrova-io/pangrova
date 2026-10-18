@@ -51,12 +51,18 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
             var original = scenario.original();
             var copy = scenario.copy();
             scenario.report(id(original), "FINISHED");
-            scenario.report(id(copy), "FINISHED");
+            var delayedCopyReport = scenario.report(id(copy), "FINISHED");
             scenario.releaseOriginal();
             await("actual losing copy cancellation").atMost(Duration.ofSeconds(60))
                     .until(() -> scenario.successfulCancelCalls(id(copy)) > 0);
             scenario.awaitExecutionDrain(id(copy));
             assertRead(scenario.complete(true));
+            await("retired speculative loser terminal ACK").atMost(Duration.ofSeconds(60))
+                    .untilAsserted(() -> {
+                        var response = delayedCopyReport.response().get();
+                        assertThat(response).isNotNull();
+                        assertThat(response.statusCode()).isEqualTo(200);
+                    });
         }
     }
 

@@ -311,8 +311,14 @@ final class TaskIdentityRegistry {
         }
         Scope scope = scopes.get(report.queryId());
         Fact publication = scope == null ? null : scope.publications.get(report.taskId());
-        if (publication == null || !publication.notificationsCompleted
-                || publication.operations != 0 || !publication.matches(report)) {
+        // A canceled loser may have been explicitly retired using the exact
+        // execution drain receipt before its delayed terminal HTTP report
+        // arrives. Its issued request is gone, so the report cannot publish
+        // outputs; acknowledge only that already-retired physical owner.
+        if (publication != null && (!publication.notificationsCompleted || publication.operations != 0)) {
+            return false;
+        }
+        if (identity.request() != null && (publication == null || !publication.matches(report))) {
             return false;
         }
         try {

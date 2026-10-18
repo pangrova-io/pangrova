@@ -24,6 +24,8 @@
 
 Worker 全模块重跑时，Lance 夹具初次因缺 `pangrova.lance.fixture.tool` 启动参数而报 6 项错误；补齐当前源码的 fixture tool 后聚焦 7/7 通过（`/tmp/pangrova-lance-tool-focused-r2.log`）。随后 Metadata **416/416 PASS**；Worker 首次 1,234 项仅 `S3BlobStorageSettingsParserTest` 一项失败：旧断言要求末尾 `/`，但存储配置构造器明确把 HTTPS origin 规范化为无路径，后端身份比较也依赖该规范值。校正断言后聚焦 2/2、Worker 全模块 **1,234/1,234 PASS**，0 失败/错误/跳过（`/tmp/pangrova-s3-settings-focused-r2.log`、`/tmp/pangrova-worker-current-full-r4.log`）。这些结果不替代尚未完成的镜像独立进程和全 reactor 回归。
 
+2026-10-18 ARM64 增量：`c52c9079` 干净归档 Bake/加载成功，image ID `sha256:ff855b0ee8fd1eb8d47f9b00d8f1cbf0857707ef9684e8a323a603c568e89e8f`（`/tmp/pangrova-arm64-bake-c52c9079.log`）；固定基础镜像 digest 后，`c08b6999` 干净归档再次 Bake/加载成功，image ID `sha256:2a7da8d26330c01a7e4771a247955587e0aa238542dfca68176d683e5c1265e9`（`/tmp/pangrova-arm64-bake-c08b6999.log`）。同源独立双 Worker `originalWins_specCancelled` 和 `resourceCleanup` 各 1/1 Surefire 通过，但日志出现副本终态 `status_report_rejected_unbound_task`、Worker `final_state_report_exhausted`，故不按生产级 ACK/清理验收通过（`/tmp/pangrova-independent-spec-c08b6999-original-wins-r1.log`、`/tmp/pangrova-independent-spec-c08b6999-resource-cleanup-r1.log`）。根因是副本通过真实取消响应取得精确 Native drain 后已显式压缩身份，延迟终态 HTTP 报告没有对应已完成 publication fact。当前修复仅在精确 Worker/attempt/drain 凭据匹配且请求已压缩时回 ACK，禁止重新发布输出；并为真实 E2E 增加迟到副本报告 HTTP 200 断言。Coordinator 契约聚焦 9/9、启动链加契约 13/13、按当前源码重装 E2E 依赖链 33/33 模块、Coordinator 全模块 **2,893/2,893 PASS**、受影响静态门禁退出 0（`/tmp/pangrova-compact-drain-ack-focused-r1.log`、`/tmp/pangrova-coordinator-wire-log-focused-r1.log`、`/tmp/pangrova-ack-reactor-install-r2.log`、`/tmp/pangrova-coordinator-compact-ack-full-r3.log`、`/tmp/pangrova-coordinator-compact-ack-static-r1.log`）。独立进程新断言仍须进入修复后干净归档镜像复验。
+
 ## 第一批：Linux 可部署产物（4 项，进行中）
 
 | 编号 | 待闭合检查点 | 通过标准与当前边界 |

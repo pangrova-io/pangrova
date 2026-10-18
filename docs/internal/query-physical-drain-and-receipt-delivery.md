@@ -23,6 +23,11 @@ Actual receipts fan out to all registered observers, preserving speculative
 ownership callbacks. Logical task timing cleanup must not delete issuance.
 Compacting an exited task drops its plan/Worker inventory while retaining the
 exact exit identity needed to acknowledge a lost terminal response.
+If a speculative loser was explicitly retired from its exact drain receipt
+before a delayed terminal report arrives, the Coordinator may acknowledge that
+same Worker/attempt/receipt without reopening its request or publishing output.
+An unretired task still needs its completed report publication before a retry
+can receive this metadata-only acknowledgement.
 
 ## Logical completion versus physical completion
 

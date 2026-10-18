@@ -144,6 +144,27 @@ class TaskIdentityRegistryDrainContractTest {
     }
 
     @Test
+    void delayedLoserReportAcknowledgesOnlyAnExplicitlyRetiredExactDrain() {
+        var registry = new TaskIdentityRegistry();
+        var request = request();
+        issue(registry, request);
+        registry.enterDispatch(request);
+        var actual = receipt(request);
+        var delayed = projection(request, actual);
+        registry.recordExecutionDrain(request, actual);
+        assertThat(registry.acknowledgesDrain(delayed)).isFalse();
+
+        registry.compactDrainedTask("task", request, actual);
+        assertThat(registry.acknowledgesDrain(delayed)).isTrue();
+        var changed = new TaskStatusReport("task", "query", 0, 0, "OUTPUT", "other-worker", "FINISHED",
+                null, null, null, 1L, 1000L, null, null,
+                TaskAttemptDescriptor.from(request.taskRequest().getAttempt()), actual.toByteArray());
+        assertThat(registry.acknowledgesDrain(changed)).isFalse();
+        var changedReceipt = actual.toBuilder().setState(TaskState.TASK_STATE_FAILED).build();
+        assertThat(registry.acknowledgesDrain(projection(request, changedReceipt))).isFalse();
+    }
+
+    @Test
     void undrainedScopeIsNotPurgedAfterItsExecutionDeadline() {
         AtomicLong clock = new AtomicLong(1000);
         var registry = new TaskIdentityRegistry(clock::get);
