@@ -40,6 +40,23 @@ constexpr auto kChildSchema = R"({"type":"record","name":"manifest_entry","field
     R"({"name":"split_offsets","type":["null",{"type":"array","items":"long"}]},)"
     R"({"name":"equality_ids","type":["null",{"type":"array","items":"int"}]},)"
     R"({"name":"sort_order_id","type":["null","int"]}]}}]})";
+constexpr auto kChildMapSchema = R"({"type":"record","name":"manifest_entry","fields":[)"
+    R"({"name":"status","type":"int"},)"
+    R"({"name":"data_file","field-id":2,"type":{"type":"record","name":"data_file","fields":[)"
+    R"({"name":"content","type":"int"},)"
+    R"({"name":"file_path","type":"string"},)"
+    R"({"name":"file_format","type":"string"},)"
+    R"({"name":"spec_id","type":["null","int"]},)"
+    R"({"name":"record_count","type":"long"},)"
+    R"({"name":"file_size_in_bytes","type":"long"},)"
+    R"({"name":"column_sizes","field-id":108,"type":["null",)"
+    R"({"type":"array","logicalType":"map","items":)"
+    R"({"type":"record","name":"k117_v118","fields":[)"
+    R"({"name":"key","type":"int","field-id":117},)"
+    R"({"name":"value","type":"long","field-id":118}]}}]},)"
+    R"({"name":"split_offsets","type":["null",{"type":"array","items":"long"}]},)"
+    R"({"name":"equality_ids","type":["null",{"type":"array","items":"int"}]},)"
+    R"({"name":"sort_order_id","type":["null","int"]}]}}]})";
 
 void appendLong(std::string& bytes, int64_t value) {
   auto encoded = (static_cast<uint64_t>(value) << 1) ^
@@ -163,6 +180,35 @@ std::string childRow(int32_t status, const std::string& path, int32_t content = 
   return row;
 }
 
+using MetricMap = std::vector<std::pair<int32_t, int64_t>>;
+
+std::string childMapRow(const std::string& path,
+    const std::optional<MetricMap>& columnSizes) {
+  std::string row;
+  appendLong(row, 1);  // added entry
+  appendLong(row, 0);  // data content
+  appendBytes(row, path);
+  appendBytes(row, "PARQUET");
+  appendLong(row, 0);  // null spec ID inherited from manifest
+  appendLong(row, 3);
+  appendLong(row, 4096);
+  appendLong(row, columnSizes ? 1 : 0);
+  if (columnSizes) {
+    if (!columnSizes->empty()) {
+      appendLong(row, columnSizes->size());
+      for (const auto& [key, value] : *columnSizes) {
+        appendLong(row, key);
+        appendLong(row, value);
+      }
+    }
+    appendLong(row, 0);
+  }
+  appendLong(row, 0);  // null split offsets
+  appendLong(row, 0);  // null equality IDs
+  appendLong(row, 0);  // null sort order ID
+  return row;
+}
+
 std::string listRow(const AvroFile& child, uint64_t length) {
   std::string row;
   appendBytes(row, child.path());
@@ -198,6 +244,80 @@ auto arrayProjectionType() {
        facebook::velox::ARRAY(facebook::velox::BIGINT()),
        facebook::velox::ARRAY(facebook::velox::INTEGER()),
        facebook::velox::INTEGER()});
+}
+
+auto mapProjectionType() {
+  return facebook::velox::ROW(
+      {"file_path", "column_sizes"},
+      {facebook::velox::VARCHAR(),
+       facebook::velox::MAP(facebook::velox::INTEGER(), facebook::velox::BIGINT())});
+}
+
+TEST(IcebergManifestEntryReaderTest, PreservesNullEmptyAndPopulatedColumnSizes) {
+  facebook::velox::filesystems::registerLocalFileSystem();
+  auto pool = pangrova::test::testLeafPool("IcebergFilesMap");
+  const auto childBytes = container(kChildMapSchema,
+      {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "data"}},
+      3, childMapRow("file:/data/null.parquet", std::nullopt) +
+          childMapRow("file:/data/empty.parquet", MetricMap{}) +
+          childMapRow("file:/data/values.parquet", MetricMap{{1, 11}, {2, 22}}));
+  AvroFile child(childBytes);
+  const auto listBytes = container(kListSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
+      1, listRow(child, childBytes.size()));
+  AvroFile list(listBytes);
+  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
+      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
+      mapProjectionType(), pool.get());
+  auto batch = reader.next(10);
+  ASSERT_NE(batch, nullptr);
+  ASSERT_EQ(batch->size(), 3);
+  auto* maps = batch->childAt(1)->as<facebook::velox::MapVector>();
+  ASSERT_NE(maps, nullptr);
+  EXPECT_TRUE(maps->isNullAt(0));
+  EXPECT_FALSE(maps->isNullAt(1));
+  EXPECT_EQ(maps->sizeAt(1), 0);
+  EXPECT_FALSE(maps->isNullAt(2));
+  EXPECT_EQ(maps->sizeAt(2), 2);
+  EXPECT_EQ(maps->mapKeys()->asFlatVector<int32_t>()->valueAt(maps->offsetAt(2)), 1);
+  EXPECT_EQ(maps->mapValues()->asFlatVector<int64_t>()->valueAt(maps->offsetAt(2)), 11);
+  EXPECT_EQ(maps->mapKeys()->asFlatVector<int32_t>()->valueAt(maps->offsetAt(2) + 1), 2);
+  EXPECT_EQ(maps->mapValues()->asFlatVector<int64_t>()->valueAt(maps->offsetAt(2) + 1), 22);
+}
+
+TEST(IcebergManifestEntryReaderTest, RejectsMalformedColumnSizes) {
+  facebook::velox::filesystems::registerLocalFileSystem();
+  auto pool = pangrova::test::testLeafPool("IcebergFilesMapReject");
+  for (const auto& metrics : {MetricMap{{1, 11}, {1, 22}}, MetricMap{{-1, 11}},
+                               MetricMap{{1, -1}}}) {
+    const auto childBytes = container(kChildMapSchema,
+        {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "data"}},
+        1, childMapRow("file:/data/invalid.parquet", metrics));
+    AvroFile child(childBytes);
+    const auto listBytes = container(kListSchema,
+        {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
+        1, listRow(child, childBytes.size()));
+    AvroFile list(listBytes);
+    IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
+        list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
+        mapProjectionType(), pool.get());
+    EXPECT_THROW(reader.next(10), std::runtime_error);
+  }
+  std::string wrongSchema = kChildMapSchema;
+  auto id = wrongSchema.find("\"field-id\":117");
+  ASSERT_NE(id, std::string::npos);
+  wrongSchema.replace(id, std::string("\"field-id\":117").size(), "\"field-id\":999");
+  const auto childBytes = container(wrongSchema,
+      {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "data"}},
+      1, childMapRow("file:/data/invalid.parquet", MetricMap{{1, 11}}));
+  AvroFile child(childBytes);
+  const auto listBytes = container(kListSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
+      1, listRow(child, childBytes.size()));
+  AvroFile list(listBytes);
+  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(), digest(childBytes),
+      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
+      mapProjectionType(), pool.get()), std::runtime_error);
 }
 
 TEST(IcebergManifestEntryReaderTest, PreservesNullEmptyAndPopulatedArrays) {

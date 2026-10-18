@@ -26,6 +26,7 @@ class IcebergAvroContainerReader final {
 
   std::optional<folly::dynamic> nextRecord();
   std::string metadataValue(const std::string& key) const;
+  const folly::dynamic& writerSchema() const { return writer_schema_; }
 
  private:
   int64_t readFileLong();

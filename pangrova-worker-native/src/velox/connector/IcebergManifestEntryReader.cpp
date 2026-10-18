@@ -14,6 +14,7 @@
 #include "velox/common/file/File.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/vector/BaseVector.h"
+#include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
 
 namespace pangrova::velox {
@@ -67,6 +68,95 @@ std::string requiredText(const folly::dynamic& object, const char* name) {
     throw std::runtime_error(std::string("Empty Iceberg file string: ") + name);
   }
   return text;
+}
+
+bool avroKind(const folly::dynamic& schema, std::string_view kind) {
+  if (schema.isString()) {
+    const auto& value = schema.asString();
+    return std::string_view(value.data(), value.size()) == kind;
+  }
+  if (!schema.isObject() || !schema.count("type") || !schema["type"].isString()) {
+    return false;
+  }
+  const auto& value = schema["type"].asString();
+  return std::string_view(value.data(), value.size()) == kind;
+}
+
+const folly::dynamic& avroField(const folly::dynamic& record,
+    std::string_view name, int64_t fieldId) {
+  if (!avroKind(record, "record") || !record.count("fields") ||
+      !record["fields"].isArray()) {
+    throw std::runtime_error("Invalid Iceberg $files Avro record schema");
+  }
+  const folly::dynamic* found = nullptr;
+  for (const auto& field : record["fields"]) {
+    if (!field.isObject() || !field.count("name") ||
+        !field["name"].isString() || !field.count("type")) {
+      throw std::runtime_error("Invalid Iceberg $files Avro field schema");
+    }
+    const auto& fieldName = field["name"].asString();
+    if (std::string_view(fieldName.data(), fieldName.size()) != name) continue;
+    if (found || !field.count("field-id") || !field["field-id"].isInt() ||
+        field["field-id"].asInt() != fieldId) {
+      throw std::runtime_error("Iceberg $files Avro field ID differs");
+    }
+    found = &field["type"];
+  }
+  if (!found) throw std::runtime_error("Iceberg $files Avro field is missing");
+  return *found;
+}
+
+const folly::dynamic& nonNullAvroSchema(const folly::dynamic& schema) {
+  if (!schema.isArray()) return schema;
+  if (schema.size() != 2) {
+    throw std::runtime_error("Unsupported Iceberg $files Avro union");
+  }
+  if (avroKind(schema[0], "null") && !avroKind(schema[1], "null")) {
+    return schema[1];
+  }
+  if (avroKind(schema[1], "null") && !avroKind(schema[0], "null")) {
+    return schema[0];
+  }
+  throw std::runtime_error("Unsupported Iceberg $files Avro union");
+}
+
+void validateColumnSizesSchema(const folly::dynamic& writerSchema) {
+  const auto& dataFile = nonNullAvroSchema(avroField(writerSchema, "data_file", 2));
+  const auto& map = nonNullAvroSchema(avroField(dataFile, "column_sizes", 108));
+  if (!avroKind(map, "array") || !map.count("logicalType") ||
+      !map["logicalType"].isString() || map["logicalType"].asString() != "map" ||
+      !map.count("items")) {
+    throw std::runtime_error("Unsupported Iceberg column_sizes Avro logical map");
+  }
+  const auto& item = map["items"];
+  if (!avroKind(avroField(item, "key", 117), "int") ||
+      !avroKind(avroField(item, "value", 118), "long")) {
+    throw std::runtime_error("Unsupported Iceberg column_sizes Avro key/value type");
+  }
+}
+
+using MetricMap = std::vector<std::pair<int32_t, int64_t>>;
+
+std::optional<MetricMap> optionalColumnSizes(const folly::dynamic& file) {
+  if (!file.count("column_sizes") || file["column_sizes"].isNull()) {
+    return std::nullopt;
+  }
+  const auto& encoded = file["column_sizes"];
+  if (!encoded.isArray() || encoded.size() > kMaxBatchArrayElements) {
+    throw std::runtime_error("Invalid Iceberg column_sizes logical map");
+  }
+  MetricMap values;
+  std::unordered_set<int32_t> keys;
+  values.reserve(encoded.size());
+  for (const auto& entry : encoded) {
+    const auto key = requiredInt(entry, "key");
+    const auto value = requiredLong(entry, "value");
+    if (key <= 0 || value < 0 || !keys.insert(key).second) {
+      throw std::runtime_error("Invalid Iceberg column_sizes key/value");
+    }
+    values.emplace_back(key, value);
+  }
+  return values;
 }
 
 template <typename T>
@@ -135,6 +225,7 @@ struct FileRow {
   int32_t specId;
   int64_t recordCount;
   int64_t fileSize;
+  std::optional<MetricMap> columnSizes;
   std::optional<std::vector<int64_t>> splitOffsets;
   std::optional<std::vector<int32_t>> equalityIds;
   std::optional<int32_t> sortOrderId;
@@ -176,6 +267,41 @@ facebook::velox::VectorPtr arrayColumn(const std::vector<FileRow>& rows,
       offsets, sizes, elements);
 }
 
+facebook::velox::VectorPtr mapColumn(const std::vector<FileRow>& rows,
+    const facebook::velox::TypePtr& type,
+    facebook::velox::memory::MemoryPool* pool) {
+  using namespace facebook::velox;
+  auto offsets = AlignedBuffer::allocate<vector_size_t>(rows.size(), pool);
+  auto sizes = AlignedBuffer::allocate<vector_size_t>(rows.size(), pool);
+  auto nulls = AlignedBuffer::allocate<bool>(rows.size(), pool, bits::kNotNull);
+  auto* rawOffsets = offsets->asMutable<vector_size_t>();
+  auto* rawSizes = sizes->asMutable<vector_size_t>();
+  auto* rawNulls = nulls->asMutable<uint64_t>();
+  MetricMap flat;
+  for (size_t row = 0; row < rows.size(); ++row) {
+    rawOffsets[row] = flat.size();
+    const auto& values = rows[row].columnSizes;
+    if (!values) {
+      bits::setNull(rawNulls, row, true);
+      rawSizes[row] = 0;
+      continue;
+    }
+    if (values->size() > kMaxBatchArrayElements - flat.size()) {
+      throw std::runtime_error("Iceberg column_sizes exceeds batch element limit");
+    }
+    rawSizes[row] = values->size();
+    flat.insert(flat.end(), values->begin(), values->end());
+  }
+  auto keys = BaseVector::create(type->asMap().keyType(), flat.size(), pool);
+  auto values = BaseVector::create(type->asMap().valueType(), flat.size(), pool);
+  for (size_t index = 0; index < flat.size(); ++index) {
+    keys->asFlatVector<int32_t>()->set(index, flat[index].first);
+    values->asFlatVector<int64_t>()->set(index, flat[index].second);
+  }
+  return std::make_shared<MapVector>(pool, type, nulls, rows.size(),
+      offsets, sizes, keys, values);
+}
+
 FileRow decodeLiveEntry(const folly::dynamic& entry,
     int32_t specId, int32_t manifestContent) {
   if (!entry.isObject() || !entry.count("data_file") ||
@@ -208,7 +334,8 @@ FileRow decodeLiveEntry(const folly::dynamic& entry,
   }
   return {content, requiredText(file, "file_path"),
       requiredText(file, "file_format"), specId, recordCount, fileSize,
-      std::move(splitOffsets), std::move(equalityIds), optionalSortOrderId(file)};
+      optionalColumnSizes(file), std::move(splitOffsets),
+      std::move(equalityIds), optionalSortOrderId(file)};
 }
 
 }  // namespace
@@ -248,7 +375,8 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
   std::unordered_set<std::string> names;
   for (size_t index = 0; index < output_type_->size(); ++index) {
     const auto& name = output_type_->nameOf(index);
-    const auto expected = name == "split_offsets" || name == "equality_ids"
+    const auto expected = name == "column_sizes" ? TypeKind::MAP
+        : name == "split_offsets" || name == "equality_ids"
         ? TypeKind::ARRAY : name == "content" || name == "spec_id" ||
             name == "sort_order_id"
         ? TypeKind::INTEGER
@@ -257,7 +385,7 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
     if ((name != "content" && name != "file_path" &&
             name != "file_format" && name != "spec_id" &&
             name != "record_count" && name != "file_size_in_bytes" &&
-            name != "split_offsets" && name != "equality_ids" &&
+            name != "column_sizes" && name != "split_offsets" && name != "equality_ids" &&
             name != "sort_order_id") ||
         !names.insert(name).second || output_type_->childAt(index)->kind() != expected) {
       throw std::runtime_error("Unsupported Iceberg $files output column: " + name);
@@ -267,6 +395,14 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
                 ? TypeKind::BIGINT : TypeKind::INTEGER)) {
       throw std::runtime_error("Unsupported Iceberg $files array element type: " + name);
     }
+    if (expected == TypeKind::MAP &&
+        (output_type_->childAt(index)->asMap().keyType()->kind() != TypeKind::INTEGER ||
+         output_type_->childAt(index)->asMap().valueType()->kind() != TypeKind::BIGINT)) {
+      throw std::runtime_error("Unsupported Iceberg $files map key/value type: " + name);
+    }
+  }
+  if (names.contains("column_sizes")) {
+    validateColumnSizesSchema(child_->writerSchema());
   }
 }
 
@@ -293,6 +429,10 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
     const auto type = output_type_->childAt(column);
     if (name == "split_offsets") {
       columns.push_back(arrayColumn(rows, type, &FileRow::splitOffsets, pool_));
+      continue;
+    }
+    if (name == "column_sizes") {
+      columns.push_back(mapColumn(rows, type, pool_));
       continue;
     }
     if (name == "equality_ids") {

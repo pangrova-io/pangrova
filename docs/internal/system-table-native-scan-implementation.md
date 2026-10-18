@@ -52,7 +52,8 @@ declared public schema.
   removed. SHOW FILES/MANIFESTS/PARTITIONS still fail closed; the SHOW MANIFESTS
   rewrite has not yet been wired to the new direct `$manifests` SELECT path,
   while the other SHOW readers remain absent. Direct SELECT for Iceberg
-  `$files` has only the nine-column fixed scalar/array slice below; full `$files`,
+  `$files` has the nine-column validated scalar/array slice plus a tenth typed
+  `column_sizes` map under final SQL validation below; full `$files`,
   `$entries`, `$partitions`, Paimon `$files`, and nonlocal `$branches`
   remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
@@ -419,3 +420,33 @@ file kinds and a nine-column `SELECT *`; all listed tests had zero failures,
 errors or skips. This increment did not change protobuf or the capability
 descriptor. The complete SDK schema, parent-list O(M²) split cost, cross-file
 system-table coverage, and production-scale independent image remain open.
+
+### Iceberg `$files` typed `column_sizes` increment (2026-10-16)
+
+The running Iceberg 1.11 SDK's `FILES.schema()` exposes optional
+`column_sizes MAP<INTEGER,BIGINT>` after `file_size_in_bytes`; Apache Iceberg's
+[table specification](https://iceberg.apache.org/spec/)
+assigns field ID 108, key ID 117, and value ID 118. The SQL declaration now
+has ten columns in that official relative order. The Native reader validates
+the child Avro writer schema's logical-map encoding and all three field IDs
+before decoding, then produces a typed Velox map. It distinguishes SQL NULL
+from an empty map, rejects duplicate/nonpositive column IDs and negative sizes,
+and bounds per-row and per-batch element counts. `value_counts` and the other
+unsupported SDK columns still fail at SQL lookup rather than yielding a
+placeholder; v1/v4 and unsupported manifest formats remain fail closed.
+
+Current-source JDK 17 binding tests passed 3/3, full Release Native CTest
+passed 4,167/4,167 with the real PostgreSQL Lance broker, and packaged-JNI
+`SystemTableE2ETest` passed 24/24 against the Iceberg SDK and real test
+containers. The matching ASan reader suite passed 8/8 with
+container-overflow checks enabled and no sanitizer finding. ASan required an
+isolated Folly archive compiled with address instrumentation: the Velox
+`deps-install` Folly archive lacks it, causing a false container-overflow when
+`parseJson` grows a schema-field vector that instrumented Pangrova code reads.
+The optional `PANGROVA_ASAN_FOLLY_PREFIX` build input selects that matching
+archive only in ASan configurations; `cmake/AsanFollyCompat.cmake` disables
+macOS libc++'s unavailable UBSan vptr RTTI dependency without disabling ASan.
+The affected Iceberg Maven dependency-chain static-analysis gate passed. The
+whole-source ASan rerun remains pending for this increment. The full SDK
+schema, parent-list O(M²) cost, and the full
+production image gate remain open.

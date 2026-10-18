@@ -19,7 +19,7 @@ import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
 final class IcebergFileReadBindings {
     private static final Set<String> NATIVE_COLUMNS = Set.of(
             "content", "file_path", "file_format", "spec_id",
-            "record_count", "file_size_in_bytes", "split_offsets",
+            "record_count", "file_size_in_bytes", "column_sizes", "split_offsets",
             "equality_ids", "sort_order_id");
 
     private IcebergFileReadBindings() {}
@@ -33,7 +33,7 @@ final class IcebergFileReadBindings {
                 .toList();
         if (columns.size() != NATIVE_COLUMNS.size()) {
             throw new UnsupportedOperationException(
-                    "Iceberg $files Native schema differs from the supported scalar projection");
+                    "Iceberg $files Native schema differs from the supported typed projection");
         }
         return new IcebergFileTableHandle(list, childObjects(list, table), columns);
     }

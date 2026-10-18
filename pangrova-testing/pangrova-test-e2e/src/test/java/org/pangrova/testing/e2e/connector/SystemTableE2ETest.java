@@ -9,6 +9,7 @@ import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -204,10 +205,12 @@ class SystemTableE2ETest extends SqlE2ETestBase {
                     + " (id BIGINT, name VARCHAR)");
             assertThat(sqlRunner.execute("SELECT file_path, record_count FROM "
                     + icebergFqn() + "$files")).isEmpty();
-            assertThatThrownBy(() -> sqlRunner.execute("SELECT column_sizes FROM "
+            assertThat(sqlRunner.execute("SELECT column_sizes FROM "
+                    + icebergFqn() + "$files")).isEmpty();
+            assertThatThrownBy(() -> sqlRunner.execute("SELECT value_counts FROM "
                     + icebergFqn() + "$files"))
                     .hasMessageContaining("PLANNER-0001")
-                    .hasMessageContaining("column_sizes");
+                    .hasMessageContaining("value_counts");
             assertThat(sqlRunner.execute("SELECT * FROM " + icebergFqn() + "$files"))
                     .isEmpty();
             sqlRunner.execute("INSERT INTO " + icebergFqn()
@@ -225,6 +228,7 @@ class SystemTableE2ETest extends SqlE2ETestBase {
                         .withPath(deletePath)
                         .withFileSizeInBytes(128L)
                         .withRecordCount(5)
+                        .withMetrics(new Metrics(5L, Map.of(), null, null, null))
                         .withFormat(FileFormat.PARQUET)
                         .withSplitOffsets(List.of(4L, 64L))
                         .build();
@@ -267,9 +271,15 @@ class SystemTableE2ETest extends SqlE2ETestBase {
             assertThat(sdkFiles).containsKeys(deletePath, equalityDeletePath);
             assertThat(sdkFiles.values()).extracting(file -> file.content().id())
                     .contains(0, 1, 2);
+            assertThat(sdkFiles.get(deletePath).columnSizes()).isEmpty();
+            assertThat(sdkFiles.get(equalityDeletePath).columnSizes()).isNull();
+            assertThat(sdkFiles.values().stream()
+                    .filter(file -> file.content().id() == 0)
+                    .anyMatch(file -> file.columnSizes() != null && !file.columnSizes().isEmpty()))
+                    .isTrue();
 
             List<TypedRow> rows = sqlRunner.execute("SELECT content, file_path, file_format,"
-                    + " spec_id, record_count, file_size_in_bytes, split_offsets,"
+                    + " spec_id, record_count, file_size_in_bytes, column_sizes, split_offsets,"
                     + " equality_ids, sort_order_id FROM " + icebergFqn()
                     + "$files ORDER BY content");
             assertThat(rows).hasSize(sdkFiles.size());
@@ -278,11 +288,12 @@ class SystemTableE2ETest extends SqlE2ETestBase {
                     .hasSize(sdkFiles.size())
                     .allSatisfy(row -> assertThat(row.columnNames()).containsExactly(
                             "content", "file_path", "file_format", "spec_id",
-                            "record_count", "file_size_in_bytes", "split_offsets",
+                            "record_count", "file_size_in_bytes", "column_sizes", "split_offsets",
                             "equality_ids", "sort_order_id"));
             for (TypedRow row : rows) {
                 assertThat(row.columnNames()).containsExactly("content", "file_path",
                         "file_format", "spec_id", "record_count", "file_size_in_bytes",
+                        "column_sizes",
                         "split_offsets", "equality_ids", "sort_order_id");
                 var expected = sdkFiles.get(row.getString("file_path"));
                 assertThat(expected).isNotNull();
@@ -292,6 +303,7 @@ class SystemTableE2ETest extends SqlE2ETestBase {
                 assertThat(row.getLong("record_count")).isEqualTo(expected.recordCount());
                 assertThat(row.getLong("file_size_in_bytes"))
                         .isEqualTo(expected.fileSizeInBytes());
+                assertThat(row.getRaw("column_sizes")).isEqualTo(expected.columnSizes());
                 assertThat(row.getRaw("split_offsets")).isEqualTo(expected.splitOffsets());
                 assertThat(row.getRaw("equality_ids")).isEqualTo(expected.equalityFieldIds());
                 assertThat(row.getInt("sort_order_id")).isEqualTo(expected.sortOrderId());

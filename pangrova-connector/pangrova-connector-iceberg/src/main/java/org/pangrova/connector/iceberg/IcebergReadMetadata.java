@@ -34,7 +34,7 @@ import java.util.concurrent.ScheduledExecutorService;
 abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRegistry {
     private static final Set<String> SUPPORTED_FILES_COLUMNS = Set.of(
             "content", "file_path", "file_format", "spec_id",
-            "record_count", "file_size_in_bytes", "split_offsets",
+            "record_count", "file_size_in_bytes", "column_sizes", "split_offsets",
             "equality_ids", "sort_order_id");
     protected final IcebergCatalogTables catalogTables;
     protected final IcebergSnapshotPinManager pinManager;
