@@ -89,7 +89,8 @@ final class QueryAsyncSubmission {
             if (!context.ready().await(config.submitTimeoutMs(), TimeUnit.MILLISECONDS)) {
                 dispatch.cancel(true);
                 fail(context, "QUERY_TIMEOUT", "ASYNC_SUBMIT_TIMEOUT",
-                        "Result endpoint or write dispatch was not ready before submit timeout", "async_submit_timeout");
+                        "Result endpoint or write dispatch was not ready before submit timeout",
+                        "async_submit_timeout");
                 throw new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
                         "Result endpoint or write dispatch was not ready before submit timeout: " + context.queryId());
             }
