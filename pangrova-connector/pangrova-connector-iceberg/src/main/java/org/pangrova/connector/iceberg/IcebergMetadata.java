@@ -420,9 +420,10 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     }
 
     @Override
-    public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName) {
+    public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName,
+            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
-        IcebergRefOperations.createBranch(catalogTables.resolveTable(handle), handle, branchName);
+        IcebergRefOperations.createBranch(catalogTables.resolveTable(handle), handle, branchName, options);
     }
 
     @Override

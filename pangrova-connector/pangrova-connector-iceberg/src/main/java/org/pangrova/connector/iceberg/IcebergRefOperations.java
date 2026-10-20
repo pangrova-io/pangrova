@@ -31,14 +31,27 @@ final class IcebergRefOperations {
 
     private IcebergRefOperations() {}
 
-    /** Creates a branch at the table's current snapshot. */
-    static void createBranch(Table icebergTable, IcebergTableHandle handle, String branchName) {
-        Snapshot current = requireCurrentSnapshot(icebergTable, handle, "branch", branchName);
-        icebergTable.manageSnapshots()
-                .createBranch(branchName, current.snapshotId())
-                .commit();
+    /** Publishes the selected source and retention in one SDK metadata update. */
+    static void createBranch(Table icebergTable, IcebergTableHandle handle, String branchName,
+            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
+        java.util.Objects.requireNonNull(options, "options");
+        long snapshot;
+        if (options.sourceSnapshotId().isPresent()) {
+            snapshot = options.sourceSnapshotId().getAsLong();
+        } else if (options.sourceTag().isPresent()) {
+            var tag = icebergTable.refs().get(options.sourceTag().orElseThrow());
+            if (tag == null || !tag.isTag()) {
+                throw new IllegalArgumentException("Branch source tag not found: " + options.sourceTag().orElseThrow());
+            }
+            snapshot = tag.snapshotId();
+        } else {
+            snapshot = requireCurrentSnapshot(icebergTable, handle, "branch", branchName).snapshotId();
+        }
+        var update = icebergTable.manageSnapshots().createBranch(branchName, snapshot);
+        options.maxReferenceAgeMillis().ifPresent(age -> update.setMaxRefAgeMs(branchName, age));
+        update.commit();
         LOG.info("event=branch_created table={}.{} branch={} snapshotId={}",
-                handle.schemaName(), handle.tableName(), branchName, current.snapshotId());
+                handle.schemaName(), handle.tableName(), branchName, snapshot);
     }
 
     /** Drops an existing branch from the table. */

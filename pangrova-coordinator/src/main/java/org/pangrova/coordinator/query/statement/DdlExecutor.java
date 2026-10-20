@@ -248,7 +248,16 @@ public final class DdlExecutor {
                 m.changeColumnType(s, h, c.columnName(), DdlTypeMapper.map(c.newType()));
             },
             AlterTableStatement.CreateBranch.class,
-            (m, s, h, st) -> m.createBranch(s, h, ((AlterTableStatement.CreateBranch) st).branchName()),
+            (m, s, h, st) -> {
+                var branch = (AlterTableStatement.CreateBranch) st;
+                var age = branch.retentionDays().isPresent()
+                        ? java.util.OptionalLong.of(Math.multiplyExact(branch.retentionDays().getAsLong(),
+                                java.time.Duration.ofDays(1).toMillis()))
+                        : java.util.OptionalLong.empty();
+                m.createBranch(s, h, branch.branchName(),
+                        new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                                java.util.OptionalLong.empty(), java.util.Optional.empty(), age));
+            },
             AlterTableStatement.DropBranch.class,
             (m, s, h, st) -> m.dropBranch(s, h, ((AlterTableStatement.DropBranch) st).branchName()),
             AlterTableStatement.CreateTag.class,

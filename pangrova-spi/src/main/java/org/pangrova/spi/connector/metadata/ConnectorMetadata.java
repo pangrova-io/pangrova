@@ -226,8 +226,10 @@ public interface ConnectorMetadata
      * @param session the connector session
      * @param table   the table handle
      * @param branchName the branch name to create
+     * @param options exact source and reference lifetime; unsupported options must fail before mutation
      */
-    default void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName) {
+    default void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName,
+                              BranchCreationOptions options) {
         throw new UnsupportedOperationException("createBranch not supported");
     }
 

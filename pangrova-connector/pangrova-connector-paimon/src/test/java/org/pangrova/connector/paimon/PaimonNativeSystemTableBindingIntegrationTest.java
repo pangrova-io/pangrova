@@ -372,6 +372,45 @@ class PaimonNativeSystemTableBindingIntegrationTest {
         }
     }
 
+    @Test
+    void branchCreationUsesTheRequestedTagWithoutBorrowingMovingMain() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var table = (FileStoreTable) catalog.getTable(Identifier.create("db", "orders"));
+            writeRow(table);
+            table.createTag("release");
+            writeRow(table);
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders"));
+            metadata.createBranch(SESSION, handle, "from_release",
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                            java.util.OptionalLong.empty(), Optional.of("release"), java.util.OptionalLong.empty()));
+            var branch = table.copy(Map.of("branch", "from_release"));
+            assertThat(branch.snapshotManager().latestSnapshotId()).isEqualTo(1L);
+            assertThat(table.snapshotManager().latestSnapshotId()).isEqualTo(2L);
+        }
+    }
+
+    @Test
+    void unsupportedBranchOptionsFailBeforeCreatingAnyBranch() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var table = (FileStoreTable) catalog.getTable(Identifier.create("db", "orders"));
+            writeRow(table);
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders"));
+            for (var options : List.of(
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                            java.util.OptionalLong.of(1), Optional.empty(), java.util.OptionalLong.empty()),
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                            java.util.OptionalLong.empty(), Optional.empty(), java.util.OptionalLong.of(1)))) {
+                assertThatThrownBy(() -> metadata.createBranch(SESSION, handle, "unsupported", options))
+                        .isInstanceOf(UnsupportedOperationException.class);
+            }
+            assertThat(table.branchManager().branches()).doesNotContain("unsupported");
+        }
+    }
+
     private Catalog catalog() throws Exception {
         var options = new Options();
         options.setString("warehouse", warehouse.toString());

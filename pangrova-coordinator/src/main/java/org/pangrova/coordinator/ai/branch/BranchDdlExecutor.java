@@ -49,7 +49,9 @@ public final class BranchDdlExecutor {
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
         try {
-            metadata.createBranch(session, tableHandle, stmt.branchName());
+            metadata.createBranch(session, tableHandle, stmt.branchName(),
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                            stmt.fromSnapshot(), stmt.fromTag(), java.util.OptionalLong.empty()));
         } catch (UnsupportedOperationException e) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_DDL_FAILED,
                     "Connector for catalog '%s' does not support branch operations"

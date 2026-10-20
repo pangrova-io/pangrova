@@ -543,10 +543,11 @@ public class PaimonMetadata implements ConnectorMetadata {
     // --- Branch/Tag SPI overrides ---
 
     @Override
-    public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName) {
+    public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName,
+            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
         PaimonTableHandle handle = (PaimonTableHandle) table;
         PaimonBranchTagOperations.createBranch(
-                loadFreshTable(handle.schemaName(), handle.tableName()), handle, branchName);
+                loadFreshTable(handle.schemaName(), handle.tableName()), handle, branchName, options);
     }
 
     @Override

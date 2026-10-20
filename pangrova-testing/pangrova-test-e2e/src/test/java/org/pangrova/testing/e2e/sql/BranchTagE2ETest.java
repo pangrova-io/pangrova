@@ -69,6 +69,12 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (1, 'v1')");
 
             executeDdl("ALTER TABLE " + fqn() + " CREATE BRANCH dev_branch");
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .filteredOn(row -> row.getString("name").equals("dev_branch"))
+                    .singleElement().satisfies(row -> {
+                        assertThat(row.getString("type")).isEqualTo("BRANCH");
+                        assertThat(row.getLong("snapshot_id")).isPositive();
+                    });
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -81,7 +87,38 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
 
             executeDdl("ALTER TABLE " + fqn()
                     + " CREATE BRANCH feature_branch RETAIN 7 DAYS");
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .filteredOn(row -> row.getString("name").equals("feature_branch"))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("max_reference_age_in_ms"))
+                            .isEqualTo(java.time.Duration.ofDays(7).toMillis()));
 
+            executeDdl("DROP TABLE " + fqn());
+        }
+
+        @Test
+        void createBranchFromHistoricalSnapshotDoesNotUseMovingMain() {
+            assertHistoricalBranchSource(false);
+        }
+
+        @Test
+        void createBranchFromTagDoesNotUseMovingMain() {
+            assertHistoricalBranchSource(true);
+        }
+
+        private void assertHistoricalBranchSource(boolean fromTag) {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1)");
+            executeDdl("ALTER TABLE " + fqn() + " CREATE TAG pinned_release");
+            long pinned = executeQuery("SHOW TAGS FROM " + fqn()).get(0).getLong("snapshot_id");
+            executeDml("INSERT INTO " + fqn() + " VALUES (2)");
+            executeDdl("CREATE BRANCH historical ON " + fqn()
+                    + (fromTag ? " FROM TAG pinned_release" : " FROM SNAPSHOT " + pinned));
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .filteredOn(row -> row.getString("name").equals("historical"))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("snapshot_id")).isEqualTo(pinned));
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .filteredOn(row -> row.getString("name").equals("main"))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("snapshot_id")).isNotEqualTo(pinned));
             executeDdl("DROP TABLE " + fqn());
         }
     }
@@ -97,6 +134,11 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (1, 'release')");
 
             executeDdl("ALTER TABLE " + fqn() + " CREATE TAG v1_0");
+            assertThat(executeQuery("SHOW TAGS FROM " + fqn()))
+                    .singleElement().satisfies(row -> {
+                        assertThat(row.getString("name")).isEqualTo("v1_0");
+                        assertThat(row.getLong("snapshot_id")).isPositive();
+                    });
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -108,6 +150,13 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (1)");
 
             executeDdl("ALTER TABLE " + fqn() + " CREATE TAG release_1");
+            long pinned = executeQuery("SHOW TAGS FROM " + fqn()).get(0).getLong("snapshot_id");
+            executeDml("INSERT INTO " + fqn() + " VALUES (2)");
+            assertThat(executeQuery("SHOW TAGS FROM " + fqn()))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("snapshot_id")).isEqualTo(pinned));
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .filteredOn(row -> row.getString("name").equals("main"))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("snapshot_id")).isNotEqualTo(pinned));
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -125,6 +174,8 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
 
             executeDdl("ALTER TABLE " + fqn() + " CREATE BRANCH test_branch");
             executeDdl("ALTER TABLE " + fqn() + " DROP BRANCH test_branch");
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .extracting(row -> row.getString("name")).doesNotContain("test_branch");
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -137,6 +188,7 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
 
             executeDdl("ALTER TABLE " + fqn() + " CREATE TAG test_tag");
             executeDdl("ALTER TABLE " + fqn() + " DROP TAG test_tag");
+            assertThat(executeQuery("SHOW TAGS FROM " + fqn())).isEmpty();
 
             executeDdl("DROP TABLE " + fqn());
         }

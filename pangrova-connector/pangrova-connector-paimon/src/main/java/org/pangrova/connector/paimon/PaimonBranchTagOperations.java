@@ -14,8 +14,15 @@ final class PaimonBranchTagOperations {
 
     private PaimonBranchTagOperations() {}
 
-    static void createBranch(Table table, PaimonTableHandle handle, String branchName) {
-        table.createBranch(branchName);
+    static void createBranch(Table table, PaimonTableHandle handle, String branchName,
+            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
+        java.util.Objects.requireNonNull(options, "options");
+        if (options.sourceSnapshotId().isPresent() || options.maxReferenceAgeMillis().isPresent()) {
+            throw new UnsupportedOperationException(
+                    "Paimon branch creation does not support a snapshot source or reference lifetime");
+        }
+        if (options.sourceTag().isPresent()) table.createBranch(branchName, options.sourceTag().orElseThrow());
+        else table.createBranch(branchName);
         LOG.info("event=branch_created table={}.{} branch={}",
                 handle.schemaName(), handle.tableName(), branchName);
     }

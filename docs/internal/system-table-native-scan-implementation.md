@@ -763,3 +763,23 @@ its evidence is `/tmp/pangrova-task-bound-writer-worker-owner-20261021.json`.
 Coordinator and E2E leaf static checks, JNI symmetry (22 methods), SPI annotations
 (147 public types), E2E truthfulness and documentation references also pass.
 Final full functionality regression remains pending.
+
+### Branch creation source and retention
+
+Branch creation now carries typed `BranchCreationOptions` from both DDL entry
+points to the connector. Previously, the parser accepted `FROM SNAPSHOT`,
+`FROM TAG` and `RETAIN ... DAYS`, but execution discarded these options.
+Snapshot and tag sources are mutually exclusive; identifiers are preserved
+exactly, and retention must be positive with checked conversion to milliseconds.
+
+Iceberg publishes the selected snapshot and reference lifetime in one
+`ManageSnapshots` commit. A tag source must name an existing tag. Paimon's
+pinned SDK supports the current source and a tag source; snapshot sources and
+reference lifetimes fail before mutation rather than being silently ignored.
+
+Validation before this commit: the SPI owner suite passes 745 tests, and the
+focused real-SDK integration classes pass 9 Iceberg and 12 Paimon tests. These
+cover historical sources, retention, moving main snapshots and rejection without
+creating a branch. The SQL regression originally reproduced the lost retention
+value. Eight strengthened/new branch and tag mutation E2E cases are included;
+their post-fix run and broader dependent-module validation remain pending.

@@ -203,6 +203,50 @@ class IcebergReadBindingIntegrationTest {
         }
     }
 
+    @Test
+    void branchCreationPublishesHistoricalSourceAndRetentionTogether() throws Exception {
+        try (var catalog = catalog()) {
+            var table = create(catalog, "branch_options");
+            write(table, 1);
+            long historical = table.currentSnapshot().snapshotId();
+            write(table, 2);
+            long main = table.currentSnapshot().snapshotId();
+            var metadata = new IcebergMetadata(catalog, "iceberg");
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "branch_options"));
+            metadata.createBranch(SESSION, handle, "retained",
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                            java.util.OptionalLong.of(historical), Optional.empty(),
+                            java.util.OptionalLong.of(604_800_000)));
+            table.refresh();
+            assertThat(table.refs().get("retained").snapshotId()).isEqualTo(historical);
+            assertThat(table.refs().get("retained").maxRefAgeMs()).isEqualTo(604_800_000L);
+            assertThat(table.currentSnapshot().snapshotId()).isEqualTo(main);
+        }
+    }
+
+    @Test
+    void branchSourceTagIsExactAndMissingTagCannotCreateAReference() throws Exception {
+        try (var catalog = catalog()) {
+            var table = create(catalog, "branch_tag_source");
+            write(table, 1);
+            long historical = table.currentSnapshot().snapshotId();
+            table.manageSnapshots().createTag("release", historical).commit();
+            write(table, 2);
+            var metadata = new IcebergMetadata(catalog, "iceberg");
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "branch_tag_source"));
+            metadata.createBranch(SESSION, handle, "from_release",
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                            java.util.OptionalLong.empty(), Optional.of("release"), java.util.OptionalLong.empty()));
+            assertThatThrownBy(() -> metadata.createBranch(SESSION, handle, "must_not_exist",
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
+                            java.util.OptionalLong.empty(), Optional.of("missing"), java.util.OptionalLong.empty())))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("source tag not found");
+            table.refresh();
+            assertThat(table.refs().get("from_release").snapshotId()).isEqualTo(historical);
+            assertThat(table.refs()).doesNotContainKey("must_not_exist");
+        }
+    }
+
     private HadoopCatalog catalog() {
         var catalog = new HadoopCatalog(new Configuration(), warehouse.toString());
         catalog.createNamespace(Namespace.of("db"));
