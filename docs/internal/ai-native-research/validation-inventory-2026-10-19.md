@@ -5,6 +5,8 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**UUID 客户端消费扩面：**在 `d7d6f9ff` 基础上补齐 CLI 独立物理 Arrow UUID IPC 的实际显示回归；JDBC 全模块 **242/242 PASS**、CLI 全模块 **50/50 PASS**，两模块 `full-regression,static-analysis verify` 均退出 0，无失败、错误或跳过。日志 `/tmp/pangrova-uuid-jdbc-owner-r6-20261021.log`、`/tmp/pangrova-uuid-cli-owner-r7-20261021.log`。这是客户端消费边界证据，Native UUID 与 SQL/JNI 分区矩阵仍待修复，不减少未闭合类别数。
+
 **2026-10-21 阶段提交（未完成整体验收）：**UUID 客户端已按标准 `arrow.uuid` 注册解码，保留 `java.util.UUID`，并补齐 JDBC 对象类型与显示宽度；独立物理 IPC 覆盖嵌套、NULL、空结果、非法宽度及未标注二进制。Transport 所属和静态检查 **109/109 PASS**，JDBC 定向 **3/3 PASS**，提交 `d7d6f9ff`；这不代表 Native UUID 规划/生产路径完成。TIME 补丁区分毫秒 time32 与微秒 time64，微秒复用既有 BufferView 所有权路径；新增 8 项 Native 精度/嵌套/分页与生命周期回归。旧 SDK 实测毫秒 4 项通过、微秒 4 项失败；修复源码编译检查和实际 SDK 源码补丁应用/升级/拒绝漂移的 3 项检查已通过，新的 SDK Release 重编仍在执行，**新 Native/ASan、打包、SQL/JNI 和能力夹具复采集均待完成**。本次先保存代码，分区矩阵仍为 **21/25 PASS**，17 类本机检查点计数不变。完整验证继续使用已有运行句柄，不能把提交当作验收通过。
 
 

@@ -6,6 +6,7 @@ import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
+import org.apache.arrow.vector.FixedSizeBinaryVector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.channels.Channels;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,29 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Validates: Requirements 1.52, 2.52</b></p>
  */
 class ResultBatchDecoderTest {
+
+    @Test
+    void canonicalUuidWireValuesRenderAsUuidStringsAndSqlNull() throws Exception {
+        Field field = new Field("id", new FieldType(true, new ArrowType.FixedSizeBinary(16), null,
+                Map.of("ARROW:extension:name", "arrow.uuid", "ARROW:extension:metadata", "")), null);
+        byte[] wire;
+        try (BufferAllocator allocator = new RootAllocator();
+             VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(field)), allocator)) {
+            root.allocateNew();
+            FixedSizeBinaryVector values = (FixedSizeBinaryVector) root.getVector(0);
+            values.setSafe(0, ByteBuffer.allocate(16).putLong(0x0011223344556677L)
+                    .putLong(0x8899aabbccddeeffL).array());
+            values.setNull(1);
+            root.setRowCount(2);
+            wire = serializeToIpc(root);
+        }
+        var result = ResultBatchDecoder.decode(wire);
+        assertThat(result.columnNames()).containsExactly("id");
+        assertThat(result.rows()).containsExactly(
+                List.of("00112233-4455-6677-8899-aabbccddeeff"), List.of("NULL"));
+        assertThat(SqlShell.formatResults(wire, List.of()))
+                .contains("id", "00112233-4455-6677-8899-aabbccddeeff", "NULL");
+    }
 
     @Test
     void nullableCoordinatesRenderValuesAndSqlNullInsteadOfArrayIdentity() throws Exception {
