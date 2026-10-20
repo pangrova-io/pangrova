@@ -457,5 +457,28 @@ TEST_F(ArrowBatchAppendTest, NullMapParentMasksStoredNullKeyAtActualWireBoundary
   EXPECT_TRUE(keys->isNullAt(0));
   EXPECT_EQ(mapping->sizeAt(0), 1);
 }
+TEST_F(ArrowBatchAppendTest, ReusedNestedValuesBindCanonicalNamesBeforeWritingAndPreserveTheOwner) {
+  substrait::Type nestedType;
+  nestedType.mutable_struct_()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  *nestedType.mutable_struct_()->add_types() = schema::primitive("i64", substrait::Type::NULLABILITY_NULLABLE);
+  options_ = declaredOptions({{"outer", nestedType, {"field_0"}}});
+  facebook::velox::test::VectorMaker maker(pool_.get());
+  auto child = maker.flatVectorNullable<int64_t>({41, std::nullopt});
+  auto nested = maker.rowVector({"region"}, {child});
+  auto input = maker.rowVector({"outer"}, {nested});
+  auto wire = encode({input});
+  BufferInputStream source(byteRangesFromIOBuf(wire.get()));
+  auto type = ROW({"outer"}, {ROW({"field_0"}, {BIGINT()})});
+  RowVectorPtr result;
+  serde_.deserialize(&source, pool_.get(), type, &result, &options_);
+  ASSERT_EQ(result->size(), 2);
+  auto* actual = result->childAt(0)->as<RowVector>();
+  EXPECT_EQ(actual->childAt(0)->asFlatVector<int64_t>()->valueAt(0), 41);
+  EXPECT_TRUE(actual->childAt(0)->isNullAt(1));
+  EXPECT_EQ(actual->type()->asRow().nameOf(0), "field_0");
+  EXPECT_EQ(nested->type()->asRow().nameOf(0), "region");
+  EXPECT_EQ(nested->childAt(0), child);
+}
+
 }  // namespace
 }  // namespace pangrova::velox::test

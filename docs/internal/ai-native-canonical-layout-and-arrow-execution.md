@@ -625,3 +625,21 @@ cross-object durable publication/drop ownership still requires a complete saga.
   Aggregate and MaskExpressionTypeProjector.
 - Pinned official Velox source: PartitionedOutputNode, PartitionedOutput,
   OutputBufferManager, FilterProject, Operator::fillOutput and partition functions.
+
+### Native aggregate output names at the Arrow boundary
+
+Velox aggregates can reuse input vectors, including nested ROW values with the
+input's field labels. The producer binds those labels by ordinal to the admitted
+canonical schema before Arrow export. This binding checks equivalent physical
+types and only creates vector wrappers: ROW children, collection offsets/sizes,
+dictionary indices, null masks and payload owners are shared without mutating
+the source. Constant wrappers retain their immediate value-vector index, which
+can differ from the fully decoded index when a lazy input loads a dictionary.
+
+The exact canonical type/name and logical NULL checks still run after binding.
+Incoming Arrow schemas still require exact names and types; the producer's
+label binding does not relax wire admission. Release and matching ASan cover
+ROW/ARRAY/MAP, dictionary/constant/lazy owners, nested values and NULLs, sparse
+append, compression and shuffle. The affected serialization cohort passes
+65/65 in both builds; the final constant/lazy combination changes only two
+cases, which pass 2/2 in both builds. The full final regression remains pending.

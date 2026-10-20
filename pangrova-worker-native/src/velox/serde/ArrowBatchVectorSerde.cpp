@@ -3,6 +3,7 @@
 
 #include "velox/serde/ArrowBatchVectorSerde.h"
 #include "velox/serde/CanonicalResultNullability.h"
+#include "velox/serde/CanonicalVectorNames.h"
 #include "velox/serde/CanonicalArrowSchema.h"
 #include "columnar/CanonicalBatchStream.h"
 #include <limits>
@@ -221,6 +222,8 @@ class ArrowBatchSerializer : public facebook::velox::BatchVectorSerializer {
       target = selectRows(vector, ranges, pool_);
     }
 
+    target = std::dynamic_pointer_cast<facebook::velox::RowVector>(bindCanonicalVectorNames(
+        target, admittedCanonicalResultType(*canonical_schema_)));
     validateCanonicalResultNullability(*canonical_schema_, target);
     auto batch = bindCanonicalArrowSchema(exportToBatch(target, pool_), wire_schema_);
 
@@ -281,7 +284,11 @@ class ArrowBatchIterativeSerializer
         selected.push_back(std::move(sliced));
       }
     }
-    for (const auto& target : selected) validateCanonicalResultNullability(*canonical_schema_, target);
+    const auto declared = admittedCanonicalResultType(*canonical_schema_);
+    for (auto& target : selected) {
+      target = std::dynamic_pointer_cast<facebook::velox::RowVector>(bindCanonicalVectorNames(target, declared));
+      validateCanonicalResultNullability(*canonical_schema_, target);
+    }
     buffered_vectors_.insert(buffered_vectors_.end(), selected.begin(), selected.end());
     encoded_.reset();
   }
