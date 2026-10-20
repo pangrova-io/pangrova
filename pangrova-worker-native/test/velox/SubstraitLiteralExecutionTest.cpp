@@ -252,7 +252,17 @@ INSTANTIATE_TEST_SUITE_P(
         ArithmeticOracle{"add", 38, 2, 38, 2, 38, 2, 123, 200, 323},
         ArithmeticOracle{"multiply", 25, 4, 25, 4, 38, 8, 12300, 20000, 246000000},
         ArithmeticOracle{"divide", 25, 4, 25, 4, 29, 4, 12300, 20000, 6150},
-        ArithmeticOracle{"modulus", 25, 4, 25, 4, 25, 4, 12300, 20000, 12300}));
+        ArithmeticOracle{"modulus", 25, 4, 25, 4, 25, 4, 12300, 20000, 12300}),
+    [](const ::testing::TestParamInfo<ArithmeticOracle>& info) {
+      const auto& oracle = info.param;
+      return std::string(oracle.name) + "_L" +
+          std::to_string(oracle.left_precision) + "S" +
+          std::to_string(oracle.left_scale) + "_R" +
+          std::to_string(oracle.right_precision) + "S" +
+          std::to_string(oracle.right_scale) + "_O" +
+          std::to_string(oracle.output_precision) + "S" +
+          std::to_string(oracle.output_scale);
+    });
 
 TEST_F(SubstraitLiteralExecutionTest, ScalarDecimalTypedNullAndSignedValues) {
   auto output = execute(projection({

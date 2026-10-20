@@ -9,7 +9,9 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 本机独立进程追加验证：一台 Coordinator 加两个独立 Native Worker 的 8 批 Iceberg JDBC 写入、JOIN/shuffle、Worker 停机重启及资源释放通过（`/tmp/pangrova-independent-local-processes-r5-20261019.log`）；预置 Ollama 镜像的真实模型 HTTP/SQL、两名 Worker 分别单独调用模型、重启后双 Worker 查询、审计和资源释放通过（`/tmp/pangrova-independent-ai-processes-r3-20261019.log`）。Coordinator `-Pfull-regression` 根因修复后整模块退出 0；本轮 542 份 Surefire 报告合计 **3,213 项，0 失败、0 错误、0 跳过**（`/tmp/pangrova-coordinator-full-r3-20261019.log`）。上一轮 3,295 项的失败记录不再代表当前结果，完整 Java reactor 仍待验。Worker 405 映射已通过定向测试。上述是功能证据，不代表规模/P99 验收。
 
-提交 `f87cfd1f` 的 Native Release 加真实 PostgreSQL/Lance broker 已完整执行 **4,178/4,178 PASS**（`/tmp/pangrova-native-file-sequence-full-20261019.log`，总用时 606 秒）。该提交的 Connector 绑定 4/4、Native reader 11/11 和 Iceberg v3 血缘真 SQL 4/4 也已通过；静态分析、Native ASan、完整 Java reactor 和共享 E2E 仍需分别取得同源码终态，不用 Release 结果代替。
+提交 `f87cfd1f` 的 Native Release 加真实 PostgreSQL/Lance broker 已完整执行 **4,178/4,178 PASS**（`/tmp/pangrova-native-file-sequence-full-20261019.log`，总用时 606 秒）。该提交的 Connector 绑定 4/4、Native reader 11/11 和 Iceberg v3 血缘真 SQL 4/4 也已通过；E2E 依赖 reactor 的 `-DskipTests -Pstatic-analysis verify` 退出 0（`/tmp/pangrova-iceberg-file-sequence-static-r2-20261020.log`）。完整 Native ASan、完整 Java reactor 测试和共享 E2E 仍需分别取得同源码终态，不用 Release 或静态结果代替。
+
+增量选测发现 16 个 decimal 参数用例的默认 CTest 名称包含对象中的进程地址，重新发现后无法按原名称准确选中。现已改为运算名和左右/输出 precision、scale 组成的稳定名称，Release 定向 **16/16 PASS**（`/tmp/pangrova-stable-decimal-test-names-release-focused-20261020.log`）；两次独立 CTest 发现（第二次强制重新运行发现进程）的 **4,178 个唯一名称完全一致**（`/tmp/pangrova-stable-ctest-discovery-{a,b}-20261020.json`）。这项仅改测试命名，不改变 Native 运行代码或 decimal oracle。
 
 冻结提交 `65c7dffa` 的新增滚动复验：`GenerateSeriesE2ETest` 经真实 SQL/JNI **6/6 PASS**（`/tmp/pangrova-generate-series-current-20261019.log`，Surefire XML）；`IcebergShowMetadataTest` **5/6 PASS**，唯一失败为 `SHOW PARTITIONS` 缺 Native reader（`/tmp/pangrova-show-metadata-current-r2-20261019.log`）。后一失败有真实 SQL、真实模型夹具和 Native 启动作为前置，不把它记成已闭环。[Iceberg 规范](https://iceberg.apache.org/spec/)和[官方查询文档](https://iceberg.apache.org/docs/1.11.0/spark-queries/)要求 `$partitions` 按当前快照、分区 spec 和 data/delete 文件汇总；现有 `$files` Native 投影没有分区值，不能用无分区键的简单 SQL 聚合代替。
 
