@@ -10,6 +10,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DeclaredLogicalTypesTest {
     @Test
+    void uuidDeclarationsPreserveIdentityAndNullabilityWithinContainers() {
+        var uuid = scalar("UUID", false);
+        var value = DeclaredLogicalTypes.logicalType(uuid);
+        assertThat(value.getCanonicalSql()).isEqualTo("UUID");
+        assertThat(value.getSubstraitType().getUuid().getNullability())
+                .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
+        var array = new DeclaredType(new TypeSignature("ARRAY", List.of(
+                TypeSignature.TypeParameter.ofType(uuid.signature()))), true, List.of(uuid));
+        var nested = DeclaredLogicalTypes.logicalType(array);
+        assertThat(nested.getCanonicalSql()).isEqualTo("ARRAY(UUID)");
+        assertThat(nested.getSubstraitType().getList().getType().hasUuid()).isTrue();
+        assertThat(nested.getSubstraitType().getList().getType().getUuid().getNullability())
+                .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
+        assertThatThrownBy(() -> DeclaredLogicalTypes.logicalType(new DeclaredType(
+                new TypeSignature("UUID", List.of(TypeSignature.TypeParameter.ofLong(16))), true, List.of())))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void rejectsEveryCompositeSignatureChildMismatch() {
         var integer = scalar("INTEGER", false);
         var string = scalar("VARCHAR", true);

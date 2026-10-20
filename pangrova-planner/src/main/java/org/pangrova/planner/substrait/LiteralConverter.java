@@ -77,6 +77,7 @@ final class LiteralConverter {
                         INTERVAL_MINUTE, INTERVAL_MINUTE_SECOND, INTERVAL_SECOND ->
                         convertIntervalDayLiteral(literal, nullable);
                 case BINARY, VARBINARY -> convertBinaryLiteral(literal, nullable);
+                case UUID -> ExpressionCreator.uuid(nullable, requireValue(literal, java.util.UUID.class));
                 case NULL -> throw unsupported("non-NULL value with NULL type");
                 default -> throw unsupported("literal type: " + fieldType.getSqlTypeName());
             };

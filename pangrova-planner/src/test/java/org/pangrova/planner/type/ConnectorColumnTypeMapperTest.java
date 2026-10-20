@@ -10,6 +10,8 @@ import org.pangrova.spi.connector.data.type.ArrayType;
 import org.pangrova.spi.connector.data.type.MapType;
 import org.pangrova.spi.connector.data.type.NullOnlyType;
 import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.PangrovaTypeMapping;
+import org.pangrova.spi.connector.data.type.TypeSignature;
 import org.pangrova.spi.connector.data.type.RowField;
 import org.pangrova.spi.connector.data.type.RowType;
 import org.pangrova.spi.connector.data.type.Type;
@@ -27,6 +29,29 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Exercises the same metadata adapter used by SQL validation and Native schema compilation. */
 class ConnectorColumnTypeMapperTest {
+    @Test
+    void uuidDeclarationRetainsIdentityThroughScalarAndNestedStorageSchemas() {
+        Type uuid = PangrovaTypeMapping.toType(PangrovaType.UUID);
+        assertThat(uuid.getTypeSignature()).isEqualTo(new TypeSignature("UUID"));
+        assertThat(PangrovaTypeMapping.toPangrovaType(uuid)).isEqualTo(PangrovaType.UUID);
+        assertThat(new StandardTypeRegistry().getType(uuid.getTypeSignature())).isEqualTo(uuid);
+        var columns = List.of(column(PangrovaType.UUID, uuid),
+                new ConnectorTableMetadata.Column("nested", PangrovaType.STRUCT, OptionalInt.empty(),
+                        new RowType(List.of(new RowField("id", uuid),
+                                new RowField("ids", new ArrayType(uuid)),
+                                new RowField("lookup", new MapType(uuid, uuid))))));
+        var sql = ConnectorColumnTypeMapper.rowType(columns, new PlannerTypeFactory());
+        assertThat(sql.getFieldList().get(0).getType().getSqlTypeName()).isEqualTo(SqlTypeName.UUID);
+        var schema = NativeDatasetSchemaCompiler.compile(columns).schema();
+        assertThat(schema.getNamesList()).containsExactly("value", "nested", "id", "ids", "lookup");
+        assertThat(schema.getStruct().getTypes(0).hasUuid()).isTrue();
+        var nested = schema.getStruct().getTypes(1).getStruct();
+        assertThat(nested.getTypes(0).hasUuid()).isTrue();
+        assertThat(nested.getTypes(1).getList().getType().hasUuid()).isTrue();
+        assertThat(nested.getTypes(2).getMap().getKey().hasUuid()).isTrue();
+        assertThat(nested.getTypes(2).getMap().getValue().hasUuid()).isTrue();
+    }
+
     @ParameterizedTest
     @EnumSource(value = PangrovaType.class, names = {"UNKNOWN", "ARRAY", "VECTOR", "MAP", "STRUCT", "DECIMAL"})
     void incompleteMetadataNeverInventsAStorageType(PangrovaType type) {

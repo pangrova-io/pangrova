@@ -10,6 +10,7 @@ import org.pangrova.spi.connector.data.type.primitive.IntegerType;
 import org.pangrova.spi.connector.data.type.primitive.RealType;
 import org.pangrova.spi.connector.data.type.primitive.SmallIntType;
 import org.pangrova.spi.connector.data.type.primitive.TinyIntType;
+import org.pangrova.spi.connector.data.type.primitive.UuidType;
 import org.pangrova.spi.connector.data.type.primitive.VarbinaryType;
 import org.pangrova.spi.connector.data.type.primitive.VarcharType;
 import org.pangrova.spi.connector.data.type.primitive.temporal.DateType;
@@ -55,7 +56,8 @@ public final class PangrovaTypeMapping {
             case TIME -> TimeType.INSTANCE;
             case TIMESTAMP -> TimestampType.WITHOUT_TIMEZONE;
             case TIMESTAMP_TZ -> TimestampType.WITH_TIMEZONE;
-            case VARCHAR, UUID -> VarcharType.UNBOUNDED;
+            case VARCHAR -> VarcharType.UNBOUNDED;
+            case UUID -> UuidType.INSTANCE;
             case VARBINARY, FIXED -> VarbinaryType.INSTANCE;
             case STRUCT -> new RowType(java.util.List.of(
                     new RowField("_placeholder", VarcharType.UNBOUNDED)));
@@ -137,6 +139,9 @@ public final class PangrovaTypeMapping {
     }
 
     private static PangrovaType structuralType(Type type) {
+        if (type instanceof UuidType) {
+            return PangrovaType.UUID;
+        }
         if (type instanceof VarcharType || type instanceof CharType) {
             return PangrovaType.VARCHAR;
         }

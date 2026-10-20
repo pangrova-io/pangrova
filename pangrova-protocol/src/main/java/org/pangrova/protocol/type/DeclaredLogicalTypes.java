@@ -23,7 +23,7 @@ public final class DeclaredLogicalTypes {
             Map.entry("BOOLEAN", "bool"), Map.entry("TINYINT", "i8"), Map.entry("SMALLINT", "i16"),
             Map.entry("INTEGER", "i32"), Map.entry("BIGINT", "i64"), Map.entry("REAL", "fp32"),
             Map.entry("FLOAT", "fp32"), Map.entry("DOUBLE", "fp64"), Map.entry("DATE", "date"),
-            Map.entry("TIME", "time"), Map.entry("VARBINARY", "binary"));
+            Map.entry("TIME", "time"), Map.entry("VARBINARY", "binary"), Map.entry("UUID", "uuid"));
 
     private DeclaredLogicalTypes() {}
 

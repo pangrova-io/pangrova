@@ -99,6 +99,7 @@ public class TypeMapper {
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE ->
                     creator.precisionTimestampTZ(temporalPrecision(calciteType));
             case BINARY, VARBINARY -> creator.BINARY;
+            case UUID -> creator.UUID;
             // NULL type: Calcite represents untyped NULL literals as SqlTypeName.NULL.
             // Substrait has no "nothing" type; we map to nullable BOOLEAN as the smallest
             // representation. This allows SELECT NULL and similar expressions to produce

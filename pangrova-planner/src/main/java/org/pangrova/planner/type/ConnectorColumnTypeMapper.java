@@ -113,7 +113,7 @@ public final class ConnectorColumnTypeMapper {
             case VARCHAR -> SqlTypeName.VARCHAR;
             case VARBINARY, FIXED, GEOMETRY, GEOGRAPHY -> SqlTypeName.VARBINARY;
             case VARIANT -> SqlTypeName.VARCHAR;
-            case UUID -> SqlTypeName.CHAR;
+            case UUID -> SqlTypeName.UUID;
             case STRUCT -> throw new IllegalArgumentException(
                     "STRUCT type without field metadata (RowType); cannot map to SQL type");
             case MAP -> SqlTypeName.MAP;

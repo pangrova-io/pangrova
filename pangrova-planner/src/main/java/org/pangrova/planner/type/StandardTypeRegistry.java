@@ -17,6 +17,7 @@ import org.pangrova.spi.connector.data.type.primitive.IntegerType;
 import org.pangrova.spi.connector.data.type.primitive.RealType;
 import org.pangrova.spi.connector.data.type.primitive.SmallIntType;
 import org.pangrova.spi.connector.data.type.primitive.TinyIntType;
+import org.pangrova.spi.connector.data.type.primitive.UuidType;
 import org.pangrova.spi.connector.data.type.primitive.VarbinaryType;
 import org.pangrova.spi.connector.data.type.primitive.VarcharType;
 import org.pangrova.spi.connector.data.type.primitive.temporal.DateType;
@@ -185,6 +186,7 @@ public final class StandardTypeRegistry implements TypeManager {
         registry.put("TIMESTAMP_TZ", TimestampType.WITH_TIMEZONE);
         registry.put("VARCHAR", VarcharType.UNBOUNDED);
         registry.put("VARBINARY", VarbinaryType.INSTANCE);
+        registry.put("UUID", UuidType.INSTANCE);
         registry.put("INTERVAL_YEAR_MONTH", IntervalYearMonthType.INSTANCE);
         registry.put("INTERVAL_DAY_TIME", IntervalDayTimeType.INSTANCE);
     }

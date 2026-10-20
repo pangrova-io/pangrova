@@ -26,6 +26,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class IcebergTypeMapperTest {
 
     @Test
+    void uuidSdkSchemasRetainScalarAndNestedTypeIdentity() {
+        var uuid = org.pangrova.spi.connector.data.type.primitive.UuidType.INSTANCE;
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.UUIDType.get()),
+                Types.NestedField.optional(2, "ids", Types.ListType.ofOptional(3, Types.UUIDType.get())),
+                Types.NestedField.optional(4, "lookup", Types.MapType.ofOptional(
+                        5, 6, Types.UUIDType.get(), Types.UUIDType.get())),
+                Types.NestedField.optional(7, "nested", Types.StructType.of(
+                        Types.NestedField.optional(8, "id", Types.UUIDType.get()))));
+        var columns = IcebergTypeMapper.toPangrovaColumns(schema);
+        assertThat(columns.get(0).type()).isEqualTo(PangrovaType.UUID);
+        assertThat(columns.get(0).parameterizedType()).isEqualTo(uuid);
+        assertThat(columns.get(1).parameterizedType())
+                .isEqualTo(new org.pangrova.spi.connector.data.type.ArrayType(uuid));
+        assertThat(columns.get(2).parameterizedType())
+                .isEqualTo(new org.pangrova.spi.connector.data.type.MapType(uuid, uuid));
+        assertThat(columns.get(3).parameterizedType())
+                .isEqualTo(new org.pangrova.spi.connector.data.type.RowType(List.of(
+                        new org.pangrova.spi.connector.data.type.RowField("id", uuid))));
+    }
+
+    @Test
     void icebergV3UnknownHasAnExplicitNullOnlyDeclaration() {
         Schema schema = new Schema(
                 Types.NestedField.optional(1, "future", Types.UnknownType.get()));
