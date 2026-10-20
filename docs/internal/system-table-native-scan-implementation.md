@@ -786,7 +786,22 @@ the two historical-source cases pass 2/2. Three additional E2E cases pass 3/3:
 all four standalone mutation tasks, missing tag rejection, and zero/overflowing
 retention rejection with no branch publication. Thus the rolling mutation union
 is 11/11; previously passing cases were not rerun. The E2E leaf's static check
-also passes. Coordinator owner and final full functionality regression remain
-pending. Evidence: `/tmp/pangrova-branch-options-real-e2e-20261021.json`,
+also passes. The Coordinator owner run exposed ten missing SDK fixture path inputs:
+`pangrova_lance_fixture_tool` was already built, but its property was not passed
+to Surefire. The parent POM now supplies the canonical Native build output to
+every real-SDK fixture consumer. An alternate build directory requires an
+explicit `-Dpangrova.lance.fixture.tool=/absolute/path/to/pangrova_lance_fixture_tool`;
+the fixture still rejects a missing/nonexecutable tool. The first affected real
+PostgreSQL/SDK lifecycle pair and Coordinator static checks pass 2/2; the other
+eight SDK failure cases pass in a later 22-case increment that also checks the
+affected HTTP/JNI scenarios. Logs include
+`/tmp/pangrova-branch-options-coordinator-sdk-r2-20261021.log` and
+`/tmp/pangrova-coordinator-http-sdk-incremental-20261021.log`.
+The original owner invocation remains recorded as 3,329 cases with 11 errors:
+ten missing fixture inputs and a separate HTTP listener collision. Their
+incremental recovery is recorded by exact case in
+`/tmp/pangrova-branch-options-coordinator-rolling-20261021.json`; final full
+functionality regression remains pending.
+Other evidence: `/tmp/pangrova-branch-options-real-e2e-20261021.json`,
 `/tmp/pangrova-branch-options-{iceberg,paimon}-owner-20261021.json`, and
 `/tmp/pangrova-branch-options-e2e-static-20261021.log`.

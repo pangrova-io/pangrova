@@ -151,6 +151,8 @@
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <exec-maven-plugin.version>3.6.4</exec-maven-plugin.version>
         <pangrova.function-contract.python>python3</pangrova.function-contract.python>
+        <!-- All real SDK fixture consumers use the same explicitly built Native tool. -->
+        <pangrova.lance.fixture.tool>${maven.multiModuleProjectDirectory}/pangrova-worker-native/build/pangrova_lance_fixture_tool</pangrova.lance.fixture.tool>
         <checkstyle.version>10.12.7</checkstyle.version>
         <spotbugs-maven-plugin.version>4.8.3.1</spotbugs-maven-plugin.version>
         <spotbugs.version>4.8.3</spotbugs.version>
@@ -895,6 +897,7 @@
                              docker-java defaults to 1.32 which is rejected. -->
                         <systemPropertyVariables>
                             <api.version>1.44</api.version>
+                            <pangrova.lance.fixture.tool>${pangrova.lance.fixture.tool}</pangrova.lance.fixture.tool>
                         </systemPropertyVariables>
                     </configuration>
                 </plugin>
