@@ -2419,10 +2419,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.ast.statement.ShowStorageProfilesStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask(
                         spRegistry, currentAccessControl));
-        // Branch/Tag SHOW queries
+        // Branch/tag mutations use the same metadata tasks as the production bootstrap.
         var branchDeps = new org.pangrova.coordinator.ai.branch.BranchDdlContext(
                 metadataBootstrap.catalogRegistry(), null);
-        var branchExecutor = new org.pangrova.coordinator.ai.branch.BranchDdlExecutor(branchDeps);        var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
+        var branchExecutor = new org.pangrova.coordinator.ai.branch.BranchDdlExecutor(branchDeps);
+        tasks.put(org.pangrova.parser.ast.statement.CreateBranchStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.branch.CreateBranchTask(branchExecutor));
+        tasks.put(org.pangrova.parser.ast.statement.DropBranchStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.branch.DropBranchTask(branchExecutor));
+        tasks.put(org.pangrova.parser.ast.statement.CreateTagStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.branch.CreateTagTask(branchExecutor));
+        tasks.put(org.pangrova.parser.ast.statement.DropTagStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.branch.DropTagTask(branchExecutor));
+        var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
         if (featureAccessControl != null) {
             var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
                     sharedArtifactBuildStore,

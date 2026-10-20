@@ -195,6 +195,52 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
     }
 
     @Nested
+    class BranchOptionValidation {
+        @Test
+        void standaloneMutationTasksPreservePinnedTagAndRemoveReferences() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1)");
+            executeDdl("CREATE TAG pinned_release ON " + fqn());
+            long pinned = executeQuery("SHOW TAGS FROM " + fqn()).get(0).getLong("snapshot_id");
+            executeDml("INSERT INTO " + fqn() + " VALUES (2)");
+            executeDdl("CREATE BRANCH historical ON " + fqn() + " FROM TAG pinned_release");
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .filteredOn(row -> row.getString("name").equals("historical"))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("snapshot_id")).isEqualTo(pinned));
+            executeDdl("DROP BRANCH historical ON " + fqn());
+            executeDdl("DROP TAG pinned_release ON " + fqn());
+            assertThat(executeQuery("SHOW TAGS FROM " + fqn())).isEmpty();
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .extracting(row -> row.getString("name")).containsExactly("main");
+            executeDdl("DROP TABLE " + fqn());
+        }
+
+        @Test
+        void absentTagCannotCreateBranch() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1)");
+            assertQueryFailsWithMessage("CREATE BRANCH rejected ON " + fqn() + " FROM TAG absent_release",
+                    "Branch source tag not found");
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .extracting(row -> row.getString("name")).containsExactly("main");
+            executeDdl("DROP TABLE " + fqn());
+        }
+
+        @Test
+        void invalidAndOverflowingRetentionCannotCreateBranch() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1)");
+            assertQueryFailsWithMessage("ALTER TABLE " + fqn() + " CREATE BRANCH rejected RETAIN 0 DAYS",
+                    "Branch reference lifetime must be positive");
+            assertQueryFailsWithMessage("ALTER TABLE " + fqn()
+                    + " CREATE BRANCH rejected RETAIN 9223372036854775807 DAYS", "overflow");
+            assertThat(executeQuery("SHOW BRANCHES FROM " + fqn()))
+                    .extracting(row -> row.getString("name")).containsExactly("main");
+            executeDdl("DROP TABLE " + fqn());
+        }
+    }
+
+    @Nested
     @DisplayName("SHOW BRANCHES/TAGS")
     class ShowBranchesAndTags {
 

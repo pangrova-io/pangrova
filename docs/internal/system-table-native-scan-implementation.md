@@ -777,9 +777,16 @@ Iceberg publishes the selected snapshot and reference lifetime in one
 pinned SDK supports the current source and a tag source; snapshot sources and
 reference lifetimes fail before mutation rather than being silently ignored.
 
-Validation before this commit: the SPI owner suite passes 745 tests, and the
-focused real-SDK integration classes pass 9 Iceberg and 12 Paimon tests. These
-cover historical sources, retention, moving main snapshots and rejection without
-creating a branch. The SQL regression originally reproduced the lost retention
-value. Eight strengthened/new branch and tag mutation E2E cases are included;
-their post-fix run and broader dependent-module validation remain pending.
+Validation: the SPI owner suite passes 745 tests; complete Iceberg and Paimon
+owner runs with static analysis pass 442 and 345 tests, with no skips. The SQL
+regression originally reproduced the lost retention value. The first post-fix
+E2E run passes 6/8: the E2E bootstrap omitted the four standalone branch/tag
+mutation tasks that production already registered. Restoring those tasks makes
+the two historical-source cases pass 2/2. Three additional E2E cases pass 3/3:
+all four standalone mutation tasks, missing tag rejection, and zero/overflowing
+retention rejection with no branch publication. Thus the rolling mutation union
+is 11/11; previously passing cases were not rerun. The E2E leaf's static check
+also passes. Coordinator owner and final full functionality regression remain
+pending. Evidence: `/tmp/pangrova-branch-options-real-e2e-20261021.json`,
+`/tmp/pangrova-branch-options-{iceberg,paimon}-owner-20261021.json`, and
+`/tmp/pangrova-branch-options-e2e-static-20261021.log`.
