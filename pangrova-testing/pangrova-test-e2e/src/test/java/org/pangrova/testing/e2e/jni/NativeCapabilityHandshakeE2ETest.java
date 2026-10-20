@@ -8,6 +8,7 @@ import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.CapabilityResponse;
 import org.pangrova.protocol.v2.ExecutionPlacement;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
+import org.pangrova.testing.e2e.ai.SharedAiProvider;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.pangrova.worker.jni.NativeRuntime;
@@ -69,13 +70,20 @@ class NativeCapabilityHandshakeE2ETest extends SqlE2ETestBase {
                 "type.googleapis.com/pangrova.protocol.v2.RelationDetailEnvelope");
         assertThat(inventory.getCandidateSchemaVersion()).isEqualTo(2);
         CapabilityInventoryCodec.validate(inventory);
+        CapabilityInventory publication = e2eNativeCapabilityInventory();
+        CapabilityInventoryCodec.validate(publication);
+        assertThat(publication.toBuilder().clearModels().build())
+                .as("Worker publication must retain the entire negotiated Native inventory")
+                .isEqualTo(inventory.toBuilder().clearModels().build());
+        assertThat(publication.getModelsList()).extracting(model -> model.getModel().getId())
+                .containsExactlyInAnyOrder(SharedAiProvider.LOGICAL_MODEL, SharedAiProvider.EMBEDDING_LOGICAL_MODEL);
         String output = System.getProperty("pangrova.e2e.native-inventory-output");
         if (output != null) {
             Path destination = Path.of(output);
             if (!destination.isAbsolute()) {
                 throw new IllegalArgumentException("Native inventory output must be an absolute path");
             }
-            Files.write(destination, inventory.toByteArray());
+            Files.write(destination, publication.toByteArray());
         }
     }
 
