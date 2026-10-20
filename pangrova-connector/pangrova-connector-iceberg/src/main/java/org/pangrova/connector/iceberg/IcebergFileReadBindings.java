@@ -5,17 +5,18 @@ import java.util.List;
 import java.util.Set;
 
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.InputFile;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 /** Pins the child manifests behind Iceberg's exact metadata-table schema. */
 final class IcebergFileReadBindings {
@@ -27,6 +28,7 @@ final class IcebergFileReadBindings {
     private IcebergFileReadBindings() {}
 
     static IcebergFileTableHandle select(IcebergTableHandle base, Table table) {
+        table = frozen(table);
         IcebergManifestTableHandle list = IcebergManifestReadBindings.select(base, table);
         var schema = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.FILES).schema();
         var columns = IcebergTypeMapper.toPangrovaColumns(schema).stream()
@@ -41,16 +43,25 @@ final class IcebergFileReadBindings {
     }
 
     static IcebergFileTableHandle selectEntries(IcebergTableHandle base, Table table) {
+        table = frozen(table);
         IcebergManifestTableHandle list = IcebergManifestReadBindings.select(base, table);
-        var columns = List.of(
-                new ConnectorTableMetadata.Column("status", PangrovaType.INTEGER),
-                new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT),
-                new ConnectorTableMetadata.Column("sequence_number", PangrovaType.BIGINT),
-                new ConnectorTableMetadata.Column("file_sequence_number", PangrovaType.BIGINT),
-                new ConnectorTableMetadata.Column("file_path", PangrovaType.VARCHAR),
-                new ConnectorTableMetadata.Column("data_sequence_number", PangrovaType.BIGINT),
-                new ConnectorTableMetadata.Column("first_row_id", PangrovaType.BIGINT));
+        var schema = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.ENTRIES).schema();
+        var projection = new ArrayList<>(List.of(
+                "status", "snapshot_id", "sequence_number", "file_sequence_number"));
+        for (String name : NATIVE_COLUMNS) {
+            String path = "data_file." + name;
+            if (schema.findField(path) != null) projection.add(path);
+        }
+        projection.add("data_file.first_row_id");
+        var columns = IcebergTypeMapper.toPangrovaColumns(schema.select(projection));
         return new IcebergFileTableHandle(list, childObjects(list, table), columns, true);
+    }
+
+    private static Table frozen(Table table) {
+        if (!(table instanceof HasTableOperations operations)) {
+            throw new IllegalStateException("Iceberg file reads require table operations");
+        }
+        return new BaseTable(new StaticTableOperations(operations.operations().current(), table.io()), table.name());
     }
 
     static void validate(IcebergFileTableHandle bound, Table table) {

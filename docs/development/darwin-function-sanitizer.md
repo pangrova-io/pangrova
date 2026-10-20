@@ -78,5 +78,19 @@ Local evidence is `/tmp/pangrova-llvm-prefix-native-first-two-20261021.json`,
 (command is JSON; build/run are logs). Complete per-test logs remain in each
 runner-owned fixture directory recorded by those JSON files.
 
+The later Iceberg entry projection cohort passes 22/22 matching Release and
+ASan cases, retaining 66 optional integer diagnostics at `Hash.h:163/167` and
+`SpookyHashV2.h:131`. The new site is `Rot64` on unsigned 64-bit values; every
+rotation constant used by the hash is in 1..63. The tracked standalone control
+now compares that real function with 128-bit multiplication/modulo/division for
+4,141,053 rotations, including every shift 1..63 and the observed input. Its
+`--rotations-only` mode permits incremental qualification without repeating the
+earlier hash/mutex controls. This control passes with address and undefined
+sanitizers, with no check-disabling flags. The Native cohort keeps its original
+checks and full diagnostics; it has zero ASan memory errors and zero incorrect
+function-type reports, and is not described as a zero-diagnostic UBSan run.
+Evidence: `/tmp/pangrova-nested-entry-native-qualified-20261021.json` and
+`/tmp/pangrova-folly-rotation-controls-{command,build,run}-20261021.{json,log}`.
+
 This compiler fix is separate from the private compiler-rt TLS investigation in
 [Darwin ASan runtime qualification](darwin-arm64-asan-runtime.md).

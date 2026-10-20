@@ -239,8 +239,9 @@ std::string lineageSchema(const char* schema, const char* fieldName,
 
 std::string lineageChildRow(int32_t status, const std::string& path,
     std::optional<int64_t> snapshotId, std::optional<int64_t> sequenceNumber,
-    std::optional<int64_t> fileSequenceNumber = std::nullopt) {
-  const auto base = childRow(status, path);
+    std::optional<int64_t> fileSequenceNumber = std::nullopt, int32_t content = 0,
+    std::optional<std::vector<int32_t>> equalityIds = std::nullopt) {
+  const auto base = childRow(status, path, content, std::nullopt, equalityIds);
   std::string row = base.substr(0, 1);
   appendLong(row, snapshotId ? 1 : 0);
   if (snapshotId) appendLong(row, *snapshotId);
@@ -253,20 +254,19 @@ std::string lineageChildRow(int32_t status, const std::string& path,
 }
 
 std::string lineageListRow(const AvroFile& child, uint64_t length,
-    int64_t addedSnapshotId, int64_t sequenceNumber) {
-  auto row = listRow(child, length);
+    int64_t addedSnapshotId, int64_t sequenceNumber, int32_t content = 0) {
+  auto row = listRow(child.path(), length, content);
   appendLong(row, addedSnapshotId);
   appendLong(row, sequenceNumber);
   return row;
 }
 
 auto entriesProjectionType() {
-  return facebook::velox::ROW(
-      {"status", "snapshot_id", "sequence_number", "file_sequence_number", "file_path",
-       "data_sequence_number", "first_row_id"},
-      {facebook::velox::INTEGER(), facebook::velox::BIGINT(), facebook::velox::BIGINT(),
-       facebook::velox::BIGINT(), facebook::velox::VARCHAR(),
-       facebook::velox::BIGINT(), facebook::velox::BIGINT()});
+  using namespace facebook::velox;
+  return ROW({"status", "snapshot_id", "sequence_number", "file_sequence_number", "data_file"},
+      {INTEGER(), BIGINT(), BIGINT(), BIGINT(),
+       ROW({"file_path", "first_row_id", "content", "spec_id", "record_count", "file_size_in_bytes"},
+           {VARCHAR(), BIGINT(), INTEGER(), INTEGER(), BIGINT(), BIGINT()})});
 }
 
 auto projectedType() {
@@ -461,18 +461,86 @@ TEST(IcebergManifestEntryReaderTest, EntriesInheritAndPreserveActualLineage) {
   EXPECT_EQ(batch->childAt(1)->asFlatVector<int64_t>()->valueAt(0), 7);
   EXPECT_EQ(batch->childAt(2)->asFlatVector<int64_t>()->valueAt(0), 5);
   EXPECT_EQ(batch->childAt(3)->asFlatVector<int64_t>()->valueAt(0), 5);
-  EXPECT_EQ(batch->childAt(4)->asFlatVector<facebook::velox::StringView>()
+  EXPECT_EQ(batch->childAt(4)->as<facebook::velox::RowVector>()->childAt(0)->asFlatVector<facebook::velox::StringView>()
                 ->valueAt(0).str(), "file:/data/new.parquet");
-  EXPECT_EQ(batch->childAt(5)->asFlatVector<int64_t>()->valueAt(0), 5);
   EXPECT_EQ(batch->childAt(0)->asFlatVector<int32_t>()->valueAt(1), 0);
   EXPECT_EQ(batch->childAt(1)->asFlatVector<int64_t>()->valueAt(1), 3);
   EXPECT_EQ(batch->childAt(2)->asFlatVector<int64_t>()->valueAt(1), 2);
   EXPECT_EQ(batch->childAt(3)->asFlatVector<int64_t>()->valueAt(1), 4);
-  EXPECT_EQ(batch->childAt(5)->asFlatVector<int64_t>()->valueAt(1), 2);
   EXPECT_EQ(batch->childAt(0)->asFlatVector<int32_t>()->valueAt(2), 2);
-  EXPECT_TRUE(batch->childAt(6)->isNullAt(0));
-  EXPECT_TRUE(batch->childAt(6)->isNullAt(1));
+  EXPECT_TRUE(batch->childAt(4)->as<facebook::velox::RowVector>()->childAt(1)->isNullAt(0));
+  EXPECT_TRUE(batch->childAt(4)->as<facebook::velox::RowVector>()->childAt(1)->isNullAt(1));
+  auto* files = batch->childAt(4)->as<facebook::velox::RowVector>();
+  EXPECT_EQ(files->childAt(2)->asFlatVector<int32_t>()->valueAt(2), 0);
+  EXPECT_EQ(files->childAt(3)->asFlatVector<int32_t>()->valueAt(2), 0);
+  EXPECT_EQ(files->childAt(4)->asFlatVector<int64_t>()->valueAt(2), 3);
+  EXPECT_EQ(files->childAt(5)->asFlatVector<int64_t>()->valueAt(2), 4096);
   EXPECT_EQ(reader.next(10), nullptr);
+}
+
+TEST(IcebergManifestEntryReaderTest, NestedEntriesPreserveDeleteContentsAndCollections) {
+  using namespace facebook::velox;
+  filesystems::registerLocalFileSystem();
+  auto pool = pangrova::test::testLeafPool("IcebergNestedDeleteEntries");
+  const auto childSchema = lineageSchema(kChildSchema, "{\"name\":\"data_file\"",
+      R"({"name":"snapshot_id","type":["null","long"]},)"
+      R"({"name":"sequence_number","type":["null","long"]},)"
+      R"({"name":"file_sequence_number","type":["null","long"]},)");
+  const auto listSchema = lineageSchema(kListSchema, "]}",
+      R"(,{"name":"added_snapshot_id","type":"long"},)"
+      R"({"name":"sequence_number","type":"long"})");
+  const auto childBytes = container(childSchema,
+      {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "deletes"}}, 2,
+      lineageChildRow(1, "file:/data/position.parquet", std::nullopt, std::nullopt,
+          std::nullopt, 1) +
+      lineageChildRow(2, "file:/data/equality.parquet", 7, 5, 5, 2, std::vector<int32_t>{1}));
+  AvroFile child(childBytes);
+  const auto listBytes = container(listSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "5"}},
+      1, lineageListRow(child, childBytes.size(), 7, 5, 1));
+  AvroFile list(listBytes);
+  auto type = ROW({"data_file"}, {ROW({"content", "equality_ids", "split_offsets", "sort_order_id"},
+      {INTEGER(), ARRAY(INTEGER()), ARRAY(BIGINT()), INTEGER()})});
+  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
+      list.path(), listBytes.size(), digest(listBytes), 7, 5, 2, 0, 1, type, pool.get(), true);
+  auto batch = reader.next(10);
+  ASSERT_NE(batch, nullptr);
+  ASSERT_EQ(batch->size(), 2);
+  auto* files = batch->childAt(0)->as<RowVector>();
+  ASSERT_NE(files, nullptr);
+  EXPECT_EQ(files->childAt(0)->asFlatVector<int32_t>()->valueAt(0), 1);
+  EXPECT_EQ(files->childAt(0)->asFlatVector<int32_t>()->valueAt(1), 2);
+  auto* equality = files->childAt(1)->as<ArrayVector>();
+  EXPECT_TRUE(equality->isNullAt(0));
+  ASSERT_EQ(equality->sizeAt(1), 1);
+  EXPECT_EQ(equality->elements()->asFlatVector<int32_t>()->valueAt(equality->offsetAt(1)), 1);
+  EXPECT_TRUE(files->childAt(2)->isNullAt(1));
+  EXPECT_TRUE(files->childAt(3)->isNullAt(1));
+}
+
+TEST(IcebergManifestEntryReaderTest, RejectsNestedEntrySchemaDrift) {
+  using namespace facebook::velox;
+  filesystems::registerLocalFileSystem();
+  auto pool = pangrova::test::testLeafPool("IcebergNestedEntrySchema");
+  const auto listSchema = lineageSchema(kListSchema, "]}",
+      R"(,{"name":"added_snapshot_id","type":"long"},)"
+      R"({"name":"sequence_number","type":"long"})");
+  const auto childBytes = container(kChildSchema,
+      {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "data"}},
+      1, childRow(1, "file:/data/schema.parquet"));
+  AvroFile child(childBytes);
+  const auto listBytes = container(listSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
+      1, lineageListRow(child, childBytes.size(), 7, 1));
+  AvroFile list(listBytes);
+  for (const auto& type : {ROW({"data_file"}, {BIGINT()}),
+           ROW({"data_file"}, {ROW({"file_path"}, {BIGINT()})}),
+           ROW({"data_file"}, {ROW({"equality_ids"}, {ARRAY(BIGINT())})}),
+           ROW({"file_path"}, {VARCHAR()})}) {
+    EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(), digest(childBytes),
+        list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0, type, pool.get(), true),
+        std::runtime_error);
+  }
 }
 
 TEST(IcebergManifestEntryReaderTest, RejectsFutureFileSequenceNumber) {
@@ -536,8 +604,8 @@ TEST(IcebergManifestEntryReaderTest, VersionThreeInheritsFirstRowIdsAcrossFiles)
   auto batch = reader.next(10);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 2);
-  EXPECT_EQ(batch->childAt(6)->asFlatVector<int64_t>()->valueAt(0), 1000);
-  EXPECT_EQ(batch->childAt(6)->asFlatVector<int64_t>()->valueAt(1), 1003);
+  EXPECT_EQ(batch->childAt(4)->as<facebook::velox::RowVector>()->childAt(1)->asFlatVector<int64_t>()->valueAt(0), 1000);
+  EXPECT_EQ(batch->childAt(4)->as<facebook::velox::RowVector>()->childAt(1)->asFlatVector<int64_t>()->valueAt(1), 1003);
 }
 
 TEST(IcebergManifestEntryReaderTest, RejectsParentOrChildMutation) {
@@ -580,6 +648,10 @@ TEST(IcebergManifestEntryReaderTest, RejectsUnsupportedNestedProjection) {
   EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
       digest(childBytes), list.path(), listBytes.size(), digest(listBytes),
       7, 1, 2, 0, 0, wrongElementType, pool.get()), std::runtime_error);
+  auto entryOnlyField = facebook::velox::ROW({"first_row_id"}, {facebook::velox::BIGINT()});
+  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
+      digest(childBytes), list.path(), listBytes.size(), digest(listBytes),
+      7, 1, 2, 0, 0, entryOnlyField, pool.get()), std::runtime_error);
 }
 
 TEST(IcebergManifestEntryReaderTest, ReadsPositionDeleteManifest) {

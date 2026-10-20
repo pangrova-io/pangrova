@@ -1,6 +1,5 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.connector.iceberg.system.IcebergEntriesSystemTable;
 import org.pangrova.connector.iceberg.system.IcebergFilesSystemTable;
 import org.pangrova.connector.iceberg.system.IcebergHistorySystemTable;
 import org.pangrova.connector.iceberg.system.IcebergManifestsSystemTable;
@@ -29,7 +28,6 @@ final class IcebergSystemTables {
             case "partitions" -> Optional.of(new IcebergPartitionsSystemTable(icebergTable));
             case "history" -> Optional.of(new IcebergHistorySystemTable(icebergTable));
             case "refs" -> Optional.of(new IcebergRefsSystemTable(icebergTable));
-            case "entries" -> Optional.of(new IcebergEntriesSystemTable(icebergTable));
             default -> Optional.empty();
         };
     }

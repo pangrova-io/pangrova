@@ -127,6 +127,8 @@ class IcebergFileReadBindingsTest {
                     PartitionSpec.unpartitioned(), Map.of("format-version", "2"));
             var metadata = new IcebergMetadata(catalog, "bound");
             var manager = new IcebergSplitManager("bound", catalog, new IcebergExpressionToSubstrait());
+            var base = metadata.getTableHandle(SESSION, new SchemaTableName("db", "lineage"));
+            assertThat(metadata.getSystemTable(SESSION, base, "entries")).isEmpty();
             var empty = metadata.getTableHandle(SESSION,
                     new SchemaTableName("db", "lineage$entries"));
             var emptySource = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
@@ -142,9 +144,21 @@ class IcebergFileReadBindingsTest {
             assertThat(selected.entries()).isTrue();
             assertThat(selected.typedColumns().stream().map(c -> c.name()).toList())
                     .containsExactly("status", "snapshot_id", "sequence_number",
-                            "file_sequence_number", "file_path",
-                            "data_sequence_number", "first_row_id");
-            metadata.validateColumnAccess(SESSION, selected, List.of("DATA_SEQUENCE_NUMBER"));
+                            "file_sequence_number", "data_file");
+            metadata.validateColumnAccess(SESSION, selected, List.of("DATA_FILE"));
+            var file = (RowType) selected.typedColumns().get(4).parameterizedType();
+            assertThat(file.fields().stream().map(field -> field.name())).containsExactly(
+                    "content", "file_path", "file_format", "spec_id", "record_count", "file_size_in_bytes",
+                    "column_sizes", "split_offsets", "equality_ids", "sort_order_id", "first_row_id");
+            assertThat(selected.typedColumns()).isEqualTo(
+                    org.pangrova.connector.iceberg.type.IcebergTypeMapper.toPangrovaColumns(
+                            org.apache.iceberg.MetadataTableUtils.createMetadataTableInstance(table,
+                                    org.apache.iceberg.MetadataTableType.ENTRIES).schema().select(
+                                            "status", "snapshot_id", "sequence_number", "file_sequence_number",
+                                            "data_file.content", "data_file.file_path", "data_file.file_format",
+                                            "data_file.spec_id", "data_file.record_count", "data_file.file_size_in_bytes",
+                                            "data_file.column_sizes", "data_file.split_offsets", "data_file.equality_ids",
+                                            "data_file.sort_order_id", "data_file.first_row_id")));
             assertThatThrownBy(() -> metadata.validateColumnAccess(SESSION, selected,
                     List.of("record_count"))).isInstanceOf(UnsupportedOperationException.class);
             var binding = metadata.bindRead(SESSION, selected);
@@ -205,6 +219,49 @@ class IcebergFileReadBindingsTest {
             assertThat(renamed.getFieldId()).isEqualTo(original.getFieldId());
             assertThat(original.getName()).isEqualTo("new_id");
             assertThat(renamed.getName()).isEqualTo("new_id");
+            IcebergFileReadBindings.validate(selected, table);
+        }
+    }
+
+    @Test
+    void concurrentSpecCommitCannotMixTheSelectedObjectGraphAndDeclaration() throws Exception {
+        try (var catalog = catalog()) {
+            var spec = PartitionSpec.builderFor(SCHEMA).identity("id", "old_id").build();
+            Table table = catalog.createTable(TableIdentifier.of("db", "concurrent_spec"), SCHEMA,
+                    spec, Map.of("format-version", "2"));
+            table.newAppend().appendFile(DataFiles.builder(spec)
+                    .withPath(table.location() + "/data/old.parquet").withFileSizeInBytes(100)
+                    .withRecordCount(1).withPartitionPath("old_id=7").build()).commit();
+            var operations = ((org.apache.iceberg.HasTableOperations) table).operations();
+            var initial = operations.current();
+            var changed = new java.util.concurrent.atomic.AtomicBoolean();
+            var originalIo = table.io();
+            var changingIo = new org.apache.iceberg.io.FileIO() {
+                @Override public org.apache.iceberg.io.InputFile newInputFile(String location) {
+                    if (changed.compareAndSet(false, true)) {
+                        table.updateSpec().renameField("old_id", "new_id").commit();
+                    }
+                    return originalIo.newInputFile(location);
+                }
+                @Override public org.apache.iceberg.io.OutputFile newOutputFile(String location) {
+                    return originalIo.newOutputFile(location);
+                }
+                @Override public void deleteFile(String location) { originalIo.deleteFile(location); }
+            };
+            var mutable = new org.apache.iceberg.BaseTable(
+                    new org.apache.iceberg.StaticTableOperations(initial, changingIo) {
+                        @Override public org.apache.iceberg.TableMetadata current() { return operations.current(); }
+                    }, table.name());
+            var base = org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory
+                    .fromTable("db", "concurrent_spec", table);
+            var selected = IcebergFileReadBindings.selectEntries(base, mutable);
+            assertThat(changed).isTrue();
+            assertThat(table.spec().fields().get(0).name()).isEqualTo("new_id");
+            assertThat(selected.manifestSelection().metadataLocation()).isEqualTo(initial.metadataFileLocation());
+            var file = (RowType) selected.typedColumns().get(4).parameterizedType();
+            var partition = (RowType) file.fields().stream().filter(field -> field.name().equals("partition"))
+                    .findFirst().orElseThrow().type();
+            assertThat(partition.fields().stream().map(field -> field.name())).containsExactly("old_id");
             IcebergFileReadBindings.validate(selected, table);
         }
     }

@@ -1,9 +1,11 @@
 #include <folly/hash/Hash.h>
+#include <folly/hash/SpookyHashV2.h>
 #include <folly/synchronization/DistributedMutex.h>
 
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <string_view>
 
 namespace {
 using Wide = unsigned __int128;
@@ -47,9 +49,42 @@ bool check(std::uint64_t value) {
       && packed == expected && (packed & 255) == 0
       && folly::detail::distributed_mutex::recover(packed) == (value & low56);
 }
+
+bool checkRotation(std::uint64_t value, std::uint64_t& checks, std::uint64_t& digest) {
+  for (unsigned bits = 1; bits < 64; ++bits) {
+    const Wide modulus = Wide{1} << 64;
+    const auto expected = static_cast<std::uint64_t>(
+        (Wide(value) * (Wide{1} << bits)) % modulus + Wide(value) / (Wide{1} << (64 - bits)));
+    const auto actual = folly::hash::SpookyHashV2::Rot64(value, bits);
+    if (actual != expected) return false;
+    ++checks;
+    digest ^= actual;
+  }
+  return true;
+}
+
+int rotations() {
+  std::uint64_t checks = 0, digest = 0;
+  for (std::uint64_t value = 0; value < 65536; ++value) {
+    if (!checkRotation(value, checks, digest)) return 1;
+  }
+  for (unsigned bit = 0; bit < 64; ++bit) {
+    const auto value = std::uint64_t{1} << bit;
+    if (!checkRotation(value, checks, digest) || !checkRotation(value - 1, checks, digest)
+        || !checkRotation(~value, checks, digest)) return 1;
+  }
+  for (auto value : {UINT64_MAX, std::uint64_t{16045690986535204963ULL}, std::uint64_t{0}}) {
+    if (!checkRotation(value, checks, digest)) return 1;
+  }
+  std::printf("rotations=%llu digest=%llu\n", static_cast<unsigned long long>(checks),
+      static_cast<unsigned long long>(digest));
+  return 0;
+}
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  if (argc == 2 && std::string_view(argv[1]) == "--rotations-only") return rotations();
+  if (argc != 1) return 2;
   std::uint64_t checks = 0;
   auto verify = [&](std::uint64_t value) {
     ++checks;
@@ -77,4 +112,5 @@ int main() {
           folly::detail::distributed_mutex::strip(UINT64_MAX)) != low56) return 1;
   std::printf("checks=%llu masks=%u timestamp_sentinel=%llu\n",
       static_cast<unsigned long long>(checks), mask, static_cast<unsigned long long>(low56));
+  return rotations();
 }

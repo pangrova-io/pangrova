@@ -17,8 +17,9 @@ class MemoryPool;
 namespace pangrova::velox {
 class IcebergPartitionProjection;
 
-// Scans live entries from one child manifest pinned by its parent list.
-// Scalar, metric-map, array and field-ID-based partition projections are typed.
+// Scans live files or all entries from one child manifest pinned by its parent list.
+// Entry lineage surrounds a typed data_file row; file maps, arrays and
+// field-ID-based partition projections share the ordinary file scan renderer.
 class IcebergManifestEntryReader final {
  public:
   IcebergManifestEntryReader(

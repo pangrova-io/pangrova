@@ -370,6 +370,103 @@ FileRow decodeLiveEntry(const folly::dynamic& entry,
   return result;
 }
 
+facebook::velox::RowVectorPtr projectFileRows(const std::vector<FileRow>& rows,
+    const facebook::velox::RowTypePtr& outputType,
+    facebook::velox::memory::MemoryPool* pool,
+    const IcebergPartitionProjection* partitionProjection) {
+  std::vector<facebook::velox::VectorPtr> columns;
+  columns.reserve(outputType->size());
+  for (size_t column = 0; column < outputType->size(); ++column) {
+    const auto& name = outputType->nameOf(column);
+    const auto type = outputType->childAt(column);
+    if (name == "partition") {
+      std::vector<const folly::dynamic*> partitions;
+      partitions.reserve(rows.size());
+      for (const auto& row : rows) partitions.push_back(&row.partition);
+      columns.push_back(partitionProjection->project(partitions, pool));
+      continue;
+    }
+    if (name == "split_offsets") {
+      columns.push_back(arrayColumn(rows, type, &FileRow::splitOffsets, pool));
+      continue;
+    }
+    if (name == "column_sizes") {
+      columns.push_back(mapColumn(rows, type, pool));
+      continue;
+    }
+    if (name == "equality_ids") {
+      columns.push_back(arrayColumn(rows, type, &FileRow::equalityIds, pool));
+      continue;
+    }
+    auto vector = facebook::velox::BaseVector::create(
+        type, rows.size(), pool);
+    for (size_t row = 0; row < rows.size(); ++row) {
+      const auto& file = rows[row];
+      if (name == "first_row_id") {
+        if (file.firstRowId) vector->asFlatVector<int64_t>()->set(row, *file.firstRowId);
+        else vector->setNull(row, true);
+      } else if (name == "sort_order_id") {
+        if (file.sortOrderId) {
+          vector->asFlatVector<int32_t>()->set(row, *file.sortOrderId);
+        } else {
+          vector->setNull(row, true);
+        }
+      } else if (name == "content" || name == "spec_id") {
+        vector->asFlatVector<int32_t>()->set(row,
+            name == "content" ? file.content : file.specId);
+      } else if (name == "file_path" || name == "file_format") {
+        vector->asFlatVector<facebook::velox::StringView>()->set(row,
+            facebook::velox::StringView(
+                name == "file_path" ? file.path : file.format));
+      } else {
+        vector->asFlatVector<int64_t>()->set(row,
+            name == "record_count" ? file.recordCount : file.fileSize);
+      }
+    }
+    columns.push_back(std::move(vector));
+  }
+  return std::make_shared<facebook::velox::RowVector>(
+      pool, outputType, nullptr, rows.size(), std::move(columns));
+}
+
+void validateFileOutput(const facebook::velox::RowTypePtr& outputType,
+    const folly::dynamic& writerSchema) {
+  using facebook::velox::TypeKind;
+  std::unordered_set<std::string> names;
+  for (size_t index = 0; index < outputType->size(); ++index) {
+    const auto& name = outputType->nameOf(index);
+    const auto expected = name == "partition" ? TypeKind::ROW
+        : name == "column_sizes" ? TypeKind::MAP
+        : name == "split_offsets" || name == "equality_ids"
+        ? TypeKind::ARRAY : name == "content" || name == "spec_id" ||
+            name == "sort_order_id"
+        ? TypeKind::INTEGER
+        : name == "file_path" || name == "file_format"
+            ? TypeKind::VARCHAR : TypeKind::BIGINT;
+    if ((name != "content" && name != "file_path" &&
+            name != "file_format" && name != "spec_id" &&
+            name != "record_count" && name != "file_size_in_bytes" &&
+            name != "column_sizes" && name != "split_offsets" && name != "equality_ids" &&
+            name != "sort_order_id" && name != "partition" && name != "first_row_id") ||
+        !names.insert(name).second || outputType->childAt(index)->kind() != expected) {
+      throw std::runtime_error("Unsupported Iceberg $files output column: " + name);
+    }
+    if (expected == TypeKind::ARRAY && outputType->childAt(index)->asArray()
+            .elementType()->kind() != (name == "split_offsets"
+                ? TypeKind::BIGINT : TypeKind::INTEGER)) {
+      throw std::runtime_error("Unsupported Iceberg $files array element type: " + name);
+    }
+    if (expected == TypeKind::MAP &&
+        (outputType->childAt(index)->asMap().keyType()->kind() != TypeKind::INTEGER ||
+         outputType->childAt(index)->asMap().valueType()->kind() != TypeKind::BIGINT)) {
+      throw std::runtime_error("Unsupported Iceberg $files map key/value type: " + name);
+    }
+  }
+  if (names.contains("column_sizes")) {
+    validateColumnSizesSchema(writerSchema);
+  }
+}
+
 }  // namespace
 
 IcebergManifestEntryReader::IcebergManifestEntryReader(
@@ -406,63 +503,46 @@ IcebergManifestEntryReader::IcebergManifestEntryReader(
     throw std::runtime_error("Pinned Iceberg child manifest header differs");
   }
   validateOutputSchema();
-  if (!entries_ && output_type_->containsChild("partition")) {
+  auto fileOutput = entries_
+      ? (output_type_->containsChild("data_file")
+          ? std::dynamic_pointer_cast<const facebook::velox::RowType>(output_type_->findChild("data_file"))
+          : nullptr)
+      : output_type_;
+  if (fileOutput && fileOutput->containsChild("partition")) {
     const auto& fileSchema = nonNullAvroSchema(avroField(child_->writerSchema(), "data_file", 2));
     const auto& partitionSchema = nonNullAvroSchema(avroField(fileSchema, "partition", 102));
     partition_projection_ = std::make_unique<IcebergPartitionProjection>(
         partitionSchema, specId, partitionSpecs,
-        std::dynamic_pointer_cast<const facebook::velox::RowType>(output_type_->findChild("partition")));
+        std::dynamic_pointer_cast<const facebook::velox::RowType>(fileOutput->findChild("partition")));
   }
 }
 
 IcebergManifestEntryReader::~IcebergManifestEntryReader() = default;
 
 void IcebergManifestEntryReader::validateOutputSchema() const {
+  if (!entries_) {
+    if (output_type_->containsChild("first_row_id")) {
+      throw std::runtime_error("Iceberg $files does not declare first_row_id");
+    }
+    validateFileOutput(output_type_, child_->writerSchema());
+    return;
+  }
   using facebook::velox::TypeKind;
   std::unordered_set<std::string> names;
   for (size_t index = 0; index < output_type_->size(); ++index) {
     const auto& name = output_type_->nameOf(index);
-    if (entries_) {
-      const auto expected = name == "file_path" ? TypeKind::VARCHAR
-          : name == "status" ? TypeKind::INTEGER : TypeKind::BIGINT;
-      if ((name != "status" && name != "snapshot_id" && name != "sequence_number" &&
-              name != "file_sequence_number" &&
-              name != "file_path" && name != "data_sequence_number" &&
-              name != "first_row_id") ||
-          !names.insert(name).second || output_type_->childAt(index)->kind() != expected) {
-        throw std::runtime_error("Unsupported Iceberg $entries output column: " + name);
-      }
+    const auto& type = output_type_->childAt(index);
+    if (!names.insert(name).second) throw std::runtime_error("Duplicate Iceberg entry output");
+    if (name == "data_file" && type->kind() == TypeKind::ROW) {
+      validateFileOutput(std::dynamic_pointer_cast<const facebook::velox::RowType>(type),
+          child_->writerSchema());
+    } else if ((name == "status" && type->kind() == TypeKind::INTEGER) ||
+        ((name == "snapshot_id" || name == "sequence_number" || name == "file_sequence_number") &&
+         type->kind() == TypeKind::BIGINT)) {
       continue;
+    } else {
+      throw std::runtime_error("Unsupported Iceberg $entries output column: " + name);
     }
-    const auto expected = name == "partition" ? TypeKind::ROW
-        : name == "column_sizes" ? TypeKind::MAP
-        : name == "split_offsets" || name == "equality_ids"
-        ? TypeKind::ARRAY : name == "content" || name == "spec_id" ||
-            name == "sort_order_id"
-        ? TypeKind::INTEGER
-        : name == "file_path" || name == "file_format"
-            ? TypeKind::VARCHAR : TypeKind::BIGINT;
-    if ((name != "content" && name != "file_path" &&
-            name != "file_format" && name != "spec_id" &&
-            name != "record_count" && name != "file_size_in_bytes" &&
-            name != "column_sizes" && name != "split_offsets" && name != "equality_ids" &&
-            name != "sort_order_id" && name != "partition") ||
-        !names.insert(name).second || output_type_->childAt(index)->kind() != expected) {
-      throw std::runtime_error("Unsupported Iceberg $files output column: " + name);
-    }
-    if (expected == TypeKind::ARRAY && output_type_->childAt(index)->asArray()
-            .elementType()->kind() != (name == "split_offsets"
-                ? TypeKind::BIGINT : TypeKind::INTEGER)) {
-      throw std::runtime_error("Unsupported Iceberg $files array element type: " + name);
-    }
-    if (expected == TypeKind::MAP &&
-        (output_type_->childAt(index)->asMap().keyType()->kind() != TypeKind::INTEGER ||
-         output_type_->childAt(index)->asMap().valueType()->kind() != TypeKind::BIGINT)) {
-      throw std::runtime_error("Unsupported Iceberg $files map key/value type: " + name);
-    }
-  }
-  if (names.contains("column_sizes")) {
-    validateColumnSizesSchema(child_->writerSchema());
   }
 }
 
@@ -532,76 +612,24 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
     }
   }
   if (rows.empty()) return nullptr;
+  if (!entries_) return projectFileRows(rows, output_type_, pool_, partition_projection_.get());
   std::vector<facebook::velox::VectorPtr> columns;
-  columns.reserve(output_type_->size());
-  for (size_t column = 0; column < output_type_->size(); ++column) {
-    const auto& name = output_type_->nameOf(column);
-    const auto type = output_type_->childAt(column);
-    if (name == "partition") {
-      std::vector<const folly::dynamic*> partitions;
-      partitions.reserve(rows.size());
-      for (const auto& row : rows) partitions.push_back(&row.partition);
-      columns.push_back(partition_projection_->project(partitions, pool_));
+  for (size_t index = 0; index < output_type_->size(); ++index) {
+    const auto& name = output_type_->nameOf(index);
+    const auto& type = output_type_->childAt(index);
+    if (name == "data_file") {
+      columns.push_back(projectFileRows(rows,
+          std::dynamic_pointer_cast<const facebook::velox::RowType>(type),
+          pool_, partition_projection_.get()));
       continue;
     }
-    if (name == "split_offsets") {
-      columns.push_back(arrayColumn(rows, type, &FileRow::splitOffsets, pool_));
-      continue;
-    }
-    if (name == "column_sizes") {
-      columns.push_back(mapColumn(rows, type, pool_));
-      continue;
-    }
-    if (name == "equality_ids") {
-      columns.push_back(arrayColumn(rows, type, &FileRow::equalityIds, pool_));
-      continue;
-    }
-    if (entries_) {
-      auto vector = facebook::velox::BaseVector::create(type, rows.size(), pool_);
-      for (size_t row = 0; row < rows.size(); ++row) {
-        const auto& file = rows[row];
-        if (name == "first_row_id") {
-          if (file.firstRowId) {
-            vector->asFlatVector<int64_t>()->set(row, *file.firstRowId);
-          } else {
-            vector->setNull(row, true);
-          }
-        } else if (name == "status") {
-          vector->asFlatVector<int32_t>()->set(row, file.status);
-        } else if (name == "file_path") {
-          vector->asFlatVector<facebook::velox::StringView>()->set(
-              row, facebook::velox::StringView(file.path));
-        } else {
-          vector->asFlatVector<int64_t>()->set(row,
-              name == "snapshot_id" ? file.snapshotId
-              : name == "file_sequence_number" ? file.fileSequenceNumber
-              : file.sequenceNumber);
-        }
-      }
-      columns.push_back(std::move(vector));
-      continue;
-    }
-    auto vector = facebook::velox::BaseVector::create(
-        type, rows.size(), pool_);
+    auto vector = facebook::velox::BaseVector::create(type, rows.size(), pool_);
     for (size_t row = 0; row < rows.size(); ++row) {
       const auto& file = rows[row];
-      if (name == "sort_order_id") {
-        if (file.sortOrderId) {
-          vector->asFlatVector<int32_t>()->set(row, *file.sortOrderId);
-        } else {
-          vector->setNull(row, true);
-        }
-      } else if (name == "content" || name == "spec_id") {
-        vector->asFlatVector<int32_t>()->set(row,
-            name == "content" ? file.content : file.specId);
-      } else if (name == "file_path" || name == "file_format") {
-        vector->asFlatVector<facebook::velox::StringView>()->set(row,
-            facebook::velox::StringView(
-                name == "file_path" ? file.path : file.format));
-      } else {
-        vector->asFlatVector<int64_t>()->set(row,
-            name == "record_count" ? file.recordCount : file.fileSize);
-      }
+      if (name == "status") vector->asFlatVector<int32_t>()->set(row, file.status);
+      else vector->asFlatVector<int64_t>()->set(row,
+          name == "snapshot_id" ? file.snapshotId
+          : name == "file_sequence_number" ? file.fileSequenceNumber : file.sequenceNumber);
     }
     columns.push_back(std::move(vector));
   }

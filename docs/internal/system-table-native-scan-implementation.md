@@ -534,6 +534,37 @@ source specs project different numbers of fields. The frozen spec field IDs can
 provide this presence count alongside `spec_id`; grouping by the visible struct
 alone would lose it. The next SDK-oracle matrix must cover this case explicitly.
 
+### Iceberg `$entries` nested data-file projection (2026-10-21)
+
+The current Native declaration replaces the earlier flat lineage slice with
+the SDK's five top-level fields: `status`, `snapshot_id`, `sequence_number`,
+`file_sequence_number`, and `data_file`. The data sequence is the standard
+`sequence_number`; the synthetic flat alias has been removed. File path and
+row identity are now `data_file.file_path` and `data_file.first_row_id`.
+The nested file projection also includes `content`, `file_format`, `spec_id`,
+`partition` when partitioned, `record_count`, `file_size_in_bytes`, `column_sizes`,
+`split_offsets`, `equality_ids`, and `sort_order_id`, with types and order selected
+directly from the pinned SDK's entries schema. It uses the same Native typed
+batch renderer as `$files`; entries retain deleted status rows as required by
+[the SDK entries contract](https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/core/src/main/java/org/apache/iceberg/ManifestEntriesTable.java).
+The old Java entries row materializer and its resolver registration are removed.
+The shared renderer does not broaden the standalone `$files` declaration:
+undeclared top-level `first_row_id` is rejected there, while the entries nested
+projection supports it with the actual v3 inheritance semantics.
+
+Each file/entry selection first captures one immutable SDK `TableMetadata` and
+uses [StaticTableOperations](https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/core/src/main/java/org/apache/iceberg/StaticTableOperations.java)
+for the declaration, spec mapping and manifest graph. A deterministic regression
+commits a spec rename during manifest-list I/O: the unprotected implementation
+mixes the old object selection with the new field name, while the frozen view
+retains the selected metadata location and old partition field. Later live
+validation still checks table identity and the selected objects.
+
+This is the canonical nested projection needed for partition aggregation;
+remaining SDK metrics fields and `readable_metrics` are still unimplemented.
+`$partitions` itself is not exposed by this change. The rolling inventory records
+Native, SDK-oracle SQL and policy verification results separately.
+
 ### Metadata read grants (2026-10-20)
 
 `$entries` now follows the same base-table SELECT authorization as the other
