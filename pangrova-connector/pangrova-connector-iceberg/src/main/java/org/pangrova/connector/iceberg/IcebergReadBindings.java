@@ -6,6 +6,7 @@ import org.apache.iceberg.Table;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
@@ -26,6 +27,16 @@ final class IcebergReadBindings {
     private IcebergReadBindings() {}
 
     static ConnectorReadBinding bind(IcebergCatalogTables tables, ConnectorTableHandle selector) {
+        if (selector instanceof IcebergPartitionTableHandle partitions) {
+            for (var input : partitions.derivedQuery().inputs()) validate(tables, input.binding());
+            var columns = partitions.typedColumns();
+            var metadata = new ConnectorTableMetadata(
+                    new SchemaTableName(partitions.baseTable().schemaName(), partitions.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+            return new ConnectorReadBinding(partitions, new ConnectorTableReadMetadata(metadata,
+                    ConnectorTableReadMetadata.DeclarationEvidence.EXACT), TableStatistics.UNKNOWN,
+                    ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(), partitions.sourceIdentity());
+        }
         if (selector instanceof IcebergFileTableHandle files) {
             IcebergFileReadBindings.validate(files, tables.resolveTable(files.baseTable()));
             var columns = files.typedColumns();
@@ -81,6 +92,13 @@ final class IcebergReadBindings {
     }
 
     static void validate(IcebergCatalogTables tables, ConnectorReadBinding binding) {
+        if (binding.handle() instanceof IcebergPartitionTableHandle partitions) {
+            if (!partitions.sourceIdentity().equals(binding.sourceIdentity())) {
+                throw new IllegalStateException("Selected Iceberg partitions binding identity differs");
+            }
+            for (var input : partitions.derivedQuery().inputs()) validate(tables, input.binding());
+            return;
+        }
         if (binding.handle() instanceof IcebergFileTableHandle files) {
             if (!fileSourceIdentity(files).equals(binding.sourceIdentity())) {
                 throw new IllegalStateException("Selected Iceberg files binding identity differs");

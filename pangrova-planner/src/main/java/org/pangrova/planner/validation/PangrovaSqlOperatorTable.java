@@ -81,6 +81,12 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
         addArrayAndVectorFunctions(ops);
         addStringFunctions(ops);
         ops.add(new RoundSqlFunction());
+        ops.add(typedFunction("TO_IEEE754_32", ReturnTypes.cascade(ReturnTypes.explicit(SqlTypeName.VARBINARY, 4),
+                        org.apache.calcite.sql.type.SqlTypeTransforms.TO_NULLABLE),
+                OperandTypes.typeName(SqlTypeName.REAL)));
+        ops.add(typedFunction("TO_IEEE754_64", ReturnTypes.cascade(ReturnTypes.explicit(SqlTypeName.VARBINARY, 8),
+                        org.apache.calcite.sql.type.SqlTypeTransforms.TO_NULLABLE),
+                OperandTypes.typeName(SqlTypeName.DOUBLE)));
         ops.add(org.apache.calcite.sql.fun.SqlLibraryOperators.MAX_BY);
         ops.add(org.apache.calcite.sql.fun.SqlLibraryOperators.MIN_BY);
         addCatalogAndMaintenanceFunctions(ops);

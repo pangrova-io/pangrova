@@ -112,3 +112,17 @@ SELECT CEIL(3.2) AS ceiled;            -- 4
 - For decimal division, cast to DOUBLE: `CAST(7 AS DOUBLE) / 2 = 3.5`
 
 **See Also:** [Aggregate Functions](aggregate.md), [Type Casting](../../data-types/type-casting.md)
+
+
+## TO_IEEE754_32 / TO_IEEE754_64
+
+```sql
+TO_IEEE754_32(float_expr) → VARBINARY(4)
+TO_IEEE754_64(double_expr) → VARBINARY(8)
+```
+
+Returns a big-endian IEEE 754 encoding. Positive and negative zero remain
+distinct. All NaN payloads of the same width produce one canonical NaN encoding;
+infinities and finite values retain their representation. NULL input returns
+NULL. Use the function matching the input's floating-point width, with an
+explicit cast when conversion is intended.

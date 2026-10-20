@@ -7,6 +7,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
@@ -109,6 +110,13 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
         int separator = tableName.table().lastIndexOf('$');
         if (separator > 0 && separator < tableName.table().length() - 1) {
+            if ("partitions".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
+                String baseName = tableName.table().substring(0, separator);
+                var base = (IcebergTableHandle) catalogTables.getTableHandle(
+                        new SchemaTableName(tableName.schema(), baseName));
+                return base == null ? null : IcebergPartitionReadBindings.select(
+                        catalogTables, base, catalogTables.resolveTable(base));
+            }
             if ("entries".equalsIgnoreCase(tableName.table().substring(separator + 1))) {
                 String baseName = tableName.table().substring(0, separator);
                 IcebergTableHandle base = (IcebergTableHandle) catalogTables.getTableHandle(
@@ -156,6 +164,12 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof IcebergPartitionTableHandle partitions) {
+            var columns = partitions.typedColumns();
+            return new ConnectorTableMetadata(
+                    new SchemaTableName(partitions.baseTable().schemaName(), partitions.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+        }
         if (table instanceof IcebergFileTableHandle files) {
             List<ConnectorTableMetadata.Column> columns = files.typedColumns();
             return new ConnectorTableMetadata(
@@ -183,7 +197,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public ConnectorTableReadMetadata getTableReadMetadata(ConnectorSession session, ConnectorTableHandle table) {
         if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle
-                || table instanceof IcebergFileTableHandle) {
+                || table instanceof IcebergFileTableHandle || table instanceof IcebergPartitionTableHandle) {
             return new ConnectorTableReadMetadata(getTableMetadata(session, table),
                     ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
         }
@@ -205,15 +219,8 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
         if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle
-                || table instanceof IcebergFileTableHandle) {
-            List<ConnectorTableMetadata.Column> typedColumns;
-            if (table instanceof IcebergSystemTableHandle system) {
-                typedColumns = system.typedColumns();
-            } else if (table instanceof IcebergManifestTableHandle manifests) {
-                typedColumns = manifests.typedColumns();
-            } else {
-                typedColumns = ((IcebergFileTableHandle) table).typedColumns();
-            }
+                || table instanceof IcebergFileTableHandle || table instanceof IcebergPartitionTableHandle) {
+            var typedColumns = getTableMetadata(session, table).typedColumns();
             Map<String, ColumnHandle> columns = new java.util.LinkedHashMap<>();
             int fieldId = 1;
             for (ConnectorTableMetadata.Column column : typedColumns) {
@@ -228,7 +235,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
         if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle
-                || table instanceof IcebergFileTableHandle) {
+                || table instanceof IcebergFileTableHandle || table instanceof IcebergPartitionTableHandle) {
             return TableStatistics.UNKNOWN;
         }
         return IcebergTableStatisticsReader.read(
@@ -240,7 +247,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         return switch (requested) {
             case TAGS -> Optional.of(new MetadataTableListing(MetadataTableKind.REFS, Map.of("type", "TAG")));
             case BRANCHES -> Optional.of(new MetadataTableListing(MetadataTableKind.REFS, Map.of("type", "BRANCH")));
-            case SNAPSHOTS, HISTORY, REFS, MANIFESTS, FILES, ENTRIES ->
+            case SNAPSHOTS, HISTORY, REFS, MANIFESTS, FILES, ENTRIES, PARTITIONS ->
                     Optional.of(new MetadataTableListing(requested));
             default -> Optional.empty();
         };
@@ -269,7 +276,8 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
             }
             return;
         }
-        if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle) {
+        if (table instanceof IcebergSystemTableHandle || table instanceof IcebergManifestTableHandle
+                || table instanceof IcebergPartitionTableHandle) {
             // Metadata columns have no base-table encryption key. The query
             // authorization layer still requires SELECT on the base table.
             return;

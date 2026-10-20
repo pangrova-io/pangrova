@@ -8,29 +8,37 @@ immutable-cache readiness gate. It is distinct from the cache-disabled function
 exporter catalogue used by function-contract tests.
 
 The snapshot was recaptured on 2026-10-21 after exposing the actual Native
-`min_by` and `max_by` aggregate registrations through the shared SQL bindings.
+`to_ieee754_32` and `to_ieee754_64` registrations through the shared SQL bindings.
+The final complete inventory came from the packaged runtime containing the
+canonical nested-vector name binding repair.
 The cache-disabled function catalogue was captured separately from the rebuilt
 `pangrova_function_export --catalogue` executable
-(SHA-256 `4227de4a4872b45df612ff78412b76a27e3a4ac4afb2fa075428824571cd4bff`):
+(SHA-256 `302358d1a1e66ad159ebd150cf3cd127890a3f42154badcc49b230e499bc2125`):
 
-- Exported catalogue: 782,380 raw bytes, SHA-256
-  `15e9ab95b35a2465b02d8e85598135f7c2b2b953383c01db843e5e273b6dbb06`
-  (9 capabilities and 85 functions).
+- Exported catalogue: 782,950 raw bytes, SHA-256
+  `4d0723fc24aacc6b70ac7a2e4ae3d156ce4f853241e63e427b5ad27c96b71071`
+  (9 capabilities and 87 functions).
 
 The complete cache-enabled inventory came from actual E2E JNI startup with
 `PANGROVA_E2E_FILE_CAPABILITY_KEY` set, which deployed the governed FILE
 callbacks before Native catalogue publication:
 
-- Native library SHA-256: `3a20a5e738efde6f5ec27c049277facf4b7e8ca6113ffb14939324c2601a7859`.
-- Inventory: 794,999 raw bytes, SHA-256
-  `774a8d069467ad67017f086c2569be31fef0285f0d7c7fa121c9beecb3f6f42e`.
+- Native library SHA-256: `af3b151da8750d14e0c1c53f451719a453242cf100158d69b19912b3bdbdbaf5`.
+- Inventory: 795,569 raw bytes, SHA-256
+  `b344d0fbaa0727ae6a04a54a8e754c568067237f5106d52f7a13460e284eb7fb`.
 
-The E2E capture retained all 19 capabilities and 101 functions, including both
+The E2E capture retained all 19 capabilities and 103 functions, including both
 `file_from_url` and `file_from_bytes`, and advertised the two deployed local
 model revisions. Both binary files were parsed with the generated current
 protocol classes to verify their capability, function and model counts. The
-protocol owner module passed 447/447 tests with these fixtures, with no failures,
-errors or skipped tests. The separate real-inventory capture test passed 1/1.
+protocol owner module passed 447/447 tests with the initial two-function
+recapture. The final inventory changes only the two model instance signatures
+and their binding contract hashes; these correctly vary with the serving
+instance. Only the affected actual-inventory contract class was rerun, passing
+7/7 with the final full inventory. The final capture passed 1/1, comparing the
+complete stable capability/function/catalogue publication without discarding
+any models or capabilities. Serving-instance bytes are not compared as a global
+constant. Neither protocol run had failures, errors or skips.
 
 Tests retain every actual capability and function in the positive round trip.
 Negative inputs mutate the actual inventory while retaining capability identity.

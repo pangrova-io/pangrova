@@ -21,7 +21,7 @@ class MetadataTableKindTest {
 
     @ParameterizedTest
     @NullAndEmptySource
-    @ValueSource(strings = {"Orders", "$refs", "Orders$", "Orders$unknown", "Orders$partitions"})
+    @ValueSource(strings = {"Orders", "$refs", "Orders$", "Orders$unknown"})
     void unsupportedOrIncompleteNamesDoNotAcquireMetadataSemantics(String table) {
         assertThat(MetadataTableKind.fromTableName(table)).isEmpty();
         assertThat(MetadataTableKind.baseTableName(table)).isEqualTo(table);

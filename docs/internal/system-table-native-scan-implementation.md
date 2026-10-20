@@ -10,7 +10,8 @@ partition structs; its complete SDK schema,
 large-table throughput, and independent image are not yet validated. Iceberg
 `$entries` now has a pinned, status-preserving Native lineage slice with v3
 `first_row_id` inheritance; its complete SDK nested schema remains open. Iceberg
-`$partitions` lacks a Native reader;
+`$partitions` now expands frozen entry/snapshot inputs into ordinary Native
+joins and aggregates, with SDK schema and focused SQL edge-case coverage;
 Paimon `$branches` on distributed/object storage, `$files`, and the final full-chain gate remain
 open. This is an implementation specification and failure record, not a
 production-readiness assertion.
@@ -55,12 +56,12 @@ below.
   `SELECT * FROM base$snapshots` distributed query, preserving original SQL
   for audit. The former Coordinator `ConnectorSystemTable.rows()` task is
   removed. SHOW FILES and SHOW MANIFESTS now use their existing direct Native
-  `$files` and `$manifests` SELECT paths; SHOW PARTITIONS still fails closed
-  because its Native reader is absent. Direct SELECT for Iceberg
+  `$files` and `$manifests` SELECT paths; SHOW PARTITIONS uses the same frozen
+  relational definition as direct `$partitions` SQL. Direct SELECT for Iceberg
   `$files` has the validated scalar/array slice, a typed `column_sizes` map and
   a field-ID-based `partition` struct where the SDK exposes one; full `$files`,
-  `$entries`, `$partitions`, Paimon `$files`, and nonlocal `$branches`
-  remain open. Paimon `$snapshots`,
+  `$entries`, full partition-type/filesystem acceptance, Paimon `$files`, and
+  nonlocal `$branches` remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
   and a Native reader. Their declared 14, 7, 2, and 7 columns follow the fixed Paimon
   1.4.1 `SnapshotsTable.TABLE_TYPE`, `TagsTable.TABLE_TYPE`, and
@@ -946,3 +947,59 @@ floating zero while treating all NaNs as one group. Ordinary SQL floating
 GROUP BY equality differs from the SDK's Java natural-order comparator here;
 the provider must establish that behavior with SDK manifest and Native oracles
 before publication.
+
+
+### Frozen partitions relation: implemented and incrementally verified
+
+Iceberg now publishes a production derived handle whose two inputs are selected
+from one immutable SDK metadata object. The Planner expands it before ordinary
+base-table privilege and metadata policy checks. Execution uses Native live-entry
+scans, a left join to retained snapshots, and ordinary aggregate operators.
+The public schema comes from the SDK PARTITIONS schema, with 11 fields or nine
+for unpartitioned tables. The obsolete Java partitions row aggregator is removed.
+
+Grouping includes the SDK projected-field presence count and every unified
+partition value. Existing Native IEEE functions provide binary keys that retain
+signed zero while canonicalizing NaNs; no new private key encoding or Java row
+aggregation is introduced. Data and both delete kinds have separate counters;
+deleted entries are excluded and delete-only groups remain. A whole-record
+MAX_BY pairs spec/snapshot with the maximum retained commit time. Expired entry
+snapshots produce NULL last-update fields and default spec 0. Ties may choose
+any valid whole record at the maximum timestamp, as the SDK's parallel input
+order is not stable. Empty unpartitioned input still produces zero groups.
+
+Real SQL/JNI validation passes 16/16: nine new SDK/boundary cases, six privilege,
+revocation and row/column-policy cases, and the original SHOW PARTITIONS case.
+The oracle covers v2/v3 deletion metadata, removed entries, delete-only groups,
+spec presence with all-NULL values, renamed fields, expired snapshots and both
+floating widths' signed-zero/NaN/infinity/subnormal/NULL boundaries. The matching
+Native rolling union passes 70 cases in each build, including the 65 affected
+Arrow/serialization/shuffle checks. The final constant/lazy/dictionary index
+refinement reruns only its two affected cases per build. Strict incoming wire
+names/types and actual NULL validation remain in place.
+
+No ASan memory or function-type errors occur. Recoverable optional integer
+diagnostics remain qualified: six Hash/Spooky observations in the function
+cohort, 20 Hash/F14 observations in the serde cohort, and the F14 control's own
+conversion observation. The F14 decrement is defined unsigned arithmetic under
+its nonzero guard; the actual function matches explicit subtraction/increment
+for 494,722 boundary operations, without changing sanitizer flags. Earlier hash
+and rotation controls are retained rather than rerun.
+
+Planner owner validation passes 1,502 cases; Protocol 447; Iceberg 443;
+Coordinator focused 41; Parser owner 549 plus one newly covered printer case
+in a 48-case affected run. SPI has 750 passed testcase records: a mixed
+Jupiter/jqwik suite's summary attribute only counts its last engine, so the
+reported sum 747 undercounts three cases. A focused four-case invocation
+reproduces all four successful records. Final actual-inventory validation is
+7/7 after retaining the complete model-instance publication. The final Worker
+inventory contains 19 capabilities, 103 functions and two models; the exporter
+contains nine capabilities and 87 functions. Model instance signatures change
+with serving-instance identity; they are not global fixture constants.
+
+Evidence: `/tmp/pangrova-partitions-qualified-20261021.json`,
+`/tmp/pangrova-partitions-native-qualified-20261021.json`, and
+`/tmp/pangrova-partitions-native-artifacts-final-20261021.json`. Native discovery
+now finds 4,206 cases. Complete partition logical-type/filesystem acceptance,
+other system-table schemas/Paimon files and final full functionality regression
+remain open; the overall production goal is not complete.

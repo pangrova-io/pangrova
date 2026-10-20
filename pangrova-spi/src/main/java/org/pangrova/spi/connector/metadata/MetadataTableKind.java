@@ -12,7 +12,7 @@ import org.pangrova.spi.annotation.Stable;
  */
 @Stable(since = "1.0")
 public enum MetadataTableKind {
-    SNAPSHOTS, HISTORY, REFS, TAGS, OPTIONS, SCHEMAS, BRANCHES, MANIFESTS, FILES, ENTRIES;
+    SNAPSHOTS, HISTORY, REFS, TAGS, OPTIONS, SCHEMAS, BRANCHES, MANIFESTS, FILES, ENTRIES, PARTITIONS;
 
     private final String suffix = name().toLowerCase(Locale.ROOT);
 

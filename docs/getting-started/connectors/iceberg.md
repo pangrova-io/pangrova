@@ -57,7 +57,7 @@ WITH (
 | COMPACT / OPTIMIZE | Supported | Small file compaction |
 | VACUUM | Supported | Snapshot expiration + orphan cleanup |
 | Hidden partitioning | Supported | year/month/day/hour/bucket/truncate transforms |
-| Metadata tables | Partially supported | `$snapshots`, `$history`, `$refs`, `$manifests`, and supported projections of `$files`/`$entries`; `$partitions` remains pending. |
+| Metadata tables | Partially supported | `$snapshots`, `$history`, `$refs`, `$manifests`, `$partitions`, and supported projections of `$files`/`$entries`. |
 
 
 ### Snapshot metadata
@@ -84,3 +84,39 @@ ORDER BY committed_at DESC, snapshot_id DESC;
 A missing or empty JSON summary produces NULL. A summary containing only an
 operation produces an empty map. Snapshot timestamps are read as exact instants,
 without floating-point conversion.
+
+
+### Partition statistics
+
+`SELECT * FROM catalog.schema.table$partitions` and
+`SHOW PARTITIONS FROM catalog.schema.table` expose the current snapshot's live
+file statistics for Iceberg v2/v3 tables. Data, position-delete and equality-delete
+files contribute to their respective counters. Partitions containing only delete
+files are included; deleted manifest entries are excluded. Empty input has no rows.
+
+| Column | Type |
+|--------|------|
+| `partition` | Unified partition STRUCT |
+| `spec_id` | INTEGER |
+| `record_count` | BIGINT |
+| `file_count` | INTEGER |
+| `total_data_file_size_in_bytes` | BIGINT |
+| `position_delete_record_count` | BIGINT |
+| `position_delete_file_count` | INTEGER |
+| `equality_delete_record_count` | BIGINT |
+| `equality_delete_file_count` | INTEGER |
+| `last_updated_at` | TIMESTAMP WITH TIME ZONE |
+| `last_updated_snapshot_id` | BIGINT |
+
+Unpartitioned tables omit `partition` and `spec_id`. Spec evolution preserves the
+SDK's distinction between absent dimensions and explicit NULL values. Signed
+floating zeros remain distinct partition keys, while all NaN payloads form one
+key. Statistics are file metadata counts, rather than the result of applying
+row-level deletes to data records.
+
+`last_updated_at`, `last_updated_snapshot_id` and `spec_id` come from one record
+at the maximum retained entry snapshot commit time. Tied timestamps may choose
+any matching record. If all contributing entry snapshots have expired, both
+last-update fields are NULL and `spec_id` is zero, matching the Iceberg SDK.
+The same base-table SELECT privilege and row/column policy protections apply to
+both metadata SQL forms.

@@ -35,6 +35,8 @@ final class ShowMetadataQueryExpander {
             kind = MetadataTableKind.FILES;
         } else if (show instanceof ShowMetadataStatement.ShowManifests) {
             kind = MetadataTableKind.MANIFESTS;
+        } else if (show instanceof ShowMetadataStatement.ShowPartitions) {
+            kind = MetadataTableKind.PARTITIONS;
         } else {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "SHOW metadata kind has no Native system-table reader: " + show.getClass().getSimpleName());

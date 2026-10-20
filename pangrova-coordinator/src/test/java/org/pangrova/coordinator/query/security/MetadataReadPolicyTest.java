@@ -31,7 +31,7 @@ class MetadataReadPolicyTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"snapshots", "history", "refs", "REFS", "files", "manifests", "entries",
-            "tags", "options", "schemas", "branches", "ENTRIES"})
+            "tags", "options", "schemas", "branches", "ENTRIES", "partitions", "PARTITIONS"})
     void applicableBaseRowFilterRejectsMetadataReads(String suffix) {
         var rows = new RowPolicyStore() {
             @Override
@@ -47,7 +47,7 @@ class MetadataReadPolicyTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"snapshots", "history", "refs", "REFS", "files", "manifests", "entries",
-            "tags", "options", "schemas", "branches", "ENTRIES"})
+            "tags", "options", "schemas", "branches", "ENTRIES", "partitions", "PARTITIONS"})
     void maskOnUnprojectedBaseColumnRejectsMetadataReads(String suffix) {
         var masks = new InMemoryEnrichedColumnMaskStore();
         masks.saveColumnMask(new ColumnMask(0, "redact", "cat", "sch", "orders", "secret",

@@ -53,7 +53,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
 
     private void createRealTableAndScopedRole(String selectedCatalog) {
         catalog = selectedCatalog;
-        suffixes = catalog.equals(ICEBERG) ? List.of("snapshots", "history", "refs", "files", "manifests", "entries")
+        suffixes = catalog.equals(ICEBERG) ? List.of("snapshots", "history", "refs", "files", "manifests", "entries", "partitions")
                 : List.of("snapshots", "tags", "options", "schemas", "branches");
         restricted = false;
         rewired = false;
@@ -186,7 +186,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
     }
 
     private List<String> showKinds() {
-        return catalog.equals(ICEBERG) ? List.of("SNAPSHOTS", "FILES", "MANIFESTS", "TAGS", "BRANCHES")
+        return catalog.equals(ICEBERG) ? List.of("SNAPSHOTS", "FILES", "MANIFESTS", "PARTITIONS", "TAGS", "BRANCHES")
                 : List.of("SNAPSHOTS", "TAGS", "BRANCHES");
     }
 

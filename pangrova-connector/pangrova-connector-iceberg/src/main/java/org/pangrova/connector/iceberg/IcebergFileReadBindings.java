@@ -57,7 +57,7 @@ final class IcebergFileReadBindings {
         return new IcebergFileTableHandle(list, childObjects(list, table), columns, true);
     }
 
-    private static Table frozen(Table table) {
+    static Table frozen(Table table) {
         if (!(table instanceof HasTableOperations operations)) {
             throw new IllegalStateException("Iceberg file reads require table operations");
         }

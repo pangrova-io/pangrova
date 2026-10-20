@@ -145,6 +145,8 @@
     {"namespace":"spatial","canonicalUrn":"extension:org.pangrova:functions_spatial","name":"st_geographyfromtext","implementation":"st_geographyfromtext","kind":"SCALAR","sqlNames":["ST_GEOGRAPHYFROMTEXT"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"sum","implementation":"sum","kind":"AGGREGATE","operators":["SUM"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"sum0","implementation":"sum0","kind":"AGGREGATE","operators":["SUM0"]},
+    {"namespace":"binary","canonicalUrn":"extension:org.pangrova:functions_binary","name":"to_ieee754_32","implementation":"to_ieee754_32","kind":"SCALAR","sqlNames":["TO_IEEE754_32"]},
+    {"namespace":"binary","canonicalUrn":"extension:org.pangrova:functions_binary","name":"to_ieee754_64","implementation":"to_ieee754_64","kind":"SCALAR","sqlNames":["TO_IEEE754_64"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"count","implementation":"count","kind":"AGGREGATE","operators":["COUNT"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"min","implementation":"min","kind":"AGGREGATE","operators":["MIN"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"max","implementation":"max","kind":"AGGREGATE","operators":["MAX"]},
