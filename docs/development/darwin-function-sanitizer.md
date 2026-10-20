@@ -49,13 +49,34 @@ logs, source/patch hashes, SDK archive/tool inputs and output hashes remain in
 the private output directory. A successful build includes `build-evidence.json`
 and `canary-evidence.json`; directory presence alone is not qualification.
 
-The initial replay passes all three controls. Rebuilding Folly with the fixed
+The final builder replay passes all three controls. Rebuilding Folly with the fixed
 compiler eliminates function-type findings in both independent CPU and IO
 thread-pool reproducers using the original Apple linker. Those reproducers still
 report the separately audited unsigned arithmetic and all-bits futex masks;
-these are defined operations, not suppressed findings. Complete Native
-qualification remains pending the actual rebuilt write/transport tests. Passing
-the controls does not transfer an older Native result to the new Folly archive.
+these are defined operations, not suppressed findings. The rebuilt Native cohort
+passes the two original write/TLS reproductions, then 68 other affected
+write/JNI/TLS/HMAC/exchange cases, for a disjoint rolling union of 70/70. Both
+retained CTest logs contain zero incorrect-function diagnostics and zero ASan
+memory errors. The ASan dylib's 23 exported symbols exactly match Release.
+
+The expanded run additionally reports the unsigned timestamp truncation in
+`DistributedMutex-inl.h`: `strip` retains 56 timestamp bits and reserves the
+bottom eight bits; its caller deliberately applies it to the maximum unsigned
+timestamp sentinel. `test-tools/toolchain/FollyIntegerIntentControls.cpp`
+checks the real Folly functions against independent 128-bit arithmetic,
+hash inversion, timestamp recovery and all-bits masks. It passes 100,962
+boundary/deterministic inputs, including all upper-byte values and the actual
+maximum-timestamp sentinel. Compile this standalone control with the selected
+Folly cohort's include/link inputs and ASan flags; it is outside GoogleTest
+discovery. It explains the intentional integer operations without altering
+Folly's algorithm or disabling checks. Full final Native regression remains
+pending; 70 cases are not the full discovered suite.
+
+Local evidence is `/tmp/pangrova-llvm-prefix-native-first-two-20261021.json`,
+`/tmp/pangrova-llvm-prefix-native-remaining-evidence-20261021.json`, and
+`/tmp/pangrova-folly-integer-intent-{command,build,run}-20261021.{json,log}`
+(command is JSON; build/run are logs). Complete per-test logs remain in each
+runner-owned fixture directory recorded by those JSON files.
 
 This compiler fix is separate from the private compiler-rt TLS investigation in
 [Darwin ASan runtime qualification](darwin-arm64-asan-runtime.md).
