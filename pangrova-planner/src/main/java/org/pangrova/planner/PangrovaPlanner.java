@@ -400,10 +400,10 @@ public final class PangrovaPlanner {
     private RelNode convert(SqlValidator validator, RelOptCluster cluster, SqlNode validated) {
         try {
             SqlToRelConverter converter = new SqlToRelConverter(
-                    null, validator, catalogReader, cluster,
+                    new PlannerViewExpander(parserFactory, catalogReader, cluster, operatorTable),
+                    validator, catalogReader, cluster,
                     StandardConvertletTable.INSTANCE,
-                    SqlToRelConverter.config()
-                            .addRelBuilderConfigTransform(config -> config.withBloat(-1)));
+                    PlannerViewExpander.converterConfig());
             RelNode rel = converter.convertQuery(validated, false, true).rel;
             return InlineInsertValuesNormalizer.normalize(
                     org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(

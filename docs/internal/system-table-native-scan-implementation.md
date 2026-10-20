@@ -557,6 +557,29 @@ precedent in [Trino's PartitionsView](https://github.com/trinodb/trino/blob/484/
 Its public schema and grouping differ from the Apache Iceberg SDK contract used
 here. Reusing the architectural approach therefore does not replace SDK-oracle
 checks for delete counts, spec presence, retained snapshot timestamps and empty
-input semantics. The current planner constructs `SqlToRelConverter` with no
-view expander; a proper Calcite expansion context is a prerequisite, along with
-typed connector declarations and query-owned bindings for the resulting scans.
+input semantics. Typed connector declarations and query-owned bindings for
+the resulting scans remain prerequisites for exposing this derived relation.
+
+### Calcite view expansion context (2026-10-20)
+
+`PangrovaPlanner` now supplies a conversion-local `PlannerViewExpander` to
+Calcite. Standard `ViewTable` relations expand through the same parser and
+validator as the outer query, sharing its cluster and catalog root. Each
+view body resolves unqualified names in its definition schema; expanded scans
+retain their base relation identities for later policy application and source
+binding. CTEs, aliases and repeated references use normal relational conversion.
+A view name appearing inside an output string literal remains data. Mutation
+definitions, missing relations, direct/indirect recursion and more than 64
+nested views fail compilation. Active expansion state is scoped to the
+conversion and unwound even when a definition fails.
+
+Six initial view regressions and the full Planner module pass (1,470 tests).
+An added depth-boundary case passes separately, and the string-literal case
+was strengthened and rerun to assert the actual output expression. Static
+verification passes. Updating the installed Planner also passes the 3 actual
+activation SQL/JNI smoke cases, including Native write/read and tableless
+multiplicity/NULL handling. The smoke checks ordinary SQL integration; it does
+not prove public metadata-view execution. Connector typed derived declarations
+and their frozen source bindings are still needed, and the older Coordinator
+textual view expansion remains a migration gap. `$partitions`/`SHOW PARTITIONS`
+are not complete at this point.
