@@ -20,7 +20,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -177,20 +176,8 @@ final class LazyMetadataSchema extends AbstractSchema {
     }
 
     private static Optional<String> systemTableSuffix(String name) {
-        if (name == null) {
-            return Optional.empty();
-        }
-        int separator = name.lastIndexOf('$');
-        if (separator <= 0 || separator == name.length() - 1) {
-            return Optional.empty();
-        }
-        String suffix = name.substring(separator + 1).toLowerCase(Locale.ROOT);
-        return "snapshots".equals(suffix) || "history".equals(suffix)
-                || "tags".equals(suffix) || "options".equals(suffix)
-                || "schemas".equals(suffix) || "branches".equals(suffix)
-                || "manifests".equals(suffix) || "files".equals(suffix)
-                || "entries".equals(suffix)
-                ? Optional.of(suffix) : Optional.empty();
+        return org.pangrova.spi.connector.metadata.MetadataTableKind.fromTableName(name)
+                .map(org.pangrova.spi.connector.metadata.MetadataTableKind::suffix);
     }
 
     /**

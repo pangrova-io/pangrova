@@ -30,7 +30,7 @@ class MetadataReadPolicyTest {
     private static final UserIdentity USER = new UserIdentity("reader", Set.of("readers"), Map.of(), Instant.EPOCH);
 
     @ParameterizedTest
-    @ValueSource(strings = {"snapshots", "history", "files", "manifests", "entries",
+    @ValueSource(strings = {"snapshots", "history", "refs", "REFS", "files", "manifests", "entries",
             "tags", "options", "schemas", "branches", "ENTRIES"})
     void applicableBaseRowFilterRejectsMetadataReads(String suffix) {
         var rows = new RowPolicyStore() {
@@ -46,7 +46,7 @@ class MetadataReadPolicyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"snapshots", "history", "files", "manifests", "entries",
+    @ValueSource(strings = {"snapshots", "history", "refs", "REFS", "files", "manifests", "entries",
             "tags", "options", "schemas", "branches", "ENTRIES"})
     void maskOnUnprojectedBaseColumnRejectsMetadataReads(String suffix) {
         var masks = new InMemoryEnrichedColumnMaskStore();

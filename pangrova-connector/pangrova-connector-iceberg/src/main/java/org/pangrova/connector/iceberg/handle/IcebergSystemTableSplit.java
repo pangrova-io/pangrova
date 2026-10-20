@@ -44,6 +44,7 @@ public record IcebergSystemTableSplit(
         SystemTableSplitDetail.Kind protocolKind = switch (kind) {
             case SNAPSHOTS -> SystemTableSplitDetail.Kind.ICEBERG_SNAPSHOTS;
             case HISTORY -> SystemTableSplitDetail.Kind.ICEBERG_HISTORY;
+            case REFS -> SystemTableSplitDetail.Kind.ICEBERG_REFS;
         };
         FileSplitDetail detail = FileSplitDetail.newBuilder()
                 .setFileFormat(FileFormat.FILE_FORMAT_METADATA_JSON)

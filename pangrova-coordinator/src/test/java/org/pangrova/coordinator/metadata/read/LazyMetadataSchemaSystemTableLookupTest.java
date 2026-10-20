@@ -53,6 +53,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
         var manifests = lookup.getIgnoreCase("ORDERS$MaNiFeStS");
         var files = lookup.getIgnoreCase("ORDERS$FiLeS");
         var entries = lookup.getIgnoreCase("ORDERS$EnTrIeS");
+        var refs = lookup.getIgnoreCase("ORDERS$ReFs");
 
         assertThat(snapshots).isNotNull();
         assertThat(snapshots.name()).isEqualTo("Orders$snapshots");
@@ -72,9 +73,11 @@ class LazyMetadataSchemaSystemTableLookupTest {
         assertThat(files.name()).isEqualTo("Orders$files");
         assertThat(entries).isNotNull();
         assertThat(entries.name()).isEqualTo("Orders$entries");
+        assertThat(refs).isNotNull();
+        assertThat(refs.name()).isEqualTo("Orders$refs");
         assertThat(metadata.lookups).contains("Orders$snapshots", "Orders$history",
                 "Orders$tags", "Orders$options", "Orders$schemas", "Orders$branches",
-                "Orders$manifests", "Orders$files", "Orders$entries");
+                "Orders$manifests", "Orders$files", "Orders$entries", "Orders$refs");
         assertThat(lookup.getNames(LikePattern.any())).containsExactly("Orders");
     }
 
@@ -245,6 +248,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
             boolean supported = table.table().equals(base)
                     || table.table().equals(base + "$snapshots")
                     || table.table().equals(base + "$history")
+                    || table.table().equals(base + "$refs")
                     || table.table().equals(base + "$tags")
                     || table.table().equals(base + "$options")
                     || table.table().equals(base + "$schemas")

@@ -302,6 +302,7 @@ message SystemTableSplitDetail {
     ICEBERG_MANIFESTS = 8;
     ICEBERG_FILES = 9;
     ICEBERG_ENTRIES = 10;
+    ICEBERG_REFS = 11;
   }
   Kind kind = 1;
   // Positive for a Paimon snapshot object or selected Iceberg manifest-list

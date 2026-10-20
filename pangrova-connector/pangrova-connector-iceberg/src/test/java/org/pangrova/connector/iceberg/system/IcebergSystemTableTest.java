@@ -116,7 +116,8 @@ class IcebergSystemTableTest {
         IcebergRefsSystemTable systemTable = new IcebergRefsSystemTable(testTable);
 
         assertThat(systemTable.columns()).containsExactly(
-                "name", "type", "snapshot_id", "max_ref_age_in_ms");
+                "name", "type", "snapshot_id", "max_reference_age_in_ms",
+                "min_snapshots_to_keep", "max_snapshot_age_in_ms");
 
         List<TypedRow> rows = systemTable.rows();
         assertThat(rows).isNotEmpty();

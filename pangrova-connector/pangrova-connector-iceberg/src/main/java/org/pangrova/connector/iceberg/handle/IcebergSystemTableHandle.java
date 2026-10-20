@@ -19,7 +19,8 @@ public record IcebergSystemTableHandle(
     /** Metadata tables supported by the Native JSON reader. */
     public enum Kind {
         SNAPSHOTS("snapshots"),
-        HISTORY("history");
+        HISTORY("history"),
+        REFS("refs");
 
         private final String suffix;
 
@@ -70,6 +71,13 @@ public record IcebergSystemTableHandle(
                     new ConnectorTableMetadata.Column("timestamp_ms", PangrovaType.BIGINT),
                     new ConnectorTableMetadata.Column("operation", PangrovaType.VARCHAR),
                     new ConnectorTableMetadata.Column("summary", PangrovaType.VARCHAR));
+            case REFS -> List.of(
+                    new ConnectorTableMetadata.Column("name", PangrovaType.VARCHAR),
+                    new ConnectorTableMetadata.Column("type", PangrovaType.VARCHAR),
+                    new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT),
+                    new ConnectorTableMetadata.Column("max_reference_age_in_ms", PangrovaType.BIGINT),
+                    new ConnectorTableMetadata.Column("min_snapshots_to_keep", PangrovaType.INTEGER),
+                    new ConnectorTableMetadata.Column("max_snapshot_age_in_ms", PangrovaType.BIGINT));
             case HISTORY -> List.of(
                     new ConnectorTableMetadata.Column("made_current_at", PangrovaType.BIGINT),
                     new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT),

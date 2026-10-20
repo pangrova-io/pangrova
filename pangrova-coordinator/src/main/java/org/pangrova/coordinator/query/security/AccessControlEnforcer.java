@@ -224,19 +224,7 @@ public final class AccessControlEnforcer {
 
     /** Metadata-table contents belong to the base table, never a separate grant. */
     private static String authorizedReadTable(String table) {
-        int suffix = table.lastIndexOf('$');
-        if (suffix > 0 && (table.substring(suffix + 1).equalsIgnoreCase("snapshots")
-                || table.substring(suffix + 1).equalsIgnoreCase("history")
-                || table.substring(suffix + 1).equalsIgnoreCase("tags")
-                || table.substring(suffix + 1).equalsIgnoreCase("options")
-                || table.substring(suffix + 1).equalsIgnoreCase("schemas")
-                || table.substring(suffix + 1).equalsIgnoreCase("branches")
-                || table.substring(suffix + 1).equalsIgnoreCase("manifests")
-                || table.substring(suffix + 1).equalsIgnoreCase("entries")
-                || table.substring(suffix + 1).equalsIgnoreCase("files"))) {
-            return table.substring(0, suffix);
-        }
-        return table;
+        return org.pangrova.spi.connector.metadata.MetadataTableKind.baseTableName(table);
     }
 
     private void rejectAnonymous(UserIdentity identity) {

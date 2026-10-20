@@ -42,6 +42,11 @@ class IcebergMetadataJsonReader final {
     bool found = false;
   };
   struct Row {
+    std::optional<std::string> name;
+    std::optional<std::string> referenceType;
+    std::optional<int64_t> maxReferenceAgeMs;
+    std::optional<int64_t> minSnapshotsToKeep;
+    std::optional<int64_t> maxSnapshotAgeMs;
     std::optional<int64_t> snapshotId;
     std::optional<int64_t> parentId;
     std::optional<int64_t> timestampMs;
@@ -54,6 +59,7 @@ class IcebergMetadataJsonReader final {
   void validateOutputSchema() const;
   void loadAncestors();
   Row parseRow(const std::string& object) const;
+  Row parseReference(const std::string& name, const std::string& object) const;
   facebook::velox::RowVectorPtr materialize(const std::vector<Row>& rows) const;
 
   std::shared_ptr<facebook::velox::ReadFile> file_;
@@ -63,6 +69,10 @@ class IcebergMetadataJsonReader final {
   facebook::velox::memory::MemoryPool* pool_;
   ArrayRange snapshots_;
   ArrayRange history_;
+  ArrayRange refs_;
+  bool first_reference_ = true;
+  bool implicit_main_pending_ = false;
+  std::unordered_set<std::string> reference_names_;
   int64_t current_snapshot_id_ = -1;
   std::unordered_map<int64_t, std::optional<int64_t>> parents_;
   std::unordered_set<int64_t> ancestors_;

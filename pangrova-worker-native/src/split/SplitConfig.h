@@ -66,6 +66,7 @@ enum class SystemTableKind : uint8_t {
   ICEBERG_MANIFESTS,
   ICEBERG_FILES,
   ICEBERG_ENTRIES,
+  ICEBERG_REFS,
 };
 
 struct IcebergManifestPartitionField {

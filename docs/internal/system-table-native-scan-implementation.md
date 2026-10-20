@@ -641,3 +641,63 @@ need their own matrix. Existing SHOW TAGS/BRANCHES return only a pointer to a
 system-table query; those placeholders remain to be replaced with actual
 Native listing paths. `$partitions` aggregation and final full-chain validation
 remain open.
+
+### Iceberg snapshot references (2026-10-21)
+
+`table$refs` now binds a read-only `IcebergSystemTableHandle` to one immutable
+metadata JSON location and length, emits an `ICEBERG_REFS` split, and reads the
+reference map in Native batches. Its six columns follow the
+[Iceberg 1.11 query schema](https://iceberg.apache.org/docs/1.11.0/spark-queries/#references)
+and the consumed SDK's `RefsTable`: `name`, `type`, `snapshot_id`,
+`max_reference_age_in_ms`, `min_snapshots_to_keep` (INTEGER), and
+`max_snapshot_age_in_ms`. The legacy row SPI's misspelled
+`max_ref_age_in_ms` column is corrected to the same schema and its two missing
+retention columns are added; it does not supply rows to this SQL scan.
+
+The reader preserves nullable retention values rather than inventing defaults.
+It follows the SDK's compatibility rule: only metadata that omits the `refs`
+map and has a current snapshot synthesizes `main`; an explicitly empty map
+remains empty. Reference names decode JSON escapes, including Unicode. Enum
+types accept the SDK's case-insensitive spelling and emit uppercase values.
+Unknown types, malformed maps, duplicate names, invalid retention and changed
+pinned object lengths fail. Projected/count scans still validate reference
+objects; filter, aggregate and ordering remain ordinary Velox operators.
+
+The first SQL run exposed a second, independent suffix whitelist in
+`LazyMetadataSchema`: the Connector supported the new handle but Calcite could
+not discover it. `MetadataTableKind` in SPI now provides the single vocabulary
+used by AST conversion, lazy schema lookup and base-table authorization.
+Connector-specific supported kinds and immutable source binding remain with
+each connector. `$refs` therefore receives the same full base SELECT and
+row/mask eligibility checks as other metadata reads. Unknown and not-yet-
+implemented suffixes, including `$partitions`, remain rejected.
+
+This closes the standard Native reference scan prerequisite. SHOW TAGS and
+SHOW BRANCHES still need their query mapping to these connector-owned metadata
+relations; their existing informational rows are not counted as listing
+coverage. Deferred/background reads and the remaining system-table work stay
+in the open validation inventory.
+
+Validation: the refs SDK binding/schema owner passes 438/438, SPI passes
+739/739, Planner passes 1,472/1,472 before the shared-kind refactor and its
+changed conversion checks then pass 8/8; Coordinator lookup/grant/policy checks
+pass 89/89. The actual refs SQL/JNI matrix passes 3/3 (empty table, exact SDK
+retention/null values, and SQL create/drop/moving-main versus pinned-tag reads).
+The expanded Iceberg/Paimon policy matrix passes 6/6, covering ten implemented
+suffix kinds. All cases assert physical query ownership and active count drain.
+The first SQL run's six schema lookup failures are retained separately rather
+than hidden; final results are in `/tmp/pangrova-refs-sql-final-20261021.json`.
+
+The affected Native discovery contains 62 cases. Release first passes all 62;
+only the reader's 9 cases rerun after SDK-compatible type parsing, followed by
+the one strengthened long-name projection case. Final matching ASan passes all
+62 continuously, with `detect_leaks=0:halt_on_error=1`. The exact names match
+current discovery (`/tmp/pangrova-refs-native-qualified-20261021.json`). Current
+full Native discovery has 4,190 cases; this batch does not claim a new full run.
+Both the native runtime and the installed Worker JAR contain the same rebuilt
+JNI bytes. Protocol passes 447/447 against the first recaptured fixtures; only
+the affected 7 actual-inventory contracts rerun after final serving fingerprints
+are collected. The full inventory retains 19 capabilities, 99 functions and 2
+models. Changed Java owners and the E2E leaf pass static verification, and the
+temporary inventory collection class is removed. Test-owned PostgreSQL/model
+containers are gone, with approximately 78 GiB disk free at completion.

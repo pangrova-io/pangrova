@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <charconv>
+#include <limits>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 
 #include "simdjson.h"
 #include "split/PathUtils.h"
@@ -134,6 +136,50 @@ class MetadataJsonCursor final {
     return std::nullopt;
   }
 
+  std::optional<std::pair<std::string, std::string>> nextReference(
+      uint64_t end, bool first) {
+    auto nonSpace = [&]() -> std::optional<char> {
+      while (position_ < end) {
+        char c = *get();
+        if (c != ' ' && c != '\n' && c != '\r' && c != '\t') return c;
+      }
+      return std::nullopt;
+    };
+    auto c = nonSpace();
+    if (!c) return std::nullopt;
+    if (!first) {
+      if (*c != ',') throw std::runtime_error("Missing Iceberg refs separator");
+      c = nonSpace();
+    }
+    if (!c || *c != '"') throw std::runtime_error("Invalid Iceberg reference name");
+    std::string key(1, '"');
+    bool escaped = false;
+    bool complete = false;
+    while (position_ < end) {
+      char value = *get();
+      if (key.size() >= kMaxJsonObjectBytes) {
+        throw std::runtime_error("Iceberg reference name is too large");
+      }
+      key.push_back(value);
+      if (escaped) escaped = false;
+      else if (value == '\\') escaped = true;
+      else if (value == '"') { complete = true; break; }
+    }
+    if (!complete || nonSpace() != ':') {
+      throw std::runtime_error("Invalid Iceberg refs map entry");
+    }
+    simdjson::dom::parser parser;
+    simdjson::padded_string padded(key);
+    std::string name(parser.parse(padded).get_string().value());
+    if (nonSpace() != '{') {
+      throw std::runtime_error("Iceberg reference must be an object");
+    }
+    seek(position_ - 1);
+    auto object = nextObject(end);
+    if (!object) throw std::runtime_error("Missing Iceberg reference object");
+    return std::pair(std::move(name), std::move(*object));
+  }
+
  private:
   std::shared_ptr<facebook::velox::ReadFile> file_;
   uint64_t size_;
@@ -163,8 +209,11 @@ IcebergMetadataJsonReader::IcebergMetadataJsonReader(
   if (kind_ == split::SystemTableKind::ICEBERG_HISTORY) {
     loadAncestors();
   }
+  implicit_main_pending_ = kind_ == split::SystemTableKind::ICEBERG_REFS &&
+      !refs_.found && current_snapshot_id_ != -1;
   cursor_->seek(kind_ == split::SystemTableKind::ICEBERG_HISTORY
-                    ? history_.begin : snapshots_.begin);
+      ? history_.begin : kind_ == split::SystemTableKind::ICEBERG_REFS
+      ? refs_.begin : snapshots_.begin);
 }
 
 IcebergMetadataJsonReader::~IcebergMetadataJsonReader() = default;
@@ -173,7 +222,13 @@ void IcebergMetadataJsonReader::validateOutputSchema() const {
   for (size_t i = 0; i < output_type_->size(); ++i) {
     const auto& name = output_type_->nameOf(i);
     auto type = output_type_->childAt(i)->kind();
-    const bool common = (name == "snapshot_id" || name == "parent_id");
+    const bool common = name == "snapshot_id" ||
+        (name == "parent_id" && kind_ != split::SystemTableKind::ICEBERG_REFS);
+    const bool refs = kind_ == split::SystemTableKind::ICEBERG_REFS &&
+        (((name == "name" || name == "type") && type == facebook::velox::TypeKind::VARCHAR) ||
+         ((name == "max_reference_age_in_ms" || name == "max_snapshot_age_in_ms") &&
+          type == facebook::velox::TypeKind::BIGINT) ||
+         (name == "min_snapshots_to_keep" && type == facebook::velox::TypeKind::INTEGER));
     const bool snapshots = kind_ == split::SystemTableKind::ICEBERG_SNAPSHOTS &&
         ((name == "timestamp_ms" && type == facebook::velox::TypeKind::BIGINT) ||
          ((name == "operation" || name == "summary") &&
@@ -183,7 +238,7 @@ void IcebergMetadataJsonReader::validateOutputSchema() const {
          (name == "is_current_ancestor" &&
           type == facebook::velox::TypeKind::BOOLEAN));
     if (!(common && type == facebook::velox::TypeKind::BIGINT) &&
-        !snapshots && !history) {
+        !snapshots && !history && !refs) {
       throw std::runtime_error("Invalid Iceberg system table output schema: " + name);
     }
   }
@@ -197,6 +252,7 @@ void IcebergMetadataJsonReader::indexDocument() {
   bool captureKey = false;
   bool expectingKey = false;
   bool currentNumber = false;
+  bool expectingRefsObject = false;
   std::string key;
   std::string token;
   std::string number;
@@ -204,6 +260,11 @@ void IcebergMetadataJsonReader::indexDocument() {
   cursor_->seek(0);
   while (auto next = cursor_->get()) {
     const char c = *next;
+    if (expectingRefsObject) {
+      if (c == ' ' || c == '\n' || c == '\r' || c == '\t') continue;
+      if (c != '{') throw std::runtime_error("Iceberg refs must be a JSON object");
+      expectingRefsObject = false;
+    }
     if (currentNumber) {
       if ((c >= '0' && c <= '9') || c == '-') {
         number.push_back(c);
@@ -234,9 +295,17 @@ void IcebergMetadataJsonReader::indexDocument() {
       inString = true;
       captureKey = objectDepth == 1 && arrayDepth == 0 && expectingKey;
     } else if (c == '{') {
+      if (objectDepth == 1 && arrayDepth == 0 && key == "refs") {
+        if (refs_.found) throw std::runtime_error("Duplicate Iceberg refs map");
+        refs_.begin = cursor_->position();
+        refs_.found = true;
+      }
       ++objectDepth;
       if (objectDepth == 1) expectingKey = true;
     } else if (c == '}') {
+      if (objectDepth == 2 && arrayDepth == 0 && key == "refs") {
+        refs_.end = cursor_->position() - 1;
+      }
       --objectDepth;
     } else if (c == '[') {
       if (objectDepth == 1 && arrayDepth == 0) {
@@ -260,6 +329,8 @@ void IcebergMetadataJsonReader::indexDocument() {
     } else if (c == ':' && objectDepth == 1 && arrayDepth == 0 &&
                key == "current-snapshot-id") {
       currentNumber = true;
+    } else if (c == ':' && objectDepth == 1 && arrayDepth == 0 && key == "refs") {
+      expectingRefsObject = true;
     } else if (c == ',' && objectDepth == 1 && arrayDepth == 0) {
       expectingKey = true;
       key.clear();
@@ -268,7 +339,7 @@ void IcebergMetadataJsonReader::indexDocument() {
       throw std::runtime_error("Malformed Iceberg metadata JSON structure");
     }
   }
-  if (objectDepth != 0 || arrayDepth != 0) {
+  if (objectDepth != 0 || arrayDepth != 0 || expectingRefsObject) {
     throw std::runtime_error("Malformed Iceberg metadata JSON structure");
   }
   // Fresh Iceberg tables may omit empty snapshot arrays altogether. They have
@@ -337,6 +408,36 @@ IcebergMetadataJsonReader::Row IcebergMetadataJsonReader::parseRow(
   return row;
 }
 
+IcebergMetadataJsonReader::Row IcebergMetadataJsonReader::parseReference(
+    const std::string& name, const std::string& object) const {
+  simdjson::dom::parser parser;
+  simdjson::padded_string padded;
+  auto value = parseObject(object, parser, padded);
+  Row row;
+  row.name = name;
+  row.snapshotId = requiredLong(value, "snapshot-id");
+  std::string type(value["type"].get_string().value());
+  // SnapshotRefType.fromString uses case-insensitive enum parsing in the SDK.
+  std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
+    return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : static_cast<char>(c);
+  });
+  if (type != "BRANCH" && type != "TAG") {
+    throw std::runtime_error("Invalid Iceberg snapshot reference type");
+  }
+  row.referenceType = type;
+  row.maxReferenceAgeMs = optionalLong(value, "max-ref-age-ms");
+  row.minSnapshotsToKeep = optionalLong(value, "min-snapshots-to-keep");
+  row.maxSnapshotAgeMs = optionalLong(value, "max-snapshot-age-ms");
+  if ((row.maxReferenceAgeMs && *row.maxReferenceAgeMs <= 0) ||
+      (row.minSnapshotsToKeep && (*row.minSnapshotsToKeep <= 0 ||
+          *row.minSnapshotsToKeep > std::numeric_limits<int32_t>::max())) ||
+      (row.maxSnapshotAgeMs && *row.maxSnapshotAgeMs <= 0) ||
+      (type == "TAG" && (row.minSnapshotsToKeep || row.maxSnapshotAgeMs))) {
+    throw std::runtime_error("Invalid Iceberg snapshot reference retention");
+  }
+  return row;
+}
+
 facebook::velox::RowVectorPtr IcebergMetadataJsonReader::materialize(
     const std::vector<Row>& rows) const {
   auto vector = std::dynamic_pointer_cast<facebook::velox::RowVector>(
@@ -348,14 +449,21 @@ facebook::velox::RowVectorPtr IcebergMetadataJsonReader::materialize(
       const auto& row = rows[index];
       if (name == "is_current_ancestor") {
         child->asFlatVector<bool>()->set(index, row.currentAncestor.value());
-      } else if (name == "operation" || name == "summary") {
-        const auto& text = name == "operation" ? row.operation : row.summary;
+      } else if (name == "min_snapshots_to_keep") {
+        if (row.minSnapshotsToKeep) child->asFlatVector<int32_t>()->set(
+            index, static_cast<int32_t>(*row.minSnapshotsToKeep));
+        else child->setNull(index, true);
+      } else if (name == "operation" || name == "summary" || name == "name" || name == "type") {
+        const auto& text = name == "operation" ? row.operation :
+            name == "summary" ? row.summary : name == "name" ? row.name : row.referenceType;
         if (text) child->asFlatVector<facebook::velox::StringView>()->set(
             index, facebook::velox::StringView(*text));
         else child->setNull(index, true);
       } else {
         const auto& value = name == "snapshot_id" ? row.snapshotId :
-            name == "parent_id" ? row.parentId : row.timestampMs;
+            name == "parent_id" ? row.parentId :
+            name == "max_reference_age_in_ms" ? row.maxReferenceAgeMs :
+            name == "max_snapshot_age_in_ms" ? row.maxSnapshotAgeMs : row.timestampMs;
         if (value) child->asFlatVector<int64_t>()->set(index, *value);
         else child->setNull(index, true);
       }
@@ -372,6 +480,28 @@ facebook::velox::RowVectorPtr IcebergMetadataJsonReader::next(uint64_t maxRows) 
       ? history_.end : snapshots_.end;
   std::vector<Row> rows;
   rows.reserve(std::min<uint64_t>(maxRows, 4096));
+  if (kind_ == split::SystemTableKind::ICEBERG_REFS) {
+    // Match TableMetadataParser's specified compatibility rule for old metadata
+    // that predates the refs map. An explicitly empty map remains empty.
+    if (implicit_main_pending_) {
+      Row row;
+      row.name = "main";
+      row.referenceType = "BRANCH";
+      row.snapshotId = current_snapshot_id_;
+      rows.push_back(std::move(row));
+      implicit_main_pending_ = false;
+    }
+    while (rows.size() < maxRows && refs_.found) {
+      auto entry = cursor_->nextReference(refs_.end, first_reference_);
+      if (!entry) break;
+      first_reference_ = false;
+      if (!reference_names_.insert(entry->first).second) {
+        throw std::runtime_error("Duplicate Iceberg reference name");
+      }
+      rows.push_back(parseReference(entry->first, entry->second));
+    }
+    return rows.empty() ? nullptr : materialize(rows);
+  }
   while (rows.size() < maxRows) {
     auto object = cursor_->nextObject(end);
     if (!object) break;

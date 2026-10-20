@@ -13,12 +13,13 @@ import org.apache.iceberg.Table;
  * Exposes Iceberg snapshot references (branches and tags) via {@code table$refs}.
  *
  * <p>Each row represents a named reference with its type (branch or tag),
- * snapshot ID, and optional max reference age.</p>
+ * snapshot ID and nullable reference/snapshot retention settings.</p>
  */
 public final class IcebergRefsSystemTable implements ConnectorSystemTable {
 
     private static final List<String> COLUMNS = List.of(
-            "name", "type", "snapshot_id", "max_ref_age_in_ms");
+            "name", "type", "snapshot_id", "max_reference_age_in_ms",
+            "min_snapshots_to_keep", "max_snapshot_age_in_ms");
 
     private final Table table;
 
@@ -44,8 +45,9 @@ public final class IcebergRefsSystemTable implements ConnectorSystemTable {
                     .putString("name", entry.getKey())
                     .putString("type", ref.isBranch() ? "BRANCH" : "TAG")
                     .putLong("snapshot_id", ref.snapshotId())
-                    .putRaw("max_ref_age_in_ms",
-                            ref.maxRefAgeMs() != null ? ref.maxRefAgeMs() : null)
+                    .putRaw("max_reference_age_in_ms", ref.maxRefAgeMs())
+                    .putRaw("min_snapshots_to_keep", ref.minSnapshotsToKeep())
+                    .putRaw("max_snapshot_age_in_ms", ref.maxSnapshotAgeMs())
                     .build();
             rows.add(row);
         }

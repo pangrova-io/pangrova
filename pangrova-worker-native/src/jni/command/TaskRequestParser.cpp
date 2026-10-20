@@ -738,6 +738,16 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         }
         config.system_table = split::SystemTableKind::ICEBERG_SNAPSHOTS;
         break;
+      case proto::SystemTableSplitDetail::ICEBERG_REFS:
+        if (split.connector_id() != "iceberg" ||
+            split.source_snapshot() != split.opaque_location() ||
+            split.data_object_id() != split.opaque_location() ||
+            detail.system_table().snapshot_id() != 0 ||
+            !split.source_id().ends_with("$refs")) {
+          throw std::runtime_error("Iceberg refs split source_id kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::ICEBERG_REFS;
+        break;
       case proto::SystemTableSplitDetail::ICEBERG_HISTORY:
         if (split.connector_id() != "iceberg" ||
             split.source_snapshot() != split.opaque_location() ||

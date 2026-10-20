@@ -7,9 +7,9 @@ import java.util.Objects;
  *
  * <p>When a qualified name in a FROM clause contains a {@code DOLLAR_IDENTIFIER}
  * (e.g., {@code orders$snapshots} or {@code catalog.schema.orders$files}), the parser
- * splits it into a base table name and a system table name. The coordinator routes
- * such references to {@code ConnectorMetadata.getSystemTable()} instead of a regular
- * table scan.</p>
+ * splits it into a base table name and a system table name. Planning preserves the
+ * suffix in the relation identity; connector metadata binds an ordinary Native
+ * scan source, with authorization checked against the base table.</p>
  *
  * @param baseTable      the qualified base table name (e.g., {@code catalog.schema.orders})
  * @param systemTableName the system table suffix after {@code $} (e.g., {@code snapshots}, {@code files})

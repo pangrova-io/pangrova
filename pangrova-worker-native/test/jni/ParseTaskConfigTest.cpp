@@ -774,6 +774,40 @@ TEST(ParseTaskConfigTest, ParsesPinnedIcebergMetadataSplitAndRejectsIdentityDrif
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
+TEST(ParseTaskConfigTest, ParsesPinnedIcebergRefsAndRejectsIdentityDrift) {
+  auto request = validRequest();
+  auto* data_split = addFileSplit(request, proto::FILE_FORMAT_METADATA_JSON);
+  const std::string location = "s3://warehouse/db/orders/metadata/v1.metadata.json";
+  data_split->set_source_id("db.orders$refs");
+  data_split->set_source_snapshot(location);
+  data_split->set_data_object_id(location);
+  data_split->set_opaque_location(location);
+  data_split->set_start_offset(0);
+  data_split->set_length(4096);
+  proto::FileSplitDetail detail;
+  ASSERT_TRUE(data_split->connector_detail().UnpackTo(&detail));
+  detail.mutable_system_table()->set_kind(
+      proto::SystemTableSplitDetail::ICEBERG_REFS);
+  data_split->mutable_connector_detail()->PackFrom(detail);
+
+  auto parsed = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(parsed.splits.size(), 1U);
+  EXPECT_EQ(parsed.splits.front().file_format,
+      split::FileFormatType::METADATA_JSON);
+  ASSERT_TRUE(parsed.splits.front().system_table.has_value());
+  EXPECT_EQ(*parsed.splits.front().system_table,
+      split::SystemTableKind::ICEBERG_REFS);
+
+  data_split->set_source_id("db.orders$history");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  data_split->set_source_id("db.orders$refs");
+  data_split->set_data_object_id("different-object");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  data_split->set_data_object_id(location);
+  data_split->set_source_snapshot("latest");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
 TEST(ParseTaskConfigTest, PinsIcebergPartitionFieldIdsAndRejectsUnboundOrDuplicateFields) {
   auto request = validRequest();
   auto* data = addFileSplit(request, proto::FILE_FORMAT_METADATA_AVRO);

@@ -159,6 +159,33 @@ class IcebergReadBindingIntegrationTest {
         }
     }
 
+    @Test
+    void refsBindingPinsMetadataObjectAcrossReferenceChanges() throws Exception {
+        try (var catalog = catalog()) {
+            Table table = create(catalog, "reference_rows");
+            write(table, 2);
+            long snapshot = table.currentSnapshot().snapshotId();
+            table.manageSnapshots().createTag("release", snapshot).commit();
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var selected = bind(metadata, "reference_rows$refs");
+            assertThat(selected.state()).isEqualTo(ConnectorReadBinding.SnapshotState.METADATA);
+            assertThat(selected.declaration().requireExactDeclaration().columns()).containsExactly(
+                    "name", "type", "snapshot_id", "max_reference_age_in_ms",
+                    "min_snapshots_to_keep", "max_snapshot_age_in_ms");
+            var original = splits(catalog, selected).get(0);
+            var detail = original.getConnectorDetail().unpack(org.pangrova.protocol.v2.FileSplitDetail.class);
+            assertThat(detail.getSystemTable().getKind())
+                    .isEqualTo(org.pangrova.protocol.v2.SystemTableSplitDetail.Kind.ICEBERG_REFS);
+            assertThat(original.getSourceId()).endsWith("reference_rows$refs");
+            assertThat(original.getSourceSnapshot()).isEqualTo(selected.sourceIdentity());
+            table.manageSnapshots().removeTag("release").createBranch("audit", snapshot).commit();
+            metadata.validateReadBinding(SESSION, selected);
+            assertThat(splits(catalog, selected).get(0)).isEqualTo(original);
+            assertThat(bind(metadata, "reference_rows$refs").sourceIdentity())
+                    .isNotEqualTo(selected.sourceIdentity());
+        }
+    }
+
     private HadoopCatalog catalog() {
         var catalog = new HadoopCatalog(new Configuration(), warehouse.toString());
         catalog.createNamespace(Namespace.of("db"));

@@ -11,6 +11,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SystemTableSqlConversionTest {
 
     @Test
+    void refsRetainsTheBaseTableAndMetadataSuffix() {
+        var ast = new SqlParser().parse("SELECT name, type FROM lake.analytics.orders$refs");
+        var select = (org.apache.calcite.sql.SqlSelect) new AstToSqlNodeConverter().convert(ast);
+        assertThat(((org.apache.calcite.sql.SqlIdentifier) select.getFrom()).names)
+                .containsExactly("lake", "analytics", "orders$refs");
+    }
+
+    @Test
     void calciteIdentifierRetainsSystemTableSuffix() {
         var ast = new SqlParser().parse(
                 "SELECT snapshot_id FROM lake.analytics.orders$snapshots");

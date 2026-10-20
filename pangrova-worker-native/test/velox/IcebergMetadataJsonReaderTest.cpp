@@ -143,5 +143,114 @@ TEST(IcebergMetadataJsonReaderTest, EmptyTableWithoutSnapshotArraysReturnsNoRows
   EXPECT_EQ(reader.next(10), nullptr);
 }
 
+facebook::velox::RowTypePtr refsType() {
+  return facebook::velox::ROW(
+      {"name", "type", "snapshot_id", "max_reference_age_in_ms",
+       "min_snapshots_to_keep", "max_snapshot_age_in_ms"},
+      {facebook::velox::VARCHAR(), facebook::velox::VARCHAR(),
+       facebook::velox::BIGINT(), facebook::velox::BIGINT(),
+       facebook::velox::INTEGER(), facebook::velox::BIGINT()});
+}
+
+TEST(IcebergMetadataJsonReaderTest, StreamsRefsWithEscapedNamesAndNullableRetention) {
+  auto pool = pangrova::test::testLeafPool("MetadataRefs");
+  MetadataFile file(R"({"current-snapshot-id":12,"snapshots":[],"refs":{
+    "main":{"snapshot-id":12,"type":"branch"},
+    "audit\"\\\u4e2d":{"snapshot-id":11,"type":"bRaNcH",
+      "max-ref-age-ms":9000000000,"min-snapshots-to-keep":3,"max-snapshot-age-ms":7000},
+    "release":{"snapshot-id":10,"type":"tag","max-ref-age-ms":8000}
+  }})");
+  IcebergMetadataJsonReader reader(file.path(), file.size(),
+      split::SystemTableKind::ICEBERG_REFS, refsType(), pool.get());
+  auto first = reader.next(1);
+  ASSERT_NE(first, nullptr);
+  EXPECT_EQ(first->childAt(0)->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(), "main");
+  EXPECT_TRUE(first->childAt(3)->isNullAt(0));
+  EXPECT_TRUE(first->childAt(4)->isNullAt(0));
+  EXPECT_TRUE(first->childAt(5)->isNullAt(0));
+  auto rest = reader.next(1);
+  ASSERT_NE(rest, nullptr);
+  EXPECT_EQ(rest->childAt(0)->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(), "audit\"\\中");
+  EXPECT_EQ(rest->childAt(1)->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(), "BRANCH");
+  EXPECT_EQ(rest->childAt(3)->asFlatVector<int64_t>()->valueAt(0), 9000000000);
+  EXPECT_EQ(rest->childAt(4)->asFlatVector<int32_t>()->valueAt(0), 3);
+  EXPECT_EQ(rest->childAt(5)->asFlatVector<int64_t>()->valueAt(0), 7000);
+  auto tag = reader.next(3);
+  ASSERT_NE(tag, nullptr);
+  ASSERT_EQ(tag->size(), 1);
+  EXPECT_EQ(tag->childAt(1)->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(), "TAG");
+  EXPECT_EQ(tag->childAt(2)->asFlatVector<int64_t>()->valueAt(0), 10);
+  EXPECT_TRUE(tag->childAt(4)->isNullAt(0));
+  EXPECT_EQ(reader.next(1), nullptr);
+}
+
+TEST(IcebergMetadataJsonReaderTest, RefsHonorAbsentVersusExplicitEmptyMap) {
+  auto pool = pangrova::test::testLeafPool("LegacyMetadataRefs");
+  MetadataFile legacy(kMetadata);
+  IcebergMetadataJsonReader reader(legacy.path(), legacy.size(),
+      split::SystemTableKind::ICEBERG_REFS, refsType(), pool.get());
+  auto main = reader.next(1);
+  ASSERT_NE(main, nullptr);
+  ASSERT_EQ(main->size(), 1);
+  EXPECT_EQ(main->childAt(2)->asFlatVector<int64_t>()->valueAt(0), 12);
+  EXPECT_EQ(reader.next(1), nullptr);
+  for (const auto& document : {
+      R"({"current-snapshot-id":-1})",
+      R"({"current-snapshot-id":12,"snapshots":[],"refs":{}})"}) {
+    MetadataFile empty(document);
+    IcebergMetadataJsonReader emptyReader(empty.path(), empty.size(),
+        split::SystemTableKind::ICEBERG_REFS, refsType(), pool.get());
+    EXPECT_EQ(emptyReader.next(10), nullptr);
+  }
+}
+
+TEST(IcebergMetadataJsonReaderTest, RejectsMalformedRefsAndInvalidRetentionEvenWithCountProjection) {
+  auto pool = pangrova::test::testLeafPool("InvalidMetadataRefs");
+  auto countType = facebook::velox::ROW({}, {});
+  for (const auto* refs : {
+      "null", "[]", R"({"a":3})", R"({"a":{"type":"tag"}})",
+      R"({"a":{"snapshot-id":1,"type":"bad"}})",
+      R"({"a":{"snapshot-id":1,"type":"tag","min-snapshots-to-keep":1}})",
+      R"({"a":{"snapshot-id":1,"type":"branch","min-snapshots-to-keep":2147483648}})",
+      R"({"a":{"snapshot-id":1,"type":"branch","max-ref-age-ms":0}})",
+      R"({"a":{"snapshot-id":1,"type":"branch"},})",
+      R"({"a":{"snapshot-id":1,"type":"tag"},"a":{"snapshot-id":2,"type":"tag"}})"}) {
+    MetadataFile file(std::string("{\"current-snapshot-id\":-1,\"refs\":") + refs + "}");
+    EXPECT_ANY_THROW({
+      IcebergMetadataJsonReader reader(file.path(), file.size(),
+          split::SystemTableKind::ICEBERG_REFS, countType, pool.get());
+      while (reader.next(1)) {}
+    }) << refs;
+  }
+  MetadataFile file(R"({"current-snapshot-id":-1,"refs":{}})");
+  auto wrong = facebook::velox::ROW({"min_snapshots_to_keep"}, {facebook::velox::BIGINT()});
+  EXPECT_THROW(IcebergMetadataJsonReader(file.path(), file.size(),
+      split::SystemTableKind::ICEBERG_REFS, wrong, pool.get()), std::runtime_error);
+}
+
+TEST(IcebergMetadataJsonReaderTest, RefsStreamAcrossReadChunksWithProjectedColumns) {
+  auto pool = pangrova::test::testLeafPool("LargeMetadataRefs");
+  std::string json = R"({"current-snapshot-id":-1,"refs":{)";
+  for (int i = 0; i < 2000; ++i) {
+    if (i != 0) json += ',';
+    json += "\"reference_with_long_name_" + std::to_string(i) + "\":{\"snapshot-id\":" +
+        std::to_string(i + 1) + ",\"type\":\"tag\"}";
+  }
+  MetadataFile file(json + "}}");
+  auto type = facebook::velox::ROW({"snapshot_id", "name"},
+      {facebook::velox::BIGINT(), facebook::velox::VARCHAR()});
+  IcebergMetadataJsonReader reader(file.path(), file.size(),
+      split::SystemTableKind::ICEBERG_REFS, type, pool.get());
+  int count = 0;
+  while (auto batch = reader.next(17)) {
+    for (int i = 0; i < batch->size(); ++i) {
+      EXPECT_EQ(batch->childAt(0)->asFlatVector<int64_t>()->valueAt(i), ++count);
+      EXPECT_EQ(batch->childAt(1)->asFlatVector<facebook::velox::StringView>()->valueAt(i).str(),
+          "reference_with_long_name_" + std::to_string(count - 1));
+    }
+  }
+  EXPECT_EQ(count, 2000);
+}
+
 }  // namespace
 }  // namespace pangrova::velox::test
