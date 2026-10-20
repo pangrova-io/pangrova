@@ -64,12 +64,20 @@ cmake --build pangrova-worker-native/build --parallel
 
 ### Test
 
+Native SDK tests require a live real PostgreSQL/Lance authority. The runner below
+prepares the current Java fixture with skipped tests, starts a fresh authority,
+authenticates readiness, and owns its shutdown and PostgreSQL cleanup. It requires
+JDK 17, Maven, Python 3.10+, and working Docker/Testcontainers connectivity.
+It forwards CTest options and caller sanitizer/Docker environment. Direct CTest
+is appropriate only when the caller already owns a live fixture and injects its
+protected socket/nonce environment; a leftover socket is not readiness evidence.
+
 ```bash
 # Run all C++ tests (gtest)
-cd pangrova-worker-native/build && ctest --output-on-failure
+python3 pangrova-worker-native/bin/run-native-tests.py
 
 # Run specific test
-cd pangrova-worker-native/build && ./pangrova_native_tests --gtest_filter="Suite.Test"
+python3 pangrova-worker-native/bin/run-native-tests.py -- -R '^Suite.Test$'
 
 # ASan build + test
 # Point VELOX_BUILD_DIR at a Velox archive compiled with ASan and
@@ -91,7 +99,8 @@ cmake --preset dev-asan -S pangrova-worker-native \
   -Dabsl_DIR=/path/to/asan/absl/lib/cmake/absl \
   -DPANGROVA_ASAN_FOLLY_PREFIX=/path/to/asan/folly/install
 cmake --build pangrova-worker-native/build-asan --parallel
-cd pangrova-worker-native/build-asan && ctest --output-on-failure
+python3 pangrova-worker-native/bin/run-native-tests.py \
+  --build-dir pangrova-worker-native/build-asan
 ```
 
 macOS does not provide LeakSanitizer for this toolchain; run its ASan CTest with
@@ -150,7 +159,7 @@ ordering for tests that consume the native bundle.
 │   cmake --build pangrova-worker-native/build --parallel            │
 │                                                                  │
 │ Step 2: C++ Test (all gtests pass)                               │
-│   ctest --test-dir pangrova-worker-native/build --output-on-failure│
+│   python3 pangrova-worker-native/bin/run-native-tests.py          │
 │                                                                  │
 │ Step 3: C++ ASan (0 findings)                                    │
 │   cmake --preset dev-asan -S pangrova-worker-native              │
@@ -158,8 +167,8 @@ ordering for tests that consume the native bundle.
 │     -Dabsl_DIR=<ASan Abseil CMake package>                       │
 │     -DPANGROVA_ASAN_FOLLY_PREFIX=<ASan Folly install>             │
 │   cmake --build pangrova-worker-native/build-asan --parallel       │
-│   ctest --test-dir pangrova-worker-native/build-asan               │
-│     --output-on-failure                                          │
+│   python3 pangrova-worker-native/bin/run-native-tests.py           │
+│     --build-dir pangrova-worker-native/build-asan                  │
 │                                                                  │
 │ Step 4: Repackage native lib to Java resources                   │
 │   ./pangrova-worker-native/bin/package-native-lib.sh               │

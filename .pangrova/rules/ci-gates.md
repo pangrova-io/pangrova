@@ -110,9 +110,9 @@ Pre-existing unannotated types are tracked in `.pangrova/scripts/.spi-annotation
 | Gate | Command | Threshold |
 |------|---------|-----------|
 | Build (warnings-as-errors) | `cmake --build build --parallel` | 0 errors, 0 warnings |
-| GTest suite | `ctest --test-dir build --output-on-failure` | 100% pass (92+ tests) |
-| AddressSanitizer | `cmake --preset dev-asan && cmake --build build-asan && ctest --test-dir build-asan` | 0 findings |
-| UBSan (on demand) | `cmake --preset dev-ubsan && cmake --build build-ubsan && ctest --test-dir build-ubsan` | 0 findings |
+| GTest suite | `python3 pangrova-worker-native/bin/run-native-tests.py` | All discovered tests pass |
+| AddressSanitizer | `cmake --preset dev-asan && cmake --build build-asan`; Native runner with `--build-dir pangrova-worker-native/build-asan` | 0 findings |
+| UBSan (on demand) | `cmake --preset dev-ubsan && cmake --build build-ubsan`; Native runner with `--build-dir pangrova-worker-native/build-ubsan` | 0 findings |
 | Native lib package | `package-native-lib.sh` | Successfully staged to Java resources |
 | JNI integration | `mvn -q -pl pangrova-worker -am test` | 100% pass |
 | Symbol visibility | Only `Java_*` and `JNI_On*` in `.dylib` exports | `nm -gU` verification |

@@ -38,6 +38,12 @@ public final class LanceManagedSourceFixtureBroker {
     /** Starts after the connector-lance test classes and transitive metadata classes are compiled. */
     public static void main(String[] args) throws Exception {
         if (args.length != 2) throw new IllegalArgumentException("Expected socket path and readiness file");
+        var postgres = LanceCatalogTestDatabase.instance();
+        Runtime.getRuntime().addShutdownHook(new Thread(postgres::stop, "lance-sdk-fixture-postgres-cleanup"));
+        run(args);
+    }
+
+    private static void run(String[] args) throws Exception {
         var broker = new LanceManagedSourceFixtureBroker(System.getenv("PANGROVA_LANCE_FIXTURE_NONCE"));
         var socket = Path.of(args[0]);
         var ready = Path.of(args[1]);

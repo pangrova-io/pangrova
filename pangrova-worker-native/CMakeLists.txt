@@ -666,6 +666,12 @@ if(PANGROVA_BUILD_TESTS)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
     add_test(
+      NAME native_test_fixture_lifecycle
+      COMMAND ${Python3_EXECUTABLE} -B
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/RunNativeTestsTest.py
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
       NAME canonical_function_provenance
       COMMAND ${Python3_EXECUTABLE}
               ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalFunctionProvenanceTest.py

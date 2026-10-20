@@ -60,7 +60,7 @@ or when preparing a release-quality change.
 ./pangrova-worker-native/bin/setup-native-build-env.sh
 cmake --preset dev-release -S pangrova-worker-native
 cmake --build pangrova-worker-native/build --parallel
-ctest --test-dir pangrova-worker-native/build --output-on-failure
+python3 pangrova-worker-native/bin/run-native-tests.py
 ```
 
 Run AddressSanitizer validation for memory, ownership, JNI, or concurrency changes:
@@ -72,7 +72,8 @@ VELOX_BUILD_DIR=/path/to/asan/velox/build \
   -Dabsl_DIR=/path/to/asan/absl/lib/cmake/absl \
   -DPANGROVA_ASAN_FOLLY_PREFIX=/path/to/asan/folly/install
 cmake --build pangrova-worker-native/build-asan --parallel
-ctest --test-dir pangrova-worker-native/build-asan --output-on-failure
+python3 pangrova-worker-native/bin/run-native-tests.py \
+  --build-dir pangrova-worker-native/build-asan
 ```
 
 ## Cross-Language Commands

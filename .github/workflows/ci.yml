@@ -65,6 +65,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up Native fixture JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+
       - name: Set up function-contract Python
         uses: actions/setup-python@v6
         with:
@@ -109,7 +115,7 @@ jobs:
 
       - name: Run native tests (GTest via CTest)
         run: |
-          ctest --test-dir build --output-on-failure --output-junit test-results.xml
+          python3 bin/run-native-tests.py -- --output-junit test-results.xml
         working-directory: pangrova-worker-native
 
       - name: Upload native test results
@@ -117,7 +123,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-test-results-${{ matrix.platform.name }}
-          path: pangrova-worker-native/build/test-results.xml
+          path: |
+            pangrova-worker-native/build/test-results.xml
+            pangrova-worker-native/build/Testing/LanceFixture/*/*.log
           retention-days: 7
 
       - name: Publish native test report
@@ -408,6 +416,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up Native fixture JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+
       - name: Set up function-contract Python
         uses: actions/setup-python@v6
         with:
@@ -477,8 +491,18 @@ jobs:
         working-directory: pangrova-worker-native
 
       - name: Run tests with ${{ matrix.sanitizer.name }}
-        run: ctest --preset ${{ matrix.sanitizer.preset }} --timeout 300
+        run: >-
+          python3 bin/run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }}
+          -- --preset ${{ matrix.sanitizer.preset }} --timeout 300
         working-directory: pangrova-worker-native
+
+      - name: Upload sanitizer fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-fixture-${{ matrix.sanitizer.name }}
+          path: pangrova-worker-native/build-${{ matrix.sanitizer.name }}/Testing/LanceFixture/*/*.log
+          retention-days: 7
 
   fuzzer:
     name: Query Fuzzer (60s)
