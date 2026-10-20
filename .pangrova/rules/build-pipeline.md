@@ -71,6 +71,9 @@ JDK 17, Maven, Python 3.10+, and working Docker/Testcontainers connectivity.
 It forwards CTest options and caller sanitizer/Docker environment. Direct CTest
 is appropriate only when the caller already owns a live fixture and injects its
 protected socket/nonce environment; a leftover socket is not readiness evidence.
+Each run retains complete per-test output, including diagnostics from passing
+tests, in its printed log directory's `ctest.log`. Use that snapshot for rolling
+validation: subsequent CTest discovery can overwrite the build-wide `LastTest.log`.
 
 ```bash
 # Run all C++ tests (gtest)

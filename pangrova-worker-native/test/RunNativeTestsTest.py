@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 
 
@@ -99,6 +100,37 @@ class RunNativeTestsTest(unittest.TestCase):
             with self.fixture("ignore-term"):
                 pass
         self.assert_stopped()
+
+    def test_passing_and_failing_output_survives_subsequent_real_ctest_discovery(self):
+        (self.root / "CTestTestfile.cmake").write_text(
+            'add_test(pass-output "' + sys.executable + '" "-c" "print(\\\"passing-diagnostic\\\")")\n'
+            'add_test(fail-output "' + sys.executable
+            + '" "-c" "print(\\\"failing-diagnostic\\\"); raise SystemExit(3)")\n')
+        logs = self.root / "owned"
+        logs.mkdir()
+        started = time.time_ns()
+        result = subprocess.run(["ctest", "--test-dir", str(self.root), "--output-on-failure"],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        RUNNER.retain_ctest_log(self.root, logs, started)
+        original = (logs / "ctest.log").read_bytes()
+        self.assertIn(b"passing-diagnostic", original)
+        self.assertIn(b"failing-diagnostic", original)
+        subprocess.run(["ctest", "--test-dir", str(self.root), "--show-only=json-v1"],
+                       capture_output=True, text=True, check=True)
+        self.assertEqual((logs / "ctest.log").read_bytes(), original)
+        self.assertNotIn(b"passing-diagnostic",
+                         (self.root / "Testing/Temporary/LastTest.log").read_bytes())
+
+    def test_old_per_test_log_cannot_be_attributed_to_a_new_invocation(self):
+        source = self.root / "Testing/Temporary/LastTest.log"
+        source.parent.mkdir(parents=True)
+        source.write_text("previous run")
+        logs = self.root / "owned"
+        logs.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "fresh per-test log"):
+            RUNNER.retain_ctest_log(self.root, logs, source.stat().st_mtime_ns + 1)
+        self.assertFalse((logs / "ctest.log").exists())
 
 
 if __name__ == "__main__":

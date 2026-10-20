@@ -117,6 +117,16 @@ def prepare_java(root, logs):
     return os.pathsep.join([*(str(entry) for entry in entries), classpath.read_text().strip()])
 
 
+def retain_ctest_log(build, logs, started_ns):
+    """Keep this invocation's passing-test output before discovery can replace it."""
+    source = build / "Testing/Temporary/LastTest.log"
+    if not source.is_file() or source.stat().st_mtime_ns < started_ns:
+        raise RuntimeError("CTest did not produce a fresh per-test log for this invocation")
+    destination = logs / "ctest.log"
+    with source.open("rb") as incoming, destination.open("xb") as retained:
+        shutil.copyfileobj(incoming, retained)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     native = Path(__file__).resolve().parents[1]
@@ -147,11 +157,19 @@ def main():
             options = arguments.ctest_args
             if options[:1] == ["--"]:
                 options = options[1:]
+            started_ns = time.time_ns()
             process = subprocess.Popen(["ctest", "--test-dir", str(build),
                                         "--output-on-failure", *options],
                                        cwd=native, env=environment, start_new_session=True)
             try:
                 code = process.wait()
+                try:
+                    retain_ctest_log(build, logs, started_ns)
+                except (OSError, RuntimeError) as failure:
+                    if code == 0:
+                        raise
+                    # Preserve CTest's failure status even if it could not write evidence.
+                    print(f"CTest evidence was not retained: {failure}", file=sys.stderr)
                 return code if code >= 0 else 128 - code
             finally:
                 if not stop_process_group(process, 30):
