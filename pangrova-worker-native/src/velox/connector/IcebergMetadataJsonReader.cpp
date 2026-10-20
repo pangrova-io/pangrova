@@ -13,6 +13,7 @@
 #include "velox/common/file/FileSystems.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/FlatVector.h"
+#include "velox/type/Timestamp.h"
 
 namespace pangrova::velox {
 namespace {
@@ -230,9 +231,11 @@ void IcebergMetadataJsonReader::validateOutputSchema() const {
           type == facebook::velox::TypeKind::BIGINT) ||
          (name == "min_snapshots_to_keep" && type == facebook::velox::TypeKind::INTEGER));
     const bool snapshots = kind_ == split::SystemTableKind::ICEBERG_SNAPSHOTS &&
-        ((name == "timestamp_ms" && type == facebook::velox::TypeKind::BIGINT) ||
-         ((name == "operation" || name == "summary") &&
-          type == facebook::velox::TypeKind::VARCHAR));
+        ((name == "committed_at" && type == facebook::velox::TypeKind::TIMESTAMP) ||
+         ((name == "operation" || name == "manifest_list") &&
+          type == facebook::velox::TypeKind::VARCHAR) ||
+         (name == "summary" && output_type_->childAt(i)->equivalent(
+             *facebook::velox::MAP(facebook::velox::VARCHAR(), facebook::velox::VARCHAR()))));
     const bool history = kind_ == split::SystemTableKind::ICEBERG_HISTORY &&
         ((name == "made_current_at" && type == facebook::velox::TypeKind::BIGINT) ||
          (name == "is_current_ancestor" &&
@@ -388,12 +391,25 @@ IcebergMetadataJsonReader::Row IcebergMetadataJsonReader::parseRow(
   if (kind_ == split::SystemTableKind::ICEBERG_SNAPSHOTS) {
     row.parentId = optionalLong(value, "parent-snapshot-id");
     row.timestampMs = requiredLong(value, "timestamp-ms");
+    auto manifestList = value["manifest-list"];
+    if (manifestList.error() != simdjson::NO_SUCH_FIELD) {
+      row.manifestList = std::string(manifestList.value().get_string().value());
+    }
     auto summary = value["summary"];
-    if (!summary.error() && !summary.value().is_null()) {
-      row.summary = simdjson::minify(summary.value());
-      auto operation = summary.value()["operation"];
-      if (!operation.error() && !operation.value().is_null()) {
-        row.operation = std::string(operation.value().get_string().value());
+    if (summary.error() != simdjson::NO_SUCH_FIELD) {
+      const auto entries = summary.value().get_object().value();
+      if (entries.size() > 0) {
+        row.summary.emplace();
+        std::unordered_set<std::string> keys;
+        for (const auto entry : entries) {
+          std::string key(entry.key);
+          if (!keys.insert(key).second) throw std::runtime_error("Duplicate Iceberg summary key");
+          std::string text(entry.value.get_string().value());
+          if (key == "operation") row.operation = std::move(text);
+          else row.summary->emplace_back(std::move(key), std::move(text));
+        }
+        // Match SnapshotParser's defined handling of nonempty legacy summaries.
+        if (!row.operation) row.operation = "overwrite";
       }
     }
   } else {
@@ -445,6 +461,25 @@ facebook::velox::RowVectorPtr IcebergMetadataJsonReader::materialize(
   for (size_t column = 0; column < output_type_->size(); ++column) {
     const auto& name = output_type_->nameOf(column);
     auto child = vector->childAt(column);
+    if (name == "summary") {
+      auto* map = child->as<facebook::velox::MapVector>();
+      size_t total = 0;
+      for (const auto& row : rows) if (row.summary) total += row.summary->size();
+      map->mapKeys()->resize(total);
+      map->mapValues()->resize(total);
+      auto* keys = map->mapKeys()->asFlatVector<facebook::velox::StringView>();
+      auto* values = map->mapValues()->asFlatVector<facebook::velox::StringView>();
+      facebook::velox::vector_size_t offset = 0;
+      for (size_t index = 0; index < rows.size(); ++index) {
+        map->setOffsetAndSize(index, offset, rows[index].summary ? rows[index].summary->size() : 0);
+        if (!rows[index].summary) { map->setNull(index, true); continue; }
+        for (const auto& [key, value] : *rows[index].summary) {
+          keys->set(offset, facebook::velox::StringView(key));
+          values->set(offset++, facebook::velox::StringView(value));
+        }
+      }
+      continue;
+    }
     for (size_t index = 0; index < rows.size(); ++index) {
       const auto& row = rows[index];
       if (name == "is_current_ancestor") {
@@ -453,9 +488,12 @@ facebook::velox::RowVectorPtr IcebergMetadataJsonReader::materialize(
         if (row.minSnapshotsToKeep) child->asFlatVector<int32_t>()->set(
             index, static_cast<int32_t>(*row.minSnapshotsToKeep));
         else child->setNull(index, true);
-      } else if (name == "operation" || name == "summary" || name == "name" || name == "type") {
+      } else if (name == "committed_at") {
+        child->asFlatVector<facebook::velox::Timestamp>()->set(
+            index, facebook::velox::Timestamp::fromMillis(row.timestampMs.value()));
+      } else if (name == "operation" || name == "manifest_list" || name == "name" || name == "type") {
         const auto& text = name == "operation" ? row.operation :
-            name == "summary" ? row.summary : name == "name" ? row.name : row.referenceType;
+            name == "manifest_list" ? row.manifestList : name == "name" ? row.name : row.referenceType;
         if (text) child->asFlatVector<facebook::velox::StringView>()->set(
             index, facebook::velox::StringView(*text));
         else child->setNull(index, true);
@@ -478,8 +516,9 @@ facebook::velox::RowVectorPtr IcebergMetadataJsonReader::next(uint64_t maxRows) 
   }
   const auto end = kind_ == split::SystemTableKind::ICEBERG_HISTORY
       ? history_.end : snapshots_.end;
+  maxRows = std::min<uint64_t>(maxRows, 4096);
   std::vector<Row> rows;
-  rows.reserve(std::min<uint64_t>(maxRows, 4096));
+  rows.reserve(maxRows);
   if (kind_ == split::SystemTableKind::ICEBERG_REFS) {
     // Match TableMetadataParser's specified compatibility rule for old metadata
     // that predates the refs map. An explicitly empty map remains empty.

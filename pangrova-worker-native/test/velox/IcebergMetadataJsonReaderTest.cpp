@@ -11,6 +11,7 @@
 #include "TestMemoryHelper.h"
 #include "velox/connector/IcebergMetadataJsonReader.h"
 #include "velox/type/Type.h"
+#include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
 
 namespace pangrova::velox::test {
@@ -68,9 +69,10 @@ TEST(IcebergMetadataJsonReaderTest, StreamsSnapshotsFromPinnedFile) {
   auto pool = pangrova::test::testLeafPool("MetadataSnapshots");
   MetadataFile file(kMetadata);
   auto type = facebook::velox::ROW(
-      {"snapshot_id", "parent_id", "timestamp_ms", "operation", "summary"},
+      {"snapshot_id", "parent_id", "committed_at", "operation", "summary", "manifest_list"},
       {facebook::velox::BIGINT(), facebook::velox::BIGINT(),
-       facebook::velox::BIGINT(), facebook::velox::VARCHAR(),
+       facebook::velox::TIMESTAMP(), facebook::velox::VARCHAR(),
+       facebook::velox::MAP(facebook::velox::VARCHAR(), facebook::velox::VARCHAR()),
        facebook::velox::VARCHAR()});
   IcebergMetadataJsonReader reader("file:" + file.path(), file.size(),
       split::SystemTableKind::ICEBERG_SNAPSHOTS, type, pool.get());
@@ -81,11 +83,92 @@ TEST(IcebergMetadataJsonReaderTest, StreamsSnapshotsFromPinnedFile) {
   EXPECT_TRUE(first->childAt(1)->isNullAt(0));
   EXPECT_EQ(first->childAt(3)->asFlatVector<facebook::velox::StringView>()
                 ->valueAt(0).str(), "append");
+  EXPECT_EQ(first->childAt(2)->asFlatVector<facebook::velox::Timestamp>()->valueAt(0),
+      facebook::velox::Timestamp::fromMillis(1000));
+  auto* summary = first->childAt(4)->as<facebook::velox::MapVector>();
+  ASSERT_EQ(summary->sizeAt(0), 1);
+  EXPECT_EQ(summary->mapKeys()->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(),
+      "added-data-files");
+  EXPECT_EQ(summary->mapValues()->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(), "1");
+  EXPECT_EQ(summary->sizeAt(1), 0);
+  EXPECT_FALSE(summary->isNullAt(1));
+  EXPECT_TRUE(first->childAt(5)->isNullAt(0));
   auto second = reader.next(2);
   ASSERT_NE(second, nullptr);
   ASSERT_EQ(second->size(), 1);
   EXPECT_EQ(second->childAt(0)->asFlatVector<int64_t>()->valueAt(0), 12);
   EXPECT_EQ(reader.next(2), nullptr);
+}
+
+TEST(IcebergMetadataJsonReaderTest, SnapshotSummaryAndTimestampMatchSdkBoundarySemantics) {
+  auto pool = pangrova::test::testLeafPool("SnapshotSemantics");
+  MetadataFile file(R"({"current-snapshot-id":3,"snapshots":[
+    {"snapshot-id":1,"timestamp-ms":-1,"manifests":[]},
+    {"snapshot-id":2,"timestamp-ms":0,"summary":{},"manifests":[]},
+    {"snapshot-id":3,"timestamp-ms":9223372036854775,
+     "manifest-list":"file:/a\\b\"中.avro","summary":{"escaped\"中":"v\\x"}}
+  ]})");
+  auto type = facebook::velox::ROW({"summary", "operation", "manifest_list", "committed_at"},
+      {facebook::velox::MAP(facebook::velox::VARCHAR(), facebook::velox::VARCHAR()),
+       facebook::velox::VARCHAR(), facebook::velox::VARCHAR(), facebook::velox::TIMESTAMP()});
+  IcebergMetadataJsonReader reader(file.path(), file.size(),
+      split::SystemTableKind::ICEBERG_SNAPSHOTS, type, pool.get());
+  auto rows = reader.next(10);
+  ASSERT_EQ(rows->size(), 3);
+  EXPECT_TRUE(rows->childAt(0)->isNullAt(0));
+  EXPECT_TRUE(rows->childAt(0)->isNullAt(1));
+  EXPECT_TRUE(rows->childAt(1)->isNullAt(0));
+  EXPECT_TRUE(rows->childAt(1)->isNullAt(1));
+  EXPECT_EQ(rows->childAt(1)->asFlatVector<facebook::velox::StringView>()->valueAt(2).str(), "overwrite");
+  EXPECT_EQ(rows->childAt(2)->asFlatVector<facebook::velox::StringView>()->valueAt(2).str(),
+      "file:/a\\b\"中.avro");
+  auto* map = rows->childAt(0)->as<facebook::velox::MapVector>();
+  EXPECT_EQ(map->mapKeys()->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(), "escaped\"中");
+  EXPECT_EQ(map->mapValues()->asFlatVector<facebook::velox::StringView>()->valueAt(0).str(), "v\\x");
+  EXPECT_EQ(rows->childAt(3)->asFlatVector<facebook::velox::Timestamp>()->valueAt(0),
+      facebook::velox::Timestamp::fromMillis(-1));
+  EXPECT_EQ(rows->childAt(3)->asFlatVector<facebook::velox::Timestamp>()->valueAt(2),
+      facebook::velox::Timestamp::fromMillis(9223372036854775));
+}
+
+TEST(IcebergMetadataJsonReaderTest, RejectsInvalidSnapshotSummaryAndDeclaredTypes) {
+  auto pool = pangrova::test::testLeafPool("InvalidSnapshotSummary");
+  for (const auto* summary : {"null", "[]", "1", R"({"operation":null})",
+      R"({"operation":1})", R"({"bad":null})", R"({"bad":3})",
+      R"({"bad":"a","bad":"b"})"}) {
+    MetadataFile file(std::string(R"({"current-snapshot-id":1,"snapshots":[
+      {"snapshot-id":1,"timestamp-ms":0,"summary":)") + summary + "}]}");
+    EXPECT_ANY_THROW({
+      IcebergMetadataJsonReader reader(file.path(), file.size(),
+          split::SystemTableKind::ICEBERG_SNAPSHOTS, facebook::velox::ROW({}, {}), pool.get());
+      reader.next(1);
+    }) << summary;
+  }
+  MetadataFile file(kMetadata);
+  for (const auto& type : {
+      facebook::velox::ROW({"timestamp_ms"}, {facebook::velox::BIGINT()}),
+      facebook::velox::ROW({"committed_at"}, {facebook::velox::BIGINT()}),
+      facebook::velox::ROW({"summary"}, {facebook::velox::VARCHAR()}),
+      facebook::velox::ROW({"summary"}, {facebook::velox::MAP(facebook::velox::BIGINT(), facebook::velox::VARCHAR())})}) {
+    EXPECT_THROW(IcebergMetadataJsonReader(file.path(), file.size(),
+        split::SystemTableKind::ICEBERG_SNAPSHOTS, type, pool.get()), std::runtime_error);
+  }
+}
+
+TEST(IcebergMetadataJsonReaderTest, SnapshotBatchesRemainBoundedWhenCallerRequestsHugeBatch) {
+  auto pool = pangrova::test::testLeafPool("BoundedSnapshots");
+  std::string json = R"({"current-snapshot-id":1,"snapshots":[)";
+  for (int i = 0; i < 5000; ++i) {
+    if (i != 0) json += ',';
+    json += "{\"snapshot-id\":" + std::to_string(i + 1) + ",\"timestamp-ms\":0}";
+  }
+  MetadataFile file(json + "]}");
+  IcebergMetadataJsonReader reader(file.path(), file.size(),
+      split::SystemTableKind::ICEBERG_SNAPSHOTS,
+      facebook::velox::ROW({"snapshot_id"}, {facebook::velox::BIGINT()}), pool.get());
+  ASSERT_EQ(reader.next(UINT64_MAX)->size(), 4096);
+  ASSERT_EQ(reader.next(UINT64_MAX)->size(), 904);
+  EXPECT_EQ(reader.next(UINT64_MAX), nullptr);
 }
 
 TEST(IcebergMetadataJsonReaderTest, DecodesEscapedSpaceAndRejectsMalformedFileUri) {

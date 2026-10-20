@@ -89,7 +89,6 @@ class SpiWiringVerificationTest {
             "org.pangrova.connector.iceberg.system.IcebergManifestsSystemTable",
             "org.pangrova.connector.iceberg.system.IcebergPartitionsSystemTable",
             "org.pangrova.connector.iceberg.system.IcebergRefsSystemTable",
-            "org.pangrova.connector.iceberg.system.IcebergSnapshotsSystemTable",
             "org.pangrova.connector.iceberg.write.AbstractIcebergPageSink",
             "org.pangrova.connector.iceberg.write.IcebergOverwritePageSink",
             "org.pangrova.connector.iceberg.write.IcebergPageSink",

@@ -125,7 +125,7 @@ class MutationHistoryAuditTest extends PangrovaE2ETestBase {
             executeDml("DELETE FROM " + tableName + " WHERE id = 2");
 
             List<TypedRow> snapshots = executeQuery(
-                    "SELECT * FROM " + tableName + "$snapshots ORDER BY timestamp_ms");
+                    "SELECT * FROM " + tableName + "$snapshots ORDER BY committed_at");
             assertThat(snapshots).hasSizeGreaterThanOrEqualTo(3);
         }
 

@@ -32,9 +32,11 @@ This describes the original audited baseline, before the fixes recorded below.
 The 2026-09-27 full Java test log records
 `MutationHistoryAuditTest$SnapshotLineage` failures: `snapshot_id` and
 `committed_at` were not found; a `$history` star query scanned the base table
-and returned zero rows. In addition, `IcebergSnapshotsSystemTable` declares
-`timestamp_ms`, not `committed_at`; the E2E expectation is now aligned with the
-declared public schema.
+and returned zero rows. The former Java `IcebergSnapshotsSystemTable` also
+declared a custom `timestamp_ms` integer and serialized summary string. The
+current Native snapshot schema migration replaces these with SDK-compatible
+`committed_at`, `manifest_list`, and a typed summary map; see the latest entry
+below.
 
 ## Current worktree progress and remaining boundaries
 
@@ -217,7 +219,7 @@ ambiguous response and verify no same-cycle retry or subsequent ref deletion.
   `MutationHistoryAuditTest`, `IncrementalReadTest` and Paimon snapshot tests
   must use actual INSERT/UPDATE/DELETE writes, a packaged JNI library, and
   assert exact metadata columns/values. The incremental-read Iceberg fixture
-  now uses the currently declared `timestamp_ms` column; Paimon snapshot SQL
+  now uses the SDK `committed_at` timestamp column; Paimon snapshot SQL
   now has nonempty and empty SQL E2E evidence. Paimon `$schemas` has SQL E2E
   evidence for three schema revisions, projection/filter/order, declared
   column order, and an empty data table with an initial schema. Its focused
@@ -906,3 +908,41 @@ Evidence is `/tmp/pangrova-selection-aggregate-qualified-20261021.json`.
 This change does not expose `$partitions`. The provider still needs canonical
 snapshot timestamp input, SDK partition-presence grouping semantics, and the
 floating-point grouping boundary matrix before it can be accepted.
+
+### Canonical snapshot input for derived aggregation
+
+The snapshot input now follows the pinned Iceberg 1.11
+[SnapshotsTable schema](https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/core/src/main/java/org/apache/iceberg/SnapshotsTable.java)
+and [SnapshotParser semantics](https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/core/src/main/java/org/apache/iceberg/SnapshotParser.java).
+The six columns are `committed_at` (timestamp with zone, precision 6),
+`snapshot_id`, `parent_id`, `operation`, `manifest_list`, and
+`summary` (string-to-string map). Native constructs exact timestamps directly
+from integer milliseconds. Summary excludes operation; absent/empty JSON
+summaries produce NULL, while an operation-only summary produces an empty map.
+A nonempty legacy summary without operation uses the SDK's specified overwrite
+operation. Non-string values and duplicate summary keys reject the scan.
+The reader caps each batch at 4,096 rows even when callers request more.
+The obsolete Java snapshot row materializer and its registration are removed;
+its two row-list tests are replaced by Native and real SQL tests. Existing
+snapshot consumer SQL now orders by `committed_at`.
+
+Validation: the closest binding suite passes 17/17 and the Iceberg owner/static
+suite passes 441/441. Release and matching ASan each pass all 12 affected reader,
+history and refs cases; this cohort's complete ASan log contains no memory or
+UBSan diagnostics. Three new real SQL/JNI cases compare all values with SDK
+snapshots, compare SHOW with SELECT, and verify timestamp selection aggregation,
+map projection and empty input. Four affected incremental-read/DML-lineage cases
+pass separately, for 7/7 real SQL cases. E2E static, documentation references and
+truthfulness checks pass. Release, packaged resource, Worker classes, built JAR
+and installed JAR contain identical JNI bytes (SHA-256
+`963d1c689e63533790a394dfd37d7d8b527889deaecb84735609634db25ff736`).
+Evidence: `/tmp/pangrova-snapshot-qualified-20261021.json` and
+`/tmp/pangrova-snapshot-native-artifacts-20261021.json`. Discovery now finds
+4,197 Native cases; final full functionality regression remains pending.
+
+This completes the snapshot input prerequisite, not `$partitions`. Its derived
+provider must still preserve SDK spec-presence grouping and distinguish signed
+floating zero while treating all NaNs as one group. Ordinary SQL floating
+GROUP BY equality differs from the SDK's Java natural-order comparator here;
+the provider must establish that behavior with SDK manifest and Native oracles
+before publication.

@@ -89,7 +89,7 @@ class IncrementalReadTest extends SqlE2ETestBase {
                     + " VALUES (1, 'alice'), (2, 'bob')");
 
             List<TypedRow> snapshots = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
             assertThat(snapshots).hasSizeGreaterThanOrEqualTo(1);
             long snapshot1 = ((Number) snapshots.get(0).getRaw("snapshot_id")).longValue();
 
@@ -97,7 +97,7 @@ class IncrementalReadTest extends SqlE2ETestBase {
                     + " VALUES (3, 'charlie'), (4, 'diana')");
 
             List<TypedRow> snapshots2 = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
             long snapshot2 = ((Number) snapshots2.get(snapshots2.size() - 1).getRaw("snapshot_id")).longValue();
 
             List<TypedRow> changes = sqlRunner.execute(
@@ -122,14 +122,14 @@ class IncrementalReadTest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + icebergFqn() + " VALUES (1, 'initial')");
 
             List<TypedRow> snap1 = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
             long fromSnapshot = ((Number) snap1.get(snap1.size() - 1).getRaw("snapshot_id")).longValue();
 
             sqlRunner.execute("INSERT INTO " + icebergFqn() + " VALUES (2, 'second')");
             sqlRunner.execute("INSERT INTO " + icebergFqn() + " VALUES (3, 'third')");
 
             List<TypedRow> snap3 = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
             long toSnapshot = ((Number) snap3.get(snap3.size() - 1).getRaw("snapshot_id")).longValue();
 
             List<TypedRow> changes = sqlRunner.execute(
@@ -191,7 +191,7 @@ class IncrementalReadTest extends SqlE2ETestBase {
                     + " VALUES (1, 'alice')");
 
             List<TypedRow> snapshots = sqlRunner.execute(
-                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY timestamp_ms");
+                    "SELECT * FROM " + icebergFqn() + "$snapshots ORDER BY committed_at");
             long snapshotId = ((Number) snapshots.get(snapshots.size() - 1).getRaw("snapshot_id")).longValue();
 
             List<TypedRow> changes = sqlRunner.execute(

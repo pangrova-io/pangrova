@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <unordered_set>
 #include <vector>
 
@@ -51,7 +52,8 @@ class IcebergMetadataJsonReader final {
     std::optional<int64_t> parentId;
     std::optional<int64_t> timestampMs;
     std::optional<std::string> operation;
-    std::optional<std::string> summary;
+    std::optional<std::string> manifestList;
+    std::optional<std::vector<std::pair<std::string, std::string>>> summary;
     std::optional<bool> currentAncestor;
   };
 

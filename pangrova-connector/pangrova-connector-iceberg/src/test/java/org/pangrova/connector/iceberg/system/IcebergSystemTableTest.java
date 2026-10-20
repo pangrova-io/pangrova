@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integration tests for Iceberg system tables using a real HadoopCatalog.
- * Validates $snapshots, $files, $history, and $refs system tables return
+ * Validates legacy $files, $history, and $refs metadata helpers return
  * correct metadata after data is committed to a real Iceberg table.
  */
 class IcebergSystemTableTest {
@@ -47,35 +47,6 @@ class IcebergSystemTableTest {
         }
         testTable = catalog.createTable(TableIdentifier.of("db", "test_table"), TEST_SCHEMA);
         appendSyntheticDataFile(testTable, "data-001.parquet", 100, 4096);
-    }
-
-    @Test
-    void snapshotsSystemTable_returnsSnapshotAfterCommit() {
-        IcebergSnapshotsSystemTable systemTable = new IcebergSnapshotsSystemTable(testTable);
-
-        assertThat(systemTable.columns()).containsExactly(
-                "snapshot_id", "parent_id", "timestamp_ms", "operation", "summary");
-
-        List<TypedRow> rows = systemTable.rows();
-        assertThat(rows).hasSize(1);
-
-        TypedRow first = rows.get(0);
-        assertThat(first.getLong("snapshot_id")).isNotNull();
-        assertThat(first.getLong("timestamp_ms")).isGreaterThan(0);
-        assertThat(first.getString("operation")).isEqualTo("append");
-    }
-
-    @Test
-    void snapshotsSystemTable_emptyTableReturnsNoRows() {
-        Catalog catalog = createCatalog();
-        if (catalog instanceof SupportsNamespaces nsCatalog) {
-            try { nsCatalog.createNamespace(Namespace.of("empty_db")); } catch (Exception ignored) {}
-        }
-        Table emptyTable = catalog.createTable(
-                TableIdentifier.of("empty_db", "empty_table"), TEST_SCHEMA);
-
-        IcebergSnapshotsSystemTable systemTable = new IcebergSnapshotsSystemTable(emptyTable);
-        assertThat(systemTable.rows()).isEmpty();
     }
 
     @Test

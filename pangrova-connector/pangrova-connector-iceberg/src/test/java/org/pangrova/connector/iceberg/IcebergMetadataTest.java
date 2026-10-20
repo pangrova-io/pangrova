@@ -410,6 +410,16 @@ class IcebergMetadataTest {
             IcebergSystemTableHandle system = (IcebergSystemTableHandle) handle;
             assertThat(system.metadataLocation()).isNotBlank();
             assertThat(system.metadataLength()).isPositive();
+            if (suffix.equals("snapshots")) {
+                var sdkSchema = org.apache.iceberg.MetadataTableUtils.createMetadataTableInstance(
+                        catalog.loadTable(TableIdentifier.of("db", "orders")),
+                        org.apache.iceberg.MetadataTableType.SNAPSHOTS).schema();
+                var expected = org.pangrova.connector.iceberg.type.IcebergTypeMapper.toPangrovaColumns(sdkSchema);
+                assertThat(system.typedColumns()).usingRecursiveFieldByFieldElementComparatorIgnoringFields(
+                        "parameterizedType").containsExactlyElementsOf(expected);
+                assertThat(system.typedColumns().get(0).parameterizedType()).isEqualTo(expected.get(0).parameterizedType());
+                assertThat(system.typedColumns().get(5).parameterizedType()).isEqualTo(expected.get(5).parameterizedType());
+            }
             assertThat(metadata.getTableMetadata(SESSION, system).typedColumns())
                     .containsExactlyElementsOf(system.typedColumns());
 

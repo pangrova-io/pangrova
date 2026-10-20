@@ -4,6 +4,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
+
+import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.data.type.primitive.temporal.TimestampType;
 
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
@@ -66,11 +71,14 @@ public record IcebergSystemTableHandle(
     public List<ConnectorTableMetadata.Column> typedColumns() {
         return switch (kind) {
             case SNAPSHOTS -> List.of(
-                    new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT),
-                    new ConnectorTableMetadata.Column("parent_id", PangrovaType.BIGINT),
-                    new ConnectorTableMetadata.Column("timestamp_ms", PangrovaType.BIGINT),
-                    new ConnectorTableMetadata.Column("operation", PangrovaType.VARCHAR),
-                    new ConnectorTableMetadata.Column("summary", PangrovaType.VARCHAR));
+                    new ConnectorTableMetadata.Column("committed_at", PangrovaType.TIMESTAMP_TZ,
+                            OptionalInt.of(1), TimestampType.WITH_TIMEZONE),
+                    new ConnectorTableMetadata.Column("snapshot_id", PangrovaType.BIGINT, OptionalInt.of(2)),
+                    new ConnectorTableMetadata.Column("parent_id", PangrovaType.BIGINT, OptionalInt.of(3)),
+                    new ConnectorTableMetadata.Column("operation", PangrovaType.VARCHAR, OptionalInt.of(4)),
+                    new ConnectorTableMetadata.Column("manifest_list", PangrovaType.VARCHAR, OptionalInt.of(5)),
+                    new ConnectorTableMetadata.Column("summary", PangrovaType.MAP, OptionalInt.of(6),
+                            new MapType(VarcharType.UNBOUNDED, VarcharType.UNBOUNDED)));
             case REFS -> List.of(
                     new ConnectorTableMetadata.Column("name", PangrovaType.VARCHAR),
                     new ConnectorTableMetadata.Column("type", PangrovaType.VARCHAR),
