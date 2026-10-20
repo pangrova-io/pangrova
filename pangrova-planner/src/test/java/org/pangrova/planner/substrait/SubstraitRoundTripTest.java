@@ -11,6 +11,8 @@ import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -191,6 +193,40 @@ class SubstraitRoundTripTest {
         assertThat(summary.joinTypes).contains("JOIN_TYPE_LEFT");
         assertThat(summary.hasJoinCondition).isTrue();
         assertThat(summary.tableNames).contains("customer", "orders");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT o_orderkey FROM orders o WHERE EXISTS (SELECT 1 FROM lineitem l "
+                    + "WHERE l.l_orderkey = 1 AND l.l_orderkey = o.o_orderkey)",
+            "SELECT o_orderkey FROM orders o WHERE NOT EXISTS (SELECT 1 FROM lineitem l "
+                    + "WHERE l.l_orderkey = 1 AND l.l_orderkey = o.o_orderkey)",
+            "SELECT o_orderkey FROM orders o WHERE EXISTS (SELECT 1 FROM lineitem l "
+                    + "WHERE l.l_orderkey + 1 = o.o_orderkey)",
+            "SELECT (SELECT COUNT(*) FROM lineitem l WHERE l.l_orderkey = 1 "
+                    + "AND l.l_orderkey = o.o_orderkey) AS n FROM orders o"
+    })
+    void correlatedConstantAndExpressionKeysRetainTheirJoinPredicate(String sql) {
+        ProtoSummary summary = roundTripToProto(sql);
+        assertThat(summary.tableNames).contains("orders", "lineitem");
+        assertThat(summary.hasJoinCondition).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "SELECT o_orderkey FROM orders o WHERE EXISTS (SELECT 1 FROM lineitem l "
+                    + "WHERE CAST(NULL AS BIGINT) + 1 = o.o_orderkey)",
+            "SELECT o_orderkey FROM orders o WHERE NOT EXISTS (SELECT 1 FROM lineitem l "
+                    + "WHERE CAST(NULL AS BIGINT) + 1 = o.o_orderkey)",
+            "SELECT (SELECT COUNT(*) FROM lineitem l WHERE CAST(NULL AS BIGINT) + 1 = o.o_orderkey) AS n "
+                    + "FROM orders o",
+            "SELECT (SELECT SUM(l_quantity) FROM lineitem l WHERE CAST(NULL AS BIGINT) + 1 = o.o_orderkey) AS n "
+                    + "FROM orders o"
+    })
+    void reducedNullPredicateDoesNotRetainAnUnboundOuterVariable(String sql) {
+        ProtoSummary summary = roundTripToProto(sql);
+        assertThat(summary.tableNames).contains("orders");
+        assertThat(summary.rootNames).isNotEmpty();
     }
 
     // -----------------------------------------------------------------------

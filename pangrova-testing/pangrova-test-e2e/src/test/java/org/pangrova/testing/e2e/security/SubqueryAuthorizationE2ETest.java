@@ -7,6 +7,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
@@ -124,6 +126,71 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
         assertThat(sqlRunner.execute(queries().get(0))).hasSize(2)
                 .allSatisfy(row -> assertThat(row.getLong("total")).isEqualTo(30));
         assertThat(sqlRunner.execute(queries().get(1))).hasSize(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"id = 1", "id < 0"})
+    void constantCorrelationKeysPreserveDuplicatesNullsAndEmptyAggregates(String policy) {
+        sqlRunner.execute("INSERT INTO " + qualified(hidden) + " VALUES (1, 5), (NULL, 7)");
+        sqlRunner.execute("INSERT INTO " + qualified(visible) + " VALUES (3, 30), (NULL, 40)");
+        grant(hidden);
+        policies.savePolicy(new RowPolicy(0, "selected_rows", CATALOG, SCHEMA, hidden,
+                policy, List.of(role), true, 1));
+        bindAuthority();
+        boolean populated = policy.equals("id = 1");
+        assertThat(sqlRunner.execute(queries().get(1))).hasSize(populated ? 1 : 0);
+        String absence = "SELECT v.id FROM " + qualified(visible)
+                + " v WHERE NOT EXISTS (SELECT 1 FROM " + qualified(hidden) + " h WHERE h.id = v.id)";
+        assertThat(sqlRunner.execute(absence)).hasSize(populated ? 3 : 4);
+        for (String aggregate : List.of("COUNT(*)", "COUNT(*) + 1", "SUM(amount)")) {
+            String query = "SELECT v.id, (SELECT " + aggregate + " FROM " + qualified(hidden)
+                    + " h WHERE h.id = v.id) AS total FROM " + qualified(visible) + " v";
+            assertThat(sqlRunner.execute(query)).hasSize(4).allSatisfy(row -> {
+                boolean matched = populated && Long.valueOf(1).equals(row.getRaw("id"));
+                if (aggregate.equals("SUM(amount)")) {
+                    assertThat(row.getRaw("total")).isEqualTo(matched ? 15L : null);
+                } else {
+                    long count = matched ? 2 : 0;
+                    assertThat(row.getLong("total")).isEqualTo(
+                            aggregate.equals("COUNT(*)") ? count : count + 1);
+                }
+            });
+        }
+        masks.saveColumnMask(new ColumnMask(0, "masked_key", CATALOG, SCHEMA, hidden, "id",
+                "CAST(9 AS BIGINT)", List.of(role), List.of(), true));
+        assertThat(sqlRunner.execute(queries().get(1))).isEmpty();
+        assertThat(sqlRunner.execute(absence)).hasSize(4);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"CAST(1 AS BIGINT)", "CAST(NULL AS BIGINT)"})
+    void computedCorrelationKeysUseMaskedInnerValues(String mask) {
+        grant(hidden);
+        bindAuthority();
+        String inner = " FROM " + qualified(hidden) + " h WHERE h.id + 1 = v.id";
+        String exists = "SELECT v.id FROM " + qualified(visible)
+                + " v WHERE EXISTS (SELECT 1" + inner + ")";
+        assertThat(sqlRunner.execute(exists)).singleElement()
+                .satisfies(row -> assertThat(row.getLong("id")).isEqualTo(2));
+        masks.saveColumnMask(new ColumnMask(0, "computed_key", CATALOG, SCHEMA, hidden, "id",
+                mask, List.of(role), List.of(), true));
+        boolean nullKey = mask.contains("NULL");
+        assertThat(sqlRunner.execute(exists)).hasSize(nullKey ? 0 : 1);
+        assertThat(sqlRunner.execute("SELECT v.id FROM " + qualified(visible)
+                + " v WHERE NOT EXISTS (SELECT 1" + inner + ")")).hasSize(nullKey ? 2 : 1);
+        for (String aggregate : List.of("COUNT(*)", "COUNT(*) + 1", "SUM(amount)")) {
+            assertThat(sqlRunner.execute("SELECT v.id, (SELECT " + aggregate + inner + ") AS total FROM "
+                    + qualified(visible) + " v")).hasSize(2).allSatisfy(row -> {
+                boolean matched = !nullKey && row.getLong("id") == 2;
+                if (aggregate.equals("SUM(amount)")) {
+                    assertThat(row.getRaw("total")).isEqualTo(matched ? 30L : null);
+                } else {
+                    long count = matched ? 2 : 0;
+                    assertThat(row.getLong("total")).isEqualTo(
+                            aggregate.equals("COUNT(*)") ? count : count + 1);
+                }
+            });
+        }
     }
 
     private List<String> queries() {

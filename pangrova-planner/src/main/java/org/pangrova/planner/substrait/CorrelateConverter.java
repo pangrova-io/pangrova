@@ -10,6 +10,7 @@ import io.substrait.relation.Join;
 import io.substrait.relation.Rel;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
+import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.CorrelationId;
 import org.apache.calcite.rel.core.JoinRelType;
@@ -100,7 +101,9 @@ final class CorrelateConverter {
             return decorrelated;
         }
 
-        if (!correlate.getRequiredColumns().isEmpty()) {
+        // Policy-aware reduction can remove all correlated expressions while
+        // retaining the original requiredColumns metadata on the Correlate.
+        if (!RelOptUtil.getVariablesUsed(correlate.getRight()).isEmpty()) {
             throw new IllegalArgumentException("Unsupported correlated subquery: "
                     + correlate.getCorrelationId());
         }
@@ -148,9 +151,10 @@ final class CorrelateConverter {
             }
             right = keys.getInput();
         }
-        if (!(right instanceof LogicalFilter filter)) {
+        if (!(right instanceof LogicalFilter originalFilter)) {
             return null;
         }
+        LogicalFilter filter = materializeCorrelationKeys(originalFilter, correlate.getCorrelationId());
         List<int[]> equalities = extractCorrelationEqualities(
                 filter.getCondition(), correlate.getCorrelationId());
         if (equalities.isEmpty()) {
@@ -269,9 +273,10 @@ final class CorrelateConverter {
         if (!(rightNode instanceof LogicalAggregate agg) || agg.getGroupCount() != 0) {
             return null;
         }
-        if (!(agg.getInput() instanceof LogicalFilter filter)) {
+        if (!(agg.getInput() instanceof LogicalFilter originalFilter)) {
             return null;
         }
+        LogicalFilter filter = materializeCorrelationKeys(originalFilter, corId);
 
         // Extract correlation equalities: [$cor0.field[i] = inputRef[j]]
         List<int[]> equalities = extractCorrelationEqualities(filter.getCondition(), corId);
@@ -424,6 +429,46 @@ final class CorrelateConverter {
             projections.add(FieldReference.newRootStructReference(fieldIdx, type));
         }
         return projections;
+    }
+
+    /** Materializes equality keys that policy-aware reduction replaced with constants or expressions. */
+    private static LogicalFilter materializeCorrelationKeys(LogicalFilter filter, CorrelationId corId) {
+        var input = filter.getInput();
+        var rex = filter.getCluster().getRexBuilder();
+        List<RexNode> fields = new ArrayList<>();
+        List<String> names = new ArrayList<>(input.getRowType().getFieldNames());
+        for (int i = 0; i < names.size(); i++) fields.add(rex.makeInputRef(input, i));
+        RexNode condition = filter.getCondition().accept(new RexShuttle() {
+            @Override
+            public RexNode visitCall(RexCall call) {
+                if (call.getKind() != SqlKind.EQUALS) return super.visitCall(call);
+                var operands = new ArrayList<>(call.getOperands());
+                for (int side = 0; side < 2; side++) {
+                    if (!isCorrelationField(operands.get(side), corId)) continue;
+                    RexNode key = operands.get(1 - side);
+                    if (key instanceof RexInputRef || RexUtil.containsCorrelation(key)
+                            || !RexUtil.isDeterministic(key)) continue;
+                    int index = fields.indexOf(key);
+                    if (index < 0) {
+                        index = fields.size();
+                        fields.add(key);
+                        names.add("$correlation_key_" + index);
+                    }
+                    operands.set(1 - side, rex.makeInputRef(key.getType(), index));
+                    return call.clone(call.getType(), operands);
+                }
+                return super.visitCall(call);
+            }
+        });
+        if (fields.size() == input.getRowType().getFieldCount()) return filter;
+        var projected = LogicalProject.create(input, List.of(), fields, names);
+        return LogicalFilter.create(projected, condition);
+    }
+
+    private static boolean isCorrelationField(RexNode expression, CorrelationId corId) {
+        return expression instanceof RexFieldAccess field
+                && field.getReferenceExpr() instanceof RexCorrelVariable variable
+                && variable.id.equals(corId);
     }
 
     /**

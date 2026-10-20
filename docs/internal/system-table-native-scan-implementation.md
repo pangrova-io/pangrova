@@ -585,6 +585,48 @@ and their frozen source bindings are still needed, and the older Coordinator
 textual view expansion remains a migration gap. `$partitions`/`SHOW PARTITIONS`
 are not complete at this point.
 
+### Frozen connector definitions and subquery authority (2026-10-21)
+
+The experimental `ConnectorDerivedTableHandle` now supplies a
+`ConnectorDerivedQuery`: static read-only SQL plus explicitly named immutable
+`ConnectorReadBinding` inputs. Each input requires an exact declaration and a
+frozen source identity. The definition catalog contains only these aliases;
+physical table names are never interpolated into its SQL. Expansion shares the
+outer Calcite cluster, validates exact output names and storage types (allowing
+nullability differences), and produces ordinary scans carrying the original
+physical names and binding objects. Recursion, excessive nesting, mutation,
+ambient catalog access, schema drift and definitions retaining no frozen source
+are rejected. Connectors provide definitions and bindings, not result rows.
+
+Before policy application, the planner also exposes expression subqueries as
+relational children using Calcite's structural
+[SubQueryRemoveRule](https://calcite.apache.org/javadocAggregate/org/apache/calcite/rel/rules/SubQueryRemoveRule.html)
+rules. This ensures table authorization and row/column policies see inner
+sources. Existing LATERAL decorrelation runs before that structural expansion;
+running it again over the newly introduced correlates changes scalar aggregate
+and distribution behavior. Subsequent optimization may reduce an inner key to
+a literal or expression under a policy. Correlate conversion must preserve the
+resulting equality rather than assume both operands are raw columns.
+
+Correlate conversion now materializes deterministic expression/constant keys
+before the existing equality-based grouping and join conversion. This preserves
+deduplication for existence, nullable absence markers, and COUNT defaults for
+unmatched scalar aggregates. A NULL mask may remove the actual correlation
+entirely while leaving `requiredColumns` unchanged. Conversion checks
+[Calcite's scoped variable collector](https://github.com/apache/calcite/blob/calcite-1.42.0/core/src/main/java/org/apache/calcite/plan/RelOptUtil.java)
+against the remaining right relation, preserving normal join cardinality when
+no outer binding remains. Any remaining unhandled free variable still fails
+conversion. Real SQL/JNI cases cover policy reductions, masked computed keys,
+duplicates, NULL comparisons and empty-input COUNT/COUNT+1/SUM semantics.
+
+The PostgreSQL/plugin/Paimon SDK integration validates that a later commit
+does not change the selected source or its split snapshot. This mechanism has
+no production connector provider yet; canonical Iceberg entry projection,
+snapshot metadata and SDK-oracle aggregation remain prerequisites for exposing
+`$partitions`. It does not complete that public table or migrate Coordinator
+textual views. Current test results and outstanding failures are recorded in
+the [rolling inventory](ai-native-research/validation-inventory-2026-10-19.md).
+
 ### Base policy eligibility for metadata reads (2026-10-20)
 
 Metadata scans now invoke the mandatory SPI `checkCanReadTableMetadata` against
