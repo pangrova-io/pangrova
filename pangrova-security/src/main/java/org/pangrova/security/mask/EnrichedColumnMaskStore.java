@@ -14,6 +14,9 @@ public interface EnrichedColumnMaskStore extends org.pangrova.spi.security.Colum
      */
     List<ColumnMask> getColumnMasks(String catalog, String schema, String table, String column);
 
+    /** Returns the table's masks independently of projected or currently declared columns. */
+    List<ColumnMask> getTableMasks(String catalog, String schema, String table);
+
     /**
      * Persists a security-enriched ColumnMask.
      */

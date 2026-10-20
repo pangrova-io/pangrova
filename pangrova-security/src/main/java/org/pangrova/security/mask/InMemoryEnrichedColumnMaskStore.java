@@ -20,6 +20,12 @@ public final class InMemoryEnrichedColumnMaskStore implements EnrichedColumnMask
     private final AtomicLong nextId = new AtomicLong(1);
 
     @Override
+    public List<ColumnMask> getTableMasks(String catalog, String schema, String table) {
+        return masks.stream().filter(mask -> mask.catalogName().equals(catalog)
+                && mask.schemaName().equals(schema) && mask.tableName().equals(table)).toList();
+    }
+
+    @Override
     public List<ColumnMask> getColumnMasks(String catalog, String schema, String table, String column) {
         return masks.stream()
                 .filter(m -> m.catalogName().equals(catalog)
@@ -32,6 +38,8 @@ public final class InMemoryEnrichedColumnMaskStore implements EnrichedColumnMask
     @Override
     public void saveColumnMask(ColumnMask mask) {
         masks.removeIf(m -> m.maskName().equals(mask.maskName())
+                && m.catalogName().equals(mask.catalogName())
+                && m.schemaName().equals(mask.schemaName())
                 && m.tableName().equals(mask.tableName())
                 && m.columnName().equals(mask.columnName()));
         masks.add(new ColumnMask(nextId.getAndIncrement(), mask.maskName(),

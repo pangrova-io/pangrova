@@ -69,9 +69,7 @@ public final class AccessControlEnforcer {
                 throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
             }
             QualifiedTableName authorized = logical == null ? ref : logical;
-            accessControl.checkCanSelectFromTable(
-                    identity, authorized.catalog(), authorized.schema(),
-                    authorizedReadTable(authorized.table()));
+            checkRead(identity, authorized.catalog(), authorized.schema(), authorized.table());
         }
         for (DmlWriteTarget target : dmlWriteTargets) {
             QualifiedTableName ref = QualifiedTableName.resolve(target.qualifiedTableName());
@@ -95,6 +93,11 @@ public final class AccessControlEnforcer {
                                    java.util.Set<String> columns, UserIdentity identity) {
         rejectAnonymous(identity);
         rejectReservedGeneration(table);
+        String baseTable = authorizedReadTable(table);
+        if (!baseTable.equals(table)) {
+            accessControl.checkCanReadTableMetadata(identity, catalog, schema, baseTable);
+            return;
+        }
         if (columns != null && !columns.isEmpty()) {
             accessControl.checkCanSelectFromColumns(identity, catalog, schema, table, columns);
         }
@@ -201,7 +204,16 @@ public final class AccessControlEnforcer {
     public void checkSelectFromTable(UserIdentity identity, String catalog, String schema, String table) {
         rejectAnonymous(identity);
         rejectReservedGeneration(table);
-        accessControl.checkCanSelectFromTable(identity, catalog, schema, authorizedReadTable(table));
+        checkRead(identity, catalog, schema, table);
+    }
+
+    private void checkRead(UserIdentity identity, String catalog, String schema, String table) {
+        String baseTable = authorizedReadTable(table);
+        if (baseTable.equals(table)) {
+            accessControl.checkCanSelectFromTable(identity, catalog, schema, table);
+        } else {
+            accessControl.checkCanReadTableMetadata(identity, catalog, schema, baseTable);
+        }
     }
 
     private static void rejectReservedGeneration(String table) {

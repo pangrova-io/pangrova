@@ -1006,6 +1006,11 @@ class StatementDispatcherPropertyTest {
         // ── TableAccessControl ──
 
         @Override
+        public void checkCanReadTableMetadata(UserIdentity user, String catalog, String schema, String table) {
+            calls.add("checkCanReadTableMetadata");
+        }
+
+        @Override
         public void checkCanSelectFromTable(UserIdentity user, String catalog,
                                              String schema, String table) {
             calls.add("checkCanSelectFromTable");

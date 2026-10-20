@@ -355,6 +355,9 @@ class AccessControlEnforcerTest {
                     .doesNotThrowAnyException();
             assertThatCode(() -> baseGranted.checkSelectFromTable(user(), CATALOG, SCHEMA, metadataTable))
                     .doesNotThrowAnyException();
+            assertThatCode(() -> baseGranted.checkColumnAccess(
+                    CATALOG, SCHEMA, metadataTable, Set.of("record_count"), user()))
+                    .doesNotThrowAnyException();
 
             PrivilegeGrant suffixOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
                     "TABLE", CATALOG, SCHEMA, metadataTable, null);
@@ -363,6 +366,9 @@ class AccessControlEnforcerTest {
                     List.of(List.of(CATALOG, SCHEMA, metadataTable)), user()))
                     .isInstanceOf(AuthorizationDeniedException.class);
             assertThatThrownBy(() -> noBaseGrant.checkSelectFromTable(user(), CATALOG, SCHEMA, metadataTable))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            assertThatThrownBy(() -> noBaseGrant.checkColumnAccess(
+                    CATALOG, SCHEMA, metadataTable, Set.of("record_count"), user()))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
 

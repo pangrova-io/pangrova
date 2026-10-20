@@ -371,6 +371,12 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
         List<ColumnMask> maskList = List.of(masks);
         return new EnrichedColumnMaskStore() {
             @Override
+            public List<ColumnMask> getTableMasks(String catalog, String schema, String table) {
+                return maskList.stream().filter(mask -> mask.catalogName().equals(catalog)
+                        && mask.schemaName().equals(schema) && mask.tableName().equals(table)).toList();
+            }
+
+            @Override
             public List<ColumnMask> getColumnMasks(
                     String catalog, String schema, String table, String column) {
                 return maskList.stream()

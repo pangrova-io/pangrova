@@ -13,6 +13,13 @@ public interface TableAccessControl {
 
     void checkCanSelectFromTable(UserIdentity user, String catalog, String schema, String table);
 
+    /**
+     * Requires full base-table SELECT and authority to read its unfiltered metadata.
+     * Counts, paths, partition values and summaries cannot bypass applicable base row filters or masks.
+     * The table argument is the base relation, not the metadata suffix name.
+     */
+    void checkCanReadTableMetadata(UserIdentity user, String catalog, String schema, String table);
+
     void checkCanInsertIntoTable(UserIdentity user, String catalog, String schema, String table);
 
     void checkCanUpdateTable(UserIdentity user, String catalog, String schema, String table);

@@ -42,6 +42,15 @@ public class ColumnMaskingProcessor {
         return renderMasks(user, effectiveRoles, column, store.getColumnMasks(catalog, schema, table, column));
     }
 
+    /** Uses the same per-column priority and exemptions, including masks outside a query's projection. */
+    public boolean hasApplicableMask(UserIdentity user, Set<String> effectiveRoles,
+            String catalog, String schema, String table) {
+        var byColumn = store.getTableMasks(catalog, schema, table).stream()
+                .collect(java.util.stream.Collectors.groupingBy(ColumnMask::columnName));
+        return byColumn.entrySet().stream().anyMatch(entry ->
+                renderMasks(user, effectiveRoles, entry.getKey(), entry.getValue()).isPresent());
+    }
+
     /** Renders masks read on the caller's current authorization transaction. */
     public static Optional<String> renderMasks(
             UserIdentity user, Set<String> effectiveRoles, String column, java.util.List<ColumnMask> masks) {

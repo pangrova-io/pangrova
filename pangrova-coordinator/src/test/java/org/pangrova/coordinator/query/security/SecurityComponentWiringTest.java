@@ -107,6 +107,11 @@ class SecurityComponentWiringTest {
     private static EnrichedColumnMaskStore buildMaskStore(String maskValue) {
         return new EnrichedColumnMaskStore() {
             @Override
+            public List<ColumnMask> getTableMasks(String catalog, String schema, String table) {
+                return List.of();
+            }
+
+            @Override
             public List<ColumnMask> getColumnMasks(String c, String s, String t, String col) {
                 return List.of();
             }

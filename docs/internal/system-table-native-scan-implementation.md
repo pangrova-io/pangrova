@@ -549,8 +549,8 @@ nearest real-RBAC suite passes 56/56. Coordinator rolling verification covers al
 3,305 invocation records: 3,295 initially pass, then the 10 cases requiring the
 explicit current Lance fixture tool pass on their own; static verification
 also passes. This is rolling coverage, not one continuous all-green run. This
-qualifies SELECT grant identity; inheritance of base row filters and column
-masks into metadata reads still requires its own policy regression and closure.
+qualifies SELECT grant identity. The later policy increment below adds base
+row-filter and mask eligibility checks for the implemented metadata family.
 
 The relational aggregate approach for `$partitions` also has a current upstream
 precedent in [Trino's PartitionsView](https://github.com/trinodb/trino/blob/484/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/system/PartitionsView.java).
@@ -583,3 +583,52 @@ not prove public metadata-view execution. Connector typed derived declarations
 and their frozen source bindings are still needed, and the older Coordinator
 textual view expansion remains a migration gap. `$partitions`/`SHOW PARTITIONS`
 are not complete at this point.
+
+### Base policy eligibility for metadata reads (2026-10-20)
+
+Metadata scans now invoke the mandatory SPI `checkCanReadTableMetadata` against
+the base table. The production RBAC implementation requires full SELECT and
+rejects an applicable base row filter or column mask before any metadata task
+is dispatched. This applies to table, statement and metadata-column checks.
+All implemented suffixes use the same eligibility rule. Ordinary data queries
+retain their existing Native filter/mask execution.
+
+The policy check resolves roles once for both privilege and policy selection.
+A deterministic regression reproduced a role revocation between grant loading
+and a second role lookup that erased an applicable mask; one captured role set
+now prevents that raw-read path. Table-wide mask enumeration is independent
+of projection and current columns, and uses normal enabled/role/priority/exempt
+selection. PostgreSQL queries bind every value to fixed statements; storage
+errors propagate. In-memory mask replacement also includes catalog and schema,
+so equal names in separate scopes cannot remove each other's policies.
+
+The real SQL/JNI matrix passes 6/6 across Iceberg and Paimon. Each connector is
+written through SQL, its metadata counts are recorded through Native, and the
+matrix covers suffix-only grants, base SELECT, revocation, actual filtered or
+masked data, metadata denial while protected, and exact metadata-count recovery
+after policy removal. Nine suffix kinds are covered, including valid empty
+Paimon tag/branch tables. SHOW SNAPSHOTS/FILES/MANIFESTS for Iceberg and SHOW
+SNAPSHOTS for Paimon also reject protected reads. Every case drains query
+ownership and active counts to zero. Coordinator nearest policy/grant checks
+pass 20/20 and 56/56; SPI full tests pass 721/721. Security's 390-test owner run
+passes, followed by the new race case and affected RBAC regressions; the rolling
+Security reports contain 391 passing invocations. PostgreSQL mask storage,
+policy-store failure, priority/exemption and scope isolation are covered, and
+static verification passes for Security/SPI, Coordinator and the changed consumers.
+The subsequent full Coordinator run passes 3,324 of 3,325 cases; its single
+failure is a Worker task-route HTTP 404 in a source-free fixture startup check,
+before query execution, and is tracked as a separate startup repair. The full
+module is not reported as green. Four policy scenarios were then strengthened
+to warm reads and add/remove policies on the same pipeline; only those changed
+scenarios rerun, and all 4 pass without a pipeline rebuild.
+
+[Athena's restriction](https://docs.aws.amazon.com/athena/latest/ug/querying-iceberg.html)
+is a precedent for refusing sensitive unfiltered Iceberg metadata under row/cell
+policies. Pangrova applies this rule to its entire implemented metadata family;
+it does not claim that every engine uses that same family-wide restriction.
+The current tests qualify foreground metadata reads. Deferred/background
+metadata sources and policy changes during already running executions still
+need their own matrix. Existing SHOW TAGS/BRANCHES return only a pointer to a
+system-table query; those placeholders remain to be replaced with actual
+Native listing paths. `$partitions` aggregation and final full-chain validation
+remain open.

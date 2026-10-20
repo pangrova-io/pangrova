@@ -8,6 +8,11 @@ import java.util.List;
 public final class EmptyColumnMaskStore implements EnrichedColumnMaskStore {
 
     @Override
+    public List<ColumnMask> getTableMasks(String catalog, String schema, String table) {
+        return List.of();
+    }
+
+    @Override
     public List<ColumnMask> getColumnMasks(String catalog, String schema, String table, String column) {
         return List.of();
     }

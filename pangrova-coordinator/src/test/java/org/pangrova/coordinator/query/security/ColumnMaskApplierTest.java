@@ -243,6 +243,12 @@ class ColumnMaskApplierTest {
     private static AccessControl buildAccessControlWithMasks(List<ColumnMask> masks) {
         EnrichedColumnMaskStore maskStore = new EnrichedColumnMaskStore() {
             @Override
+            public List<ColumnMask> getTableMasks(String catalog, String schema, String table) {
+                return masks.stream().filter(mask -> mask.catalogName().equals(catalog)
+                        && mask.schemaName().equals(schema) && mask.tableName().equals(table)).toList();
+            }
+
+            @Override
             public List<ColumnMask> getColumnMasks(String c, String s, String t, String col) {
                 return masks.stream()
                         .filter(m -> m.catalogName().equals(c) && m.schemaName().equals(s)

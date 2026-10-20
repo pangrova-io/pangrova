@@ -288,6 +288,40 @@ CREATE TABLE privileges (
 );
 ```
 
+### 3.4 Metadata-table read authority
+
+The implemented metadata suffixes (`$files`, `$entries`, `$manifests`,
+`$snapshots`, `$history`, `$tags`, `$options`, `$schemas`, `$branches`) require
+full SELECT authority on the base table. A grant on a suffix name does not
+permit reading the base table's metadata. `AccessControlEnforcer` invokes
+`TableAccessControl.checkCanReadTableMetadata` for planned scans, explicit
+metadata SELECT checks and metadata column checks. The policy subject is always
+the authenticated reader.
+
+`DynamicRbacAccessControl` denies these unfiltered metadata reads when a base
+row filter or column mask applies to that subject. Metadata counts, paths,
+partition values and summaries cannot be transformed by applying a base-row
+predicate to the metadata schema. This restriction also covers aggregate-only
+queries and SHOW statements routed through these relations. Ordinary base
+queries continue through the existing row-filter and mask transformations.
+
+The metadata check resolves roles once for both grants and policy applicability;
+revoking a role during the check cannot erase an applicable mask after the
+SELECT check succeeds. `EnrichedColumnMaskStore.getTableMasks` enumerates table
+policies independently of projection and current schema, including policies on
+historical column names. Mask selection preserves normal enabled, role, priority
+and exemption semantics. Removing the applicable policy restores metadata
+eligibility on the next check. Policy-store failures propagate without allowing
+a raw read.
+
+[Athena's documented Iceberg restrictions](https://docs.aws.amazon.com/athena/latest/ug/querying-iceberg.html)
+provide a precedent for denying sensitive metadata when row or cell filters
+apply. Pangrova deliberately applies one eligibility rule to its whole
+implemented metadata family, rather than treating individual metadata columns
+as policy-safe without a connector-specific proof. This section describes the
+current read boundary; it does not claim a transaction spanning policy changes
+and an already running data-plane query.
+
 ---
 
 ## 4. Row-Level Security

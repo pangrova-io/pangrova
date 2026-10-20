@@ -84,6 +84,9 @@ class StatementDispatcherAccessControlTest {
         @Override public void checkCanAccessSchema(UserIdentity u, String c, String s) {
             throw new AccessDeniedException("denied");
         }
+        @Override public void checkCanReadTableMetadata(UserIdentity u, String c, String s, String t) {
+            throw new AccessDeniedException("denied");
+        }
         @Override public void checkCanSelectFromTable(UserIdentity u, String c, String s, String t) {
             throw new AccessDeniedException("denied");
         }

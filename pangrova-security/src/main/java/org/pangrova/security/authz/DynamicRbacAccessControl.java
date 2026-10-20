@@ -115,6 +115,18 @@ public final class DynamicRbacAccessControl implements AccessControl {
     }
 
     @Override
+    public void checkCanReadTableMetadata(UserIdentity user, String catalog, String schema, String table) {
+        Set<String> roles = effectiveRoles(user);
+        requireTableGrant(user, resolveGrants(roles), catalog, schema, table, Privilege.SELECT);
+        if (rlsFilter.getFilter(user, roles, catalog, schema, table).isPresent()
+                || maskProcessor.hasApplicableMask(user, roles, catalog, schema, table)) {
+            throw new AuthorizationDeniedException(
+                    "Unfiltered table metadata cannot bypass current row or column policies on "
+                            + catalog + "." + schema + "." + table);
+        }
+    }
+
+    @Override
     public void checkCanInsertIntoTable(UserIdentity user, String catalog, String schema, String table) {
         requireTableGrant(user, catalog, schema, table, Privilege.INSERT);
     }
@@ -208,7 +220,10 @@ public final class DynamicRbacAccessControl implements AccessControl {
     }
 
     private List<PrivilegeGrant> resolveGrants(UserIdentity user) {
-        Set<String> roles = effectiveRoles(user);
+        return resolveGrants(effectiveRoles(user));
+    }
+
+    private List<PrivilegeGrant> resolveGrants(Set<String> roles) {
         return grantStore.listGrants().stream()
                 .filter(g -> roles.contains(g.roleName()))
                 .toList();
@@ -216,7 +231,11 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     private void requireTableGrant(UserIdentity user, String catalog, String schema,
                                    String table, Privilege privilege) {
-        List<PrivilegeGrant> userGrants = resolveGrants(user);
+        requireTableGrant(user, resolveGrants(user), catalog, schema, table, privilege);
+    }
+
+    private static void requireTableGrant(UserIdentity user, List<PrivilegeGrant> userGrants,
+            String catalog, String schema, String table, Privilege privilege) {
         PrivilegeGrant matchedGrant = userGrants.stream()
                 .filter(g -> g.privilege().implies(privilege) && g.coversTable(catalog, schema, table))
                 .findFirst()
