@@ -29,9 +29,11 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.FixedSizeListVector;
 import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.ExtensionTypeRegistry;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.arrow.vector.util.Text;
 
@@ -72,6 +74,10 @@ public final class ArrowBatchDecoder {
     private static final String EXTENSION_METADATA_KEY = "ARROW:extension:metadata";
     private static final String VECTOR_EXTENSION_NAME = "pangrova.vector";
 
+    static {
+        ExtensionTypeRegistry.register(UuidType.INSTANCE);
+    }
+
     private ArrowBatchDecoder() {}
 
     /**
@@ -88,7 +94,7 @@ public final class ArrowBatchDecoder {
              ByteArrayInputStream bais = new ByteArrayInputStream(arrowIpcBytes);
              ArrowStreamReader reader = new ArrowStreamReader(bais, allocator)) {
             return readAllBatches(reader);
-        } catch (IOException e) {
+        } catch (IOException | UnsupportedOperationException e) {
             throw new TransportException("DECODE_FAILED",
                     "Failed to decode Arrow IPC bytes: " + e.getMessage(), e);
         }
@@ -306,6 +312,9 @@ public final class ArrowBatchDecoder {
 
     private static ColumnDescriptor toDescriptor(Field field) {
         ArrowType type = field.getType();
+        if (type instanceof UuidType) {
+            return new ColumnDescriptor(field.getName(), Types.OTHER, "UUID", 0, 0, Optional.empty());
+        }
         int vectorDimension = vectorDimension(field);
         if (vectorDimension > 0) {
             LogicalType declaration = vectorDeclaration(field);

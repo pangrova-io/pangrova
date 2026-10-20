@@ -32,7 +32,7 @@ import java.util.Set;
  * Produced by {@link ArrowBatchDecoder}; its public signature contains no Arrow types.
  *
  * <p>Row values are decoded Java values: INTEGER→Integer, BIGINT→Long,
- * FLOAT/DOUBLE→Double, VARCHAR→String, BOOLEAN→Boolean,
+ * FLOAT/DOUBLE→Double, VARCHAR→String, BOOLEAN→Boolean, UUID→java.util.UUID,
  * Pangrova VECTOR→float[]/double[] for required coordinates and Float[]/Double[]
  * for nullable coordinates according to the complete schema declaration,
  * NULL→null, and other complex values from Arrow {@code getObject()}.
@@ -49,7 +49,8 @@ public record ResultBatch(List<ColumnDescriptor> columns, List<Object[]> rows) {
             Integer.class, Long.class, Float.class, Double.class, BigDecimal.class, BigInteger.class,
             java.time.LocalDate.class, java.time.LocalTime.class, java.time.LocalDateTime.class,
             java.time.OffsetTime.class, java.time.OffsetDateTime.class, java.time.ZonedDateTime.class,
-            java.time.Instant.class, java.time.Duration.class, java.time.Period.class, PeriodDuration.class);
+            java.time.Instant.class, java.time.Duration.class, java.time.Period.class, PeriodDuration.class,
+            java.util.UUID.class);
 
     public static final ResultBatch EMPTY = new ResultBatch(List.of(), List.of());
 

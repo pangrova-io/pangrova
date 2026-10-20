@@ -69,6 +69,15 @@ a closed statement, as required by the
 These checks do not add server-side prepared statements or implement unsupported
 typed conversion, batching, or calendar-specific temporal behavior.
 
+### UUID Result Values
+
+Results declared with the canonical Arrow `arrow.uuid` extension are exposed by
+`getObject()` as `java.util.UUID`, and by `getString()` as the canonical UUID
+string. JDBC metadata reports `Types.OTHER`, type name `UUID`, display width 36,
+and precision and scale 0. Untagged 16-byte binary values remain binary values.
+This describes client result decoding; SQL and connector UUID support requires
+separate end-to-end validation.
+
 ### Connection Properties
 
 | Property | Default | Description |

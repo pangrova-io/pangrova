@@ -20,6 +20,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * JDBC ResultSetMetaData backed by a list of {@link ColumnDescriptor}s.
@@ -27,8 +28,9 @@ import java.util.List;
  */
 public final class PangrovaResultSetMetaData implements ResultSetMetaData {
 
-    /** Uniform display size reported for all columns. */
+    /** Default width when the type has no specific presentation width. */
     private static final int DEFAULT_DISPLAY_SIZE = 20;
+    private static final int UUID_DISPLAY_SIZE = 36;
 
     private final List<ColumnDescriptor> columns;
 
@@ -64,6 +66,9 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
     @Override
     public String getColumnClassName(int column) throws SQLException {
         ColumnDescriptor descriptor = getColumn(column);
+        if (descriptor.sqlType() == Types.OTHER && descriptor.typeName().equals("UUID")) {
+            return UUID.class.getName();
+        }
         if (descriptor.logicalType().isPresent()) {
             var child = descriptor.logicalType().orElseThrow().getSubstraitType().getList().getType();
             boolean nullable = (child.hasFp64() ? child.getFp64().getNullability() : child.getFp32().getNullability())
@@ -109,7 +114,11 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
     }
 
     @Override
-    public int getColumnDisplaySize(int column) { return DEFAULT_DISPLAY_SIZE; }
+    public int getColumnDisplaySize(int column) throws SQLException {
+        ColumnDescriptor descriptor = getColumn(column);
+        return descriptor.sqlType() == Types.OTHER && descriptor.typeName().equals("UUID")
+                ? UUID_DISPLAY_SIZE : DEFAULT_DISPLAY_SIZE;
+    }
 
     @Override
     public String getSchemaName(int column) { return ""; }
