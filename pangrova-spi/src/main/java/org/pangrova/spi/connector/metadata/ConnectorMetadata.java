@@ -397,16 +397,15 @@ public interface ConnectorMetadata
     // --- System table support (additive defaults — no migration required) ---
 
     /**
-     * Returns a system table for the given name, or empty if not supported.
-     *
-     * <p>System tables are virtual tables accessed via {@code table$name} syntax.
-     * The coordinator routes the {@code $name} suffix to this method.</p>
-     *
-     * @param session         the current session context
-     * @param table           the base table handle
-     * @param systemTableName the system table name (e.g., "snapshots", "files", "manifests")
-     * @return the system table, or empty if the connector does not support this system table
+     * Declares a utility listing over a Native metadata relation. Unsupported
+     * kinds remain explicit; this never authorizes a read or supplies Java rows.
      */
+    default java.util.Optional<MetadataTableListing> getMetadataListing(
+            ConnectorSession session, MetadataTableKind requested) {
+        return java.util.Optional.empty();
+    }
+
+    /** Returns the legacy control-plane row SPI; SQL listings use Native bindings. */
     default java.util.Optional<ConnectorSystemTable> getSystemTable(
             ConnectorSession session, ConnectorTableHandle table, String systemTableName) {
         return java.util.Optional.empty();

@@ -9,8 +9,6 @@ import org.pangrova.parser.ast.statement.CreateBranchStatement;
 import org.pangrova.parser.ast.statement.CreateTagStatement;
 import org.pangrova.parser.ast.statement.DropBranchStatement;
 import org.pangrova.parser.ast.statement.DropTagStatement;
-import org.pangrova.parser.ast.statement.ShowBranchesStatement;
-import org.pangrova.parser.ast.statement.ShowTagsStatement;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
@@ -28,7 +26,7 @@ import java.util.List;
  * Executes branch and tag DDL statements by dispatching to connector-specific
  * implementations (Iceberg ManageSnapshots / Paimon native branch API).
  *
- * <p>Handles: CREATE/DROP BRANCH, CREATE/DROP TAG, SHOW BRANCHES/TAGS.
+ * <p>Handles: CREATE/DROP BRANCH and CREATE/DROP TAG.
  * Enforces ALTER privilege via RBAC before mutation operations.</p>
  */
 public final class BranchDdlExecutor {
@@ -166,32 +164,6 @@ public final class BranchDdlExecutor {
                 .putString("result", "TAG DROPPED")
                 .putString("table", tableRef.toString())
                 .putString("tag", stmt.tagName())
-                .build());
-    }
-
-    /** Returns a pointer row directing users to the branches system table. */
-    public List<TypedRow> executeShowBranches(ShowBranchesStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
-        ConnectorMetadata metadata = resolveMetadata(tableRef, session);
-        requireTableHandle(metadata, session, tableRef);
-
-        return List.of(TypedRow.builder()
-                .putString("table", tableRef.toString())
-                .putString("info", "Use SELECT * FROM " + tableRef + "$branches for branch listing")
-                .build());
-    }
-
-    /** Returns a pointer row directing users to the tags system table. */
-    public List<TypedRow> executeShowTags(ShowTagsStatement stmt, CoordinatorSessionContext context) {
-        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
-        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
-        ConnectorMetadata metadata = resolveMetadata(tableRef, session);
-        requireTableHandle(metadata, session, tableRef);
-
-        return List.of(TypedRow.builder()
-                .putString("table", tableRef.toString())
-                .putString("info", "Use SELECT * FROM " + tableRef + "$tags for tag listing")
                 .build());
     }
 

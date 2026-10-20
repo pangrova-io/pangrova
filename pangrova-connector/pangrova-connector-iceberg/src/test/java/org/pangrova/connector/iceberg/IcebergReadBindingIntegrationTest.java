@@ -186,6 +186,23 @@ class IcebergReadBindingIntegrationTest {
         }
     }
 
+    @Test
+    void nativeListingsMapReferenceKindsWithoutInventingNewSchemas() throws Exception {
+        try (var catalog = catalog()) {
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var tags = metadata.getMetadataListing(SESSION,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.TAGS).orElseThrow();
+            var branches = metadata.getMetadataListing(SESSION,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.BRANCHES).orElseThrow();
+            assertThat(tags.source()).isEqualTo(org.pangrova.spi.connector.metadata.MetadataTableKind.REFS);
+            assertThat(tags.equalityFilters()).containsExactlyEntriesOf(Map.of("type", "TAG"));
+            assertThat(branches.source()).isEqualTo(org.pangrova.spi.connector.metadata.MetadataTableKind.REFS);
+            assertThat(branches.equalityFilters()).containsExactlyEntriesOf(Map.of("type", "BRANCH"));
+            assertThat(metadata.getMetadataListing(SESSION,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.OPTIONS)).isEmpty();
+        }
+    }
+
     private HadoopCatalog catalog() {
         var catalog = new HadoopCatalog(new Configuration(), warehouse.toString());
         catalog.createNamespace(Namespace.of("db"));

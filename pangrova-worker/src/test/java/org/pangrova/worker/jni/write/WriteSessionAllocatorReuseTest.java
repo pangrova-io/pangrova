@@ -175,7 +175,7 @@ class WriteSessionAllocatorReuseTest {
     /** Counts catalog lookups without claiming to instrument allocator construction. */
     private static NativeWriteExecutor createResolutionCountingExecutor(
             List<Page> pageCollector, AtomicInteger resolutionCount) {
-        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId) -> {
             resolutionCount.incrementAndGet();
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) ->
@@ -188,7 +188,7 @@ class WriteSessionAllocatorReuseTest {
     }
 
     private static NativeWriteExecutor createExecutor(List<Page> pageCollector) {
-        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) ->
                     new CollectingPageSink(pageCollector);
@@ -228,7 +228,6 @@ class WriteSessionAllocatorReuseTest {
 
     private static WriteDescriptor descriptor(String tableName) {
         return new WriteDescriptor(
-                "test-catalog", "test-schema", tableName,
                 WriteDescriptor.DmlOperation.INSERT,
                 List.of(
                         new WriteDescriptor.ColumnSchema("id", "INTEGER"),

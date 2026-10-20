@@ -417,10 +417,7 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.CreateTagTask(branchExecutor));
         factory.registerTask(org.pangrova.parser.ast.statement.DropTagStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.DropTagTask(branchExecutor));
-        factory.registerTask(org.pangrova.parser.ast.statement.ShowBranchesStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.branch.ShowBranchesTask(branchExecutor));
-        factory.registerTask(org.pangrova.parser.ast.statement.ShowTagsStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.branch.ShowTagsTask(branchExecutor));
+
     }
 
     private static void registerStorageProfileTasks(

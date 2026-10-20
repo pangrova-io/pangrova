@@ -152,8 +152,15 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
             executeDdl("CREATE TABLE " + fqn() + " (id BIGINT)");
             executeDml("INSERT INTO " + fqn() + " VALUES (1)");
 
+            executeDdl("ALTER TABLE " + fqn() + " CREATE BRANCH audit_branch");
             List<TypedRow> rows = executeQuery("SHOW BRANCHES FROM " + fqn());
-            assertThat(rows).isNotNull();
+            assertThat(rows).extracting(row -> row.getString("name"))
+                    .containsExactlyInAnyOrder("main", "audit_branch");
+            assertThat(rows).allSatisfy(row -> {
+                assertThat(row.getString("type")).isEqualTo("BRANCH");
+                assertThat(row.getLong("snapshot_id")).isPositive();
+                assertThat(row.columnNames()).doesNotContain("info");
+            });
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -164,8 +171,14 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
             executeDdl("CREATE TABLE " + fqn() + " (id BIGINT)");
             executeDml("INSERT INTO " + fqn() + " VALUES (1)");
 
+            executeDdl("ALTER TABLE " + fqn() + " CREATE TAG release_tag");
             List<TypedRow> rows = executeQuery("SHOW TAGS FROM " + fqn());
-            assertThat(rows).isNotNull();
+            assertThat(rows).singleElement().satisfies(row -> {
+                assertThat(row.getString("name")).isEqualTo("release_tag");
+                assertThat(row.getString("type")).isEqualTo("TAG");
+                assertThat(row.getLong("snapshot_id")).isPositive();
+                assertThat(row.columnNames()).doesNotContain("info");
+            });
 
             executeDdl("DROP TABLE " + fqn());
         }

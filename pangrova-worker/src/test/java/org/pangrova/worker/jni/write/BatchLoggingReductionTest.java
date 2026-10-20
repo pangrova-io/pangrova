@@ -187,7 +187,7 @@ class BatchLoggingReductionTest {
     }
 
     private static NativeWriteExecutor createExecutor() {
-        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) ->
                     new NoOpPageSink();
@@ -200,7 +200,6 @@ class BatchLoggingReductionTest {
 
     private static WriteDescriptor descriptor(String tableName) {
         return new WriteDescriptor(
-                "test-catalog", "test-schema", tableName,
                 WriteDescriptor.DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new WriteDescriptor.ColumnSchema("name", "VARCHAR")),

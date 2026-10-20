@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
@@ -127,10 +129,12 @@ class QueryWriteReservationConcurrencyTest {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
             var proof = Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT), fixture.declaration()));
-            fixture.engine.ensureWriteContextRegistered(actor(), new DmlWriteContext("catalog.schema.documents", "OVERWRITE",
+            fixture.engine.ensureWriteContextRegistered(actor(), new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "OVERWRITE",
                     List.of("day=a", "region=b"), proof));
 
-            fixture.engine.ensureWriteContextRegistered(actor(), new DmlWriteContext("catalog.schema.documents", "OVERWRITE",
+            fixture.engine.ensureWriteContextRegistered(actor(), new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "OVERWRITE",
                     List.of("region=b", "day=a"), proof));
 
             assertThat(fixture.metadata.overwrites).isEqualTo(1);
@@ -139,7 +143,9 @@ class QueryWriteReservationConcurrencyTest {
     }
 
     private static DmlWriteContext context(SchedulingWriteFixture fixture, String mode, Map<String, String> partitions) {
-        return new DmlWriteContext("catalog.schema.documents", mode,
+        return new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"),
+                mode,
                 partitions.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue()).toList(),
                 Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT), fixture.declaration())));
     }

@@ -74,26 +74,6 @@ void addWriteFormatProperties(
       "targetFileSizeBytes", std::to_string(config.target_file_size));
 }
 
-// Parses "catalog.schema.table" into three parts.
-struct TableParts {
-  std::string catalog;
-  std::string schema;
-  std::string table;
-};
-
-TableParts parseTableName(const std::string& fqn) {
-  size_t dot1 = fqn.find('.');
-  size_t dot2 = fqn.find('.', dot1 + 1);
-  if (dot1 == std::string::npos || dot2 == std::string::npos ||
-      dot1 == 0 || dot2 == dot1 + 1 || dot2 + 1 >= fqn.size() ||
-      fqn.find('.', dot2 + 1) != std::string::npos) {
-    throw std::invalid_argument(
-        "Write target must be exactly catalog.schema.table: " + fqn);
-  }
-  return {fqn.substr(0, dot1), fqn.substr(dot1 + 1, dot2 - dot1 - 1),
-          fqn.substr(dot2 + 1)};
-}
-
 void addStaticPartitionProperties(
     const std::vector<std::string>& partition_spec,
     write::WriteDescriptor& descriptor) {
@@ -173,11 +153,9 @@ constexpr int kDrainLogBatchInterval = 1000;
 
 write::WriteDescriptor makeWriteDescriptor(const WriteConfigInfo& config,
                                            const std::string& taskId) {
-  const auto parts = parseTableName(config.target_table);
+  // Target identity comes from the task-bound output handle in the JVM. The
+  // display target must never be reparsed or used to choose connector resources.
   write::WriteDescriptor descriptor;
-  descriptor.catalogName = parts.catalog;
-  descriptor.schemaName = parts.schema;
-  descriptor.tableName = parts.table;
   descriptor.writeMode = mapWriteMode(config.write_mode);
   descriptor.properties.emplace_back("taskId", taskId);
   addStaticPartitionProperties(config.partition_spec, descriptor);

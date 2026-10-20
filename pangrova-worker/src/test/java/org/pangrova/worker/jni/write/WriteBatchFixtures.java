@@ -181,7 +181,7 @@ final class WriteBatchFixtures {
     }
 
     static WriteDescriptor descriptor(String... columns) {
-        return new WriteDescriptor("catalog", "schema", "table", WriteDescriptor.DmlOperation.INSERT,
+        return new WriteDescriptor(WriteDescriptor.DmlOperation.INSERT,
                 List.of(columns).stream().map(name -> new WriteDescriptor.ColumnSchema(name, "INTEGER")).toList(),
                 Map.of("taskId", "write-task"));
     }
@@ -190,7 +190,7 @@ final class WriteBatchFixtures {
         if (tableColumns.length == 0) {
             throw new IllegalArgumentException("tableColumns must describe the target table");
         }
-        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalog) ->
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId) ->
                 new CatalogResourceResolver.CatalogResources(
                 new TableMetadata(List.of(tableColumns)), (transaction, session, output) -> sink,
                 new WriteSession(), TestOutputHandles.outputHandle(), List.of(tableColumns))));

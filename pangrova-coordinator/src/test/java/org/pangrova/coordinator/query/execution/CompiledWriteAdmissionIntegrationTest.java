@@ -68,7 +68,7 @@ class CompiledWriteAdmissionIntegrationTest extends ContainerTestBase {
     }
 
     private static DmlWriteContext context(WritePolicyObservation compiled) {
-        return new DmlWriteContext(SchedulingWriteFixture.TABLE.toString(), "INSERT", List.of(), Optional.of(compiled));
+        return new DmlWriteContext(SchedulingWriteFixture.TABLE, "INSERT", List.of(), Optional.of(compiled));
     }
 
     private static CoordinatorSessionContext actor() {

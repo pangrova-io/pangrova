@@ -32,7 +32,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  *
  * <p>Native workers call this adapter via JNI to write data through Java connector page sink
  * implementations. Each write session is keyed by an opaque handle and backed by a {@link
- * ConnectorPageSink} resolved from the catalog name in the {@link WriteDescriptor}.
+ * ConnectorPageSink} resolved from the immutable connector resources already bound to the task.
  *
  * <p>Thread safety: uses {@link ConcurrentHashMap} for active sessions and {@link AtomicLong} for
  * handle generation. Individual sessions are accessed by the native operator and cleanup threads.
@@ -84,7 +84,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     /**
      * Creates a new adapter with the given catalog lookup function.
      *
-     * @param catalogLookup resolves catalog names to connector resources
+     * @param catalogLookup resolves task identifiers to their bound connector resources
      */
     public NativeWriteExecutor(CatalogResourceResolver catalogLookup) {
         this.catalogLookup = checkNotNull(catalogLookup, "catalogLookup");
@@ -104,18 +104,12 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     }
 
     private long openSession(WriteDescriptor descriptor, String taskId) {
-        String catalogName = descriptor.catalogName();
-        LOG.info(
-                "event=begin_write catalog={} schema={} table={} mode={}",
-                catalogName,
-                descriptor.schemaName(),
-                descriptor.tableName(),
-                descriptor.dmlOperation());
+        CatalogResourceResolver.CatalogResources resources = catalogLookup.resolve(taskId);
+        String catalogName = resources.session().getCatalog().orElseThrow(() ->
+                new IllegalStateException("Bound write session has no catalog identity"));
+        LOG.info("event=begin_write catalog={} mode={}", catalogName, descriptor.dmlOperation());
 
-        // Physical task-local ordinals are not connector-owned logical column names.
-        // Resolve them only against the output handle already verified for this task.
-        CatalogResourceResolver.CatalogResources resources =
-                catalogLookup.resolve(taskId, catalogName);
+        // Resolve physical ordinals only against the output handle verified for this task.
         boolean physicalColumns =
                 WritePageProjector.hasCanonicalPhysicalColumns(
                         descriptor.columns().stream()
@@ -140,12 +134,8 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         }
 
         LOG.info(
-                "event=write_session_created handle={} catalog={} table={}.{} columns={}",
-                handle,
-                catalogName,
-                descriptor.schemaName(),
-                descriptor.tableName(),
-                columnNames);
+                "event=write_session_created handle={} catalog={} columns={}",
+                handle, catalogName, columnNames);
         return handle;
     }
 

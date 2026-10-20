@@ -701,3 +701,42 @@ are collected. The full inventory retains 19 capabilities, 99 functions and 2
 models. Changed Java owners and the E2E leaf pass static verification, and the
 temporary inventory collection class is removed. Test-owned PostgreSQL/model
 containers are gone, with approximately 78 GiB disk free at completion.
+
+### Structured SHOW listings (2026-10-21)
+
+`ConnectorMetadata.getMetadataListing` declares a Native source kind and fixed
+string equality filters in an immutable `MetadataTableListing`. Iceberg maps
+TAGS/BRANCHES to `$refs` with the SDK's `type` values; Paimon maps them to its
+separate `$tags`/`$branches` relations. Other implemented SHOW kinds use the same
+contract; unsupported listings fail explicitly. This declaration contains no
+SQL or rows and does not grant authority or freeze table data itself.
+
+`StatementDispatchPhase` resolves the connector declaration using the current
+session and expands it into `MetadataTableQuery`. Compilation builds an AST
+directly from its name components and literal values, binds through the ordinary
+query-local schema and read bindings, applies base-table authorization and
+metadata policy eligibility, and only then optimizes and dispatches to Native.
+The context retains the original SHOW text for auditing. The expanded query
+does not pass through generated SQL or the data time-travel text extractor.
+The old ASCII-only string rewriter, both informational SHOW tasks, their
+production/test registrations, and the Branch DDL executor's pointer rows are
+removed. Branch/tag mutation handling remains with its DDL executor.
+
+The named-source tests also exposed a separate write admission defect: the
+compiled target was joined into a dotted string and later split again.
+`DmlWriteContext` now carries `QualifiedTableName` components through admission;
+empty components fail before dispatch. The physical output binding remains the
+write identity consumed by Native. The protocol's existing `target_table`
+string is still a display value for these physical sinks. The JNI write
+descriptor no longer carries catalog/schema/table strings: the Java writer
+resolves its immutable output handle by the exact task identifier. Native no
+longer reparses the display name to select a write target.
+
+Submission checkpoint: SPI passes 742 tests, Planner 1,475, and Coordinator
+3,329 before the subsequent write-identity correction. The SHOW SQL E2E batch
+passes 17 of 19 cases; the two quoted-name cases exposed write-admission,
+Iceberg local-path URI parsing, and JNI display-name parsing defects. Their
+root-cause fixes are included, but the final quoted-name rerun, matching JNI
+integration/ASan tests, and final regression are still pending at this checkpoint.
+Release and ASan native builds complete; a stale Worker test constructor found
+by compilation has been migrated to the new JNI descriptor contract.

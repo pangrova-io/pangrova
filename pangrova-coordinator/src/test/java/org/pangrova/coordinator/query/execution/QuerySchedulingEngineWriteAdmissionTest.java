@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -92,7 +94,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     void missingCompilationEvidenceDoesNotEvenObserveAuthorityOrAllocate() throws Exception {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
-            var uncompiled = new DmlWriteContext("catalog.schema.documents", "INSERT", List.of(), Optional.empty());
+            var uncompiled = new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "INSERT", List.of(), Optional.empty());
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(session("uncompiled"), uncompiled))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("compiled policy observations");
@@ -123,7 +126,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             fixture.installOrdinaryAuthority();
             var observation = new WritePolicyObservation(List.of(), Set.of(privilege), fixture.declaration());
             fixture.engine.ensureWriteContextRegistered(session("allocated"),
-                    new DmlWriteContext("catalog.schema.documents", mode, List.of(), Optional.of(observation)));
+                    new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), mode, List.of(), Optional.of(observation)));
 
             assertThat(fixture.observations).singleElement().satisfies(request -> {
                 assertThat(request.writeMode()).isEqualTo(mode);
@@ -149,7 +153,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     void staticOverwritePassesEveryExactPartitionBindingToTheConnector() throws Exception {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
-            var context = new DmlWriteContext("catalog.schema.documents", "OVERWRITE",
+            var context = new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "OVERWRITE",
                     List.of("region=eu=west", "day=2026-10-01", "empty="),
                     Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT), fixture.declaration())));
 
@@ -170,7 +175,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             var observation = fixture.compileProtectedInsert(actor);
             fixture.installOrdinaryAuthority();
 
-            fixture.engine.ensureWriteContextRegistered(actor, new DmlWriteContext("catalog.schema.documents", "INSERT",
+            fixture.engine.ensureWriteContextRegistered(actor, new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "INSERT",
                     List.of(), Optional.of(observation)));
 
             assertThat(fixture.observations).singleElement().satisfies(request -> {
@@ -194,7 +200,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
             fixture.metadata.failOverwrite = true;
-            var context = new DmlWriteContext("catalog.schema.documents", "DELETE", List.of(),
+            var context = new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "DELETE", List.of(),
                     Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.DELETE), fixture.declaration())));
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(session("failed-overwrite"), context))
@@ -228,7 +235,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             fixture.installOrdinaryAuthority();
             fixture.engine.ensureWriteContextRegistered(session("changed"), fixture.context());
             var original = fixture.tracker.peekWriteState("changed");
-            var changed = new DmlWriteContext("catalog.schema.documents", "DELETE", List.of(),
+            var changed = new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "DELETE", List.of(),
                     Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.DELETE), fixture.declaration())));
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(session("changed"), changed))
@@ -282,7 +290,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     void duplicateStaticPartitionNamesFailBeforeCallingTheConnector() throws Exception {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
-            var context = new DmlWriteContext("catalog.schema.documents", "OVERWRITE", List.of("day=a", "day=b"),
+            var context = new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "OVERWRITE", List.of("day=a", "day=b"),
                     Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT), fixture.declaration())));
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(session("duplicate-partition"), context))
@@ -297,11 +306,13 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     void writeModeRejectsUnknownAndLegacyAliasesBeforeDispatch() {
         for (String mode : List.of("INSERT", "OVERWRITE", "UPDATE", "DELETE", "MERGE")) {
             assertThatCode(() -> new DmlWriteContext(
-                    "catalog.schema.table", mode, List.of(), java.util.Optional.empty())).doesNotThrowAnyException();
+                    new QualifiedTableName("catalog", "schema", "table"),
+                    mode, List.of(), java.util.Optional.empty())).doesNotThrowAnyException();
         }
         for (String mode : List.of("APPEND", "UPSERT", "", "insert")) {
             assertThatThrownBy(() -> new DmlWriteContext(
-                    "catalog.schema.table", mode, List.of(), java.util.Optional.empty()))
+                    new QualifiedTableName("catalog", "schema", "table"),
+                    mode, List.of(), java.util.Optional.empty()))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Unsupported distributed write mode");
         }
@@ -312,7 +323,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         QuerySchedulingEngine engine = engine(null);
 
         assertThatThrownBy(() -> engine.ensureWriteContextRegistered(
-                session("query-1"), context("catalog.schema.table")))
+                session("query-1"), context(new QualifiedTableName("catalog", "schema", "table"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("commit tracker");
     }
@@ -324,7 +335,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
         assertThatThrownBy(() -> engine.ensureWriteContextRegistered(
                 new CoordinatorSessionContext("query-no-tenant", java.util.Map.of(), null, null),
-                context("catalog.schema.table")))
+                context(new QualifiedTableName("catalog", "schema", "table"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("resolved tenant");
     }
@@ -335,7 +346,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         engine.setWriteCommitTracker(new NativeWriteCommitTracker());
 
         assertThatThrownBy(() -> engine.ensureWriteContextRegistered(
-                session("query-2"), context("schema.table")))
+                session("query-2"), context(new QualifiedTableName("", "schema", "table"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("catalog.schema.table");
     }
@@ -346,7 +357,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         engine.setWriteCommitTracker(new NativeWriteCommitTracker());
 
         assertThatThrownBy(() -> engine.ensureWriteContextRegistered(
-                session("query-3"), context("catalog.schema.table")))
+                session("query-3"), context(new QualifiedTableName("catalog", "schema", "table"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("context registration failed")
                 .cause()
@@ -360,7 +371,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
                 "worker", 9000, "write-task", "arrow-flight");
         DispatchQueryContext writeContext = new DispatchQueryContext(
                 Map.of(), "INSERT INTO catalog.schema.table VALUES (1)", null)
-                .withDmlWriteContext(context("catalog.schema.table"));
+                .withDmlWriteContext(context(new QualifiedTableName("catalog", "schema", "table")));
 
         QuerySchedulingEngine.onTaskReady(write, writeContext, nativeEndpoint);
 
@@ -392,8 +403,9 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
                 null, null, null, null, catalogs, null, null, 0));
     }
 
-    private static DmlWriteContext context(String table) {
-        return new DmlWriteContext(table, "INSERT", List.of(), java.util.Optional.of(
+    private static DmlWriteContext context(QualifiedTableName table) {
+        return new DmlWriteContext(table,
+                "INSERT", List.of(), java.util.Optional.of(
                 new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT),
                         new org.pangrova.spi.coordination.WriteDeclarationSnapshot(SchedulingWriteFixture.TABLE,
                                 "a".repeat(64), "b".repeat(64), false))));
@@ -401,7 +413,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
     private static GeneratedWriteAuthoritySupplier.WriteAuthorityRequest requestForOtherTable(
             GeneratedWriteAuthoritySupplier.WriteAuthorityRequest request) {
-        var other = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "other");
+        var other = new QualifiedTableName("catalog", "schema", "other");
         var declaration = request.compiledDeclaration();
         return new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(other, request.session(), request.writeMode(),
                 request.observedReadPermissions(), request.requiredWritePrivileges(),

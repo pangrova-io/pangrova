@@ -79,7 +79,7 @@ public final class NativeWriteLifecycleFixture implements AutoCloseable {
                         .setWriteMode(operation.name()).setOutputBinding(binding))).build();
         executor.bindTask(taskId, request);
         tasks.add(taskId);
-        var bound = runtime.resolve(taskId, session.getCatalog().orElseThrow());
+        var bound = runtime.resolve(taskId);
         assertThat(bound.outputHandle()).isEqualTo(allocated);
         assertThat(bound.writeColumnNames()).containsExactlyElementsOf(
                 binding.getConnector().getOutputHandle().getWriteColumnNamesList());
@@ -89,8 +89,7 @@ public final class NativeWriteLifecycleFixture implements AutoCloseable {
                 .map(column -> new WriteDescriptor.ColumnSchema(column.name(),
                         java.util.Objects.requireNonNull(column.parameterizedType(), "actual declared type")
                                 .getDisplayName())).toList();
-        var descriptor = new WriteDescriptor(session.getCatalog().orElseThrow(), "default", table,
-                operation, columns, properties);
+        var descriptor = new WriteDescriptor(operation, columns, properties);
         Path tableLocation = location(((IcebergTableHandle) target).tableLocation());
         Set<Path> existingFiles = Set.copyOf(files(tableLocation));
         long handle = executor.beginWrite(descriptor);

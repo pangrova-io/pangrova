@@ -93,7 +93,6 @@ class NativeWriterRegistrationTest {
         assertThat(writer).isNotNull();
 
         var descriptor = new org.pangrova.worker.jni.write.WriteDescriptor(
-                "test_catalog", "test_schema", "test_table",
                 org.pangrova.worker.jni.write.WriteDescriptor.DmlOperation.INSERT,
                 List.of(new org.pangrova.worker.jni.write.WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new org.pangrova.worker.jni.write.WriteDescriptor.ColumnSchema("name", "VARCHAR")),
@@ -108,7 +107,7 @@ class NativeWriterRegistrationTest {
     }
 
     private static CatalogResourceResolver buildStubResolver() {
-        return new org.pangrova.worker.jni.write.TestCatalogResourceResolver((taskId, catalogName) -> {
+        return new org.pangrova.worker.jni.write.TestCatalogResourceResolver((taskId) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) -> new StubPageSink();
             ConnectorSession session = new StubSession();

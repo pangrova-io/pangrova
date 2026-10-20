@@ -193,13 +193,10 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     }
 
     @Override
-    public CatalogResources resolve(String taskId, String catalogName) {
+    public CatalogResources resolve(String taskId) {
         TaskBinding binding = taskBindings.get(taskId);
         if (binding == null) {
             throw new IllegalStateException("Task connector binding not found: " + taskId);
-        }
-        if (!binding.catalogName().equals(catalogName)) {
-            throw new IllegalStateException("Task connector catalog mismatch");
         }
         if (binding.resources() == null) {
             throw new IllegalStateException(

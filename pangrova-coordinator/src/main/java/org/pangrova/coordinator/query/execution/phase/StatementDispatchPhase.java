@@ -13,10 +13,23 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
     private static final org.slf4j.Logger LOG =
             org.slf4j.LoggerFactory.getLogger(StatementDispatchPhase.class);
 
+    @FunctionalInterface
+    public interface MetadataListingResolver {
+        org.pangrova.planner.MetadataTableQuery resolve(java.util.List<String> parts,
+                org.pangrova.spi.connector.metadata.MetadataTableKind kind,
+                org.pangrova.coordinator.query.session.CoordinatorSessionContext session);
+    }
+
     private final StatementDispatcher statementDispatcher;
+    private final MetadataListingResolver listingResolver;
 
     public StatementDispatchPhase(StatementDispatcher statementDispatcher) {
+        this(statementDispatcher, null);
+    }
+
+    public StatementDispatchPhase(StatementDispatcher statementDispatcher, MetadataListingResolver listingResolver) {
         this.statementDispatcher = statementDispatcher;
+        this.listingResolver = listingResolver;
     }
 
     @Override
@@ -32,10 +45,16 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
             // Preserve the existing dispatch fallback for SQL handled directly
             // by Calcite; CompilationPhase will report unsupported syntax.
         }
-        String rewritten = ShowMetadataSqlRewriter.rewrite(parsed);
-        if (rewritten != null) {
-            LOG.debug("event=show_metadata_rewritten queryId={}", context.session().queryId());
-            return new PhaseResult.Continue(context.withRewrittenSql(rewritten));
+        var metadataQuery = ShowMetadataQueryExpander.expand(parsed,
+                (name, kind) -> {
+                    if (listingResolver == null) {
+                        throw new IllegalStateException("SHOW metadata requires the query listing resolver");
+                    }
+                    return listingResolver.resolve(name, kind, context.session());
+                });
+        if (metadataQuery != null) {
+            LOG.debug("event=show_metadata_expanded queryId={}", context.session().queryId());
+            return new PhaseResult.Continue(context.withMetadataQuery(metadataQuery));
         }
         DispatchResult result = statementDispatcher.tryDispatch(
                 context.stateMachine(),
@@ -59,4 +78,5 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
     public String name() {
         return "statement-dispatch";
     }
+
 }

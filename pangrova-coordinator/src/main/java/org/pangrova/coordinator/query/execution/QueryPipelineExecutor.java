@@ -444,16 +444,37 @@ final class QueryPipelineExecutor {
                                                           DispatchQueryContext ctx) {
         return plan.dmlWriteTarget()
                 .map(target -> {
-                    String tableName = String.join(".", target.qualifiedTableName());
+                    var parts = target.qualifiedTableName();
+                    if (parts.size() != 3) {
+                        throw new IllegalArgumentException("Distributed write target requires three name components");
+                    }
+                    var tableName = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+                            parts.get(0), parts.get(1), parts.get(2));
                     return ctx.withDmlWriteContext(new DmlWriteContext(
                             tableName, target.operation().name(), List.of(), Optional.empty()));
                 })
                 .orElse(ctx);
     }
 
+    private org.pangrova.planner.MetadataTableQuery resolveMetadataListing(java.util.List<String> parts,
+            org.pangrova.spi.connector.metadata.MetadataTableKind kind, CoordinatorSessionContext context) {
+        if (catalogRegistry == null) {
+            throw new IllegalStateException("SHOW metadata requires the query catalog registry");
+        }
+        var table = org.pangrova.coordinator.query.statement.TableResolver.resolveTableRef(parts, context);
+        var session = org.pangrova.coordinator.query.statement.TableResolver.buildSession(
+                context, table.catalog(), table.schema());
+        var metadata = catalogRegistry.getCatalog(table.catalog()).getMetadata(session);
+        var listing = metadata.getMetadataListing(session, kind).orElseThrow(() ->
+                new org.pangrova.common.exception.PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                        "Catalog '" + table.catalog() + "' has no Native metadata listing for " + kind));
+        return new org.pangrova.planner.MetadataTableQuery(
+                List.of(table.catalog(), table.schema(), table.table()), listing);
+    }
+
     private List<QueryExecutionPhase> buildPipeline() {
         var phases = new ArrayList<QueryExecutionPhase>();
-        phases.add(new StatementDispatchPhase(statementDispatcher));
+        phases.add(new StatementDispatchPhase(statementDispatcher, this::resolveMetadataListing));
         phases.add(new CompilationPhase(
                 (plan, sess) -> securityPolicyApplier.applyPolicies(plan, sess),
                 this::extractTimeTravelFromSql,

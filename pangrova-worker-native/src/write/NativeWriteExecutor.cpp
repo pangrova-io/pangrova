@@ -188,8 +188,7 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
 
     descriptorCtor_ = env->GetMethodID(
         descriptorClass_, "<init>",
-        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;"
-        "Lorg/pangrova/worker/jni/write/WriteDescriptor$DmlOperation;"
+        "(Lorg/pangrova/worker/jni/write/WriteDescriptor$DmlOperation;"
         "Ljava/util/List;Ljava/util/Map;)V");
     if (!descriptorCtor_) {
       throw std::runtime_error(
@@ -449,13 +448,9 @@ int64_t NativeWriteExecutor::beginWrite(const WriteDescriptor& descriptor) {
   }
 
   // Construct Java WriteDescriptor record.
-  jstring jCatalog = toJstring(env, descriptor.catalogName);
-  jstring jSchema = toJstring(env, descriptor.schemaName);
-  jstring jTable = toJstring(env, descriptor.tableName);
-
   jobject jDesc = env->NewObject(
       descriptorClass_, descriptorCtor_,
-      jCatalog, jSchema, jTable, writeMode, columnList, propsMap);
+      writeMode, columnList, propsMap);
   checkJniException(env, "WriteDescriptor ctor");
 
   jlong handle = env->CallLongMethod(writer_, beginWriteId_, jDesc);

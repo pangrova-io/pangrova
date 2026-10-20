@@ -82,7 +82,9 @@ public final class CompilationPhase implements QueryExecutionPhase {
         var session = org.pangrova.coordinator.query.session.SessionContextConverter
                 .toConnectorSession(context.session());
         SqlCompiler extractionCompiler = snapshot.forSession(session);
-        TimeTravelResult ttResult = timeTravelExtractor.extract(context.sql(), extractionCompiler, context.session());
+        TimeTravelResult ttResult = context.metadataQuery() == null
+                ? timeTravelExtractor.extract(context.sql(), extractionCompiler, context.session())
+                : TimeTravelResult.passthrough(context.sql());
         SqlCompiler currentCompiler = ttResult.snapshotOverrides().isEmpty() ? extractionCompiler
                 : snapshot.forSession(org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors.bind(
                         session, ttResult.snapshotOverrides()));
@@ -91,7 +93,9 @@ public final class CompilationPhase implements QueryExecutionPhase {
 
         // Schema, name caches and statistics belong to this authenticated query.
         // Authorize and transform expressions before optimization; policy results must never be cached.
-        PlanResult planResult = currentCompiler.compileForPolicyApplication(ttResult.strippedSql());
+        PlanResult planResult = context.metadataQuery() == null
+                ? currentCompiler.compileForPolicyApplication(ttResult.strippedSql())
+                : currentCompiler.compileForPolicyApplication(context.metadataQuery());
         List<String> preOptNames = planResult.preOptimizationColumnNames();
         PlannedQuery plannedQuery = planResult.toPlannedQuery();
 

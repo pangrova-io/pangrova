@@ -169,7 +169,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
     }
 
     DmlWriteContext context() {
-        return new DmlWriteContext(TABLE.toString(), "INSERT", List.of(),
+        return new DmlWriteContext(TABLE, "INSERT", List.of(),
                 Optional.of(new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT), declaration())));
     }
 

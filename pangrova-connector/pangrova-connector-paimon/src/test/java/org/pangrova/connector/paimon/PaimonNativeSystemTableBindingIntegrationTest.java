@@ -47,6 +47,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Real SDK metadata objects are pinned as Native splits without Coordinator row materialization. */
 @Execution(ExecutionMode.SAME_THREAD)
 class PaimonNativeSystemTableBindingIntegrationTest {
+    @Test
+    void listingsUseThePaimonTagAndBranchSchemas() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            for (var kind : List.of(org.pangrova.spi.connector.metadata.MetadataTableKind.TAGS,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.BRANCHES)) {
+                var listing = metadata.getMetadataListing(SESSION, kind).orElseThrow();
+                assertThat(listing.source()).isEqualTo(kind);
+                assertThat(listing.equalityFilters()).isEmpty();
+            }
+            assertThat(metadata.getMetadataListing(SESSION,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.FILES)).isEmpty();
+        }
+    }
     @TempDir
     Path warehouse;
 

@@ -25,9 +25,6 @@ namespace pangrova::write {
 
 // C++ mirror of Java WriteDescriptor — passed to beginWrite().
 struct WriteDescriptor {
-  std::string catalogName;
-  std::string schemaName;
-  std::string tableName;
   int32_t writeMode;  // 0=INSERT, 1=OVERWRITE, 2=DELETE
   std::vector<std::pair<std::string, std::string>> columns;  // (name, type)
   std::vector<std::pair<std::string, std::string>> properties;  // (key, value)

@@ -187,7 +187,7 @@ class NativeWriteExecutorTest extends NativeWriteLifecycleTestBase {
     }
 
     private static WriteDescriptor descriptor(Map<String, String> properties) {
-        return new WriteDescriptor(CATALOG, SCHEMA, "orders", WriteDescriptor.DmlOperation.INSERT,
+        return new WriteDescriptor(WriteDescriptor.DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")), properties);
     }
 }

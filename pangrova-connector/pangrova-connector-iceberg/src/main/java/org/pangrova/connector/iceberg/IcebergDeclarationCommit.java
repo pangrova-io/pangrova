@@ -37,10 +37,11 @@ final class IcebergDeclarationCommit {
     }
 
     private static boolean local(String location) {
+        // SDK locations may be raw absolute paths, including spaces and quotes.
+        if (location.startsWith("/")) return true;
         URI uri = URI.create(location);
-        return uri.getScheme() == null ? location.startsWith("/")
-                : "file".equalsIgnoreCase(uri.getScheme()) && uri.getAuthority() == null
-                        && uri.getPath() != null && uri.getPath().startsWith("/");
+        return "file".equalsIgnoreCase(uri.getScheme()) && uri.getAuthority() == null
+                && uri.getPath() != null && uri.getPath().startsWith("/");
     }
 
     private static ConnectorException unsupported(String detail) {

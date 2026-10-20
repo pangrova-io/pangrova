@@ -180,11 +180,10 @@ final class QuerySchedulingEngine {
             throw new IllegalStateException(
                     "Distributed write requires a catalog registry to create its commit context");
         }
-        String targetTable = dmlCtx.targetTable();
-        String[] parts = parseWriteTarget(targetTable);
-        String catalog = parts[0];
-        String schema = parts[1];
-        String table = parts[2];
+        var targetTable = dmlCtx.targetTable();
+        String catalog = targetTable.catalog();
+        String schema = targetTable.schema();
+        String table = targetTable.table();
         try {
             var allocationIntent = new WriteAllocationIntent(dmlCtx.writeMode(),
                     staticPartitionBindings(dmlCtx.partitionSpec()));
@@ -284,15 +283,6 @@ final class QuerySchedulingEngine {
                 definitions, generatedWriteAuthoritySupplier);
     }
 
-    private static String[] parseWriteTarget(String targetTable) {
-        String[] parts = targetTable.split("\\.");
-        if (parts.length != 3) {
-            throw new IllegalArgumentException(
-                    "Distributed write target must be catalog.schema.table: " + targetTable);
-        }
-        return parts;
-    }
-
     private static ConnectorOutputTableHandle beginWrite(
             ConnectorMetadata metadata, ConnectorSession session,
             ConnectorTableHandle table, DmlWriteContext context) {
@@ -344,7 +334,7 @@ final class QuerySchedulingEngine {
                 ctx.runtimeFilterDescriptors(), dag, session.queryId());
 
         WriteConfig writeConfig = ctx.dmlWriteContext()
-                .map(d -> new WriteConfig(d.targetTable(), d.writeMode(),
+                .map(d -> new WriteConfig(d.targetTable().toString(), d.writeMode(),
                         d.partitionSpec(), writeFileFormat(session.queryId()), 0,
                         connectorWriteBinding(session.queryId())))
                 .orElse(null);

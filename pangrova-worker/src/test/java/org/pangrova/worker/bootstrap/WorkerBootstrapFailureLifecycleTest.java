@@ -52,7 +52,7 @@ class WorkerBootstrapFailureLifecycleTest {
 
     private record ClosingCatalogResolver(AtomicInteger closeCount)
             implements CatalogResourceResolver, AutoCloseable {
-        @Override public CatalogResources resolve(String taskId, String catalogName) {
+        @Override public CatalogResources resolve(String taskId) {
             throw new UnsupportedOperationException();
         }
         @Override public void bindTask(String taskId, org.pangrova.protocol.v2.TaskRequest request) {

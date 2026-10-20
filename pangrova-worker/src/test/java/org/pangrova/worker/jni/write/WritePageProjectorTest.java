@@ -202,7 +202,7 @@ class WritePageProjectorTest {
     @Test
     void canonicalDescriptorMetadataFailureIsNotConvertedToPositionalWrite() {
         try (NativeWriteExecutor writer = new NativeWriteExecutor(
-                new TestCatalogResourceResolver((taskId, catalog) -> {
+                new TestCatalogResourceResolver((taskId) -> {
             throw new IllegalStateException("catalog metadata unavailable");
         }))) {
             assertThatThrownBy(() -> writer.beginWrite(descriptor(physicalAlias(0))))

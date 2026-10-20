@@ -2422,12 +2422,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         // Branch/Tag SHOW queries
         var branchDeps = new org.pangrova.coordinator.ai.branch.BranchDdlContext(
                 metadataBootstrap.catalogRegistry(), null);
-        var branchExecutor = new org.pangrova.coordinator.ai.branch.BranchDdlExecutor(branchDeps);
-        tasks.put(org.pangrova.parser.ast.statement.ShowBranchesStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.branch.ShowBranchesTask(branchExecutor));
-        tasks.put(org.pangrova.parser.ast.statement.ShowTagsStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.branch.ShowTagsTask(branchExecutor));
-        var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
+        var branchExecutor = new org.pangrova.coordinator.ai.branch.BranchDdlExecutor(branchDeps);        var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
         if (featureAccessControl != null) {
             var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
                     sharedArtifactBuildStore,

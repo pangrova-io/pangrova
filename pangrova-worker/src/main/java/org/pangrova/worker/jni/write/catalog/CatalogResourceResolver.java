@@ -20,15 +20,8 @@ import java.util.List;
  */
 public interface CatalogResourceResolver {
 
-    /**
-     * Resolves the given catalog name to its connector resources.
-     *
-     * @param catalogName the catalog to resolve
-     * @return connector resources for the catalog, never null
-     * @throws org.pangrova.common.exception.PangrovaException if the catalog
-     *         is not found or is suspended
-     */
-    CatalogResources resolve(String taskId, String catalogName);
+    /** Resolves the exact resources already bound to this task; callers cannot choose a catalog or table. */
+    CatalogResources resolve(String taskId);
 
     /** Validates and binds all connector resources required by a task. */
     void bindTask(String taskId, TaskRequest request);

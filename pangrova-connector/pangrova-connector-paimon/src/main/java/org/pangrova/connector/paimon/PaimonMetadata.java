@@ -12,6 +12,8 @@ import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.MetadataTableKind;
+import org.pangrova.spi.connector.metadata.MetadataTableListing;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
@@ -359,6 +361,14 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     public String getCatalogName() {
         return catalogName;
+    }
+
+    @Override
+    public Optional<MetadataTableListing> getMetadataListing(ConnectorSession session, MetadataTableKind requested) {
+        return switch (requested) {
+            case SNAPSHOTS, TAGS, BRANCHES, OPTIONS, SCHEMAS -> Optional.of(new MetadataTableListing(requested));
+            default -> Optional.empty();
+        };
     }
 
     @Override

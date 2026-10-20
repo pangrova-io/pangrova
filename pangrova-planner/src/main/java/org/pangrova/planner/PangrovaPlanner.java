@@ -195,6 +195,16 @@ public final class PangrovaPlanner {
                 mergeOnReadHints, rewrite.physicalToLogical());
     }
 
+    /** Binds an expanded Native metadata listing without optimizing before authorization. */
+    public PlanResult planForPolicyApplication(MetadataTableQuery query) {
+        SqlValidator validator = buildValidator();
+        SqlNode validated = validate(validator, parserFactory.convertAstToSqlNode(query.toAst()));
+        RelNode relation = convert(validator, buildCluster(), validated);
+        Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
+        verifyMetadataVersions(pinnedVersions);
+        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of());
+    }
+
     /** Optimizes only after authorization and policies; mutations retain their physical target until COW. */
     PlannedQuery optimizeProtectedQuery(PlannedQuery query) {
         if (containsMutation(query.plan())) {

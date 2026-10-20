@@ -4,15 +4,15 @@ import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
 
 import org.pangrova.protocol.v2.TaskRequest;
 
-import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /** Explicitly task-scoped resolver used only by Worker unit tests. */
 public final class TestCatalogResourceResolver implements CatalogResourceResolver {
 
-    private final BiFunction<String, String, CatalogResources> resolver;
+    private final Function<String, CatalogResources> resolver;
 
     public TestCatalogResourceResolver(
-            BiFunction<String, String, CatalogResources> resolver) {
+            Function<String, CatalogResources> resolver) {
         this.resolver = resolver;
     }
 
@@ -22,8 +22,8 @@ public final class TestCatalogResourceResolver implements CatalogResourceResolve
     }
 
     @Override
-    public CatalogResources resolve(String taskId, String catalogName) {
-        return resolver.apply(taskId, catalogName);
+    public CatalogResources resolve(String taskId) {
+        return resolver.apply(taskId);
     }
 
     @Override

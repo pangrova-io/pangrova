@@ -11,6 +11,8 @@ import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.MetadataTableKind;
+import org.pangrova.spi.connector.metadata.MetadataTableListing;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
 import org.pangrova.spi.connector.metadata.SnapshotReference;
@@ -231,6 +233,17 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         }
         return IcebergTableStatisticsReader.read(
                 catalogTables, (IcebergTableHandle) table, session, pinManager, exceptionClassifier);
+    }
+
+    @Override
+    public Optional<MetadataTableListing> getMetadataListing(ConnectorSession session, MetadataTableKind requested) {
+        return switch (requested) {
+            case TAGS -> Optional.of(new MetadataTableListing(MetadataTableKind.REFS, Map.of("type", "TAG")));
+            case BRANCHES -> Optional.of(new MetadataTableListing(MetadataTableKind.REFS, Map.of("type", "BRANCH")));
+            case SNAPSHOTS, HISTORY, REFS, MANIFESTS, FILES, ENTRIES ->
+                    Optional.of(new MetadataTableListing(requested));
+            default -> Optional.empty();
+        };
     }
 
     @Override

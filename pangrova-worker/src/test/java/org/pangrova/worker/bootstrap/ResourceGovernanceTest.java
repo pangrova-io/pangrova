@@ -211,7 +211,7 @@ class ResourceGovernanceTest {
                 null, null, null, null);
         workerBootstrap = new WorkerBootstrap(TestShuffleServiceConfig.config(config));
         workerBootstrap.setCatalogResourceResolver(new TestCatalogResourceResolver(
-                (taskId, catalogName) -> {
+                (taskId) -> {
                     throw new AssertionError("Resource governance test must not resolve a catalog");
                 }));
         workerBootstrap.start();

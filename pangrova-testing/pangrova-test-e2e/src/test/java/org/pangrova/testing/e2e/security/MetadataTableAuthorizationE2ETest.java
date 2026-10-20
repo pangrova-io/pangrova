@@ -34,6 +34,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
     private String catalog;
     private List<String> suffixes;
     private final java.util.Map<String, Long> metadataCounts = new java.util.LinkedHashMap<>();
+    private final java.util.Map<String, Integer> showCounts = new java.util.LinkedHashMap<>();
     private PersistentRoleStore roles;
     private PersistentGrantStore grants;
     private PersistentRowPolicyStore policies;
@@ -61,6 +62,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
         policies = null;
         masks = null;
         metadataCounts.clear();
+        showCounts.clear();
         table = "orders_" + UUID.randomUUID().toString().replace("-", "");
         qualified = catalog + "." + SCHEMA + "." + table;
         sqlRunner.executeDdl("CREATE TABLE " + qualified + " (id BIGINT, region VARCHAR"
@@ -72,6 +74,9 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
                     .get(0).getLong("n"));
         }
         assertThat(metadataCounts.get("snapshots")).isPositive();
+        for (String kind : showKinds()) {
+            showCounts.put(kind, sqlRunner.execute("SHOW " + kind + " FROM " + qualified).size());
+        }
         roles = new PersistentRoleStore(stateStoreDataSource());
         roles.initSchema();
         role = "metadata_reader_" + UUID.randomUUID();
@@ -175,6 +180,14 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
             assertThat(sqlRunner.execute("SELECT COUNT(*) AS n FROM " + qualified + "$" + suffix))
                     .singleElement().satisfies(row -> assertThat(row.getLong("n")).isEqualTo(metadataCounts.get(suffix)));
         }
+        for (String kind : showKinds()) {
+            assertThat(sqlRunner.execute("SHOW " + kind + " FROM " + qualified)).hasSize(showCounts.get(kind));
+        }
+    }
+
+    private List<String> showKinds() {
+        return catalog.equals(ICEBERG) ? List.of("SNAPSHOTS", "FILES", "MANIFESTS", "TAGS", "BRANCHES")
+                : List.of("SNAPSHOTS", "TAGS", "BRANCHES");
     }
 
     private void assertPolicyBlocksMetadata() {
@@ -183,8 +196,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
                     .message()).as("base policy protects metadata suffix %s", suffix)
                     .contains("SECURITY-0002", "Unfiltered table metadata");
         }
-        for (String kind : catalog.equals(ICEBERG) ? List.of("SNAPSHOTS", "FILES", "MANIFESTS")
-                : List.of("SNAPSHOTS")) {
+        for (String kind : showKinds()) {
             assertThat(sqlRunner.executeExpectingError("SHOW " + kind + " FROM " + qualified).message())
                     .as("base policy protects SHOW %s", kind)
                     .contains("SECURITY-0002", "Unfiltered table metadata");
@@ -195,6 +207,10 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
         for (String suffix : suffixes) {
             assertThat(sqlRunner.executeExpectingError("SELECT COUNT(*) AS n FROM " + qualified + "$" + suffix)
                     .message()).as("metadata suffix %s", suffix).contains("SECURITY-0002");
+        }
+        for (String kind : showKinds()) {
+            assertThat(sqlRunner.executeExpectingError("SHOW " + kind + " FROM " + qualified).message())
+                    .as("metadata SHOW %s requires current base SELECT", kind).contains("SECURITY-0002");
         }
     }
 }

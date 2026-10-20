@@ -165,7 +165,7 @@ class MemoryPoolAssemblyVerificationTest {
 
     private static WorkerBootstrap configuredBootstrap(WorkerBootstrapConfig config) {
         WorkerBootstrap worker = new WorkerBootstrap(TestShuffleServiceConfig.config(config));
-        worker.setCatalogResourceResolver(new TestCatalogResourceResolver((taskId, catalogName) -> {
+        worker.setCatalogResourceResolver(new TestCatalogResourceResolver((taskId) -> {
             throw new AssertionError("Memory pool assembly must not resolve a catalog");
         }));
         return worker;

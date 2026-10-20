@@ -145,6 +145,11 @@ public class SqlCompiler {
         return planningPlanner().planForPolicyApplication(sql);
     }
 
+    /** Binds an expanded metadata listing before any security-sensitive optimization. */
+    public PlanResult compileForPolicyApplication(MetadataTableQuery query) {
+        return planningPlanner().planForPolicyApplication(query);
+    }
+
     /** Continues the same query-local compilation after its policies have been applied. */
     public PlannedQuery optimizeProtectedQuery(PlannedQuery query) {
         return planningPlanner().optimizeProtectedQuery(query);
