@@ -5,6 +5,10 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 派生关系阶段提交（尚未完成验收）：**新增实验性 `ConnectorDerivedQuery` / `ConnectorDerivedTableHandle`：连接器声明只读 SQL 和具备精确 schema 的冻结输入，Planner 在封闭别名作用域编译，保留物理来源及原始 read binding，并在授权前展开。拒绝递归、输出类型漂移、非查询定义和丢弃全部冻结来源的定义；仅接入前置机制，尚无生产连接器发布该 handle，不能据此宣称 `$partitions` 已实现。SPI 所属模块 **747/747 PASS**；调整子查询展开顺序后，Planner 受影响关联/分片/TPC-H/TPC-DS/Substrait 检查 **104/104 PASS**，最终来源保护类 **9/9 PASS**，对应静态检查通过。真实 PostgreSQL/plugin/Paimon SDK/Calcite/split 集成 **1/1 PASS**，验证提交新快照后旧绑定保持不变；这不是 Native 派生关系 E2E。消费者 reactor 无测试安装通过。
+
+授权前的结构展开同时暴露表达式中的子查询输入。新加真实 HTTP/JDBC/Native 安全 E2E **2 项中 1 项通过、1 项 error**：内层 SELECT 授权和撤销通过；相关 `EXISTS` 叠加行过滤时报 `Unsupported correlated subquery: $cor1`，其后的掩码断言尚未执行。失败测试完整保留，当前提交是按用户要求保存的阶段进度，**不是生产级验收通过**。证据为 `/tmp/pangrova-derived-query-{spi-owner,correlation-r4,source-guard-r5,coordinator-integration-r3,e2e-consumer-build}-20261021.log`、`/tmp/pangrova-subquery-authorization-real-e2e-20261021.log` 及独立 suffix 的 Surefire 报告。下一步先修复该相关子查询/策略组合并仅补跑受影响范围；17 类本机检查点计数不变。
+
 **2026-10-21 sanitizer 根因修复与同批启动验收：**函数类型诊断定位为 LLVM 17 Mach-O function sanitizer 前缀元数据可被链接器与真实函数分离，与 [LLVM 官方修复 c23135c](https://github.com/llvm/llvm-project/commit/c23135c5488fbfaf6439433a10b3ddef33ff112c)一致。`e912fd21` 提供 20 个源输入 SHA 固定的私有 SDK 构建器；保留系统 SDK，实际加载私有 LLVM，并验证正常调用、故意错误函数调用及故意内存越界三项校准。用该修复编译 Folly 后，原写入/TLS 复现 **2/2**，其余去重增量 **68/68**，本批 Native ASan 滚动 **70/70**。两次独立完整日志均无函数类型诊断、无 ASan 内存错误；ASan 与 Release 的 23 项导出符号一致。其余整数诊断保留：哈希模运算、Futex 全位掩码，以及扩面发现的 DistributedMutex 56 位时间戳截断/最大值 sentinel。新增真实 Folly 函数的 128 位独立算术与反函数 oracle **100,962 个输入通过**，没有算法改写或 sanitizer 抑制。当前 4,190 项发现清单下的 70 项增量不冒充完整工具链全量，#6 仍保留最终整体验收。证据 `/tmp/pangrova-llvm-prefix-native-{first-two,remaining-evidence}-20261021.json`、`/tmp/pangrova-folly-integer-intent-{build,run}-20261021.log`；方案见 [Darwin function sanitizer qualification](../../development/darwin-function-sanitizer.md)。
 
 HTTP 绑定与 fixture 配置修复后的完整启动/SQL/实际写入/NULL 语义冒烟 **3/3 PASS**，无跳过，证据 `/tmp/pangrova-http-bind-activation-e2e-20261021.json`。本批容器与 broker 已退出，磁盘剩约 75 GiB。分支参数、工具配置、HTTP 绑定及 LLVM 根因已分功能提交到唯一分支；**17 类本机检查点仍需余下功能闭合或最终回归**。

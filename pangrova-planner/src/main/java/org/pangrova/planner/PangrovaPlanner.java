@@ -415,9 +415,12 @@ public final class PangrovaPlanner {
                     StandardConvertletTable.INSTANCE,
                     PlannerViewExpander.converterConfig());
             RelNode rel = converter.convertQuery(validated, false, true).rel;
+            rel = DecorrelationSupport.safeDecorrelate(rel);
+            rel = SubqueryRelationalExpansion.expand(rel);
+            rel = DerivedQueryExpansion.expand(rel, parserFactory, catalogReader, operatorTable);
             return InlineInsertValuesNormalizer.normalize(
                     org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(
-                            DecorrelationSupport.safeDecorrelate(rel), validated, operatorTable));
+                            rel, validated, operatorTable));
         } catch (Exception e) {
             throw new PlannerException(
                     PangrovaErrorCode.PLANNER_OPTIMIZATION_FAILURE,
