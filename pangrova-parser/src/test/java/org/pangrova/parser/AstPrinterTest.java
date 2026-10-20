@@ -196,6 +196,11 @@ class AstPrinterTest {
         assertRoundTrip("SELECT * FROM t VERSION AS OF TAG 'v1.0'");
     }
 
+    @Test
+    void quotedStructFieldsRoundTripWithSpacesQuotesAndReservedWords() {
+        assertRoundTrip("SELECT ROW(\"Spec ID\" => id, \"snap\"\"id\" => 1, \"select\" => NULL) FROM t");
+    }
+
     // ── Helper: parse → print → parse round-trip ──
 
     private void assertRoundTrip(String sql) {

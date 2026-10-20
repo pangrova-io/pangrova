@@ -12,6 +12,7 @@ Functions for constructing and accessing [STRUCT](../../data-types/complex/struc
 ```sql
 STRUCT(field_name => value, ...)
 ROW(value1, value2, ...)
+ROW(field_name => value, ...)
 ```
 
 ```sql
@@ -36,6 +37,8 @@ SELECT address.city, address.zip FROM contacts;
 
 - STRUCT fields are accessed via dot notation
 - Inserting `ROW(...)` into a named STRUCT column binds values to fields by their declared order.
-- ROW produces positional fields referenced by ordinal
+- Both constructor names accept named and positional fields. Named fields retain their names through aggregation and subqueries.
+- Quote field names containing spaces or quotes; double an embedded quote, as in `ROW("snap""id" => snapshot_id)`.
+- Unnamed fields use their positional names, such as `"EXPR$0"`. Duplicate declared names are rejected.
 
 **See Also:** [STRUCT data type](../../data-types/complex/struct.md)

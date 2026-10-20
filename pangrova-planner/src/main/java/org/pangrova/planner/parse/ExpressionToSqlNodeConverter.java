@@ -349,7 +349,7 @@ final class ExpressionToSqlNodeConverter {
             thenNodes.add(convert(wc.result()));
         }
         SqlNode elseNode = ce.elseResult().map(this::convert).orElse(SqlLiteral.createNull(POS));
-        return new SqlCase(POS, value,
+        return SqlCase.createSwitched(POS, value,
                 new SqlNodeList(whenNodes, POS), new SqlNodeList(thenNodes, POS), elseNode);
     }
 
@@ -424,7 +424,12 @@ final class ExpressionToSqlNodeConverter {
         SqlNode[] operands = struct.fields().stream()
                 .map(f -> convert(f.value()))
                 .toArray(SqlNode[]::new);
-        return SqlStdOperatorTable.ROW.createCall(POS, operands);
+        if (struct.fields().stream().noneMatch(field -> field.name().isPresent())) {
+            return SqlStdOperatorTable.ROW.createCall(POS, operands);
+        }
+        var names = java.util.stream.IntStream.range(0, struct.fields().size())
+                .mapToObj(i -> struct.fields().get(i).name().orElse("EXPR$" + i)).toList();
+        return new NamedStructSqlOperator(names).createCall(POS, operands);
     }
 
     private SqlNode convertSubscript(SubscriptExpression sub) {

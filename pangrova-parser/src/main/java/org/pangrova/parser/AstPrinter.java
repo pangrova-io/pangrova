@@ -378,7 +378,7 @@ public final class AstPrinter {
     private String printStructConstructor(StructConstructor struct) {
         String fields = struct.fields().stream()
                 .map(f -> f.name()
-                        .map(n -> n + " => " + printExpr(f.value()))
+                        .map(n -> quote(n) + " => " + printExpr(f.value()))
                         .orElseGet(() -> printExpr(f.value())))
                 .collect(Collectors.joining(", "));
         return "ROW(" + fields + ")";

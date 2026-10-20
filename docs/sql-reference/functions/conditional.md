@@ -47,6 +47,11 @@ FROM prod.analytics.orders;
 
 ---
 
+A simple CASE compares its operand with each WHEN value using SQL equality.
+NULL does not match NULL in a simple CASE; use a searched `WHEN value IS NULL`
+branch to handle it. Without a matching branch, CASE returns ELSE, or NULL when
+ELSE is omitted.
+
 ## COALESCE
 
 ```sql

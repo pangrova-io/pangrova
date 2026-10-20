@@ -355,7 +355,7 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     private StructConstructor.Field buildStructField(PangrovaSqlParser.NamedFieldContext ctx) {
         if (ctx instanceof PangrovaSqlParser.NamedFieldWithNameContext named) {
-            String fieldName = named.identifier().getText();
+            String fieldName = parent.extractIdentifierText(named.identifier());
             Expression value = (Expression) visit(named.expression());
             return StructConstructor.Field.named(fieldName, value);
         }
