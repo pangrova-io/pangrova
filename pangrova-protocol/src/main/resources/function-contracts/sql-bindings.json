@@ -148,6 +148,8 @@
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"count","implementation":"count","kind":"AGGREGATE","operators":["COUNT"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"min","implementation":"min","kind":"AGGREGATE","operators":["MIN"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"max","implementation":"max","kind":"AGGREGATE","operators":["MAX"]},
+    {"namespace":"aggregate","canonicalUrn":"extension:org.pangrova:functions_aggregate","name":"max_by","implementation":"max_by","kind":"AGGREGATE","operators":["ARG_MAX"],"sqlNames":["MAX_BY","ARG_MAX"]},
+    {"namespace":"aggregate","canonicalUrn":"extension:org.pangrova:functions_aggregate","name":"min_by","implementation":"min_by","kind":"AGGREGATE","operators":["ARG_MIN"],"sqlNames":["MIN_BY","ARG_MIN"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"avg","implementation":"avg","kind":"AGGREGATE","operators":["AVG"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"stddev_pop","implementation":"stddev_pop","kind":"AGGREGATE","operators":["STDDEV_POP"]},
     {"namespace":"aggregate","canonicalUrn":"extension:io.substrait:functions_aggregate_generic","name":"stddev_samp","implementation":"stddev_samp","kind":"AGGREGATE","operators":["STDDEV_SAMP"]},

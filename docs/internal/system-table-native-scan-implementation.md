@@ -878,3 +878,31 @@ functionality regression remains pending.
 Other evidence: `/tmp/pangrova-branch-options-real-e2e-20261021.json`,
 `/tmp/pangrova-branch-options-{iceberg,paimon}-owner-20261021.json`, and
 `/tmp/pangrova-branch-options-e2e-static-20261021.log`.
+
+
+### Whole-record selection aggregate prerequisite
+
+`MAX_BY`/`MIN_BY` and their `ARG_MAX`/`ARG_MIN` aliases now use Calcite's
+selection aggregate operators and the existing Native implementations. Their
+shared bindings use the engine extension URN rather than claiming a standard
+Substrait aggregate declaration. Selecting `ROW(spec_id, snapshot_id)` keeps
+both fields from one record at the extremal key; independent maxima would mix
+records. NULL keys are ignored, selected NULL values remain NULL, and ties may
+choose any matching complete record. Partial/final execution retains these
+semantics.
+
+Planner rolling validation covers 1,496 cases: the owner run's single old
+catalogue-digest error was repaired by recapturing the actual exporter catalogue
+and rerunning only that method. Protocol owner/static validation passes 447/447;
+real Iceberg scan SQL/JNI passes 6/6. Two new Native cases execute 16 task plans
+in Release, and the matching ASan cohort passes 6/6 including four registration
+checks. The ASan log contains four previously audited Folly unsigned-integer
+hash diagnostics, with no memory or function-type error. Current discovery has
+4,194 Native cases; a final full run remains pending. Actual Worker publication
+retains 19 capabilities, 101 functions and two models; the exporter publishes
+9 capabilities and 85 functions. See the capability fixture README for hashes.
+Evidence is `/tmp/pangrova-selection-aggregate-qualified-20261021.json`.
+
+This change does not expose `$partitions`. The provider still needs canonical
+snapshot timestamp input, SDK partition-presence grouping semantics, and the
+floating-point grouping boundary matrix before it can be accepted.

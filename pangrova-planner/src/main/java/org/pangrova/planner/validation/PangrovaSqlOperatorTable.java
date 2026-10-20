@@ -81,6 +81,8 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
         addArrayAndVectorFunctions(ops);
         addStringFunctions(ops);
         ops.add(new RoundSqlFunction());
+        ops.add(org.apache.calcite.sql.fun.SqlLibraryOperators.MAX_BY);
+        ops.add(org.apache.calcite.sql.fun.SqlLibraryOperators.MIN_BY);
         addCatalogAndMaintenanceFunctions(ops);
         addDdlDmlFunctions(ops);
         addAiAndFileFunctions(ops);

@@ -5,6 +5,8 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 整行选择聚合前置：**`MAX_BY`/`MIN_BY` 及 `ARG_MAX`/`ARG_MIN` 已从 Calcite 标准算子，经共享函数声明和 Pangrova 扩展 URN，接到真实 Native 注册；不新增第二套聚合实现。真实 Iceberg 表扫描 SQL/JNI **6/6 PASS**，覆盖同一完整记录、NULL 键/值、空输入、同键记录与复合键。Native 新增两个组件测试涵盖 16 次 single/partial→final 执行：Release **2/2 PASS**，匹配 ASan 连同注册绑定邻接测试 **6/6 PASS**，无内存或函数类型错误；日志另有 4 条已核对的 Folly Hash 无符号整数诊断，不称 UBSan 零诊断。Planner 首轮所属模块 1,496 项中仅 1 项因旧 exporter fixture 摘要 error；重采实际清单后只补跑该方法 **1/1 PASS**，滚动结果 **1,496/1,496**。Protocol 所属模块及静态 **447/447 PASS**，E2E 叶模块静态通过。实际 JNI 清单完整保留 **19 能力 / 101 函数 / 2 模型**；exporter 为 **9 / 85 / 0**，临时采集测试已移除。证据 `/tmp/pangrova-selection-aggregate-qualified-20261021.json`。Native 现发现 **4,194 项**；这是 `$partitions` 最新记录配对的前置能力，其生产 provider、规范 snapshot 输入及分区键边界仍待完成，**17 类本机检查点不变**。
+
 **2026-10-21 冻结的嵌套 entries 输入：**`$entries` 现按 SDK 声明四个顶层 lineage 字段和嵌套 `data_file`，贯通 content、spec、分区、记录数/大小、已有 map/array 与 first-row-id 投影；标准 `sequence_number` 表示 data sequence，移除自造的扁平 alias 和旧 Java entries 行物化实现。文件/entry 绑定统一使用同一次选定的 SDK `TableMetadata`。并发 spec 改名在 manifest-list I/O 中发生时，原实现把旧对象图配上新字段名的错误已通过确定性测试复现；静态 SDK view 修复后，Iceberg 所属模块及静态 **443/443 PASS**。这只是当前支持字段的 SDK 嵌套投影；其他 metrics、readable_metrics、DV 定位列、`$partitions` 聚合和历史/跨文件系统矩阵仍待完成。
 
 Native Release 和匹配 ASan 定向先各 **22/22**，两组逐名相同。收尾补齐共享 renderer 的 kind 边界后，只复验改动的普通 `$files` 不接受未声明 `first_row_id` 的用例，Release/ASan 各 **1/1**；这是 22 项滚动覆盖。完整日志保留且无 ASan 内存错误、无函数类型诊断。最初 ASan 22 项日志的 **66 条**可选整数诊断及最后单项同来源的 2 条，全部位于已核对的 `Hash.h:163/167` 及新扩面的 `SpookyHashV2.h:131`，未改算法或抑制检查；实际 Rot64 与独立 128 位乘法/模运算/除法 oracle 的 **4,141,053 次旋转**一致，跟踪的 standalone control 以 address/undefined 检查通过，只运行新增 rotations 模式。不能将本轮称为 UBSan 零诊断。Native 新发现 **4,192 项**，最终全量仍待功能闭合。
