@@ -47,3 +47,24 @@ harness's packaged JNI library and runtime initialization; its temporary capture
 test was removed afterward. The fixture qualifies inventory validation against
 this library. It does not qualify artifact execution, model invocation, or
 end-to-end SQL.
+
+## Recapturing the complete JNI inventory
+
+After rebuilding and packaging the matching Native library, install its Java
+consumer chain and run the ordinary packaged handshake E2E. It validates the
+complete inventory before optionally exporting the unmodified message. The
+output path must be absolute. Use the existing local model fixture prerequisites
+and a FILE capability key so the deployed model and FILE descriptors are retained:
+
+```bash
+export PANGROVA_E2E_FILE_CAPABILITY_KEY="$(openssl rand -base64 32)"
+mvn -q -pl pangrova-testing/pangrova-test-e2e -Pfull-regression \
+  -Dtest=NativeCapabilityHandshakeE2ETest \
+  -Dpangrova.e2e.ai.image-id="${PANGROVA_E2E_AI_IMAGE_ID:?set the verified local model image digest}" \
+  -Dpangrova.e2e.native-inventory-output="$PWD/pangrova-protocol/src/test/resources/capability-contracts/actual-native-capability-inventory.bin" \
+  test
+```
+
+The separate cache-disabled fixture is still produced by the matching
+`pangrova_function_export --catalogue`. Record the two actual hashes and counts,
+then run the affected protocol contracts; an export is not a test result.

@@ -598,6 +598,7 @@ export PANGROVA_DEPS_PREFIX="DEPS_PREFIX_VAL"
 export VELOX_HOME="VELOX_DIR_VAL"
 export VELOX_BUILD_DIR="VELOX_DIR_VAL/_build/release"
 export VELOX_INSTALL_PREFIX="VELOX_DIR_VAL"
+export BOOST_ROOT="VELOX_DIR_VAL/deps-install"
 LLVM_ENV
 
 # System dependency isolation — blocks /opt/local (MacPorts) and /opt/homebrew

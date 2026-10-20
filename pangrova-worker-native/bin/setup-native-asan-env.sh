@@ -123,6 +123,11 @@ configure_asan_velox() {
   # never add its native-deps prefix: Protobuf and Abseil must remain ASan-only.
   velox_prefix_path="$ASAN_PREFIX;$VELOX_HOME/deps-install"
   velox_platform_args=()
+  if [[ -n "${PANGROVA_ASAN_FOLLY_PREFIX:-}" ]]; then
+    local folly_config="$PANGROVA_ASAN_FOLLY_PREFIX/lib/cmake/folly"
+    [[ -f "$folly_config/folly-config.cmake" ]] || die "ASan Folly package is missing: $folly_config"
+    velox_platform_args+=("-Dfolly_DIR:PATH=$folly_config")
+  fi
   if [[ "$(uname -s)" == "Darwin" ]]; then
     velox_prefix_path+=";$PANGROVA_HOME/homebrew"
     velox_platform_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")

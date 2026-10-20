@@ -143,7 +143,7 @@ prior_blobs=(\
   650df1062c638a358291060fc634c2ace82af533
   f8d7e9600c182955a9b13fff2845348072c4d28b
   26ca432896b1aa049be643062d49cb65994964b2
-  cc7fb2e3b4dca0ec23bd494a563d7a4207dfe196
+  83cae6bb0ae927c80c90f10b2a95a88df33102cc
   ae843dcab73e3918ef9f8820c979b238710b2f61
   2585c367f6da90bc4bb232da48fa31da0da3ab85
   be770ab32470268a7d803becd4a6b6d1324dca25
@@ -163,7 +163,7 @@ prior_blobs=(\
   a6e95694650c79e7b958a976d16d5bb5eb6ec24a
   c4c1ee246cfe80d2623c921cc5db2e31ec594c5b
   04b2d3c87f9dfeb3fe665bef1e45fe74f766bf82
-  fa940a7814a1f8bfe47c2908465365e91230035c
+  4c8e176bc60b57d53a73240caebe5045e5cd5aac
   41b70e6439f91a902327b5d0ea73928e4b38b30b
   9e18aaffe2654d1b7fcb9eff2114c6e15d343739
   559a593f1cc977e4ef8d5ea71235f16863fc0a7c
@@ -191,24 +191,24 @@ prior_blobs=(\
   7350defbf51d7a9f82caa3061230c823a7f52f59
   a1f6c07696510b4b7d303a39fe29a26ed0a979ff
   7d380506175f1622ccb293e9d0a759e0cfc43f23
-  3dda9eb39327e594d537ff9b3dbe1c094056e36e
-  a538fa6570f0dfb74aa28831a9f7900866ee71d8
+  584687f931f432ecfce3a080b70d7cb1b6f184e1
+  27ca5c805461591bb7d0618c471b213c0ffefe71
   7ab49db75e49f73ca4d2b7ba39f1f2180684cfe3
   bd763da3678e28d0a0ed4970fdd20ee7e412c827
   a1955e70aa55d5b641a432fec0f504bd3b867042
   1175121782d19a2dc5fabfa3625de2db0c989543
   3a2b866cf71205f9fb0c994db7dcc6d39365bce4
-  aded94e0fb4ca19fab31ce8e9c819cf61cfa60d6
-  044a510e848c7587c74215dcd45ad355ef0a25d6
-  1ec85678924b640fc18cd83c015c799bdc1ed4fa
-  1122218c3600f0976b6f0d82de7f693227ba53a9
-  4adea534887b43e4a12f74b1f08647eba42d8e07)
+  c910e8dde2fda95285767e4ff4d2d9012fc345a2
+  7020e357610a2c91b42c0308afc65e47c756b6b0
+  6e8bc195e5bfaf39af9a9151d6dd1c796dece931
+  a73329db62f250a96866865bce653bc8a373b8d7
+  24150367534e6636e7cb56dcd23cca44b1188e21)
 patched_blobs=(\
   08c31f1bd17085dd98c8a986ff046a660b6893db
   650df1062c638a358291060fc634c2ace82af533
   f8d7e9600c182955a9b13fff2845348072c4d28b
   26ca432896b1aa049be643062d49cb65994964b2
-  83cae6bb0ae927c80c90f10b2a95a88df33102cc
+  92fb113e97222aa5fc31c59443d8486652d78604
   ae843dcab73e3918ef9f8820c979b238710b2f61
   2585c367f6da90bc4bb232da48fa31da0da3ab85
   be770ab32470268a7d803becd4a6b6d1324dca25
@@ -320,203 +320,57 @@ verify_source() {
 }
 
 prior_upgrade_patch() {
-  # Upgrade only the independently verified complete task-owned source checkpoint.
+  # Upgrade only the complete, reviewed source checkpoint immediately preceding
+  # the precision-aware Arrow TIME bridge. Reject partial or unknown drift.
   cat <<'PANGROVA_PRIOR_UPGRADE'
-diff --git a/velox/expression/CMakeLists.txt b/velox/expression/CMakeLists.txt
-index fa940a7..4c8e176 100644
---- a/velox/expression/CMakeLists.txt
-+++ b/velox/expression/CMakeLists.txt
-@@ -148,0 +149,6 @@ set(PANGROVA_FUNCTION_SELECTION_DECLARATION "" CACHE FILEPATH "Canonical executi
-+set(PANGROVA_FUNCTION_SDK_PATCH_FILE "" CACHE FILEPATH "Canonical reviewed SDK source patch")
-+if(NOT EXISTS "${PANGROVA_FUNCTION_SDK_PATCH_FILE}" OR IS_DIRECTORY "${PANGROVA_FUNCTION_SDK_PATCH_FILE}")
-+  message(FATAL_ERROR "The owned function registry requires its actual canonical SDK patch input")
-+endif()
-+file(SHA256 "${PANGROVA_FUNCTION_SDK_PATCH_FILE}" pangrova_sdk_patch_sha256)
-+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PANGROVA_FUNCTION_SDK_PATCH_FILE}")
-@@ -179,0 +186,3 @@ endif()
-+set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/FunctionRegistryIdentity.cpp"
-+  TARGET_DIRECTORY "${pangrova_expression_target}" APPEND PROPERTY COMPILE_DEFINITIONS
-+  "PANGROVA_FUNCTION_SDK_PATCH_SHA256=\"${pangrova_sdk_patch_sha256}\"")
-diff --git a/velox/expression/FunctionRegistryIdentity.cpp b/velox/expression/FunctionRegistryIdentity.cpp
-index 3dda9eb..584687f 100644
---- a/velox/expression/FunctionRegistryIdentity.cpp
-+++ b/velox/expression/FunctionRegistryIdentity.cpp
-@@ -3,0 +4,4 @@
-+#ifndef PANGROVA_FUNCTION_SDK_PATCH_SHA256
-+#error "The actual SDK build must supply its canonical patch identity"
-+#endif
-+
-@@ -7,0 +12,4 @@ std::string_view functionContractGenerationSha256() {
-+
-+std::string_view functionContractSdkPatchSha256() {
-+  return PANGROVA_FUNCTION_SDK_PATCH_SHA256;
-+}
-diff --git a/velox/expression/FunctionRegistryIdentity.h b/velox/expression/FunctionRegistryIdentity.h
-index a538fa6..27ca5c8 100644
---- a/velox/expression/FunctionRegistryIdentity.h
-+++ b/velox/expression/FunctionRegistryIdentity.h
-@@ -8,0 +9,2 @@ std::string_view functionContractGenerationSha256();
-+// Read from the compiled SDK object, not from a source-side proof file.
-+std::string_view functionContractSdkPatchSha256();
-diff --git a/scripts/setup-macos.sh b/scripts/setup-macos.sh
-index aded94e..c910e8d 100755
---- a/scripts/setup-macos.sh
-+++ b/scripts/setup-macos.sh
-@@ -138,0 +139,24 @@ function install_adapters {
-+function cxx_supports_diagnostic_option {
-+  local compiler="$1"
-+  local option="$2"
-+  if ! command -v "$compiler" >/dev/null; then
-+    echo "C++ compiler is unavailable: $compiler" >&2
-+    return 2
-+  fi
-+  if ! printf 'int main() { return 0; }\n' | "$compiler" -x c++ -fsyntax-only - >/dev/null; then
-+    echo "C++ compiler cannot compile the option probe: $compiler" >&2
-+    return 2
-+  fi
-+  if printf 'int main() { return 0; }\n' | "$compiler" -x c++ -fsyntax-only \
-+      -Werror=unknown-warning-option "$option" - >/dev/null 2>&1; then
-+    return 0
-+  else
-+    local status=$?
-+    if [[ "$status" != 1 ]]; then
-+      echo "C++ compiler option probe failed with status $status: $compiler" >&2
-+      return 2
-+    fi
-+    return 1
-+  fi
-+}
-+
-@@ -140,4 +164,5 @@ function install_duckdb_clang {
--  clang_major_version=$(echo | clang -dM -E - | grep __clang_major__ | awk '{print $3}')
--  # Clang17 requires this. See issue #13215.
--  if [ "${clang_major_version}" -ge 17 ]; then
--    EXTRA_PKG_CXXFLAGS=" -Wno-missing-template-arg-list-after-template-kw" install_duckdb
-+  local compiler="${CXX:-c++}"
-+  local option="-Wno-missing-template-arg-list-after-template-kw"
-+  local extra_flags="${EXTRA_PKG_CXXFLAGS:-}"
-+  if cxx_supports_diagnostic_option "$compiler" "$option"; then
-+    extra_flags+=" $option"
-@@ -145 +170,2 @@ function install_duckdb_clang {
--    install_duckdb
-+    local status=$?
-+    [[ "$status" == 1 ]] || return "$status"
-@@ -146,0 +173 @@ function install_duckdb_clang {
-+  CXX="$compiler" EXTRA_PKG_CXXFLAGS="$extra_flags" install_duckdb
-diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
-index cc7fb2e..83cae6b 100644
 --- a/velox/vector/arrow/Bridge.cpp
 +++ b/velox/vector/arrow/Bridge.cpp
-@@ -1652,0 +1653,9 @@ void exportToArrow(
-+  const bool dictionary = vec->encoding() == VectorEncoding::Simple::DICTIONARY;
-+  const bool constant = vec->encoding() == VectorEncoding::Simple::CONSTANT;
-+  if (!vec->isScalar() && ((dictionary && options.flattenDictionary) ||
-+                           (constant && options.flattenConstant))) {
-+    const auto& values = vec->valueVector();
-+    VELOX_CHECK_NOT_NULL(values, "A complex encoded schema requires its backing vector");
-+    exportToArrow(BaseVector::loadedVectorShared(values), arrowSchema, options);
-+    return;
+@@ -311,0 +312,3 @@
++      if (type->equivalent(*TIME_MICRO_UTC())) {
++        return "ttu"; // microseconds since midnight, stored in int64_t.
++      }
+@@ -314,3 +317 @@
+-        // TIME is stored as milliseconds since midnight in Velox.
+-        // Export as Arrow time32 with milliseconds unit.
+-        return "ttm";
++        return "ttm"; // milliseconds since midnight, exported as int32_t.
+@@ -796,7 +797,3 @@
+-  // - Velox's Timestamp representation (2x 64bit values) does not have an
+-  // equivalent in Arrow.
+-  // - Velox's TIME is in milliseconds, Arrow time64 is in microseconds.
+-  bool isTime = type->isTime();
+-  if (isTime) {
+-    VELOX_DCHECK(type->equivalent(*TIME()));
+-  }
++  // Timestamp needs layout conversion. Millisecond TIME narrows int64_t to
++  // Arrow time32; microsecond TIME already has Arrow time64's exact layout.
++  const bool narrowsTime = type->equivalent(*TIME());
+@@ -804,5 +801,3 @@
+-    // Short decimal is zero-copy.
+-    return !type->isTimestamp() && !isTime;
+-  }
+-  // Short decimal requires conversion.
+-  return !type->isShortDecimal() && !type->isTimestamp() && !isTime;
++    return !type->isTimestamp() && !narrowsTime;
 +  }
-diff --git a/velox/exec/AggregateInfo.cpp b/velox/exec/AggregateInfo.cpp
-index 044a510..7020e35 100644
---- a/velox/exec/AggregateInfo.cpp
-+++ b/velox/exec/AggregateInfo.cpp
-@@ -21,0 +22 @@
-+#include "velox/expression/FunctionRegistrySnapshot.h"
-@@ -37,0 +39,23 @@ std::vector<core::LambdaTypedExprPtr> extractLambdaInputs(
-+
-+void applyAggregateMetadata(
-+    AggregateInfo& info,
-+    const core::AggregationNode::Aggregate& aggregate,
-+    const RowTypePtr& inputType,
-+    const core::QueryConfig& config) {
-+  const auto& registry = config.functionRegistrySnapshot();
-+  const auto& name = aggregate.call->name();
-+  const auto owned = registry ? registry->aggregate(name) : nullptr;
-+  VELOX_USER_CHECK(!registry || owned,
-+      "Aggregate not present in owned registry snapshot: {}", name);
-+  const auto& metadata = owned ? owned->metadata : getAggregateFunctionMetadata(name);
-+  info.distinct = !metadata.ignoreDuplicates && aggregate.distinct;
-+  if (metadata.orderSensitive) {
-+    const auto numSortingKeys = aggregate.sortingKeys.size();
-+    VELOX_CHECK_EQ(numSortingKeys, aggregate.sortingOrders.size());
-+    info.sortingOrders = aggregate.sortingOrders;
-+    info.sortingKeys.reserve(numSortingKeys);
-+    for (const auto& key : aggregate.sortingKeys) {
-+      info.sortingKeys.push_back(exprToChannel(key.get(), inputType));
-+    }
-+  }
-+}
-@@ -86,2 +110,2 @@ std::vector<AggregateInfo> toAggregateInfo(
--    info.intermediateType =
--        resolveIntermediateType(name, aggregate.rawInputTypes);
-+    info.intermediateType = resolveIntermediateType(
-+        name, aggregate.rawInputTypes, operatorCtx.driverCtx()->queryConfig());
-@@ -122,17 +146,2 @@ std::vector<AggregateInfo> toAggregateInfo(
--    // 1. Ignore duplicates property
--    //    if aggregate function is not sensitive to duplicates.
--    // 2. Ignore sorting properties
--    //    if aggregate function is not sensitive to the order of inputs.
--    auto* entry = getAggregateFunctionEntry(name);
--    const auto& metadata = entry->metadata;
--    info.distinct = !metadata.ignoreDuplicates && aggregate.distinct;
--    if (metadata.orderSensitive) {
--      // Sorting keys and orders.
--      const auto numSortingKeys = aggregate.sortingKeys.size();
--      VELOX_CHECK_EQ(numSortingKeys, aggregate.sortingOrders.size());
--      info.sortingOrders = aggregate.sortingOrders;
--      info.sortingKeys.reserve(numSortingKeys);
--      for (const auto& key : aggregate.sortingKeys) {
--        info.sortingKeys.push_back(exprToChannel(key.get(), inputType));
--      }
--    }
-+    applyAggregateMetadata(info, aggregate, inputType,
-+        operatorCtx.driverCtx()->queryConfig());
-diff --git a/velox/exec/ColumnStatsCollector.cpp b/velox/exec/ColumnStatsCollector.cpp
-index 1ec8567..6e8bc19 100644
---- a/velox/exec/ColumnStatsCollector.cpp
-+++ b/velox/exec/ColumnStatsCollector.cpp
-@@ -103 +103 @@ std::vector<AggregateInfo> ColumnStatsCollector::createAggregates(
--        aggregate.call->name(), aggregate.rawInputTypes);
-+        aggregate.call->name(), aggregate.rawInputTypes, *queryConfig_);
-diff --git a/velox/exec/AggregateFunctionRegistry.cpp b/velox/exec/AggregateFunctionRegistry.cpp
-index 1122218..a73329d 100644
---- a/velox/exec/AggregateFunctionRegistry.cpp
-+++ b/velox/exec/AggregateFunctionRegistry.cpp
-@@ -18,0 +19,2 @@
-+#include "velox/core/QueryConfig.h"
-+#include "velox/expression/FunctionRegistrySnapshot.h"
-@@ -96,0 +99,14 @@ TypePtr resolveIntermediateType(
-+TypePtr resolveIntermediateType(
-+    const std::string& name,
-+    const std::vector<TypePtr>& argTypes,
-+    const core::QueryConfig& config) {
-+  if (const auto& registry = config.functionRegistrySnapshot()) {
-+    const auto bound = registry->bindAggregate(name, argTypes);
-+    VELOX_USER_CHECK(bound.has_value(),
-+        "Aggregate signature not present in owned registry snapshot: {}",
-+        toString(name, argTypes));
-+    return bound->intermediateType;
-+  }
-+  return resolveIntermediateType(name, argTypes);
-+}
-+
-diff --git a/velox/exec/AggregateFunctionRegistry.h b/velox/exec/AggregateFunctionRegistry.h
-index 4adea53..2415036 100644
---- a/velox/exec/AggregateFunctionRegistry.h
-+++ b/velox/exec/AggregateFunctionRegistry.h
-@@ -22,0 +23,4 @@
-+namespace facebook::velox::core {
-+class QueryConfig;
-+}
-+
-@@ -58,0 +63,6 @@ TypePtr resolveIntermediateType(
-+/// Resolves from the query-owned registration when one is supplied or required.
-+TypePtr resolveIntermediateType(
-+    const std::string& name,
-+    const std::vector<TypePtr>& argTypes,
-+    const core::QueryConfig& config);
-+
++  return !type->isShortDecimal() && !type->isTimestamp() && !narrowsTime;
+@@ -818,3 +813 @@
+-  } else if (type->isTime()) {
+-    VELOX_DCHECK(type->equivalent(*TIME()));
+-    // TIME is exported as Arrow time32 (int32_t).
++  } else if (type->equivalent(*TIME())) {
+@@ -853,2 +846 @@
+-  } else if (type->kind() == TypeKind::BIGINT && type->isTime()) {
+-    VELOX_DCHECK(type->equivalent(*TIME()));
++  } else if (type->equivalent(*TIME())) {
+@@ -1563,0 +1556,3 @@
++        if (format[2] == 'u') {
++          return TIME_MICRO_UTC();
++        }
+@@ -2443,2 +2438 @@
+-  } else if (type->isTime()) {
+-    VELOX_DCHECK(type->equivalent(*TIME()));
++  } else if (type->equivalent(*TIME())) {
 PANGROVA_PRIOR_UPGRADE
 }
 

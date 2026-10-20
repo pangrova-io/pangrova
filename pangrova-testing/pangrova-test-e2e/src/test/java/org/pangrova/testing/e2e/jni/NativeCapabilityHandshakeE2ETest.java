@@ -2,6 +2,7 @@ package org.pangrova.testing.e2e.jni;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.CapabilityResponse;
@@ -12,6 +13,8 @@ import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.pangrova.worker.jni.NativeRuntime;
 
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -65,6 +68,15 @@ class NativeCapabilityHandshakeE2ETest extends SqlE2ETestBase {
         assertThat(inventory.getSupportedRelationTypeUrlsList()).containsExactly(
                 "type.googleapis.com/pangrova.protocol.v2.RelationDetailEnvelope");
         assertThat(inventory.getCandidateSchemaVersion()).isEqualTo(2);
+        CapabilityInventoryCodec.validate(inventory);
+        String output = System.getProperty("pangrova.e2e.native-inventory-output");
+        if (output != null) {
+            Path destination = Path.of(output);
+            if (!destination.isAbsolute()) {
+                throw new IllegalArgumentException("Native inventory output must be an absolute path");
+            }
+            Files.write(destination, inventory.toByteArray());
+        }
     }
 
 }
