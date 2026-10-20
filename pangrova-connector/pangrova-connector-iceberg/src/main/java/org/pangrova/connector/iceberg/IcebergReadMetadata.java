@@ -23,7 +23,6 @@ import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -32,10 +31,6 @@ import java.util.concurrent.ScheduledExecutorService;
 
 /** Sole connector read SPI implementation; write and index lifecycles share these actual owners. */
 abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRegistry {
-    private static final Set<String> SUPPORTED_FILES_COLUMNS = Set.of(
-            "content", "file_path", "file_format", "spec_id",
-            "record_count", "file_size_in_bytes", "column_sizes", "split_offsets",
-            "equality_ids", "sort_order_id");
     protected final IcebergCatalogTables catalogTables;
     protected final IcebergSnapshotPinManager pinManager;
     protected final IcebergNativeIndexEvaluator nativeIndexEvaluator = new IcebergNativeIndexEvaluator();
@@ -251,10 +246,8 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         if (table instanceof IcebergFileTableHandle) {
             IcebergFileTableHandle files = (IcebergFileTableHandle) table;
             for (String column : projectedColumns) {
-                boolean supported = files.entries()
-                        ? files.typedColumns().stream()
-                                .anyMatch(typed -> typed.name().equalsIgnoreCase(column))
-                        : SUPPORTED_FILES_COLUMNS.contains(column.toLowerCase(Locale.ROOT));
+                boolean supported = files.typedColumns().stream()
+                        .anyMatch(typed -> typed.name().equalsIgnoreCase(column));
                 if (!supported) {
                     throw new UnsupportedOperationException(
                             "Iceberg " + (files.entries() ? "$entries" : "$files")

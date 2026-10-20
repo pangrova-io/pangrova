@@ -1,4 +1,5 @@
 #include "velox/connector/IcebergManifestEntryReader.h"
+#include "velox/connector/IcebergPartitionProjection.h"
 
 #include <algorithm>
 #include <charconv>
@@ -256,6 +257,7 @@ struct FileRow {
   int64_t fileSequenceNumber = 0;
   int32_t status = 0;
   std::optional<int64_t> firstRowId;
+  folly::dynamic partition{nullptr};
 };
 
 template <typename T>
@@ -330,7 +332,7 @@ facebook::velox::VectorPtr mapColumn(const std::vector<FileRow>& rows,
 }
 
 FileRow decodeLiveEntry(const folly::dynamic& entry,
-    int32_t specId, int32_t manifestContent) {
+    int32_t specId, int32_t manifestContent, bool readPartition) {
   if (!entry.isObject() || !entry.count("data_file") ||
       !entry["data_file"].isObject()) {
     throw std::runtime_error("Invalid Iceberg manifest entry");
@@ -359,11 +361,13 @@ FileRow decodeLiveEntry(const folly::dynamic& entry,
       (content != 2 && equalityIds)) {
     throw std::runtime_error("Iceberg equality IDs disagree with file content");
   }
-  return {content, requiredText(file, "file_path"),
+  FileRow result{content, requiredText(file, "file_path"),
       requiredText(file, "file_format"), specId, recordCount, fileSize,
       optionalColumnSizes(file), std::move(splitOffsets),
       std::move(equalityIds), optionalSortOrderId(file),
       0, 0, 0, 0, std::nullopt};
+  if (readPartition && file.count("partition")) result.partition = file["partition"];
+  return result;
 }
 
 }  // namespace
@@ -375,7 +379,8 @@ IcebergManifestEntryReader::IcebergManifestEntryReader(
     uint64_t snapshotId, uint64_t sequenceNumber, int32_t formatVersion,
     int32_t specId, int32_t manifestContent,
     facebook::velox::RowTypePtr outputType,
-    facebook::velox::memory::MemoryPool* pool, bool entries)
+    facebook::velox::memory::MemoryPool* pool, bool entries,
+    const std::vector<split::IcebergManifestPartitionSpec>& partitionSpecs)
     : spec_id_(specId), manifest_content_(manifestContent),
       format_version_(formatVersion), entries_(entries),
       snapshot_sequence_number_(static_cast<int64_t>(sequenceNumber)),
@@ -401,7 +406,16 @@ IcebergManifestEntryReader::IcebergManifestEntryReader(
     throw std::runtime_error("Pinned Iceberg child manifest header differs");
   }
   validateOutputSchema();
+  if (!entries_ && output_type_->containsChild("partition")) {
+    const auto& fileSchema = nonNullAvroSchema(avroField(child_->writerSchema(), "data_file", 2));
+    const auto& partitionSchema = nonNullAvroSchema(avroField(fileSchema, "partition", 102));
+    partition_projection_ = std::make_unique<IcebergPartitionProjection>(
+        partitionSchema, specId, partitionSpecs,
+        std::dynamic_pointer_cast<const facebook::velox::RowType>(output_type_->findChild("partition")));
+  }
 }
+
+IcebergManifestEntryReader::~IcebergManifestEntryReader() = default;
 
 void IcebergManifestEntryReader::validateOutputSchema() const {
   using facebook::velox::TypeKind;
@@ -420,7 +434,8 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
       }
       continue;
     }
-    const auto expected = name == "column_sizes" ? TypeKind::MAP
+    const auto expected = name == "partition" ? TypeKind::ROW
+        : name == "column_sizes" ? TypeKind::MAP
         : name == "split_offsets" || name == "equality_ids"
         ? TypeKind::ARRAY : name == "content" || name == "spec_id" ||
             name == "sort_order_id"
@@ -431,7 +446,7 @@ void IcebergManifestEntryReader::validateOutputSchema() const {
             name != "file_format" && name != "spec_id" &&
             name != "record_count" && name != "file_size_in_bytes" &&
             name != "column_sizes" && name != "split_offsets" && name != "equality_ids" &&
-            name != "sort_order_id") ||
+            name != "sort_order_id" && name != "partition") ||
         !names.insert(name).second || output_type_->childAt(index)->kind() != expected) {
       throw std::runtime_error("Unsupported Iceberg $files output column: " + name);
     }
@@ -463,7 +478,7 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
       throw std::runtime_error("Invalid Iceberg manifest entry status");
     }
     if (status != 2 || entries_) {
-      auto file = decodeLiveEntry(*record, spec_id_, manifest_content_);
+      auto file = decodeLiveEntry(*record, spec_id_, manifest_content_, partition_projection_ != nullptr);
       if (entries_) {
         file.status = status;
         if (!record->count("snapshot_id") || !record->count("sequence_number") ||
@@ -522,6 +537,13 @@ facebook::velox::RowVectorPtr IcebergManifestEntryReader::next(uint64_t maxRows)
   for (size_t column = 0; column < output_type_->size(); ++column) {
     const auto& name = output_type_->nameOf(column);
     const auto type = output_type_->childAt(column);
+    if (name == "partition") {
+      std::vector<const folly::dynamic*> partitions;
+      partitions.reserve(rows.size());
+      for (const auto& row : rows) partitions.push_back(&row.partition);
+      columns.push_back(partition_projection_->project(partitions, pool_));
+      continue;
+    }
     if (name == "split_offsets") {
       columns.push_back(arrayColumn(rows, type, &FileRow::splitOffsets, pool_));
       continue;

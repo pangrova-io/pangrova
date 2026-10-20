@@ -150,6 +150,10 @@ final class IcebergReadBindings {
 
     private static String fileSourceIdentity(IcebergFileTableHandle files) {
         StringBuilder identity = new StringBuilder(manifestSourceIdentity(files.manifestSelection()));
+        identity.append('\0').append(files.manifestSelection().metadataLocation());
+        for (var spec : files.manifestSelection().protocolPartitionSpecs()) {
+            identity.append('\0').append(java.util.HexFormat.of().formatHex(spec.toByteArray()));
+        }
         if (files.entries()) {
             identity.append("\0entries");
         }

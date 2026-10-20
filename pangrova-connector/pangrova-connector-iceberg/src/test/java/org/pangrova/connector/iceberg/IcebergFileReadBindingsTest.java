@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
@@ -31,6 +32,7 @@ import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
 import org.pangrova.spi.connector.metadata.Constraint;
 import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.spi.connector.data.type.RowType;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -163,6 +165,47 @@ class IcebergFileReadBindingsTest {
             } finally {
                 source.close();
             }
+        }
+    }
+
+    @Test
+    void partitionFieldIdentitySurvivesRenameAndSpecEvolution() throws Exception {
+        try (var catalog = catalog()) {
+            var spec = PartitionSpec.builderFor(SCHEMA).identity("id", "old_id").build();
+            Table table = catalog.createTable(TableIdentifier.of("db", "partitioned"), SCHEMA,
+                    spec, Map.of("format-version", "2"));
+            table.newAppend().appendFile(DataFiles.builder(spec)
+                    .withPath(table.location() + "/data/old.parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1)
+                    .withPartitionPath("old_id=7").build()).commit();
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var name = new SchemaTableName("db", "partitioned$files");
+            var before = (IcebergFileTableHandle) metadata.getTableHandle(SESSION, name);
+            var originalIdentity = metadata.bindRead(SESSION, before).sourceIdentity();
+            table.updateSpec().renameField("old_id", "new_id")
+                    .addField("id_bucket", org.apache.iceberg.expressions.Expressions.bucket("id", 16)).commit();
+            var selected = (IcebergFileTableHandle) metadata.getTableHandle(SESSION, name);
+            metadata.validateColumnAccess(SESSION, selected, List.of("PARTITION"));
+            metadata.validateColumnAccess(SESSION, selected,
+                    selected.typedColumns().stream().map(column -> column.name()).toList());
+            assertThat(selected.manifests()).isEqualTo(before.manifests());
+            assertThat(metadata.bindRead(SESSION, selected).sourceIdentity()).isNotEqualTo(originalIdentity);
+            var partition = selected.typedColumns().stream().filter(c -> c.name().equals("partition"))
+                    .findFirst().orElseThrow();
+            assertThat(((RowType) partition.parameterizedType()).fields().stream().map(f -> f.name()))
+                    .containsExactly("new_id", "id_bucket");
+            var split = DataSplit.parseFrom(new IcebergFileTableSplit(
+                    selected, selected.manifests().get(0)).toSplitInfoProto());
+            var system = DataSplitProtoCodec.fileDetail(split).getSystemTable();
+            assertThat(system.getIcebergChildSpecId()).isEqualTo(spec.specId());
+            assertThat(system.getIcebergPartitionSpecsList()).hasSize(2);
+            var original = system.getIcebergPartitionSpecs(0).getFields(0);
+            var renamed = system.getIcebergPartitionSpecs(1).getFields(0);
+            assertThat(original.getFieldId()).isEqualTo(spec.fields().get(0).fieldId());
+            assertThat(renamed.getFieldId()).isEqualTo(original.getFieldId());
+            assertThat(original.getName()).isEqualTo("new_id");
+            assertThat(renamed.getName()).isEqualTo("new_id");
+            IcebergFileReadBindings.validate(selected, table);
         }
     }
 

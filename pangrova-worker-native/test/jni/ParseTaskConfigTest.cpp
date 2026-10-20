@@ -774,6 +774,54 @@ TEST(ParseTaskConfigTest, ParsesPinnedIcebergMetadataSplitAndRejectsIdentityDrif
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
+TEST(ParseTaskConfigTest, PinsIcebergPartitionFieldIdsAndRejectsUnboundOrDuplicateFields) {
+  auto request = validRequest();
+  auto* data = addFileSplit(request, proto::FILE_FORMAT_METADATA_AVRO);
+  data->set_source_id("db.orders$files");
+  data->set_source_snapshot("s3://warehouse/list.avro");
+  data->set_data_object_id("s3://warehouse/manifest.avro");
+  data->set_opaque_location(data->data_object_id());
+  data->set_start_offset(0);
+  proto::FileSplitDetail detail;
+  ASSERT_TRUE(data->connector_detail().UnpackTo(&detail));
+  auto* system = detail.mutable_system_table();
+  system->set_kind(proto::SystemTableSplitDetail::ICEBERG_FILES);
+  system->set_snapshot_id(7);
+  system->set_object_sha256(std::string(32, 'a'));
+  system->set_iceberg_format_version(2);
+  system->set_iceberg_snapshot_sequence_number(1);
+  system->set_iceberg_manifest_list_uri(data->source_snapshot());
+  system->set_iceberg_manifest_list_length(1000);
+  system->set_iceberg_manifest_list_sha256(std::string(32, 'b'));
+  system->set_iceberg_child_spec_id(0);
+  system->set_iceberg_child_content(0);
+  auto* spec = system->add_iceberg_partition_specs();
+  spec->set_spec_id(0);
+  auto* field = spec->add_fields();
+  field->set_transform("identity");
+  field->set_result_type("long");
+  field->set_field_id(1000);
+  field->set_name("renamed_id");
+  data->mutable_connector_detail()->PackFrom(detail);
+  const auto parsed = parseTaskConfig(serializeRaw(request));
+  const auto& fields = parsed.splits.at(0).system_table_iceberg_partition_specs.at(0).fields;
+  ASSERT_EQ(fields.size(), 1);
+  EXPECT_EQ(fields[0].field_id, 1000);
+  EXPECT_EQ(fields[0].name, "renamed_id");
+
+  field->set_field_id(0);
+  data->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  field->set_field_id(1000);
+  *spec->add_fields() = *field;
+  data->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  spec->mutable_fields()->RemoveLast();
+  system->set_iceberg_child_spec_id(1);
+  data->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
 TEST(ParseTaskConfigTest, ParsesPinnedPaimonSnapshotObjectAndRejectsKindDrift) {
   auto request = validRequest();
   auto* data_split = addFileSplit(request, proto::FILE_FORMAT_METADATA_JSON);

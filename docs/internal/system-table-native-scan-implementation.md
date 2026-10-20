@@ -1,11 +1,12 @@
 # System-table SQL: Native scan implementation contract
 
-Status: **IN PROGRESS — not production-ready** (2026-10-19). Iceberg
+Status: **IN PROGRESS — not production-ready** (2026-10-20). Iceberg
 `$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
 v2 splits, Worker Native readers, and focused SQL E2E coverage. Paimon
 `$branches` now has the same chain for local filesystem catalogs only. Iceberg
 `$manifests` has a pinned Avro manifest-list Native reader. Iceberg `$files`
-has a nine-column fixed scalar/array Native manifest-entry slice; its complete SDK schema,
+has fixed scalar/array fields, a typed `column_sizes` map and field-ID-based
+partition structs; its complete SDK schema,
 large-table throughput, and independent image are not yet validated. Iceberg
 `$entries` now has a pinned, status-preserving Native lineage slice with v3
 `first_row_id` inheritance; its complete SDK nested schema remains open. Iceberg
@@ -54,8 +55,8 @@ declared public schema.
   removed. SHOW FILES and SHOW MANIFESTS now use their existing direct Native
   `$files` and `$manifests` SELECT paths; SHOW PARTITIONS still fails closed
   because its Native reader is absent. Direct SELECT for Iceberg
-  `$files` has the nine-column validated scalar/array slice plus a tenth typed
-  `column_sizes` map under final SQL validation below; full `$files`,
+  `$files` has the validated scalar/array slice, a typed `column_sizes` map and
+  a field-ID-based `partition` struct where the SDK exposes one; full `$files`,
   `$entries`, `$partitions`, Paimon `$files`, and nonlocal `$branches`
   remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
@@ -478,3 +479,56 @@ Native reader suite and packaged-JNI `IcebergV3LineageTest` all pass on the
 2026-10-19 source. The SQL suite runs four real Iceberg JDBC cases, including
 v2 and v3 writes, sequence-number progression, v3 inherited row IDs, v2 NULL
 row IDs, and direct Native reads.
+
+### Iceberg `$files` unified partition projection (2026-10-20)
+
+The Iceberg 1.11.0 SDK's
+[unified partition type](https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/core/src/main/java/org/apache/iceberg/Partitioning.java)
+uses stable partition field IDs across spec changes. The connector now exposes
+the SDK's typed `partition` struct when present. Fully unpartitioned tables keep
+the SDK schema without that column. Every pinned manifest split carries the
+specs' field IDs, canonical output names, result types and transforms. A field
+outside the unified type has an empty output name. The same deterministic
+encoding and selected metadata location contribute to the read identity, so a
+schema/spec change invalidates a cached mapping even when manifest bytes remain
+identical.
+
+Native checks the Avro `data_file`/`partition` field identities (2/102), binds
+tuple fields by ID, and projects old specs into the unified row type. A rename
+retains its value; a new dimension absent from the old spec is NULL. Numeric
+promotions preserve values, and logical date/time, microsecond/nanosecond
+timestamps, binary/fixed/UUID and signed decimal values retain their typed
+physical representation. Invalid field IDs, ambiguous names, scalar type
+changes, integer overflow, decimal precision violations and invalid time values
+fail the read. The decoded struct follows the ordinary Native result transport.
+
+Release and matching ASan verification each cover 17 focused cases (15
+reader/parser/projection cases plus 2 decimal/retired-field boundaries). Iceberg's complete module
+passes 437/437; the protocol module passes 447/447 with inventories recaptured
+from the new exporter and real JNI startup. Fresh packaged JNI passes 3 new
+SQL cases across incremental runs for NULL partitions, field rename, a newly
+added bucket dimension, and full struct return through Flight; the existing
+lineage suite passes 4/4 and manifest-list SQL cases pass 2/2. All 3 new SQL cases
+also assert physical query ownership and active query count drain to zero.
+The full-column case found a duplicate Java column whitelist rejecting the
+newly bound partition column; column validation now uses the frozen typed
+schema, with a regression assertion. Scalar-only reads avoid copying partition
+tuples. Java static verification passes for the affected dependency chain and
+final changed leaf modules. This incremental evidence does not replace final
+full-source regression.
+
+`SHOW PARTITIONS`/`$partitions` still need their aggregation path. The upstream
+[partitions implementation](https://github.com/apache/iceberg/blob/apache-iceberg-1.11.0/core/src/main/java/org/apache/iceberg/PartitionsTable.java)
+reads live data/delete entries from the selected snapshot and derives the latest
+update from retained snapshot metadata. Cross-spec grouping, NULL/presence
+semantics, delete-only partitions and unavailable historical snapshots require
+SDK-oracle cases before that path can close. Query expansion must retain bound
+relation identity and authorization; the existing textual `ViewExpander` is not
+an adequate implementation for the public aggregate metadata relation.
+
+One additional upstream invariant matters for that aggregate: its partition
+comparator also compares `StructProjection.projectedFields()`. Two coerced
+tuples whose visible values are NULL can still be different keys when their
+source specs project different numbers of fields. The frozen spec field IDs can
+provide this presence count alongside `spec_id`; grouping by the visible struct
+alone would lose it. The next SDK-oracle matrix must cover this case explicitly.

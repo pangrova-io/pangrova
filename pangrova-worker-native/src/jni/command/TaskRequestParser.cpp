@@ -60,6 +60,38 @@ int64_t checkedInt64(uint64_t value, const char* field) {
   return static_cast<int64_t>(value);
 }
 
+std::vector<split::IcebergManifestPartitionSpec> parseManifestPartitionSpecs(
+    const proto::SystemTableSplitDetail& system) {
+  if (system.iceberg_partition_specs_size() > 1024) {
+    throw std::runtime_error("Iceberg partition specs exceed their bound");
+  }
+  std::vector<split::IcebergManifestPartitionSpec> result;
+  std::unordered_set<int32_t> specIds;
+  for (const auto& spec : system.iceberg_partition_specs()) {
+    if (spec.spec_id() < 0 || !specIds.insert(spec.spec_id()).second ||
+        spec.fields_size() > 1024) {
+      throw std::runtime_error("Invalid Iceberg manifest partition spec binding");
+    }
+    split::IcebergManifestPartitionSpec parsed;
+    parsed.spec_id = spec.spec_id();
+    std::unordered_set<int32_t> fieldIds;
+    std::unordered_set<std::string> names;
+    for (const auto& field : spec.fields()) {
+      if (field.transform().empty() || field.result_type().empty() ||
+          field.transform().size() > 128 || field.result_type().size() > 128 ||
+          field.field_id() <= 0 || !fieldIds.insert(field.field_id()).second ||
+          field.name().size() > 1024 ||
+          (!field.name().empty() && !names.insert(field.name()).second)) {
+        throw std::runtime_error("Invalid Iceberg manifest partition field binding");
+      }
+      parsed.fields.push_back({field.transform(), field.result_type(),
+          field.field_id(), field.name()});
+    }
+    result.push_back(std::move(parsed));
+  }
+  return result;
+}
+
 void collectDescriptorFiles(
     const google::protobuf::FileDescriptor* descriptor,
     std::map<std::string, const google::protobuf::FileDescriptor*>& files) {
@@ -739,23 +771,7 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         config.system_table_iceberg_format_version = system.iceberg_format_version();
         config.system_table_iceberg_snapshot_sequence_number =
             system.iceberg_snapshot_sequence_number();
-        std::unordered_set<int32_t> specIds;
-        for (const auto& spec : system.iceberg_partition_specs()) {
-          if (spec.spec_id() < 0 || !specIds.insert(spec.spec_id()).second ||
-              spec.fields_size() > 1024) {
-            throw std::runtime_error("Invalid Iceberg manifests partition spec binding");
-          }
-          split::IcebergManifestPartitionSpec parsed;
-          parsed.spec_id = spec.spec_id();
-          for (const auto& field : spec.fields()) {
-            if (field.transform().empty() || field.result_type().empty() ||
-                field.transform().size() > 128 || field.result_type().size() > 128) {
-              throw std::runtime_error("Invalid Iceberg manifests partition field binding");
-            }
-            parsed.fields.push_back({field.transform(), field.result_type()});
-          }
-          config.system_table_iceberg_partition_specs.push_back(std::move(parsed));
-        }
+        config.system_table_iceberg_partition_specs = parseManifestPartitionSpecs(system);
         break;
       }
       case proto::SystemTableSplitDetail::ICEBERG_FILES:
@@ -781,7 +797,7 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
             system.iceberg_manifest_list_sha256().size() != 32 ||
             system.iceberg_child_spec_id() < 0 ||
             (system.iceberg_child_content() != 0 && system.iceberg_child_content() != 1) ||
-            system.iceberg_partition_specs_size() != 0 ||
+            system.iceberg_partition_specs_size() == 0 ||
             !system.tag_name().empty() || system.schema_id() != 0) {
           throw std::runtime_error("Iceberg files split identity or kind mismatch");
         }
@@ -801,6 +817,13 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
             system.iceberg_manifest_list_sha256();
         config.system_table_iceberg_child_spec_id = system.iceberg_child_spec_id();
         config.system_table_iceberg_child_content = system.iceberg_child_content();
+        config.system_table_iceberg_partition_specs = parseManifestPartitionSpecs(system);
+        if (std::none_of(config.system_table_iceberg_partition_specs.begin(),
+                config.system_table_iceberg_partition_specs.end(), [&](const auto& spec) {
+                  return spec.spec_id == system.iceberg_child_spec_id();
+                })) {
+          throw std::runtime_error("Iceberg child manifest partition spec is unbound");
+        }
         break;
       }
       case proto::SystemTableSplitDetail::PAIMON_SNAPSHOTS:

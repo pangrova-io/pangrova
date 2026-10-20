@@ -49,6 +49,7 @@ public record IcebergFileTableSplit(IcebergFileTableHandle selection,
                         HexFormat.of().parseHex(list.manifestListSha256())))
                 .setIcebergChildSpecId(manifest.specId())
                 .setIcebergChildContent(manifest.content());
+        system.addAllIcebergPartitionSpecs(list.protocolPartitionSpecs());
         FileSplitDetail detail = FileSplitDetail.newBuilder()
                 .setFileFormat(FileFormat.FILE_FORMAT_METADATA_AVRO)
                 .setSystemTable(system)

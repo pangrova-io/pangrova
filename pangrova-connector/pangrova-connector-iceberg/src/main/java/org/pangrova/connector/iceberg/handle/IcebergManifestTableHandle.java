@@ -6,6 +6,8 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.TreeMap;
 
+import org.pangrova.protocol.v2.IcebergManifestPartitionField;
+import org.pangrova.protocol.v2.IcebergManifestPartitionSpec;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
@@ -24,12 +26,14 @@ public record IcebergManifestTableHandle(
 
     private static final String SHA256_HEX_PATTERN = "[0-9a-f]{64}";
 
-    /** The result type and transform needed to render one bound as the SDK does. */
-    public record PartitionSummaryField(String transform, String resultType) {
+    /** Stable tuple identity and bound rendering; an empty name is outside the unified partition type. */
+    public record PartitionSummaryField(String transform, String resultType, int fieldId, String name) {
         public PartitionSummaryField {
             if (transform == null || transform.isBlank()
-                    || resultType == null || resultType.isBlank()) {
-                throw new IllegalArgumentException("Partition summary field requires type and transform");
+                    || resultType == null || resultType.isBlank()
+                    || fieldId <= 0 || name == null) {
+                throw new IllegalArgumentException(
+                        "Partition field requires type, transform, positive ID and nonnull name");
             }
         }
     }
@@ -59,6 +63,19 @@ public record IcebergManifestTableHandle(
 
     public boolean empty() {
         return snapshotId.isEmpty();
+    }
+
+    /** Canonical field-ID mapping shared by split transport and source identity. */
+    public List<IcebergManifestPartitionSpec> protocolPartitionSpecs() {
+        return new TreeMap<>(partitionSummarySpecs).entrySet().stream().map(entry -> {
+            var spec = IcebergManifestPartitionSpec.newBuilder().setSpecId(entry.getKey());
+            for (var field : entry.getValue()) {
+                spec.addFields(IcebergManifestPartitionField.newBuilder()
+                        .setTransform(field.transform()).setResultType(field.resultType())
+                        .setFieldId(field.fieldId()).setName(field.name()));
+            }
+            return spec.build();
+        }).toList();
     }
 
     private static void validateSelection(OptionalLong snapshotId, long sequenceNumber,

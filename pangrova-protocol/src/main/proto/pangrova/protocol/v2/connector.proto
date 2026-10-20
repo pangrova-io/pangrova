@@ -274,6 +274,11 @@ message DeletionVectorReference {
 message IcebergManifestPartitionField {
   string transform = 1;
   string result_type = 2;
+  // Stable partition field identity and the name in the table's unified
+  // partition type. An empty name marks a field excluded from that type.
+  // Avro writer names may differ after a spec field rename.
+  int32 field_id = 3;
+  string name = 4;
 }
 
 message IcebergManifestPartitionSpec {

@@ -71,6 +71,8 @@ enum class SystemTableKind : uint8_t {
 struct IcebergManifestPartitionField {
   std::string transform;
   std::string result_type;
+  int32_t field_id = 0;
+  std::string name;
 };
 
 struct IcebergManifestPartitionSpec {

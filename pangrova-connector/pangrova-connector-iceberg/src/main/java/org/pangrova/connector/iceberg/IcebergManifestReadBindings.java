@@ -45,6 +45,9 @@ final class IcebergManifestReadBindings {
                 MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.MANIFESTS)
                         .schema());
         Map<Integer, List<IcebergManifestTableHandle.PartitionSummaryField>> specs = new TreeMap<>();
+        Map<Integer, String> partitionNames = new TreeMap<>();
+        org.apache.iceberg.Partitioning.partitionType(table).fields().forEach(
+                field -> partitionNames.put(field.fieldId(), field.name()));
         table.specs().forEach((id, spec) -> {
             if (spec.fields().size() != spec.partitionType().fields().size()) {
                 throw new IllegalStateException("Iceberg partition spec and result type disagree");
@@ -53,7 +56,9 @@ final class IcebergManifestReadBindings {
             for (int index = 0; index < spec.fields().size(); index++) {
                 fields.add(new IcebergManifestTableHandle.PartitionSummaryField(
                         spec.fields().get(index).transform().toString(),
-                        spec.partitionType().fields().get(index).type().toString()));
+                        spec.partitionType().fields().get(index).type().toString(),
+                        spec.fields().get(index).fieldId(),
+                        partitionNames.getOrDefault(spec.fields().get(index).fieldId(), "")));
             }
             specs.put(id, List.copyOf(fields));
         });

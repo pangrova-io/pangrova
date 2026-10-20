@@ -22,18 +22,18 @@ final class IcebergFileReadBindings {
     private static final Set<String> NATIVE_COLUMNS = Set.of(
             "content", "file_path", "file_format", "spec_id",
             "record_count", "file_size_in_bytes", "column_sizes", "split_offsets",
-            "equality_ids", "sort_order_id");
+            "equality_ids", "sort_order_id", "partition");
 
     private IcebergFileReadBindings() {}
 
     static IcebergFileTableHandle select(IcebergTableHandle base, Table table) {
         IcebergManifestTableHandle list = IcebergManifestReadBindings.select(base, table);
-        var columns = IcebergTypeMapper.toPangrovaColumns(
-                MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.FILES)
-                        .schema()).stream()
+        var schema = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.FILES).schema();
+        var columns = IcebergTypeMapper.toPangrovaColumns(schema).stream()
                 .filter(column -> NATIVE_COLUMNS.contains(column.name()))
                 .toList();
-        if (columns.size() != NATIVE_COLUMNS.size()) {
+        int expected = NATIVE_COLUMNS.size() - (schema.findField("partition") == null ? 1 : 0);
+        if (columns.size() != expected) {
             throw new UnsupportedOperationException(
                     "Iceberg $files Native schema differs from the supported typed projection");
         }

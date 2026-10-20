@@ -270,7 +270,8 @@ void PangrovaVeloxDataSource::addSplit(
           splitConfig.system_table_iceberg_child_spec_id,
           splitConfig.system_table_iceberg_child_content,
           output_type_, pool_,
-          *splitConfig.system_table == split::SystemTableKind::ICEBERG_ENTRIES);
+          *splitConfig.system_table == split::SystemTableKind::ICEBERG_ENTRIES,
+          splitConfig.system_table_iceberg_partition_specs);
     } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_DIRECTORY) {
         throw std::runtime_error("Paimon branches split requires directory format");

@@ -3,13 +3,10 @@ package org.pangrova.connector.iceberg.handle;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
-import java.util.TreeMap;
 
 import org.pangrova.protocol.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
-import org.pangrova.protocol.v2.IcebergManifestPartitionField;
-import org.pangrova.protocol.v2.IcebergManifestPartitionSpec;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
 import org.pangrova.spi.connector.metadata.ConnectorSplit;
 
@@ -41,15 +38,7 @@ public record IcebergManifestTableSplit(IcebergManifestTableHandle selection) im
                         HexFormat.of().parseHex(selection.manifestListSha256())))
                 .setIcebergFormatVersion(selection.baseTable().formatVersion())
                 .setIcebergSnapshotSequenceNumber(selection.snapshotSequenceNumber());
-        new TreeMap<>(selection.partitionSummarySpecs()).forEach((id, fields) -> {
-            var spec = IcebergManifestPartitionSpec.newBuilder().setSpecId(id);
-            for (var field : fields) {
-                spec.addFields(IcebergManifestPartitionField.newBuilder()
-                        .setTransform(field.transform())
-                        .setResultType(field.resultType()));
-            }
-            system.addIcebergPartitionSpecs(spec);
-        });
+        system.addAllIcebergPartitionSpecs(selection.protocolPartitionSpecs());
         FileSplitDetail detail = FileSplitDetail.newBuilder()
                 .setFileFormat(FileFormat.FILE_FORMAT_METADATA_AVRO)
                 .setSystemTable(system)

@@ -4,7 +4,9 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
+#include "split/SplitConfig.h"
 #include "velox/connector/IcebergAvroContainerReader.h"
 #include "velox/vector/ComplexVector.h"
 
@@ -13,9 +15,10 @@ class MemoryPool;
 }
 
 namespace pangrova::velox {
+class IcebergPartitionProjection;
 
 // Scans live entries from one child manifest pinned by its parent list.
-// Only explicitly verified fixed scalar and array fields are supported initially.
+// Scalar, metric-map, array and field-ID-based partition projections are typed.
 class IcebergManifestEntryReader final {
  public:
   IcebergManifestEntryReader(
@@ -26,7 +29,10 @@ class IcebergManifestEntryReader final {
       int32_t specId, int32_t manifestContent,
       facebook::velox::RowTypePtr outputType,
       facebook::velox::memory::MemoryPool* pool,
-      bool entries = false);
+      bool entries = false,
+      const std::vector<split::IcebergManifestPartitionSpec>& partitionSpecs = {});
+
+  ~IcebergManifestEntryReader();
 
   facebook::velox::RowVectorPtr next(uint64_t maxRows);
 
@@ -34,6 +40,7 @@ class IcebergManifestEntryReader final {
   void validateOutputSchema() const;
 
   std::unique_ptr<IcebergAvroContainerReader> child_;
+  std::unique_ptr<IcebergPartitionProjection> partition_projection_;
   int32_t spec_id_;
   int32_t manifest_content_;
   int32_t format_version_;
