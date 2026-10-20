@@ -135,7 +135,10 @@ public final class WorkerHttpServer {
             handler.addFilter(new FilterHolder(new org.pangrova.worker.http.endpoint.CopyStageTlsFilter()),
                     "/v1/task/copy-stage", EnumSet.of(jakarta.servlet.DispatcherType.REQUEST));
         }
-        handler.addServlet(new ServletHolder(servletContainer), "/*");
+        ServletHolder servlet = new ServletHolder(servletContainer);
+        // Complete routing and provider initialization before this node can be advertised.
+        servlet.setInitOrder(0);
+        handler.addServlet(servlet, "/*");
         this.server = EmbeddedHttpServerFactory.create(
                 config.port(), handler, WORKER_MAX_THREADS);
         if (config.copyTaskTls() == null) {

@@ -97,8 +97,8 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
         relay = new StatusReportHttpRelay(coordinatorUri());
         relay.select(state, drained, before, after);
         http = HttpClientFactory.createDefault();
-        // Jetty can report started before Jersey serves its first request. This
-        // fixture has only TaskResource; GET must resolve its route to HTTP 405.
+        // Startup must publish the real TaskResource route before task dispatch.
+        // Its first GET must resolve that POST route to HTTP 405.
         var live = http.httpClient().send(HttpRequest.newBuilder(URI.create(
                 "http://127.0.0.1:" + worker.httpServer().getPort() + "/v1/task"))
                 .timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding());

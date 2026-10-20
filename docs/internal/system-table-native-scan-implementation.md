@@ -615,10 +615,19 @@ passes, followed by the new race case and affected RBAC regressions; the rolling
 Security reports contain 391 passing invocations. PostgreSQL mask storage,
 policy-store failure, priority/exemption and scope isolation are covered, and
 static verification passes for Security/SPI, Coordinator and the changed consumers.
-The subsequent full Coordinator run passes 3,324 of 3,325 cases; its single
-failure is a Worker task-route HTTP 404 in a source-free fixture startup check,
-before query execution, and is tracked as a separate startup repair. The full
-module is not reported as green. Four policy scenarios were then strengthened
+The subsequent full Coordinator run initially passes 3,324 of 3,325 cases; its
+single failure is a Worker task-route HTTP 404 in a source-free fixture startup
+check, before query execution. Worker startup now eagerly initializes the Jersey
+servlet before returning: Jetty's default negative initialization order otherwise
+defers servlet initialization until first use. The first-request probe remains a
+single request, without retries. The 11 cold-start routing/authentication checks,
+the full Worker owner run (1,520 invocations), and 3 SQL/JNI activation smoke cases
+pass. With `full-regression` enabled so native-required tests actually execute,
+all 12 report-delivery integration cases pass after the repair. The Coordinator
+rolling union therefore contains 3,325 passing invocations; this is not a single
+continuous full run. Evidence is recorded in
+`/tmp/pangrova-metadata-policy-coordinator-rolling-union-20261021.json`.
+Four policy scenarios were then strengthened
 to warm reads and add/remove policies on the same pipeline; only those changed
 scenarios rerun, and all 4 pass without a pipeline rebuild.
 
