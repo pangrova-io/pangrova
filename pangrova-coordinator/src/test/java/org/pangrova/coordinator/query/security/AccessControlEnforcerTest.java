@@ -343,69 +343,33 @@ class AccessControlEnforcerTest {
     @Nested
     class PlanLevelSelectEnforcement {
 
-        @Test
-        void systemTableReadsRequireBaseTableGrant() {
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.ValueSource(strings = {
+                "snapshots", "history", "tags", "options", "schemas", "branches", "manifests", "files", "entries",
+                "ENTRIES"})
+        void systemTableReadsRequireBaseTableGrant(String suffix) {
+            String metadataTable = TABLE + "$" + suffix;
             AccessControlEnforcer baseGranted = enforcer(List.of(grant(Privilege.SELECT)));
             assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$snapshots")), user()))
+                    List.of(List.of(CATALOG, SCHEMA, metadataTable)), user()))
                     .doesNotThrowAnyException();
-            assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$history")), user()))
-                    .doesNotThrowAnyException();
-            assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$tags")), user()))
-                    .doesNotThrowAnyException();
-            assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$options")), user()))
-                    .doesNotThrowAnyException();
-            assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$schemas")), user()))
-                    .doesNotThrowAnyException();
-            assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$branches")), user()))
-                    .doesNotThrowAnyException();
-            assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$manifests")), user()))
-                    .doesNotThrowAnyException();
-            assertThatCode(() -> baseGranted.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$files")), user()))
+            assertThatCode(() -> baseGranted.checkSelectFromTable(user(), CATALOG, SCHEMA, metadataTable))
                     .doesNotThrowAnyException();
 
             PrivilegeGrant suffixOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
-                    "TABLE", CATALOG, SCHEMA, TABLE + "$snapshots", null);
+                    "TABLE", CATALOG, SCHEMA, metadataTable, null);
             AccessControlEnforcer noBaseGrant = enforcer(List.of(suffixOnly));
             assertThatThrownBy(() -> noBaseGrant.checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$snapshots")), user()))
+                    List.of(List.of(CATALOG, SCHEMA, metadataTable)), user()))
                     .isInstanceOf(AuthorizationDeniedException.class);
-            PrivilegeGrant tagsOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
-                    "TABLE", CATALOG, SCHEMA, TABLE + "$tags", null);
-            assertThatThrownBy(() -> enforcer(List.of(tagsOnly)).checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$tags")), user()))
+            assertThatThrownBy(() -> noBaseGrant.checkSelectFromTable(user(), CATALOG, SCHEMA, metadataTable))
                     .isInstanceOf(AuthorizationDeniedException.class);
-            PrivilegeGrant optionsOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
-                    "TABLE", CATALOG, SCHEMA, TABLE + "$options", null);
-            assertThatThrownBy(() -> enforcer(List.of(optionsOnly)).checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$options")), user()))
-                    .isInstanceOf(AuthorizationDeniedException.class);
-            PrivilegeGrant schemasOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
-                    "TABLE", CATALOG, SCHEMA, TABLE + "$schemas", null);
-            assertThatThrownBy(() -> enforcer(List.of(schemasOnly)).checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$schemas")), user()))
-                    .isInstanceOf(AuthorizationDeniedException.class);
-            PrivilegeGrant branchesOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
-                    "TABLE", CATALOG, SCHEMA, TABLE + "$branches", null);
-            assertThatThrownBy(() -> enforcer(List.of(branchesOnly)).checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$branches")), user()))
-                    .isInstanceOf(AuthorizationDeniedException.class);
-            PrivilegeGrant manifestsOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
-                    "TABLE", CATALOG, SCHEMA, TABLE + "$manifests", null);
-            assertThatThrownBy(() -> enforcer(List.of(manifestsOnly)).checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$manifests")), user()))
-                    .isInstanceOf(AuthorizationDeniedException.class);
-            PrivilegeGrant filesOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
-                    "TABLE", CATALOG, SCHEMA, TABLE + "$files", null);
-            assertThatThrownBy(() -> enforcer(List.of(filesOnly)).checkTableAccess(
-                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$files")), user()))
+        }
+
+        @Test
+        void unknownSuffixDoesNotInheritBaseTableGrant() {
+            assertThatThrownBy(() -> enforcer(List.of(grant(Privilege.SELECT))).checkTableAccess(
+                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$ordinary")), user()))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
 

@@ -532,3 +532,31 @@ tuples whose visible values are NULL can still be different keys when their
 source specs project different numbers of fields. The frozen spec field IDs can
 provide this presence count alongside `spec_id`; grouping by the visible struct
 alone would lose it. The next SDK-oracle matrix must cover this case explicitly.
+
+### Metadata read grants (2026-10-20)
+
+`$entries` now follows the same base-table SELECT authorization as the other
+implemented metadata suffixes. A grant on the suffix name cannot authorize
+metadata from an ungranted base table. The Coordinator regression covers all
+nine supported suffixes, case-insensitive `ENTRIES`, both planned and explicit
+SELECT checks, and rejection of an unknown suffix under a base-only grant.
+The real authenticated HTTP SQL regression uses JDBC grants and reads the
+actual Native Iceberg `$snapshots`, `$history`, `$files`, `$manifests`, and
+`$entries` tables. For each relation, suffix-only grants are denied, granting
+SELECT on the base permits a nonempty read, and revoking that base grant denies
+the next read. Query ownership and active query counts drain to zero. The
+nearest real-RBAC suite passes 56/56. Coordinator rolling verification covers all
+3,305 invocation records: 3,295 initially pass, then the 10 cases requiring the
+explicit current Lance fixture tool pass on their own; static verification
+also passes. This is rolling coverage, not one continuous all-green run. This
+qualifies SELECT grant identity; inheritance of base row filters and column
+masks into metadata reads still requires its own policy regression and closure.
+
+The relational aggregate approach for `$partitions` also has a current upstream
+precedent in [Trino's PartitionsView](https://github.com/trinodb/trino/blob/484/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/system/PartitionsView.java).
+Its public schema and grouping differ from the Apache Iceberg SDK contract used
+here. Reusing the architectural approach therefore does not replace SDK-oracle
+checks for delete counts, spec presence, retained snapshot timestamps and empty
+input semantics. The current planner constructs `SqlToRelConverter` with no
+view expander; a proper Calcite expansion context is a prerequisite, along with
+typed connector declarations and query-owned bindings for the resulting scans.
