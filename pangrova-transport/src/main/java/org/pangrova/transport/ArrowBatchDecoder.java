@@ -39,6 +39,10 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Types;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +59,8 @@ import java.util.Optional;
 public final class ArrowBatchDecoder {
 
     private static final long DECODE_ALLOCATOR_LIMIT = 512L * 1024 * 1024;
+    private static final long NANOS_PER_SECOND = 1_000_000_000L;
+    private static final long NANOS_PER_MILLISECOND = 1_000_000L;
 
     /** Reported decimal-digit precision of an Arrow {@code Int(64)} column in JDBC metadata. */
     private static final int INT64_DECIMAL_PRECISION = 19;
@@ -169,6 +175,23 @@ public final class ArrowBatchDecoder {
     /** Converts Arrow nested values using the declared field type, including MAP entries. */
     public static Object normalizeComplexValue(Object value, Field field) {
         if (value == null) return null;
+        if (value instanceof Number number) {
+            if (field.getType() instanceof ArrowType.Date date) {
+                return switch (date.getUnit()) {
+                    case DAY -> LocalDate.ofEpochDay(number.longValue());
+                    case MILLISECOND -> Instant.ofEpochMilli(number.longValue()).atOffset(ZoneOffset.UTC).toLocalDate();
+                };
+            }
+            if (field.getType() instanceof ArrowType.Time time) {
+                long nanos = Math.multiplyExact(number.longValue(), switch (time.getUnit()) {
+                    case SECOND -> NANOS_PER_SECOND;
+                    case MILLISECOND -> NANOS_PER_MILLISECOND;
+                    case MICROSECOND -> 1_000L;
+                    case NANOSECOND -> 1L;
+                });
+                return LocalTime.ofNanoOfDay(nanos);
+            }
+        }
         if (value instanceof Text || value instanceof CharSequence && !(value instanceof String)) {
             return value.toString();
         }

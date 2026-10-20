@@ -68,7 +68,7 @@ class IcebergPartitionTypesTest extends SqlE2ETestBase {
         return new Sample(label, type, Arrays.asList(values));
     }
 
-    static Stream<Arguments> primitiveCases() {
+    private static Stream<Arguments> allPrimitiveCases() {
         var samples = List.of(
                 sample("boolean", Types.BooleanType.get(), false, true, false, null),
                 sample("int", Types.IntegerType.get(), Integer.MIN_VALUE, 0, Integer.MAX_VALUE, 0, null),
@@ -95,9 +95,54 @@ class IcebergPartitionTypesTest extends SqlE2ETestBase {
                 .map(version -> Arguments.of(sample.label(), version, sample.type(), sample.values())));
     }
 
+    static Stream<Arguments> primitiveCases() {
+        return allPrimitiveCases().filter(args -> !List.of("date", "time", "uuid", "fixed").contains(args.get()[0]));
+    }
+
+    private static Stream<Arguments> cases(String label) {
+        return allPrimitiveCases().filter(args -> label.equals(args.get()[0]));
+    }
+
+    static Stream<Arguments> dateCases() { return cases("date"); }
+
+    @ParameterizedTest(name = "{0} v{1}")
+    @MethodSource("dateCases")
+    void datePartitionsMatchSdk(String label, int version, Type type, List<Object> values) throws Exception {
+        assertPartitionValuesAndCountsMatchSdk(label, version, type, values);
+    }
+
+    static Stream<Arguments> timeCases() { return cases("time"); }
+
+    @ParameterizedTest(name = "{0} v{1}")
+    @MethodSource("timeCases")
+    void timePartitionsMatchSdk(String label, int version, Type type, List<Object> values) throws Exception {
+        assertPartitionValuesAndCountsMatchSdk(label, version, type, values);
+    }
+
+    static Stream<Arguments> uuidCases() { return cases("uuid"); }
+
+    @ParameterizedTest(name = "{0} v{1}")
+    @MethodSource("uuidCases")
+    void uuidPartitionsMatchSdk(String label, int version, Type type, List<Object> values) throws Exception {
+        assertPartitionValuesAndCountsMatchSdk(label, version, type, values);
+    }
+
+    static Stream<Arguments> fixedCases() { return cases("fixed"); }
+
+    @ParameterizedTest(name = "{0} v{1}")
+    @MethodSource("fixedCases")
+    void fixedPartitionsMatchSdk(String label, int version, Type type, List<Object> values) throws Exception {
+        assertPartitionValuesAndCountsMatchSdk(label, version, type, values);
+    }
+
     @ParameterizedTest(name = "{0} v{1}")
     @MethodSource("primitiveCases")
     void actualManifestPartitionValuesAndCountsMatchSdk(String label, int version, Type type,
+            List<Object> values) throws Exception {
+        assertPartitionValuesAndCountsMatchSdk(label, version, type, values);
+    }
+
+    private void assertPartitionValuesAndCountsMatchSdk(String label, int version, Type type,
             List<Object> values) throws Exception {
         sqlRunner.executeDdl("CREATE TABLE " + table() + " (id BIGINT)"
                 + " TBLPROPERTIES ('format-version' = '" + version + "')");
