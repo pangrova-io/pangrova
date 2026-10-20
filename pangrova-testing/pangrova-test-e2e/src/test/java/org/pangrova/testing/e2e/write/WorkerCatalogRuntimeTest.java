@@ -54,7 +54,7 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
             var request = request(fixture, DATASET, table, "native-task", authenticatedRequest().getSecurity());
             fixture.bind(request);
             assertThat(fixture.runtime().cachedCatalogRevisionCount()).isEqualTo(1);
-            assertThatThrownBy(() -> fixture.runtime().resolve("native-task", DATASET))
+            assertThatThrownBy(() -> fixture.runtime().resolve("native-task"))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("PageSink");
             fixture.release("native-task");
             var write = request.getExecutionOptions().getWrite();
@@ -77,9 +77,9 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
             fixture.bind(request(fixture, PLAIN, table, "task-a2", first));
             fixture.bind(request(fixture, PLAIN, table, "task-b", second));
             assertThat(fixture.runtime().cachedCatalogRevisionCount()).isEqualTo(2);
-            var a = fixture.runtime().resolve("task-a1", PLAIN);
-            var a2 = fixture.runtime().resolve("task-a2", PLAIN);
-            var b = fixture.runtime().resolve("task-b", PLAIN);
+            var a = fixture.runtime().resolve("task-a1");
+            var a2 = fixture.runtime().resolve("task-a2");
+            var b = fixture.runtime().resolve("task-b");
             assertThat(a.metadata()).isSameAs(a2.metadata()).isNotSameAs(b.metadata());
             assertThat(a.pageSinkProvider()).isNotSameAs(b.pageSinkProvider());
             assertThat(a.session().getProperties()).containsEntry("tenant_id", first.getTenantId());
@@ -132,11 +132,11 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
                 if (i == 0) active = security;
                 else fixture.release("task-" + i);
             }
-            var pinned = fixture.runtime().resolve("task-0", PLAIN).metadata();
+            var pinned = fixture.runtime().resolve("task-0").metadata();
             fixture.bind(request(fixture, PLAIN, table, "overflow-task", tenant("idle-overflow")));
             assertThat(fixture.runtime().cachedCatalogRevisionCount()).isEqualTo(CACHE_LIMIT);
-            assertThat(fixture.runtime().resolve("task-0", PLAIN).metadata()).isSameAs(pinned);
-            assertThat(fixture.runtime().resolve("task-0", PLAIN).session().getProperties())
+            assertThat(fixture.runtime().resolve("task-0").metadata()).isSameAs(pinned);
+            assertThat(fixture.runtime().resolve("task-0").session().getProperties())
                     .containsEntry("tenant_id", java.util.Objects.requireNonNull(active).getTenantId());
             fixture.release("task-0");
             fixture.release("overflow-task");
@@ -178,8 +178,8 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
                 second.get(10, TimeUnit.SECONDS);
                 assertThat(transport.requestCount()).isEqualTo(1);
                 assertThat(fixture.runtime().cachedCatalogRevisionCount()).isEqualTo(1);
-                assertThat(fixture.runtime().resolve("task-a1", PLAIN).metadata())
-                        .isSameAs(fixture.runtime().resolve("task-a2", PLAIN).metadata());
+                assertThat(fixture.runtime().resolve("task-a1").metadata())
+                        .isSameAs(fixture.runtime().resolve("task-a2").metadata());
             } finally {
                 transport.release();
                 executor.shutdown();

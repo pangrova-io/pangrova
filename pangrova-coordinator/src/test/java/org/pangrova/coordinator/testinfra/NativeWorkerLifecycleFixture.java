@@ -38,7 +38,7 @@ public final class NativeWorkerLifecycleFixture {
 
     private static final class LifecycleCatalogGuard implements CatalogResourceResolver {
         @Override
-        public CatalogResources resolve(String taskId, String catalogName) {
+        public CatalogResources resolve(String taskId) {
             throw new AssertionError("Lifecycle fixture cannot resolve catalog tasks");
         }
 

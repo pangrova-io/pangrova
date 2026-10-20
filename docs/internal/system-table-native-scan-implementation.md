@@ -1,7 +1,7 @@
 # System-table SQL: Native scan implementation contract
 
-Status: **IN PROGRESS — not production-ready** (2026-10-20). Iceberg
-`$snapshots`/`$history` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
+Status: **IN PROGRESS — not production-ready** (2026-10-21). Iceberg
+`$snapshots`/`$history`/`$refs` and Paimon `$snapshots`/`$tags`/`$options`/`$schemas` have typed
 v2 splits, Worker Native readers, and focused SQL E2E coverage. Paimon
 `$branches` now has the same chain for local filesystem catalogs only. Iceberg
 `$manifests` has a pinned Avro manifest-list Native reader. Iceberg `$files`
@@ -28,7 +28,7 @@ schema. The original `LazyMetadataSchema` also only resolved ordinary connector
 table handles. The existing `ConnectorMetadata.getSystemTable` implementations
 are reached by SHOW metadata, not by SELECT planning/split enumeration.
 
-This is present in HEAD, not caused by the current uncommitted AI Native edits.
+This describes the original audited baseline, before the fixes recorded below.
 The 2026-09-27 full Java test log records
 `MutationHistoryAuditTest$SnapshotLineage` failures: `snapshot_id` and
 `committed_at` were not found; a `$history` star query scanned the base table
@@ -79,10 +79,11 @@ declared public schema.
   branches added later do not appear in its pinned splits. Nonlocal FileIO
   paths fail closed because Native has no equivalent cross-filesystem metadata
   stat API. This is a limited local path, not a production closure.
-  The rewrite accepts ordinary ASCII identifier parts, including mixed case,
-  and rejects names requiring quoting until relation identity is typed end to
-  end. Thus generated mixed-case table names use the same Native reader as
-  direct `SELECT`, without interpolating punctuation into SQL.
+  SHOW expansion now uses typed relation components and literal predicates,
+  including mixed case, Unicode, dots and quotation marks inside one component.
+  It builds an AST directly and uses the same Native reader as direct SELECT.
+  The former ASCII-only generated SQL restriction has been removed; the quoted
+  literal `$` restriction described below remains a separate open boundary.
 - Worker Native checks the pinned metadata object's length and, for Paimon
   `$snapshots`, `$tags`, `$options`, and `$schemas`, the SHA-256 of its exact JSON bytes. A distributed
   deployment requires immutable shared storage reachable from every Worker;
@@ -149,10 +150,10 @@ protocol, v1 compatibility route, or silent fallback to the base table.
    object identity before/during read; expiry or replacement must fail the
    task, not return a partial result. No Coordinator or Worker JVM row
    materialization may stand in for this scan.
-5. **Remove the parallel facade.** SHOW SNAPSHOTS now routes through the
-   same system-table query and `ShowMetadataRedirectTask` is removed. Complete
-   the Native readers for FILES/MANIFESTS/PARTITIONS before enabling their
-  SHOW forms. Evolve/remove the current name-only `ConnectorSystemTable` SPI
+5. **Remove the parallel facade.** SHOW SNAPSHOTS/FILES/MANIFESTS and
+   TAGS/BRANCHES route through the same system-table queries; the former
+   informational tasks are removed. Complete the PARTITIONS Native relation
+   before enabling its SHOW form. Evolve/remove the current name-only `ConnectorSystemTable` SPI
   instead of retaining two schemas or execution paths.
 
 `BranchTtlCleanupTask` now lists typed `SnapshotReference` values through the
@@ -732,11 +733,33 @@ descriptor no longer carries catalog/schema/table strings: the Java writer
 resolves its immutable output handle by the exact task identifier. Native no
 longer reparses the display name to select a write target.
 
-Submission checkpoint: SPI passes 742 tests, Planner 1,475, and Coordinator
-3,329 before the subsequent write-identity correction. The SHOW SQL E2E batch
-passes 17 of 19 cases; the two quoted-name cases exposed write-admission,
-Iceberg local-path URI parsing, and JNI display-name parsing defects. Their
-root-cause fixes are included, but the final quoted-name rerun, matching JNI
-integration/ASan tests, and final regression are still pending at this checkpoint.
-Release and ASan native builds complete; a stale Worker test constructor found
-by compilation has been migrated to the new JNI descriptor contract.
+Validation: SPI passes 742 tests, Planner 1,475, and Coordinator 3,329 before
+the subsequent write-identity correction. The initial SHOW SQL batch passes
+17 of 19 cases. The two quoted-name cases expose write-admission,
+Iceberg local-path URI parsing, JNI display-name parsing and Worker storage
+scope parsing defects. With these causes fixed, a fresh real HTTP/SQL/JNI batch
+passes 106/106: both quoted Iceberg/Paimon names, 13 writer lifecycle cases,
+75 cleanup/error cases, 2 concurrency cases, 6 metrics cases and 8 catalog/tenant
+isolation cases. An unbound task cannot borrow an existing task's output handle;
+the existing task remains usable and releases its real files. The raw-path
+regression passes 7 Iceberg and 4 Worker cases. Worker scope validation retains
+its traversal, authority and warehouse-descendant checks. As described by the
+[JDK 17 URI contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/net/URI.html),
+path components require component-aware construction rather than parsing raw
+filesystem strings as URI text.
+
+The Release library, packaged resource and installed Worker JAR have identical
+JNI bytes; its exported complete capability catalogue is unchanged. The 32
+affected Native cases pass in Release and the matching ASan build. The ASan
+process reports no AddressSanitizer memory error, but its recoverable Folly
+UBSan integer/function-type diagnostics remain open; a successful CTest exit
+does not qualify those diagnostics as clean. Raw per-test evidence is retained
+at `/tmp/pangrova-task-bound-writer-{native,asan}-raw-20261021.log`, with selected
+names and diagnostics in corresponding `*-evidence-20261021.json` files.
+The SQL evidence is `/tmp/pangrova-task-bound-writer-real-e2e-20261021.json`.
+The final Worker owner run with `full-regression,static-analysis` passes
+1,510 tests in 234 fresh report suites, with zero failures, errors or skips;
+its evidence is `/tmp/pangrova-task-bound-writer-worker-owner-20261021.json`.
+Coordinator and E2E leaf static checks, JNI symmetry (22 methods), SPI annotations
+(147 public types), E2E truthfulness and documentation references also pass.
+Final full functionality regression remains pending.

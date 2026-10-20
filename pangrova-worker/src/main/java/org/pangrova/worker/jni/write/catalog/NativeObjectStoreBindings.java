@@ -4,6 +4,7 @@ import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.ObjectStoreExecutionBinding;
 import org.pangrova.protocol.v2.S3ExecutionSettings;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.Map;
 
@@ -58,7 +59,14 @@ final class NativeObjectStoreBindings {
     }
 
     private static URI normalized(String value) {
-        URI uri = URI.create(value);
+        // SDK local locations are paths, so quotes/spaces are path characters,
+        // not URI syntax. Construct without normalization to retain traversal checks.
+        URI uri;
+        try {
+            uri = value.startsWith("/") ? new URI(null, null, value, null) : URI.create(value);
+        } catch (URISyntaxException invalid) {
+            throw new IllegalArgumentException("Invalid Native local storage path", invalid);
+        }
         if (!uri.normalize().equals(uri) || uri.getQuery() != null || uri.getFragment() != null
                 || uri.getUserInfo() != null || uri.getPath() == null || uri.getPath().contains("\\")) {
             throw new IllegalArgumentException("Native warehouse and dataset locations must be normalized");

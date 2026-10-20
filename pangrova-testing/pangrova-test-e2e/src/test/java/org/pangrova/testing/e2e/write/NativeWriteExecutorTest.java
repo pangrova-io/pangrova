@@ -13,6 +13,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Lifecycle components backed by real deployment, SDK sinks and owned Parquet files. */
 class NativeWriteExecutorTest extends NativeWriteLifecycleTestBase {
     @Test
+    void unboundTaskCannotOpenAnotherTasksConnectorSink() throws Exception {
+        String table = newTable();
+        try (var fixture = lifecycle()) {
+            var opened = fixture.open(table);
+            var unbound = new WriteDescriptor(opened.descriptor().dmlOperation(),
+                    opened.descriptor().columns(), Map.of("taskId", "unbound-task"));
+            assertThatThrownBy(() -> fixture.executor().beginWrite(unbound))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("binding not found");
+            assertThat(fixture.executor().activeSessionCount()).isEqualTo(1);
+            fixture.appendAndFindOwnedFile(opened, 1);
+            fixture.executor().abortWrite(opened.handle());
+            assertThat(fixture.executor().activeSessionCount()).isZero();
+            assertThat(NativeWriteLifecycleFixture.files(opened)).isEmpty();
+        }
+    }
+
+    @Test
     void missingCanonicalTaskIdFailsBeforeOpeningConnectorSink() {
         try (var fixture = lifecycle()) {
             var descriptor = descriptor(Map.of());

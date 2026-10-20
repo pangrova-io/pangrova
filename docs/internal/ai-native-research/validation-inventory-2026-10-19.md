@@ -5,6 +5,12 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 SHOW 与写入增量：**提交 `49ee47fe` 将 SHOW TAGS/BRANCHES 改为 Connector 声明、结构化 AST 和普通授权/Native 扫描链，移除指引行任务及 ASCII SQL 拼接。SPI **742/742**、Planner **1,475/1,475**、Coordinator **3,329/3,329** 在随后写入身份修复之前通过。初始真实 SHOW SQL 批次 **17/19**；两个特殊表名场景依次暴露 Coordinator 点号拆分、Iceberg 原始路径 URI 解析、JNI 写入目标字符串重解析，以及 Worker 存储范围校验的同类路径问题。保留实际 CREATE/INSERT/TAG/SHOW 链路逐项修复后，新的 HTTP/SQL/JNI 写入/目录批次 **106/106 PASS**，包括两个原失败用例、13 项真实写入生命周期、75 项异常清理、2 项并发、6 项指标、8 项目录/租户隔离。新增未绑定任务不能借用其他任务输出句柄的实值回归。原始路径检查 Iceberg **7/7**、Worker **4/4** 通过；JDK 17 与 [URI 官方语义](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/net/URI.html)已核对，仍保留路径穿越、仓库子路径和 authority 校验。证据 `/tmp/pangrova-task-bound-writer-real-e2e-20261021.json`，以及 `*-real-e2e`、`pangrova-iceberg-quoted-path-regression`、`pangrova-native-scoped-local-path-regression` 对应的 `20261021.log`。
+
+同一批 Worker 整模块 `full-regression,static-analysis` **1,510/1,510 PASS**（234 份本次生成的报告，零失败/错误/跳过），证据 `/tmp/pangrova-task-bound-writer-worker-owner-20261021.json`。Coordinator/E2E 叶模块静态、JNI 22 方法对称、SPI 147 公共类型、E2E 真实性及 185 项文档类引用检查通过。测试拥有的容器与 broker 均已退出，磁盘剩余约 76 GiB。
+
+同一批的 Native Release **32/32**、匹配 ASan **32/32** 用例均执行通过，按当前发现清单逐名核对；重建库、资源目录和安装的 Worker JAR 中 JNI 字节相同，完整 Native 能力目录与协议夹具逐字节一致。ASan 原始日志另有 Folly 的可恢复 UBSan 整数转换/移位及线程局部析构函数类型诊断，不能把 CTest 退出 0 记作 UBSan 无告警。Folly 与 Pangrova 均使用 Clang 17.0.6，但 Folly 的 ASan 选项额外启用了 undefined/integer/nullability 插桩；[Clang 官方文档](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html)区分其中的定义良好整数操作告警与实际未定义行为。函数类型诊断仍需独立缩减与根因验证，暂不认定为误报，也未添加抑制。原始证据 `/tmp/pangrova-task-bound-writer-{native,asan}-raw-20261021.log`，逐名和诊断记录 `*-{native,asan}-evidence-20261021.json`。这使 #6 重新列入本机未闭合检查点：**当前为 17 类（#6–#12、#15–#24）**，不是 17 个失败测试。此前的 16 类计数是发现该诊断前的记录。
+
 **2026-10-20 最新增量：**为闭合 `$partitions` 的前置能力，`$files` 已增加按稳定 field ID 读取的真实分区 struct，支持 spec 演进后的字段改名和缺失维度 NULL；读取身份也包含元数据位置与规范化 spec 映射。Java 绑定最近检查 8/8、缓存身份场景 1/1、Iceberg 所属模块 `-Pfull-regression` **437/437**、从最终打包 JNI 重采集库存后的 Protocol **447/447** 均通过，零失败/错误/跳过。最终改动的 Release Native 和匹配插桩 ASan 各 **17/17**；新 SQL/JNI 场景按增量执行共 **3/3**，原 lineage **4/4**、manifest-list **2/2**，新场景物理 ownership 和 active query count 归零断言共 **3/3** 通过。完整 struct SQL 首次失败定位为重复 Java 列白名单，已改为从冻结 typed schema 校验，新增回归断言后重跑通过；只读标量列也不再额外拷贝分区 tuple。最终日志为 `/tmp/pangrova-partition-final-{iceberg-module,protocol,native-focused,asan-focused,java-static}-20261020.log`；SQL 见 `/tmp/pangrova-partition-projection-{e2e-drain,manifests-e2e,full-struct-e2e-r2}-20261020.log`。Java 受影响依赖链及最终叶模块静态检查通过。本增量不宣称 `$partitions` 聚合或全部系统表已完成。此前 4,179 项 Native 全覆盖是本次运行代码修改前的基线；后续只补影响范围，待全部功能闭合后统一做用户要求的最终全量。
 
 **元数据授权增量：**修复 `$entries` 遗漏基表 SELECT 校验。真实 RBAC 最近测试 **56/56**；新增真 HTTP SQL/JNI E2E **1/1**，覆盖 Iceberg 五种元数据表的后缀授权拒绝、基表授权放行、撤销后立即拒绝，以及 query ownership/active count 归零。Coordinator `-Pfull-regression` 首轮 **3,305 次用例执行中 3,295 通过**，10 项均因启动命令遗漏 `pangrova.lance.fixture.tool` 参数而失败；按当前源码构建该工具后，只补跑这 10 项，**10/10 PASS**，静态 `verify` 通过。合并首轮和增量结果，**3,305/3,305 次执行记录全部通过，零失败/错误/跳过**；这不是一次连续全绿运行。证据 `/tmp/pangrova-metadata-authority-coordinator-rolling-union-20261020.json`，日志 `/tmp/pangrova-metadata-authority-{focused,e2e,coordinator-full,coordinator-recovery-static,e2e-static}-20261020.log`。该批只证明授权身份与撤销语义；基表行过滤/列掩码对元数据读的保护仍需单独闭合。
@@ -40,8 +46,8 @@ Native 测试统一入口 `pangrova-worker-native/bin/run-native-tests.py` 现�
 | 批次 | 检查点 | 当前缺口和本机验收动作 |
 | --- | --- | --- |
 | A：同源码基础门禁 | 5 Native Release | 提交 `f87cfd1f` 的连续全量 **4,178/4,178**，后续命名/生命周期增量通过；本轮分区读取涉及的 reader/parser/逻辑类型检查 **17/17**，新真实 SQL 3/3 与原 lineage 4/4 均通过。完整最终全量仍待全部功能闭合后统一执行。 |
-| A | 6 Native ASan | 分区读取修改前的同源码基线滚动并集 **4,179/4,179 PASS、0 遗漏**（`/tmp/pangrova-asan-rolling-union-20261020.json`）；本轮受影响 ASan **17/17 PASS**。全部功能修复后仍须按用户要求最终全量；macOS 不覆盖 Linux LeakSanitizer。 |
-| A | 7 Java reactor | 最新各增量见上文：Worker 1,520/1,520、Coordinator 3,325 次滚动并集；refs 前置的 SPI 739/739、Planner 1,472/1,472、Iceberg 438/438 及后续受影响定向检查通过。最终源码仍需完整 `-Pfull-regression verify`，不能将分模块/滚动结果冒充一次最终 reactor 全绿。 |
+| A | 6 Native ASan | 历史基线滚动并集 **4,179/4,179 PASS、0 遗漏**；分区读取 17/17、refs 62/62 与本轮写入 32/32 增量已执行通过。本轮原始日志的 Folly 可恢复 UBSan 诊断尚未闭合，详见最新增量；不能宣称 sanitizer 全部无告警。最终全量仍待全部功能修复；macOS 不覆盖 Linux LeakSanitizer。 |
+| A | 7 Java reactor | 最新各增量见上文：Worker 新接口及路径修复后本次完整模块 1,510/1,510；SHOW 的 SPI 742/742、Planner 1,475/1,475、Coordinator 3,329/3,329 在后续写入身份修复前通过，随后写入受影响场景和静态检查通过。最终源码仍需完整 `-Pfull-regression verify`，不能将分模块/滚动结果冒充一次最终 reactor 全绿。 |
 | A | 8 静态/协议/结构 | 提交 `a1cdcb60` 协议夹具从真 Native 重采集后 447/447，通过日志 `/tmp/pangrova-protocol-a1cdcb60-r2-20261019.log`；文档类引用 183 项、E2E 真实性、descriptor、SPI 注解 147 类型、JNI 22 方法对称性及 dead-stub 检查此前通过；最终同源码仍需全 reactor 静态。覆盖率百分比不是验收门禁，JaCoCo 只按需生成报告。 |
 | A | 10 隔离 Native owner | 提交 `04fadbcf` 三类各自独立 JVM：5 + 3 + 1 = 9/9，零跳过；Native 协议修改后最终源码还须复验。 |
 | B：真实 SQL 与分布式 | 1 ARM64 镜像 | 旧源码镜像已构建；本机功能验收可用独立 JVM，不要求先打包镜像。若要交付镜像，再按交付源码重建。 |
@@ -56,7 +62,7 @@ Native 测试统一入口 `pangrova-worker-native/bin/run-native-tests.py` 现�
 | C | 17 唯一 Calcite 前端 | 全 DDL/DML/时间旅行生产路径迁移和可达旧 fallback 清理未完成。 |
 | C | 18 `GENERATE_SERIES` | 提交 `65c7dffa` 当前源码真实 SQL/JNI E2E **6/6 PASS**；最终同源码全功能回归仍待纳入最终批次。 |
 | C | 19 `COPY INTO` | stage-only 和 `FROM (SELECT …)` 局部通过；URI SQL→可信 split→Native Parquet→Iceberg marker/未知提交对账尚未接通。 |
-| C | 20 系统表 | `$files` 新增按 field ID 的真实分区 struct，含改名/新维度 NULL/完整 struct Flight 返回的 SQL/JNI 3/3；`$entries` 的 data/file 序列和 v3 row ID 真 SQL 4/4 通过。SHOW 元数据历史 5/6，`$partitions` 仍缺关系聚合路径；完整 SDK 嵌套列、Paimon `$files`、全逻辑类型 SQL 矩阵、跨文件系统、标准 `$refs` 的实际 SQL/JNI 3/3 与扩展授权矩阵 6/6 已通过；SHOW TAGS/BRANCHES 的查询映射及 deferred/background 元数据策略矩阵仍待完成。 |
+| C | 20 系统表 | `$files` field-ID 分区 struct 的 SQL/JNI 3/3、`$entries` 序列和 v3 row ID 的 4/4、标准 `$refs` 的 3/3 与授权矩阵 6/6 已通过。SHOW TAGS/BRANCHES 已贯通真实 Native 查询；两个特殊表名原失败项在新的 106/106 写入/目录批次中恢复。`$partitions` 关系聚合、完整 SDK 嵌套列、Paimon `$files`、全逻辑类型、跨文件系统和 deferred/background 元数据策略矩阵仍未闭合。 |
 | C | 21 Dynamic Table | 手动 full-refresh generation 已有真实 E2E；逻辑授权、持久 attempt/source pin、失败恢复、GC、调度/CDC 未闭合。 |
 | C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多 split、无结果和目标规模质量/成本待验。 |
 | D：AI/Feature/CDC | 23 独立模型服务 | 提交 `cf767a46` 重封 JAR/Native 后预置真实模型的独立双 Worker HTTP/SQL、分别单独调用、重启和审计 1/1 再通过（`/tmp/pangrova-independent-processes-cf767a46-20261019.log`）；异步批量、取消、乱序、超时、未知完成、fencing 未全闭合。 |
@@ -67,4 +73,4 @@ Native 测试统一入口 `pangrova-worker-native/bin/run-native-tests.py` 现�
 | E | 26 向量质量/成本 | 缺 1,000 万/1 亿向量目标规模资源；本机只做正确性和小样本 oracle。 |
 | E | 27 多 Worker 扩展/稳定性 | 缺 2 Coordinator、4–8 Worker 的指定规模环境；本机独立进程验证功能与故障，不冒充吞吐、P99 或长稳验收。 |
 
-**计数与执行次序：**27 项中 #5/#6 的分区读取修改前基线已完整验证（Release 连续全量、ASan 滚动并集），本轮改动 Release/ASan 各 17/17 增量通过；**16 项本机功能检查点**仍需实现、扩面或最终回归（#7–#12、#15–#24）。#1/#2 是 2 项条件性的镜像交付检查，按用户要求不阻断本机独立进程功能验收；2 项 REST 协议暂缓（#13/#14），5 项需要当前没有的发布/规模环境（#3/#4/#25–#27）。A 的轻量规则检查可与 B 的共享 E2E 并行；Native ASan、完整 E2E 和其他高内存容器批次不能同时挤占本机 16 GiB RAM/Docker VM。B 的首个失败修复后滚动扩面，C/D 按独立纵切进行，最后在**同一最终源码**做一次完整功能回归。每批记录实测数量、失败根因、日志、commit 和磁盘余量；不把未运行的测试记作通过。
+**计数与执行次序：**当前 **17 类本机检查点**需实现、扩面、解释/修复诊断或最终回归（#6–#12、#15–#24），最新变化是 #6 的 Folly UBSan 诊断。Native 已有历史全量和之后各改动的定向增量证据，最后仍需统一回归。#1/#2 是 2 项条件性的镜像交付检查，不阻断本机独立进程功能验收；2 项 REST 协议暂缓（#13/#14），5 项需要当前没有的发布/规模环境（#3/#4/#25–#27）。A 先处理原始 sanitizer 诊断，再做完整 Java/静态/协议；B 按共享 SQL、独立 Worker 和故障矩阵滚动验证；C/D 继续 SQL/存储/写入及 AI/Feature/CDC 纵切。轻量规则检查可与共享 E2E 并行；Native ASan、完整 E2E 和其他高内存容器批次不能同时挤占本机 16 GiB RAM/Docker VM。全部缺口修复后在**同一最终源码**执行一次完整功能回归。每批记录实测数量、失败根因、日志、commit 和磁盘余量；不把未运行或带未解释诊断的检查记作全绿。

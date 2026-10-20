@@ -35,6 +35,16 @@ class IcebergDeclarationMetadataIntegrationTest {
     Path warehouse;
 
     @Test
+    void rawLocalPathPreservesUnicodeQuotesAndSpacesForDeclarationFencing() throws Exception {
+        try (var catalog = catalog()) {
+            var table = catalog.createTable(TableIdentifier.of("db", "Orders.中文\"; select"),
+                    new Schema(Types.NestedField.required(1, "id", Types.LongType.get())));
+            assertThat(table.location()).startsWith("/").contains("Orders.中文\"; select");
+            IcebergDeclarationCommit.requireSupported(catalog, table);
+        }
+    }
+
+    @Test
     void currentMetadataPreservesCanonicalGeneratedPropertiesAndVectorType() throws Exception {
         var configuration = new Configuration();
         configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());

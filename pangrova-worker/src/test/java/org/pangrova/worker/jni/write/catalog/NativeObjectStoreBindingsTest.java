@@ -16,6 +16,21 @@ class NativeObjectStoreBindingsTest {
             .setCatalogName("lake").setCatalogRevision(3).setCatalogIncarnationId("deployment-a")
             .setConnectorProvider("lance").build();
 
+    @Test void rawLocalNamesAndEncodedFileUrisResolveToTheSameScopedPath() {
+        String root = "/data/warehouse 中文\"";
+        String location = root + "/Orders.中文\"; select/tag/tag-release";
+        var binding = NativeObjectStoreBindings.create(CATALOG, "tenant-a", Map.of("warehouse", root));
+        NativeObjectStoreBindings.requireLocation(binding, location);
+        NativeObjectStoreBindings.requireLocation(binding, java.nio.file.Path.of(location).toUri().toString());
+        var uriBinding = NativeObjectStoreBindings.create(CATALOG, "tenant-a",
+                Map.of("warehouse", java.nio.file.Path.of(root).toUri().toString()));
+        NativeObjectStoreBindings.requireLocation(uriBinding, location);
+        assertThrows(SecurityException.class,
+                () -> NativeObjectStoreBindings.requireLocation(binding, root + "-other/table"));
+        assertThrows(IllegalArgumentException.class,
+                () -> NativeObjectStoreBindings.requireLocation(binding, root + "/../outside/tag"));
+    }
+
     @Test void localWarehouseRequiresAnExactNormalizedDescendant() {
         var binding = NativeObjectStoreBindings.create(CATALOG, "tenant-a", Map.of("warehouse", "/data/foo"));
         NativeObjectStoreBindings.requireLocation(binding, "/data/foo/table.lance");
