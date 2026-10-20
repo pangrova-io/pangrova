@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.http;
 
+import java.net.InetSocketAddress;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,6 +59,11 @@ public final class CoordinatorHttpServer {
      * @param deps grouped dependencies for HTTP server wiring
      */
     public CoordinatorHttpServer(int port, CoordinatorHttpServerContext deps) {
+        this(new InetSocketAddress(port), deps);
+    }
+
+    /** Binds the HTTP service to the exact address used by its advertised endpoint. */
+    public CoordinatorHttpServer(InetSocketAddress address, CoordinatorHttpServerContext deps) {
         checkNotNull(deps, "deps must not be null");
         this.copySourceReadEnabled = deps.copySourceReadResource() != null;
 
@@ -67,7 +74,7 @@ public final class CoordinatorHttpServer {
         handler.setContextPath("/");
         handler.addServlet(new ServletHolder(servletContainer), "/*");
 
-        this.server = EmbeddedHttpServerFactory.create(port, handler, COORDINATOR_MAX_THREADS);
+        this.server = EmbeddedHttpServerFactory.create(address, handler, COORDINATOR_MAX_THREADS);
     }
 
     /**

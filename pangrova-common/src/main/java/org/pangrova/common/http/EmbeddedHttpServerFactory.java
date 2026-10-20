@@ -1,5 +1,7 @@
 package org.pangrova.common.http;
 
+import java.net.InetSocketAddress;
+
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -39,11 +41,22 @@ public final class EmbeddedHttpServerFactory {
      * Server is NOT started — caller is responsible for calling server.start().
      */
     public static Server create(int port, ServletContextHandler handler, int maxThreads) {
+        return create(new InetSocketAddress(port), handler, maxThreads);
+    }
+
+    /** Creates a server bound to an explicit address rather than an implicit wildcard. */
+    public static Server create(InetSocketAddress address, ServletContextHandler handler, int maxThreads) {
         QueuedThreadPool threadPool = new QueuedThreadPool(maxThreads, MIN_THREADS);
         threadPool.setDaemon(true);
         Server server = new Server(threadPool);
         ServerConnector connector = new ServerConnector(server);
-        connector.setPort(port);
+        connector.setHost(address.getHostString());
+        connector.setPort(address.getPort());
+        // A kernel-assigned port has no restart identity to reuse. On BSD,
+        // SO_REUSEADDR can otherwise overlap a live address-specific listener.
+        if (address.getPort() == 0) {
+            connector.setReuseAddress(false);
+        }
         connector.setIdleTimeout(IDLE_TIMEOUT_MS);
         connector.setShutdownIdleTimeout(SHUTDOWN_IDLE_TIMEOUT_MS);
         server.addConnector(connector);

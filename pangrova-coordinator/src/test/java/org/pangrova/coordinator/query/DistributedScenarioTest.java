@@ -92,10 +92,12 @@ class DistributedScenarioTest {
         var receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queryManager,
                 taskTracker, workerManager, null, null, null, null, null, null,
                 orchestrator.dagEngine(), null, null));
-        coordinatorServer = new CoordinatorHttpServer(0, receiver, queryManager, null);
+        coordinatorServer = new CoordinatorHttpServer(new java.net.InetSocketAddress("127.0.0.1", 0),
+                new org.pangrova.coordinator.http.CoordinatorHttpServerContext(
+                        receiver, queryManager, null, null, null, null, null, null));
         coordinatorServer.start();
         statusReporter = new RemoteTaskStatusReporter(
-                "http://localhost:" + coordinatorServer.getPort(), TestObservability.TRACING, null);
+                "http://127.0.0.1:" + coordinatorServer.getPort(), TestObservability.TRACING, null);
         nativeWorker.deliverReportsTo(statusReporter::report);
     }
 
