@@ -1,0 +1,139 @@
+--- a/core/src/main/java/org/apache/iceberg/avro/ValueWriters.java
++++ b/core/src/main/java/org/apache/iceberg/avro/ValueWriters.java
+@@ -363 +363 @@
+-      encoder.writeBytes(bytes);
++      encoder.writeFixed(bytes.duplicate());
+--- a/core/src/main/java/org/apache/iceberg/avro/InternalReader.java
++++ b/core/src/main/java/org/apache/iceberg/avro/InternalReader.java
+@@ -224,0 +225 @@
++          return InternalReaders.fixed(primitive.getFixedSize());
+--- a/core/src/main/java/org/apache/iceberg/avro/InternalReaders.java
++++ b/core/src/main/java/org/apache/iceberg/avro/InternalReaders.java
+@@ -20,0 +21,2 @@
++import java.io.IOException;
++import java.nio.ByteBuffer;
+@@ -21,0 +24 @@
++import org.apache.avro.io.Decoder;
+@@ -30,0 +34,24 @@
++
++  static ValueReader<ByteBuffer> fixed(int length) {
++    return new ValueReader<>() {
++      private final ValueReader<byte[]> bytesReader = ValueReaders.fixed(length);
++
++      @Override
++      public ByteBuffer read(Decoder decoder, Object reuse) throws IOException {
++        if (reuse instanceof ByteBuffer) {
++          ByteBuffer buffer = (ByteBuffer) reuse;
++          if (buffer.hasArray() && buffer.arrayOffset() == 0 && buffer.capacity() == length) {
++            bytesReader.read(decoder, buffer.array());
++            buffer.clear();
++            return buffer;
++          }
++        }
++        return ByteBuffer.wrap(bytesReader.read(decoder, null));
++      }
++
++      @Override
++      public void skip(Decoder decoder) throws IOException {
++        bytesReader.skip(decoder);
++      }
++    };
++  }
+--- /dev/null
++++ b/core/src/test/java/org/apache/iceberg/avro/TestFixedByteBufferWriter.java
+@@ -0,0 +1,95 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++package org.apache.iceberg.avro;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import java.io.ByteArrayOutputStream;
++import java.nio.ByteBuffer;
++import java.util.stream.Stream;
++import org.apache.avro.generic.GenericData;
++import org.apache.avro.generic.GenericDatumWriter;
++import org.apache.avro.io.DecoderFactory;
++import org.apache.avro.io.EncoderFactory;
++import org.apache.iceberg.Schema;
++import org.apache.iceberg.data.Record;
++import org.apache.iceberg.types.Types;
++import org.junit.jupiter.api.Test;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.MethodSource;
++
++class TestFixedByteBufferWriter {
++  static Stream<ByteBuffer> buffers() {
++    ByteBuffer heap = ByteBuffer.wrap(new byte[] {9, -128, 0, 1, 9});
++    heap.position(1).limit(4);
++    ByteBuffer direct = ByteBuffer.allocateDirect(5);
++    direct.put(new byte[] {9, -128, 0, 1, 9}).position(1).limit(4);
++    return Stream.of(heap, heap.asReadOnlyBuffer(), heap.slice(), direct);
++  }
++
++  @ParameterizedTest
++  @MethodSource("buffers")
++  void fixedHasNoLengthPrefixAndDoesNotConsumeTheBuffer(ByteBuffer input) throws Exception {
++    int position = input.position();
++    int limit = input.limit();
++    ByteArrayOutputStream output = new ByteArrayOutputStream();
++    var encoder = EncoderFactory.get().binaryEncoder(output, null);
++    ValueWriters.fixedBuffers(3).write(input, encoder);
++    encoder.writeInt(1234);
++    encoder.flush();
++    var decoder = DecoderFactory.get().binaryDecoder(output.toByteArray(), null);
++    byte[] decoded = new byte[3];
++    decoder.readFixed(decoded);
++    assertThat(decoded).containsExactly((byte) -128, (byte) 0, (byte) 1);
++    assertThat(decoder.readInt()).isEqualTo(1234);
++    assertThat(decoder.isEnd()).isTrue();
++    assertThat(input.position()).isEqualTo(position);
++    assertThat(input.limit()).isEqualTo(limit);
++  }
++
++  @Test
++  void internalReaderReadsStandardFixedAndSkipsItForProjection() throws Exception {
++    Schema schema =
++        new Schema(
++            Types.NestedField.required(1, "fixed_value", Types.FixedType.ofLength(3)),
++            Types.NestedField.required(2, "tail", Types.IntegerType.get()));
++    var avro = AvroSchemaUtil.convert(schema, "root");
++    var record = new GenericData.Record(avro);
++    record.put(
++        "fixed_value",
++        new GenericData.Fixed(avro.getField("fixed_value").schema(), new byte[] {-128, 0, 1}));
++    record.put("tail", 1234);
++    ByteArrayOutputStream output = new ByteArrayOutputStream();
++    var encoder = EncoderFactory.get().binaryEncoder(output, null);
++    new GenericDatumWriter<GenericData.Record>(avro).write(record, encoder);
++    encoder.flush();
++    var reader = InternalReader.<Record>create(schema);
++    reader.setSchema(avro);
++    var decoder = DecoderFactory.get().binaryDecoder(output.toByteArray(), null);
++    Record actual = reader.read(null, decoder);
++    assertThat(actual.get(0, ByteBuffer.class)).isEqualTo(ByteBuffer.wrap(new byte[] {-128, 0, 1}));
++    assertThat(actual.get(1, Integer.class)).isEqualTo(1234);
++    assertThat(decoder.isEnd()).isTrue();
++    var projected = InternalReader.<Record>create(schema.select("tail"));
++    projected.setSchema(avro);
++    var projectedDecoder = DecoderFactory.get().binaryDecoder(output.toByteArray(), null);
++    assertThat(projected.read(null, projectedDecoder).get(0, Integer.class)).isEqualTo(1234);
++    assertThat(projectedDecoder.isEnd()).isTrue();
++  }
++}
