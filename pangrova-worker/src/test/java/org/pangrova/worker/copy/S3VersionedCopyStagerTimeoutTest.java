@@ -70,7 +70,8 @@ class S3VersionedCopyStagerTimeoutTest {
                     exchange.sendResponseHeaders(200, -1);
                     return;
                 }
-                exchange.sendResponseHeaders(200, contentLength);
+                exchange.getResponseHeaders().set("Content-Range", "bytes 0-" + (contentLength - 1) + "/" + contentLength);
+                exchange.sendResponseHeaders(206, contentLength);
                 exchange.getResponseBody().write('a');
                 exchange.getResponseBody().flush();
                 bodyBytesSent.incrementAndGet();
@@ -119,7 +120,7 @@ class S3VersionedCopyStagerTimeoutTest {
             var profile = new StorageProfile("incoming", StorageType.S3, "source-copy",
                     "data/", "", "us-east-1", Map.of(), Map.of());
             assertThatThrownBy(() -> stager.stage(profile,
-                    "s3://source-copy/data/part.parquet", "tenant-one"))
+                    "s3://source-copy/data/part.parquet", "tenant-one", budget()))
                     .isInstanceOf(IOException.class);
             if (trickle) assertThat(bodyBytesSent.get()).isGreaterThan(1);
             try (var files = Files.list(drafts)) {
@@ -133,4 +134,12 @@ class S3VersionedCopyStagerTimeoutTest {
         }
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(allowed);
     }
+    private static CopyPreparation budget() {
+        return new CopyPreparation(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                .setGrantId("stager-test").setCpuSlots(1).setJvmHeapBytes(1024 * 1024)
+                .setObjectStoreReadBytes(2 * 1024 * 1024).setObjectStoreWriteBytes(1024 * 1024)
+                .setSpillBytes(1024 * 1024).build(), System.currentTimeMillis() + 30_000,
+                java.time.Clock.systemUTC());
+    }
+
 }

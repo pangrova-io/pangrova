@@ -120,8 +120,38 @@ public final class CanonicalTaskRequests {
         }
     }
 
+    /** Validates preparation authority independently of relational task execution. */
+    public static void validateSourcePreparation(org.pangrova.protocol.v2.SourcePreparationRequest request) {
+        if (request == null || !request.getUnknownFields().asMap().isEmpty()
+                || !request.hasProtocol() || !request.hasAttempt() || !request.hasSecurity()
+                || !request.hasResourceGrant() || !request.hasSourceCommandSha256()) {
+            throw new IllegalArgumentException("Source preparation authority is incomplete");
+        }
+        validateProtocol(request.getProtocol());
+        validateAttempt(request.getAttempt());
+        requireSecurityContext(request.getSecurity());
+        requireResourceGrantFields(request.getResourceGrant());
+        if (request.getResourceGrant().getJvmHeapBytes() <= 0) {
+            throw new IllegalArgumentException("Source preparation requires a JVM memory grant");
+        }
+        requireDeadline(request.getDeadlineEpochMs());
+        if (!request.getTraceContext().getUnknownFields().asMap().isEmpty()
+                || !request.getSourceCommandSha256().getUnknownFields().asMap().isEmpty()
+                || request.getSourceCommandSha256().getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
+                || request.getSourceCommandSha256().getDigest().size() != SHA256_BYTES) {
+            throw new IllegalArgumentException("Source preparation trace or command digest is invalid");
+        }
+    }
+
     private static void requireResourceGrant(StageResourceGrant grant) {
-        if (grant.getGrantId().isBlank() || grant.getCpuSlots() <= 0 || grant.getNativeMemoryBytes() <= 0
+        requireResourceGrantFields(grant);
+        if (grant.getNativeMemoryBytes() <= 0) {
+            throw new IllegalArgumentException("Canonical task resource grant is incomplete");
+        }
+    }
+
+    private static void requireResourceGrantFields(StageResourceGrant grant) {
+        if (grant.getGrantId().isBlank() || grant.getCpuSlots() <= 0
                 || !grant.getUnknownFields().asMap().isEmpty()) {
             throw new IllegalArgumentException("Canonical task resource grant is incomplete");
         }

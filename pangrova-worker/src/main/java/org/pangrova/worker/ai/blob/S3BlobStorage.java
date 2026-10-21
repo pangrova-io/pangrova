@@ -71,8 +71,25 @@ public final class S3BlobStorage implements BlobStorage {
     public void publish(
             String tenantScope, String checksum, long size, Path stagedContent)
             throws IOException {
+        publishInternal(tenantScope, checksum, size, stagedContent, null);
+    }
+
+    /** One admitted publication; internal SDK retries cannot reuse its byte allowance. */
+    public void publish(String tenantScope, String checksum, long size, Path stagedContent,
+                        java.util.function.LongConsumer writeAdmission) throws IOException {
+        publishInternal(tenantScope, checksum, size, stagedContent,
+                Objects.requireNonNull(writeAdmission, "writeAdmission"));
+    }
+
+    private void publishInternal(String tenantScope, String checksum, long size, Path stagedContent,
+                                 java.util.function.LongConsumer writeAdmission) throws IOException {
         String key = objectKey(tenantScope, checksum);
         PutObjectRequest request = putRequest(key, checksum, size);
+        if (writeAdmission != null) {
+            request = request.toBuilder().overrideConfiguration(request.overrideConfiguration().orElseThrow()
+                    .toBuilder().addPlugin(S3BlobStorage::withoutHiddenPayloadRetries).build()).build();
+            writeAdmission.accept(size);
+        }
         try {
             client.putObject(request, RequestBody.fromFile(stagedContent));
         } catch (S3Exception failure) {
@@ -109,7 +126,7 @@ public final class S3BlobStorage implements BlobStorage {
                 }
                 request = request.toBuilder().range("bytes=0-" + (size - 1))
                         .overrideConfiguration(config -> config.addPlugin(
-                                S3BlobStorage::withoutHiddenReadRetries)).build();
+                                S3BlobStorage::withoutHiddenPayloadRetries)).build();
                 readAdmission.accept(size);
             }
             ResponseInputStream<GetObjectResponse> stream = client.getObject(
@@ -142,7 +159,7 @@ public final class S3BlobStorage implements BlobStorage {
     }
 
     // A task retry gets a new admission; an SDK retry must not reuse one byte reservation.
-    private static void withoutHiddenReadRetries(
+    private static void withoutHiddenPayloadRetries(
             software.amazon.awssdk.core.SdkServiceClientConfiguration.Builder config) {
         config.overrideConfiguration(config.overrideConfiguration().toBuilder()
                 .retryPolicy(software.amazon.awssdk.core.retry.RetryPolicy.none()).build());
@@ -188,6 +205,11 @@ public final class S3BlobStorage implements BlobStorage {
         if (!settings.expectedBucketOwner().isEmpty()) {
             request.expectedBucketOwner(settings.expectedBucketOwner());
         }
+    }
+
+    /** Empty prepared sources have no payload range; verify their exact publication metadata. */
+    public void verifyEmptyPublication(String tenantScope, String checksum) throws IOException {
+        verifyHead(objectKey(tenantScope, checksum), checksum, 0);
     }
 
     private void verifyHead(String key, String checksum, long size) throws IOException {

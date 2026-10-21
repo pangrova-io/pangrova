@@ -147,8 +147,7 @@ public final class CopySourceReadClient {
                         failure.getCause());
             }
             if (response.statusCode() != HTTP_OK) {
-                throw new IllegalStateException(
-                        "COPY source-read " + action + " rejected with status " + response.statusCode());
+                throw new Rejected(action, response.statusCode());
             }
             return mapper.readValue(responseBytes.bytes(), type);
         } catch (IOException failure) {
@@ -157,6 +156,21 @@ public final class CopySourceReadClient {
                         failure);
             }
             throw new IllegalStateException("COPY source-read " + action + " failed", failure);
+        }
+    }
+
+    /** Exact control-plane rejection, distinct from a failed or unknown transport exchange. */
+    public static final class Rejected extends IllegalStateException {
+        private final int status;
+
+        private Rejected(String action, int status) {
+            super("COPY source-read " + action + " rejected with status " + status);
+            this.status = status;
+        }
+        public int status() { return status; }
+        public boolean isPolicyDenial() {
+            return status == java.net.HttpURLConnection.HTTP_UNAUTHORIZED
+                    || status == java.net.HttpURLConnection.HTTP_FORBIDDEN;
         }
     }
 

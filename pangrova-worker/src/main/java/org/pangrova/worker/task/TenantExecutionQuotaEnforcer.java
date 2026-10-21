@@ -41,21 +41,34 @@ public final class TenantExecutionQuotaEnforcer {
      * @return whether this exact task owns a concurrency slot
      */
     public boolean tryReserveTask(String taskId, String tenantId) {
+        return tryReserveTask(taskId, tenantId, 0);
+    }
+
+    /** Reserves a control operation's known JVM allowance together with its tenant slot. */
+    public boolean tryReserveTask(String taskId, String tenantId, long memoryBytes) {
         java.util.Objects.requireNonNull(taskId, "taskId");
+        if (memoryBytes < 0) throw new IllegalArgumentException("Tenant memory reservation must be nonnegative");
         if (tenantId == null || tenantId.isBlank()) {
             return true;
         }
-        TaskQuota added = new TaskQuota(tenantId);
+        TaskQuota added = new TaskQuota(tenantId, memoryBytes);
         TaskQuota existing = taskQuotas.putIfAbsent(taskId, added);
         TaskQuota quota = existing == null ? added : existing;
         synchronized (quota) {
             if (!quota.tenantId.equals(tenantId)) {
                 throw new IllegalArgumentException("Task quota tenant cannot change: " + taskId);
             }
+            if (quota.memoryBytes != memoryBytes) {
+                throw new IllegalArgumentException("Task quota memory reservation cannot change: " + taskId);
+            }
             if (quota.released) return false;
             if (quota.acquired) return true;
             try {
                 quota.acquired = resourceTracker.tryAcquireQuery(tenantId);
+                if (quota.acquired && !resourceTracker.tryAllocateMemory(tenantId, memoryBytes)) {
+                    resourceTracker.releaseQuery(tenantId);
+                    quota.acquired = false;
+                }
                 if (!quota.acquired) taskQuotas.remove(taskId, quota);
                 return quota.acquired;
             } catch (RuntimeException | Error failure) {
@@ -149,7 +162,10 @@ public final class TenantExecutionQuotaEnforcer {
         TaskQuota quota = taskQuotas.get(taskId);
         if (quota == null) return;
         synchronized (quota) {
-            if (quota.acquired && !quota.released) resourceTracker.releaseQuery(quota.tenantId);
+            if (quota.acquired && !quota.released) {
+                resourceTracker.releaseMemory(quota.tenantId, quota.memoryBytes);
+                resourceTracker.releaseQuery(quota.tenantId);
+            }
             quota.released = true;
             taskQuotas.remove(taskId, quota);
         }
@@ -178,12 +194,16 @@ public final class TenantExecutionQuotaEnforcer {
 
     private static final class TaskQuota {
         private final String tenantId;
+        private final long memoryBytes;
         private final AtomicLong cpuTime = new AtomicLong();
         private final AtomicLong scanBytes = new AtomicLong();
         private boolean acquired;
         private boolean released;
 
-        private TaskQuota(String tenantId) { this.tenantId = tenantId; }
+        private TaskQuota(String tenantId, long memoryBytes) {
+            this.tenantId = tenantId;
+            this.memoryBytes = memoryBytes;
+        }
     }
 
     /**

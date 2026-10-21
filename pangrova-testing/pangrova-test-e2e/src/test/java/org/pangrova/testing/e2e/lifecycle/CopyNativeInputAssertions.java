@@ -47,98 +47,120 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 final class CopyNativeInputAssertions {
     private CopyNativeInputAssertions() {}
 
-    static void verify(CopySourceStagingCommand command, LongFunction<SubmitTaskRequest> tasks,
-                       Path stagingRoot, long fileSize) throws Exception {
-        try (var inputs = new CopyStageLeases(command, null);
-             var runtime = new ActualNativeTaskFixture()) {
-            var executor = runtime.executor();
-            executor.setCopyInputs(inputs);
-            var denied = tasks.apply(0);
-            var failure = catchThrowable(() -> executor.createCopyTask(denied));
-            assertThat(failure).isInstanceOf(NativeTaskCreationFailure.class);
-            var noOwner = (NativeTaskCreationFailure) failure;
-            assertThat(noOwner.withoutNativeOwner()).isTrue();
-            assertThat(noOwner.workerObjectReadBytes()).isZero();
-            assertThat(localInputs(stagingRoot)).isEmpty();
+    static final class Runtime implements AutoCloseable {
+        final CopyStageLeases inputs;
+        final ActualNativeTaskFixture nativeRuntime;
+        final org.pangrova.worker.task.TaskManager manager;
+        final org.pangrova.worker.task.TenantExecutionQuotaEnforcer quota =
+                new org.pangrova.worker.task.TenantExecutionQuotaEnforcer(
+                        new org.pangrova.resource.tenant.TenantResourceTracker());
+        final java.util.concurrent.CopyOnWriteArrayList<org.pangrova.protocol.rest.task.TaskStatusReport> reports =
+                new java.util.concurrent.CopyOnWriteArrayList<>();
 
-            var exhausted = tasks.apply(fileSize);
-            long exhaustedHandle = executor.createCopyTask(exhausted);
-            assertThat(localInputs(stagingRoot)).hasSize(1);
-            executor.startTask(exhaustedHandle);
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).until(() ->
-                    TaskReport.parseFrom(executor.getTaskStatus(exhaustedHandle)).getState()
-                            == TaskState.TASK_STATE_FAILED);
-            var exhaustedReport = TaskReport.parseFrom(executor.getTaskStatus(exhaustedHandle));
-            assertThat(exhaustedReport.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
-            assertThat(localInputs(stagingRoot)).hasSize(1);
-            Path privateDirectory = localInputs(stagingRoot).get(0).getParent();
-            Path cleanupBarrier = Files.writeString(privateDirectory.resolve("cleanup-barrier"), "retained");
-            assertThat(catchThrowable(() -> executor.releaseTask(exhaustedHandle)))
-                    .isInstanceOf(NativeTaskCreationFailure.class);
-            assertThat(privateDirectory).exists();
-            Files.delete(cleanupBarrier);
-            var exhaustedRelease = TaskReport.parseFrom(executor.releaseTask(exhaustedHandle).orElseThrow());
-            assertThat(exhaustedRelease.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
-            assertThat(localInputs(stagingRoot)).isEmpty();
+        Runtime(CopySourceStagingCommand command) throws Exception {
+            inputs = new CopyStageLeases(command, null);
+            nativeRuntime = new ActualNativeTaskFixture();
+            nativeRuntime.executor().setCopyInputs(inputs);
+            var resources = new org.pangrova.resource.ResourceManager(nativeRuntime.arbitrator(),
+                    new org.pangrova.resource.thread.ThreadBudgetTracker(8, 4, 2),
+                    new org.pangrova.resource.spill.SpillManager());
+            var context = new org.pangrova.worker.task.TaskManagerContext(reports::add, nativeRuntime.executor(),
+                    new org.pangrova.worker.task.memory.MemoryRefs(resources, nativeRuntime.nodePool(), null),
+                    nativeRuntime.transports(), java.util.concurrent.Executors.newSingleThreadExecutor());
+            manager = new org.pangrova.worker.task.TaskManager(context, "actual-copy-worker", 0.0);
+            manager.setQuotaEnforcer(quota);
+            manager.configureSourcePreparations(inputs);
+        }
 
-            var cancelled = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
-            long cancelledHandle = executor.createCopyTask(cancelled);
-            executor.cancelTask(cancelledHandle);
-            assertThat(localInputs(stagingRoot)).hasSize(1);
-            var cancelledRelease = TaskReport.parseFrom(executor.releaseTask(cancelledHandle).orElseThrow());
-            assertThat(cancelledRelease.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
-            assertThat(cancelledRelease.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
-            assertThat(localInputs(stagingRoot)).isEmpty();
-
-            verifyTaskManager(runtime, tasks, stagingRoot, fileSize);
+        @Override public void close() throws Exception {
+            try { manager.close(); } finally {
+                try { nativeRuntime.close(); } finally { inputs.close(); }
+            }
         }
     }
 
-    private static void verifyTaskManager(ActualNativeTaskFixture runtime,
-            LongFunction<SubmitTaskRequest> tasks, Path stagingRoot, long fileSize) throws Exception {
-        var reports = new java.util.concurrent.CopyOnWriteArrayList<org.pangrova.protocol.rest.task.TaskStatusReport>();
-        var resources = new org.pangrova.resource.ResourceManager(runtime.arbitrator(),
-                new org.pangrova.resource.thread.ThreadBudgetTracker(8, 4, 2),
-                new org.pangrova.resource.spill.SpillManager());
-        var monitor = java.util.concurrent.Executors.newSingleThreadExecutor();
-        var context = new org.pangrova.worker.task.TaskManagerContext(reports::add, runtime.executor(),
-                new org.pangrova.worker.task.memory.MemoryRefs(resources, runtime.nodePool(), null),
-                runtime.transports(), monitor);
-        try (var manager = new org.pangrova.worker.task.TaskManager(context, "actual-copy-worker", 0.0)) {
-            var mismatched = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
-            var changed = mismatched.taskRequest().toBuilder();
-            changed.getSplitsBuilder(0).setSourceSnapshot("different-version");
-            var rejected = SubmitTaskRequest.from(changed.build(), mismatched.copySourceRead());
-            String rejectedId = submit(manager, rejected);
-            var reported = awaitReleasedReport(reports, rejected.taskRequest(), TaskState.TASK_STATE_FAILED);
-            assertThat(manager.getTaskState(rejectedId)).contains(org.pangrova.worker.task.TaskManager.TaskState.FAILED);
-            assertThat(reported.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
-            assertThat(reported.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
-                    .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
-            assertThat(localInputs(stagingRoot)).isEmpty();
+    static void verify(Runtime fixture, LongFunction<SubmitTaskRequest> tasks,
+                       Path stagingRoot, long fileSize) throws Exception {
+        var runtime = fixture.nativeRuntime;
+        var executor = runtime.executor();
+        var denied = tasks.apply(0);
+        var failure = catchThrowable(() -> executor.createCopyTask(denied));
+        assertThat(failure).isInstanceOf(NativeTaskCreationFailure.class);
+        var noOwner = (NativeTaskCreationFailure) failure;
+        assertThat(noOwner.withoutNativeOwner()).isTrue();
+        assertThat(noOwner.workerObjectReadBytes()).isZero();
+        assertThat(localInputs(stagingRoot)).isEmpty();
 
-            var accepted = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
-            String id = submit(manager, accepted);
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
-                    .until(() -> manager.getExecutorHandle(id).orElse(0) > 0);
-            assertThat(localInputs(stagingRoot)).hasSize(1);
-            long handle = manager.getExecutorHandle(id).orElseThrow();
-            readExactValues(runtime, accepted.taskRequest());
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
-                    .until(() -> manager.getTaskState(id).orElseThrow()
-                            == org.pangrova.worker.task.TaskManager.TaskState.FINISHED);
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
-                    .until(() -> runtime.drainEvidence(handle, accepted.taskRequest()).getDrained());
-            assertThat(localInputs(stagingRoot)).hasSize(1);
-            manager.releaseTaskExecutor(id);
-            var released = awaitReleasedReport(reports, accepted.taskRequest(), TaskState.TASK_STATE_FINISHED);
-            assertThat(released.getUsage().getObjectStoreReadBytes()).isGreaterThanOrEqualTo(2 * fileSize)
-                    .isLessThanOrEqualTo(accepted.taskRequest().getResourceGrant().getObjectStoreReadBytes());
-            assertThat(released.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
-                    .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
-            assertThat(manager.getExecutorHandle(id).orElse(0)).isZero();
-            assertThat(localInputs(stagingRoot)).isEmpty();
-        }
+        var exhausted = tasks.apply(fileSize);
+        long exhaustedHandle = executor.createCopyTask(exhausted);
+        assertThat(localInputs(stagingRoot)).hasSize(1);
+        executor.startTask(exhaustedHandle);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).until(() ->
+                TaskReport.parseFrom(executor.getTaskStatus(exhaustedHandle)).getState()
+                        == TaskState.TASK_STATE_FAILED);
+        var exhaustedReport = TaskReport.parseFrom(executor.getTaskStatus(exhaustedHandle));
+        assertThat(exhaustedReport.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
+        assertThat(localInputs(stagingRoot)).hasSize(1);
+        Path privateDirectory = localInputs(stagingRoot).get(0).getParent();
+        Path cleanupBarrier = Files.writeString(privateDirectory.resolve("cleanup-barrier"), "retained");
+        assertThat(catchThrowable(() -> executor.releaseTask(exhaustedHandle)))
+                .isInstanceOf(NativeTaskCreationFailure.class);
+        assertThat(privateDirectory).exists();
+        Files.delete(cleanupBarrier);
+        var exhaustedRelease = TaskReport.parseFrom(executor.releaseTask(exhaustedHandle).orElseThrow());
+        assertThat(exhaustedRelease.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
+        assertThat(localInputs(stagingRoot)).isEmpty();
+
+        var cancelled = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
+        long cancelledHandle = executor.createCopyTask(cancelled);
+        executor.cancelTask(cancelledHandle);
+        assertThat(localInputs(stagingRoot)).hasSize(1);
+        var cancelledRelease = TaskReport.parseFrom(executor.releaseTask(cancelledHandle).orElseThrow());
+        assertThat(cancelledRelease.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
+        assertThat(cancelledRelease.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
+        assertThat(localInputs(stagingRoot)).isEmpty();
+
+        verifyTaskManager(fixture, tasks, stagingRoot, fileSize);
+    }
+
+    private static void verifyTaskManager(Runtime fixture,
+            LongFunction<SubmitTaskRequest> tasks, Path stagingRoot, long fileSize) throws Exception {
+        var runtime = fixture.nativeRuntime;
+        var manager = fixture.manager;
+        var reports = fixture.reports;
+        var mismatched = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
+        var changed = mismatched.taskRequest().toBuilder();
+        changed.getSplitsBuilder(0).setSourceSnapshot("different-version");
+        var rejected = SubmitTaskRequest.from(changed.build(), mismatched.copySourceRead());
+        String rejectedId = submit(manager, rejected);
+        var reported = awaitReleasedReport(reports, rejected.taskRequest(), TaskState.TASK_STATE_FAILED);
+        assertThat(manager.getTaskState(rejectedId)).contains(org.pangrova.worker.task.TaskManager.TaskState.FAILED);
+        assertThat(reported.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
+        assertThat(reported.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
+                .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
+        assertThat(localInputs(stagingRoot)).isEmpty();
+
+        var accepted = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
+        String id = submit(manager, accepted);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
+                .until(() -> manager.getExecutorHandle(id).orElse(0) > 0);
+        assertThat(localInputs(stagingRoot)).hasSize(1);
+        long handle = manager.getExecutorHandle(id).orElseThrow();
+        readExactValues(runtime, accepted.taskRequest());
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
+                .until(() -> manager.getTaskState(id).orElseThrow()
+                        == org.pangrova.worker.task.TaskManager.TaskState.FINISHED);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
+                .until(() -> runtime.drainEvidence(handle, accepted.taskRequest()).getDrained());
+        assertThat(localInputs(stagingRoot)).hasSize(1);
+        manager.releaseTaskExecutor(id);
+        var released = awaitReleasedReport(reports, accepted.taskRequest(), TaskState.TASK_STATE_FINISHED);
+        assertThat(released.getUsage().getObjectStoreReadBytes()).isGreaterThanOrEqualTo(2 * fileSize)
+                .isLessThanOrEqualTo(accepted.taskRequest().getResourceGrant().getObjectStoreReadBytes());
+        assertThat(released.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
+                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+        assertThat(manager.getExecutorHandle(id).orElse(0)).isZero();
+        assertThat(localInputs(stagingRoot)).isEmpty();
     }
 
     private static TaskReport awaitReleasedReport(List<org.pangrova.protocol.rest.task.TaskStatusReport> reports,

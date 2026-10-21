@@ -25,6 +25,8 @@ final class TaskAdmissionControl {
         var sealed = owner.taskAdmissions.seal(request, known);
         if (sealed.receipt().isPresent()) return sealed.receipt();
         if (sealed.noOwnerExited()) return Optional.of(CanonicalTaskAdmissionSeals.closedWithoutOwner(request));
+        var source = owner.sourcePreparations();
+        if (source != null && source.owns(request)) return source.seal(request);
         TaskInfo info = owner.tasks.get(sealed.workerTaskId());
         if (info == null) return Optional.empty();
         if (isTerminal(info.getState())) owner.releaseTaskExecutor(info.taskId());

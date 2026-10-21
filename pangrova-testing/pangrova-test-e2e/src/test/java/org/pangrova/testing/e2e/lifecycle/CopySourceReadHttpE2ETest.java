@@ -41,14 +41,15 @@ import org.pangrova.metadata.storage.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.store.SchemaMigrationRunner;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
+import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
+import org.pangrova.protocol.rest.copy.PrepareCopySourceResponse;
+import org.pangrova.protocol.v2.SourcePreparationRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.protocol.v2.TaskKind;
-import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.security.authn.AuthenticationManager;
 import org.pangrova.security.authn.OAuth2Authenticator;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
@@ -72,10 +73,8 @@ import org.pangrova.spi.storage.StorageType;
 import org.pangrova.testing.ContainerTestBase;
 import org.pangrova.worker.ai.blob.S3BlobStorage;
 import org.pangrova.worker.copy.CopySourceReadClient;
-import org.pangrova.worker.copy.CopyStageLeases;
 import org.pangrova.worker.copy.CopySourceStagingCommand;
 import org.pangrova.worker.http.WorkerHttpServer;
-import org.pangrova.worker.task.TaskManager;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
@@ -190,7 +189,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                     .isNotEqualTo(managed.backendIdentitySha256());
                             var redirected = CopySourceStagingCommand.forLoopbackTest(
                                     client, credentials(), otherBackend, stagingRoot, 1024 * 1024);
-                            assertThatThrownBy(() -> redirected.execute(ticket.nonce(), wireScope))
+                            assertThatThrownBy(() -> redirected.execute(ticket.nonce(), wireScope, preparationBudget(wireScope)))
                                     .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                                     .hasMessageContaining("admitted backend");
                         }
@@ -221,7 +220,8 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                         var stagedTask = copyTask(wireScope, ticket.nonce());
                         var certs = certificates();
                         CopySourceReadHttp.StagedSource proof;
-                        try (var tasks = TaskManager.forHttpWiringOnly()) {
+                        try (var nativeOwner = new CopyNativeInputAssertions.Runtime(command)) {
+                            var tasks = nativeOwner.manager;
                             tasks.requireControlEpochHandshake();
                             tasks.observeControlEpoch(wireScope.controlEpoch());
                             var worker = new WorkerHttpServer(
@@ -230,7 +230,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                             new WorkerHttpServer.CopyTaskTls(
                                                     certs.serverCert(), certs.serverKey(), certs.ca())),
                                     tasks, NO_EXCHANGE, null, null, null,
-                                    new CopyStageLeases(command, null));
+                                    nativeOwner.inputs);
                             try {
                                 worker.start();
                                 var stageClient = HttpClient.newBuilder().sslContext(
@@ -239,65 +239,75 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                 var stageUri = URI.create("https://localhost:"
                                         + worker.getCopyTaskTlsPort() + "/v1/task/copy-stage");
                                 proof = postStage(stageClient, stageUri, authority.secret(), stagedTask);
+                                var prepared = postPreparation(stageClient, stageUri, authority.secret(), stagedTask);
+                                assertThat(prepared.getUsage().getObjectStoreReadBytes()).isEqualTo(2L * bytes.length);
+                                assertThat(prepared.getUsage().getObjectStoreWriteBytes()).isEqualTo(bytes.length);
+                                assertThat(prepared.getUsage().getSpillBytes()).isEqualTo(bytes.length);
                                 assertThat(postStage(stageClient, stageUri, authority.secret(), stagedTask))
                                         .isEqualTo(proof);
                                 objects.deleteObject(request -> request.bucket(sourceBucket)
                                         .key("data/part.parquet").versionId(version));
                                 assertThat(postStage(stageClient, stageUri, authority.secret(), stagedTask))
                                         .isEqualTo(proof);
+                                assertThat(nativeOwner.nativeRuntime.nodePool().getUsedBytes()).isZero();
+                                assertThat(nativeOwner.quota.getTenantActiveQueryCount(wireScope.tenantId())).isZero();
+                                assertThat(proof.sourceVersionId()).isEqualTo(version);
+                                assertThat(proof.managedObjectUri()).startsWith(managed.rootUri() + "/tenants/");
+                                try (var input = managed.open(proof.tenantScope(), proof.contentSha256(),
+                                        proof.contentSize())) {
+                                    assertThat(input.readAllBytes()).isEqualTo(bytes);
+                                }
+                                assertThat(command.execute(ticket.nonce(), wireScope, preparationBudget(wireScope))).isEqualTo(proof);
+                                java.nio.file.Path localPath;
+                                try (var local = command.executeForNative(ticket.nonce(), wireScope)) {
+                                    localPath = local.path();
+                                    assertThat(local.proof()).isEqualTo(proof);
+                                    assertThat(java.nio.file.Files.readAllBytes(localPath)).isEqualTo(bytes);
+                                }
+                                assertThat(localPath).doesNotExist();
+                                assertThat(client.redeem(ticket.nonce(), wireScope).stagedSource()).isEqualTo(proof);
+
+                                var frozenProof = proof;
+                                try (var dispatcher = new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
+                                        org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
+                                        new org.pangrova.observability.noop.NoOpTracingProvider(), authority.secret())) {
+                                    dispatcher.setCopySourceBinder(new org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder(
+                                            fixture.admissions, execution -> fixture.anchor));
+                                    var wrongSource = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, 0)
+                                            .taskRequest().toBuilder();
+                                    wrongSource.getSplitsBuilder(0).setSourceSnapshot("not-the-frozen-version");
+                                    assertThatThrownBy(() -> dispatcher.bindSourceInput(SubmitTaskRequest.from(wrongSource.build())))
+                                            .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("frozen source proof");
+                                    CopyNativeInputAssertions.verify(nativeOwner, grant -> {
+                                        var pending = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, grant);
+                                        var bound = dispatcher.bindSourceInput(dispatcher.bindControlIdentity(pending));
+                                        assertThat(dispatcher.bindSourceInput(bound)).isSameAs(bound);
+                                        assertThat(bound.copySourceRead()).isNotNull();
+                                        var redelivery = dispatcher.bindSourceInput(pending);
+                                        assertThat(redelivery.canonicalBytes()).isEqualTo(bound.canonicalBytes());
+                                        assertThat(redelivery.copySourceRead().nonce()).isNotEqualTo(bound.copySourceRead().nonce());
+                                        return bound;
+                                    }, stagingRoot, proof.contentSize());
+                                }
+
+                                fixture.grants.revokeGrants("reader", Privilege.READ_STORAGE_PROFILE,
+                                        "incoming", null, null);
+                                var deniedPreparation = postPreparation(stageClient, stageUri, authority.secret(), stagedTask);
+                                assertThat(deniedPreparation.getError().getErrorClass())
+                                        .isEqualTo(org.pangrova.protocol.v2.ErrorClass.ERROR_CLASS_POLICY_DENIED);
+                                assertThat(deniedPreparation.getUsage()).isEqualTo(prepared.getUsage());
+                                assertThatThrownBy(() -> command.execute(ticket.nonce(), wireScope, preparationBudget(wireScope)))
+                                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
+                                assertThatThrownBy(() -> command.executeForNative(ticket.nonce(), wireScope))
+                                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
+                                fixture.grants.addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
+                                        "STORAGE_PROFILE", "incoming", null, null, null));
+                                assertThatThrownBy(() -> command.execute(ticket.nonce(), wireScope, preparationBudget(wireScope)))
+                                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
                             } finally {
                                 worker.stop();
                             }
                         }
-                        assertThat(proof.sourceVersionId()).isEqualTo(version);
-                        assertThat(proof.managedObjectUri()).startsWith(managed.rootUri() + "/tenants/");
-                        try (var input = managed.open(proof.tenantScope(), proof.contentSha256(),
-                                proof.contentSize())) {
-                            assertThat(input.readAllBytes()).isEqualTo(bytes);
-                        }
-                        assertThat(command.execute(ticket.nonce(), wireScope)).isEqualTo(proof);
-                        java.nio.file.Path localPath;
-                        try (var local = command.executeForNative(ticket.nonce(), wireScope)) {
-                            localPath = local.path();
-                            assertThat(local.proof()).isEqualTo(proof);
-                            assertThat(java.nio.file.Files.readAllBytes(localPath)).isEqualTo(bytes);
-                        }
-                        assertThat(localPath).doesNotExist();
-                        assertThat(client.redeem(ticket.nonce(), wireScope).stagedSource()).isEqualTo(proof);
-
-                        var frozenProof = proof;
-                        try (var dispatcher = new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
-                                org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                                new org.pangrova.observability.noop.NoOpTracingProvider(), authority.secret())) {
-                            dispatcher.setCopySourceBinder(new org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder(
-                                    fixture.admissions, execution -> fixture.anchor));
-                            var wrongSource = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, 0)
-                                    .taskRequest().toBuilder();
-                            wrongSource.getSplitsBuilder(0).setSourceSnapshot("not-the-frozen-version");
-                            assertThatThrownBy(() -> dispatcher.bindSourceInput(SubmitTaskRequest.from(wrongSource.build())))
-                                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("frozen source proof");
-                            CopyNativeInputAssertions.verify(command, grant -> {
-                                var pending = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, grant);
-                                var bound = dispatcher.bindSourceInput(dispatcher.bindControlIdentity(pending));
-                                assertThat(dispatcher.bindSourceInput(bound)).isSameAs(bound);
-                                assertThat(bound.copySourceRead()).isNotNull();
-                                var redelivery = dispatcher.bindSourceInput(pending);
-                                assertThat(redelivery.canonicalBytes()).isEqualTo(bound.canonicalBytes());
-                                assertThat(redelivery.copySourceRead().nonce()).isNotEqualTo(bound.copySourceRead().nonce());
-                                return bound;
-                            }, stagingRoot, proof.contentSize());
-                        }
-
-                        fixture.grants.revokeGrants("reader", Privilege.READ_STORAGE_PROFILE,
-                                "incoming", null, null);
-                        assertThatThrownBy(() -> command.execute(ticket.nonce(), wireScope))
-                                .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
-                        assertThatThrownBy(() -> command.executeForNative(ticket.nonce(), wireScope))
-                                .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
-                        fixture.grants.addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
-                                "STORAGE_PROFILE", "incoming", null, null, null));
-                        assertThatThrownBy(() -> command.execute(ticket.nonce(), wireScope))
-                                .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
                     }
                 }
             }
@@ -393,9 +403,8 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
         return StaticCredentialsProvider.create(AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY));
     }
 
-    private static SubmitTaskRequest copyTask(CopySourceReadHttp.Scope scope, String nonce) {
-        byte[] plan = {1};
-        var canonical = TaskRequest.newBuilder()
+    private static PrepareCopySourceRequest copyTask(CopySourceReadHttp.Scope scope, String nonce) {
+        var canonical = SourcePreparationRequest.newBuilder()
                 .setProtocol(CanonicalTaskRequests.protocolVersion())
                 .setAttempt(TaskAttemptId.newBuilder()
                         .setQueryOrJobId(scope.executionId())
@@ -407,26 +416,31 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                 .setOwnerId(scope.ownerId())
                                 .setOwnerIncarnation(scope.ownerIncarnation())
                                 .setFencingToken(scope.ownerFencingToken())))
-                .setTaskKind(TaskKind.TASK_KIND_WRITE)
                 .setSecurity(SecurityContext.newBuilder()
                         .setTenantId(scope.tenantId()).setPrincipal(scope.principal()))
-                .setSubstraitPlan(com.google.protobuf.ByteString.copyFrom(plan))
-                .setSubstraitPlanChecksum(CanonicalTaskRequests.sha256(plan))
-                .setCopySourceStagingCommandSha256(Checksum.newBuilder()
+                .setSourceCommandSha256(Checksum.newBuilder()
                         .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 HexFormat.of().parseHex(scope.commandSha256()))))
-                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
-                        .setGrantId(scope.stagingAttemptId() + ":grant")
-                        .setCpuSlots(1).setNativeMemoryBytes(64L * 1024 * 1024))
+                .setResourceGrant(preparationGrant(scope))
                 .setDeadlineEpochMs(scope.deadlineEpochMs())
                 .build();
-        return SubmitTaskRequest.from(canonical,
+        return PrepareCopySourceRequest.from(canonical,
                 new CopySourceReadHttp.RedeemRequest(nonce, scope));
     }
 
     private static CopySourceReadHttp.StagedSource postStage(HttpClient client, URI uri,
-            String secret, SubmitTaskRequest task) throws Exception {
+            String secret, PrepareCopySourceRequest task) throws Exception {
+        var result = postPreparation(client, uri, secret, task);
+        assertThat(result.getIoJoined()).isTrue();
+        assertThat(result.hasError()).withFailMessage(result.getError().toString()).isFalse();
+        var source = result.getSource();
+        return new CopySourceReadHttp.StagedSource(source.getSourceVersionId(), source.getManagedObjectUri(),
+                source.getContentSha256(), source.getContentSize(), source.getTenantScope());
+    }
+
+    private static org.pangrova.protocol.v2.SourcePreparationResult postPreparation(HttpClient client, URI uri,
+            String secret, PrepareCopySourceRequest task) throws Exception {
         var request = HttpRequest.newBuilder(uri)
                 .header("Content-Type", "application/json")
                 .header("X-Internal-Auth", secret)
@@ -435,8 +449,18 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                 .build();
         var response = client.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).withFailMessage(response.body()).isEqualTo(200);
-        return JsonMapperFactory.shared().readValue(response.body(),
-                CopySourceReadHttp.StagedSource.class);
+        return JsonMapperFactory.shared().readValue(response.body(), PrepareCopySourceResponse.class).resultFor(task);
+    }
+
+    private static org.pangrova.protocol.v2.StageResourceGrant preparationGrant(CopySourceReadHttp.Scope scope) {
+        return org.pangrova.protocol.v2.StageResourceGrant.newBuilder().setGrantId(scope.stagingAttemptId() + ":prepare")
+                .setCpuSlots(1).setJvmHeapBytes(1024 * 1024).setObjectStoreReadBytes(2 * 1024 * 1024)
+                .setObjectStoreWriteBytes(1024 * 1024).setSpillBytes(1024 * 1024).build();
+    }
+
+    private static org.pangrova.worker.copy.CopyPreparation preparationBudget(CopySourceReadHttp.Scope scope) {
+        return new org.pangrova.worker.copy.CopyPreparation(preparationGrant(scope), scope.deadlineEpochMs(),
+                java.time.Clock.systemUTC());
     }
 
     private CertificateFiles certificates() throws Exception {

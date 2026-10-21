@@ -39,15 +39,24 @@ final class TaskAdmissionRegistry {
     }
 
     Reservation reserve(TaskRequest request, String workerTaskId) {
-        requireUnexpired(request.getDeadlineEpochMs());
-        String taskId = request.getAttempt().getTaskId();
-        if (taskId.isBlank()) {
-            throw new IllegalArgumentException("Canonical task identity is required");
-        }
-        byte[] digest = CanonicalTaskAdmissionSeals.digest(request);
+        return reserve(request.getAttempt(), request.getDeadlineEpochMs(),
+                CanonicalTaskAdmissionSeals.digest(request), workerTaskId, false);
+    }
+
+    Reservation reserve(TaskAdmissionSealRequest authority, String workerTaskId) {
+        CanonicalTaskAdmissionSeals.validate(authority, authority.getAttempt().getTaskId());
+        return reserve(authority.getAttempt(), authority.getDeadlineEpochMs(),
+                authority.getCanonicalRequestChecksum().getDigest().toByteArray(), workerTaskId, true);
+    }
+
+    private Reservation reserve(TaskAttemptId attempt, long deadline, byte[] digest, String workerTaskId,
+                                boolean preparation) {
+        requireUnexpired(deadline);
+        String taskId = attempt.getTaskId();
+        if (taskId.isBlank()) throw new IllegalArgumentException("Canonical task identity is required");
         synchronized (entries) {
             requireOpen();
-            requireUnexpired(request.getDeadlineEpochMs());
+            requireUnexpired(deadline);
             Entry current = entries.get(taskId);
             if (current != null) {
                 if (!MessageDigest.isEqual(current.digest, digest)) {
@@ -68,13 +77,49 @@ final class TaskAdmissionRegistry {
                     new Entry(
                             digest,
                             workerTaskId,
-                            request.getDeadlineEpochMs(),
-                            request.getAttempt());
+                            deadline,
+                            attempt, preparation);
             Reservation reservation = new Reservation(taskId, added, true);
             entries.put(taskId, added);
             return reservation;
         }
     }
+
+    Optional<PreparationTerminal> preparationTerminal(TaskAdmissionSealRequest authority) {
+        synchronized (entries) {
+            Entry entry = entries.get(authority.getAttempt().getTaskId());
+            if (entry == null || !entry.preparation) return Optional.empty();
+            requireSealMatch(entry, authority);
+            return Optional.ofNullable(entry.preparationTerminal);
+        }
+    }
+
+    boolean isPreparation(TaskAdmissionSealRequest authority) {
+        synchronized (entries) {
+            Entry entry = entries.get(authority.getAttempt().getTaskId());
+            if (entry == null || !entry.preparation) return false;
+            requireSealMatch(entry, authority);
+            return true;
+        }
+    }
+
+    void preparationFinished(TaskAdmissionSealRequest authority, TaskReport receipt,
+                             org.pangrova.protocol.v2.SourcePreparationResult result) {
+        TaskReport compact = CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(receipt);
+        synchronized (entries) {
+            Entry entry = entries.get(authority.getAttempt().getTaskId());
+            if (entry == null || !entry.preparation) throw new IllegalStateException("Preparation admission is absent");
+            requireSealMatch(entry, authority);
+            entry.sealed = true;
+            entry.noOwnerExited = true;
+            entry.drainReceipt = compact;
+            entry.preparationTerminal = new PreparationTerminal(
+                    result.getUsage(), result.getError(), result.hasSource());
+        }
+    }
+
+    record PreparationTerminal(org.pangrova.protocol.v2.ResourceUsage usage,
+                               org.pangrova.protocol.v2.ExecutionError error, boolean succeeded) {}
 
     boolean knownIdentity(TaskAdmissionSealRequest request) {
         synchronized (entries) {
@@ -103,7 +148,7 @@ final class TaskAdmissionRegistry {
                     return new SealStatus("", false, Optional.empty());
                 }
                 ensureCapacity();
-                entry = new Entry(digest, "", request.getDeadlineEpochMs(), request.getAttempt());
+                entry = new Entry(digest, "", request.getDeadlineEpochMs(), request.getAttempt(), false);
                 entry.sealed = true;
                 entry.noOwnerExited = true;
                 entry.admitted.complete("");
@@ -317,17 +362,20 @@ final class TaskAdmissionRegistry {
         private final String workerTaskId;
         private final long deadline;
         private final TaskAttemptId attempt;
+        private final boolean preparation;
         private final CompletableFuture<String> admitted = new CompletableFuture<>();
         private boolean sealed;
         private boolean noOwnerExited;
         private boolean handedOff;
         private TaskReport drainReceipt;
+        private PreparationTerminal preparationTerminal;
 
-        private Entry(byte[] digest, String workerTaskId, long deadline, TaskAttemptId attempt) {
+        private Entry(byte[] digest, String workerTaskId, long deadline, TaskAttemptId attempt, boolean preparation) {
             this.digest = digest;
             this.workerTaskId = java.util.Objects.requireNonNull(workerTaskId, "workerTaskId");
             this.deadline = deadline;
             this.attempt = attempt;
+            this.preparation = preparation;
         }
     }
 }

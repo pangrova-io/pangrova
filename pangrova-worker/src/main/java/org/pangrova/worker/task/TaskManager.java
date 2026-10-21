@@ -98,6 +98,7 @@ public class TaskManager implements AutoCloseable {
     final TaskDrainExecutor drainExecutor;
     private final TaskSubmissionHandler submissionHandler;
     private final TaskAdmissionControl admissionControl = new TaskAdmissionControl(this);
+    private volatile SourcePreparationControl sourcePreparationControl;
     private final ControlEpochFence controlEpochFence = new ControlEpochFence();
     private final ExecutionOwnerFence executionOwnerFence = new ExecutionOwnerFence();
 
@@ -148,10 +149,22 @@ public class TaskManager implements AutoCloseable {
     @Override
     public void close() {
         drainExecutor.beginDraining();
-        for (TaskInfo info : tasks.values()) info.retryCleanup();
-        taskAdmissions.sealAndAwaitAdmissions();
-        TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
-                java.util.List.copyOf(tasks.values()));
+        TaskAdmissionRollback.release(
+                () -> {
+                    var preparation = sourcePreparationControl;
+                    if (preparation == null) return;
+                    try {
+                        preparation.close();
+                    } catch (Exception failure) {
+                        throw new IllegalStateException("Source preparation shutdown has not joined", failure);
+                    }
+                },
+                () -> {
+                    for (TaskInfo info : tasks.values()) info.retryCleanup();
+                },
+                taskAdmissions::sealAndAwaitAdmissions,
+                () -> TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
+                        java.util.List.copyOf(tasks.values())));
     }
 
     /**
@@ -203,6 +216,29 @@ public class TaskManager implements AutoCloseable {
     public QueryCancellationPropagator cancellationPropagator() {
         return cancellationPropagator;
     }
+
+    /** Binds one Worker-owned source runtime before its private HTTP listener starts. */
+    public synchronized void configureSourcePreparations(org.pangrova.worker.copy.CopyStageLeases leases) {
+        if (sourcePreparationControl != null) {
+            if (!sourcePreparationControl.uses(leases)) {
+                throw new IllegalStateException("Source runtime is already bound");
+            }
+            return;
+        }
+        var pool = deps == null ? null : deps.nodeMemoryPool();
+        if (deps != null && pool == null) {
+            throw new IllegalStateException("Source preparation requires node memory admission");
+        }
+        sourcePreparationControl = new SourcePreparationControl(this, leases, pool);
+    }
+
+    public org.pangrova.protocol.v2.SourcePreparationResult prepareSource(
+            org.pangrova.protocol.rest.copy.PrepareCopySourceRequest request) throws java.io.IOException {
+        var preparation = java.util.Objects.requireNonNull(sourcePreparationControl, "Source preparation runtime");
+        return preparation.execute(request);
+    }
+
+    SourcePreparationControl sourcePreparations() { return sourcePreparationControl; }
 
     public String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
         return submissionHandler.submitTask(descriptor, request);

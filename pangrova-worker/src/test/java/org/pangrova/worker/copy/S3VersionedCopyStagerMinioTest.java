@@ -94,7 +94,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                         temporaryDirectory.resolve("drafts"), 1024);
 
                 var result = stager.stage(profile(bucket),
-                        "s3://" + bucket + "/data/part.parquet", "tenant-one");
+                        "s3://" + bucket + "/data/part.parquet", "tenant-one", budget());
 
                 assertThat(replaced.get()).isTrue();
                 assertThat(result.sourceVersionId()).isEqualTo(firstVersion);
@@ -120,7 +120,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                     temporaryDirectory.resolve("drafts"), 1024);
 
             assertThatThrownBy(() -> stager.stage(profile(bucket),
-                    "s3://" + bucket + "/data/part.parquet", "tenant-one"))
+                    "s3://" + bucket + "/data/part.parquet", "tenant-one", budget()))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("non-null object version");
         }
@@ -141,8 +141,8 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                     temporaryDirectory.resolve("drafts"), 1024);
             String url = "s3://" + bucket + "/data/part.parquet";
 
-            var first = stager.stage(profile(bucket), url, "tenant-one");
-            var second = stager.stage(profile(bucket), url, "tenant-one");
+            var first = stager.stage(profile(bucket), url, "tenant-one", budget());
+            var second = stager.stage(profile(bucket), url, "tenant-one", budget());
 
             assertThat(first).isEqualTo(second);
             assertThat(first.sourceVersionId()).isEqualTo(version);
@@ -166,7 +166,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
             String url = "s3://" + bucket + "/data/part.parquet";
             var first = new S3VersionedCopyStager(objects, managed,
                     temporaryDirectory.resolve("first-draft"), 1024)
-                    .stage(profile(bucket), url, "tenant-one");
+                    .stage(profile(bucket), url, "tenant-one", budget());
             assertThat(first.sourceVersionId()).isEqualTo(version);
             assertThat(first.managedObjectUri()).isEqualTo("s3://" + managedBucket + "/" + managedKey(first));
 
@@ -177,20 +177,20 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
 
             var restarted = new S3VersionedCopyStager(objects, managed,
                     temporaryDirectory.resolve("retry-draft"), 1024);
-            assertThat(restarted.resume(profile(bucket), url, "tenant-one", first)).isEqualTo(first);
+            assertThat(restarted.resume(profile(bucket), url, "tenant-one", first, budget())).isEqualTo(first);
             Path verifiedPath;
             try (var verified = restarted.materialize(profile(bucket), url, "tenant-one", first)) {
                 verifiedPath = verified.path();
                 assertThat(java.nio.file.Files.readAllBytes(verifiedPath)).isEqualTo(bytes);
             }
             assertThat(verifiedPath).doesNotExist();
-            assertThatThrownBy(() -> restarted.resume(profile(bucket), url, "tenant-two", first))
+            assertThatThrownBy(() -> restarted.resume(profile(bucket), url, "tenant-two", first, budget()))
                     .isInstanceOf(AccessDeniedException.class);
             var redirected = new S3VersionedCopyStager.StagedSource(first.profileName(),
                     first.sourceUrl(), first.sourceVersionId(),
                     "s3://" + bucket + "/" + managedKey(first), first.tenantScope(),
                     first.contentSha256(), first.contentSize());
-            assertThatThrownBy(() -> restarted.resume(profile(bucket), url, "tenant-one", redirected))
+            assertThatThrownBy(() -> restarted.resume(profile(bucket), url, "tenant-one", redirected, budget()))
                     .isInstanceOf(AccessDeniedException.class);
         }
     }
@@ -211,7 +211,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
             var stager = new S3VersionedCopyStager(objects, managed,
                     temporaryDirectory.resolve("drafts"), 1024);
             String url = "s3://" + bucket + "/data/part.parquet";
-            var staged = stager.stage(profile(bucket), url, "tenant-one");
+            var staged = stager.stage(profile(bucket), url, "tenant-one", budget());
             String key = managedKey(staged);
             objects.putObject(PutObjectRequest.builder().bucket(managedBucket).key(key)
                     .serverSideEncryption(ServerSideEncryption.AES256)
@@ -219,10 +219,10 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                             "content-length", Long.toString(staged.contentSize())))
                     .build(), RequestBody.fromBytes(corrupted));
 
-            assertThatThrownBy(() -> stager.stage(profile(bucket), url, "tenant-one"))
+            assertThatThrownBy(() -> stager.stage(profile(bucket), url, "tenant-one", budget()))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("byte integrity verification");
-            assertThatThrownBy(() -> stager.resume(profile(bucket), url, "tenant-one", staged))
+            assertThatThrownBy(() -> stager.resume(profile(bucket), url, "tenant-one", staged, budget()))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("byte integrity verification");
             assertThatThrownBy(() -> stager.materialize(profile(bucket), url, "tenant-one", staged))
@@ -244,7 +244,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                     temporaryDirectory.resolve("drafts"), 4);
 
             assertThatThrownBy(() -> stager.stage(profile(bucket),
-                    "s3://" + bucket + "/data/part.parquet", "tenant-one"))
+                    "s3://" + bucket + "/data/part.parquet", "tenant-one", budget()))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("exceeds the staging limit");
         }
@@ -261,10 +261,10 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                     temporaryDirectory.resolve("drafts"), 1024);
 
             assertThatThrownBy(() -> stager.stage(profile(bucket),
-                    "s3://" + bucket + "/private/part.parquet", "tenant-one"))
+                    "s3://" + bucket + "/private/part.parquet", "tenant-one", budget()))
                     .isInstanceOf(AccessDeniedException.class);
             assertThatThrownBy(() -> stager.stage(profile(bucket),
-                    "s3://" + bucketName() + "/data/part.parquet", "tenant-one"))
+                    "s3://" + bucketName() + "/data/part.parquet", "tenant-one", budget()))
                     .isInstanceOf(AccessDeniedException.class);
         }
     }
@@ -281,7 +281,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
                     RequestBody.fromBytes(bytes));
             String url = "s3://" + bucket + "/data/part.parquet";
             var staged = new S3VersionedCopyStager(objects, managed(objects, managedBucket),
-                    temporaryDirectory.resolve("stage"), 1024).stage(profile(bucket), url, "tenant-one");
+                    temporaryDirectory.resolve("stage"), 1024).stage(profile(bucket), url, "tenant-one", budget());
             var gets = new java.util.concurrent.atomic.AtomicInteger();
             var owner = new java.util.concurrent.atomic.AtomicReference<VerifiedLocalCopySource>();
             try (S3Client counted = client(new ExecutionInterceptor() {
@@ -337,7 +337,7 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
             var stager = new S3VersionedCopyStager(objects, managed(objects, managedBucket),
                     temporaryDirectory.resolve("private-inputs"), 1024);
             String url = "s3://" + bucket + "/data/part.parquet";
-            var proof = stager.stage(profile(bucket), url, "tenant-one");
+            var proof = stager.stage(profile(bucket), url, "tenant-one", budget());
             objects.putObject(PutObjectRequest.builder().bucket(managedBucket).key(managedKey(proof))
                     .serverSideEncryption(ServerSideEncryption.AES256)
                     .metadata(Map.of("sha256", proof.contentSha256(), "content-length", Long.toString(bytes.length)))
@@ -397,4 +397,12 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
     private static String bucketName() {
         return "copy-version-" + UUID.randomUUID();
     }
+    private static CopyPreparation budget() {
+        return new CopyPreparation(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                .setGrantId("stager-test").setCpuSlots(1).setJvmHeapBytes(1024 * 1024)
+                .setObjectStoreReadBytes(2 * 1024 * 1024).setObjectStoreWriteBytes(1024 * 1024)
+                .setSpillBytes(1024 * 1024).build(), System.currentTimeMillis() + 30_000,
+                java.time.Clock.systemUTC());
+    }
+
 }

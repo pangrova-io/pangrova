@@ -64,23 +64,34 @@ public final class CopySourceStagingCommand {
     }
 
     /** Rechecks authority before and after I/O; a retry reads only immutable managed content. */
-    public CopySourceReadHttp.StagedSource execute(String nonce, CopySourceReadHttp.Scope scope)
-            throws IOException {
+    public CopySourceReadHttp.StagedSource execute(String nonce, CopySourceReadHttp.Scope scope,
+                                                   CopyPreparation budget) throws IOException {
+        Objects.requireNonNull(budget, "budget").checkpoint();
         requireManagedStorage(scope);
         var redeemed = admissions.redeem(nonce, scope);
         StorageProfile sourceProfile = sourceProfile(redeemed.profile());
         S3VersionedCopyStager.StagedSource staged;
-        try (S3Client source = sourceClient(sourceProfile)) {
+        S3Client source = sourceClient(sourceProfile);
+        try {
+            budget.ownSourceClient(source);
+        } catch (RuntimeException | Error failure) {
+            source.close();
+            throw failure;
+        }
+        try {
             var stager = new S3VersionedCopyStager(source, managedStorage,
                     stagingRoot, maxSourceBytes);
             staged = redeemed.stagedSource() == null
-                    ? stager.stage(sourceProfile, scope.canonicalSourceUrl(), scope.tenantId())
+                    ? stager.stage(sourceProfile, scope.canonicalSourceUrl(), scope.tenantId(), budget)
                     : stager.resume(sourceProfile, scope.canonicalSourceUrl(), scope.tenantId(),
-                            existing(sourceProfile.name(), scope, redeemed.stagedSource()));
+                            existing(sourceProfile.name(), scope, redeemed.stagedSource()), budget);
+        } finally {
+            budget.cleanupSourceClient();
         }
         var proof = new CopySourceReadHttp.StagedSource(staged.sourceVersionId(),
                 staged.managedObjectUri(), staged.contentSha256(), staged.contentSize(),
                 staged.tenantScope());
+        budget.checkpoint();
         return admissions.record(nonce, scope, proof);
     }
 
@@ -94,12 +105,13 @@ public final class CopySourceStagingCommand {
     }
 
     /** Rechecks current authority before returning a locally cached attempt proof. */
-    public void verifyRecordedProof(String nonce, CopySourceReadHttp.Scope scope,
+    public CopySourceReadHttp.StagedSource verifyRecordedProof(String nonce, CopySourceReadHttp.Scope scope,
                                     CopySourceReadHttp.StagedSource proof) {
         var redeemed = admissions.redeem(nonce, scope);
-        if (!proof.equals(redeemed.stagedSource())) {
+        if (proof != null && !proof.equals(redeemed.stagedSource())) {
             throw new AccessDeniedException("COPY cached staged proof is no longer admitted");
         }
+        return redeemed.stagedSource();
     }
 
     /** Produces a verified task-private Parquet file without trusting a network file path. */

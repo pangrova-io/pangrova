@@ -3,10 +3,11 @@ package org.pangrova.worker.copy;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
-import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
+import org.pangrova.protocol.rest.copy.PrepareCopySourceResponse;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.v2.SourcePreparationRequest;
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.protocol.v2.TaskKind;
-import org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture;
 
 import java.io.IOException;
 import java.time.Clock;
@@ -28,7 +29,7 @@ class CopyStageLeasesTest {
     private static final long DEADLINE = 4_102_444_800_000L;
     private static final CopySourceReadHttp.StagedSource PROOF =
             new CopySourceReadHttp.StagedSource("version-1", "s3://managed/copy/object",
-                    "a".repeat(64), 5, "tenant-scope");
+                    "a".repeat(64), 5, "b".repeat(64));
 
     @Test
     void concurrentRetryReturnsSameExactProofAndRejectsChangedAttempt() throws Exception {
@@ -37,7 +38,7 @@ class CopyStageLeasesTest {
         var calls = new AtomicInteger();
         var clock = new MutableClock(1_000);
         var pool = Executors.newFixedThreadPool(2);
-        try (var leases = new CopyStageLeases((nonce, scope) -> {
+        try (var leases = new CopyStageLeases((nonce, scope, budget) -> {
             calls.incrementAndGet();
             entered.countDown();
             try {
@@ -47,14 +48,14 @@ class CopyStageLeasesTest {
                 throw new IOException(interrupted);
             }
             return PROOF;
-        }, (nonce, scope, proof) -> {}, clock, null)) {
+        }, (nonce, scope, proof) -> proof, clock, null)) {
             var task = task(DEADLINE, "n".repeat(43));
             var first = pool.submit(() -> leases.stage(task));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             var retry = pool.submit(() -> leases.stage(task));
             release.countDown();
-            assertThat(first.get(5, TimeUnit.SECONDS)).isEqualTo(PROOF);
-            assertThat(retry.get(5, TimeUnit.SECONDS)).isEqualTo(PROOF);
+            assertThat(proof(first.get(5, TimeUnit.SECONDS))).isEqualTo(PROOF);
+            assertThat(proof(retry.get(5, TimeUnit.SECONDS))).isEqualTo(PROOF);
             assertThat(calls.get()).isEqualTo(1);
             assertThatThrownBy(() -> leases.stage(task(DEADLINE + 1, "m".repeat(43))))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -74,7 +75,7 @@ class CopyStageLeasesTest {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var closedResource = new AtomicBoolean();
-        var leases = new CopyStageLeases((nonce, scope) -> {
+        var leases = new CopyStageLeases((nonce, scope, budget) -> {
             entered.countDown();
             try {
                 if (!release.await(5, TimeUnit.SECONDS)) throw new IOException("timed out");
@@ -84,7 +85,7 @@ class CopyStageLeasesTest {
             }
             assertThat(closedResource).isFalse();
             return PROOF;
-        }, (nonce, scope, proof) -> {},
+        }, (nonce, scope, proof) -> proof,
                 Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC),
                 () -> closedResource.set(true));
         var pool = Executors.newFixedThreadPool(2);
@@ -95,9 +96,13 @@ class CopyStageLeasesTest {
                 leases.close();
                 return true;
             });
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThatThrownBy(() -> leases.admit(task(DEADLINE, "n".repeat(43))))
+                            .isInstanceOf(IllegalStateException.class).hasMessageContaining("closed"));
             assertThat(closedResource).isFalse();
             release.countDown();
-            assertThat(first.get(5, TimeUnit.SECONDS)).isEqualTo(PROOF);
+            assertThat(first.get(5, TimeUnit.SECONDS).getError().getErrorClass())
+                    .isEqualTo(org.pangrova.protocol.v2.ErrorClass.ERROR_CLASS_CANCELLED);
             assertThat(closing.get(5, TimeUnit.SECONDS)).isTrue();
             assertThat(closedResource).isTrue();
             assertThatThrownBy(() -> leases.stage(task(DEADLINE, "n".repeat(43))))
@@ -109,17 +114,23 @@ class CopyStageLeasesTest {
     }
 
     @Test
-    void failedStageCanRetrySameTicketWithoutPublishingProof() throws Exception {
+    void failedStageRetainsEnteredUsageAndCannotReuseItsIssuedAllowance() throws Exception {
         var calls = new AtomicInteger();
-        try (var leases = new CopyStageLeases((nonce, scope) -> {
-            if (calls.incrementAndGet() == 1) throw new IOException("source unavailable");
-            return PROOF;
-        }, (nonce, scope, proof) -> {},
+        try (var leases = new CopyStageLeases((nonce, scope, budget) -> {
+            budget.reserveRead(5);
+            calls.incrementAndGet();
+            throw new IOException("source unavailable");
+        }, (nonce, scope, proof) -> proof,
                 Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC), null)) {
             var task = task(DEADLINE, "n".repeat(43));
-            assertThatThrownBy(() -> leases.stage(task)).isInstanceOf(IOException.class);
-            assertThat(leases.stage(task)).isEqualTo(PROOF);
-            assertThat(calls.get()).isEqualTo(2);
+            var failed = leases.stage(task);
+            assertThat(failed.hasError()).isTrue();
+            assertThat(failed.getIoJoined()).isTrue();
+            assertThat(failed.getUsage().getObjectStoreReadBytes()).isEqualTo(5);
+            assertThat(new PrepareCopySourceResponse(java.util.Base64.getEncoder()
+                    .encodeToString(failed.toByteArray())).resultFor(task)).isEqualTo(failed);
+            assertThat(leases.stage(task)).isEqualTo(failed);
+            assertThat(calls.get()).isEqualTo(1);
         }
     }
 
@@ -127,7 +138,7 @@ class CopyStageLeasesTest {
     void cachedProofRequiresFreshCoordinatorAuthorizationOnEveryRetry() throws Exception {
         var calls = new AtomicInteger();
         var authorized = new AtomicBoolean(true);
-        try (var leases = new CopyStageLeases((nonce, scope) -> {
+        try (var leases = new CopyStageLeases((nonce, scope, budget) -> {
             calls.incrementAndGet();
             return PROOF;
         }, (nonce, scope, proof) -> {
@@ -135,9 +146,10 @@ class CopyStageLeasesTest {
                 throw new org.pangrova.spi.security.AccessDeniedException(
                         "COPY permission revoked");
             }
+            return proof;
         }, Clock.fixed(Instant.ofEpochMilli(1_000), ZoneOffset.UTC), null)) {
             var task = task(DEADLINE, "n".repeat(43));
-            assertThat(leases.stage(task)).isEqualTo(PROOF);
+            assertThat(proof(leases.stage(task))).isEqualTo(PROOF);
             authorized.set(false);
             assertThatThrownBy(() -> leases.stage(task))
                     .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
@@ -150,12 +162,12 @@ class CopyStageLeasesTest {
             throws Exception {
         var clock = new MutableClock(1_000);
         var calls = new AtomicInteger();
-        try (var leases = new CopyStageLeases((nonce, scope) -> {
+        try (var leases = new CopyStageLeases((nonce, scope, budget) -> {
             calls.incrementAndGet();
             return PROOF;
-        }, (nonce, scope, proof) -> {}, clock, null, 1)) {
+        }, (nonce, scope, proof) -> proof, clock, null, 1)) {
             var first = task(2_000, "n".repeat(43), "task-42");
-            assertThat(leases.stage(first)).isEqualTo(PROOF);
+            assertThat(proof(leases.stage(first))).isEqualTo(PROOF);
             assertThatThrownBy(() -> leases.stage(task(3_000, "m".repeat(43), "task-42")))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("identity conflict");
@@ -166,34 +178,43 @@ class CopyStageLeasesTest {
             assertThatThrownBy(() -> leases.stage(first))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("expired");
-            assertThat(leases.stage(task(DEADLINE, "x".repeat(43), "task-43")))
+            assertThat(proof(leases.stage(task(DEADLINE, "x".repeat(43), "task-43"))))
                     .isEqualTo(PROOF);
             assertThat(calls.get()).isEqualTo(2);
         }
     }
 
-    private static SubmitTaskRequest task(long deadline, String nonce) {
+    private static PrepareCopySourceRequest task(long deadline, String nonce) {
         return task(deadline, nonce, "task-42");
     }
 
-    private static SubmitTaskRequest task(long deadline, String nonce, String taskId) {
+    private static PrepareCopySourceRequest task(long deadline, String nonce, String taskId) {
         var scope = new CopySourceReadHttp.Scope("tenant", "test-user", "incoming",
                 "f92e704f-2443-4d3a-a496-cd6507dd97db", 1,
                 "s3://incoming/file.parquet", "s3://managed/copy", "a".repeat(64),
                 "query-7", taskId, "coordinator", "test", 1, 1, deadline);
-        var canonical = CanonicalTaskRequestTestFixture.builder(taskId, "query-7", 0, 0,
-                        TaskKind.TASK_KIND_WRITE, new byte[] {1})
-                .setCopySourceStagingCommandSha256(Checksum.newBuilder()
-                        .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
-                        .setDigest(ByteString.copyFrom(
-                                HexFormat.of().parseHex(scope.commandSha256()))))
-                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
-                        .setGrantId(taskId + ":grant").setCpuSlots(1)
-                        .setNativeMemoryBytes(64L * 1024 * 1024))
-                .setDeadlineEpochMs(deadline)
-                .build();
-        return SubmitTaskRequest.from(canonical, new CopySourceReadHttp.RedeemRequest(
-                nonce, scope));
+        var canonical = SourcePreparationRequest.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
+                .setAttempt(org.pangrova.protocol.v2.TaskAttemptId.newBuilder().setTaskId(taskId)
+                        .setQueryOrJobId("query-7").setPlanEpoch(1).setFencingToken(1L << 32 | 1L)
+                        .setControlEpoch(1).setExecutionOwner(org.pangrova.protocol.v2.ExecutionOwnerIdentity.newBuilder()
+                                .setOwnerId("coordinator").setOwnerIncarnation("test").setFencingToken(1)))
+                .setSecurity(org.pangrova.protocol.v2.SecurityContext.newBuilder()
+                        .setTenantId("tenant").setPrincipal("test-user"))
+                .setSourceCommandSha256(Checksum.newBuilder().setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
+                        .setDigest(ByteString.copyFrom(HexFormat.of().parseHex(scope.commandSha256()))))
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder().setGrantId(taskId + ":grant")
+                        .setCpuSlots(1).setJvmHeapBytes(1024 * 1024).setObjectStoreReadBytes(1024)
+                        .setObjectStoreWriteBytes(1024).setSpillBytes(1024))
+                .setDeadlineEpochMs(deadline).build();
+        return PrepareCopySourceRequest.from(canonical, new CopySourceReadHttp.RedeemRequest(nonce, scope));
+    }
+
+    private static CopySourceReadHttp.StagedSource proof(org.pangrova.protocol.v2.SourcePreparationResult result) {
+        assertThat(result.hasError()).isFalse();
+        assertThat(result.getIoJoined()).isTrue();
+        var source = result.getSource();
+        return new CopySourceReadHttp.StagedSource(source.getSourceVersionId(), source.getManagedObjectUri(),
+                source.getContentSha256(), source.getContentSize(), source.getTenantScope());
     }
 
     private static final class MutableClock extends Clock {

@@ -302,6 +302,38 @@ message CleanupSourceObjectsResult {
   bool sdk_joined = 4;
 }
 
+// Worker-owned source preparation is control-plane I/O before a relational
+// task exists. It has no Substrait plan or write output and is never submitted
+// to the Native task executor. The private bearer travels only in its HTTP envelope.
+message SourcePreparationRequest {
+  ProtocolVersion protocol = 1;
+  TaskAttemptId attempt = 2;
+  SecurityContext security = 3;
+  StageResourceGrant resource_grant = 4;
+  uint64 deadline_epoch_ms = 5;
+  TraceContext trace_context = 6;
+  Checksum source_command_sha256 = 7;
+}
+
+message PreparedFileSource {
+  string source_version_id = 1;
+  string managed_object_uri = 2;
+  string content_sha256 = 3;
+  uint64 content_size = 4;
+  string tenant_scope = 5;
+}
+
+// Both success and failure retain the usage of the exact issued preparation.
+// A transport timeout is not this receipt and never proves that I/O has joined.
+message SourcePreparationResult {
+  TaskAttemptId attempt = 1;
+  Checksum request_sha256 = 2;
+  ResourceUsage usage = 3;
+  bool io_joined = 4;
+  PreparedFileSource source = 5;
+  ExecutionError error = 6;
+}
+
 message RuntimeCommand {
   ProtocolVersion protocol = 1;
   TaskAttemptId attempt = 2;

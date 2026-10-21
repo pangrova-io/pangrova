@@ -76,9 +76,9 @@ class WorkerCopyTaskTlsTest {
                 new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0, "test-secret", "grpc",
                         new WorkerHttpServer.CopyTaskTls(files.serverCert(), files.serverKey(), files.ca())),
                 taskManager, TestExchangeTransport.INSTANCE, null, null, null,
-                new org.pangrova.worker.copy.CopyStageLeases((nonce, scope) -> {
+                new org.pangrova.worker.copy.CopyStageLeases((nonce, scope, budget) -> {
                     throw new AssertionError("fenced HTTP probe must not stage a source");
-                }, (nonce, scope, proof) -> {}, java.time.Clock.systemUTC(), null));
+                }, (nonce, scope, proof) -> proof, java.time.Clock.systemUTC(), null));
         server.start();
         assertThat(server.getCopyTaskTlsPort()).isPositive();
 
@@ -96,7 +96,7 @@ class WorkerCopyTaskTlsTest {
                                 + server.getCopyTaskTlsPort() + "/v1/task/copy-stage"))
                         .header("Content-Type", "application/json")
                         .header("X-Internal-Auth", "test-secret")
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(),
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(preparationBody())).build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(stageTransport.statusCode()).isEqualTo(503);
         HttpResponse<String> wrongServiceIdentity = trusted.send(
@@ -232,6 +232,19 @@ class WorkerCopyTaskTlsTest {
                 .build();
         return SubmitTaskRequest.from(task, new CopySourceReadHttp.RedeemRequest(
                 "n".repeat(43), scope));
+    }
+
+    private static byte[] preparationBody() throws Exception {
+        var nativeRequest = copyTask();
+        var task = nativeRequest.taskRequest();
+        var preparation = org.pangrova.protocol.v2.SourcePreparationRequest.newBuilder()
+                .setProtocol(task.getProtocol()).setAttempt(task.getAttempt()).setSecurity(task.getSecurity())
+                .setDeadlineEpochMs(task.getDeadlineEpochMs())
+                .setSourceCommandSha256(task.getCopySourceStagingCommandSha256())
+                .setResourceGrant(task.getResourceGrant().toBuilder().clearNativeMemoryBytes().setJvmHeapBytes(1024 * 1024))
+                .build();
+        return JsonMapperFactory.shared().writeValueAsBytes(org.pangrova.protocol.rest.copy.PrepareCopySourceRequest
+                .from(preparation, nativeRequest.copySourceRead()));
     }
 
     private CertificateFiles createCertificates() throws Exception {
