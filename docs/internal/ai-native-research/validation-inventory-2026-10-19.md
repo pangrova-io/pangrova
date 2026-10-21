@@ -1,4 +1,6 @@
 ---
+
+**2026-10-21 UUID 默认值增量：**检查新 UUID AST 的 DDL 消费链时，实际 Iceberg schema 更新复现了 `Unsupported default value type: java.util.UUID`。Connector 现在使用 [Iceberg 官方 `Literal.of(UUID)`](https://iceberg.apache.org/javadoc/1.12.0/org/apache/iceberg/expressions/Literal.html) 构造保留身份的默认值，不将 UUID 转成字符串。新增真实 HadoopCatalog/v3 表测试在提交后使 catalog 失效并重新加载，确认字段类型、initial default 与 write default 都保留 UUID；修复前 1 项 ERROR，修复后所属 Iceberg 模块 **445/445 PASS、0 跳过**，静态检查和安装退出 0。日志 `/tmp/pangrova-uuid-ddl-default-{red-r61,fixed-r64}-20261021.log`、`/tmp/pangrova-uuid-ddl-iceberg-owner-r65-20261021.log`。该结果只证明 Connector 默认值边界，不代替仍在补验的 UUID SQL/JNI/数据文件链路；**17 类本机检查点计数不变**。
 title: "AI Native 生产验收剩余清单与滚动批次（2026-10-19）"
 description: "按当前主分支源码区分已通过、本机待验证、功能未闭合和外部发布环境；不复用旧源码的全绿结论。"
 ---

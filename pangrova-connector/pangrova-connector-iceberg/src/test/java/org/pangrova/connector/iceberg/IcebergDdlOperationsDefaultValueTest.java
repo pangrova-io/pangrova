@@ -16,6 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,6 +59,21 @@ class IcebergDdlOperationsDefaultValueTest {
         assertThat(statusField).isNotNull();
         assertThat(statusField.type()).isEqualTo(Types.StringType.get());
         assertThat(statusField.initialDefault()).isNotNull();
+    }
+
+    @Test
+    void addColumnWithUuidDefault_preservesTypedDefaultAfterReload() {
+        UUID expected = UUID.fromString("80112233-4455-6677-8899-aabbccddeeff");
+        IcebergTableHandle handle = buildHandle("db", "test_table");
+
+        IcebergDdlOperations.addColumn(catalog, handle, "external_id", PangrovaType.UUID, expected);
+
+        TableIdentifier name = TableIdentifier.of("db", "test_table");
+        catalog.invalidateTable(name);
+        Types.NestedField field = catalog.loadTable(name).schema().findField("external_id");
+        assertThat(field.type()).isEqualTo(Types.UUIDType.get());
+        assertThat(field.initialDefault()).isEqualTo(expected);
+        assertThat(field.writeDefault()).isEqualTo(expected);
     }
 
     @Test

@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Schema DDL operations for Iceberg tables: add/drop/rename/change column, partition spec.
@@ -89,7 +90,7 @@ final class IcebergDdlOperations {
      * to an Iceberg {@link Literal} for use with {@link UpdateSchema#addColumn}.
      *
      * <p>Supported conversions: Long→long, Integer→int, Double→double, Float→double,
-     * String→string, Boolean→boolean, BigDecimal→decimal.</p>
+     * String→string, Boolean→boolean, BigDecimal→decimal, UUID→uuid.</p>
      */
     static Literal<?> toIcebergLiteral(Object value) {
         if (value instanceof Number n) {
@@ -98,6 +99,8 @@ final class IcebergDdlOperations {
             return Literal.of(s);
         } else if (value instanceof Boolean b) {
             return Literal.of(b);
+        } else if (value instanceof UUID uuid) {
+            return Literal.of(uuid);
         }
         throw new IllegalArgumentException(
                 "Unsupported default value type: " + value.getClass().getName());
