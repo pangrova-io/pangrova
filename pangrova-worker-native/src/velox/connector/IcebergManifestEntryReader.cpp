@@ -11,9 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "split/PathUtils.h"
 #include "velox/common/file/File.h"
-#include "velox/common/file/FileSystems.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
@@ -24,13 +22,10 @@ namespace {
 constexpr uint64_t kMaxBatchRows = 1024;
 constexpr size_t kMaxBatchArrayElements = 1'000'000;
 
-std::unique_ptr<AvroContainerReader> openPinned(
-    const std::string& uri, uint64_t length, const std::string& sha256) {
-  const auto path = split::metadataObjectPath(uri);
-  auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
-  if (!filesystem) throw std::runtime_error("No Native filesystem for Iceberg manifest");
-  return std::make_unique<AvroContainerReader>(
-      filesystem->openFileForRead(path), length, sha256);
+std::unique_ptr<AvroContainerReader> openPinned(const MetadataObjectReference& object,
+    const MetadataReadContext& reads) {
+  return std::make_unique<AvroContainerReader>(reads.open(object.uri), object.length,
+      object.sha256, reads.cancellationToken());
 }
 
 int64_t headerLong(const AvroContainerReader& container, const char* name) {
@@ -469,19 +464,25 @@ void validateFileOutput(const facebook::velox::RowTypePtr& outputType,
 
 }  // namespace
 
-IcebergManifestEntryReader::IcebergManifestEntryReader(
-    const std::string& childUri, uint64_t childLength,
-    const std::string& childSha256, const std::string& listUri,
-    uint64_t listLength, const std::string& listSha256,
-    uint64_t snapshotId, uint64_t sequenceNumber, int32_t formatVersion,
-    int32_t specId, int32_t manifestContent,
-    facebook::velox::RowTypePtr outputType,
-    facebook::velox::memory::MemoryPool* pool, bool entries,
-    const std::vector<split::IcebergManifestPartitionSpec>& partitionSpecs)
-    : spec_id_(specId), manifest_content_(manifestContent),
-      format_version_(formatVersion), entries_(entries),
-      snapshot_sequence_number_(static_cast<int64_t>(sequenceNumber)),
+IcebergManifestEntryReader::IcebergManifestEntryReader(const IcebergManifestEntryReadUnit& unit,
+    facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool,
+    const MetadataReadContext& reads)
+    : spec_id_(unit.specId), manifest_content_(unit.manifestContent),
+      format_version_(unit.formatVersion), entries_(unit.entries),
+      snapshot_sequence_number_(static_cast<int64_t>(unit.sequenceNumber)),
       output_type_(std::move(outputType)), pool_(pool) {
+  const auto& childUri = unit.child.uri;
+  const auto& listUri = unit.list.uri;
+  const auto childLength = unit.child.length;
+  const auto listLength = unit.list.length;
+  const auto& childSha256 = unit.child.sha256;
+  const auto& listSha256 = unit.list.sha256;
+  const auto snapshotId = unit.snapshotId;
+  const auto sequenceNumber = unit.sequenceNumber;
+  const auto formatVersion = unit.formatVersion;
+  const auto specId = unit.specId;
+  const auto manifestContent = unit.manifestContent;
+  const auto& partitionSpecs = unit.partitionSpecs;
   if (!output_type_ || !pool_ || childUri.empty() || listUri.empty() ||
       childUri == listUri || childLength == 0 || listLength == 0 ||
       childSha256.size() != 32 || listSha256.size() != 32 ||
@@ -489,13 +490,13 @@ IcebergManifestEntryReader::IcebergManifestEntryReader(
       (manifestContent != 0 && manifestContent != 1)) {
     throw std::invalid_argument("Invalid Iceberg files reader selection");
   }
-  auto list = openPinned(listUri, listLength, listSha256);
+  auto list = openPinned(unit.list, reads);
   const auto parent = verifyParentMembership(*list, childUri, childLength,
       snapshotId, sequenceNumber, formatVersion, specId, manifestContent, entries_);
   inherited_snapshot_id_ = parent.addedSnapshotId;
   inherited_sequence_number_ = parent.sequenceNumber;
   inherited_first_row_id_ = parent.firstRowId;
-  child_ = openPinned(childUri, childLength, childSha256);
+  child_ = openPinned(unit.child, reads);
   if (headerLong(*child_, "format-version") != formatVersion ||
       headerLong(*child_, "partition-spec-id") != specId ||
       child_->metadataValue("content") !=

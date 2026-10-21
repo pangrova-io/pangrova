@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "split/SplitConfig.h"
+#include "velox/connector/MetadataReadContext.h"
 #include "velox/vector/ComplexVector.h"
 
 namespace facebook::velox {
@@ -31,12 +32,14 @@ class IcebergMetadataJsonReader final {
       uint64_t expectedLength,
       split::SystemTableKind kind,
       facebook::velox::RowTypePtr outputType,
-      facebook::velox::memory::MemoryPool* pool);
+      facebook::velox::memory::MemoryPool* pool,
+      const MetadataReadContext& reads = MetadataReadContext::unscoped());
   ~IcebergMetadataJsonReader();
 
   facebook::velox::RowVectorPtr next(uint64_t maxRows);
 
  private:
+  MetadataReadContext reads_;
   struct ArrayRange {
     uint64_t begin = 0;
     uint64_t end = 0;

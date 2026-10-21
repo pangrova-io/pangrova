@@ -248,37 +248,31 @@ void PangrovaVeloxDataSource::addSplit(
   batch_calibrated_ = false;
 
   if (splitConfig.system_table.has_value()) {
+    const MetadataReadContext reads(read_budget_, cancellation_token_);
     if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_MANIFESTS) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
         throw std::runtime_error("Iceberg manifests split requires metadata Avro format");
       }
-      iceberg_manifest_reader_ = std::make_unique<IcebergManifestListReader>(
-          splitConfig.file_path, splitConfig.length,
-          splitConfig.system_table_snapshot_id,
-          splitConfig.system_table_iceberg_snapshot_sequence_number,
-          splitConfig.system_table_iceberg_format_version,
-          splitConfig.system_table_object_sha256,
-          splitConfig.system_table_iceberg_partition_specs,
-          output_type_, pool_);
+      IcebergManifestListReadUnit unit{
+          {splitConfig.file_path, static_cast<uint64_t>(splitConfig.length), splitConfig.system_table_object_sha256},
+          splitConfig.system_table_snapshot_id, splitConfig.system_table_iceberg_snapshot_sequence_number,
+          splitConfig.system_table_iceberg_format_version, splitConfig.system_table_iceberg_partition_specs};
+      iceberg_manifest_reader_ = std::make_unique<IcebergManifestListReader>(unit, output_type_, pool_, reads);
     } else if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_FILES ||
         *splitConfig.system_table == split::SystemTableKind::ICEBERG_ENTRIES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
         throw std::runtime_error("Iceberg files split requires metadata Avro format");
       }
-      iceberg_file_reader_ = std::make_unique<IcebergManifestEntryReader>(
-          splitConfig.file_path, splitConfig.length,
-          splitConfig.system_table_object_sha256,
-          splitConfig.system_table_iceberg_manifest_list_uri,
-          splitConfig.system_table_iceberg_manifest_list_length,
-          splitConfig.system_table_iceberg_manifest_list_sha256,
-          splitConfig.system_table_snapshot_id,
-          splitConfig.system_table_iceberg_snapshot_sequence_number,
-          splitConfig.system_table_iceberg_format_version,
-          splitConfig.system_table_iceberg_child_spec_id,
+      IcebergManifestEntryReadUnit unit{
+          {splitConfig.file_path, static_cast<uint64_t>(splitConfig.length), splitConfig.system_table_object_sha256},
+          {splitConfig.system_table_iceberg_manifest_list_uri, splitConfig.system_table_iceberg_manifest_list_length,
+           splitConfig.system_table_iceberg_manifest_list_sha256},
+          splitConfig.system_table_snapshot_id, splitConfig.system_table_iceberg_snapshot_sequence_number,
+          splitConfig.system_table_iceberg_format_version, splitConfig.system_table_iceberg_child_spec_id,
           splitConfig.system_table_iceberg_child_content,
-          output_type_, pool_,
           *splitConfig.system_table == split::SystemTableKind::ICEBERG_ENTRIES,
-          splitConfig.system_table_iceberg_partition_specs);
+          splitConfig.system_table_iceberg_partition_specs};
+      iceberg_file_reader_ = std::make_unique<IcebergManifestEntryReader>(unit, output_type_, pool_, reads);
     } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_FILES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
         throw std::runtime_error("Paimon files split requires metadata Avro format");
@@ -289,7 +283,7 @@ void PangrovaVeloxDataSource::addSplit(
       manifest.set_sha256(splitConfig.system_table_object_sha256);
       paimon_files_reader_ = std::make_unique<PaimonFilesMetadataReader>(
           manifest, splitConfig.system_table_snapshot_id, splitConfig.system_table_paimon_files_context,
-          output_type_, pool_);
+          output_type_, pool_, reads);
     } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_DIRECTORY) {
         throw std::runtime_error("Paimon branches split requires directory format");
@@ -307,17 +301,16 @@ void PangrovaVeloxDataSource::addSplit(
         *splitConfig.system_table == split::SystemTableKind::PAIMON_TAGS ||
         *splitConfig.system_table == split::SystemTableKind::PAIMON_OPTIONS ||
         *splitConfig.system_table == split::SystemTableKind::PAIMON_SCHEMAS) {
-      paimon_snapshot_reader_ = std::make_unique<PaimonSnapshotJsonReader>(
-          splitConfig.file_path, splitConfig.length,
-          splitConfig.system_table_snapshot_id,
-          splitConfig.system_table_object_sha256, output_type_, pool_,
-          splitConfig.system_table_tag_name,
+      PaimonSnapshotReadUnit unit{
+          {splitConfig.file_path, static_cast<uint64_t>(splitConfig.length), splitConfig.system_table_object_sha256},
+          splitConfig.system_table_snapshot_id, splitConfig.system_table_tag_name,
           splitConfig.system_table_schema_id,
-          *splitConfig.system_table == split::SystemTableKind::PAIMON_SCHEMAS);
+          *splitConfig.system_table == split::SystemTableKind::PAIMON_SCHEMAS};
+      paimon_snapshot_reader_ = std::make_unique<PaimonSnapshotJsonReader>(unit, output_type_, pool_, reads);
     } else {
       metadata_reader_ = std::make_unique<IcebergMetadataJsonReader>(
           splitConfig.file_path, splitConfig.length, *splitConfig.system_table,
-          output_type_, pool_);
+          output_type_, pool_, reads);
     }
     return;
   }
@@ -1649,7 +1642,7 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyDynamicFilters(
 }
 
 void PangrovaVeloxDataSource::setCancellationToken(folly::CancellationToken token) {
-  cancellation_token_ = std::move(token);
+  cancellation_token_ = folly::cancellation_token_merge(std::move(token), cancellation_source_.getToken());
 }
 
 void PangrovaVeloxDataSource::setReadBudget(std::shared_ptr<resource::TaskObjectReadBudget> budget) {
@@ -1657,12 +1650,11 @@ void PangrovaVeloxDataSource::setReadBudget(std::shared_ptr<resource::TaskObject
 }
 
 void PangrovaVeloxDataSource::cancel() {
-  cancellation_requested_.store(true, std::memory_order_release);
+  cancellation_source_.requestCancellation();
 }
 
 void PangrovaVeloxDataSource::checkCancelled() const {
-  if (cancellation_requested_.load(std::memory_order_acquire) ||
-      cancellation_token_.isCancellationRequested()) {
+  if (cancellation_token_.isCancellationRequested()) {
     throw std::runtime_error("Native source read cancelled");
   }
 }

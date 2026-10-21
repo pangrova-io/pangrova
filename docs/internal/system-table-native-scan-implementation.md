@@ -16,6 +16,35 @@ Paimon `$files` now has its twenty-column Native path; its broader type/filesyst
 matrix, nonlocal `$branches`, and the final full-chain gate remain open. This is an implementation specification and failure record, not a
 production-readiness assertion.
 
+## Task-owned metadata reads
+
+Every executing system-table scan receives the same `TaskObjectReadBudget` and
+cancellation token as ordinary file scans. `MetadataReadContext` carries that
+owner into Iceberg JSON, manifest-list and manifest-entry readers, and Paimon
+snapshot/schema/tag/options and files readers. A task without an admitted owner
+fails; the explicitly unscoped context is reserved for standalone format
+inspection. Typed read-unit structures group the immutable parent/child object
+references and snapshot declarations instead of extending scalar constructor
+argument lists.
+
+Opening a filesystem object and obtaining its initial size hold an active read
+attempt. Payload ranges, including checksum passes and subsequent parsing reads,
+consume the shared task grant. Splits and parent/child objects do not create new
+allowances. The immutable file size is cached while its owner is active, allowing
+cleanup to inspect that value after cancellation without starting backend I/O.
+Task reports publish the owner's requested-byte ledger in
+`usage.object_store_read_bytes`, including local filesystem metadata reads.
+
+Local DataSource cancellation and the task token are combined with Folly's
+[cancellation-token merge](https://github.com/facebook/folly/blob/main/folly/CancellationToken.h).
+Avro checks that token both before reading a record and while decoding cached
+record values. Cancellation remains cooperative: an already-running synchronous
+backend call retains its owner until it returns; stopping the consumer does not
+pretend that the backend has stopped. The implementation preserves the pinned
+Velox [ReadFile contract](https://github.com/facebookincubator/velox/blob/main/velox/common/file/File.h),
+including the distinction between a synchronous default future and native
+asynchronous I/O. Exact acceptance results are recorded in the rolling inventory.
+
 ## Paimon `$files` implementation
 
 The Paimon 1.4.1 `FilesTable.TABLE_TYPE` declares twenty columns. The

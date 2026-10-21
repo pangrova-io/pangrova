@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "velox/vector/ComplexVector.h"
+#include "velox/connector/MetadataReadContext.h"
 
 namespace facebook::velox {
 class ReadFile;
@@ -17,22 +18,24 @@ namespace memory { class MemoryPool; }
 namespace pangrova::velox {
 
 // One pinned Paimon metadata JSON object produces bounded Native row batches.
+struct PaimonSnapshotReadUnit {
+  MetadataObjectReference object;
+  uint64_t snapshotId;
+  std::string tagName{};
+  std::optional<uint64_t> schemaId{};
+  bool schemaHistory = false;
+};
+
 class PaimonSnapshotJsonReader final {
  public:
-  PaimonSnapshotJsonReader(
-      const std::string& uri,
-      uint64_t expectedLength,
-      uint64_t expectedSnapshotId,
-      std::string expectedSha256,
-      facebook::velox::RowTypePtr outputType,
-      facebook::velox::memory::MemoryPool* pool,
-      std::string tagName = {},
-      std::optional<uint64_t> expectedSchemaId = std::nullopt,
-      bool schemaHistory = false);
+  PaimonSnapshotJsonReader(const PaimonSnapshotReadUnit& unit,
+      facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool,
+      const MetadataReadContext& reads = MetadataReadContext::unscoped());
 
   facebook::velox::RowVectorPtr next(uint64_t maxRows);
 
  private:
+  MetadataReadContext reads_;
   void validateOutputSchema() const;
   facebook::velox::RowVectorPtr nextOptions(uint64_t maxRows);
 

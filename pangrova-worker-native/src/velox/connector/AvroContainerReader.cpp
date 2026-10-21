@@ -37,7 +37,8 @@ std::string text(const folly::dynamic& value) {
 
 class BinaryDecoder final {
  public:
-  explicit BinaryDecoder(std::string_view bytes) : bytes_(bytes) {}
+  explicit BinaryDecoder(std::string_view bytes, folly::CancellationToken cancellation)
+      : cancellation_(std::move(cancellation)), bytes_(bytes) {}
 
   uint64_t position() const { return position_; }
   uint64_t size() const { return bytes_.size(); }
@@ -83,6 +84,7 @@ class BinaryDecoder final {
   }
 
   folly::dynamic decode(const folly::dynamic& schema, int depth = 0) {
+    if (cancellation_.isCancellationRequested()) throw std::runtime_error("Metadata decode cancelled");
     if (depth > kMaxSchemaDepth) {
       throw std::runtime_error("Avro schema nesting limit exceeded");
     }
@@ -189,6 +191,7 @@ class BinaryDecoder final {
   }
 
  private:
+  folly::CancellationToken cancellation_;
   std::string_view bytes_;
   uint64_t position_ = 0;
 };
@@ -255,8 +258,8 @@ std::string inflateZstandard(const std::string& compressed) {
 
 AvroContainerReader::AvroContainerReader(
     std::shared_ptr<facebook::velox::ReadFile> file,
-    uint64_t expectedLength, std::string expectedSha256)
-    : file_(std::move(file)) {
+    uint64_t expectedLength, std::string expectedSha256, folly::CancellationToken cancellation)
+    : cancellation_(std::move(cancellation)), file_(std::move(file)) {
   if (!file_ || expectedLength == 0 || file_->size() != expectedLength ||
       expectedSha256.size() != 32) {
     throw std::invalid_argument("Invalid pinned Avro object identity");
@@ -407,8 +410,9 @@ bool AvroContainerReader::readNextBlock() {
 }
 
 std::optional<folly::dynamic> AvroContainerReader::nextRecord() {
+  if (cancellation_.isCancellationRequested()) throw std::runtime_error("Metadata decode cancelled");
   if (remaining_rows_ == 0 && !readNextBlock()) return std::nullopt;
-  BinaryDecoder decoder(std::string_view(block_).substr(block_position_));
+  BinaryDecoder decoder(std::string_view(block_).substr(block_position_), cancellation_);
   auto row = decoder.decode(writer_schema_);
   last_record_size_ = decoder.position();
   block_position_ += last_record_size_;

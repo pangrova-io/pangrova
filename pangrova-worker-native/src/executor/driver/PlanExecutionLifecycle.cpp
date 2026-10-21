@@ -167,6 +167,15 @@ std::vector<uint8_t> PlanExecutionDriver::collectTaskStats() const {
   return active_runner_->collectTaskStats();
 }
 
+uint64_t PlanExecutionDriver::requestedObjectReadBytes() const {
+  std::shared_ptr<resource::TaskObjectReadBudget> owner;
+  {
+    std::lock_guard<std::mutex> lock(runner_mutex_);
+    owner = task_read_budget_;
+  }
+  return owner ? owner->requestedBytes() : 0;
+}
+
 bool PlanExecutionDriver::hasFinalTaskStats() const {
   std::lock_guard<std::mutex> lock(runner_mutex_);
   return !final_task_stats_.empty();

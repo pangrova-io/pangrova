@@ -12,9 +12,7 @@
 #include <openssl/evp.h>
 
 #include "simdjson.h"
-#include "split/PathUtils.h"
 #include "velox/common/file/File.h"
-#include "velox/common/file/FileSystems.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/type/Timestamp.h"
@@ -212,21 +210,13 @@ facebook::velox::RowVectorPtr schemaRow(const simdjson::dom::element& object,
 
 }  // namespace
 
-PaimonSnapshotJsonReader::PaimonSnapshotJsonReader(
-    const std::string& uri, uint64_t expectedLength,
-    uint64_t expectedSnapshotId, std::string expectedSha256,
-    facebook::velox::RowTypePtr outputType,
-    facebook::velox::memory::MemoryPool* pool,
-    std::string tagName,
-    std::optional<uint64_t> expectedSchemaId,
-    bool schemaHistory)
-    : output_type_(std::move(outputType)), pool_(pool),
-      expected_length_(expectedLength),
-      expected_snapshot_id_(expectedSnapshotId),
-      expected_sha256_(std::move(expectedSha256)),
-      tag_name_(std::move(tagName)),
-      expected_schema_id_(expectedSchemaId),
-      schema_history_(schemaHistory) {
+PaimonSnapshotJsonReader::PaimonSnapshotJsonReader(const PaimonSnapshotReadUnit& unit,
+    facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool,
+    const MetadataReadContext& reads)
+    : reads_(reads), output_type_(std::move(outputType)), pool_(pool),
+      expected_length_(unit.object.length), expected_snapshot_id_(unit.snapshotId),
+      expected_sha256_(unit.object.sha256), tag_name_(unit.tagName),
+      expected_schema_id_(unit.schemaId), schema_history_(unit.schemaHistory) {
   if (expected_length_ == 0 || expected_length_ > kMaxSnapshotBytes ||
       (expected_snapshot_id_ == 0 && tag_name_.empty() && !expected_schema_id_) ||
       (expected_snapshot_id_ != 0 && !tag_name_.empty()) ||
@@ -236,12 +226,7 @@ PaimonSnapshotJsonReader::PaimonSnapshotJsonReader(
       !output_type_ || !pool_) {
     throw std::invalid_argument("Invalid pinned Paimon snapshot reader input");
   }
-  const auto path = split::metadataObjectPath(uri);
-  auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
-  if (!filesystem) {
-    throw std::runtime_error("No Native filesystem for Paimon snapshot URI");
-  }
-  file_ = filesystem->openFileForRead(path);
+  file_ = reads_.open(unit.object.uri);
   if (file_->size() != expected_length_) {
     throw std::runtime_error("Pinned Paimon snapshot object length changed");
   }
@@ -300,6 +285,7 @@ void PaimonSnapshotJsonReader::validateOutputSchema() const {
 }
 
 facebook::velox::RowVectorPtr PaimonSnapshotJsonReader::next(uint64_t maxRows) {
+  reads_.checkpoint();
   if (maxRows == 0) {
     throw std::invalid_argument("Metadata scan batch size must be positive");
   }

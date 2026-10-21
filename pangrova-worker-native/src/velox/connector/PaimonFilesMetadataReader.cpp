@@ -10,9 +10,7 @@
 #include "folly/json.h"
 #include "openssl/crypto.h"
 #include "openssl/evp.h"
-#include "split/PathUtils.h"
 #include "velox/common/file/File.h"
-#include "velox/common/file/FileSystems.h"
 #include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
 
@@ -41,17 +39,11 @@ const std::string& text(const folly::dynamic& object, const char* name) {
   return value.getString();
 }
 
-std::shared_ptr<ReadFile> open(const std::string& uri) {
-  auto path = split::metadataObjectPath(uri);
-  auto fs = filesystems::getFileSystem(path, nullptr);
-  if (!fs) throw std::runtime_error("No filesystem for pinned Paimon metadata");
-  return fs->openFileForRead(path);
-}
-
-void validateSnapshot(const protocol::v2::PinnedMetadataObject& object, uint64_t id) {
+void validateSnapshot(const protocol::v2::PinnedMetadataObject& object, uint64_t id,
+    const MetadataReadContext& reads) {
   if (object.uri().empty() || object.length() == 0 || object.length() > kMaxMetadataBytes
       || object.sha256().size() != 32) throw std::runtime_error("Invalid pinned Paimon snapshot");
-  auto file = open(object.uri());
+  auto file = reads.open(object.uri());
   if (file->size() != object.length()) throw std::runtime_error("Pinned Paimon snapshot size changed");
   std::string bytes(object.length(), '\0');
   file->pread(0, bytes.size(), bytes.data());
@@ -159,14 +151,14 @@ PaimonFilesMetadataReader::Schema PaimonFilesMetadataReader::schema(const std::s
 
 PaimonFilesMetadataReader::PaimonFilesMetadataReader(const protocol::v2::PinnedMetadataObject& manifest,
     uint64_t snapshotId, const std::string& serialized,
-    RowTypePtr outputType, memory::MemoryPool* pool)
+    RowTypePtr outputType, memory::MemoryPool* pool, const MetadataReadContext& reads)
     : output_type_(std::move(outputType)), pool_(pool) {
   protocol::v2::PaimonFilesReadContext context;
   if (manifest.uri().empty() || manifest.length() == 0 || manifest.sha256().size() != 32
       || snapshotId == 0 || serialized.size() > kMaxMetadataBytes || !context.ParseFromString(serialized)
       || context.files().empty() || context.schemas().empty())
     throw std::runtime_error("Invalid Paimon files read context");
-  validateSnapshot(context.snapshot(), snapshotId);
+  validateSnapshot(context.snapshot(), snapshotId, reads);
   read_schema_id_ = context.read_schema_id();
   for (const auto& source : context.schemas()) {
     if (source.schema_json().size() > kMaxMetadataBytes ||
@@ -181,7 +173,8 @@ PaimonFilesMetadataReader::PaimonFilesMetadataReader(const protocol::v2::PinnedM
   }
   remaining_ = selected_.size();
   validateOutput();
-  input_ = std::make_unique<AvroContainerReader>(open(manifest.uri()), manifest.length(), manifest.sha256());
+  input_ = std::make_unique<AvroContainerReader>(reads.open(manifest.uri()), manifest.length(),
+      manifest.sha256(), reads.cancellationToken());
 }
 
 void PaimonFilesMetadataReader::validateOutput() const {

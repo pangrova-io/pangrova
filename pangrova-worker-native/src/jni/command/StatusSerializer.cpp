@@ -94,6 +94,7 @@ std::vector<uint8_t> serializeTaskStatus(
   }
   // The task-owned accumulator survives writer errors and destruction. No
   // commit fragment is required to observe an allocation that already happened.
+  status.mutable_usage()->set_object_store_read_bytes(executor.requestedObjectReadBytes());
   status.mutable_usage()->set_columnar_conversion_copied_bytes(
       executor.metricsCollector().snapshot().columnar_conversion_copied_bytes);
   auto* coverage = status.mutable_coverage();

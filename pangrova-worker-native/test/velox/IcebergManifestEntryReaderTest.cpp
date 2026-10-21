@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "openssl/evp.h"
+#include "resource/TaskObjectReadBudget.h"
 
 #include "TestMemoryHelper.h"
 #include "velox/common/file/FileSystems.h"
@@ -307,9 +308,9 @@ TEST(IcebergManifestEntryReaderTest, PreservesNullEmptyAndPopulatedColumnSizes) 
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
       1, listRow(child, childBytes.size()));
   AvroFile list(listBytes);
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
-      mapProjectionType(), pool.get());
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      mapProjectionType(),
+      pool.get());
   auto batch = reader.next(10);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 3);
@@ -339,9 +340,9 @@ TEST(IcebergManifestEntryReaderTest, RejectsMalformedColumnSizes) {
         {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
         1, listRow(child, childBytes.size()));
     AvroFile list(listBytes);
-    IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-        list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
-        mapProjectionType(), pool.get());
+    IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      mapProjectionType(),
+      pool.get());
     EXPECT_THROW(reader.next(10), std::runtime_error);
   }
   std::string wrongSchema = kChildMapSchema;
@@ -356,9 +357,9 @@ TEST(IcebergManifestEntryReaderTest, RejectsMalformedColumnSizes) {
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
       1, listRow(child, childBytes.size()));
   AvroFile list(listBytes);
-  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
-      mapProjectionType(), pool.get()), std::runtime_error);
+  EXPECT_THROW(IcebergManifestEntryReader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      mapProjectionType(),
+      pool.get()), std::runtime_error);
 }
 
 TEST(IcebergManifestEntryReaderTest, PreservesNullEmptyAndPopulatedArrays) {
@@ -375,9 +376,9 @@ TEST(IcebergManifestEntryReaderTest, PreservesNullEmptyAndPopulatedArrays) {
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
       1, listRow(child, childBytes.size()));
   AvroFile list(listBytes);
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
-      arrayProjectionType(), pool.get());
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      arrayProjectionType(),
+      pool.get());
   auto batch = reader.next(10);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 3);
@@ -414,9 +415,9 @@ TEST(IcebergManifestEntryReaderTest, ReadsLiveScalarProjectionAndSkipsDeleted) {
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
       1, listRow(child, childBytes.size()));
   AvroFile list(listBytes);
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
-      projectedType(), pool.get());
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      projectedType(),
+      pool.get());
   auto batch = reader.next(10);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 1);
@@ -429,6 +430,40 @@ TEST(IcebergManifestEntryReaderTest, ReadsLiveScalarProjectionAndSkipsDeleted) {
   EXPECT_EQ(batch->childAt(4)->asFlatVector<int64_t>()->valueAt(0), 3);
   EXPECT_EQ(batch->childAt(5)->asFlatVector<int64_t>()->valueAt(0), 4096);
   EXPECT_EQ(reader.next(10), nullptr);
+}
+
+TEST(IcebergManifestEntryReaderTest, ParentQualificationAndChildHashConsumeOneAdmittedGrant) {
+  auto pool = pangrova::test::testLeafPool("IcebergMetadataSharedGrant");
+  const auto childBytes = container(kChildSchema,
+      {{"format-version", "2"}, {"partition-spec-id", "0"}, {"content", "data"}},
+      1, childRow(1, "file:/data/live.parquet"));
+  AvroFile child(childBytes);
+  const auto listBytes = container(kListSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
+      1, listRow(child, childBytes.size()));
+  AvroFile list(listBytes);
+  auto grant = 2 * listBytes.size() + childBytes.size();
+  auto owner = std::make_shared<pangrova::resource::TaskObjectReadBudget>(grant);
+  MetadataReadContext reads(owner, {});
+  IcebergManifestEntryReadUnit unit{{child.path(), childBytes.size(), digest(childBytes)},
+      {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0};
+  EXPECT_THROW(IcebergManifestEntryReader(unit, projectedType(), pool.get(), reads), std::runtime_error);
+  EXPECT_EQ(owner->requestedBytes(), grant);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
+
+TEST(IcebergManifestEntryReaderTest, ManifestListChecksumDoesNotCreateAnotherReadAllowance) {
+  auto pool = pangrova::test::testLeafPool("IcebergManifestListGrant");
+  const auto listBytes = container(kListSchema,
+      {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}}, 0, "");
+  AvroFile list(listBytes);
+  auto owner = std::make_shared<pangrova::resource::TaskObjectReadBudget>(listBytes.size());
+  MetadataReadContext reads(owner, {});
+  IcebergManifestListReadUnit unit{{list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2};
+  EXPECT_THROW(IcebergManifestListReader(unit, facebook::velox::ROW({"path"},
+      {facebook::velox::VARCHAR()}), pool.get(), reads), std::runtime_error);
+  EXPECT_EQ(owner->requestedBytes(), listBytes.size());
+  EXPECT_EQ(owner->activeReads(), 0);
 }
 
 TEST(IcebergManifestEntryReaderTest, EntriesInheritAndPreserveActualLineage) {
@@ -451,9 +486,9 @@ TEST(IcebergManifestEntryReaderTest, EntriesInheritAndPreserveActualLineage) {
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "5"}},
       1, lineageListRow(child, childBytes.size(), 7, 5));
   AvroFile list(listBytes);
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 5, 2, 0, 0,
-      entriesProjectionType(), pool.get(), true);
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 5, 2, 0, 0, true, {}},
+      entriesProjectionType(),
+      pool.get());
   auto batch = reader.next(10);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 3);
@@ -501,8 +536,9 @@ TEST(IcebergManifestEntryReaderTest, NestedEntriesPreserveDeleteContentsAndColle
   AvroFile list(listBytes);
   auto type = ROW({"data_file"}, {ROW({"content", "equality_ids", "split_offsets", "sort_order_id"},
       {INTEGER(), ARRAY(INTEGER()), ARRAY(BIGINT()), INTEGER()})});
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 5, 2, 0, 1, type, pool.get(), true);
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 5, 2, 0, 1, true, {}},
+      type,
+      pool.get());
   auto batch = reader.next(10);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 2);
@@ -537,8 +573,9 @@ TEST(IcebergManifestEntryReaderTest, RejectsNestedEntrySchemaDrift) {
            ROW({"data_file"}, {ROW({"file_path"}, {BIGINT()})}),
            ROW({"data_file"}, {ROW({"equality_ids"}, {ARRAY(BIGINT())})}),
            ROW({"file_path"}, {VARCHAR()})}) {
-    EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(), digest(childBytes),
-        list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0, type, pool.get(), true),
+    EXPECT_THROW(IcebergManifestEntryReader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, true, {}},
+      type,
+      pool.get()),
         std::runtime_error);
   }
 }
@@ -561,9 +598,9 @@ TEST(IcebergManifestEntryReaderTest, RejectsFutureFileSequenceNumber) {
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "5"}},
       1, lineageListRow(child, childBytes.size(), 7, 5));
   AvroFile list(listBytes);
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 5, 2, 0, 0,
-      entriesProjectionType(), pool.get(), true);
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 5, 2, 0, 0, true, {}},
+      entriesProjectionType(),
+      pool.get());
   EXPECT_THROW(reader.next(10), std::runtime_error);
 }
 
@@ -598,9 +635,9 @@ TEST(IcebergManifestEntryReaderTest, VersionThreeInheritsFirstRowIdsAcrossFiles)
       {{"format-version", "3"}, {"snapshot-id", "7"}, {"sequence-number", "5"}},
       1, listRowBytes);
   AvroFile list(listBytes);
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 5, 3, 0, 0,
-      entriesProjectionType(), pool.get(), true);
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 5, 3, 0, 0, true, {}},
+      entriesProjectionType(),
+      pool.get());
   auto batch = reader.next(10);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 2);
@@ -619,12 +656,12 @@ TEST(IcebergManifestEntryReaderTest, RejectsParentOrChildMutation) {
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
       1, listRow(child, childBytes.size()));
   AvroFile list(listBytes);
-  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
-      digest(childBytes + "changed"), list.path(), listBytes.size(), digest(listBytes),
-      7, 1, 2, 0, 0, projectedType(), pool.get()), std::runtime_error);
-  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
-      digest(childBytes), list.path(), listBytes.size(), digest(listBytes + "changed"),
-      7, 1, 2, 0, 0, projectedType(), pool.get()), std::runtime_error);
+  EXPECT_THROW(IcebergManifestEntryReader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes + "changed")}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      projectedType(),
+      pool.get()), std::runtime_error);
+  EXPECT_THROW(IcebergManifestEntryReader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes + "changed")}, 7, 1, 2, 0, 0, false, {}},
+      projectedType(),
+      pool.get()), std::runtime_error);
 }
 
 TEST(IcebergManifestEntryReaderTest, RejectsUnsupportedNestedProjection) {
@@ -640,18 +677,18 @@ TEST(IcebergManifestEntryReaderTest, RejectsUnsupportedNestedProjection) {
   AvroFile list(listBytes);
   auto type = facebook::velox::ROW({"column_sizes"},
       {facebook::velox::MAP(facebook::velox::INTEGER(), facebook::velox::BIGINT())});
-  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
-      digest(childBytes), list.path(), listBytes.size(), digest(listBytes),
-      7, 1, 2, 0, 0, type, pool.get()), std::runtime_error);
+  EXPECT_THROW(IcebergManifestEntryReader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      type,
+      pool.get()), std::runtime_error);
   auto wrongElementType = facebook::velox::ROW({"split_offsets"},
       {facebook::velox::ARRAY(facebook::velox::INTEGER())});
-  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
-      digest(childBytes), list.path(), listBytes.size(), digest(listBytes),
-      7, 1, 2, 0, 0, wrongElementType, pool.get()), std::runtime_error);
+  EXPECT_THROW(IcebergManifestEntryReader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      wrongElementType,
+      pool.get()), std::runtime_error);
   auto entryOnlyField = facebook::velox::ROW({"first_row_id"}, {facebook::velox::BIGINT()});
-  EXPECT_THROW(IcebergManifestEntryReader(child.path(), childBytes.size(),
-      digest(childBytes), list.path(), listBytes.size(), digest(listBytes),
-      7, 1, 2, 0, 0, entryOnlyField, pool.get()), std::runtime_error);
+  EXPECT_THROW(IcebergManifestEntryReader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      entryOnlyField,
+      pool.get()), std::runtime_error);
 }
 
 TEST(IcebergManifestEntryReaderTest, ReadsPositionDeleteManifest) {
@@ -667,11 +704,11 @@ TEST(IcebergManifestEntryReaderTest, ReadsPositionDeleteManifest) {
       {{"format-version", "2"}, {"snapshot-id", "7"}, {"sequence-number", "1"}},
       1, listRow(child.path(), childBytes.size(), 1));
   AvroFile list(listBytes);
-  IcebergManifestEntryReader reader(child.path(), childBytes.size(), digest(childBytes),
-      list.path(), listBytes.size(), digest(listBytes), 7, 1, 2, 0, 1,
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{child.path(), childBytes.size(), digest(childBytes)}, {list.path(), listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 1, false, {}},
       facebook::velox::ROW({"content", "file_path", "equality_ids"},
           {facebook::velox::INTEGER(), facebook::velox::VARCHAR(),
-           facebook::velox::ARRAY(facebook::velox::INTEGER())}), pool.get());
+           facebook::velox::ARRAY(facebook::velox::INTEGER())}),
+      pool.get());
   auto batch = reader.next(2);
   ASSERT_NE(batch, nullptr);
   ASSERT_EQ(batch->size(), 2);
@@ -702,11 +739,12 @@ TEST(IcebergManifestEntryReaderTest, BothReadersOpenEncodedLocalUriWithSpaces) {
   AvroFile list(listBytes, true);
   const auto listUri = encodedLocalUri(list);
   auto emptyType = facebook::velox::ROW({}, {});
-  EXPECT_NO_THROW(IcebergManifestListReader(listUri, listBytes.size(), 7, 1, 2,
-      digest(listBytes), {}, emptyType, pool.get()));
-  IcebergManifestEntryReader reader(childUri, childBytes.size(), digest(childBytes),
-      listUri, listBytes.size(), digest(listBytes), 7, 1, 2, 0, 0,
-      projectedType(), pool.get());
+  EXPECT_NO_THROW(IcebergManifestListReader(IcebergManifestListReadUnit{{listUri, listBytes.size(), digest(listBytes)}, 7, 1, 2, {}},
+      emptyType,
+      pool.get()));
+  IcebergManifestEntryReader reader(IcebergManifestEntryReadUnit{{childUri, childBytes.size(), digest(childBytes)}, {listUri, listBytes.size(), digest(listBytes)}, 7, 1, 2, 0, 0, false, {}},
+      projectedType(),
+      pool.get());
   ASSERT_NE(reader.next(1), nullptr);
 }
 

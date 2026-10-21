@@ -397,6 +397,10 @@ observability::NativeMetricsCollector& TaskExecutor::metricsCollector() {
   return metrics_collector_;
 }
 
+uint64_t TaskExecutor::requestedObjectReadBytes() const {
+  return execution_driver_ ? execution_driver_->requestedObjectReadBytes() : 0;
+}
+
 std::vector<uint8_t> TaskExecutor::collectTaskStats() const {
   if (execution_driver_) {
     auto serialized = execution_driver_->collectTaskStats();

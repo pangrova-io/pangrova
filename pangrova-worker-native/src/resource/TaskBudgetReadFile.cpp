@@ -13,6 +13,16 @@ void checkpoint(const folly::CancellationToken& token) {
     throw std::runtime_error("Task backend read cancelled");
   }
 }
+uint64_t fileSize(const std::shared_ptr<facebook::velox::ReadFile>& input,
+    const std::shared_ptr<TaskObjectReadBudget>& budget, const folly::CancellationToken& cancellation) {
+  if (!input || !budget) throw std::invalid_argument("Task backend requires its admitted read owner");
+  checkpoint(cancellation);
+  auto attempt = budget->begin(0);
+  const auto size = input->size();
+  attempt->complete(0);
+  checkpoint(cancellation);
+  return size;
+}
 uint64_t addLength(uint64_t total, uint64_t length) {
   if (length > std::numeric_limits<uint64_t>::max() - total) {
     throw std::runtime_error("Task backend read range overflows");
@@ -29,9 +39,8 @@ uint64_t requested(const std::vector<folly::Range<char*>>& buffers) {
 TaskBudgetReadFile::TaskBudgetReadFile(
     std::shared_ptr<facebook::velox::ReadFile> input,
     std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation)
-    : input_(std::move(input)), budget_(std::move(budget)), cancellation_(std::move(cancellation)) {
-  if (!input_ || !budget_) throw std::invalid_argument("Task backend requires its admitted read owner");
-}
+    : input_(std::move(input)), budget_(std::move(budget)), cancellation_(std::move(cancellation)),
+      size_(fileSize(input_, budget_, cancellation_)) {}
 
 std::string_view TaskBudgetReadFile::pread(uint64_t offset, uint64_t length,
     void* buffer, const facebook::velox::FileIoContext& context) const {

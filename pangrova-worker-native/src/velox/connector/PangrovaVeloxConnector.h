@@ -8,7 +8,6 @@
 #pragma once
 
 #include <memory>
-#include <atomic>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -138,9 +137,9 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
 
  private:
   void checkCancelled() const;
-  folly::CancellationToken cancellation_token_;
+  folly::CancellationSource cancellation_source_;
+  folly::CancellationToken cancellation_token_{cancellation_source_.getToken()};
   std::shared_ptr<resource::TaskObjectReadBudget> read_budget_;
-  std::atomic<bool> cancellation_requested_{false};
   std::string current_source_id_;
   std::string current_source_snapshot_;
   // Apply dynamic filters to a RowVector, returning a filtered vector.

@@ -9,6 +9,7 @@
 #include "folly/dynamic.h"
 #include "pangrova/protocol/v2/connector.pb.h"
 #include "velox/connector/AvroContainerReader.h"
+#include "velox/connector/MetadataReadContext.h"
 #include "velox/connector/PaimonBinaryRow.h"
 #include "velox/vector/ComplexVector.h"
 
@@ -19,7 +20,8 @@ class PaimonFilesMetadataReader final {
  public:
   PaimonFilesMetadataReader(const protocol::v2::PinnedMetadataObject& manifest,
       uint64_t snapshotId, const std::string& context,
-      facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool);
+      facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool,
+      const MetadataReadContext& reads = MetadataReadContext::unscoped());
   facebook::velox::RowVectorPtr next(uint64_t maxRows);
 
  private:

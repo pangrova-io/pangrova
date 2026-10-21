@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "folly/dynamic.h"
+#include "folly/CancellationToken.h"
 
 namespace facebook::velox {
 class ReadFile;
@@ -22,7 +23,7 @@ class AvroContainerReader final {
   AvroContainerReader(
       std::shared_ptr<facebook::velox::ReadFile> file,
       uint64_t expectedLength,
-      std::string expectedSha256);
+      std::string expectedSha256, folly::CancellationToken cancellation = {});
 
   std::optional<folly::dynamic> nextRecord();
   uint64_t lastRecordSize() const { return last_record_size_; }
@@ -36,6 +37,7 @@ class AvroContainerReader final {
   void parseHeader();
   bool readNextBlock();
 
+  folly::CancellationToken cancellation_;
   std::shared_ptr<facebook::velox::ReadFile> file_;
   uint64_t file_size_ = 0;
   uint64_t file_position_ = 0;

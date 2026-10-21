@@ -28,7 +28,7 @@ class TaskBudgetReadFile final : public facebook::velox::ReadFile {
   // requires a caller buffer owner contract that this ReadFile API cannot supply.
   bool hasPreadvAsync() const override { return false; }
   bool shouldCoalesce() const override { return input_->shouldCoalesce(); }
-  uint64_t size() const override { return input_->size(); }
+  uint64_t size() const override { return size_; }
   uint64_t memoryUsage() const override { return input_->memoryUsage(); }
   uint64_t bytesRead() const override { return input_->bytesRead(); }
   void resetBytesRead() override { input_->resetBytesRead(); }
@@ -38,6 +38,7 @@ class TaskBudgetReadFile final : public facebook::velox::ReadFile {
   const std::shared_ptr<facebook::velox::ReadFile> input_;
   const std::shared_ptr<TaskObjectReadBudget> budget_;
   const folly::CancellationToken cancellation_;
+  const uint64_t size_;
 };
 
 }  // namespace pangrova::resource

@@ -9,6 +9,7 @@
 #include "split/SplitConfig.h"
 #include "velox/connector/AvroContainerReader.h"
 #include "velox/vector/ComplexVector.h"
+#include "velox/connector/MetadataReadContext.h"
 
 namespace facebook::velox::memory {
 class MemoryPool;
@@ -20,18 +21,23 @@ class IcebergPartitionProjection;
 // Scans live files or all entries from one child manifest pinned by its parent list.
 // Entry lineage surrounds a typed data_file row; file maps, arrays and
 // field-ID-based partition projections share the ordinary file scan renderer.
+struct IcebergManifestEntryReadUnit {
+  MetadataObjectReference child;
+  MetadataObjectReference list;
+  uint64_t snapshotId;
+  uint64_t sequenceNumber;
+  int32_t formatVersion;
+  int32_t specId;
+  int32_t manifestContent;
+  bool entries = false;
+  std::vector<split::IcebergManifestPartitionSpec> partitionSpecs{};
+};
+
 class IcebergManifestEntryReader final {
  public:
-  IcebergManifestEntryReader(
-      const std::string& childUri, uint64_t childLength,
-      const std::string& childSha256, const std::string& listUri,
-      uint64_t listLength, const std::string& listSha256,
-      uint64_t snapshotId, uint64_t sequenceNumber, int32_t formatVersion,
-      int32_t specId, int32_t manifestContent,
-      facebook::velox::RowTypePtr outputType,
-      facebook::velox::memory::MemoryPool* pool,
-      bool entries = false,
-      const std::vector<split::IcebergManifestPartitionSpec>& partitionSpecs = {});
+  IcebergManifestEntryReader(const IcebergManifestEntryReadUnit& unit,
+      facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool,
+      const MetadataReadContext& reads = MetadataReadContext::unscoped());
 
   ~IcebergManifestEntryReader();
 

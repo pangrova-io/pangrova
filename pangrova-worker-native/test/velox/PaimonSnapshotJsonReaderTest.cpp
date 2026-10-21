@@ -74,8 +74,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSnapshotAndProjectedColumns) {
       {facebook::velox::BIGINT(), facebook::velox::BIGINT(),
        facebook::velox::VARCHAR(), facebook::velox::TIMESTAMP(),
        facebook::velox::BIGINT()});
-  PaimonSnapshotJsonReader reader("file:" + file.path(), file.size(),
-      7, digest(kSnapshot), type, pool.get());
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{"file:" + file.path(), file.size(), digest(kSnapshot)}, 7},
+      type,
+      pool.get());
   auto row = reader.next(1);
   ASSERT_NE(row, nullptr);
   ASSERT_EQ(row->size(), 1);
@@ -95,12 +96,14 @@ TEST(PaimonSnapshotJsonReaderTest, DecodesEscapedSpaceAndRejectsMalformedFileUri
   auto type = facebook::velox::ROW({"snapshot_id"}, {facebook::velox::BIGINT()});
   auto uri = "file:" + file.path();
   uri.replace(uri.find("with space"), 10, "with%20space");
-  PaimonSnapshotJsonReader reader(uri, file.size(), 7, digest(kSnapshot),
-      type, pool.get());
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{uri, file.size(), digest(kSnapshot)}, 7},
+      type,
+      pool.get());
   ASSERT_NE(reader.next(1), nullptr);
   uri.replace(uri.find("%20"), 3, "%2");
-  EXPECT_THROW(PaimonSnapshotJsonReader(uri, file.size(), 7, digest(kSnapshot),
-      type, pool.get()), std::invalid_argument);
+  EXPECT_THROW(PaimonSnapshotJsonReader(PaimonSnapshotReadUnit{{uri, file.size(), digest(kSnapshot)}, 7},
+      type,
+      pool.get()), std::invalid_argument);
 }
 
 TEST(PaimonSnapshotJsonReaderTest, ExposesFixedPaimon141SchemaAndNulls) {
@@ -118,8 +121,9 @@ TEST(PaimonSnapshotJsonReaderTest, ExposesFixedPaimon141SchemaAndNulls) {
        facebook::velox::VARCHAR(), facebook::velox::BIGINT(),
        facebook::velox::BIGINT(), facebook::velox::BIGINT(),
        facebook::velox::BIGINT(), facebook::velox::BIGINT()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      7, digest(kSnapshot), type, pool.get());
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(kSnapshot)}, 7},
+      type,
+      pool.get());
   auto row = reader.next(1);
   ASSERT_NE(row, nullptr);
   ASSERT_EQ(row->childrenSize(), 14);
@@ -139,10 +143,12 @@ TEST(PaimonSnapshotJsonReaderTest, RejectsObjectLengthAndSnapshotIdDrift) {
   SnapshotFile file(kSnapshot);
   auto type = facebook::velox::ROW(
       {"snapshot_id"}, {facebook::velox::BIGINT()});
-  EXPECT_THROW(PaimonSnapshotJsonReader(file.path(), file.size() + 1,
-      7, digest(kSnapshot), type, pool.get()), std::runtime_error);
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      8, digest(kSnapshot), type, pool.get());
+  EXPECT_THROW(PaimonSnapshotJsonReader(PaimonSnapshotReadUnit{{file.path(), file.size() + 1, digest(kSnapshot)}, 7},
+      type,
+      pool.get()), std::runtime_error);
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(kSnapshot)}, 8},
+      type,
+      pool.get());
   EXPECT_THROW(reader.next(1), std::runtime_error);
 }
 
@@ -151,8 +157,9 @@ TEST(PaimonSnapshotJsonReaderTest, RejectsSameLengthContentReplacement) {
   SnapshotFile file(kSnapshot);
   auto type = facebook::velox::ROW(
       {"snapshot_id"}, {facebook::velox::BIGINT()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      7, digest(std::string(kSnapshot) + "different"), type, pool.get());
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(std::string(kSnapshot) + "different")}, 7},
+      type,
+      pool.get());
   EXPECT_THROW(reader.next(1), std::runtime_error);
 }
 
@@ -166,8 +173,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsTagFileWithNullableTtlFields) {
        facebook::velox::BIGINT(), facebook::velox::TIMESTAMP(),
        facebook::velox::BIGINT(), facebook::velox::TIMESTAMP(),
        facebook::velox::VARCHAR()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      0, digest(kSnapshot), type, pool.get(), "v1");
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(kSnapshot)}, 0, "v1"},
+      type,
+      pool.get());
   auto row = reader.next(1);
   ASSERT_NE(row, nullptr);
   EXPECT_EQ(row->childAt(0)->asFlatVector<facebook::velox::StringView>()
@@ -193,8 +201,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsTagFileWithTtlFields) {
   auto type = facebook::velox::ROW(
       {"create_time", "time_retained"},
       {facebook::velox::TIMESTAMP(), facebook::velox::VARCHAR()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      0, digest(tagJson), type, pool.get(), "v2");
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(tagJson)}, 0, "v2"},
+      type,
+      pool.get());
   auto row = reader.next(1);
   ASSERT_NE(row, nullptr);
   EXPECT_EQ(row->childAt(0)->asFlatVector<facebook::velox::Timestamp>()
@@ -210,8 +219,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsFractionalTagRetention) {
   SnapshotFile file(tagJson);
   auto type = facebook::velox::ROW(
       {"time_retained"}, {facebook::velox::VARCHAR()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      0, digest(tagJson), type, pool.get(), "v3");
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(tagJson)}, 0, "v3"},
+      type,
+      pool.get());
   auto row = reader.next(1);
   ASSERT_NE(row, nullptr);
   EXPECT_EQ(row->childAt(0)->asFlatVector<facebook::velox::StringView>()
@@ -225,8 +235,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsNegativeTagRetentionLikePaimonSdk) {
   SnapshotFile file(tagJson);
   auto type = facebook::velox::ROW(
       {"time_retained"}, {facebook::velox::VARCHAR()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      0, digest(tagJson), type, pool.get(), "negative");
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(tagJson)}, 0, "negative"},
+      type,
+      pool.get());
   auto row = reader.next(1);
   ASSERT_NE(row, nullptr);
   EXPECT_EQ(row->childAt(0)->asFlatVector<facebook::velox::StringView>()
@@ -240,8 +251,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSchemaOptionsInBoundedBatches) {
   SnapshotFile file(schemaJson);
   auto type = facebook::velox::ROW(
       {"key", "value"}, {facebook::velox::VARCHAR(), facebook::velox::VARCHAR()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(),
-      0, digest(schemaJson), type, pool.get(), "", 0);
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(schemaJson)}, 0, "", 0},
+      type,
+      pool.get());
   auto first = reader.next(1);
   ASSERT_NE(first, nullptr);
   ASSERT_EQ(first->size(), 1);
@@ -255,8 +267,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSchemaOptionsInBoundedBatches) {
   EXPECT_EQ(second->childAt(0)->asFlatVector<facebook::velox::StringView>()
                 ->valueAt(0).str(), "scan.mode");
   EXPECT_EQ(reader.next(1), nullptr);
-  PaimonSnapshotJsonReader wrong(file.path(), file.size(),
-      0, digest(schemaJson), type, pool.get(), "", 1);
+  PaimonSnapshotJsonReader wrong(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(schemaJson)}, 0, "", 1},
+      type,
+      pool.get());
   EXPECT_THROW(wrong.next(1), std::runtime_error);
 }
 
@@ -273,8 +286,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSchemaHistoryAndRejectsReplacement
        facebook::velox::VARCHAR(), facebook::velox::VARCHAR(),
        facebook::velox::VARCHAR(), facebook::velox::VARCHAR(),
        facebook::velox::TIMESTAMP()});
-  PaimonSnapshotJsonReader reader(file.path(), file.size(), 0,
-      digest(schemaJson), type, pool.get(), "", 0, true);
+  PaimonSnapshotJsonReader reader(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(schemaJson)}, 0, "", 0, true},
+      type,
+      pool.get());
   auto row = reader.next(1);
   ASSERT_NE(row, nullptr);
   EXPECT_EQ(row->childAt(0)->asFlatVector<int64_t>()->valueAt(0), 0);
@@ -288,8 +302,9 @@ TEST(PaimonSnapshotJsonReaderTest, ReadsPinnedSchemaHistoryAndRejectsReplacement
                 ->valueAt(0).toMillis(), 1700000000123);
   EXPECT_EQ(reader.next(1), nullptr);
 
-  PaimonSnapshotJsonReader wrong(file.path(), file.size(), 0,
-      digest(std::string(schemaJson) + "different"), type, pool.get(), "", 0, true);
+  PaimonSnapshotJsonReader wrong(PaimonSnapshotReadUnit{{file.path(), file.size(), digest(std::string(schemaJson) + "different")}, 0, "", 0, true},
+      type,
+      pool.get());
   EXPECT_THROW(wrong.next(1), std::runtime_error);
 }
 

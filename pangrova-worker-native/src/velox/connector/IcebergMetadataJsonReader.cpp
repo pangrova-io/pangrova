@@ -8,9 +8,7 @@
 #include <utility>
 
 #include "simdjson.h"
-#include "split/PathUtils.h"
 #include "velox/common/file/File.h"
-#include "velox/common/file/FileSystems.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/type/Timestamp.h"
@@ -193,14 +191,9 @@ class MetadataJsonCursor final {
 IcebergMetadataJsonReader::IcebergMetadataJsonReader(
     const std::string& uri, uint64_t expectedLength,
     split::SystemTableKind kind, facebook::velox::RowTypePtr outputType,
-    facebook::velox::memory::MemoryPool* pool)
-    : kind_(kind), output_type_(std::move(outputType)), pool_(pool) {
-  const auto path = split::metadataObjectPath(uri);
-  auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
-  if (!filesystem) {
-    throw std::runtime_error("No Native filesystem for Iceberg metadata URI");
-  }
-  file_ = filesystem->openFileForRead(path);
+    facebook::velox::memory::MemoryPool* pool, const MetadataReadContext& reads)
+    : reads_(reads), kind_(kind), output_type_(std::move(outputType)), pool_(pool) {
+  file_ = reads_.open(uri);
   cursor_ = std::make_unique<MetadataJsonCursor>(file_);
   if (expectedLength == 0 || cursor_->size() != expectedLength) {
     throw std::runtime_error("Pinned Iceberg metadata object length changed");
@@ -511,6 +504,7 @@ facebook::velox::RowVectorPtr IcebergMetadataJsonReader::materialize(
 }
 
 facebook::velox::RowVectorPtr IcebergMetadataJsonReader::next(uint64_t maxRows) {
+  reads_.checkpoint();
   if (maxRows == 0) {
     throw std::invalid_argument("Metadata scan batch size must be positive");
   }

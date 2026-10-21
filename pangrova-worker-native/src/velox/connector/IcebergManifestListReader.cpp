@@ -11,9 +11,7 @@
 #include <string_view>
 #include <unordered_set>
 
-#include "split/PathUtils.h"
 #include "velox/common/file/File.h"
-#include "velox/common/file/FileSystems.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/FlatVector.h"
 
@@ -183,23 +181,20 @@ const char* countSource(const std::string& name) {
 
 }  // namespace
 
-IcebergManifestListReader::IcebergManifestListReader(
-    const std::string& uri, uint64_t expectedLength, uint64_t snapshotId,
-    uint64_t sequenceNumber, int32_t formatVersion,
-    const std::string& expectedSha256,
-    const std::vector<split::IcebergManifestPartitionSpec>& specs,
-    facebook::velox::RowTypePtr outputType,
-    facebook::velox::memory::MemoryPool* pool)
+IcebergManifestListReader::IcebergManifestListReader(const IcebergManifestListReadUnit& unit,
+    facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool,
+    const MetadataReadContext& reads)
     : output_type_(std::move(outputType)), pool_(pool) {
+  const auto snapshotId = unit.snapshotId;
+  const auto sequenceNumber = unit.sequenceNumber;
+  const auto formatVersion = unit.formatVersion;
+  const auto& specs = unit.specs;
   if (!output_type_ || !pool_ || snapshotId == 0 ||
       (formatVersion != 2 && formatVersion != 3)) {
     throw std::invalid_argument("Invalid Iceberg manifests reader selection");
   }
-  const auto path = split::metadataObjectPath(uri);
-  auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
-  if (!filesystem) throw std::runtime_error("No Native filesystem for Iceberg manifest list");
-  container_ = std::make_unique<AvroContainerReader>(
-      filesystem->openFileForRead(path), expectedLength, expectedSha256);
+  container_ = std::make_unique<AvroContainerReader>(reads.open(unit.object.uri),
+      unit.object.length, unit.object.sha256, reads.cancellationToken());
   const auto headerSnapshot = decimalMetadata(*container_, "snapshot-id");
   const auto headerSequence = decimalMetadata(*container_, "sequence-number");
   if (headerSnapshot <= 0 || static_cast<uint64_t>(headerSnapshot) != snapshotId ||

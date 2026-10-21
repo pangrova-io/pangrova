@@ -11,6 +11,7 @@
 #include "TestMemoryHelper.h"
 #include "folly/json.h"
 #include "openssl/evp.h"
+#include "resource/TaskObjectReadBudget.h"
 #include "velox/connector/PaimonFilesMetadataReader.h"
 #include "velox/type/Type.h"
 #include "velox/vector/FlatVector.h"
@@ -95,9 +96,10 @@ class PaimonFilesMetadataReaderTest : public ::testing::TestWithParam<std::strin
     object.set_length(bytes.size());
     object.set_sha256(digest(bytes));
   }
-  PaimonFilesMetadataReader reader(const RowTypePtr& type) {
+  PaimonFilesMetadataReader reader(const RowTypePtr& type,
+      const MetadataReadContext& reads = MetadataReadContext::unscoped()) {
     return PaimonFilesMetadataReader(object, 1,
-        context.SerializeAsString(), type, pool.get());
+        context.SerializeAsString(), type, pool.get(), reads);
   }
 };
 
@@ -188,6 +190,29 @@ TEST_P(PaimonFilesMetadataReaderTest, NewlyAddedFieldsHaveAllNullStatisticsByFie
     EXPECT_EQ(batch->childAt(1)->asFlatVector<StringView>()->valueAt(row).str().find("{added=1, "), 0);
     EXPECT_EQ(batch->childAt(2)->asFlatVector<StringView>()->valueAt(row).str().find("{added=null, "), 0);
   }
+}
+
+TEST_P(PaimonFilesMetadataReaderTest, SnapshotAndManifestQualificationShareTheTaskGrant) {
+  auto grant = context.snapshot().length() + bytes.size();
+  auto owner = std::make_shared<pangrova::resource::TaskObjectReadBudget>(grant);
+  MetadataReadContext reads(owner, {});
+  EXPECT_THROW(reader(allColumns(), reads), std::runtime_error);
+  EXPECT_EQ(owner->requestedBytes(), grant);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
+
+TEST_P(PaimonFilesMetadataReaderTest, CancellationStopsAnAlreadyBufferedAvroBlock) {
+  auto owner = std::make_shared<pangrova::resource::TaskObjectReadBudget>(1024 * 1024);
+  folly::CancellationSource cancellation;
+  MetadataReadContext reads(owner, cancellation.getToken());
+  auto input = reader(allColumns(), reads);
+  ASSERT_NE(input.next(1), nullptr);
+  const auto requested = owner->requestedBytes();
+  EXPECT_GT(requested, context.snapshot().length() + bytes.size());
+  cancellation.requestCancellation();
+  EXPECT_THROW(input.next(1), std::runtime_error);
+  EXPECT_EQ(owner->requestedBytes(), requested);
+  EXPECT_EQ(owner->activeReads(), 0);
 }
 
 INSTANTIATE_TEST_SUITE_P(ActualSdk, PaimonFilesMetadataReaderTest,

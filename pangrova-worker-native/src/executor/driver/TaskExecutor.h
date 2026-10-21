@@ -286,6 +286,7 @@ class TaskExecutor {
   // Returns serialized proto bytes; empty if VeloxTaskRunner is unavailable.
   std::vector<uint8_t> collectTaskStats() const;
   bool hasFinalTaskStats() const;
+  uint64_t requestedObjectReadBytes() const;
 
   // Access the active VeloxTaskRunner (may be null if not yet started).
   // Used by StatusSerializer to collect Velox TaskStats.

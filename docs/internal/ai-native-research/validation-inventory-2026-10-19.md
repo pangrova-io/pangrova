@@ -6,6 +6,12 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 共享元数据 I/O 预算、取消与用量上报（本批受影响范围验收通过）：**真实打包 JNI 新增三项先复现 **3/3 FAIL**：0/1 字节读取额度的 Paimon 元数据任务仍成功，实际读取 226 字节却上报 0（`/tmp/pangrova-metadata-io-jni-red-r2-20261021.log`）。五类元数据 reader 原先直接打开 `ReadFile`，绕过普通数据扫描已有的 `TaskBudgetReadFile`。现在统一传入执行任务的 `MetadataReadContext`；快照、父/子 manifest、校验和及解析重读共用一个真实额度，缺少任务 owner 时拒绝执行。文件打开和初次 size 查询持有真实活动 owner，缓存 size 可供取消后的清理读取；DataSource 本地取消和任务 token 合并，Avro 缓存块/递归解码也检查取消。JNI `TaskReport.usage.object_store_read_bytes` 采集同一 ledger，不另造统计额度。
+
+Release 按不重叠批次 **19 + 79 + 113 = 211 个唯一用例全部通过**，涵盖新预算检查、原 JSON/Avro reader、普通 Iceberg/Paimon/Lance 数据读取、动态过滤及生命周期；日志 `/tmp/pangrova-metadata-io-{native-focused-r5,native-affected-r6,native-consumers-r7}-20261021.log`。同源码 ASan **211/211 PASS**，100.58 秒，逐名与 Release 并集一致；无内存错误或函数类型诊断。保留的 243 条可选整数诊断中，201 条为此前已分析的 Folly Hash/SpookyHash，42 条为 `Futex.h`/`MemoryIdler.h` 的默认 `uint32_t mask = -1` 全位掩码，按 [C++ 整数转换规则](https://eel.is/c++draft/conv.integral)得到 `0xffffffff`，未加抑制，不称 UBSan 零诊断。日志 `/tmp/pangrova-metadata-io-asan-affected-r9-20261021.log`，逐名并集与诊断分类 `/tmp/pangrova-metadata-io-native-proof-r14-20261021.json`。
+
+Worker 静态/安装通过；重新打包后的真实 JNI/SQL **39/39 PASS、0 跳过**，包括新增预算/用量 3 项、系统表 20 项、Paimon files 6 项、Iceberg 血缘 4 项及关闭竞态 6 项，E2E 静态 verify 退出 0。日志 `/tmp/pangrova-metadata-io-{worker-install-r10,jni-sql-r15}-20261021.log`，新鲜报告逐项核对 `/tmp/pangrova-metadata-io-jni-sql-proof-r16-20261021.json`。首轮 `r13` 漏传本机已有模型镜像 ID，五类均在基础设施启动前报错，不计功能执行；核验实际镜像和四个部署标签后已将参数加入本任务临时环境，未修改仓库测试或绕过模型部署。JNI 构建库、资源、classes、Worker JAR 和安装 JAR 五处 SHA256 均为 `486691f3b208a5841efb8b375c7d6e44eba503bb87be6e55e95480b6c33874eb`，实际 E2E 类路径仅一份 JNI，哈希相同（`/tmp/pangrova-metadata-io-{artifacts-r12,classpath-r12}-20261021.json`）。运行容器已退出，磁盘约余 73 GiB。该批关闭共享元数据 reader 的 admitted I/O 接线缺口；其余类型/文件系统、URI COPY、故障恢复、Dynamic Table、AI/CDC 和最终统一回归仍开放，**17 类本机检查点计数不变**，不将本批定向通过表述为全部功能生产验收完成。
+
 
 **2026-10-21 Paimon `$files` 20 列 Native 增量（本批受影响范围验收通过）：**新增物理基表 selector、SDK 有效文件身份合并及原始 manifest 来源、类型化 v2 split/context、Native Avro/BinaryRow reader 与全部 20 列。Java 只冻结快照、schema 声明、原始对象与文件身份，不生成结果行/统计字符串；schema 声明只含 ID、字段与键定义，剥离表选项等无关配置，含显式 canary 选项的 SDK/编码消息检查通过，最小声明后的受影响 SQL **4/4 PASS**（`/tmp/pangrova-paimon-files-schema-minimal-e2e-r70-20261021.log`）；SDK `FileEntry.mergeEntries` 保持 ADD/DELETE 语义。旧 Java 六列行物化类及其 resolver 已删除。Native 文件身份同时包括 level、extra files、实际 `_EMBEDDED_FILE_INDEX` 和 external path；非空 SDK 序列化夹具复现了此前字段名错误，修正后原失败 3 项单独通过。
 

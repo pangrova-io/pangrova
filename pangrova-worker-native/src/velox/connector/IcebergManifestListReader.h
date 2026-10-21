@@ -9,6 +9,7 @@
 #include "split/SplitConfig.h"
 #include "velox/connector/AvroContainerReader.h"
 #include "velox/vector/ComplexVector.h"
+#include "velox/connector/MetadataReadContext.h"
 
 namespace facebook::velox::memory {
 class MemoryPool;
@@ -18,18 +19,19 @@ namespace pangrova::velox {
 
 // Converts one SHA-pinned Iceberg v2/v3 manifest list into the SDK's typed
 // $manifests rows. Unsupported bound representations fail before output.
+struct IcebergManifestListReadUnit {
+  MetadataObjectReference object;
+  uint64_t snapshotId;
+  uint64_t sequenceNumber;
+  int32_t formatVersion;
+  std::vector<split::IcebergManifestPartitionSpec> specs{};
+};
+
 class IcebergManifestListReader final {
  public:
-  IcebergManifestListReader(
-      const std::string& uri,
-      uint64_t expectedLength,
-      uint64_t snapshotId,
-      uint64_t sequenceNumber,
-      int32_t formatVersion,
-      const std::string& expectedSha256,
-      const std::vector<split::IcebergManifestPartitionSpec>& specs,
-      facebook::velox::RowTypePtr outputType,
-      facebook::velox::memory::MemoryPool* pool);
+  IcebergManifestListReader(const IcebergManifestListReadUnit& unit,
+      facebook::velox::RowTypePtr outputType, facebook::velox::memory::MemoryPool* pool,
+      const MetadataReadContext& reads = MetadataReadContext::unscoped());
 
   facebook::velox::RowVectorPtr next(uint64_t maxRows);
 
