@@ -252,7 +252,7 @@
                 <configuration>
                     <argLine>@{jacoco.agent.argLine} -Xmx1g --add-opens=java.base/java.nio=ALL-UNNAMED -XX:MaxDirectMemorySize=2g -Dio.netty.allocator.type=unpooled</argLine>
                     <forkedProcessExitTimeoutInSeconds>60</forkedProcessExitTimeoutInSeconds>
-                    <rerunFailingTestsCount>1</rerunFailingTestsCount>
+                    <rerunFailingTestsCount>0</rerunFailingTestsCount>
                     <excludedGroups>${pangrova.worker.excludedTestGroups}</excludedGroups>
                     <includes>
                         <include>**/*Test.java</include>
@@ -281,7 +281,6 @@
                             <excludes combine.self="override">
                                 <exclude>none</exclude>
                             </excludes>
-                            <rerunFailingTestsCount>0</rerunFailingTestsCount>
                         </configuration>
                     </plugin>
                 </plugins>

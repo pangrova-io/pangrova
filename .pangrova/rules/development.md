@@ -160,6 +160,10 @@ feature.
 ## Failure Triage
 
 - Capture the concrete error, stack trace, or failing assertion.
+- Automatic retries must not turn an intermittent failure into a passing result.
+  Preserve unaffected passing evidence and rerun the failed or newly affected
+  scope after a relevant source, fixture, or environment correction. Deliberate
+  concurrency repetitions and the final unified regression remain required.
 - Reproduce it with the smallest relevant command.
 - Separate change-caused failures from unrelated baseline or environment failures
   using evidence.
