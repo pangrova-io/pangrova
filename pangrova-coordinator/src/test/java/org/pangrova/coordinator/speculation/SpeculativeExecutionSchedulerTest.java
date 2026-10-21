@@ -2,7 +2,6 @@ package org.pangrova.coordinator.speculation;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
@@ -29,6 +28,7 @@ import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.RepeatedTest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -74,7 +74,7 @@ class SpeculativeExecutionSchedulerTest {
         }
     }
 
-    @Test
+    @RepeatedTest(10)
     void singleStageQuery_slowTask_triggersSpeculationWithinTenSeconds() throws Exception {
         // Register a query with the query manager so getActiveQueryIds() returns it
         QueryStateMachine sm = new QueryStateMachine();
@@ -112,18 +112,17 @@ class SpeculativeExecutionSchedulerTest {
                 stageHandler, queryManager, taskTracker, 100L);
         scheduler.start();
 
-        // Wait for speculation to trigger (should happen within a few scheduler ticks)
-        boolean speculated = awaitCondition(
-                () -> !launcher.getOriginalTasksWithCopies().isEmpty(), 10_000L);
-
-        assertThat(speculated)
-                .as("Periodic scheduler should detect straggler and launch speculative copy within 10s")
-                .isTrue();
-        assertThat(launcher.getOriginalTasksWithCopies()).contains("ts");
-        String copyId = launcher.getSpeculativeTaskId("ts").orElseThrow();
-        assertThat(taskTracker.getTaskState(QUERY_ID, copyId))
-                .isEqualTo(TaskStateMachine.State.RUNNING);
-        assertThat(taskTracker.getWorkerForTask(copyId)).isEqualTo("worker-b");
+        org.awaitility.Awaitility.await("speculative copy dispatched to its alternate worker")
+                .atMost(java.time.Duration.ofSeconds(10)).untilAsserted(() -> {
+                    assertThat(launcher.getOriginalTasksWithCopies()).contains("ts");
+                    var copy = launcher.getSpeculativeTaskId("ts");
+                    assertThat(copy).isPresent();
+                    String copyId = copy.orElseThrow();
+                    assertThat(taskTracker.getTaskIds(QUERY_ID)).contains(copyId);
+                    assertThat(taskTracker.getTaskState(QUERY_ID, copyId))
+                            .isEqualTo(TaskStateMachine.State.RUNNING);
+                    assertThat(taskTracker.getWorkerForTask(copyId)).isEqualTo("worker-b");
+                });
     }
 
     @Test
@@ -145,18 +144,6 @@ class SpeculativeExecutionSchedulerTest {
         Thread.sleep(300);
         // No exception means success — scheduler handles empty query set gracefully
         scheduler.close();
-    }
-
-    private boolean awaitCondition(java.util.function.BooleanSupplier condition, long timeoutMs)
-            throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return true;
-            }
-            Thread.sleep(50);
-        }
-        return condition.getAsBoolean();
     }
 
     private QueryManager buildMinimalQueryManager() {
