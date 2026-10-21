@@ -6,6 +6,10 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 质量结果历史增量：**已修复上一批 Metadata 唯一失败。规则定义仍可 upsert；执行结果改为 append-only，重复显式 ID 返回原始 SQLSTATE `23505`，不替换历史行。实际生产执行器使用 `resultId=0` 表示新结果，旧代码会持续写同一主键；新增零身份反例 **1/1 FAIL** 后，现由 PostgreSQL identity 为新执行分配持久身份。V67 保留已有零/正 ID 行，并从旧正 ID 高水位之后分配；重开、4 个并发 store 的 40 次写入、V66→V67 迁移均通过。真实 write gate 的两次配置失败也分别留下两条历史结果；此检查验证存储和调用，不冒充数据谓词已在 Native 执行。
+
+受影响存储检查 **19 项通过**，新增调用方检查 **1/1 PASS**；Metadata 静态和最终完整 Java reactor 无测试安装通过。与前批按唯一方法合并后，Metadata 滚动 **717/717 PASS**，原失败记录保留，未重跑其余已通过的整模块集合。r2 新增类 XML 被后续单项检查覆盖，3 个方法由精确四类选集、命令成功和另三类同 JVM 报告确认；证据明确标为推导，不声称保留原 XML。证据 `/tmp/pangrova-quality-result-{focused-r2,gate-r3,qualified}-20261021.json`，日志 `/tmp/pangrova-quality-result-{zero-red-r1,focused-r2,gate-r3,static-r4,final-install-r5}-20261021.log`。本次未改变执行协议或 Native，无需重复 JNI/ASan/E2E；最终同源码全功能回归仍开放。当前仍为 **17 类本机检查点开放**。
+
 **2026-10-21 Dynamic Table 候选所有权与提交凭据增量：**V66 在 Native I/O 前原子登记不可变定义/候选；同一 execution 的重复预留不重新执行 Native，发布需当前 execution owner、控制任期和精确候选的确认凭据。最初两个 PostgreSQL 反例实际 **2/2 FAIL**：未登记候选也可推进 head、定义默认 schema 可改写。随后新反例实际 **1/1 ERROR** 证明普通 Native 完成流程会先清理已确认 redo 日志，使稍后的 head 发布丢失证明。现于 COMMITTED 的同一事务把精确确认凭据复制到不可变小账本；head 与 attempt outcome 同事务推进，重放保留原回执，不能回退新 head。绑定、伪造凭据、事务回滚、并发候选、owner/控制任期接管、行锁等待后租约到期及 V60 旧 head 升级均有真实 PostgreSQL 检查。
 
 生产提交与恢复路径共同使用显式的 required-publication 能力。Iceberg 确认当前 ancestry 内的精确 commit marker，返回真实 snapshot ID 和 manifest-list 字节摘要；必需的空 INSERT 生成真实空快照。Native Dataset 仍使用其事务性 source proof，不伪造版本或零摘要。相关数据库/普通 journal/COPY 发布检查 **58/58 PASS**；增加 journal consumer 作用域核对后，Dynamic Table/迁移 **27/27 PASS**，最新 5 个错误绑定检查增量通过。SPI 整模块与静态 **753/753 PASS**，Iceberg 整模块与静态 **453/453 PASS**；Metadata、Coordinator、E2E 最近静态检查和最终完整 Java reactor 无测试安装通过。Native/protobuf 输入未变，沿用已核对 JNI，不重复 Native/ASan。
