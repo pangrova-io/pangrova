@@ -3,7 +3,7 @@
 //
 // Supports: AND, IS NULL, IS NOT NULL, OR-of-eq (IN list), BETWEEN,
 // and comparison operators (eq, neq, lt, lte, gt, gte) on integer,
-// floating-point, varchar, varbinary, and short decimal columns.
+// floating-point, varchar, varbinary, short decimal, and Parquet UUID columns.
 //
 // Unsupported predicates are silently skipped — the FilterNode above
 // handles them at row level. This is a best-effort optimization.
@@ -28,11 +28,13 @@ class ScanSpec;
 namespace pangrova::velox {
 
 // Decompose a filter expression tree into SubfieldFilters on the ScanSpec.
-// Returns the number of filters successfully pushed down.
+// Returns the number of filters successfully pushed down. UUID byte filters
+// require a Parquet UUID read plan that validated the annotation and width.
 int decomposeFilterToScanSpec(
     const std::shared_ptr<const facebook::velox::core::ITypedExpr>& filter,
     const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
-    const facebook::velox::RowTypePtr& outputType);
+    const facebook::velox::RowTypePtr& outputType,
+    bool parquetUuidBytes = false);
 
 // Enable dictionary-aware filter evaluation for specified columns.
 // Velox SelectiveColumnReader automatically evaluates pushed-down filters

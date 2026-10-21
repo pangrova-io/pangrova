@@ -2,6 +2,8 @@
 
 #include "../TestMemoryHelper.h"
 #include <arrow/api.h>
+#include <arrow/extension/uuid.h>
+#include <arrow/extension_type.h>
 #include <arrow/util/key_value_metadata.h>
 #include <gtest/gtest.h>
 
@@ -11,6 +13,30 @@
 
 namespace pangrova::columnar {
 namespace {
+TEST(ColumnarImportLayoutTest, SlicedCanonicalUuidPreservesTypeAndSharesBigEndianPayload) {
+  arrow::FixedSizeBinaryBuilder builder(arrow::fixed_size_binary(16));
+  ASSERT_TRUE(builder.Append(std::string(16, '\0')).ok());
+  ASSERT_TRUE(builder.Append(std::string(16, '\xff')).ok());
+  ASSERT_TRUE(builder.AppendNull().ok());
+  auto storage = builder.Finish().ValueOrDie();
+  auto full = arrow::ExtensionType::WrapArray(arrow::extension::uuid(), storage);
+  auto source = full->Slice(1, 2);
+  auto input = arrow::RecordBatch::Make(arrow::schema({arrow::field("id", source->type())}), 2, {source});
+  auto pool = std::make_shared<memory::ColumnarMemoryPool>(pangrova::test::testLeafPool("sliced-uuid-import"));
+  ColumnarImportUsage usage;
+  auto converted = normalizeImportLayout(*input, pool, usage).ValueOrDie();
+  ASSERT_TRUE(converted->ValidateFull().ok());
+  EXPECT_TRUE(converted->column(0)->type()->Equals(arrow::extension::uuid()));
+  auto actual = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(
+      std::static_pointer_cast<arrow::ExtensionArray>(converted->column(0))->storage());
+  EXPECT_EQ(actual->offset(), 0);
+  EXPECT_EQ(actual->GetView(0), std::string(16, '\xff'));
+  EXPECT_TRUE(actual->IsNull(1));
+  EXPECT_EQ(actual->data()->buffers[1]->data(), storage->data()->buffers[1]->data() + 16);
+  EXPECT_EQ(usage.allocatedOffsetBytes, 0);
+  EXPECT_EQ(usage.copiedBytes, 1); // Only the sliced validity bitmap is copied.
+}
+
 std::shared_ptr<arrow::Array> fixedVectors() {
   arrow::DoubleBuilder builder;
   for (const auto value : {1.0000000001, 0.0, -4.0, 7.0, 0.0, 9.0, 3.0, 4.0, 5.0}) {

@@ -39,6 +39,7 @@ import org.apache.arrow.vector.util.Text;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.Types;
 import java.time.Instant;
@@ -49,6 +50,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Decodes Arrow IPC stream bytes into a type-erased {@link ResultBatch}.
@@ -180,6 +182,7 @@ public final class ArrowBatchDecoder {
 
     /** Converts Arrow nested values using the declared field type, including MAP entries. */
     public static Object normalizeComplexValue(Object value, Field field) {
+        if (uuidDeclaration(field)) return normalizeUuidValue(value);
         if (value == null) return null;
         if (value instanceof Number number) {
             if (field.getType() instanceof ArrowType.Date date) {
@@ -212,13 +215,27 @@ public final class ArrowBatchDecoder {
             return result;
         }
         if (value instanceof List<?> list) {
-            if (field.getChildren().size() != 1) {
-                throw new TransportException("DECODE_FAILED", "Arrow list has no unique element field", null);
-            }
-            Field element = field.getChildren().get(0);
-            return list.stream().map(item -> normalizeComplexValue(item, element)).toList();
+            return normalizeListValue(list, field);
         }
         return value;
+    }
+
+    private static Object normalizeUuidValue(Object value) {
+        if (value == null || value instanceof UUID) return value;
+        if (value instanceof byte[] bytes && bytes.length == UuidType.UUID_BYTE_WIDTH) {
+            ByteBuffer binary = ByteBuffer.wrap(bytes);
+            return new UUID(binary.getLong(), binary.getLong());
+        }
+        throw new TransportException("DECODE_FAILED", "UUID requires a canonical 16-byte value",
+                new IllegalArgumentException("Unexpected UUID storage value: " + value.getClass().getName()));
+    }
+
+    private static Object normalizeListValue(List<?> list, Field field) {
+        if (field.getChildren().size() != 1) {
+            throw new TransportException("DECODE_FAILED", "Arrow list has no unique element field", null);
+        }
+        Field element = field.getChildren().get(0);
+        return list.stream().map(item -> normalizeComplexValue(item, element)).toList();
     }
 
     private static Map<Object, Object> normalizeMapValue(Object value, Field field) {
@@ -312,7 +329,7 @@ public final class ArrowBatchDecoder {
 
     private static ColumnDescriptor toDescriptor(Field field) {
         ArrowType type = field.getType();
-        if (type instanceof UuidType) {
+        if (uuidDeclaration(field)) {
             return new ColumnDescriptor(field.getName(), Types.OTHER, "UUID", 0, 0, Optional.empty());
         }
         int vectorDimension = vectorDimension(field);
@@ -328,6 +345,19 @@ public final class ArrowBatchDecoder {
                 type.toString(),
                 resolvePrecision(type),
                 resolveScale(type), Optional.empty());
+    }
+
+    /** A Flight reader may materialize physical storage before extension registration. */
+    private static boolean uuidDeclaration(Field field) {
+        if (field.getType() instanceof UuidType) return true;
+        if (!UuidType.EXTENSION_NAME.equals(field.getMetadata().get(EXTENSION_NAME_KEY))) return false;
+        try {
+            UuidType.INSTANCE.deserialize(field.getType(),
+                    field.getMetadata().getOrDefault(EXTENSION_METADATA_KEY, ""));
+        } catch (UnsupportedOperationException | IllegalArgumentException failure) {
+            throw new TransportException("DECODE_FAILED", "Invalid canonical UUID declaration", failure);
+        }
+        return true;
     }
 
     private static LogicalType vectorDeclaration(Field field) {

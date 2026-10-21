@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * E2E test: Paimon MOR merge engine full pipeline.
@@ -98,7 +99,13 @@ class NativePaimonMorMergeE2ETest extends SqlE2ETestBase {
         List<TypedRow> rows = sqlRunner.execute(
                 "SELECT * FROM " + CATALOG + "." + SCHEMA +
                 ".mor_deduplicate_table");
-        assertThat(rows).isNotNull();
+        assertThat(rows).extracting(row -> row.getRaw("id"), row -> row.getRaw("value"))
+                .containsExactlyInAnyOrder(tuple(1L, "new"), tuple(2L, "keep"));
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_deduplicate_table WHERE value = 'old'")).isEmpty();
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_deduplicate_table WHERE value = 'new'"))
+                .singleElement().satisfies(row -> assertThat(row.getRaw("id")).isEqualTo(1L));
     }
 
     @Test
@@ -107,7 +114,16 @@ class NativePaimonMorMergeE2ETest extends SqlE2ETestBase {
         List<TypedRow> rows = sqlRunner.execute(
                 "SELECT * FROM " + CATALOG + "." + SCHEMA +
                 ".mor_partial_update_table");
-        assertThat(rows).isNotNull();
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("id")).isEqualTo(1L);
+            assertThat(row.getRaw("name")).isEqualTo("alice");
+            assertThat(row.getRaw("city")).isEqualTo("beijing");
+        });
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_partial_update_table WHERE name = 'alice' AND city IS NULL")).isEmpty();
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_partial_update_table WHERE name = 'alice' AND city = 'beijing'"))
+                .singleElement().satisfies(row -> assertThat(row.getRaw("id")).isEqualTo(1L));
     }
 
     @Test
@@ -116,7 +132,13 @@ class NativePaimonMorMergeE2ETest extends SqlE2ETestBase {
         List<TypedRow> rows = sqlRunner.execute(
                 "SELECT * FROM " + CATALOG + "." + SCHEMA +
                 ".mor_aggregation_table");
-        assertThat(rows).isNotNull();
+        assertThat(rows).extracting(row -> row.getRaw("id"), row -> row.getRaw("amount"))
+                .containsExactlyInAnyOrder(tuple(1L, 15L), tuple(2L, 20L));
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_aggregation_table WHERE amount = 10")).isEmpty();
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_aggregation_table WHERE amount = 15"))
+                .singleElement().satisfies(row -> assertThat(row.getRaw("id")).isEqualTo(1L));
     }
 
     @Test
@@ -125,6 +147,12 @@ class NativePaimonMorMergeE2ETest extends SqlE2ETestBase {
         List<TypedRow> rows = sqlRunner.execute(
                 "SELECT * FROM " + CATALOG + "." + SCHEMA +
                 ".mor_first_row_table");
-        assertThat(rows).isNotNull();
+        assertThat(rows).extracting(row -> row.getRaw("id"), row -> row.getRaw("value"))
+                .containsExactlyInAnyOrder(tuple(1L, "first"), tuple(2L, "keep"));
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_first_row_table WHERE value = 'second'")).isEmpty();
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG + "." + SCHEMA
+                + ".mor_first_row_table WHERE value = 'first'"))
+                .singleElement().satisfies(row -> assertThat(row.getRaw("id")).isEqualTo(1L));
     }
 }

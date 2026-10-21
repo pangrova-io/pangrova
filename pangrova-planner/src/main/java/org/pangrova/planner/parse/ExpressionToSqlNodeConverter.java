@@ -122,6 +122,7 @@ final class ExpressionToSqlNodeConverter {
             LiteralValue.StringValue.class,
                     v -> SqlLiteral.createCharString(((LiteralValue.StringValue) v).value(), POS),
             LiteralValue.DateValue.class, v -> TemporalLiteralSqlNodes.date((LiteralValue.DateValue) v),
+            LiteralValue.UuidValue.class, v -> SqlLiteral.createUuid(((LiteralValue.UuidValue) v).value(), POS),
             LiteralValue.TimestampValue.class, v ->
                     TemporalLiteralSqlNodes.timestamp((LiteralValue.TimestampValue) v),
             LiteralValue.BooleanValue.class,
@@ -474,6 +475,7 @@ final class ExpressionToSqlNodeConverter {
             case "FLOAT" -> SqlTypeName.FLOAT;
             case "BOOLEAN" -> SqlTypeName.BOOLEAN;
             case "DATE" -> SqlTypeName.DATE;
+            case "UUID" -> SqlTypeName.UUID;
             case "TIMESTAMP" -> SqlTypeName.TIMESTAMP;
             case "DECIMAL", "NUMERIC" -> SqlTypeName.DECIMAL;
             case "BINARY", "VARBINARY", "VARIANT" -> SqlTypeName.VARBINARY;

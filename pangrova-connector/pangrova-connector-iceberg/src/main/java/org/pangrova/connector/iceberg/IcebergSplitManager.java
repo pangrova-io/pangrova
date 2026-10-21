@@ -409,7 +409,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
     private IncrementalAppendScan applyIncrementalConstraintFilter(
             IncrementalAppendScan scan, Constraint constraint) {
         try {
-            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint);
+            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint, scan.schema());
             if (combined == null) {
                 return scan;
             }
@@ -475,7 +475,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
 
     private TableScan applyConstraintFilter(TableScan scan, Constraint constraint) {
         try {
-            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint);
+            Expression combined = IcebergConstraintExpressions.fromConstraint(constraint, scan.schema());
             if (combined == null) {
                 return scan;
             }

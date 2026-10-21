@@ -25,6 +25,12 @@ public sealed interface LiteralValue {
 
     record BooleanValue(boolean value) implements LiteralValue {}
 
+    record UuidValue(java.util.UUID value) implements LiteralValue {
+        public UuidValue {
+            Objects.requireNonNull(value, "UUID literal value must not be null");
+        }
+    }
+
     record NullValue() implements LiteralValue {}
 
     record DateValue(String value) implements LiteralValue {

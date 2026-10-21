@@ -38,6 +38,30 @@ class ArrowBatchDecoderUuidTest {
     }
 
     @Test
+    void alreadyMaterializedPhysicalUuidFieldsDecodeWithoutDependingOnRegistrationOrder() {
+        UUID expected = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        byte[] bytes = ByteBuffer.allocate(16).putLong(expected.getMostSignificantBits())
+                .putLong(expected.getLeastSignificantBits()).array();
+        Field id = uuid("id", 16);
+        Field row = new Field("row", FieldType.nullable(new ArrowType.Struct()), List.of(id));
+        Field list = new Field("list", FieldType.nullable(new ArrowType.List()), List.of(id));
+        assertThat(ArrowBatchDecoder.normalizeComplexValue(bytes, id)).isEqualTo(expected);
+        assertThat(ArrowBatchDecoder.normalizeComplexValue(Map.of("id", bytes), row))
+                .isEqualTo(Map.of("id", expected));
+        assertThat(ArrowBatchDecoder.normalizeComplexValue(java.util.Arrays.asList(bytes, null), list))
+                .isEqualTo(java.util.Arrays.asList(expected, null));
+        Field plain = new Field("plain", FieldType.nullable(new ArrowType.FixedSizeBinary(16)), null);
+        assertThat(ArrowBatchDecoder.normalizeComplexValue(bytes, plain)).isSameAs(bytes);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {15, 17})
+    void invalidPhysicalUuidDeclarationsFailEvenWhenTheValueIsNull(int width) {
+        assertThatThrownBy(() -> ArrowBatchDecoder.normalizeComplexValue(null, uuid("id", width)))
+                .isInstanceOf(TransportException.class).hasMessageContaining("UUID");
+    }
+
+    @Test
     void standardUuidBytesPreserveIdentityInsideEveryNestedShape() throws Exception {
         Field id = uuid("id", 16);
         Field plain = new Field("plain", FieldType.nullable(new ArrowType.FixedSizeBinary(16)), null);

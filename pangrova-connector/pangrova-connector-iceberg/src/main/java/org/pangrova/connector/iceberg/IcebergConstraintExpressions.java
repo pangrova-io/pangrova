@@ -3,6 +3,8 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.spi.connector.metadata.table.ColumnHandle;
 import org.pangrova.spi.connector.metadata.Constraint;
 import org.pangrova.spi.connector.metadata.Domain;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.slf4j.Logger;
@@ -24,7 +26,7 @@ final class IcebergConstraintExpressions {
      * Builds a combined Iceberg expression from the constraint's domains, or
      * {@code null} when the constraint carries no pushable domains.
      */
-    static Expression fromConstraint(Constraint constraint) {
+    static Expression fromConstraint(Constraint constraint, Schema schema) {
         if (constraint == null || constraint == Constraint.EMPTY) {
             return null;
         }
@@ -32,13 +34,23 @@ final class IcebergConstraintExpressions {
         if (domains.isEmpty()) {
             return null;
         }
-        return buildCombinedExpression(domains);
+        return buildCombinedExpression(domains, schema);
     }
 
-    private static Expression buildCombinedExpression(Map<ColumnHandle, Domain> domains) {
+    private static Expression buildCombinedExpression(Map<ColumnHandle, Domain> domains, Schema schema) {
         Expression combined = Expressions.alwaysTrue();
         for (var entry : domains.entrySet()) {
             String columnName = entry.getKey().columnName();
+            Type type = schema.findType(columnName);
+            // UUID bounds have no persisted ordering provenance. Older Iceberg writers can
+            // mix signed Java UUID aggregation with unsigned Parquet bounds, so even
+            // apparently valid min/max pairs can omit real values. Keep value predicates
+            // in Native execution, where Parquet statistics have canonical byte ordering.
+            if (type != null && type.typeId() == Type.TypeID.UUID
+                    && !(entry.getValue() instanceof Domain.IsNull)
+                    && !(entry.getValue() instanceof Domain.IsNotNull)) {
+                continue;
+            }
             try {
                 Expression expr = domainToIcebergExpression(columnName, entry.getValue());
                 if (expr != null) {

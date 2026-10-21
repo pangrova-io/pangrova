@@ -1,6 +1,7 @@
 #include "capability/LogicalTypeContract.h"
 
 #include <arrow/type.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/array.h>
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/message.h>
@@ -117,6 +118,10 @@ std::string scalar(const Type& type, const arrow::DataType& physical) {
   }
   if (type.has_varchar() || type.has_fixed_char()) return boundedString(type, physical);
   if (type.has_decimal()) return decimal(type, physical);
+  if (type.has_uuid()) {
+    if (!physical.Equals(arrow::extension::uuid())) mismatch();
+    return "UUID";
+  }
   return temporal(type, physical);
 }
 

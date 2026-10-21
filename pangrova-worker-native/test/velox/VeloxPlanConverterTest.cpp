@@ -2,6 +2,7 @@
 #include "../CanonicalTestPlan.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 #include "GovernedPlanTestBindings.h"
+#include "velox/connector/PangrovaTableHandle.h"
 
 namespace pangrova::velox::test {
 
@@ -127,6 +128,14 @@ TEST_F(VeloxPlanConverterTest, FilterProducesFilterNode) {
   // Child should be TableScan.
   ASSERT_EQ(result->sources().size(), 1);
   EXPECT_EQ(result->sources()[0]->name(), "TableScan");
+  auto scan = std::dynamic_pointer_cast<const facebook::velox::core::TableScanNode>(result->sources()[0]);
+  ASSERT_NE(scan, nullptr);
+  auto handle = std::dynamic_pointer_cast<const PangrovaTableHandle>(scan->tableHandle());
+  ASSERT_NE(handle, nullptr);
+  const auto residual = std::dynamic_pointer_cast<const facebook::velox::core::FilterNode>(result);
+  ASSERT_NE(residual, nullptr);
+  EXPECT_EQ(handle->remainingFilter(), residual->filter());
+  EXPECT_EQ(handle->planNodeId(), scan->id());
 }
 
 // ---------------------------------------------------------------------------

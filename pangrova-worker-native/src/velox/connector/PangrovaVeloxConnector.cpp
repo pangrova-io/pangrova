@@ -142,10 +142,12 @@ facebook::velox::dwio::common::FileFormat resolveFileFormat(
 VeloxBatchReader::VeloxBatchReader(
     std::unique_ptr<facebook::velox::dwio::common::Reader> reader,
     std::unique_ptr<facebook::velox::dwio::common::RowReader> rowReader,
-    facebook::velox::RowTypePtr outputType)
+    facebook::velox::RowTypePtr outputType,
+    std::unique_ptr<ParquetUuidReadPlan> uuidReadPlan)
     : reader_(std::move(reader)),
       row_reader_(std::move(rowReader)),
-      output_type_(std::move(outputType)) {}
+      output_type_(std::move(outputType)),
+      uuid_read_plan_(std::move(uuidReadPlan)) {}
 #endif
 
 facebook::velox::RowVectorPtr VeloxBatchReader::next(
@@ -156,13 +158,15 @@ facebook::velox::RowVectorPtr VeloxBatchReader::next(
     return nullptr;
   }
   auto result =
-      facebook::velox::BaseVector::create(output_type_, 0, pool);
+      facebook::velox::BaseVector::create(
+          uuid_read_plan_ ? uuid_read_plan_->physicalType() : output_type_, 0, pool);
   uint64_t rowsRead = row_reader_->next(size, result);
   if (rowsRead == 0) {
     exhausted_ = true;
     return nullptr;
   }
-  return std::dynamic_pointer_cast<facebook::velox::RowVector>(result);
+  auto batch = std::dynamic_pointer_cast<facebook::velox::RowVector>(result);
+  return uuid_read_plan_ ? uuid_read_plan_->convert(batch) : batch;
 #else
   return nullptr;
 #endif
@@ -182,14 +186,16 @@ PangrovaVeloxDataSource::PangrovaVeloxDataSource(
     const std::string& planNodeId,
     std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter,
     int64_t preferredOutputBatchBytes,
-    int64_t eagerFirstStripeThresholdBytes)
+    int64_t eagerFirstStripeThresholdBytes,
+    facebook::velox::core::ExpressionEvaluator* expressionEvaluator)
     : pool_(pool),
       output_type_(outputType),
       scan_schema_(scanSchema),
       eager_first_stripe_threshold_bytes_(eagerFirstStripeThresholdBytes),
       task_id_(taskId),
       plan_node_id_(planNodeId),
-      remaining_filter_(std::move(remainingFilter)) {
+      remaining_filter_(std::move(remainingFilter)),
+      expression_evaluator_(expressionEvaluator) {
   if (!scan_schema_) throw std::invalid_argument("Native scan requires its canonical logical base schema");
   // Compute initial adaptive batch size from output schema column widths,
   // using the operator-level preferred output batch bytes as the target.
@@ -330,6 +336,7 @@ void PangrovaVeloxDataSource::prepareSplitState(
     const split::SplitConfig& config) {
   checkCancelled();
   file_evolution_output_type_.reset();
+  parquet_uuid_read_plan_.reset();
   physical_lance_file_ = config.physical_lance_file;
   current_data_object_id_ = config.data_object_id;
   current_source_id_ = config.table_name;
@@ -461,7 +468,9 @@ void PangrovaVeloxDataSource::createReaderPair(
     std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
     std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
     std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec,
-    facebook::velox::RowTypePtr requestedType) {
+    facebook::velox::RowTypePtr requestedType,
+    std::unique_ptr<ParquetUuidReadPlan>* uuidReadPlan,
+    bool allowPredicatePushdown) {
 #if PANGROVA_HAS_VELOX_DWIO
   const auto& target_type = requestedType ? requestedType : output_type_;
   auto cleanPath = split::normalizeToS3Uri(
@@ -628,9 +637,16 @@ void PangrovaVeloxDataSource::createReaderPair(
   }
   current_reader_output_type_ = readerType;
 
+  auto uuidPlan = format == facebook::velox::dwio::common::FileFormat::PARQUET
+      ? ParquetUuidReadPlan::create(readerType, *outReader->typeWithId(), expression_evaluator_)
+      : nullptr;
+  if (uuidPlan && !uuidReadPlan) {
+    throw std::logic_error("Parquet UUID reader must retain its logical conversion plan");
+  }
   rowOpts.select(
       std::make_shared<facebook::velox::dwio::common::ColumnSelector>(
-          readerType));
+          uuidPlan ? uuidPlan->physicalType() : readerType));
+  if (uuidReadPlan) *uuidReadPlan = std::move(uuidPlan);
 
   // Task 2.22 (Eager First Stripe): For small files, eagerly load the first
   // stripe/row-group metadata to avoid a second I/O round-trip. Large files
@@ -715,6 +731,22 @@ void PangrovaVeloxDataSource::createReaderPair(
       }
     }
   }
+  // Predicate pushdown to DWIO reader level.
+  // Decompose simple comparison predicates from the remaining filter into
+  // per-column SubfieldFilters on the ScanSpec. This enables the Parquet/DWRF
+  // reader to skip entire row groups whose column statistics prove no
+  // matching rows. Unsupported predicates are left to the FilterNode above.
+  if (allowPredicatePushdown && remaining_filter_ && scanSpec) {
+    int pushedFilters = decomposeFilterToScanSpec(
+        remaining_filter_, scanSpec, readerType, uuidReadPlan && *uuidReadPlan);
+    PANGROVA_LOG_INFO << "predicate_pushdown=active"
+                    << " file_path=" << filePath
+                    << " filter_type=" << remaining_filter_->type()->toString()
+                    << " pushed_subfield_filters=" << pushedFilters
+                    << " filter_node=active";
+  }
+
+
   rowOpts.setScanSpec(scanSpec);
 
   if (outScanSpec) {
@@ -744,7 +776,7 @@ void PangrovaVeloxDataSource::openVeloxReader(
   try {
     createReaderPair(
         split.file_path, split.file_format,
-        velox_reader_, velox_row_reader_, &scanSpec);
+        velox_reader_, velox_row_reader_, &scanSpec, nullptr, &parquet_uuid_read_plan_, true);
   } catch (const std::exception& e) {
     PANGROVA_LOG_ERROR << "velox_reader_open_failed"
                      << " file_path=" << filePath
@@ -754,21 +786,6 @@ void PangrovaVeloxDataSource::openVeloxReader(
         "Failed to open file with Velox native reader: path=" + filePath +
         ", format=" + split::fileFormatName(split.file_format) +
         ", error=" + e.what());
-  }
-
-  // Predicate pushdown to DWIO reader level.
-  // Decompose simple comparison predicates from the remaining filter into
-  // per-column SubfieldFilters on the ScanSpec. This enables the Parquet/DWRF
-  // reader to skip entire row groups whose column statistics prove no
-  // matching rows. Unsupported predicates are left to the FilterNode above.
-  if (remaining_filter_ && scanSpec) {
-    int pushedFilters = decomposeFilterToScanSpec(
-        remaining_filter_, scanSpec, output_type_);
-    PANGROVA_LOG_INFO << "predicate_pushdown=active"
-                    << " file_path=" << filePath
-                    << " filter_type=" << remaining_filter_->type()->toString()
-                    << " pushed_subfield_filters=" << pushedFilters
-                    << " filter_node=active";
   }
 
   // L2-1: Store the ScanSpec for dynamic filter pushdown later.
@@ -938,10 +955,8 @@ void PangrovaVeloxDataSource::initializeMergeReader(
   }
 
   // Create one RowReaderWrapper per LSM level file.
-  // Apply predicate pushdown to each per-level reader's ScanSpec when a
-  // remaining filter is available. This enables row group pruning during
-  // MOR merge reads, avoiding full-file scans when WHERE conditions can
-  // eliminate row groups via column statistics.
+  // Evaluate value predicates after primary-key merge so filtering a newer
+  // value cannot resurrect an older version from another level.
   std::vector<std::unique_ptr<merge::RowReaderWrapper>> readers;
   for (const auto& level : paimon.lsm_levels) {
     for (const auto& file : level.files) {
@@ -967,11 +982,13 @@ void PangrovaVeloxDataSource::initializeMergeReader(
         std::unique_ptr<facebook::velox::dwio::common::Reader> reader;
         std::unique_ptr<facebook::velox::dwio::common::RowReader> rowReader;
         std::shared_ptr<facebook::velox::common::ScanSpec> scanSpec;
-        createReaderPair(path, file.file_format, reader, rowReader, &scanSpec, physical_type);
+        std::unique_ptr<ParquetUuidReadPlan> uuidPlan;
+        createReaderPair(path, file.file_format, reader, rowReader, &scanSpec, physical_type, &uuidPlan);
         // Filtering an update before primary-key merge can resurrect older rows.
         // Keep non-key predicates in the relational FilterNode after the merge.
         readers.push_back(std::make_unique<EvolvedMergeBatchReader>(
-            std::make_unique<VeloxBatchReader>(std::move(reader), std::move(rowReader), physical_type),
+            std::make_unique<VeloxBatchReader>(std::move(reader), std::move(rowReader),
+                physical_type, std::move(uuidPlan)),
             std::move(schema)));
       } catch (const std::exception& e) {
         PANGROVA_LOG_ERROR << "merge_level_file_open_failed"
@@ -1151,7 +1168,8 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   // L2-7: Measure IO latency to feed AdaptiveBatchSizer.
   auto io_start = std::chrono::steady_clock::now();
   auto result = facebook::velox::BaseVector::create(
-      current_reader_output_type_ ? current_reader_output_type_ : output_type_,
+      parquet_uuid_read_plan_ ? parquet_uuid_read_plan_->physicalType() :
+          current_reader_output_type_ ? current_reader_output_type_ : output_type_,
       0,
       pool_);
   uint64_t rowsRead = velox_row_reader_->next(batchSize, result);
@@ -1172,6 +1190,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   if (!rowVector) {
     throw std::runtime_error("Native source reader returned a non-row vector");
   }
+  if (parquet_uuid_read_plan_) rowVector = parquet_uuid_read_plan_->convert(rowVector);
 
   if (source_object_identity_requested_) {
     auto requested_reader_names = output_type_->names();
@@ -1699,7 +1718,8 @@ PangrovaVeloxConnector::createDataSource(
       planNodeId,
       assignedSourceFilter(remainingFilter, outputType, sourceType),
       preferredBatchBytes,
-      eagerFirstStripeThreshold);
+      eagerFirstStripeThreshold,
+      connectorQueryCtx->expressionEvaluator());
   source->setCancellationToken(connectorQueryCtx->cancellationToken());
   source->setReadBudget(std::move(readBudget));
   return std::make_unique<ColumnAssignmentDataSource>(

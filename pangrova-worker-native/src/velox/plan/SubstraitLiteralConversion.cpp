@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <cstdlib>
+#include <cstring>
 
 #include "velox/buffer/Buffer.h"
 #include "velox/core/Expressions.h"
@@ -228,6 +229,14 @@ std::shared_ptr<const Constant> VeloxPlanConverter::convertLiteral(
       return constant(VARCHAR(), variant(literal.string()));
     case substrait::Expression_Literal::kBinary:
       return constant(VARBINARY(), variant::binary(literal.binary()));
+    case substrait::Expression_Literal::kUuid: {
+      if (literal.uuid().size() != 16) throw std::runtime_error("Substrait UUID requires exactly 16 bytes");
+      int128_t encoded;
+      std::memcpy(&encoded, literal.uuid().data(), sizeof(encoded));
+      substrait::Type type;
+      type.mutable_uuid();
+      return constant(capability::canonicalPhysicalType(type), variant(DecimalUtil::bigEndian(encoded)));
+    }
     case substrait::Expression_Literal::kDecimal:
       return convertDecimalLiteral(literal.decimal());
     case substrait::Expression_Literal::kDate:

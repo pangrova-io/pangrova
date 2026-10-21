@@ -272,6 +272,23 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertFilterRel(
       return result;
     }
   }
+  // FilterRel is the normal SQL WHERE path. Keep its authoritative FilterNode,
+  // and also offer direct scan predicates to the connector's physical reader.
+  // Do not push through projections, joins, limits or primary-key merge here.
+  if (auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(input)) {
+    if (auto handle = std::dynamic_pointer_cast<const PangrovaTableHandle>(scan->tableHandle())) {
+      auto predicate = condition;
+      if (handle->remainingFilter()) {
+        predicate = std::make_shared<core::CallTypedExpr>(BOOLEAN(),
+            std::vector<core::TypedExprPtr>{handle->remainingFilter(), condition}, "and");
+      }
+      auto filteredHandle = std::make_shared<const PangrovaTableHandle>(
+          handle->connectorId(), handle->name(), handle->planNodeId(), handle->scanSchema(),
+          predicate, handle->readBudget());
+      input = std::make_shared<core::TableScanNode>(
+          scan->id(), scan->outputType(), std::move(filteredHandle), scan->assignments());
+    }
+  }
   return std::make_shared<core::FilterNode>(nextNodeId(), condition, input);
 }
 

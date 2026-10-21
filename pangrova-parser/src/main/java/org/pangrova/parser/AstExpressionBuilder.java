@@ -500,6 +500,20 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
     }
 
     @Override
+    public Literal visitUuidLiteral(PangrovaSqlParser.UuidLiteralContext ctx) {
+        var token = ctx.STRING_LITERAL().getSymbol();
+        String raw = token.getText();
+        try {
+            return Literal.ofUuid(java.util.UUID.fromString(raw.substring(1, raw.length() - 1).replace("''", "'")));
+        } catch (IllegalArgumentException failure) {
+            var location = new SourceLocation(token.getLine(), token.getCharPositionInLine(),
+                    token.getTokenIndex(), token.getTokenIndex());
+            throw new ParseException(org.pangrova.common.exception.PangrovaErrorCode.PARSER_SYNTAX_ERROR,
+                    "Invalid UUID literal", location, failure);
+        }
+    }
+
+    @Override
     public Literal visitTimestampLiteral(PangrovaSqlParser.TimestampLiteralContext ctx) {
         String raw = ctx.STRING_LITERAL().getText();
         return Literal.ofTimestamp(raw.substring(1, raw.length() - 1));

@@ -15,7 +15,8 @@ public record Literal(LiteralValue value, LiteralType literalType) implements Ex
         TIMESTAMP,
         TIMESTAMP_WITH_TIME_ZONE,
         INTERVAL,
-        BINARY_HEX
+        BINARY_HEX,
+        UUID
     }
 
     public static Literal ofInteger(long value) {
@@ -32,6 +33,10 @@ public record Literal(LiteralValue value, LiteralType literalType) implements Ex
 
     public static Literal ofBoolean(boolean value) {
         return new Literal(new LiteralValue.BooleanValue(value), LiteralType.BOOLEAN);
+    }
+
+    public static Literal ofUuid(java.util.UUID value) {
+        return new Literal(new LiteralValue.UuidValue(value), LiteralType.UUID);
     }
 
     public static Literal ofNull() {

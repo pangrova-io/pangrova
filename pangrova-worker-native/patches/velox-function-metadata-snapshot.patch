@@ -226,12 +226,80 @@ index 454e72b..26ca432 100644
 +    : poolOwner_(pool ? pool->shared_from_this() : nullptr),
 +      type_(std::move(type)),
 diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
+index f980599..53d5184 100644
 --- a/velox/vector/arrow/Bridge.cpp
 +++ b/velox/vector/arrow/Bridge.cpp
-@@ -28,0 +29,2 @@
+@@ -22,0 +23,2 @@
++#include "velox/functions/prestosql/types/UuidType.h"
++#include "velox/type/DecimalUtil.h"
+@@ -28,0 +31,3 @@
 +#include <unordered_map>
++#include <cstring>
 +
-@@ -45 +47,7 @@
+@@ -36,0 +42,62 @@ static constexpr size_t kMaxBuffers{3};
++// Arrow C Data Interface metadata is a native-endian length-prefixed map.
++// This immutable canonical declaration outlives every exported schema.
++const std::string& uuidExtensionMetadata() {
++  static const std::string metadata = [] {
++    std::string result;
++    const auto integer = [&](int32_t value) {
++      result.append(reinterpret_cast<const char*>(&value), sizeof(value));
++    };
++    const auto text = [&](std::string_view value) {
++      integer(static_cast<int32_t>(value.size()));
++      result.append(value);
++    };
++    integer(2);
++    text("ARROW:extension:name");
++    text("arrow.uuid");
++    text("ARROW:extension:metadata");
++    text("");
++    return result;
++  }();
++  return metadata;
++}
++
++bool isArrowUuid(const ArrowSchema& schema) {
++  if (!schema.metadata) return false;
++  const char* cursor = schema.metadata;
++  // The C Data Interface passes a valid producer-owned metadata buffer without
++  // its length. Preserve its standard int32 framing; do not impose private
++  // limits on otherwise valid schemas.
++  const auto integer = [&]() {
++    int32_t value;
++    std::memcpy(&value, cursor, sizeof(value));
++    cursor += sizeof(value);
++    return value;
++  };
++  const auto text = [&]() {
++    const auto size = integer();
++    VELOX_USER_CHECK_GE(size, 0, "Invalid Arrow metadata length");
++    std::string_view value(cursor, size);
++    cursor += size;
++    return value;
++  };
++  const auto count = integer();
++  VELOX_USER_CHECK_GE(count, 0, "Invalid Arrow metadata pair count");
++  std::optional<std::string_view> name, payload;
++  for (int32_t i = 0; i < count; ++i) {
++    const auto key = text();
++    const auto value = text();
++    if (key == "ARROW:extension:name") {
++      VELOX_USER_CHECK(!name.has_value(), "Duplicate Arrow extension name");
++      name = value;
++    } else if (key == "ARROW:extension:metadata") {
++      VELOX_USER_CHECK(!payload.has_value(), "Duplicate Arrow extension metadata");
++      payload = value;
++    }
++  }
++  if (name != "arrow.uuid") return false;
++  VELOX_USER_CHECK(schema.format && std::string_view(schema.format) == "w:16",
++      "Arrow UUID requires fixed-size binary(16)");
++  VELOX_USER_CHECK(!payload || payload->empty(), "Arrow UUID metadata must be empty");
++  return true;
++}
++
+@@ -45 +112,7 @@ class VeloxToArrowBridgeHolder {
 -  VeloxToArrowBridgeHolder() = default;
 +  VeloxToArrowBridgeHolder(memory::MemoryPool* source, memory::MemoryPool* output)
 +      : sourcePool_(source ? source->shared_from_this() : nullptr),
@@ -240,7 +308,7 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  void holdVector(const VectorPtr& vector) {
 +    vectorOwner_ = vector;
 +  }
-@@ -104,0 +113,8 @@
+@@ -104,0 +178,8 @@ class VeloxToArrowBridgeHolder {
 +  // Constant scalar exports may reference inline vector storage, not a buffer.
 +  VectorPtr vectorOwner_;
 +  // Export keeps buffers, not vectors. Pin both actual pools before the buffer
@@ -249,36 +317,33 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  std::shared_ptr<memory::MemoryPool> sourcePool_;
 +  std::shared_ptr<memory::MemoryPool> outputPool_;
 +
-@@ -295,0 +312,3 @@
+@@ -264,0 +346 @@ const char* exportArrowFormatStr(
++  if (isUuidType(type)) return "w:16";
+@@ -295,0 +378,3 @@ const char* exportArrowFormatStr(
 +      if (type->equivalent(*TIME_MICRO_UTC())) {
 +        return "ttu"; // microseconds since midnight, stored in int64_t.
 +      }
-@@ -298,3 +317 @@
+@@ -298,3 +383 @@ const char* exportArrowFormatStr(
 -        // TIME is stored as milliseconds since midnight in Velox.
 -        // Export as Arrow time32 with milliseconds unit.
 -        return "ttm";
 +        return "ttm"; // milliseconds since midnight, exported as int32_t.
-@@ -365,0 +383,5 @@
+@@ -365,0 +449,5 @@ struct Selection {
 +    applyWithVisibility([&](vector_size_t row, bool) { f(row); });
 +  }
 +
 +  template <typename F>
 +  void applyWithVisibility(F&& f) const {
-@@ -367 +389 @@
+@@ -367 +455 @@ struct Selection {
 -      for (auto [offset, size] : *ranges_) {
 +      for (auto [offset, size, hidden] : *ranges_) {
-@@ -369 +391 @@
+@@ -369 +457 @@ struct Selection {
 -          f(offset + i);
 +          f(offset + i, hidden);
-@@ -374,3 +396,24 @@
+@@ -374 +462 @@ struct Selection {
 -        f(i);
--      }
--    }
 +        f(i, false);
-+      }
-+    }
-+  }
-+
+@@ -378,0 +467,21 @@ struct Selection {
 +  bool masked() const {
 +    return masked_;
 +  }
@@ -298,30 +363,29 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +      selected.addRange(row, 1, hidden || parent.isNullAt(row));
 +    });
 +    return selected;
-@@ -384,2 +427,3 @@
++  }
++
+@@ -384,2 +493,3 @@ struct Selection {
 -    for (auto [_, size] : *ranges_) {
 -      ans += size;
 +    for (const auto& range : *ranges_) {
 +      auto size = range.size;
 +      ans = checkedPlus<vector_size_t>(ans, size);
-@@ -391,4 +435,5 @@
+@@ -391 +501,2 @@ struct Selection {
 -    ranges_ = std::vector<std::pair<vector_size_t, vector_size_t>>();
--  }
--
--  void addRange(vector_size_t offset, vector_size_t size) {
 +    ranges_ = std::vector<Range>();
 +    masked_ = false;
-+  }
-+
+@@ -394 +505 @@ struct Selection {
+-  void addRange(vector_size_t offset, vector_size_t size) {
 +  void addRange(vector_size_t offset, vector_size_t size, bool hidden = false) {
-@@ -396 +441,5 @@
+@@ -396 +507,5 @@ struct Selection {
 -    ranges_->emplace_back(offset, size);
 +    VELOX_CHECK_GE(offset, 0);
 +    VELOX_CHECK_GE(size, 0);
 +    VELOX_CHECK_LE(checkedPlus<vector_size_t>(offset, size), total_);
 +    ranges_->push_back({offset, size, hidden});
 +    masked_ |= hidden;
-@@ -400 +449,6 @@
+@@ -400 +515,6 @@ struct Selection {
 -  std::optional<std::vector<std::pair<vector_size_t, vector_size_t>>> ranges_;
 +  struct Range {
 +    vector_size_t offset;
@@ -329,12 +393,12 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +    bool hidden;
 +  };
 +  std::optional<std::vector<Range>> ranges_;
-@@ -401,0 +456 @@
+@@ -401,0 +522 @@ struct Selection {
 +  bool masked_{false};
-@@ -710 +765 @@
+@@ -710 +831 @@ void exportValidityBitmap(
 -  if (!vec.nulls()) {
 +  if (!vec.nulls() && !rows.masked()) {
-@@ -718 +773,7 @@
+@@ -718 +839,7 @@ void exportValidityBitmap(
 -  if (rows.changed()) {
 +  if (rows.masked()) {
 +    nulls = AlignedBuffer::allocate<bool>(out.length, pool);
@@ -343,7 +407,7 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +      bits::setBit(nulls->asMutable<uint64_t>(), ordinal++, !hidden && !vec.isNullAt(row));
 +    });
 +  } else if (rows.changed()) {
-@@ -736,7 +797,3 @@
+@@ -736,7 +863,3 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
 -  // - Velox's Timestamp representation (2x 64bit values) does not have an
 -  // equivalent in Arrow.
 -  // - Velox's TIME is in milliseconds, Arrow time64 is in microseconds.
@@ -351,33 +415,43 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 -  if (isTime) {
 -    VELOX_DCHECK(type->equivalent(*TIME()));
 -  }
-+  // Timestamp needs layout conversion. Millisecond TIME narrows int64_t to
-+  // Arrow time32; microsecond TIME already has Arrow time64's exact layout.
-+  const bool narrowsTime = type->equivalent(*TIME());
-@@ -744,5 +801,3 @@
++  // UUID converts to big-endian bytes. Millisecond TIME narrows to time32;
++  // microsecond TIME already has Arrow time64's exact layout.
++  const bool convertsLayout = type->equivalent(*TIME()) || isUuidType(type);
+@@ -744,2 +867 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
 -    // Short decimal is zero-copy.
 -    return !type->isTimestamp() && !isTime;
--  }
++    return !type->isTimestamp() && !convertsLayout;
+@@ -747,2 +869 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
 -  // Short decimal requires conversion.
 -  return !type->isShortDecimal() && !type->isTimestamp() && !isTime;
-+    return !type->isTimestamp() && !narrowsTime;
-+  }
-+  return !type->isShortDecimal() && !type->isTimestamp() && !narrowsTime;
-@@ -758,3 +813 @@
++  return !type->isShortDecimal() && !type->isTimestamp() && !convertsLayout;
+@@ -758,3 +879 @@ size_t getArrowElementSize(const TypePtr& type, const ArrowOptions& options) {
 -  } else if (type->isTime()) {
 -    VELOX_DCHECK(type->equivalent(*TIME()));
 -    // TIME is exported as Arrow time32 (int32_t).
 +  } else if (type->equivalent(*TIME())) {
-@@ -793,2 +846 @@
+@@ -791 +910,9 @@ void exportValues(
+-  if (type->kind() == TypeKind::TIMESTAMP) {
++  if (isUuidType(type)) {
++    const auto* input = vec.as<FlatVector<int128_t>>();
++    auto* output = values->asMutable<int128_t>();
++    vector_size_t ordinal = 0;
++    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
++      output[ordinal++] = hidden || input->isNullAt(row)
++          ? 0 : DecimalUtil::bigEndian(input->valueAt(row));
++    });
++  } else if (type->kind() == TypeKind::TIMESTAMP) {
+@@ -793,2 +920 @@ void exportValues(
 -  } else if (type->kind() == TypeKind::BIGINT && type->isTime()) {
 -    VELOX_DCHECK(type->equivalent(*TIME()));
 +  } else if (type->equivalent(*TIME())) {
-@@ -992,0 +1045 @@
+@@ -992,0 +1119 @@ void exportRows(
 +  const auto childRows = rows.withParentNulls(vec);
-@@ -997 +1050 @@
+@@ -997 +1124 @@ void exportRows(
 -          rows,
 +          childRows,
-@@ -1012,0 +1066,11 @@
+@@ -1012,0 +1140,11 @@ bool isCompact(const Vector& vec) {
 +  if (vec.size() == 0) {
 +    return true;
 +  }
@@ -389,32 +463,32 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +      return false;
 +    }
 +  }
-@@ -1014 +1078 @@
+@@ -1014 +1152 @@ bool isCompact(const Vector& vec) {
 -    if (vec.offsetAt(i - 1) + vec.sizeAt(i - 1) != vec.offsetAt(i)) {
 +    if (checkedPlus<vector_size_t>(vec.offsetAt(i - 1), vec.sizeAt(i - 1)) != vec.offsetAt(i)) {
-@@ -1029,2 +1092,0 @@
+@@ -1029,2 +1166,0 @@ void exportOffsets(
 -  VELOX_CHECK_GE(vec.size(), rows.count());
 -
-@@ -1035 +1097,4 @@
+@@ -1035 +1171,4 @@ void exportOffsets(
 -  if (!rows.changed() && isCompact(vec)) {
 +  const bool exactCoverage = !rows.changed() && isCompact(vec) &&
 +      (vec.size() == 0 ? 0 : checkedPlus<vector_size_t>(
 +          vec.offsetAt(vec.size() - 1), vec.sizeAt(vec.size() - 1))) == childRows.count();
 +  if (exactCoverage) {
-@@ -1046 +1111 @@
+@@ -1046 +1185 @@ void exportOffsets(
 -    rows.apply([&](vector_size_t i) {
 +    rows.applyWithVisibility([&](vector_size_t i, bool hidden) {
-@@ -1048 +1113 @@
+@@ -1048 +1187 @@ void exportOffsets(
 -      if (!vec.isNullAt(i)) {
 +      if (!hidden && !vec.isNullAt(i)) {
-@@ -1050 +1115 @@
+@@ -1050 +1189 @@ void exportOffsets(
 -        k += vec.sizeAt(i);
 +        k = checkedPlus<vector_size_t>(k, vec.sizeAt(i));
-@@ -1094,0 +1160,3 @@
+@@ -1094,0 +1234,3 @@ void exportMaps(
 +  childRows.apply([&](vector_size_t row) {
 +    VELOX_USER_CHECK(!vec.mapKeys()->isNullAt(row), "Visible MAP key contains NULL");
 +  });
-@@ -1141,0 +1210,27 @@
+@@ -1141,0 +1284,27 @@ void exportDictionary(
 +  auto& values = *vec.valueVector()->loadedVector();
 +  if (!values.isScalar()) {
 +    auto indices = AlignedBuffer::allocate<vector_size_t>(out.length, pool);
@@ -442,11 +516,11 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +    exportToArrowImpl(values, selectedValues, options, *out.dictionary, pool);
 +    return;
 +  }
-@@ -1149 +1243,0 @@
+@@ -1149 +1317,0 @@ void exportDictionary(
 -  auto& values = *vec.valueVector()->loadedVector();
-@@ -1181,0 +1276 @@
+@@ -1181,0 +1350 @@ void exportConstantValue(
 +    selection = Selection(valuesVector->size());
-@@ -1226 +1321,29 @@
+@@ -1226 +1395,29 @@ void exportConstant(
 -  exportConstantValue(vec, options, *holder.allocateChild(1), pool);
 +  const bool constantNull = vec.size() > 0 && vec.isNullAt(0);
 +  const bool expandVisibility = !vec.isScalar() && (rows.masked() || constantNull);
@@ -477,13 +551,13 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  } else {
 +    exportConstantValue(vec, options, *holder.allocateChild(1), pool);
 +  }
-@@ -1230 +1353 @@
+@@ -1230 +1427 @@ void exportConstant(
 -  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>();
 +  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
-@@ -1233 +1356 @@
+@@ -1233 +1430 @@ void exportConstant(
 -  runEnds->length = 1;
 +  runEnds->length = expandVisibility ? visibleRunEnds.size() : 1;
-@@ -1242,2 +1365,8 @@
+@@ -1242,2 +1439,8 @@ void exportConstant(
 -  auto runsBuffer = AlignedBuffer::allocate<int32_t>(1, pool);
 -  runsBuffer->asMutable<int32_t>()[0] = vec.size();
 +  auto runsBuffer = AlignedBuffer::allocate<int32_t>(runEnds->length, pool);
@@ -494,7 +568,7 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  } else {
 +    runsBuffer->asMutable<int32_t>()[0] = rows.count();
 +  }
-@@ -1256 +1385,24 @@
+@@ -1256 +1459,24 @@ void exportToArrowImpl(
 -  auto holder = std::make_unique<VeloxToArrowBridgeHolder>();
 +  const bool dictionary = vec.encoding() == VectorEncoding::Simple::DICTIONARY;
 +  const bool constant = vec.encoding() == VectorEncoding::Simple::CONSTANT;
@@ -520,14 +594,16 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +    return;
 +  }
 +  auto holder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
-@@ -1403,0 +1556,3 @@
+@@ -1357,0 +1584 @@ TypePtr importFromArrowImpl(
++  if (isArrowUuid(arrowSchema)) return UUID();
+@@ -1403,0 +1631,3 @@ TypePtr importFromArrowImpl(
 +        if (format[2] == 'u') {
 +          return TIME_MICRO_UTC();
 +        }
-@@ -1484,0 +1640,2 @@
+@@ -1484,0 +1715,2 @@ void exportToArrow(
 +  static_cast<VeloxToArrowBridgeHolder*>(arrowArray.private_data)
 +      ->holdVector(vector);
-@@ -1490,0 +1648,9 @@
+@@ -1490,0 +1723,9 @@ void exportToArrow(
 +  const bool dictionary = vec->encoding() == VectorEncoding::Simple::DICTIONARY;
 +  const bool constant = vec->encoding() == VectorEncoding::Simple::CONSTANT;
 +  if (!vec->isScalar() && ((dictionary && options.flattenDictionary) ||
@@ -537,11 +613,40 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +    exportToArrow(BaseVector::loadedVectorShared(values), arrowSchema, options);
 +    return;
 +  }
-@@ -2272,2 +2438 @@
+@@ -1535,0 +1777 @@ void exportToArrow(
++      if (isUuidType(type)) valuesChild->metadata = uuidExtensionMetadata().data();
+@@ -1628,0 +1871,3 @@ void exportToArrow(
++  if (isUuidType(type) && std::string_view(arrowSchema.format) == "w:16") {
++    arrowSchema.metadata = uuidExtensionMetadata().data();
++  }
+@@ -2229,0 +2475,22 @@ VectorPtr importFromArrowImpl(
++  if (isUuidType(type)) {
++    VELOX_USER_CHECK_EQ(arrowArray.n_buffers, 2, "Arrow UUID requires validity and value buffers");
++    VELOX_USER_CHECK_LE(arrowArray.length, std::numeric_limits<vector_size_t>::max(),
++        "Arrow UUID exceeds vector row bound");
++    const auto length = static_cast<vector_size_t>(arrowArray.length);
++    auto values = AlignedBuffer::allocate<int128_t>(length, pool);
++    auto* output = values->asMutable<int128_t>();
++    const auto* input = static_cast<const uint8_t*>(arrowArray.buffers[1]);
++    VELOX_USER_CHECK(input || length == 0 || arrowArray.null_count == length,
++        "Arrow UUID values buffer is missing");
++    for (vector_size_t row = 0; row < length; ++row) {
++      if (nulls && bits::isBitNull(nulls->as<uint64_t>(), row)) {
++        output[row] = 0;
++        continue;
++      }
++      int128_t encoded;
++      std::memcpy(&encoded, input + row * sizeof(encoded), sizeof(encoded));
++      output[row] = DecimalUtil::bigEndian(encoded);
++    }
++    return createFlatVector<TypeKind::HUGEINT>(pool, type, std::move(nulls), length,
++        std::move(values), arrowArray.null_count);
++  }
+@@ -2272,2 +2539 @@ VectorPtr importFromArrowImpl(
 -  } else if (type->isTime()) {
 -    VELOX_DCHECK(type->equivalent(*TIME()));
 +  } else if (type->equivalent(*TIME())) {
-@@ -2386,18 +2551,21 @@
+@@ -2386,18 +2652,21 @@ VectorPtr importFromArrowImpl(
 -  std::shared_ptr<ArrowSchema> schemaReleaser(
 -      new ArrowSchema(arrowSchema), [](ArrowSchema* toDelete) {
 -        if (toDelete != nullptr) {
@@ -581,15 +686,15 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  arrowArray.release = nullptr;
 +  std::shared_ptr<ArrowSchema> schemaReleaser(owner, &owner->schema);
 +  std::shared_ptr<ArrowArray> arrayReleaser(owner, &owner->array);
-@@ -2405,2 +2573,2 @@
+@@ -2405,2 +2674,2 @@ VectorPtr importFromArrowImpl(
 -      arrowSchema,
 -      arrowArray,
 +      owner->schema,
 +      owner->array,
-@@ -2413,3 +2580,0 @@
--
+@@ -2414,3 +2682,0 @@ VectorPtr importFromArrowImpl(
 -  arrowSchema.release = nullptr;
 -  arrowArray.release = nullptr;
+-
 diff --git a/velox/exec/RowContainer.cpp b/velox/exec/RowContainer.cpp
 index 5a3e8e2..ae843dc 100644
 --- a/velox/exec/RowContainer.cpp
@@ -2346,3 +2451,30 @@ index 4adea53..2415036 100644
 +    const std::vector<TypePtr>& argTypes,
 +    const core::QueryConfig& config);
 +
+diff --git a/velox/functions/prestosql/types/UuidType.h b/velox/functions/prestosql/types/UuidType.h
+index c6bd305..0d62255 100644
+--- a/velox/functions/prestosql/types/UuidType.h
++++ b/velox/functions/prestosql/types/UuidType.h
+@@ -28 +28 @@ class UuidType final : public HugeintType {
+-  UuidType() = default;
++  constexpr UuidType() : HugeintType{ProvideCustomComparison{}} {}
+@@ -35,0 +36,12 @@ class UuidType final : public HugeintType {
++  // Match the unsigned comparisons implemented by UUID scalar functions.
++  // Sorting and aggregate selection must use the same ordering of all 128 bits.
++  int32_t compare(const int128_t& left, const int128_t& right) const override {
++    const auto a = static_cast<uint128_t>(left);
++    const auto b = static_cast<uint128_t>(right);
++    return a < b ? -1 : a > b ? 1 : 0;
++  }
++
++  uint64_t hash(const int128_t& value) const override {
++    return folly::hasher<int128_t>()(value);
++  }
++
+diff --git a/velox/functions/prestosql/types/UuidRegistration.cpp b/velox/functions/prestosql/types/UuidRegistration.cpp
+index 39797ee..820e77c 100644
+--- a/velox/functions/prestosql/types/UuidRegistration.cpp
++++ b/velox/functions/prestosql/types/UuidRegistration.cpp
+@@ -46,0 +47,2 @@ struct UuidParser<TypeKind::VARBINARY> {
++    VELOX_USER_CHECK_EQ(
++        uuidValue.size(), 16, "UUID requires exactly 16 binary bytes");

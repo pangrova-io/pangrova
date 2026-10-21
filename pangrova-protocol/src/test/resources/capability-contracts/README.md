@@ -10,44 +10,51 @@ exporter catalogue used by function-contract tests.
 
 The snapshot was recaptured on 2026-10-21 after exposing the actual Native
 `to_ieee754_32` and `to_ieee754_64` registrations through the shared SQL bindings.
-The final complete inventory came from the rebuilt runtime containing the
-canonical nested-vector name binding and microsecond TIME bridge repairs.
+This historical complete inventory came from the rebuilt runtime containing the
+canonical nested-vector name binding, microsecond TIME bridge and UUID
+identity/unsigned-ordering repairs. Both catalogues retain all 22 physical
+projections, including UUID as its distinct logical type over HUGEINT.
 The cache-disabled function catalogue was captured separately from the rebuilt
 `pangrova_function_export --catalogue` executable
-(SHA-256 `b4055492101568e5d8e02f0be470d264e8e186d9a2cabdbc5c2fe6fd03bb339e`):
+(SHA-256 `88d049d5767d84dc11349e6a6afcf2724ca1b344c34e453dadb1d6dc8d5fa8a6`):
 
-- Exported catalogue: 782,950 raw bytes, SHA-256
-  `4d0723fc24aacc6b70ac7a2e4ae3d156ce4f853241e63e427b5ad27c96b71071`
+- Exported catalogue: 782,981 raw bytes, SHA-256
+  `1c462e4c925da95480712065b6c90f8b2e69aecdbe95d7e9602e673fee225dc0`
   (9 capabilities and 87 functions).
 
 The complete cache-enabled inventory came from actual E2E JNI startup with
 `PANGROVA_E2E_FILE_CAPABILITY_KEY` set, which deployed the governed FILE
 callbacks before Native catalogue publication:
 
-- Native library SHA-256: `75ff0461543a2ead0bd013851f5750a46d562200419d38e549c8a5d8460d4b6a`.
-- Inventory: 795,569 raw bytes, SHA-256
-  `2adbdb594720f509a75cf49e54649775100159f4c23b7323dab626cec2a81b97`.
+- Native library SHA-256: `8131c2beb2797ca186cd1114d81dd2a8e79cfb2439b72efb6196b9942524144d`.
+- Inventory: 795,600 raw bytes, SHA-256
+  `5dc30e6ed0a7c4c18a77841ce3ecfa8a23d2e5011a138c899f6f47cb790855d1`.
 
 The E2E capture retained all 19 capabilities and 103 functions, including both
 `file_from_url` and `file_from_bytes`, and advertised the two deployed local
 model revisions. Both binary files were parsed with the generated current
 protocol classes to verify their capability, function and model counts. The
-protocol owner module passed 448/448 tests after the UUID declaration repair,
-before this final TIME recapture. The cache-disabled catalogue remains byte
-identical to the earlier fixture. The affected actual-inventory contract class
-passed 7/7 with the fresh complete publication. The final capture passed 1/1,
-checking every Native field against the production Worker publication, then
+protocol owner run covered 448 tests against the UUID fixtures. Its three
+position-dependent declaration checks failed after adding the UUID projection;
+they now locate projections by declared kind and all three passed on targeted
+rerun. The rolling union covers all 448 unique cases without failures or skips;
+static analysis and installation also passed. The complete UUID capture passed
+1/1, checking every Native field against the production Worker publication, then
 asserting both configured model identities and exporting every model and
-capability. Model instance signatures and binding hashes vary with the serving
-instance, so these bytes are not compared as a global constant. Neither protocol
-run had failures, errors or skips.
+capability. Its source run also exposed UUID SQL/parser and cold Arrow
+materialization failures; handshake success does not qualify those SQL paths.
+Model instance signatures and binding hashes vary with the serving
+instance, so these bytes are not compared as a global constant. The fixture
+update preserves the full production publication.
 
 Tests retain every actual capability and function in the positive round trip.
 Negative inputs mutate the actual inventory while retaining capability identity.
 No capability is removed to bypass startup validation. This capture used the E2E
 harness's packaged JNI library and runtime initialization; the ordinary handshake
 E2E now retains the permanent optional capture entry point below. The fixture qualifies inventory validation against
-this library. It does not qualify artifact execution, model invocation, or
+that captured library. Subsequent UUID CAST-length and Parquet-reader repairs have
+separate matching-library runtime evidence; this historical binary is not a claim
+that it was recaptured from every later build. It does not qualify artifact execution, model invocation, or
 end-to-end SQL.
 
 ## Recapturing the complete JNI inventory

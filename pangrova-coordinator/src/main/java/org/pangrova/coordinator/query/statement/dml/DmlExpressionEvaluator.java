@@ -326,6 +326,7 @@ public final class DmlExpressionEvaluator {
             LiteralValue.DecimalValue.class, v -> new ColumnValue.DecimalValue(
                     ((LiteralValue.DecimalValue) v).value()),
             LiteralValue.StringValue.class, v -> new ColumnValue.StringValue(((LiteralValue.StringValue) v).value()),
+            LiteralValue.UuidValue.class, v -> new ColumnValue.UuidValue(((LiteralValue.UuidValue) v).value()),
             LiteralValue.BooleanValue.class, v -> new ColumnValue.BooleanValue(((LiteralValue.BooleanValue) v).value()),
             LiteralValue.NullValue.class, v -> new ColumnValue.NullValue(),
             LiteralValue.BinaryHexValue.class, v -> new ColumnValue.BytesValue(

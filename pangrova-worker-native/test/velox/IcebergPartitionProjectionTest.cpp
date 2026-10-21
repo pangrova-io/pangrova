@@ -5,6 +5,7 @@
 
 #include "TestMemoryHelper.h"
 #include "capability/CanonicalPhysicalTypes.h"
+#include "velox/functions/prestosql/types/UuidType.h"
 #include "folly/json.h"
 #include "velox/connector/IcebergPartitionProjection.h"
 #include "velox/type/Timestamp.h"
@@ -65,7 +66,7 @@ TEST_F(IcebergPartitionProjectionTest, PrimitiveLogicalTypesPreserveValuesAndPre
   IcebergPartitionProjection projection(schema, 0, specs,
       ROW({"b", "f", "d", "l", "day", "t", "ts", "ns", "bin", "uuid", "dec"},
           {BOOLEAN(), DOUBLE(), DOUBLE(), BIGINT(), DATE(), capability::canonicalTimeType(6),
-              TIMESTAMP(), TIMESTAMP(), VARBINARY(), VARBINARY(), DECIMAL(6, 2)}));
+              TIMESTAMP(), TIMESTAMP(), VARBINARY(), UUID(), DECIMAL(6, 2)}));
   const std::string binary("a\0b", 3), uuid(16, '\xff'), decimal("\xfb\x2e", 2);
   folly::dynamic row = folly::dynamic::object("b", true)("f", 1.25)("d", -2.5)("l", int64_t{-123})
       ("day", -1)("t", int64_t{86'399'999'999})("ts", -1)("ns", -1)
@@ -80,7 +81,7 @@ TEST_F(IcebergPartitionProjectionTest, PrimitiveLogicalTypesPreserveValuesAndPre
   EXPECT_EQ(output->childAt(6)->asFlatVector<Timestamp>()->valueAt(0), Timestamp::fromMicros(-1));
   EXPECT_EQ(output->childAt(7)->asFlatVector<Timestamp>()->valueAt(0), Timestamp::fromNanos(-1));
   EXPECT_EQ(output->childAt(8)->asFlatVector<StringView>()->valueAt(0), binary);
-  EXPECT_EQ(output->childAt(9)->asFlatVector<StringView>()->valueAt(0), uuid);
+  EXPECT_EQ(output->childAt(9)->asFlatVector<int128_t>()->valueAt(0), -1);
   EXPECT_EQ(output->childAt(10)->asFlatVector<int64_t>()->valueAt(0), -1234);
   row["dec"] = std::string("\x27\x10", 2);
   EXPECT_THROW(projection.project({&row}, pool_.get()), std::runtime_error);

@@ -6,6 +6,7 @@
 #include "velox/connector/FilterDecomposer.h"
 
 #include <cstdint>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <string>
@@ -14,6 +15,8 @@
 #include "velox/core/Expressions.h"
 #include "velox/dwio/common/ScanSpec.h"
 #include "velox/type/Filter.h"
+#include "velox/type/DecimalUtil.h"
+#include "velox/functions/prestosql/types/UuidType.h"
 #include "velox/type/Subfield.h"
 
 namespace pangrova::velox {
@@ -69,22 +72,25 @@ int pushFilter(
 
 std::unique_ptr<facebook::velox::common::Filter> createBigintFilter(
     const std::string& op, int64_t value) {
-  if (op == "presto.default.eq")
+  if ((op == "lt" && value == std::numeric_limits<int64_t>::min()) ||
+      (op == "gt" && value == std::numeric_limits<int64_t>::max()))
+    return std::make_unique<facebook::velox::common::AlwaysFalse>();
+  if (op == "eq")
     return std::make_unique<facebook::velox::common::BigintRange>(
         value, value, false);
-  if (op == "presto.default.neq")
+  if (op == "neq")
     return std::make_unique<facebook::velox::common::NegatedBigintRange>(
         value, value, false);
-  if (op == "presto.default.lt")
+  if (op == "lt")
     return std::make_unique<facebook::velox::common::BigintRange>(
         std::numeric_limits<int64_t>::min(), value - 1, false);
-  if (op == "presto.default.lte")
+  if (op == "lte")
     return std::make_unique<facebook::velox::common::BigintRange>(
         std::numeric_limits<int64_t>::min(), value, false);
-  if (op == "presto.default.gt")
+  if (op == "gt")
     return std::make_unique<facebook::velox::common::BigintRange>(
         value + 1, std::numeric_limits<int64_t>::max(), false);
-  if (op == "presto.default.gte")
+  if (op == "gte")
     return std::make_unique<facebook::velox::common::BigintRange>(
         value, std::numeric_limits<int64_t>::max(), false);
   return nullptr;
@@ -92,26 +98,71 @@ std::unique_ptr<facebook::velox::common::Filter> createBigintFilter(
 
 std::unique_ptr<facebook::velox::common::Filter> createDoubleFilter(
     const std::string& op, double value) {
+  // NaN bounds are evaluated by the authoritative Native predicate; range
+  // filters cannot represent NaN equality. Ordinary unbounded ranges include NaN.
+  if (std::isnan(value)) return nullptr;
   constexpr double kMin = std::numeric_limits<double>::lowest();
   constexpr double kMax = std::numeric_limits<double>::max();
   double lower = kMin, upper = kMax;
   bool lowerUnbounded = false, upperUnbounded = false;
   bool lowerExclusive = false, upperExclusive = false;
 
-  if (op == "presto.default.eq") { lower = value; upper = value; }
-  else if (op == "presto.default.lt") {
+  if (op == "eq") { lower = value; upper = value; }
+  else if (op == "lt") {
     upper = value; upperExclusive = true; lowerUnbounded = true;
-  } else if (op == "presto.default.lte") {
+  } else if (op == "lte") {
     upper = value; lowerUnbounded = true;
-  } else if (op == "presto.default.gt") {
+  } else if (op == "gt") {
     lower = value; lowerExclusive = true; upperUnbounded = true;
-  } else if (op == "presto.default.gte") {
+  } else if (op == "gte") {
     lower = value; upperUnbounded = true;
   } else { return nullptr; }
 
   return std::make_unique<facebook::velox::common::DoubleRange>(
       lower, lowerUnbounded, lowerExclusive,
       upper, upperUnbounded, upperExclusive, false);
+}
+
+int64_t integerValue(const facebook::velox::variant& value) {
+  using facebook::velox::TypeKind;
+  switch (value.kind()) {
+    case TypeKind::TINYINT: return value.value<int8_t>();
+    case TypeKind::SMALLINT: return value.value<int16_t>();
+    case TypeKind::INTEGER: return value.value<int32_t>();
+    default: return value.value<int64_t>();
+  }
+}
+
+double floatingValue(const facebook::velox::variant& value) {
+  return value.kind() == facebook::velox::TypeKind::REAL
+      ? static_cast<double>(value.value<float>()) : value.value<double>();
+}
+
+const std::string& binaryValue(const facebook::velox::variant& value) {
+  return value.kind() == facebook::velox::TypeKind::VARBINARY
+      ? value.value<facebook::velox::TypeKind::VARBINARY>()
+      : value.value<facebook::velox::TypeKind::VARCHAR>();
+}
+
+// UUID DWIO readers expose the validated Parquet payload as big-endian bytes.
+std::string uuidBytes(const facebook::velox::variant& value) {
+  auto encoded = facebook::velox::DecimalUtil::bigEndian(value.value<facebook::velox::int128_t>());
+  return std::string(reinterpret_cast<const char*>(&encoded), sizeof(encoded));
+}
+
+std::unique_ptr<facebook::velox::common::Filter> createUuidFilter(
+    const std::string& op, const std::string& value) {
+  using facebook::velox::common::BytesRange;
+  if (op == "eq")
+    return std::make_unique<BytesRange>(value, false, false, value, false, false, false);
+  if (op == "neq")
+    return std::make_unique<facebook::velox::common::NegatedBytesRange>(
+        value, false, false, value, false, false, false);
+  if (op == "lt" || op == "lte")
+    return std::make_unique<BytesRange>("", true, false, value, false, op == "lt", false);
+  if (op == "gt" || op == "gte")
+    return std::make_unique<BytesRange>(value, false, op == "gt", "", true, false, false);
+  return nullptr;
 }
 
 bool isIntegerKind(facebook::velox::TypeKind kind) {
@@ -133,7 +184,7 @@ bool isIntegerType(const facebook::velox::TypePtr& type) {
 int decomposeIsNull(
     const facebook::velox::core::CallTypedExpr* call,
     const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec) {
-  if (call->name() != "presto.default.is_null" ||
+  if (call->name() != "is_null" ||
       call->inputs().size() != 1) return 0;
   auto fieldName = extractFieldName(call->inputs()[0].get());
   if (!fieldName) return 0;
@@ -147,7 +198,7 @@ int decomposeIsNotNull(
   if (call->name() != "not" || call->inputs().size() != 1) return 0;
   auto* inner = dynamic_cast<
       const facebook::velox::core::CallTypedExpr*>(call->inputs()[0].get());
-  if (!inner || inner->name() != "presto.default.is_null" ||
+  if (!inner || inner->name() != "is_null" ||
       inner->inputs().size() != 1) return 0;
   auto fieldName = extractFieldName(inner->inputs()[0].get());
   if (!fieldName) return 0;
@@ -158,7 +209,7 @@ int decomposeIsNotNull(
 int decomposeInList(
     const facebook::velox::core::CallTypedExpr* call,
     const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
-    const facebook::velox::RowTypePtr& outputType) {
+    const facebook::velox::RowTypePtr& outputType, bool parquetUuidBytes) {
   if (call->name() != "or" || call->inputs().size() != 2) return 0;
 
   std::optional<std::string> inFieldName;
@@ -173,7 +224,7 @@ int decomposeInList(
       stack.push_back(nc->inputs()[1].get());
       continue;
     }
-    if (!nc || nc->name() != "presto.default.eq" ||
+    if (!nc || nc->name() != "eq" ||
         nc->inputs().size() != 2) return 0;
     auto fn = extractFieldName(nc->inputs()[0].get());
     auto cv = extractConstant(nc->inputs()[1].get());
@@ -191,11 +242,18 @@ int decomposeInList(
   auto colType = outputType->childAt(*colIdx);
   std::unique_ptr<facebook::velox::common::Filter> filter;
 
-  if (isIntegerType(colType)) {
+  if (parquetUuidBytes && facebook::velox::isUuidType(colType)) {
+    std::vector<std::string> values;
+    for (const auto& value : inValues) {
+      if (value.kind() != facebook::velox::TypeKind::HUGEINT) return 0;
+      values.push_back(uuidBytes(value));
+    }
+    filter = std::make_unique<facebook::velox::common::BytesValues>(values, false);
+  } else if (isIntegerType(colType)) {
     std::vector<int64_t> iv;
     for (const auto& v : inValues) {
       if (!isIntegerKind(v.kind())) return 0;
-      iv.push_back(v.value<int64_t>());
+      iv.push_back(integerValue(v));
     }
     auto [lo, hi] = std::minmax_element(iv.begin(), iv.end());
     filter = std::make_unique<
@@ -206,7 +264,7 @@ int decomposeInList(
     for (const auto& v : inValues) {
       if (v.kind() != facebook::velox::TypeKind::VARCHAR &&
           v.kind() != facebook::velox::TypeKind::VARBINARY) return 0;
-      auto s = v.value<facebook::velox::StringView>();
+      const auto& s = binaryValue(v);
       sv.emplace_back(s.data(), s.size());
     }
     filter = std::make_unique<facebook::velox::common::BytesValues>(sv, false);
@@ -217,7 +275,7 @@ int decomposeInList(
 int decomposeBetween(
     const facebook::velox::core::CallTypedExpr* call,
     const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
-    const facebook::velox::RowTypePtr& outputType) {
+    const facebook::velox::RowTypePtr& outputType, bool parquetUuidBytes) {
   if (call->name() != "between" || call->inputs().size() != 3) return 0;
   auto fieldName = extractFieldName(call->inputs()[0].get());
   auto lo = extractConstant(call->inputs()[1].get());
@@ -229,39 +287,45 @@ int decomposeBetween(
   auto colType = outputType->childAt(*colIdx);
   std::unique_ptr<facebook::velox::common::Filter> filter;
 
-  if (isIntegerType(colType) && isIntegerKind(lo->kind()) &&
+  if (parquetUuidBytes && facebook::velox::isUuidType(colType) &&
+      lo->kind() == facebook::velox::TypeKind::HUGEINT &&
+      hi->kind() == facebook::velox::TypeKind::HUGEINT) {
+    filter = std::make_unique<facebook::velox::common::BytesRange>(
+        uuidBytes(*lo), false, false, uuidBytes(*hi), false, false, false);
+  } else if (isIntegerType(colType) && isIntegerKind(lo->kind()) &&
       isIntegerKind(hi->kind())) {
     filter = std::make_unique<facebook::velox::common::BigintRange>(
-        lo->value<int64_t>(), hi->value<int64_t>(), false);
+        integerValue(*lo), integerValue(*hi), false);
   } else if ((colType->isDouble() || colType->isReal()) &&
              (lo->kind() == facebook::velox::TypeKind::DOUBLE ||
               lo->kind() == facebook::velox::TypeKind::REAL) &&
              (hi->kind() == facebook::velox::TypeKind::DOUBLE ||
               hi->kind() == facebook::velox::TypeKind::REAL)) {
+    if (std::isnan(floatingValue(*lo)) || std::isnan(floatingValue(*hi))) return 0;
     filter = std::make_unique<facebook::velox::common::DoubleRange>(
-        lo->value<double>(), false, false,
-        hi->value<double>(), false, false, false);
+        floatingValue(*lo), false, false,
+        floatingValue(*hi), false, false, false);
   }
   return pushFilter(*fieldName, std::move(filter), scanSpec);
 }
 
 std::string flipOp(const std::string& op) {
-  if (op == "presto.default.lt") return "presto.default.gt";
-  if (op == "presto.default.lte") return "presto.default.gte";
-  if (op == "presto.default.gt") return "presto.default.lt";
-  if (op == "presto.default.gte") return "presto.default.lte";
+  if (op == "lt") return "gt";
+  if (op == "lte") return "gte";
+  if (op == "gt") return "lt";
+  if (op == "gte") return "lte";
   return op;
 }
 
 int decomposeComparison(
     const facebook::velox::core::CallTypedExpr* call,
     const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
-    const facebook::velox::RowTypePtr& outputType) {
+    const facebook::velox::RowTypePtr& outputType, bool parquetUuidBytes) {
   if (call->inputs().size() != 2) return 0;
   const auto& op = call->name();
-  bool isCmp = op == "presto.default.eq" || op == "presto.default.neq" ||
-               op == "presto.default.lt" || op == "presto.default.lte" ||
-               op == "presto.default.gt" || op == "presto.default.gte";
+  bool isCmp = op == "eq" || op == "neq" ||
+               op == "lt" || op == "lte" ||
+               op == "gt" || op == "gte";
   if (!isCmp) return 0;
 
   auto fn0 = extractFieldName(call->inputs()[0].get());
@@ -282,41 +346,44 @@ int decomposeComparison(
   auto colType = outputType->childAt(*colIdx);
   std::unique_ptr<facebook::velox::common::Filter> filter;
 
-  if (isIntegerType(colType) && isIntegerKind(constant->kind())) {
-    filter = createBigintFilter(effectiveOp, constant->value<int64_t>());
+  if (parquetUuidBytes && facebook::velox::isUuidType(colType) &&
+      constant->kind() == facebook::velox::TypeKind::HUGEINT) {
+    filter = createUuidFilter(effectiveOp, uuidBytes(*constant));
+  } else if (isIntegerType(colType) && isIntegerKind(constant->kind())) {
+    filter = createBigintFilter(effectiveOp, integerValue(*constant));
   } else if ((colType->isDouble() || colType->isReal()) &&
              (constant->kind() == facebook::velox::TypeKind::DOUBLE ||
               constant->kind() == facebook::velox::TypeKind::REAL)) {
-    filter = createDoubleFilter(effectiveOp, constant->value<double>());
+    filter = createDoubleFilter(effectiveOp, floatingValue(*constant));
   } else if ((colType->isVarchar() || colType->isVarbinary()) &&
              (constant->kind() == facebook::velox::TypeKind::VARCHAR ||
               constant->kind() == facebook::velox::TypeKind::VARBINARY)) {
-    auto sv = constant->value<facebook::velox::StringView>();
+    const auto& sv = binaryValue(*constant);
     std::string s(sv.data(), sv.size());
-    if (effectiveOp == "presto.default.eq") {
+    if (effectiveOp == "eq") {
       filter = std::make_unique<facebook::velox::common::BytesRange>(
           s, false, false, s, false, false, false);
-    } else if (effectiveOp == "presto.default.neq") {
+    } else if (effectiveOp == "neq") {
       filter = std::make_unique<facebook::velox::common::NegatedBytesRange>(
           s, false, false, s, false, false, false);
     }
   } else if (colType->isShortDecimal() && isIntegerKind(constant->kind())) {
-    filter = createBigintFilter(effectiveOp, constant->value<int64_t>());
+    filter = createBigintFilter(effectiveOp, integerValue(*constant));
   } else if (colType->kind() == facebook::velox::TypeKind::BOOLEAN &&
              constant->kind() == facebook::velox::TypeKind::BOOLEAN) {
     // BOOLEAN eq/neq: true=1, false=0 mapped to BigintRange.
     int64_t boolVal = constant->value<bool>() ? 1 : 0;
-    if (effectiveOp == "presto.default.eq") {
+    if (effectiveOp == "eq") {
       filter = std::make_unique<facebook::velox::common::BigintRange>(
           boolVal, boolVal, false);
-    } else if (effectiveOp == "presto.default.neq") {
+    } else if (effectiveOp == "neq") {
       filter = std::make_unique<facebook::velox::common::NegatedBigintRange>(
           boolVal, boolVal, false);
     }
   } else if (colType->kind() == facebook::velox::TypeKind::TIMESTAMP &&
              isIntegerKind(constant->kind())) {
     // TIMESTAMP stored as epoch microseconds (int64) in Parquet/DWRF stats.
-    filter = createBigintFilter(effectiveOp, constant->value<int64_t>());
+    filter = createBigintFilter(effectiveOp, integerValue(*constant));
   }
   return pushFilter(*fieldName, std::move(filter), scanSpec);
 }
@@ -328,26 +395,26 @@ int decomposeComparison(
 int decomposeImpl(
     const facebook::velox::core::ITypedExpr* expr,
     const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
-    const facebook::velox::RowTypePtr& outputType) {
+    const facebook::velox::RowTypePtr& outputType, bool parquetUuidBytes) {
   if (!expr) return 0;
   auto* call = dynamic_cast<
       const facebook::velox::core::CallTypedExpr*>(expr);
   if (!call) return 0;
 
   if (call->name() == "and" && call->inputs().size() == 2) {
-    return decomposeImpl(call->inputs()[0].get(), scanSpec, outputType) +
-           decomposeImpl(call->inputs()[1].get(), scanSpec, outputType);
+    return decomposeImpl(call->inputs()[0].get(), scanSpec, outputType, parquetUuidBytes) +
+           decomposeImpl(call->inputs()[1].get(), scanSpec, outputType, parquetUuidBytes);
   }
 
   int result = decomposeIsNull(call, scanSpec);
   if (result > 0) return result;
   result = decomposeIsNotNull(call, scanSpec);
   if (result > 0) return result;
-  result = decomposeInList(call, scanSpec, outputType);
+  result = decomposeInList(call, scanSpec, outputType, parquetUuidBytes);
   if (result > 0) return result;
-  result = decomposeBetween(call, scanSpec, outputType);
+  result = decomposeBetween(call, scanSpec, outputType, parquetUuidBytes);
   if (result > 0) return result;
-  return decomposeComparison(call, scanSpec, outputType);
+  return decomposeComparison(call, scanSpec, outputType, parquetUuidBytes);
 }
 
 }  // namespace
@@ -359,9 +426,9 @@ int decomposeImpl(
 int decomposeFilterToScanSpec(
     const std::shared_ptr<const facebook::velox::core::ITypedExpr>& filter,
     const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
-    const facebook::velox::RowTypePtr& outputType) {
+    const facebook::velox::RowTypePtr& outputType, bool parquetUuidBytes) {
   if (!filter) return 0;
-  return decomposeImpl(filter.get(), scanSpec, outputType);
+  return decomposeImpl(filter.get(), scanSpec, outputType, parquetUuidBytes);
 }
 
 void enableDictionaryFilteringForColumns(

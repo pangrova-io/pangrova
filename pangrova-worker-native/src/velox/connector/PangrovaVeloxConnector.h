@@ -28,6 +28,7 @@
 #include "velox/connector/PartitionColumnInjector.h"
 #include "velox/connector/SchemaEvolution.h"
 #include "velox/connector/SourceObjectIdentityInjector.h"
+#include "velox/connector/ParquetUuidReadPlan.h"
 
 #include "velox/connectors/Connector.h"
 #include "velox/core/Expressions.h"
@@ -66,7 +67,8 @@ class VeloxBatchReader : public merge::RowReaderWrapper {
   VeloxBatchReader(
       std::unique_ptr<facebook::velox::dwio::common::Reader> reader,
       std::unique_ptr<facebook::velox::dwio::common::RowReader> rowReader,
-      facebook::velox::RowTypePtr outputType);
+      facebook::velox::RowTypePtr outputType,
+      std::unique_ptr<ParquetUuidReadPlan> uuidReadPlan = nullptr);
 #endif
 
   facebook::velox::RowVectorPtr next(
@@ -81,6 +83,7 @@ class VeloxBatchReader : public merge::RowReaderWrapper {
   std::unique_ptr<facebook::velox::dwio::common::RowReader> row_reader_;
 #endif
   facebook::velox::RowTypePtr output_type_;
+  std::unique_ptr<ParquetUuidReadPlan> uuid_read_plan_;
   bool exhausted_ = false;
 };
 
@@ -111,7 +114,8 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
       std::shared_ptr<const facebook::velox::core::ITypedExpr>
           remainingFilter = nullptr,
       int64_t preferredOutputBatchBytes = kDefaultBatchTargetBytes,
-      int64_t eagerFirstStripeThresholdBytes = 1L * 1024 * 1024);
+      int64_t eagerFirstStripeThresholdBytes = 1L * 1024 * 1024,
+      facebook::velox::core::ExpressionEvaluator* expressionEvaluator = nullptr);
 
   void addSplit(
       std::shared_ptr<facebook::velox::connector::ConnectorSplit> split)
@@ -173,14 +177,16 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Shared by openVeloxReader() and initializeMergeReader() to eliminate
   // duplicated reader construction logic (ReaderOptions, BufferedInput,
   // CachedBufferedInput, ScanSpec). Returns the ScanSpec via outScanSpec
-  // so that openVeloxReader() can attach predicate pushdown filters.
+  // for dynamic filtering. Static predicates are bound before reader creation.
   void createReaderPair(
       const std::string& filePath,
       split::FileFormatType fileFormat,
       std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
       std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
       std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec = nullptr,
-      facebook::velox::RowTypePtr requestedType = nullptr);
+      facebook::velox::RowTypePtr requestedType = nullptr,
+      std::unique_ptr<ParquetUuidReadPlan>* uuidReadPlan = nullptr,
+      bool allowPredicatePushdown = false);
 
   // Initialize Paimon MOR merge reader from LSM level files.
   // Creates one VeloxBatchReader per level file, then delegates
@@ -245,6 +251,8 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   std::unique_ptr<facebook::velox::dwio::common::Reader> velox_reader_;
   std::unique_ptr<facebook::velox::dwio::common::RowReader> velox_row_reader_;
 #endif
+  facebook::velox::core::ExpressionEvaluator* expression_evaluator_;
+  std::unique_ptr<ParquetUuidReadPlan> parquet_uuid_read_plan_;
   bool reader_exhausted_ = false;
 
   // Iceberg delete filter (operates directly on RowVector).

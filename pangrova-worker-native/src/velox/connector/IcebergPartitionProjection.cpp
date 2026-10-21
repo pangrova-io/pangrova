@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <charconv>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string_view>
@@ -9,6 +10,8 @@
 #include <unordered_set>
 
 #include "capability/CanonicalPhysicalTypes.h"
+#include "velox/functions/prestosql/types/UuidType.h"
+#include "velox/type/DecimalUtil.h"
 #include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
 
@@ -77,7 +80,8 @@ void validateScalar(const folly::dynamic& schema, const std::string& result,
         (result.ends_with(']') ? integer(std::string_view(result).substr(6, result.size() - 7)) : 0);
     valid = width > 0 && encoded == "fixed" && schema.count("size") &&
         schema["size"].isInt() && schema["size"].asInt() == width &&
-        physical == TypeKind::VARBINARY && (result != "uuid" || logical(schema, "uuid"));
+        (result == "uuid" ? isUuidType(output) && logical(schema, "uuid")
+                          : physical == TypeKind::VARBINARY);
   } else if (result.starts_with("decimal(")) {
     const auto comma = result.find(',');
     if (comma == std::string::npos || !result.ends_with(')')) {
@@ -122,6 +126,15 @@ void setValue(const VectorPtr& vector, vector_size_t row,
     const folly::dynamic& value, const folly::dynamic& schema) {
   if (value.isNull()) { vector->setNull(row, true); return; }
   const auto type = vector->type();
+  if (isUuidType(type)) {
+    if (!value.isString() || value.asString().size() != 16) {
+      throw std::runtime_error("Invalid Avro partition UUID width");
+    }
+    int128_t encoded;
+    std::memcpy(&encoded, value.asString().data(), sizeof(encoded));
+    vector->asFlatVector<int128_t>()->set(row, DecimalUtil::bigEndian(encoded));
+    return;
+  }
   if (type->isDecimal()) {
     const auto decimal = decimalValue(value, schema);
     if (type->isShortDecimal()) vector->asFlatVector<int64_t>()->set(row, static_cast<int64_t>(decimal));

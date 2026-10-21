@@ -3,6 +3,7 @@
 #include <arrow/array.h>
 #include <arrow/buffer.h>
 #include <arrow/type.h>
+#include <arrow/extension_type.h>
 #include <arrow/util/bitmap_ops.h>
 
 #include <limits>
@@ -105,6 +106,9 @@ arrow::Status normalizeOffsetBuffers(
       auto physical = source.type;
       if (physical->id() == arrow::Type::DICTIONARY) {
         physical = static_cast<const arrow::DictionaryType&>(*physical).index_type();
+      }
+      if (physical->id() == arrow::Type::EXTENSION) {
+        physical = static_cast<const arrow::ExtensionType&>(*physical).storage_type();
       }
       auto fixed = std::dynamic_pointer_cast<arrow::FixedWidthType>(physical);
       if (!fixed || fixed->bit_width() % 8 != 0) {

@@ -25,6 +25,7 @@
 #include "velox/type/DecimalUtil.h"
 #include "velox/type/Timestamp.h"
 #include "velox/type/Type.h"
+#include "velox/functions/prestosql/types/UuidType.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
 
@@ -197,6 +198,35 @@ class SubstraitLiteralExecutionTest : public ::testing::Test {
 
   std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
 };
+
+TEST_F(SubstraitLiteralExecutionTest, UuidLiteralsPreserveEveryBitAndTypedNullInActualTask) {
+  substrait::Type type;
+  type.mutable_uuid()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  Literal zero, all, mixed;
+  zero.set_uuid(std::string(16, '\0'));
+  all.set_uuid(std::string(16, '\xff'));
+  mixed.set_uuid(std::string("\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff", 16));
+  auto result = execute(values({type}, {{zero}, {all}, {mixed}, {nullLiteral(type)}}));
+  ASSERT_TRUE(result);
+  ASSERT_EQ(result->size(), 4);
+  ASSERT_TRUE(result->childAt(0)->type()->equivalent(*facebook::velox::UUID()));
+  const auto* ids = result->childAt(0)->asFlatVector<int128_t>();
+  EXPECT_EQ(ids->valueAt(0), 0);
+  EXPECT_EQ(ids->valueAt(1), -1);
+  EXPECT_EQ(ids->valueAt(2), (static_cast<int128_t>(0x0011223344556677LL) << 64) |
+      static_cast<int128_t>(0x8899aabbccddeeffULL));
+  EXPECT_TRUE(ids->isNullAt(3));
+}
+
+TEST_F(SubstraitLiteralExecutionTest, MalformedUuidLiteralsRejectInsteadOfPaddingOrTruncating) {
+  substrait::Type type;
+  type.mutable_uuid()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  for (size_t width : {15, 17}) {
+    Literal literal;
+    literal.set_uuid(std::string(width, '\0'));
+    reject(values({type}, {{literal}}), "exactly 16 bytes");
+  }
+}
 
 struct ArithmeticOracle {
   const char* name;

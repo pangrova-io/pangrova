@@ -8,8 +8,8 @@ import org.apache.calcite.plan.hep.HepProgramBuilder;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
-import org.apache.calcite.rex.RexBuilder;
-import org.apache.calcite.rex.RexUtil;
+import org.pangrova.planner.type.PlannerRexBuilder;
+import org.pangrova.planner.type.PlannerConstantExecutor;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.pangrova.planner.cost.StatisticsBasedCostEstimator;
@@ -76,8 +76,8 @@ final class PlannerComponentFactory {
         // The current native-serializable relational operators retain NONE
         // convention; the serializer validates their concrete operator types.
         planner.setNoneConventionHasInfiniteCost(false);
-        planner.setExecutor(RexUtil.EXECUTOR);
-        RelOptCluster cluster = RelOptCluster.create(planner, new RexBuilder(typeFactory));
+        planner.setExecutor(PlannerConstantExecutor.INSTANCE);
+        RelOptCluster cluster = RelOptCluster.create(planner, new PlannerRexBuilder(typeFactory));
         var metadataProviders = new java.util.ArrayList<
                 org.apache.calcite.rel.metadata.RelMetadataProvider>();
         metadataProviders.add(new org.pangrova.planner.lineage.PangrovaColumnOriginMetadata().asProvider());

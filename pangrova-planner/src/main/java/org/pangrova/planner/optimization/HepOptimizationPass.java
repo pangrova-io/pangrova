@@ -3,7 +3,7 @@ package org.pangrova.planner.optimization;
 import org.apache.calcite.plan.hep.HepPlanner;
 import org.apache.calcite.plan.hep.HepProgram;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rex.RexUtil;
+import org.pangrova.planner.type.PlannerConstantExecutor;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.planner.PlannerException;
 
@@ -23,7 +23,7 @@ public final class HepOptimizationPass implements OptimizationPass {
         final RelNode result;
         try {
             HepPlanner planner = new HepPlanner(hepProgram);
-            planner.setExecutor(RexUtil.EXECUTOR);
+            planner.setExecutor(PlannerConstantExecutor.INSTANCE);
             planner.setRoot(relNode);
             result = planner.findBestExp();
         } catch (RuntimeException failure) {

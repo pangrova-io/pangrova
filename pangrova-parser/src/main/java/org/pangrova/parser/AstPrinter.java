@@ -222,6 +222,7 @@ public final class AstPrinter {
         map.put(LiteralValue.BooleanValue.class, v -> ((LiteralValue.BooleanValue) v).value() ? "TRUE" : "FALSE");
         map.put(LiteralValue.NullValue.class, v -> "NULL");
         map.put(LiteralValue.DateValue.class, v -> "DATE '" + ((LiteralValue.DateValue) v).value() + "'");
+        map.put(LiteralValue.UuidValue.class, v -> "UUID '" + ((LiteralValue.UuidValue) v).value() + "'");
         map.put(LiteralValue.TimestampValue.class, v -> "TIMESTAMP '" + ((LiteralValue.TimestampValue) v).value() + "'");
         map.put(LiteralValue.TimestampWithTimeZoneValue.class, v -> "TIMESTAMP WITH TIME ZONE '" + ((LiteralValue.TimestampWithTimeZoneValue) v).value() + "'");
         map.put(LiteralValue.IntervalValue.class, v -> {

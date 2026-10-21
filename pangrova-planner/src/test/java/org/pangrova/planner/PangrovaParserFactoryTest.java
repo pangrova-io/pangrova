@@ -5,11 +5,23 @@ import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlSelect;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PangrovaParserFactoryTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SELECT UUID '00112233-4455-6677-8899-aabbccddeeff'",
+            "SELECT CAST(NULL AS UUID)",
+            "SELECT ARRAY[UUID 'ffffffff-ffff-ffff-ffff-ffffffffffff', CAST(NULL AS UUID)]"})
+    void uuidSyntaxReachesTheNativeRelationalTypeSystem(String sql) {
+        SqlNode node = factory.parseToSqlNode(sql);
+        assertThat(node).isInstanceOf(SqlSelect.class);
+        assertThat(node.toString()).contains("UUID");
+    }
 
     private final PangrovaParserFactory factory = new PangrovaParserFactory();
 

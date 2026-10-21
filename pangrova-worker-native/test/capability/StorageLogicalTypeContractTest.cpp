@@ -6,12 +6,26 @@
 #include <string>
 
 #include <arrow/type.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <gtest/gtest.h>
 
 namespace pangrova::capability {
 namespace {
+TEST(StorageLogicalTypeContractTest, UuidRequiresItsCanonicalExtensionAndExactNullability) {
+  protocol::v2::LogicalType logical;
+  logical.set_canonical_sql("UUID");
+  logical.mutable_substrait_type()->mutable_uuid()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  EXPECT_NO_THROW(validateStorageLogicalType(logical, *arrow::field("id", arrow::extension::uuid(), false)));
+  EXPECT_THROW(validateStorageLogicalType(logical, *arrow::field("id", arrow::fixed_size_binary(16), false)),
+      std::invalid_argument);
+  EXPECT_THROW(validateStorageLogicalType(logical, *arrow::field("id", arrow::utf8(), false)),
+      std::invalid_argument);
+  EXPECT_THROW(validateStorageLogicalType(logical, *arrow::field("id", arrow::extension::uuid(), true)),
+      std::invalid_argument);
+}
+
 
 protocol::v2::LogicalType vectorType() {
   protocol::v2::LogicalType logical;

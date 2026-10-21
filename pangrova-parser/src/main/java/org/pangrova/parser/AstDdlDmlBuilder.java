@@ -424,6 +424,7 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
         if (ctx.FLOAT() != null) return BaseType.FLOAT;
         if (ctx.BOOLEAN() != null) return BaseType.BOOLEAN;
         if (ctx.DATE() != null) return BaseType.DATE;
+        if (ctx.UUID() != null) return BaseType.UUID;
         if (ctx.TIMESTAMP() != null) return BaseType.TIMESTAMP;
         if (ctx.TIMESTAMP_NS() != null) return BaseType.TIMESTAMP_NS;
         if (ctx.STRING_TYPE() != null) return BaseType.STRING;

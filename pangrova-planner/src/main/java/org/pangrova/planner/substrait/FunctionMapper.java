@@ -51,6 +51,9 @@ public class FunctionMapper {
      * @return resolved Substrait function reference
      */
     public FunctionReference map(SqlOperator operator) {
+        if (operator instanceof org.pangrova.planner.type.UuidOrderingSqlFunction ordering) {
+            return reference(ordering.declaration());
+        }
         String name = operator.getName();
         String kind = operator.getKind().name();
         // Named aggregate aliases such as APPROX_COUNT_DISTINCT take precedence

@@ -685,6 +685,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Literal visitBooleanFalse(PangrovaSqlParser.BooleanFalseContext ctx) { return expr.visitBooleanFalse(ctx); }
     @Override public Literal visitNullLiteral(PangrovaSqlParser.NullLiteralContext ctx) { return expr.visitNullLiteral(ctx); }
     @Override public Literal visitDateLiteral(PangrovaSqlParser.DateLiteralContext ctx) { return expr.visitDateLiteral(ctx); }
+    @Override public Literal visitUuidLiteral(PangrovaSqlParser.UuidLiteralContext ctx) { return expr.visitUuidLiteral(ctx); }
     @Override public Literal visitTimestampLiteral(PangrovaSqlParser.TimestampLiteralContext ctx) { return expr.visitTimestampLiteral(ctx); }
     @Override public Literal visitIntervalLiteral(PangrovaSqlParser.IntervalLiteralContext ctx) { return expr.visitIntervalLiteral(ctx); }
     @Override public Literal visitBinaryHexLiteral(PangrovaSqlParser.BinaryHexLiteralContext ctx) { return expr.visitBinaryHexLiteral(ctx); }

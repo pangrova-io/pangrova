@@ -40,6 +40,12 @@ public sealed interface ColumnValue {
     record StringValue(String value) implements ColumnValue {
     }
 
+    record UuidValue(java.util.UUID value) implements ColumnValue {
+        public UuidValue {
+            java.util.Objects.requireNonNull(value, "UUID value");
+        }
+    }
+
     record DecimalValue(BigDecimal value) implements ColumnValue {
     }
 
@@ -219,6 +225,9 @@ public sealed interface ColumnValue {
     }
 
     private static ColumnValue textScalarValue(Object raw) {
+        if (raw instanceof java.util.UUID value) {
+            return new UuidValue(value);
+        }
         if (raw instanceof String value) {
             return new StringValue(value);
         }
@@ -269,6 +278,9 @@ public sealed interface ColumnValue {
      *     scalar — the identity sentinel documented on {@link #toRaw(ColumnValue)}
      */
     private static Object rawTextScalarValue(ColumnValue columnValue) {
+        if (columnValue instanceof UuidValue value) {
+            return value.value();
+        }
         if (columnValue instanceof StringValue value) {
             return value.value();
         }

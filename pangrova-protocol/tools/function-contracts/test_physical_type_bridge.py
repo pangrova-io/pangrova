@@ -17,7 +17,7 @@ class PhysicalTypeBridgeTest(unittest.TestCase):
 
     def test_one_program_preserves_existing_factories_and_erased_binding_parameters(self):
         validate_bridge(self.bridge)
-        self.assertEqual(21, len(self.bridge["projections"]))
+        self.assertEqual(22, len(self.bridge["projections"]))
         rendered = render_bridge(self.bridge)
         self.assertEqual(rendered, render_bridge(deepcopy(self.bridge)))
         for projection in self.bridge["projections"]:
@@ -30,6 +30,9 @@ class PhysicalTypeBridgeTest(unittest.TestCase):
         self.assertEqual("NEVER", by_kind["map"]["orderable"])
         self.assertEqual("ALL_CHILDREN", by_kind["map"]["comparable"])
         self.assertEqual("ALWAYS", by_kind["list"]["known"])
+        self.assertEqual("UUID", by_kind["uuid"]["variants"][0]["nativeName"])
+        self.assertEqual("uuid", by_kind["uuid"]["variants"][0]["bindingKind"])
+        self.assertEqual("HUGEINT", by_kind["uuid"]["variants"][0]["physicalTag"])
 
     def test_decimal_retains_exact_input_parameters_and_native_precision_split(self):
         decimal = next(entry for entry in self.bridge["projections"] if entry["kind"] == "decimal")
@@ -67,14 +70,17 @@ class PhysicalTypeBridgeTest(unittest.TestCase):
         self.assertNotIn('Canonical bridge decimal.precision must be in [1, 38]; actual=', rendered)
 
     def test_unknown_duplicate_inexact_and_undeclared_program_fields_are_rejected(self):
+        def projection(bridge, kind):
+            return next(entry for entry in bridge["projections"] if entry["kind"] == kind)
+
         mutations = (lambda b: b.update(ignored="anything"),
                      lambda b: b["projections"].append(deepcopy(b["projections"][0])),
                      lambda b: b["projections"][0].update(known="SOMETIMES"),
                      lambda b: b["projections"][0]["variants"][0].update(nativeName="BOOLEAN();"),
-                     lambda b: b["projections"][8]["parameters"][0].update(minimum=True),
-                     lambda b: b["projections"][8]["parameters"][0].update(maximum=1 << 31),
-                     lambda b: b["projections"][8]["parameters"][0].update(nativeArgument=1),
-                     lambda b: b["projections"][14]["variants"][0]["predicates"][0]["operands"][0].update(value="unbound"))
+                     lambda b: projection(b, "varchar")["parameters"][0].update(minimum=True),
+                     lambda b: projection(b, "varchar")["parameters"][0].update(maximum=1 << 31),
+                     lambda b: projection(b, "varchar")["parameters"][0].update(nativeArgument=1),
+                     lambda b: projection(b, "precision_time")["variants"][0]["predicates"][0]["operands"][0].update(value="unbound"))
         for mutation in mutations:
             bridge = deepcopy(self.bridge)
             mutation(bridge)

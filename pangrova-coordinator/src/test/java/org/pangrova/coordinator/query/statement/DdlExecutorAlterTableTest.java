@@ -10,6 +10,7 @@ import org.pangrova.metadata.model.TableMetadata;
 import org.pangrova.metadata.store.MetadataStore;
 import org.pangrova.metadata.sync.SyncResult;
 import org.pangrova.parser.ast.Identifier;
+import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.type.DataTypeSpec;
 import org.pangrova.spi.connector.Connector;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.pangrova.coordinator.query.statement.StatementTestSessions.context;
@@ -75,6 +77,19 @@ class DdlExecutorAlterTableTest {
                 .isEqualTo("addColumn(email, VARCHAR, null)");
         assertThat(recordingMetadata.columns).containsKey("email");
         assertThat(recordingMetadata.columns.get("email")).isEqualTo("VARCHAR");
+    }
+
+    @Test
+    void parsedUuidDefaultReachesTheConnectorAsUuid() {
+        UUID expected = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        AlterTableStatement stmt = (AlterTableStatement) new SqlParser().parse(
+                "ALTER TABLE test_cat.default.users ADD COLUMN external_id UUID DEFAULT UUID '"
+                        + expected + "'");
+
+        ddlExecutor.executeAlterTable(stmt, statementSession());
+
+        assertThat(recordingMetadata.columns).containsEntry("external_id", "UUID");
+        assertThat(recordingMetadata.defaults).containsEntry("external_id", expected);
     }
 
     @Test
@@ -149,6 +164,7 @@ class DdlExecutorAlterTableTest {
     private static final class RecordingMetadata implements ConnectorMetadata {
 
         final List<String> operations = new CopyOnWriteArrayList<>();
+        final Map<String, Object> defaults = new LinkedHashMap<>();
         final Map<String, String> columns = new LinkedHashMap<>(Map.of(
                 "id", "INTEGER",
                 "name", "VARCHAR"
@@ -195,6 +211,7 @@ class DdlExecutorAlterTableTest {
                               String columnName, PangrovaType columnType, Object defaultValue) {
             operations.add("addColumn(" + columnName + ", " + columnType + ", " + defaultValue + ")");
             columns.put(columnName, columnType.name());
+            defaults.put(columnName, defaultValue);
         }
 
         @Override

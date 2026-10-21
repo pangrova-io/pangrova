@@ -1,11 +1,24 @@
 ---
 
-**2026-10-21 UUID 默认值增量：**检查新 UUID AST 的 DDL 消费链时，实际 Iceberg schema 更新复现了 `Unsupported default value type: java.util.UUID`。Connector 现在使用 [Iceberg 官方 `Literal.of(UUID)`](https://iceberg.apache.org/javadoc/1.12.0/org/apache/iceberg/expressions/Literal.html) 构造保留身份的默认值，不将 UUID 转成字符串。新增真实 HadoopCatalog/v3 表测试在提交后使 catalog 失效并重新加载，确认字段类型、initial default 与 write default 都保留 UUID；修复前 1 项 ERROR，修复后所属 Iceberg 模块 **445/445 PASS、0 跳过**，静态检查和安装退出 0。日志 `/tmp/pangrova-uuid-ddl-default-{red-r61,fixed-r64}-20261021.log`、`/tmp/pangrova-uuid-ddl-iceberg-owner-r65-20261021.log`。该结果只证明 Connector 默认值边界，不代替仍在补验的 UUID SQL/JNI/数据文件链路；**17 类本机检查点计数不变**。
 title: "AI Native 生产验收剩余清单与滚动批次（2026-10-19）"
 description: "按当前主分支源码区分已通过、本机待验证、功能未闭合和外部发布环境；不复用旧源码的全绿结论。"
 ---
 
 # AI Native 剩余验证清单
+
+
+**2026-10-21 UUID 全链路修复（受影响范围验收通过）：**UUID 的 Parser/AST、SPI 值、Calcite 类型、Substrait、Native、Arrow 和 JDBC 保留独立身份。Planner 在构造表达式时绑定 UUID 无符号比较，并阻止 Calcite 用“至少 16 字节”的 Java 转换静默截断 binary UUID；Native CAST 强制长度恰为 16。Parquet reader 验证 UUID annotation 和 fixed(16)，通过任务所属 vectorized CAST 处理 ROW/ARRAY/MAP、dictionary、constant、NULL 和空批次，不把普通 binary(16) 推断为 UUID。
+
+历史 Iceberg UUID 文件统计没有比较顺序来源证明，签名比较器和无符号 Parquet 边界混合时甚至可产生遗漏真实值的正常形状 min/max。因此 UUID 值谓词不使用这些统计排除文件；NULL 统计和其他列裁剪保留，Native FilterNode 保留全部谓词。读层使用符合 [Parquet UUID 规范](https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#uuid)的无符号 16 字节过滤；相关兼容性缺陷见 [Apache 上游分析](https://issues.apache.org/jira/browse/IMPALA-15476)。FilterRel 的条件接入 scan handle，保持计划 ID、列映射和预算；过滤器按当前声明的 Native 函数名匹配，并在创建 row reader 前设置。Paimon MOR 的值谓词保持在版本合并之后，避免旧版本复活。
+
+本轮 Java 滚动通过：Parser **557**、Planner **1,582**（普通 1,556 + 仅补验的 integration 26）、Iceberg **451**（普通 377 + 仅补验 integration 74）；Protocol **456/456** 在本次 ColumnarBatch 修复后整模块通过，写入消费类 **215/215** 通过。静态验证通过。日志 `/tmp/pangrova-uuid-cast-planner-{owner-r109,static-r110,profile-increment-r120}-20261021.log`、`/tmp/pangrova-uuid-pruning-iceberg-{owner-r114,static-r115,profile-increment-r121}-20261021.log`。新增 Native 字节过滤 14 项、边界/接线 3 项 Release 通过；匹配 ASan 先验 reader/过滤 **100/100**，后仅补受影响 Planner conversion 与数值边界 **53/53**，后者无 sanitizer 诊断。前一批 17 条可选整数诊断均在已分析的 Folly Hash/Spooky 实现中，无内存或函数类型诊断；不称 UBSan 零诊断。日志 `/tmp/pangrova-uuid-pruning-native-asan-r130-20261021.log`、`/tmp/pangrova-uuid-filter-wiring-native-asan-r143-20261021.log`。
+
+原 UUID SQL 的 3 个失败用例已修复：实际 v2/v3 Parquet 写入由独立 SDK 逐行核对，Native 全读及 =、范围、IN、NULL 查询和非法 binary 长度/资源释放 **6/6 PASS**。补齐 FilterRel 接线后实际 UUID Parquet **2/2** 与强化后的 Paimon 四种 MOR 引擎实值/旧值过滤 **4/4 PASS**。日志暴露过滤器旧函数名导致实际下推数量为零，现已修正；改变的过滤器 Release/ASan 各 **16/16 PASS**（ASan 仅有 Folly Hash 的 2 条已归类可选整数诊断，无内存/函数类型诊断）。单独冷启动还复现了写入首批早于 Transport 初始化时 UUID 被解码为 byte[] 的问题，现由 Protocol 字段声明完成独立转换，包含嵌套/NULL/长度/字节序检查，普通 binary(16) 不变。CLI/Shuffle 两个 fat JAR 重封后，与 Protocol 的实际类副本 SHA256 全部一致；最终单独冷启动实际 Parquet **2/2 PASS**，10 次扫描均有 `pushed_subfield_filters=1`。日志 `/tmp/pangrova-uuid-{canonical-filter-asan-r152,cold-canonical-e2e-r168,columnar-write-consumer-r165,columnar-cold-owner-r160,columnar-cold-static-fixed-r163}-20261021.log`，类路径证明 `/tmp/pangrova-uuid-columnar-classpath-r167-20261021.json`。
+
+匹配 JNI 的构建库、资源、classes、Worker JAR 和本地安装 JAR 五处 SHA256 均为 `52e512b1e3ee3a0c8976a3e67380c40195537ae15452317fca59f750127aa4a7`；实际 E2E 类路径的唯一 JNI 资源也匹配。SDK 补丁 SHA256 为 `6799535a1bdf87ce9af3f559546dbbe10ef244c210f3a19f52cf6fbf56bbeadb`，含 UUID Native 二进制 CAST 长度校验。证据 `/tmp/pangrova-uuid-qualified-artifacts-r162-20261021.json`、`/tmp/pangrova-uuid-runtime-jni-classpath-r169-20261021.json`、`/tmp/pangrova-uuid-qualified-20261021.json`。已有分区类型矩阵滚动 **25/25 PASS**（证据 `/tmp/pangrova-partition-types-qualified-20261021.json`）。仍有 **17 类本机检查点**开放；本段不代替完整逻辑类型/后端矩阵或最终全功能回归。
+
+
+**2026-10-21 UUID 默认值增量：**检查新 UUID AST 的 DDL 消费链时，实际 Iceberg schema 更新复现了 `Unsupported default value type: java.util.UUID`。Connector 现在使用 [Iceberg 官方 `Literal.of(UUID)`](https://iceberg.apache.org/javadoc/1.12.0/org/apache/iceberg/expressions/Literal.html) 构造保留身份的默认值，不将 UUID 转成字符串。新增真实 HadoopCatalog/v3 表测试在提交后使 catalog 失效并重新加载，确认字段类型、initial default 与 write default 都保留 UUID；修复前 1 项 ERROR，修复后所属 Iceberg 模块 **445/445 PASS、0 跳过**，静态检查和安装退出 0。日志 `/tmp/pangrova-uuid-ddl-default-{red-r61,fixed-r64}-20261021.log`、`/tmp/pangrova-uuid-ddl-iceberg-owner-r65-20261021.log`。该结果只证明 Connector 默认值边界，不代替仍在补验的 UUID SQL/JNI/数据文件链路；**17 类本机检查点计数不变**。
 
 **TIME 微秒 Release 与 SQL/JNI 增量通过：**提交 `8998b361` 的 SDK/Native 已重编，实际 archive SHA256 `3afcaa7e204b4a8b09588ba1a035bdbf8f6ac266815816c7e8d28f80d3e94bd2`；源码应用/升级/拒绝漂移 3 项与新 archive 接受/拒绝错误证明 7 项滚动共 **10/10 PASS**。Native 最近 TIME 8 项（毫秒/微秒的独立 Arrow 读写、嵌套选择、dictionary/constant 分页与生命周期）和其他受影响序列化 97 项，去重 **105/105 PASS**。同一次首次运行另有新 UUID Native 3 项按预期复现导出、导入和规范物理类型缺口，不把该次 19 PASS/3 FAIL 的进程退出码当作全绿。后续只补跑尚未执行的 86 项，全部通过。日志 `/tmp/pangrova-time-uuid-native-release-r20-20261021.log`、`/tmp/pangrova-time-arrow-remaining-r22-20261021.log`。
 

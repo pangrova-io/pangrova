@@ -1,10 +1,12 @@
 package org.pangrova.protocol.batch;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.util.Text;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -14,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /** Field-aware conversion at the Arrow/connector boundary, including nested nulls. */
 final class BatchValues {
@@ -24,6 +27,7 @@ final class BatchValues {
     private BatchValues() {}
 
     static Object detach(Field field, Object value) {
+        if (uuidDeclaration(field)) return detachUuid(value);
         if (value == null) {
             return null;
         }
@@ -49,6 +53,31 @@ final class BatchValues {
             return bytes;
         }
         return detachTemporal(type, value);
+    }
+
+    private static boolean uuidDeclaration(Field field) {
+        if (field.getType() instanceof UuidType) return true;
+        if (!UuidType.EXTENSION_NAME.equals(field.getMetadata().get("ARROW:extension:name"))) return false;
+        UuidType.INSTANCE.deserialize(field.getType(),
+                field.getMetadata().getOrDefault("ARROW:extension:metadata", ""));
+        return true;
+    }
+
+    private static Object detachUuid(Object value) {
+        if (value == null || value instanceof UUID) return value;
+        ByteBuffer bytes;
+        if (value instanceof byte[] binary) {
+            bytes = ByteBuffer.wrap(binary);
+        } else if (value instanceof ByteBuffer buffer) {
+            bytes = buffer.duplicate();
+        } else {
+            throw new IllegalArgumentException("UUID requires a canonical 16-byte value");
+        }
+        if (bytes.remaining() != UuidType.UUID_BYTE_WIDTH) {
+            throw new IllegalArgumentException("UUID requires exactly 16 binary bytes");
+        }
+        bytes.order(ByteOrder.BIG_ENDIAN);
+        return new UUID(bytes.getLong(), bytes.getLong());
     }
 
     private static List<Object> detachList(Field field, List<?> values) {
