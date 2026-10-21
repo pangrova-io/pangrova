@@ -165,7 +165,10 @@ final class S3VersionedCopyStager {
                     throw failure;
                 }
             }
-            return new VerifiedLocalCopySource(local, stagingRoot);
+            var proof = new org.pangrova.protocol.rest.copy.CopySourceReadHttp.StagedSource(
+                    staged.sourceVersionId(), staged.managedObjectUri(), staged.contentSha256(),
+                    staged.contentSize(), staged.tenantScope());
+            return new VerifiedLocalCopySource(local, stagingRoot, proof);
         } catch (IOException | RuntimeException failure) {
             try {
                 Files.deleteIfExists(local);

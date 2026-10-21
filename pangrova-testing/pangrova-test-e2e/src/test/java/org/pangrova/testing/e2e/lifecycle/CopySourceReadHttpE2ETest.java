@@ -208,6 +208,14 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                         scope.deadlineEpochMs()))))
                                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
 
+                        assertThatThrownBy(() -> {
+                            try (var premature = command.executeForNative(ticket.nonce(), wireScope)) {
+                                assertThat(premature.path()).exists();
+                            }
+                        }).isInstanceOf(IllegalStateException.class)
+                                .hasMessageContaining("previously staged source proof");
+                        assertThat(client.redeem(ticket.nonce(), wireScope).stagedSource()).isNull();
+
                         var stagedTask = copyTask(wireScope, ticket.nonce());
                         var certs = certificates();
                         CopySourceReadHttp.StagedSource proof;
@@ -249,6 +257,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                         java.nio.file.Path localPath;
                         try (var local = command.executeForNative(ticket.nonce(), wireScope)) {
                             localPath = local.path();
+                            assertThat(local.proof()).isEqualTo(proof);
                             assertThat(java.nio.file.Files.readAllBytes(localPath)).isEqualTo(bytes);
                         }
                         assertThat(localPath).doesNotExist();
@@ -257,6 +266,8 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                         fixture.grants.revokeGrants("reader", Privilege.READ_STORAGE_PROFILE,
                                 "incoming", null, null);
                         assertThatThrownBy(() -> command.execute(ticket.nonce(), wireScope))
+                                .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
+                        assertThatThrownBy(() -> command.executeForNative(ticket.nonce(), wireScope))
                                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("status 403");
                         fixture.grants.addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
                                 "STORAGE_PROFILE", "incoming", null, null, null));

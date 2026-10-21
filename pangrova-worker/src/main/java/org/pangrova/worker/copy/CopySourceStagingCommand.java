@@ -66,12 +66,7 @@ public final class CopySourceStagingCommand {
     /** Rechecks authority before and after I/O; a retry reads only immutable managed content. */
     public CopySourceReadHttp.StagedSource execute(String nonce, CopySourceReadHttp.Scope scope)
             throws IOException {
-        Objects.requireNonNull(scope, "scope");
-        if (!managedStorage.rootUri().equals(scope.managedStorageRootUri())
-                || !managedStorage.backendIdentitySha256()
-                        .equals(scope.managedBackendIdentitySha256())) {
-            throw new AccessDeniedException("COPY managed storage does not match admitted backend");
-        }
+        requireManagedStorage(scope);
         var redeemed = admissions.redeem(nonce, scope);
         StorageProfile sourceProfile = sourceProfile(redeemed.profile());
         S3VersionedCopyStager.StagedSource staged;
@@ -89,6 +84,15 @@ public final class CopySourceStagingCommand {
         return admissions.record(nonce, scope, proof);
     }
 
+    private void requireManagedStorage(CopySourceReadHttp.Scope scope) {
+        Objects.requireNonNull(scope, "scope");
+        if (!managedStorage.rootUri().equals(scope.managedStorageRootUri())
+                || !managedStorage.backendIdentitySha256()
+                        .equals(scope.managedBackendIdentitySha256())) {
+            throw new AccessDeniedException("COPY managed storage does not match admitted backend");
+        }
+    }
+
     /** Rechecks current authority before returning a locally cached attempt proof. */
     public void verifyRecordedProof(String nonce, CopySourceReadHttp.Scope scope,
                                     CopySourceReadHttp.StagedSource proof) {
@@ -101,10 +105,11 @@ public final class CopySourceStagingCommand {
     /** Produces a verified task-private Parquet file without trusting a network file path. */
     public VerifiedLocalCopySource executeForNative(String nonce, CopySourceReadHttp.Scope scope)
             throws IOException {
-        var proof = execute(nonce, scope);
+        requireManagedStorage(scope);
         var redeemed = admissions.redeem(nonce, scope);
-        if (!proof.equals(redeemed.stagedSource())) {
-            throw new AccessDeniedException("COPY staged proof changed before local scan materialization");
+        var proof = redeemed.stagedSource();
+        if (proof == null) {
+            throw new IllegalStateException("COPY Native scan requires a previously staged source proof");
         }
         StorageProfile profile = sourceProfile(redeemed.profile());
         VerifiedLocalCopySource local = null;
