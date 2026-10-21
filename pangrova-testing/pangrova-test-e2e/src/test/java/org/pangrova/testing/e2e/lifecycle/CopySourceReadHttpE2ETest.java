@@ -266,22 +266,27 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                         assertThat(client.redeem(ticket.nonce(), wireScope).stagedSource()).isEqualTo(proof);
 
                         var frozenProof = proof;
-                        CopyNativeInputAssertions.verify(command, grant -> {
-                            var leafScope = new JdbcCopySourceReadAdmissions.Scope(scope.tenantId(),
-                                    scope.principal(), scope.profileName(), scope.profileIncarnationId(),
-                                    scope.profileRevision(), scope.canonicalSourceUrl(), scope.managedStorageRootUri(),
-                                    scope.managedBackendIdentitySha256(), scope.executionId(),
-                                    "native-copy-" + UUID.randomUUID(), scope.ownerId(), scope.ownerIncarnation(),
-                                    scope.controlEpoch(), scope.ownerFencingToken(), scope.deadlineEpochMs());
-                            var leafTicket = fixture.admissions.issue(leafScope, fixture.identity, fixture.anchor);
-                            fixture.admissions.redeem(leafTicket, leafScope, fixture.anchor);
-                            fixture.admissions.recordStagedSource(leafTicket, leafScope,
-                                    new JdbcCopySourceReadAdmissions.StagedSource(frozenProof.sourceVersionId(),
-                                            frozenProof.managedObjectUri(), frozenProof.contentSha256(),
-                                            frozenProof.contentSize(), frozenProof.tenantScope()), fixture.anchor);
-                            return CopyNativeInputAssertions.task(fixture.wire(leafScope),
-                                    leafTicket.nonce(), frozenProof, grant);
-                        }, stagingRoot, proof.contentSize());
+                        try (var dispatcher = new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
+                                org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
+                                new org.pangrova.observability.noop.NoOpTracingProvider(), authority.secret())) {
+                            dispatcher.setCopySourceBinder(new org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder(
+                                    fixture.admissions, execution -> fixture.anchor));
+                            var wrongSource = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, 0)
+                                    .taskRequest().toBuilder();
+                            wrongSource.getSplitsBuilder(0).setSourceSnapshot("not-the-frozen-version");
+                            assertThatThrownBy(() -> dispatcher.bindSourceInput(SubmitTaskRequest.from(wrongSource.build())))
+                                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("frozen source proof");
+                            CopyNativeInputAssertions.verify(command, grant -> {
+                                var pending = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, grant);
+                                var bound = dispatcher.bindSourceInput(dispatcher.bindControlIdentity(pending));
+                                assertThat(dispatcher.bindSourceInput(bound)).isSameAs(bound);
+                                assertThat(bound.copySourceRead()).isNotNull();
+                                var redelivery = dispatcher.bindSourceInput(pending);
+                                assertThat(redelivery.canonicalBytes()).isEqualTo(bound.canonicalBytes());
+                                assertThat(redelivery.copySourceRead().nonce()).isNotEqualTo(bound.copySourceRead().nonce());
+                                return bound;
+                            }, stagingRoot, proof.contentSize());
+                        }
 
                         fixture.grants.revokeGrants("reader", Privilege.READ_STORAGE_PROFILE,
                                 "incoming", null, null);

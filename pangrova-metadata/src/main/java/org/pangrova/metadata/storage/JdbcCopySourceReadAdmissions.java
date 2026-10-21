@@ -157,6 +157,7 @@ public final class JdbcCopySourceReadAdmissions {
             connection.setAutoCommit(false);
             try {
                 AuthorizationTransactionGate.lockPublication(connection);
+                lockCopyIssuance(connection, scope.tenantId(), scope.executionId(), scope.stagingAttemptId());
                 requireCurrentFences(connection, scope, expectedAnchor);
                 requireTenantMembership(connection, scope);
                 StorageProfileRevision profile = currentProfile(connection, scope);
@@ -165,7 +166,7 @@ public final class JdbcCopySourceReadAdmissions {
                     throw denied();
                 }
                 requireUnissuedAttempt(connection, scope);
-                insert(connection, nonceHash, scope, identity, authorizationRevision(connection));
+                insert(connection, nonceHash, scope, identity, authorizationRevision(connection), null, null);
                 requireCurrentFences(connection, scope, expectedAnchor);
                 connection.commit();
                 return new Ticket(nonce);
@@ -177,6 +178,106 @@ public final class JdbcCopySourceReadAdmissions {
             throw new MetastoreException("Failed to issue COPY source read admission", failure);
         } finally {
             java.util.Arrays.fill(nonceBytes, (byte) 0);
+        }
+    }
+
+    /** Final execution identity; source/profile/content are loaded only from the durable root proof. */
+    public record FrozenInputAttempt(String tenantId, String principal, String executionId,
+                                     String sourceAttemptId, String taskId, long controlEpoch,
+                                     long deadlineEpochMs) {
+        public FrozenInputAttempt {
+            requireText(tenantId, "tenant");
+            requireText(principal, "principal");
+            requireText(executionId, "execution");
+            requireText(sourceAttemptId, "source attempt");
+            requireText(taskId, "task");
+        }
+    }
+
+    /** Fresh private capability and its immutable inherited input. */
+    public record FrozenInput(Ticket ticket, Scope scope, StagedSource proof) {}
+
+    /**
+     * Atomically derives a final task's capability from an already staged root.
+     * No source GET, caller-provided proof, old bearer nonce or old owner is needed.
+     * Current authorization must still be the root's exact authority revision.
+     * Repeated delivery may issue another nonce only for the same frozen scope;
+     * the Worker still performs the first redemption of each derived nonce.
+     */
+    public FrozenInput issueFrozenInput(FrozenInputAttempt attempt, ExecutionAnchor expectedAnchor) {
+        Objects.requireNonNull(attempt, "attempt");
+        Objects.requireNonNull(expectedAnchor, "expectedAnchor");
+        byte[] nonceBytes = new byte[NONCE_BYTES];
+        random.nextBytes(nonceBytes);
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                AuthorizationTransactionGate.lockPublication(connection);
+                lockCopyIssuance(connection, attempt.tenantId(), attempt.executionId(), attempt.taskId());
+                String parentHash = rootAdmissionHash(connection, attempt);
+                Admission root = lockAdmission(connection, parentHash);
+                if (root == null || !root.redeemed() || root.stagedSource().isEmpty()
+                        || !root.scope().principal().equals(attempt.principal())
+                        || root.authorizationRevision() != authorizationRevision(connection)) {
+                    throw denied();
+                }
+                Scope original = root.scope();
+                Scope scope = new Scope(original.tenantId(), original.principal(), original.profileName(),
+                        original.profileIncarnationId(), original.profileRevision(), original.canonicalSourceUrl(),
+                        original.managedStorageRootUri(), original.managedBackendIdentitySha256(),
+                        attempt.executionId(), attempt.taskId(), expectedAnchor.ownerId(),
+                        expectedAnchor.ownerIncarnation(), attempt.controlEpoch(), expectedAnchor.fencingToken(),
+                        attempt.deadlineEpochMs());
+                requireCurrentFences(connection, scope, expectedAnchor);
+                requireTenantMembership(connection, scope);
+                StorageProfileRevision current = currentProfile(connection, scope);
+                accessControl.checkCanReadStorageProfile(root.identity(), current.profile().name());
+                String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
+                StagedSource proof = root.stagedSource().orElseThrow();
+                insert(connection, sha256(nonceBytes), scope, root.identity(), root.authorizationRevision(),
+                        parentHash, proof);
+                requireCurrentFences(connection, scope, expectedAnchor);
+                connection.commit();
+                return new FrozenInput(new Ticket(nonce), scope, proof);
+            } catch (SQLException | RuntimeException failure) {
+                rollback(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to bind frozen COPY input", failure);
+        } finally {
+            java.util.Arrays.fill(nonceBytes, (byte) 0);
+        }
+    }
+
+    // Acquire a distinct issuance gate before admission row locks. Never upgrade
+    // the shared authorization gate: concurrent issuers would deadlock each other.
+    private static void lockCopyIssuance(Connection connection, String tenant, String execution, String task)
+            throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                SELECT pg_advisory_xact_lock(207578818,
+                    hashtext(json_build_array(?::text, ?::text, ?::text)::text))
+                """)) {
+            statement.setString(1, tenant);
+            statement.setString(2, execution);
+            statement.setString(3, task);
+            statement.execute();
+        }
+    }
+
+    private static String rootAdmissionHash(Connection connection, FrozenInputAttempt attempt) throws SQLException {
+        try (var query = connection.prepareStatement("""
+                SELECT nonce_sha256 FROM copy_source_read_admissions
+                WHERE tenant_id=? AND execution_id=? AND staging_attempt_id=? AND parent_nonce_sha256 IS NULL
+                FOR UPDATE
+                """)) {
+            query.setString(1, attempt.tenantId());
+            query.setString(2, attempt.executionId());
+            query.setString(3, attempt.sourceAttemptId());
+            try (var rows = query.executeQuery()) {
+                if (!rows.next()) throw denied();
+                return rows.getString(1);
+            }
         }
     }
 
@@ -424,7 +525,8 @@ public final class JdbcCopySourceReadAdmissions {
     }
 
     private static void insert(Connection connection, String nonceHash, Scope scope,
-                               UserIdentity identity, long authorizationRevision) throws SQLException {
+                               UserIdentity identity, long authorizationRevision, String parentHash,
+                               StagedSource proof) throws SQLException {
         try (var statement = connection.prepareStatement("""
                 INSERT INTO copy_source_read_admissions (
                     nonce_sha256, tenant_id, principal, identity_groups, identity_attributes,
@@ -432,14 +534,17 @@ public final class JdbcCopySourceReadAdmissions {
                     canonical_source_url, managed_storage_root_uri,
                     managed_backend_identity_sha256,
                     execution_id, staging_attempt_id, staging_command_sha256,
-                    owner_id, owner_incarnation, control_epoch, owner_fencing_token, deadline_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    owner_id, owner_incarnation, control_epoch, owner_fencing_token, deadline_at,
+                    parent_nonce_sha256, staged_source_version_id, staged_managed_object_uri,
+                    staged_content_sha256, staged_content_size, staged_tenant_scope, staged_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN clock_timestamp() ELSE NULL END)
                 """)) {
             int parameter = 1;
             statement.setString(parameter++, nonceHash);
             statement.setString(parameter++, scope.tenantId());
             statement.setString(parameter++, scope.principal());
-            statement.setObject(parameter++, encodeJson(identity.groups()), Types.OTHER);
+            statement.setObject(parameter++, inheritedGroups(connection, identity, parentHash), Types.OTHER);
             statement.setObject(parameter++, encodeJson(identity.attributes()), Types.OTHER);
             statement.setTimestamp(parameter++, Timestamp.from(identity.authenticatedAt()));
             statement.setLong(parameter++, authorizationRevision);
@@ -456,8 +561,31 @@ public final class JdbcCopySourceReadAdmissions {
             statement.setString(parameter++, scope.ownerIncarnation());
             statement.setLong(parameter++, scope.controlEpoch());
             statement.setLong(parameter++, scope.ownerFencingToken());
-            statement.setTimestamp(parameter, new Timestamp(scope.deadlineEpochMs()));
+            statement.setTimestamp(parameter++, new Timestamp(scope.deadlineEpochMs()));
+            statement.setString(parameter++, parentHash);
+            statement.setString(parameter++, proof == null ? null : proof.sourceVersionId());
+            statement.setString(parameter++, proof == null ? null : proof.managedObjectUri());
+            statement.setString(parameter++, proof == null ? null : proof.contentSha256());
+            if (proof == null) statement.setNull(parameter++, Types.BIGINT);
+            else statement.setLong(parameter++, proof.contentSize());
+            statement.setString(parameter++, proof == null ? null : proof.tenantScope());
+            statement.setBoolean(parameter, proof != null);
             statement.executeUpdate();
+        }
+    }
+
+    private static String inheritedGroups(Connection connection, UserIdentity identity, String parentHash)
+            throws SQLException {
+        if (parentHash == null) return encodeJson(identity.groups());
+        // UserIdentity groups are a set. Re-encoding after JVM restart can reorder
+        // its JSON array, so inherit the root's exact persisted declaration.
+        try (var query = connection.prepareStatement(
+                "SELECT identity_groups::text FROM copy_source_read_admissions WHERE nonce_sha256=?")) {
+            query.setString(1, parentHash);
+            try (var rows = query.executeQuery()) {
+                if (!rows.next()) throw denied();
+                return rows.getString(1);
+            }
         }
     }
 

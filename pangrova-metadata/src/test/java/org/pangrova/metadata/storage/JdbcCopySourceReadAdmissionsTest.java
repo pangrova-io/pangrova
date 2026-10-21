@@ -536,6 +536,90 @@ class JdbcCopySourceReadAdmissionsTest {
         assertThat(authorityRevision(source)).isGreaterThan(before);
     }
 
+    @Test
+    void frozenInputIsInheritedBeforeWorkerRedemptionAndReissuePreservesItsScope() throws Exception {
+        var fixture = fixture("copy_frozen_input_exact");
+        var proof = stageRoot(fixture);
+        var attempt = inputAttempt(fixture, "leaf-one");
+        var bound = fixture.admissions().issueFrozenInput(attempt, fixture.anchor());
+        try (var connection = fixture.source().getConnection(); var query = connection.prepareStatement(
+                "SELECT redeemed_at, staged_content_sha256, parent_nonce_sha256 "
+                        + "FROM copy_source_read_admissions WHERE staging_attempt_id='leaf-one'");
+                var rows = query.executeQuery()) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getTimestamp(1)).isNull();
+            assertThat(rows.getString(2)).isEqualTo(proof.contentSha256());
+            assertThat(rows.getString(3)).hasSize(64).isNotEqualTo(bound.ticket().nonce());
+        }
+        var restarted = new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl());
+        var redelivered = restarted.issueFrozenInput(attempt, fixture.anchor());
+        assertThat(redelivered.ticket()).isNotEqualTo(bound.ticket());
+        assertThat(redelivered.scope()).isEqualTo(bound.scope());
+        assertThat(restarted.redeem(bound.ticket(), bound.scope(), fixture.anchor()).stagedSource()).contains(proof);
+        assertThat(restarted.redeem(redelivered.ticket(), redelivered.scope(), fixture.anchor()).stagedSource())
+                .contains(proof);
+        var changed = new JdbcCopySourceReadAdmissions.FrozenInputAttempt(attempt.tenantId(), attempt.principal(),
+                attempt.executionId(), attempt.sourceAttemptId(), attempt.taskId(), attempt.controlEpoch(),
+                attempt.deadlineEpochMs() + 1);
+        assertThatThrownBy(() -> restarted.issueFrozenInput(changed, fixture.anchor()))
+                .isInstanceOf(MetastoreException.class).hasStackTraceContaining("another input scope");
+    }
+
+    @Test
+    void frozenInputRejectsMissingProofOtherSubjectsAndRevokedRegrantedAuthority() throws Exception {
+        var fixture = fixture("copy_frozen_input_authority");
+        var attempt = inputAttempt(fixture, "leaf-one");
+        assertThatThrownBy(() -> fixture.admissions().issueFrozenInput(attempt, fixture.anchor()))
+                .isInstanceOf(AccessDeniedException.class);
+        stageRoot(fixture);
+        for (var changed : new JdbcCopySourceReadAdmissions.FrozenInputAttempt[]{
+                new JdbcCopySourceReadAdmissions.FrozenInputAttempt("other", attempt.principal(),
+                        attempt.executionId(), attempt.sourceAttemptId(), "leaf-two", attempt.controlEpoch(),
+                        attempt.deadlineEpochMs()),
+                new JdbcCopySourceReadAdmissions.FrozenInputAttempt(attempt.tenantId(), "other",
+                        attempt.executionId(), attempt.sourceAttemptId(), "leaf-two", attempt.controlEpoch(),
+                        attempt.deadlineEpochMs())}) {
+            assertThatThrownBy(() -> fixture.admissions().issueFrozenInput(changed, fixture.anchor()))
+                    .isInstanceOf(AccessDeniedException.class);
+        }
+        fixture.grants().revokeGrants("reader", Privilege.READ_STORAGE_PROFILE, "incoming", null, null);
+        fixture.grants().addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
+                "STORAGE_PROFILE", "incoming", null, null, null));
+        assertThatThrownBy(() -> fixture.admissions().issueFrozenInput(attempt, fixture.anchor()))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void newExecutionOwnerDerivesOriginalProofAndOldOwnerCannotIssueInput() throws Exception {
+        var fixture = fixture("copy_frozen_input_takeover");
+        var proof = stageRoot(fixture);
+        var anchors = new JdbcExecutionAnchorStore(fixture.source());
+        assertThat(anchors.yield(fixture.anchor())).isTrue();
+        var replacement = anchors.tryAcquire(fixture.scope().executionId(), "coordinator-two",
+                "incarnation-two", Duration.ofMinutes(5)).orElseThrow();
+        var attempt = inputAttempt(fixture, "leaf-takeover");
+        assertThatThrownBy(() -> fixture.admissions().issueFrozenInput(attempt, fixture.anchor()))
+                .isInstanceOf(IllegalStateException.class);
+        var bound = fixture.admissions().issueFrozenInput(attempt, replacement);
+        assertThat(bound.scope().ownerFencingToken()).isEqualTo(replacement.fencingToken());
+        assertThat(fixture.admissions().redeem(bound.ticket(), bound.scope(), replacement).stagedSource())
+                .contains(proof);
+    }
+
+    static JdbcCopySourceReadAdmissions.StagedSource stageRoot(Fixture fixture) throws Exception {
+        var ticket = fixture.issue(fixture.scope(), ALICE);
+        fixture.redeem(ticket, fixture.scope());
+        return fixture.recordStagedSource(ticket, fixture.scope(), new JdbcCopySourceReadAdmissions.StagedSource(
+                "version-one", managedObjectUri(fixture.scope().tenantId(), "b".repeat(64)), "b".repeat(64),
+                123, tenantScope(fixture.scope().tenantId())));
+    }
+
+    static JdbcCopySourceReadAdmissions.FrozenInputAttempt inputAttempt(Fixture fixture, String taskId) {
+        var scope = fixture.scope();
+        return new JdbcCopySourceReadAdmissions.FrozenInputAttempt(scope.tenantId(), scope.principal(),
+                scope.executionId(), scope.stagingAttemptId(), taskId, scope.controlEpoch(), scope.deadlineEpochMs());
+    }
+
     private static void assertDirectMutationBumpsRevision(DataSource source) throws Exception {
         String[] mutations = {
                 "INSERT INTO pangrova_roles(role_name) VALUES ('rev-role')",
@@ -601,8 +685,11 @@ class JdbcCopySourceReadAdmissionsTest {
         }
     }
 
-    private static Fixture fixture(String schema) throws Exception {
-        DataSource source = SharedPostgresContainer.migratedDataSource(schema);
+    static Fixture fixture(String schema) throws Exception {
+        return fixture(SharedPostgresContainer.migratedDataSource(schema));
+    }
+
+    static Fixture fixture(DataSource source) throws Exception {
         var roles = new PersistentRoleStore(source);
         roles.initSchema();
         var tenants = new JdbcTenantStore(source);
@@ -664,7 +751,7 @@ class JdbcCopySourceReadAdmissionsTest {
                 epoch, fence, deadline);
     }
 
-    private record Fixture(DataSource source, JdbcStorageProfileRegistry profiles,
+    record Fixture(DataSource source, JdbcStorageProfileRegistry profiles,
                            PersistentGrantStore grants, DynamicRbacAccessControl accessControl,
                            JdbcCopySourceReadAdmissions admissions,
                            JdbcCopySourceReadAdmissions.Scope scope, ExecutionAnchor anchor) {

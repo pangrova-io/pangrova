@@ -65,6 +65,35 @@ class StagePartitionAcknowledgementTest {
         assertThat(tracker.getTaskState(QUERY, TASK)).isEqualTo(TaskStateMachine.State.SCHEDULED);
     }
 
+    @Test
+    void privateSourceBindingFollowsAccessBindingAndPrecedesTrackedAdmission() {
+        var accessComplete = new java.util.concurrent.atomic.AtomicBoolean();
+        var bound = new java.util.concurrent.atomic.AtomicReference<SubmitTaskRequest>();
+        TaskDispatcher binding = new TaskDispatcher() {
+            @Override public SubmitTaskRequest bindSourceInput(SubmitTaskRequest request) {
+                assertThat(accessComplete).isTrue();
+                var result = request.withBoundTask(request.taskRequest().toBuilder()
+                        .setDeadlineEpochMs(request.taskRequest().getDeadlineEpochMs() - 1).build());
+                bound.set(result);
+                return result;
+            }
+            @Override public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo target) {
+                throw new AssertionError("Expected asynchronous dispatch");
+            }
+            @Override public CompletableFuture<DispatchResult> dispatchAsync(
+                    SubmitTaskRequest request, WorkerInfo target) {
+                assertThat(request).isSameAs(bound.get());
+                assertThat(tracker.getTaskRequest(TASK)).isEqualTo(request);
+                return transport.response;
+            }
+        };
+        var dispatcher = new StagePartitionDispatcher(binding, new DispatchCanceller(binding, tracker), request -> {
+            accessComplete.set(true);
+            return request;
+        });
+        assertThat(dispatcher.dispatch(request(5_000), worker).request()).isSameAs(bound.get());
+    }
+
     private static SubmitTaskRequest request(long durationMillis) {
         return SubmitTaskRequest.from(CanonicalTaskRequestTestFixture.builder(
                 TASK, QUERY, 0, 0, TaskKind.TASK_KIND_READ, new byte[] {1})

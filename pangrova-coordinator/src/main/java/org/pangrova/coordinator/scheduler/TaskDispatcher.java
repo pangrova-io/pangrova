@@ -23,6 +23,11 @@ public interface TaskDispatcher {
         return request;
     }
 
+    /** Binds private frozen inputs after control/access/output binding, before admission seals are registered. */
+    default SubmitTaskRequest bindSourceInput(SubmitTaskRequest request) {
+        return request;
+    }
+
     DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker);
 
     /**

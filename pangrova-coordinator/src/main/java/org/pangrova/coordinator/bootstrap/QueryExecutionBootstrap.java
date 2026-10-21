@@ -13,6 +13,7 @@ import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
+import org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateCatalogTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask;
@@ -138,6 +139,11 @@ final class QueryExecutionBootstrap {
                         anchor.ownerId(), anchor.ownerIncarnation(),
                         anchor.fencingToken());
             });
+        }
+        if (metadataDataSource != null && accessControl != null && coordinationService != null) {
+            rtd.setCopySourceBinder(new CopySourceTaskBinder(
+                    new org.pangrova.metadata.storage.JdbcCopySourceReadAdmissions(metadataDataSource, accessControl),
+                    coordinationService::requireExecutionAnchor));
         }
         this.remoteTaskDispatcher = rtd;
         ShuffleLifecycleManager shuffleLifecycleManager = buildShuffleLifecycleManager();

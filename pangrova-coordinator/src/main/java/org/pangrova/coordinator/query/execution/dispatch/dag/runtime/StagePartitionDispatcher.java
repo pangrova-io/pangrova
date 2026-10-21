@@ -26,7 +26,7 @@ public final class StagePartitionDispatcher {
 
     /** Returns the actual bound request and HTTP acknowledgement; no result or owner is synthesized. */
     public Issued dispatch(SubmitTaskRequest request, WorkerInfo worker) {
-        var bound = accessBinder.apply(dispatcher.bindControlIdentity(request));
+        var bound = dispatcher.bindSourceInput(accessBinder.apply(dispatcher.bindControlIdentity(request)));
         requirePreservedAttempt(request, bound);
         long remaining = Math.subtractExact(bound.taskRequest().getDeadlineEpochMs(), System.currentTimeMillis());
         if (remaining <= 0) {

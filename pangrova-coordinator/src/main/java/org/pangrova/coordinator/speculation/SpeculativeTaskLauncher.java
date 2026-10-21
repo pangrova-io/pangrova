@@ -234,7 +234,8 @@ public class SpeculativeTaskLauncher {
         }
 
         try {
-            var request = taskDispatcher.bindControlIdentity(cloneWithNewTaskId(originalRequest, speculativeId));
+            var request = taskDispatcher.bindSourceInput(
+                    taskDispatcher.bindControlIdentity(cloneWithNewTaskId(originalRequest, speculativeId)));
             registerAndDispatchCopy(queryId, originalTaskId, request, targetWorker);
             return true;
         } catch (RuntimeException | Error e) {
@@ -314,7 +315,7 @@ public class SpeculativeTaskLauncher {
         var canonical = original.taskRequest();
         var next = org.pangrova.protocol.rest.task.TaskAttemptDescriptor
                 .from(canonical.getAttempt()).nextAttempt();
-        return SubmitTaskRequest.from(canonical.toBuilder()
+        return SubmitTaskRequest.from(canonical.toBuilder().clearCopySourceStagingCommandSha256()
                 .setAttempt(canonical.getAttempt().toBuilder()
                         .setTaskId(newTaskId)
                         .setPlanEpoch(next.planEpoch())

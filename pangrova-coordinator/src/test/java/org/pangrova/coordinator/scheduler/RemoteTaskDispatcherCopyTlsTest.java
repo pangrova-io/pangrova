@@ -64,10 +64,10 @@ class RemoteTaskDispatcherCopyTlsTest {
         // HTTP port 1 is deliberately unreachable. A real Worker pre-Native
         // rejection proves both dispatch paths reached the mTLS listener.
         assertThatThrownBy(() -> dispatcher.dispatch(copyTask(), target))
-                .rootCause().hasMessageContaining("pre-Native staging integration");
+                .rootCause().hasMessageContaining("configured Native input runtime");
         assertThatThrownBy(() -> dispatcher.dispatchAsync(copyTask(), target)
                 .get(5, TimeUnit.SECONDS))
-                .rootCause().hasMessageContaining("pre-Native staging integration");
+                .rootCause().hasMessageContaining("configured Native input runtime");
     }
 
     @Test
@@ -76,6 +76,20 @@ class RemoteTaskDispatcherCopyTlsTest {
                 new NoOpTracingProvider(), "test-secret");
         assertThatThrownBy(() -> dispatcher.dispatch(copyTask(), workerInfo(1, 0)))
                 .rootCause().hasMessageContaining("registered mTLS port");
+    }
+
+    @Test
+    void unboundCopyInputCannotReachTransportWithoutDurableAuthority() {
+        dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(),
+                new NoOpTracingProvider(), "test-secret");
+        var split = org.pangrova.protocol.v2.DataSplit.newBuilder().setConnectorId("copy")
+                .setSourceId("query-owned-frozen-source").setSplitId("file-one");
+        var pending = SubmitTaskRequest.from(CanonicalTaskRequestTestFixture.builder(
+                "task-42", "query-7", 0, 0, TaskKind.TASK_KIND_READ, new byte[] {1}).addSplits(split).build());
+        assertThatThrownBy(() -> dispatcher.dispatch(pending, workerInfo(1, 0)))
+                .rootCause().hasMessageContaining("frozen source admission is not wired");
+        assertThatThrownBy(() -> dispatcher.dispatchAsync(pending, workerInfo(1, 0)))
+                .hasMessageContaining("frozen source admission is not wired");
     }
 
     private static WorkerInfo workerInfo(int httpPort, int tlsPort) {

@@ -16,7 +16,6 @@ import org.apache.arrow.memory.RootAllocator;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
-import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.FileFormat;
@@ -38,7 +37,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.function.LongFunction;
 
@@ -196,35 +194,33 @@ final class CopyNativeInputAssertions {
         assertThat(rows).isEqualTo(1);
     }
 
-    static SubmitTaskRequest task(CopySourceReadHttp.Scope scope, String nonce,
-                                  CopySourceReadHttp.StagedSource proof, long grant) {
-        byte[] plan = readPlan();
+    static SubmitTaskRequest pendingTask(CopySourceReadHttp.Scope scope,
+                                         CopySourceReadHttp.StagedSource proof, long grant) {
+        String taskId = "native-copy-" + java.util.UUID.randomUUID();
+        byte[] plan = readPlan(scope.stagingAttemptId());
         var request = TaskRequest.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
                 .setAttempt(TaskAttemptId.newBuilder().setQueryOrJobId(scope.executionId())
-                        .setTaskId(scope.stagingAttemptId()).setPlanEpoch(1).setFencingToken((1L << 32) | 1L)
+                        .setTaskId(taskId).setPlanEpoch(1).setFencingToken((1L << 32) | 1L)
                         .setControlEpoch(scope.controlEpoch()).setExecutionOwner(ExecutionOwnerIdentity.newBuilder()
                                 .setOwnerId(scope.ownerId()).setOwnerIncarnation(scope.ownerIncarnation())
                                 .setFencingToken(scope.ownerFencingToken())))
                 .setTaskKind(TaskKind.TASK_KIND_READ).setSecurity(SecurityContext.newBuilder()
                         .setTenantId(scope.tenantId()).setPrincipal(scope.principal()))
                 .setSubstraitPlan(ByteString.copyFrom(plan)).setSubstraitPlanChecksum(CanonicalTaskRequests.sha256(plan))
-                .setCopySourceStagingCommandSha256(Checksum.newBuilder()
-                        .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
-                        .setDigest(ByteString.copyFrom(HexFormat.of().parseHex(scope.commandSha256()))))
-                .setResourceGrant(StageResourceGrant.newBuilder().setGrantId(scope.stagingAttemptId() + ":grant")
+                .setResourceGrant(StageResourceGrant.newBuilder().setGrantId(taskId + ":grant")
                         .setCpuSlots(1).setNativeMemoryBytes(ActualNativeTaskFixture.TASK_MEMORY_BYTES)
                         .setShuffleBufferBytes(8L * 1024 * 1024).setObjectStoreReadBytes(grant))
                 .setExecutionOptions(TaskExecutionOptions.newBuilder().setDirectResultOutput(true))
                 .setDeadlineEpochMs(scope.deadlineEpochMs())
                 .addSplits(DataSplit.newBuilder().setSplitId("copy-input").setConnectorId("copy")
-                        .setSourceId("copy-source").setDataObjectId(scope.canonicalSourceUrl())
+                        .setSourceId(scope.stagingAttemptId()).setDataObjectId(scope.canonicalSourceUrl())
                         .setOpaqueLocation(scope.canonicalSourceUrl()).setSourceSnapshot(proof.sourceVersionId())
                         .setLength(proof.contentSize()).setConnectorDetail(Any.pack(FileSplitDetail.newBuilder()
                                 .setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build()))).build();
-        return SubmitTaskRequest.from(request, new CopySourceReadHttp.RedeemRequest(nonce, scope));
+        return SubmitTaskRequest.from(request);
     }
 
-    private static byte[] readPlan() {
+    private static byte[] readPlan(String sourceId) {
         var schema = NamedStruct.newBuilder().addNames("id").addNames("payload")
                 .setStruct(Type.Struct.newBuilder().setNullability(Type.Nullability.NULLABILITY_REQUIRED)
                         .addTypes(Type.newBuilder().setI64(Type.I64.newBuilder()
@@ -232,7 +228,7 @@ final class CopyNativeInputAssertions {
                         .addTypes(Type.newBuilder().setString(Type.String.newBuilder()
                                 .setNullability(Type.Nullability.NULLABILITY_NULLABLE))));
         var read = ReadRel.newBuilder().setBaseSchema(schema)
-                .setNamedTable(ReadRel.NamedTable.newBuilder().addNames("copy-source"));
+                .setNamedTable(ReadRel.NamedTable.newBuilder().addNames(sourceId));
         return Plan.newBuilder().addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
                 .setInput(Rel.newBuilder().setRead(read)).addNames("id").addNames("payload")))
                 .build().toByteArray();

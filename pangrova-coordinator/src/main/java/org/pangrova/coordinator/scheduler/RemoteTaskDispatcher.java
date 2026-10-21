@@ -79,6 +79,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     // F-COORD-HA-04: Epoch supplier for zombie fencing. When set, every dispatched
     // task request is stamped with the current coordinator epoch so workers can
     // reject stale-epoch submissions during split-brain windows.
+    private volatile java.util.function.UnaryOperator<SubmitTaskRequest> copySourceBinder;
     private volatile LongSupplier controlEpochSupplier;
     private volatile Function<String, ExecutionOwnerIdentity> executionOwnerResolver;
 
@@ -187,6 +188,22 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         return request.withBoundTask(org.pangrova.protocol.NativeWriteBindings.bindAttempt(bound.build()));
     }
 
+    /** Composition-root wiring for durable frozen COPY source authority. */
+    public void setCopySourceBinder(java.util.function.UnaryOperator<SubmitTaskRequest> binder) {
+        copySourceBinder = checkNotNull(binder, "copySourceBinder");
+    }
+
+    @Override
+    public SubmitTaskRequest bindSourceInput(SubmitTaskRequest request) {
+        var binder = copySourceBinder;
+        boolean needsInput = request.copySourceRead() == null && request.taskRequest().getSplitsList().stream()
+                .anyMatch(split -> "copy".equals(split.getConnectorId()));
+        if (needsInput && binder == null) {
+            throw new IllegalStateException("COPY frozen source admission is not wired");
+        }
+        return needsInput ? binder.apply(request) : request;
+    }
+
     private boolean requiresControlBinding(org.pangrova.protocol.v2.TaskRequest request) {
         var attempt = request.getAttempt();
         boolean taskNeedsBinding = (controlEpochSupplier != null
@@ -247,7 +264,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     }
 
     private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
-        SubmitTaskRequest stamped = bindControlIdentity(request);
+        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(request));
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
@@ -423,7 +440,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
 
         // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
-        SubmitTaskRequest stamped = bindControlIdentity(request);
+        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(request));
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
