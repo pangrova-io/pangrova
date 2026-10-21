@@ -83,14 +83,17 @@ TEST(PaimonBinaryRowTest, CompactDecimalAndIntegerEvolutionAreExactAndChecked) {
   EXPECT_THROW(scalar(bytes, "BIGINT", "DECIMAL(38, 38)"), std::runtime_error);
 }
 
-TEST(PaimonBinaryRowTest, LargeDecimalSignExtensionAndTinyScientificNotation) {
+TEST(PaimonBinaryRowTest, LargeDecimalSignExtensionAndSmallValuesRetainSdkPlainScale) {
   auto bytes = row(1);
   little(bytes, 12, (uint64_t{16} << 32) | 2);
   bytes += std::string("\xcf\xc7", 2);
   EXPECT_EQ(scalar(bytes, "DECIMAL(38, 2)"), "-123.45");
   bytes = row(1);
   little(bytes, 12, 1);
-  EXPECT_EQ(scalar(bytes, "DECIMAL(18, 9)"), "1E-9");
+  EXPECT_EQ(scalar(bytes, "DECIMAL(18, 9)"), "0.000000001");
+  EXPECT_EQ(scalar(bytes, "DECIMAL(18, 18)"), "0.000000000000000001");
+  little(bytes, 12, 0);
+  EXPECT_EQ(scalar(bytes, "DECIMAL(18, 18)"), "0.000000000000000000");
 }
 
 TEST(PaimonBinaryRowTest, RejectsDecimalPayloadOutsideItsDeclaredPrecisionBeforeFormatting) {

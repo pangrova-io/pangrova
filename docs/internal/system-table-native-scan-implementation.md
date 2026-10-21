@@ -80,6 +80,25 @@ contract, not the JSON representation shown by other Paimon versions. Field-ID
 mapping preserves renamed columns and supplies all-null counts for newly added
 columns without rewriting old manifest statistics.
 
+Decimal metadata text follows the pinned SDK's `Decimal.toString`, which uses
+`BigDecimal.toPlainString`: small values retain their complete declared scale.
+Float and double metadata text follows the supported JDK 17 methods, including
+legacy integer, subnormal and decimal-boundary behavior. The Native
+`PaimonFloatingText` helper uses bounded exact rational arithmetic and defined
+unsigned operations for fixed-width compatibility; it does not call Java to
+format each value. Shortest-number printers alone do not implement that contract.
+The checked-in, independently generated JDK oracle has 40,405 records; the larger
+1,034,162-record differential comparison and actual append/primary-key SQL
+checks are documented in the rolling inventory. These are finite conformance
+corpora, not exhaustive IEEE input enumeration.
+
+The SQL scalar matrix also compares integer limits, fixed/variable text,
+decimal widths, date/time boundaries, timestamps, local-time-zone timestamps,
+binary declarations and NULL counts with the SDK. The real Parquet writer does
+not supply min/max statistics for binary or nanosecond-timestamp fields in these
+fixtures. Their NULL statistics match; this does not qualify non-null bounds for
+those types, complex-type statistics, or the complete filesystem matrix.
+
 The current local SQL evidence covers append and primary-key files across
 commits, empty tables, snapshot selection, rename/add-column evolution, SHOW,
 partition overwrite membership, base SELECT revocation, live row policies and

@@ -4,6 +4,7 @@ import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.Timestamp;
@@ -22,9 +23,12 @@ import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -141,6 +145,74 @@ class PaimonFilesMetadataE2ETest extends PangrovaE2ETestBase {
             assertThat(executeQuery("SELECT * FROM " + qualified + "$files"))
                     .extracting(TypedRow::toRawMap).containsExactlyInAnyOrderElementsOf(expected);
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void scalarStatisticsMatchSdkAtStorageBoundaries(boolean primaryKey) throws Exception {
+        String tableName = "file_scalar_stats_" + UUID.randomUUID().toString().replace("-", "");
+        Options options = new Options();
+        options.setString("warehouse", paimonWarehouse().toString());
+        try (var catalog = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            catalog.createDatabase("default", true);
+            var schema = scalarStatisticsSchema().partitionKeys("region")
+                    .option("bucket", "1").option("bucket-key", "id").option("file.format", "parquet");
+            if (primaryKey) schema.primaryKey("region", "id");
+            var identifier = Identifier.create("default", tableName);
+            catalog.createTable(identifier, schema.build(), false);
+            var source = (FileStoreTable) catalog.getTable(identifier);
+            var nulls = new GenericRow(source.rowType().getFieldCount());
+            nulls.setField(0, 3L);
+            nulls.setField(1, BinaryString.fromString("east"));
+            write(source, scalarStatisticsRow(false), scalarStatisticsRow(true), nulls);
+            var expected = sdkFiles(source);
+            assertThat(expected).isNotEmpty().allSatisfy(row -> {
+                assertThat(row).hasSize(20);
+                assertThat(row.get("null_value_counts").toString()).contains("small_decimal=1");
+                assertThat(row.get("min_value_stats").toString()).contains("min_float=");
+            });
+            assertThat(executeQuery("SELECT * FROM " + CATALOG + ".default." + tableName + "$files"))
+                    .extracting(TypedRow::toRawMap).containsExactlyInAnyOrderElementsOf(expected);
+        }
+    }
+
+    private static Schema.Builder scalarStatisticsSchema() {
+        return Schema.newBuilder().column("id", DataTypes.BIGINT()).column("region", DataTypes.STRING())
+                .column("flag", DataTypes.BOOLEAN()).column("tiny", DataTypes.TINYINT())
+                .column("small", DataTypes.SMALLINT()).column("whole", DataTypes.INT())
+                .column("large", DataTypes.BIGINT()).column("min_float", DataTypes.FLOAT())
+                .column("min_double", DataTypes.DOUBLE()).column("fixed_text", DataTypes.CHAR(6))
+                .column("text", DataTypes.VARCHAR(32)).column("fixed_bytes", DataTypes.BINARY(4))
+                .column("bytes", DataTypes.VARBINARY(16)).column("small_decimal", DataTypes.DECIMAL(18, 4))
+                .column("large_decimal", DataTypes.DECIMAL(38, 12)).column("day", DataTypes.DATE())
+                .column("clock_s", DataTypes.TIME(0)).column("clock_ms", DataTypes.TIME(3))
+                .column("stamp_s", DataTypes.TIMESTAMP(0)).column("stamp_ms", DataTypes.TIMESTAMP(3))
+                .column("stamp_us", DataTypes.TIMESTAMP(6)).column("stamp_ns", DataTypes.TIMESTAMP(9))
+                .column("stamp_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6));
+    }
+
+    private static GenericRow scalarStatisticsRow(boolean high) {
+        return GenericRow.of(high ? 2L : 1L, BinaryString.fromString("east"), high,
+                high ? Byte.MAX_VALUE : Byte.MIN_VALUE, high ? Short.MAX_VALUE : Short.MIN_VALUE,
+                high ? Integer.MAX_VALUE : Integer.MIN_VALUE, high ? Long.MAX_VALUE : Long.MIN_VALUE,
+                high ? Float.MIN_VALUE : -Float.MAX_VALUE, high ? Double.MIN_VALUE : -Double.MAX_VALUE,
+                BinaryString.fromString(high ? "z   " : "café"), BinaryString.fromString(high ? "東京" : "a,=b"),
+                high ? new byte[] {127, -1, 0, 1} : new byte[] {0, 1, -128, -1},
+                high ? new byte[] {-1, 0} : new byte[] {0},
+                Decimal.fromBigDecimal(new BigDecimal(high ? "99999999999999.9999" : "-99999999999999.9999"), 18, 4),
+                Decimal.fromBigDecimal(new BigDecimal(high ? "0.000000000001"
+                        : "-99999999999999999999999999.999999999999"), 38, 12),
+                Math.toIntExact((high ? LocalDate.of(9999, 12, 31) : LocalDate.of(1, 1, 1)).toEpochDay()),
+                high ? 86_399_000 : 0, high ? 86_399_999 : 0,
+                Timestamp.fromLocalDateTime(LocalDateTime.parse(high ? "2038-01-19T03:14:07" : "1969-12-31T23:59:59")),
+                Timestamp.fromLocalDateTime(LocalDateTime.parse(
+                        high ? "2038-01-19T03:14:07.999" : "1969-12-31T23:59:59.123")),
+                Timestamp.fromLocalDateTime(LocalDateTime.parse(
+                        high ? "2038-01-19T03:14:07.999999" : "1969-12-31T23:59:59.123456")),
+                Timestamp.fromLocalDateTime(LocalDateTime.parse(
+                        high ? "2038-01-19T03:14:07.999999999" : "1969-12-31T23:59:59.123456789")),
+                Timestamp.fromLocalDateTime(LocalDateTime.parse(
+                        high ? "2038-01-19T03:14:07.999999" : "1969-12-31T23:59:59.123456")));
     }
 
     private static void write(FileStoreTable table, GenericRow... rows) throws Exception {

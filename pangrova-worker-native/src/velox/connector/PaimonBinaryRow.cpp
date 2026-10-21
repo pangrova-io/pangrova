@@ -1,18 +1,16 @@
 #include "velox/connector/PaimonBinaryRow.h"
 
 #include <algorithm>
-#include <array>
 #include <bit>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
-#include <type_traits>
 #include <vector>
 
 #include "velox/type/DecimalUtil.h"
-#include "double-conversion/double-conversion.h"
+#include "velox/connector/PaimonFloatingText.h"
 #include "velox/type/Timestamp.h"
 
 namespace pangrova::velox {
@@ -36,34 +34,12 @@ int parameter(std::string_view value) {
   return result;
 }
 
-template <typename T>
-std::string floatingText(T value) {
-  if (std::isnan(value)) return "NaN";
-  if (std::isinf(value)) return value < 0 ? "-Infinity" : "Infinity";
-  if (value == 0) return std::signbit(value) ? "-0.0" : "0.0";
-  std::array<char, 128> buffer{};
-  double_conversion::StringBuilder output(buffer.data(), buffer.size());
-  const double_conversion::DoubleToStringConverter converter(
-      double_conversion::DoubleToStringConverter::EMIT_TRAILING_DECIMAL_POINT |
-          double_conversion::DoubleToStringConverter::EMIT_TRAILING_ZERO_AFTER_POINT,
-      "Infinity", "NaN", 'E', -3, 7, 0, 0);
-  bool success;
-  if constexpr (std::is_same_v<T, float>) success = converter.ToShortestSingle(value, &output);
-  else success = converter.ToShortest(value, &output);
-  if (!success) throw std::runtime_error("Cannot render Paimon floating value");
-  return std::string(output.Finalize());
-}
-
 std::string decimalText(int128_t value, int scale) {
   std::string digits = std::to_string(value);
   bool negative = digits.front() == '-';
   if (negative) digits.erase(0, 1);
-  const int exponent = static_cast<int>(digits.size()) - scale - 1;
-  if (scale > 0 && exponent < -6) {
-    std::string coefficient = digits.substr(0, 1);
-    if (digits.size() > 1) coefficient += "." + digits.substr(1);
-    return (negative ? "-" : "") + coefficient + "E" + std::to_string(exponent);
-  }
+  // Paimon Decimal.toString delegates to BigDecimal.toPlainString, including
+  // small magnitudes and the complete declared scale.
   if (scale > 0) {
     if (digits.size() <= static_cast<size_t>(scale)) digits.insert(0, scale + 1 - digits.size(), '0');
     digits.insert(digits.size() - scale, 1, '.');
@@ -208,8 +184,8 @@ std::optional<std::string> PaimonBinaryRowView::text(int index, const PaimonScal
     return std::bit_cast<int64_t>(bits);
   };
   auto integerText = [&](int64_t value) {
-    if (target.kind == Kind::FLOAT) return floatingText(static_cast<float>(value));
-    if (target.kind == Kind::DOUBLE) return floatingText(static_cast<double>(value));
+    if (target.kind == Kind::FLOAT) return paimonFloatingText(static_cast<float>(value));
+    if (target.kind == Kind::DOUBLE) return paimonFloatingText(static_cast<double>(value));
     if (target.kind == Kind::DECIMAL) {
       int128_t scaled;
       if (__builtin_mul_overflow(static_cast<int128_t>(value),
@@ -236,9 +212,9 @@ std::optional<std::string> PaimonBinaryRowView::text(int index, const PaimonScal
     case Kind::TIME: return partitionCast ? timeText(integer(4), source.precision) : std::to_string(integer(4));
     case Kind::FLOAT: {
       auto value = std::bit_cast<float>(static_cast<uint32_t>(raw));
-      return target.kind == Kind::DOUBLE ? floatingText(static_cast<double>(value)) : floatingText(value);
+      return target.kind == Kind::DOUBLE ? paimonFloatingText(static_cast<double>(value)) : paimonFloatingText(value);
     }
-    case Kind::DOUBLE: return floatingText(std::bit_cast<double>(raw));
+    case Kind::DOUBLE: return paimonFloatingText(std::bit_cast<double>(raw));
     case Kind::STRING: return std::string(variable(index));
     case Kind::BINARY: {
       constexpr char hex[] = "0123456789abcdef";
@@ -268,8 +244,8 @@ std::string PaimonBinaryRowView::decimalValueText(int index, const PaimonScalarT
   const auto sourceLimit = facebook::velox::DecimalUtil::kPowersOfTen[source.precision];
   if (value <= -sourceLimit || value >= sourceLimit)
     throw std::runtime_error("Paimon decimal payload exceeds its declared precision");
-  if (target.kind == Kind::FLOAT) return floatingText(static_cast<float>(std::stod(decimalText(value, source.scale))));
-  if (target.kind == Kind::DOUBLE) return floatingText(std::stod(decimalText(value, source.scale)));
+  if (target.kind == Kind::FLOAT) return paimonFloatingText(static_cast<float>(std::stod(decimalText(value, source.scale))));
+  if (target.kind == Kind::DOUBLE) return paimonFloatingText(std::stod(decimalText(value, source.scale)));
   if (target.scale < source.scale) throw std::runtime_error("Paimon metadata decimal evolution narrows scale");
   if (target.scale != source.scale) {
     int128_t scaled;
