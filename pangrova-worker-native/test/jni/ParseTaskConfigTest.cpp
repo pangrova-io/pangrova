@@ -18,6 +18,7 @@
 #include "capability/LogicalTypeContract.h"
 #include "jni/command/TaskRequestParser.h"
 #include "jni/command/WorkerLocalStorage.h"
+#include "jni/command/WorkerLocalCopyInput.h"
 #include "../lance/LanceDatasetTestFixture.h"
 
 #include "pangrova/protocol/v2/connector.pb.h"
@@ -2237,6 +2238,30 @@ proto::TaskRequest copyInputRequest() {
   local->set_content_size(file->length());
   local->set_pre_native_read_bytes(file->length());
   return request;
+}
+
+TEST(ParseTaskConfigTest, CopySplitCannotUseOrdinaryAdmissionWithoutVerifiedLocalInput) {
+  auto request = copyInputRequest();
+  request.clear_copy_source_staging_command_sha256();
+  request.clear_worker_local_copy_input();
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  EXPECT_THROW(taskConfigFromRequest(request), std::runtime_error);
+}
+
+TEST(ParseTaskConfigTest, CopyPrivateInputCannotDisguiseAnotherConnector) {
+  auto request = copyInputRequest();
+  request.mutable_splits(0)->set_connector_id("iceberg");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  EXPECT_THROW(taskConfigFromRequest(request), std::runtime_error);
+}
+
+TEST(ParseTaskConfigTest, CopyPrivateInputOnlyBindsRelationalReadOrWriteTasks) {
+  auto request = copyInputRequest();
+  EXPECT_NO_THROW(validateWorkerCopyInput(request));
+  request.set_task_kind(proto::TASK_KIND_WRITE);
+  EXPECT_NO_THROW(validateWorkerCopyInput(request));
+  request.set_task_kind(proto::TASK_KIND_SHUFFLE_READ);
+  EXPECT_THROW(validateWorkerCopyInput(request), std::runtime_error);
 }
 
 TEST(ParseTaskConfigTest, VerifiedCopyBindsOnlyExecutionConfigAndDeductsPreNativeReads) {

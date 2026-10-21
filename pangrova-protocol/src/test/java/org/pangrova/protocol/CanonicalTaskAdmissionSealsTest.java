@@ -78,6 +78,27 @@ class CanonicalTaskAdmissionSealsTest {
     }
 
     @Test
+    void copySplitCannotUseOrdinaryAdmissionOrDisguiseAnotherConnector() {
+        var split = org.pangrova.protocol.v2.DataSplit.newBuilder().setSplitId("copy-file")
+                .setConnectorId("copy").setSourceId("copy-source").setSourceSnapshot("version-one")
+                .setDataObjectId("s3://incoming/data.parquet").setOpaqueLocation("s3://incoming/data.parquet")
+                .setLength(1024).setConnectorDetail(com.google.protobuf.Any.pack(
+                        org.pangrova.protocol.v2.FileSplitDetail.newBuilder().setFileFormat(
+                                org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET).build())).build();
+        var unbound = request().toBuilder().addSplits(split).build();
+        assertThatThrownBy(() -> org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(unbound))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COPY");
+        assertThatThrownBy(() -> CanonicalTaskAdmissionSeals.create(unbound))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COPY");
+        var disguised = unbound.toBuilder().setCopySourceStagingCommandSha256(
+                org.pangrova.protocol.task.CanonicalTaskRequests.sha256(new byte[] {1}));
+        disguised.getSplitsBuilder(0).setConnectorId("iceberg");
+        assertThatThrownBy(() -> org.pangrova.protocol.task.CanonicalTaskRequests
+                .validateForAdmission(disguised.build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COPY");
+    }
+
+    @Test
     void compactActualNativeReceiptPreservesExactIdentityAndStripsAllResultPayload() {
         var actual = report().setNativeTaskStats(NativeTaskStats.newBuilder().setRowsWritten(13))
                 .setUsage(ResourceUsage.newBuilder().setPeakNativeMemoryBytes(101))

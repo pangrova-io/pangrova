@@ -197,8 +197,15 @@ public final class CanonicalTaskRequests {
     }
 
     private static void validateCopySourceStagingCommand(TaskRequest request) {
+        boolean copySplit = request.getSplitsList().stream()
+                .anyMatch(split -> "copy".equals(split.getConnectorId()));
         if (!request.hasCopySourceStagingCommandSha256()) {
+            if (copySplit) throw new IllegalArgumentException("COPY source split requires its private staging command");
             return;
+        }
+        // The staging RPC has no splits; executing inputs are one exact COPY object.
+        if (request.getSplitsCount() != 0 && (request.getSplitsCount() != 1 || !copySplit)) {
+            throw new IllegalArgumentException("COPY source command requires one COPY connector split");
         }
         var checksum = request.getCopySourceStagingCommandSha256();
         boolean sourceOrWrite = request.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ

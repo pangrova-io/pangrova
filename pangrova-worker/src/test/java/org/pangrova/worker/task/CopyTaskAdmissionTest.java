@@ -16,6 +16,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Guards the real admission boundary when the verified COPY runtime is absent. */
 class CopyTaskAdmissionTest {
     @Test
+    void unboundCopySplitCannotReserveAWorkerTaskOrReachNativeCreation() {
+        var split = org.pangrova.protocol.v2.DataSplit.newBuilder().setSplitId("copy-input")
+                .setConnectorId("copy").setSourceId("copy-source").setSourceSnapshot("version-one")
+                .setDataObjectId("s3://incoming/data.parquet").setOpaqueLocation("s3://incoming/data.parquet")
+                .setLength(1024).setConnectorDetail(com.google.protobuf.Any.pack(
+                        org.pangrova.protocol.v2.FileSplitDetail.newBuilder().setFileFormat(
+                                org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET).build()));
+        var canonical = CanonicalTaskRequestTestFixture.builder("copy-task", "copy-query", 0, 0,
+                TaskKind.TASK_KIND_READ, new byte[] {1}).addSplits(split).build();
+        var request = SubmitTaskRequest.from(canonical);
+        var descriptor = org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.toTaskDescriptor(request);
+        try (TaskManager manager = TaskManager.forHttpWiringOnly()) {
+            assertThatThrownBy(() -> manager.submitTask(descriptor, request))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COPY source split");
+            assertThat(manager.resolveWorkerTaskId(canonical.getAttempt().getTaskId())).isNull();
+            assertThat(manager.getRunningTaskCount()).isZero();
+        }
+    }
+
+    @Test
     void copyTaskCannotReserveOrCreateNativeOwnerBeforeStagingIsWired() {
         var scope = new CopySourceReadHttp.Scope("tenant", "test-user", "incoming",
                 "f92e704f-2443-4d3a-a496-cd6507dd97db", 1,

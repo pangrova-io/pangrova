@@ -1,18 +1,27 @@
 #include "jni/command/WorkerLocalCopyInput.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <stdexcept>
 
 namespace pangrova::jni {
 
 void validateWorkerCopyInput(const protocol::v2::TaskRequest& request) {
+  const bool copySplit = std::any_of(request.splits().begin(), request.splits().end(),
+      [](const auto& split) { return split.connector_id() == "copy"; });
+  if (copySplit && !request.has_copy_source_staging_command_sha256()) {
+    throw std::runtime_error("COPY source split requires its private staging command");
+  }
   if (request.has_copy_source_staging_command_sha256() != request.has_worker_local_copy_input()) {
     throw std::runtime_error("COPY source task requires verified Worker-local split binding");
   }
   if (!request.has_worker_local_copy_input()) return;
   const auto& input = request.worker_local_copy_input();
   const auto& digest = request.copy_source_staging_command_sha256();
-  if (!input.GetReflection()->GetUnknownFields(input).empty() || request.splits_size() != 1 ||
+  const bool relational = request.task_kind() == protocol::v2::TASK_KIND_READ ||
+      request.task_kind() == protocol::v2::TASK_KIND_WRITE;
+  if (!relational || !copySplit || !input.GetReflection()->GetUnknownFields(input).empty() ||
+      request.splits_size() != 1 ||
       digest.algorithm() != protocol::v2::Checksum::ALGORITHM_SHA256 || digest.digest().size() != 32) {
     throw std::runtime_error("COPY Worker-local input or command digest is incomplete");
   }

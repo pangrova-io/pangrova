@@ -24,7 +24,7 @@ public final class CopyNativeTaskInput {
             throw new IllegalArgumentException("COPY Native input requires one exact private source binding");
         }
         var split = request.getSplits(0);
-        if (!split.getConnectorDetail().is(FileSplitDetail.class)
+        if (!"copy".equals(split.getConnectorId()) || !split.getConnectorDetail().is(FileSplitDetail.class)
                 || DataSplitProtoCodec.fileDetail(split).getFileFormat() != FileFormat.FILE_FORMAT_PARQUET
                 || split.hasCatalog() || split.getStartOffset() != 0 || split.getLength() <= 0
                 || split.getSourceSnapshot().isBlank()
