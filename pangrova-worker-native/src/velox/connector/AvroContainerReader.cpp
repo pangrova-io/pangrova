@@ -1,4 +1,4 @@
-#include "velox/connector/IcebergAvroContainerReader.h"
+#include "velox/connector/AvroContainerReader.h"
 
 #include <algorithm>
 #include <array>
@@ -15,6 +15,7 @@
 #include "openssl/evp.h"
 #include "velox/common/file/File.h"
 #include "zlib.h"
+#include "zstd.h"
 
 namespace pangrova::velox {
 namespace {
@@ -225,28 +226,53 @@ std::string inflateDeflate(std::string_view compressed) {
   return output;
 }
 
+std::string inflateZstandard(const std::string& compressed) {
+  std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> context(ZSTD_createDCtx(), ZSTD_freeDCtx);
+  if (!context || ZSTD_isError(ZSTD_DCtx_setParameter(context.get(), ZSTD_d_windowLogMax, 26))) {
+    throw std::runtime_error("Cannot initialize bounded Avro Zstandard decoder");
+  }
+  ZSTD_inBuffer input{compressed.data(), compressed.size(), 0};
+  std::array<char, kHashChunkBytes> chunk{};
+  std::string output;
+  size_t remaining = 1;
+  while (input.pos < input.size || remaining != 0) {
+    const auto before = input.pos;
+    ZSTD_outBuffer decoded{chunk.data(), chunk.size(), 0};
+    remaining = ZSTD_decompressStream(context.get(), &decoded, &input);
+    if (ZSTD_isError(remaining)) throw std::runtime_error("Invalid Avro Zstandard block");
+    if (decoded.pos > kMaxBlockBytes - output.size()) {
+      throw std::runtime_error("Avro block expands beyond bounded read limit");
+    }
+    output.append(chunk.data(), decoded.pos);
+    if (remaining != 0 && input.pos == before && decoded.pos == 0) {
+      throw std::runtime_error("Truncated Avro Zstandard block");
+    }
+  }
+  return output;
+}
+
 }  // namespace
 
-IcebergAvroContainerReader::IcebergAvroContainerReader(
+AvroContainerReader::AvroContainerReader(
     std::shared_ptr<facebook::velox::ReadFile> file,
     uint64_t expectedLength, std::string expectedSha256)
     : file_(std::move(file)) {
   if (!file_ || expectedLength == 0 || file_->size() != expectedLength ||
       expectedSha256.size() != 32) {
-    throw std::invalid_argument("Invalid pinned Iceberg Avro object identity");
+    throw std::invalid_argument("Invalid pinned Avro object identity");
   }
   file_size_ = expectedLength;
   std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> digest(
       EVP_MD_CTX_new(), EVP_MD_CTX_free);
   if (!digest || EVP_DigestInit_ex(digest.get(), EVP_sha256(), nullptr) != 1) {
-    throw std::runtime_error("Cannot initialize Iceberg manifest-list digest");
+    throw std::runtime_error("Cannot initialize Avro metadata digest");
   }
   std::array<char, kHashChunkBytes> chunk{};
   for (uint64_t offset = 0; offset < file_size_;) {
     const auto length = std::min<uint64_t>(chunk.size(), file_size_ - offset);
     file_->pread(offset, length, chunk.data());
     if (EVP_DigestUpdate(digest.get(), chunk.data(), length) != 1) {
-      throw std::runtime_error("Cannot hash Iceberg manifest list");
+      throw std::runtime_error("Cannot hash Avro metadata object");
     }
     offset += length;
   }
@@ -255,12 +281,12 @@ IcebergAvroContainerReader::IcebergAvroContainerReader(
   if (EVP_DigestFinal_ex(digest.get(), actual.data(), &digestSize) != 1 ||
       digestSize != actual.size() ||
       CRYPTO_memcmp(actual.data(), expectedSha256.data(), actual.size()) != 0) {
-    throw std::runtime_error("Pinned Iceberg manifest-list SHA-256 changed");
+    throw std::runtime_error("Pinned Avro metadata SHA-256 changed");
   }
   parseHeader();
 }
 
-std::string IcebergAvroContainerReader::readExact(uint64_t size) {
+std::string AvroContainerReader::readExact(uint64_t size) {
   if (size > file_size_ - file_position_) {
     throw std::runtime_error("Truncated Iceberg Avro container");
   }
@@ -272,7 +298,7 @@ std::string IcebergAvroContainerReader::readExact(uint64_t size) {
   return bytes;
 }
 
-int64_t IcebergAvroContainerReader::readFileLong() {
+int64_t AvroContainerReader::readFileLong() {
   uint64_t encoded = 0;
   for (int index = 0; index < 10; ++index) {
     const auto byte = static_cast<uint8_t>(readExact(1)[0]);
@@ -288,7 +314,7 @@ int64_t IcebergAvroContainerReader::readFileLong() {
   throw std::runtime_error("Unterminated Avro container varint");
 }
 
-std::string IcebergAvroContainerReader::readFileBytes() {
+std::string AvroContainerReader::readFileBytes() {
   const auto length = readFileLong();
   if (length < 0 || static_cast<uint64_t>(length) > kMaxHeaderBytes) {
     throw std::runtime_error("Invalid Avro container header field");
@@ -296,9 +322,9 @@ std::string IcebergAvroContainerReader::readFileBytes() {
   return readExact(length);
 }
 
-void IcebergAvroContainerReader::parseHeader() {
+void AvroContainerReader::parseHeader() {
   if (readExact(4) != std::string("Obj\x01", 4)) {
-    throw std::runtime_error("Iceberg manifest list is not Avro OCF");
+    throw std::runtime_error("Avro metadata object is not Avro OCF");
   }
   uint64_t totalEntries = 0;
   while (true) {
@@ -343,16 +369,16 @@ void IcebergAvroContainerReader::parseHeader() {
   }
   writer_schema_ = folly::parseJson(schema->second);
   if (!writer_schema_.isObject() || text(writer_schema_["type"]) != "record") {
-    throw std::runtime_error("Iceberg manifest-list writer schema is not a record");
+    throw std::runtime_error("Avro metadata writer schema is not a record");
   }
   auto codec = metadata_.find("avro.codec");
   codec_ = codec == metadata_.end() ? "null" : codec->second;
-  if (codec_ != "null" && codec_ != "deflate") {
-    throw std::runtime_error("Unsupported Iceberg manifest-list Avro codec: " + codec_);
+  if (codec_ != "null" && codec_ != "deflate" && codec_ != "zstandard") {
+    throw std::runtime_error("Unsupported Avro metadata Avro codec: " + codec_);
   }
 }
 
-std::string IcebergAvroContainerReader::metadataValue(const std::string& key) const {
+std::string AvroContainerReader::metadataValue(const std::string& key) const {
   auto entry = metadata_.find(key);
   if (entry == metadata_.end()) {
     throw std::runtime_error("Iceberg Avro container lacks metadata: " + key);
@@ -360,7 +386,7 @@ std::string IcebergAvroContainerReader::metadataValue(const std::string& key) co
   return entry->second;
 }
 
-bool IcebergAvroContainerReader::readNextBlock() {
+bool AvroContainerReader::readNextBlock() {
   if (file_position_ == file_size_) return false;
   const auto count = readFileLong();
   const auto encodedSize = readFileLong();
@@ -372,13 +398,15 @@ bool IcebergAvroContainerReader::readNextBlock() {
   if (readExact(sync_marker_.size()) != sync_marker_) {
     throw std::runtime_error("Iceberg Avro block sync marker changed");
   }
-  block_ = codec_ == "deflate" ? inflateDeflate(compressed) : std::move(compressed);
+  if (codec_ == "deflate") block_ = inflateDeflate(compressed);
+  else if (codec_ == "zstandard") block_ = inflateZstandard(compressed);
+  else block_ = std::move(compressed);
   block_position_ = 0;
   remaining_rows_ = count;
   return true;
 }
 
-std::optional<folly::dynamic> IcebergAvroContainerReader::nextRecord() {
+std::optional<folly::dynamic> AvroContainerReader::nextRecord() {
   if (remaining_rows_ == 0 && !readNextBlock()) return std::nullopt;
   BinaryDecoder decoder(std::string_view(block_).substr(block_position_));
   auto row = decoder.decode(writer_schema_);

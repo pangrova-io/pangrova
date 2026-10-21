@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "split/SplitConfig.h"
-#include "velox/connector/IcebergAvroContainerReader.h"
+#include "velox/connector/AvroContainerReader.h"
 #include "velox/vector/ComplexVector.h"
 
 namespace facebook::velox::memory {
@@ -39,7 +39,7 @@ class IcebergManifestListReader final {
       const facebook::velox::TypePtr& arrayType) const;
   void validateOutputSchema() const;
 
-  std::unique_ptr<IcebergAvroContainerReader> container_;
+  std::unique_ptr<AvroContainerReader> container_;
   std::unordered_map<int32_t, std::vector<split::IcebergManifestPartitionField>> specs_;
   facebook::velox::RowTypePtr output_type_;
   facebook::velox::memory::MemoryPool* pool_;

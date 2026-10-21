@@ -7,6 +7,14 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 # AI Native 剩余验证清单
 
 
+**2026-10-21 Paimon `$files` 格式前置增量：**按锁定 Paimon 1.4.1 的 `FilesTable.TABLE_TYPE` 和实际 SDK 写出对象核对，标准为 **20 列**，现存 Java 6 列行物化类没有对应 Native 路由。新 append/主键两种对照测试先确认 SDK 的全部 20 列与两个 commit，再以正确的系统表 SQL 复现 **2/2 FAIL**：只读 SDK FilesTable 被送入要求物理 FileStoreTable 的 handle factory；日志 `/tmp/pangrova-paimon-files-sdk-oracle-red-r5-20261021.log`。这两项仍未修复，不能记为功能通过。
+
+共享 Native Avro object-container reader 已从 Iceberg 专名中抽出，保留原 manifest/list 消费者。新增 Paimon 默认 `zstandard` codec，使用流式解码，同时限制 64 MiB 解码块与窗口；支持未知 frame content-size，并拒绝截断、损坏、尾随非法帧及超限膨胀。四个实际 SDK manifest/list 夹具来自 append/主键表，各含两次提交的原始对象，未生成替代结果行。定点 Release **12/12 PASS**；Avro 与受影响 manifest/list ASan **25/25 PASS**（无内存/函数类型诊断；75 条可选整数诊断全部位于已分析的 Folly SpookyHash/Hash 实现，未屏蔽）。新 JNI 五处字节一致，SHA256 `a83ed380726cfc2aeff8858246ebf1b904d1f854832db59e85ccd099392d3c5d`，现有 Iceberg manifest/嵌套分区及 `$files` 真 SQL **3/3 PASS**。证据 `/tmp/pangrova-paimon-avro-{focused-r7,asan-affected-r11}-20261021.log`、`/tmp/pangrova-shared-avro-iceberg-e2e-r15-20261021.log`、`/tmp/pangrova-shared-avro-artifacts-r16-20261021.json`。
+
+后续按现有 Paimon SDK 元数据规划能力冻结快照、原始对象和有效文件身份，Native 读取原始对象并生成 20 列；不在 Java 生成系统表结果行，也不另造一套与 SDK 不同的 ADD/DELETE 合并规则。文件身份还包含 level、extra files、embedded index、external path，不能仅按文件名去重。Paimon 1.4.1 统计列实际是 Java TreeMap 的排序字符串，分区是 ROW cast 字符串，不能照抄其他版本文档的 JSON 表述。Native BinaryRow/统计演进和完整 20 列投影、授权/空表/历史版本端到端验收仍待完成；**17 类本机检查点保持开放**。
+
+
+
 **2026-10-21 UUID 全链路修复（受影响范围验收通过）：**UUID 的 Parser/AST、SPI 值、Calcite 类型、Substrait、Native、Arrow 和 JDBC 保留独立身份。Planner 在构造表达式时绑定 UUID 无符号比较，并阻止 Calcite 用“至少 16 字节”的 Java 转换静默截断 binary UUID；Native CAST 强制长度恰为 16。Parquet reader 验证 UUID annotation 和 fixed(16)，通过任务所属 vectorized CAST 处理 ROW/ARRAY/MAP、dictionary、constant、NULL 和空批次，不把普通 binary(16) 推断为 UUID。
 
 历史 Iceberg UUID 文件统计没有比较顺序来源证明，签名比较器和无符号 Parquet 边界混合时甚至可产生遗漏真实值的正常形状 min/max。因此 UUID 值谓词不使用这些统计排除文件；NULL 统计和其他列裁剪保留，Native FilterNode 保留全部谓词。读层使用符合 [Parquet UUID 规范](https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#uuid)的无符号 16 字节过滤；相关兼容性缺陷见 [Apache 上游分析](https://issues.apache.org/jira/browse/IMPALA-15476)。FilterRel 的条件接入 scan handle，保持计划 ID、列映射和预算；过滤器按当前声明的 Native 函数名匹配，并在创建 row reader 前设置。Paimon MOR 的值谓词保持在版本合并之后，避免旧版本复活。

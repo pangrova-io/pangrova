@@ -23,7 +23,7 @@ namespace {
 constexpr uint64_t kMaxBatchRows = 1024;
 constexpr uint64_t kMaxSummaryFields = 1024;
 
-int64_t decimalMetadata(const IcebergAvroContainerReader& container,
+int64_t decimalMetadata(const AvroContainerReader& container,
     const std::string& key) {
   const auto value = container.metadataValue(key);
   int64_t parsed = 0;
@@ -198,7 +198,7 @@ IcebergManifestListReader::IcebergManifestListReader(
   const auto path = split::metadataObjectPath(uri);
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
   if (!filesystem) throw std::runtime_error("No Native filesystem for Iceberg manifest list");
-  container_ = std::make_unique<IcebergAvroContainerReader>(
+  container_ = std::make_unique<AvroContainerReader>(
       filesystem->openFileForRead(path), expectedLength, expectedSha256);
   const auto headerSnapshot = decimalMetadata(*container_, "snapshot-id");
   const auto headerSequence = decimalMetadata(*container_, "sequence-number");

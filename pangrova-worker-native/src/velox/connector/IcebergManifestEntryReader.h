@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "split/SplitConfig.h"
-#include "velox/connector/IcebergAvroContainerReader.h"
+#include "velox/connector/AvroContainerReader.h"
 #include "velox/vector/ComplexVector.h"
 
 namespace facebook::velox::memory {
@@ -40,7 +40,7 @@ class IcebergManifestEntryReader final {
  private:
   void validateOutputSchema() const;
 
-  std::unique_ptr<IcebergAvroContainerReader> child_;
+  std::unique_ptr<AvroContainerReader> child_;
   std::unique_ptr<IcebergPartitionProjection> partition_projection_;
   int32_t spec_id_;
   int32_t manifest_content_;

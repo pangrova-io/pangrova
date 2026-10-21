@@ -24,16 +24,16 @@ namespace {
 constexpr uint64_t kMaxBatchRows = 1024;
 constexpr size_t kMaxBatchArrayElements = 1'000'000;
 
-std::unique_ptr<IcebergAvroContainerReader> openPinned(
+std::unique_ptr<AvroContainerReader> openPinned(
     const std::string& uri, uint64_t length, const std::string& sha256) {
   const auto path = split::metadataObjectPath(uri);
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
   if (!filesystem) throw std::runtime_error("No Native filesystem for Iceberg manifest");
-  return std::make_unique<IcebergAvroContainerReader>(
+  return std::make_unique<AvroContainerReader>(
       filesystem->openFileForRead(path), length, sha256);
 }
 
-int64_t headerLong(const IcebergAvroContainerReader& container, const char* name) {
+int64_t headerLong(const AvroContainerReader& container, const char* name) {
   const auto value = container.metadataValue(name);
   int64_t parsed = 0;
   const auto [end, error] = std::from_chars(
@@ -196,7 +196,7 @@ struct ParentManifestIdentity {
   std::optional<int64_t> firstRowId;
 };
 
-ParentManifestIdentity verifyParentMembership(IcebergAvroContainerReader& list,
+ParentManifestIdentity verifyParentMembership(AvroContainerReader& list,
     const std::string& childUri, uint64_t childLength,
     uint64_t snapshotId, uint64_t sequenceNumber, int32_t formatVersion,
     int32_t specId, int32_t content, bool requireEntryMetadata) {

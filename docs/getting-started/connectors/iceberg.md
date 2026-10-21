@@ -59,6 +59,9 @@ WITH (
 | Hidden partitioning | Supported | year/month/day/hour/bucket/truncate transforms |
 | Metadata tables | Partially supported | `$snapshots`, `$history`, `$refs`, `$manifests`, `$partitions`, and supported projections of `$files`/`$entries`. |
 
+Metadata Avro containers support `null`, `deflate`, and `zstandard` compression.
+The Native reader rejects unsupported codecs and malformed or oversized blocks.
+
 
 ### Snapshot metadata
 

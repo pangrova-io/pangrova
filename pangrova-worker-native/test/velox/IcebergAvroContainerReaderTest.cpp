@@ -3,16 +3,19 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #include <unistd.h>
 
 #include "openssl/evp.h"
 #include "zlib.h"
+#include "zstd.h"
 #include "velox/common/file/File.h"
 #include "velox/common/file/FileSystems.h"
-#include "velox/connector/IcebergAvroContainerReader.h"
+#include "velox/connector/AvroContainerReader.h"
 
 namespace pangrova::velox::test {
 namespace {
@@ -41,7 +44,8 @@ void appendBytes(std::string& bytes, const std::string& value) {
   bytes += value;
 }
 
-std::string container(const std::string& codec, const std::string& row) {
+std::string container(const std::string& codec, const std::string& row,
+    bool contentSize = true, const std::function<void(std::string&)>& mutate = {}) {
   std::string bytes("Obj\x01", 4);
   appendLong(bytes, 2);
   appendBytes(bytes, "avro.schema");
@@ -71,6 +75,17 @@ std::string container(const std::string& codec, const std::string& row) {
     }
     encoded.resize(stream.total_out);
   }
+  if (codec == "zstandard") {
+    std::unique_ptr<ZSTD_CCtx, decltype(&ZSTD_freeCCtx)> context(ZSTD_createCCtx(), ZSTD_freeCCtx);
+    if (!context || ZSTD_isError(ZSTD_CCtx_setParameter(context.get(), ZSTD_c_contentSizeFlag, contentSize))) {
+      throw std::runtime_error("Cannot initialize Avro test Zstandard encoder");
+    }
+    encoded.resize(ZSTD_compressBound(row.size()));
+    const auto length = ZSTD_compress2(context.get(), encoded.data(), encoded.size(), row.data(), row.size());
+    if (ZSTD_isError(length)) throw std::runtime_error("Cannot compress Avro test Zstandard block");
+    encoded.resize(length);
+  }
+  if (mutate) mutate(encoded);
   appendLong(bytes, encoded.size());
   bytes += encoded;
   bytes += sync;
@@ -142,7 +157,7 @@ std::string rowWithFalseCollectionBlockSize() {
 TEST(IcebergAvroContainerReaderTest, ReadsPinnedNestedManifestRecord) {
   const auto bytes = container("null", oneRow());
   AvroFile file(bytes);
-  IcebergAvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
+  AvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
   auto record = reader.nextRecord();
   ASSERT_TRUE(record.has_value());
   EXPECT_EQ((*record)["manifest_path"].asString(), "file:/data/manifest.avro");
@@ -155,7 +170,7 @@ TEST(IcebergAvroContainerReaderTest, ReadsPinnedNestedManifestRecord) {
 TEST(IcebergAvroContainerReaderTest, ReadsDefaultDeflateCodec) {
   const auto bytes = container("deflate", oneRow());
   AvroFile file(bytes);
-  IcebergAvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
+  AvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
   const auto record = reader.nextRecord();
   ASSERT_TRUE(record.has_value());
   EXPECT_EQ((*record)["manifest_path"].asString(), "file:/data/manifest.avro");
@@ -167,21 +182,97 @@ TEST(IcebergAvroContainerReaderTest, RejectsChangedObjectAndUnsupportedCodec) {
   auto bytes = container("null", oneRow());
   AvroFile file(bytes);
   bytes.back() = 'x';
-  EXPECT_THROW(IcebergAvroContainerReader(file.open(), bytes.size(), sha256(bytes)),
+  EXPECT_THROW(AvroContainerReader(file.open(), bytes.size(), sha256(bytes)),
       std::runtime_error);
 
   const auto unsupported = container("snappy", oneRow());
   AvroFile unsupportedFile(unsupported);
-  EXPECT_THROW(IcebergAvroContainerReader(unsupportedFile.open(),
+  EXPECT_THROW(AvroContainerReader(unsupportedFile.open(),
       unsupported.size(), sha256(unsupported)), std::runtime_error);
 }
 
 TEST(IcebergAvroContainerReaderTest, RejectsFalseExplicitCollectionBlockSize) {
   const auto bytes = container("null", rowWithFalseCollectionBlockSize());
   AvroFile file(bytes);
-  IcebergAvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
+  AvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
   EXPECT_THROW(reader.nextRecord(), std::runtime_error);
 }
+
+class AvroZstandardCodecTest : public ::testing::TestWithParam<bool> {};
+
+TEST_P(AvroZstandardCodecTest, ReadsCanonicalFramesWithKnownOrUnknownDecodedSize) {
+  const auto bytes = container("zstandard", oneRow(), GetParam());
+  AvroFile file(bytes);
+  AvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
+  const auto row = reader.nextRecord();
+  ASSERT_TRUE(row.has_value());
+  EXPECT_EQ((*row)["manifest_path"].asString(), "file:/data/manifest.avro");
+  EXPECT_EQ((*row)["partitions"][0]["lower_bound"].asString(), "low");
+  EXPECT_FALSE(reader.nextRecord().has_value());
+}
+INSTANTIATE_TEST_SUITE_P(ContentSize, AvroZstandardCodecTest, ::testing::Bool());
+
+TEST(AvroZstandardBoundaryTest, RejectsTruncatedCorruptAndTrailingNonFrameBytes) {
+  const std::vector<std::function<void(std::string&)>> mutations{
+      [](auto& bytes) { bytes.resize(bytes.size() - 1); },
+      [](auto& bytes) { bytes[0] = 0; },
+      [](auto& bytes) { bytes += "invalid trailing data"; }};
+  for (const auto& mutation : mutations) {
+    const auto bytes = container("zstandard", oneRow(), false, mutation);
+    AvroFile file(bytes);
+    AvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
+    EXPECT_THROW(reader.nextRecord(), std::runtime_error);
+  }
+}
+
+TEST(AvroZstandardBoundaryTest, RejectsBlocksExpandingBeyondTheExistingDecodedBudget) {
+  const auto bytes = container("zstandard", std::string(65 * 1024 * 1024, 'x'), false);
+  AvroFile file(bytes);
+  AvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
+  try {
+    reader.nextRecord();
+    FAIL() << "Oversized Zstandard output must be rejected";
+  } catch (const std::runtime_error& failure) {
+    EXPECT_NE(std::string(failure.what()).find("bounded read limit"), std::string::npos);
+  }
+}
+
+class PaimonSdkAvroCompatibilityTest : public ::testing::TestWithParam<std::string> {};
+
+TEST_P(PaimonSdkAvroCompatibilityTest, ReadsActualDefaultCompressedSdkMetadata) {
+  const auto path = std::filesystem::path(__FILE__).parent_path().parent_path() /
+      "resources" / "paimon" / GetParam();
+  std::ifstream input(path, std::ios::binary);
+  ASSERT_TRUE(input.good());
+  const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  AvroFile file(bytes);
+  AvroContainerReader reader(file.open(), bytes.size(), sha256(bytes));
+  EXPECT_EQ(reader.metadataValue("avro.codec"), "zstandard");
+  const bool entry = GetParam().find("manifest-entry") != std::string::npos;
+  int count = 0;
+  while (auto record = reader.nextRecord()) {
+    ++count;
+    EXPECT_EQ((*record)["_VERSION"].asInt(), 2);
+    if (entry) {
+      EXPECT_EQ((*record)["_KIND"].asInt(), 0);
+      EXPECT_EQ((*record)["_BUCKET"].asInt(), 0);
+      const auto& data = (*record)["_FILE"];
+      EXPECT_EQ(data["_ROW_COUNT"].asInt(), 1);
+      EXPECT_GT(data["_FILE_SIZE"].asInt(), 0);
+      EXPECT_EQ(data["_SCHEMA_ID"].asInt(), 0);
+      EXPECT_EQ(data["_VALUE_STATS"]["_NULL_COUNTS"].size(), 3);
+      EXPECT_EQ(data["_FILE_NAME"].asString().rfind(".parquet"), data["_FILE_NAME"].asString().size() - 8);
+    } else {
+      EXPECT_EQ((*record)["_NUM_DELETED_FILES"].asInt(), 0);
+      EXPECT_GT((*record)["_NUM_ADDED_FILES"].asInt(), 0);
+      EXPECT_EQ((*record)["_FILE_NAME"].asString().find("manifest-"), 0);
+    }
+  }
+  EXPECT_EQ(count, entry ? 2 : 1);
+}
+INSTANTIATE_TEST_SUITE_P(PhysicalObjects, PaimonSdkAvroCompatibilityTest, ::testing::Values(
+    "append-manifest-entry.avro", "append-manifest-list.avro",
+    "primary-key-manifest-entry.avro", "primary-key-manifest-list.avro"));
 
 }  // namespace
 }  // namespace pangrova::velox::test

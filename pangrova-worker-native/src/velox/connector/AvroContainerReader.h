@@ -17,9 +17,9 @@ namespace pangrova::velox {
 // Reads records from one pinned Avro object-container file. The container is
 // streamed by block; only a bounded decompressed block is retained at a time.
 // Unsupported codecs and schemas fail closed before producing a row.
-class IcebergAvroContainerReader final {
+class AvroContainerReader final {
  public:
-  IcebergAvroContainerReader(
+  AvroContainerReader(
       std::shared_ptr<facebook::velox::ReadFile> file,
       uint64_t expectedLength,
       std::string expectedSha256);
