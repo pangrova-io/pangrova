@@ -45,7 +45,7 @@ public final class CanonicalTaskAdmissionSeals {
      * @throws UncheckedIOException if deterministic serialization fails
      */
     public static byte[] digest(TaskRequest request) {
-        if (request.getWorkerLocalStorageBindingsCount() != 0) {
+        if (request.getWorkerLocalStorageBindingsCount() != 0 || request.hasWorkerLocalCopyInput()) {
             throw new IllegalArgumentException("Admission digest must describe the original NETWORK request");
         }
         var digest = DigestUtils.sha256();

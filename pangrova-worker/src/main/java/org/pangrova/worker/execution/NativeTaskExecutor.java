@@ -45,6 +45,19 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     private volatile boolean closed = false;
     private volatile org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime catalogRuntime;
+    private volatile org.pangrova.worker.copy.CopyStageLeases copyInputs;
+
+    /** Supplies the governed source materializer before task admission starts. */
+    public void setCopyInputs(org.pangrova.worker.copy.CopyStageLeases runtime) {
+        if (!creationOwners.isEmpty()) throw new IllegalStateException("Cannot replace COPY input runtime with owners");
+        if (!runtime.supportsNativeInputs()) {
+            throw new IllegalArgumentException("COPY runtime cannot materialize Native inputs");
+        }
+        copyInputs = java.util.Objects.requireNonNull(runtime, "runtime");
+    }
+
+    /** Reports whether private COPY tasks have their real source materializer. */
+    public boolean hasCopyInputs() { return copyInputs != null; }
 
     /**
      * Supplies the production Worker-local catalog authority before Native dataset task creation.
@@ -72,14 +85,43 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         org.pangrova.protocol.v2.TaskRequest request;
         try {
             request = parseTaskRequest(taskRequestBytes);
+            if (request.hasCopySourceStagingCommandSha256()) {
+                throw new IllegalArgumentException("COPY creation requires its private Worker envelope");
+            }
         } catch (RuntimeException failure) {
             throw new NativeTaskCreationFailure(0, true, failure);
         }
+        return createTask(request, null);
+    }
+
+    /** Keeps the private ticket in Worker Java; only a verified local request reaches JNI. */
+    public long createCopyTask(org.pangrova.protocol.rest.task.SubmitTaskRequest envelope) {
+        org.pangrova.protocol.v2.TaskRequest request;
+        try {
+            request = parseTaskRequest(envelope.canonicalBytes());
+        } catch (RuntimeException failure) {
+            throw new NativeTaskCreationFailure(0, true, failure);
+        }
+        if (envelope.copySourceRead() == null || copyInputs == null) {
+            throw new NativeTaskCreationFailure(0, true,
+                    new IllegalStateException("COPY input runtime and private source ticket are required"));
+        }
+        return createTask(request, envelope);
+    }
+
+    private long createTask(org.pangrova.protocol.v2.TaskRequest request,
+                            org.pangrova.protocol.rest.task.SubmitTaskRequest envelope) {
         var owner = prepareCreation(request);
         try {
-            var local =
-                    org.pangrova.worker.jni.write.catalog.WorkerNativeStorageTasks.prepare(
-                            request, catalogRuntime);
+            var local = org.pangrova.worker.jni.write.catalog.WorkerNativeStorageTasks.prepare(request, catalogRuntime);
+            if (envelope != null) {
+                owner.copyReadBudget = new org.pangrova.worker.copy.CopyTaskReadBudget(
+                        request.getResourceGrant().getObjectStoreReadBytes());
+                var input = org.pangrova.worker.copy.CopyNativeTaskInput.prepare(envelope, copyInputs,
+                        new org.pangrova.worker.copy.CopyMaterialization(owner.copyReadBudget,
+                                file -> owner.copyInput = file));
+                local = local.toBuilder().setWorkerLocalCopyInput(input).build();
+            }
             prepareExternalShuffle(owner);
             AiInvocationService.registerTask(request);
             owner.aiRegistered = true;
@@ -95,7 +137,8 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
             creationOwners.publish(owner);
             return owner.handle;
         } catch (Throwable failure) {
-            throw reconcileCreationFailure(owner, failure);
+            throw reconcileCreationFailure(owner, failure).withWorkerObjectReadBytes(
+                    owner.copyReadBudget == null ? 0 : owner.copyReadBudget.requestedBytes());
         } finally {
             owner.constructionExit.complete(null);
         }
@@ -238,9 +281,9 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
                     org.pangrova.common.exception.PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
                     "Joined Native release returned a nonterminal or non-Native task report");
         }
-        return mergeProviderResources(
+        return mergeCopyReads(executorHandle, mergeProviderResources(
                         report,
-                        AiInvocationService.resourceUsage(identity.tenantId(), identity.attempt()))
+                        AiInvocationService.resourceUsage(identity.tenantId(), identity.attempt())))
                 .toByteArray();
     }
 
@@ -286,10 +329,10 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
             var report = parseNativeTaskReport(status);
             var attempt = report.getAttempt();
             TaskIdentity identity = requireTaskIdentity(executorHandle, attempt);
-            return mergeProviderResources(
+            return mergeCopyReads(executorHandle, mergeProviderResources(
                             report,
                             AiInvocationService.resourceUsage(
-                                    identity.tenantId(), identity.attempt()))
+                                    identity.tenantId(), identity.attempt())))
                     .toByteArray();
         } finally {
             lease.close();
@@ -449,6 +492,17 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
                                                 nativeUsage.getMediaBytes(),
                                                 actual.getMediaBytes())))
                 .build();
+    }
+
+    private org.pangrova.protocol.v2.TaskReport mergeCopyReads(
+            long handle, org.pangrova.protocol.v2.TaskReport report) {
+        var owner = creationOwners.forHandle(handle);
+        if (owner == null || owner.copyReadBudget == null) return report;
+        long reads = Math.addExact(report.getUsage().getObjectStoreReadBytes(), owner.copyReadBudget.requestedBytes());
+        if (reads > owner.request.getResourceGrant().getObjectStoreReadBytes()) {
+            throw new IllegalStateException("COPY combined read usage exceeded the admitted task grant");
+        }
+        return report.toBuilder().setUsage(report.getUsage().toBuilder().setObjectStoreReadBytes(reads)).build();
     }
 
     @Override

@@ -71,8 +71,12 @@ final class TaskStatusCollector {
 
     private static byte[] withActualDrain(TaskInfo info, byte[] canonical) {
         try {
-            return org.pangrova.protocol.v2.TaskReport.parseFrom(canonical).toBuilder()
-                    .setExecutionDrainState(info.executionDrainState()).build().toByteArray();
+            var report = org.pangrova.protocol.v2.TaskReport.parseFrom(canonical).toBuilder()
+                    .setExecutionDrainState(info.executionDrainState());
+            if (info.executorHandle() == 0 && info.executorReleaseReport() == null) {
+                report.getUsageBuilder().setObjectStoreReadBytes(info.preNativeReadBytes());
+            }
+            return report.build().toByteArray();
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new IllegalStateException("Worker produced a malformed canonical terminal report", failure);
         }
@@ -94,8 +98,10 @@ final class TaskStatusCollector {
                 .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER) {
             throw new IllegalStateException("Resource release lacks verified closed admission");
         }
-        return java.util.Optional.of(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.closedWithoutOwner(
-                org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(info.request().taskRequest())));
+        var closed = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.closedWithoutOwner(
+                org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(info.request().taskRequest()));
+        return java.util.Optional.of(closed.toBuilder().setUsage(closed.getUsage().toBuilder()
+                .setObjectStoreReadBytes(info.preNativeReadBytes())).build());
     }
 
     private void reportStatus(

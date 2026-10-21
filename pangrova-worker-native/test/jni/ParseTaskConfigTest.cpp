@@ -2219,5 +2219,69 @@ TEST(ParseTaskConfigTest,
       parseTaskConfig(serializeRaw(snapshot_mismatch)), std::runtime_error);
 }
 
+proto::TaskRequest copyInputRequest() {
+  auto request = validRequest();
+  auto* file = addFileSplit(request);
+  file->set_connector_id("copy");
+  file->set_start_offset(0);
+  file->set_opaque_location("s3://incoming/data.parquet");
+  request.mutable_resource_grant()->set_object_store_read_bytes(15000);
+  auto* digest = request.mutable_copy_source_staging_command_sha256();
+  digest->set_algorithm(proto::Checksum::ALGORITHM_SHA256);
+  digest->set_digest(std::string(32, 'c'));
+  auto* local = request.mutable_worker_local_copy_input();
+  local->set_split_id(file->split_id());
+  local->set_source_version_id(file->source_snapshot());
+  local->set_local_file_path("/tmp/copy-scan-private/source.parquet");
+  local->set_content_sha256(std::string(32, 'h'));
+  local->set_content_size(file->length());
+  local->set_pre_native_read_bytes(file->length());
+  return request;
+}
+
+TEST(ParseTaskConfigTest, VerifiedCopyBindsOnlyExecutionConfigAndDeductsPreNativeReads) {
+  auto request = copyInputRequest();
+  const auto encoded = request.SerializeAsString();
+  const auto config = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(config.splits.size(), 1);
+  EXPECT_EQ(config.splits.front().file_path, "/tmp/copy-scan-private/source.parquet");
+  EXPECT_EQ(config.splits.front().expected_file_sha256, std::string(32, 'h'));
+  EXPECT_EQ(config.resource_limit.max_object_store_read_bytes, 10000);
+  EXPECT_EQ(request.SerializeAsString(), encoded);
+}
+
+TEST(ParseTaskConfigTest, WorkerCopyBindingPreservesOriginalCreationSealAndRestoresPrivateFields) {
+  auto request = copyInputRequest();
+  auto original = request;
+  original.clear_worker_local_copy_input();
+  const auto originalIdentity = creationIdentity(original).SerializeAsString();
+  const auto encoded = request.SerializeAsString();
+  EXPECT_EQ(creationIdentity(request).SerializeAsString(), originalIdentity);
+  EXPECT_EQ(request.SerializeAsString(), encoded);
+  request.mutable_worker_local_copy_input()->set_local_file_path("/tmp/copy-scan-other/source.parquet");
+  EXPECT_EQ(creationIdentity(request).SerializeAsString(), originalIdentity);
+  request.mutable_resource_grant()->set_object_store_read_bytes(15001);
+  EXPECT_NE(creationIdentity(request).SerializeAsString(), originalIdentity);
+}
+
+TEST(ParseTaskConfigTest, CopyLocalInputRejectsVersionLengthDigestBudgetAndPathDrift) {
+  const auto valid = copyInputRequest();
+  for (int mutation = 0; mutation != 8; ++mutation) {
+    auto request = valid;
+    auto* local = request.mutable_worker_local_copy_input();
+    switch (mutation) {
+      case 0: local->set_source_version_id("other"); break;
+      case 1: local->set_content_size(4999); break;
+      case 2: local->set_content_sha256("bad"); break;
+      case 3: local->set_pre_native_read_bytes(4999); break;
+      case 4: request.mutable_resource_grant()->set_object_store_read_bytes(4999); break;
+      case 5: local->set_local_file_path("/tmp/copy-scan-private/../source.parquet"); break;
+      case 6: local->set_local_file_path("/tmp/unowned/source.parquet"); break;
+      case 7: request.clear_copy_source_staging_command_sha256(); break;
+    }
+    EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error) << mutation;
+  }
+}
+
 }  // namespace
 }  // namespace pangrova::jni::test

@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include <bit>
-#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>

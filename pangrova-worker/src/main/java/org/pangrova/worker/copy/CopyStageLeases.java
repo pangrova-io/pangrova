@@ -33,9 +33,16 @@ public final class CopyStageLeases implements AutoCloseable {
                 CopySourceReadHttp.StagedSource proof);
     }
 
+    @FunctionalInterface
+    private interface Materializer {
+        VerifiedLocalCopySource materialize(String nonce, CopySourceReadHttp.Scope scope,
+                                            CopyMaterialization ownership) throws IOException;
+    }
+
     private final Map<AttemptKey, Lease> leases = new HashMap<>();
     private final Stager stager;
     private final ProofValidator validator;
+    private final Materializer materializer;
     private final Clock clock;
     private final AutoCloseable resource;
     private final int maxAttempts;
@@ -45,23 +52,58 @@ public final class CopyStageLeases implements AutoCloseable {
     private boolean resourceCloseStarted;
 
     public CopyStageLeases(CopySourceStagingCommand command, AutoCloseable resource) {
-        this(command::execute, command::verifyRecordedProof,
-                Clock.systemUTC(), resource);
+        this(command::execute, command::verifyRecordedProof, command::executeForNative,
+                Clock.systemUTC(), resource, MAX_ATTEMPTS);
     }
 
     public CopyStageLeases(Stager stager, ProofValidator validator,
                            Clock clock, AutoCloseable resource) {
-        this(stager, validator, clock, resource, MAX_ATTEMPTS);
+        this(stager, validator, null, clock, resource, MAX_ATTEMPTS);
     }
 
     CopyStageLeases(Stager stager, ProofValidator validator, Clock clock,
                     AutoCloseable resource, int maxAttempts) {
+        this(stager, validator, null, clock, resource, maxAttempts);
+    }
+
+    private CopyStageLeases(Stager stager, ProofValidator validator, Materializer materializer,
+                            Clock clock, AutoCloseable resource, int maxAttempts) {
         this.stager = Objects.requireNonNull(stager, "stager");
         this.validator = Objects.requireNonNull(validator, "validator");
+        this.materializer = materializer;
         this.clock = Objects.requireNonNull(clock, "clock");
         this.resource = resource;
         if (maxAttempts <= 0) throw new IllegalArgumentException("maxAttempts must be positive");
         this.maxAttempts = maxAttempts;
+    }
+
+    public boolean supportsNativeInputs() { return materializer != null; }
+
+    /** Joins real materialization I/O with close before releasing the managed client. */
+    public VerifiedLocalCopySource materialize(SubmitTaskRequest request, CopyMaterialization ownership)
+            throws IOException {
+        if (materializer == null) throw new IllegalStateException("COPY Native materializer is not configured");
+        Objects.requireNonNull(request, "request");
+        var ticket = Objects.requireNonNull(request.copySourceRead(), "private source ticket");
+        if (request.taskRequest().getDeadlineEpochMs() <= clock.millis()) {
+            throw new IllegalArgumentException("COPY materialization deadline expired");
+        }
+        synchronized (lifecycle) {
+            if (closed) throw new IllegalStateException("COPY staging is closed");
+            if (activeStages >= MAX_ACTIVE_STAGES) {
+                throw new IllegalStateException("COPY concurrent staging capacity exceeded");
+            }
+            activeStages++;
+        }
+        try {
+            return Objects.requireNonNull(materializer.materialize(ticket.nonce(), ticket.scope(), ownership),
+                    "COPY verified local input");
+        } finally {
+            synchronized (lifecycle) {
+                activeStages--;
+                lifecycle.notifyAll();
+            }
+        }
     }
 
     /** Returns the one durable proof for an exact canonical attempt and private nonce. */

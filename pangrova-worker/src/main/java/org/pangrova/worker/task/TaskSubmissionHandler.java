@@ -49,10 +49,11 @@ final class TaskSubmissionHandler {
         owner.verifyExecutionOwnerForAdmission(request);
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
         if (canonical.hasCopySourceStagingCommandSha256()) {
-            // A COPY task must stage and verify the exact managed object before
-            // Native creation. No Worker task may bypass that pending wiring.
-            throw new IllegalStateException(
-                    "COPY source task admission requires pre-Native staging integration");
+            var executor = owner.getSharedNativeExecutor().orElse(null);
+            if (!(executor instanceof org.pangrova.worker.execution.NativeTaskExecutor nativeExecutor)
+                    || !nativeExecutor.hasCopyInputs()) {
+                throw new IllegalStateException("COPY source task requires its configured Native input runtime");
+            }
         }
         if (owner.drainExecutor.isDraining()) {
             throw new IllegalStateException("Worker is draining — new tasks are rejected");

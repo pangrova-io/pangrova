@@ -6,6 +6,12 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 COPY Worker → Native 输入增量（本批受影响范围通过，URI SQL 仍开放）：**私有 envelope 经真实 materializer 形成同一 v2 `worker_local_copy_input`，网络请求禁止该字段；原 split、grant 和命令 digest 保持不变，Native 创建恢复 checksum 排除并恢复 Worker 私有字段，执行 config 才替换本地路径/扣除预读取用量。文件 owner 在 I/O 前登记，SHA/长度通过前不可取得扫描路径；托管 GET 使用精确 Range/Content-Range，Native 文件校验和扫描共用剩余额度，最终报告合并一次 Java/Native 用量。真实 HTTP 回归先复现 SDK 发出 3 次 GET 却只扣 1 次额度，修复为 admitted GET 不做内部重试，普通客户端读取仍保留原重试策略；需要重试时使用新的任务准入/额度。Worker 日常测试默认失败自动重跑从 1 改为 0，全量 profile 继承相同设置。
+
+Release 两个不重叠集合 **66 + 84 = 150 个唯一用例 PASS**；同源码 ASan **150/150 PASS**，83.62 秒，逐名相等，无内存/函数类型诊断。73 条可选整数诊断均在已分析的 Folly（55 条默认无符号掩码、18 条哈希运算），未屏蔽。真实 PostgreSQL/MinIO/mTLS/JNI/TaskManager/Flight **1/1 PASS、0 跳过**：删除原始版本后读取固定托管对象，检查精确 Parquet 两列值、零额度、Native 校验耗尽、取消、清理失败后重试、JNI 前失败用量，以及真实结果 drain 后显式释放与 READ 撤销。夹具用现有 JDBC 权威 API 向新 leaf admission 复用 proof，不冒充生产 Coordinator 已自动完成 proof 转交/写入提交。
+
+协议所属模块按当前 Surefire JVM 身份排除历史 XML 后，首轮 **451 PASS + 7 旧库存失败**；完整真实模型/FILE 部署库存采集后仅补跑失败 7 项，滚动并集 **458/458 PASS**，静态/安装通过。库存完整保留 cache-disabled **9/87/0** 与 published **19/103/2**；模型映射端口变化产生新的实际路由签名，ID/版本/类型/限额不变。JNI 五处及实际 E2E 类路径唯一资源 SHA256 一致：`da7702f4cb32a97e0e2f895f3afe18915eb6c65f916084045f79cd35d74ce770`。证据 `/tmp/pangrova-copy-native-bind-{native-proof-r21,actual-e2e-proof-r38,inventory-proof-r42,protocol-proof-r46}-20261021.json`。Worker 所属模块 `full-regression install` **1,515/1,515 PASS**（236 份当前 JVM 报告，0 失败/错误/跳过，无自动重跑），含真实模型集成、新预算/MinIO/SDK 重试检查；E2E 最终静态 verify 通过。CLI/Shuffle 可执行 JAR 中 1,351 个 Protocol class 均与当前产物逐字节一致。证据 `/tmp/pangrova-copy-native-bind-{worker-proof-r49,fat-protocol-proof-r47}-20261021.json`。**17 类本机检查点仍开放**，#19 仍缺 URI SQL、生产任务票据/claim/提交接线及完整输入语义，不将当前输入子链路计成整项完成。
+
 **2026-10-21 COPY 冻结文件准备增量（URI SQL 仍未贯通）：**真实 PostgreSQL/MinIO/mTLS 用例对旧安装 Worker 先复现 **1/1 FAIL**：没有 staged proof 的 `executeForNative` 会隐式执行初次外部源读取。现在 Native 文件准备只接受已持久的版本/内容 proof，不再通过 `execute`/`resume` 隐式选源及重复校验托管对象；仍在同一物化流验证 SHA/大小，并在前后检查当前授权。任务私有本地文件持有该精确 proof，供后续 Native split 绑定核对。Worker 受影响 MinIO 7、lease 5、client 4，共 **16/16 PASS、0 跳过**，静态/安装通过；原失败真实 HTTP 准备链路 **1/1 PASS**，包括删源后的固定版本字节、proof、文件清理及 READ 撤销，E2E 静态 verify 通过。日志 `/tmp/pangrova-copy-native-freeze-{red-r1,worker-r2,http-r3}-20261021.log`，逐项证据 `/tmp/pangrova-copy-native-freeze-{worker-proof-r2,http-proof-r3}-20261021.json`。该用例没有执行 Native Parquet SQL，不计 #19 通过。已核对下一步生产接点：Worker `TaskSubmissionHandler` 仍拒绝 COPY、任务工厂没有私有 COPY envelope、写入注册仍传空 `CopyFileCommitBinding`；本地输入 owner、阶段 I/O 用量及完整 URI 写入仍待贯通。当前无测试容器，磁盘约余 73 GiB，**17 类本机检查点计数不变**。
 
 **2026-10-21 Paimon 标量统计文本边界（本批受影响范围验收通过）：**新增真实 SDK 写表、SDK FilesTable oracle 与 SQL/JNI 的 append/主键两项宽类型检查，先复现 **2/2 FAIL、0 ERROR**；Native 小 decimal 输出 `1E-12` 而 SDK 为 `0.000000000001`，最小 float/double 输出 `1E-45`/`5E-324` 而 SDK 为 `1.4E-45`/`4.9E-324`。日志 `/tmp/pangrova-paimon-stat-types-red-r1-20261021.log`。按锁定 Paimon 1.4.1 `Decimal.toString` 的真实 `toPlainString` 实现修正 decimal；替换不兼容的 shortest 浮点打印器，Native 使用独立的精确有理数实现保持受支持 JDK 17 的文本行为。整数快路径、初始指数、次正规数、舍入区间和定宽比较均按实际 JVM oracle 核对；定宽语义用无符号掩码/bit_cast 模拟，没有在 C++ 执行有符号溢出，也未通过 Java 结果行物化回避 Native 路径。
@@ -162,7 +168,7 @@ Native 测试统一入口 `pangrova-worker-native/bin/run-native-tests.py` 现�
 | C | 16 Native 大写入容量 | 已有小规模实值 E2E；容量、spill、失败后的资源归零未全覆盖。 |
 | C | 17 唯一 Calcite 前端 | 全 DDL/DML/时间旅行生产路径迁移和可达旧 fallback 清理未完成。 |
 | C | 18 `GENERATE_SERIES` | 提交 `65c7dffa` 当前源码真实 SQL/JNI E2E **6/6 PASS**；最终同源码全功能回归仍待纳入最终批次。 |
-| C | 19 `COPY INTO` | stage-only 和 `FROM (SELECT …)` 局部通过；URI SQL→可信 split→Native Parquet→Iceberg marker/未知提交对账尚未接通。 |
+| C | 19 `COPY INTO` | 已冻结托管源→真实 TaskManager/JNI Native Parquet→Flight 精确值、预算/取消/清理重试通过；`FROM (SELECT …)` 局部通过。URI SQL、生产 proof 转交/文件 claim、写入 commit binding 与 marker/未知提交对账仍未接通；不将输入子链路通过计成整项完成。 |
 | C | 20 系统表 | `$files` field-ID 分区 struct 的 SQL/JNI 3/3、`$entries` 序列和 v3 row ID 的 4/4、标准 `$refs` 的 3/3 与授权矩阵 6/6 已通过。SHOW TAGS/BRANCHES 已贯通真实 Native 查询；两个特殊表名原失败项在新的 106/106 写入/目录批次中恢复。`$partitions` 关系聚合与 v2/v3 SDK 边界、SHOW、授权已通过；Paimon `$files` 20 列、空表/历史/schema 演进/覆盖集合及授权的 SQL 子链路已通过；完整 SDK 嵌套列、全逻辑类型、跨文件系统和 deferred/background 元数据策略矩阵仍未闭合。 |
 | C | 21 Dynamic Table | 手动 full-refresh generation 已有真实 E2E；逻辑授权、持久 attempt/source pin、失败恢复、GC、调度/CDC 未闭合。 |
 | C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多 split、无结果和目标规模质量/成本待验。 |

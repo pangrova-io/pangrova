@@ -157,6 +157,8 @@ struct SplitConfig {
   FileFormatType file_format = FileFormatType::PARQUET;
   int64_t start_offset = 0;
   int64_t length = 0;
+  // Worker-local qualified input; public network splits cannot set this pin.
+  std::string expected_file_sha256;
 
   // Partition column values (shared by Iceberg; Paimon uses PaimonConfig.partition_values).
   std::unordered_map<std::string, std::string> partition_values;

@@ -64,6 +64,9 @@ public final class TaskInfo {
         return startTime;
     }
 
+    void setPreNativeReadBytes(long bytes) { execution.setPreNativeReadBytes(bytes); }
+    long preNativeReadBytes() { return execution.preNativeReadBytes(); }
+
     void retainCleanupRetry(Runnable continuation) {
         cleanupRetry.retain(continuation);
     }

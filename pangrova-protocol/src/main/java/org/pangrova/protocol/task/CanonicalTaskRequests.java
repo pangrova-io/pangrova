@@ -142,7 +142,7 @@ public final class CanonicalTaskRequests {
         if (request == null) {
             throw new IllegalArgumentException("TaskRequest must not be null");
         }
-        if (request.getWorkerLocalStorageBindingsCount() != 0) {
+        if (request.getWorkerLocalStorageBindingsCount() != 0 || request.hasWorkerLocalCopyInput()) {
             throw new IllegalArgumentException("Network tasks must not contain Worker-local storage bindings");
         }
         validateProtocol(request.getProtocol());
@@ -201,11 +201,14 @@ public final class CanonicalTaskRequests {
             return;
         }
         var checksum = request.getCopySourceStagingCommandSha256();
-        if (request.getTaskKind() != org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE
+        boolean sourceOrWrite = request.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ
+                || request.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE;
+        if (!sourceOrWrite
                 || checksum.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
                 || checksum.getDigest().size() != SHA256_BYTES
                 || !checksum.getUnknownFields().asMap().isEmpty()) {
-            throw new IllegalArgumentException("COPY staging command requires a write task and SHA-256 digest");
+            throw new IllegalArgumentException(
+                    "COPY staging command requires a source-read or write task and SHA-256 digest");
         }
     }
 

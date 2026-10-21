@@ -88,11 +88,37 @@ public final class S3BlobStorage implements BlobStorage {
 
     @Override
     public InputStream open(String tenantScope, String checksum, long size) throws IOException {
+        return openInternal(tenantScope, checksum, size, null);
+    }
+
+    /** Exact admitted payload range for a task-owned managed-object download. */
+    public InputStream open(String tenantScope, String checksum, long size,
+                            java.util.function.LongConsumer readAdmission) throws IOException {
+        return openInternal(tenantScope, checksum, size,
+                Objects.requireNonNull(readAdmission, "readAdmission"));
+    }
+
+    private InputStream openInternal(String tenantScope, String checksum, long size,
+                                    java.util.function.LongConsumer readAdmission) throws IOException {
         String key = objectKey(tenantScope, checksum);
         try {
+            var request = getRequest(key);
+            if (readAdmission != null) {
+                if (size <= 0) {
+                    throw new IllegalArgumentException("Admitted object read requires a positive byte range");
+                }
+                request = request.toBuilder().range("bytes=0-" + (size - 1))
+                        .overrideConfiguration(config -> config.addPlugin(
+                                S3BlobStorage::withoutHiddenReadRetries)).build();
+                readAdmission.accept(size);
+            }
             ResponseInputStream<GetObjectResponse> stream = client.getObject(
-                    getRequest(key));
+                    request);
             try {
+                if (readAdmission != null
+                        && !("bytes 0-" + (size - 1) + "/" + size).equals(stream.response().contentRange())) {
+                    throw new IOException("Managed object does not match its admitted complete byte range");
+                }
                 verifyMetadata(
                         stream.response().contentLength(), stream.response().metadata(),
                         checksum, size);
@@ -113,6 +139,13 @@ public final class S3BlobStorage implements BlobStorage {
         } catch (SdkException failure) {
             throw ioFailure("Failed to open governed FILE object", failure);
         }
+    }
+
+    // A task retry gets a new admission; an SDK retry must not reuse one byte reservation.
+    private static void withoutHiddenReadRetries(
+            software.amazon.awssdk.core.SdkServiceClientConfiguration.Builder config) {
+        config.overrideConfiguration(config.overrideConfiguration().toBuilder()
+                .retryPolicy(software.amazon.awssdk.core.retry.RetryPolicy.none()).build());
     }
 
     private PutObjectRequest putRequest(String key, String checksum, long size) {

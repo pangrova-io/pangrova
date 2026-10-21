@@ -2,6 +2,7 @@
 #include "jni/command/TaskRequestParser.h"
 #include "jni/command/WorkerLocalStorage.h"
 #include "jni/command/PhysicalWriteAdmission.h"
+#include "jni/command/WorkerLocalCopyInput.h"
 
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
@@ -1858,10 +1859,7 @@ std::string serializeCallbackContext(const proto::TaskRequest& request) {
 }
 
 executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
-  if (request.has_copy_source_staging_command_sha256()) {
-    throw std::runtime_error(
-        "COPY source task requires verified Worker-local split binding");
-  }
+  validateWorkerCopyInput(request);
   const auto& attempt = request.attempt();
   if (request.task_kind() == proto::TASK_KIND_UNSPECIFIED) {
     throw std::runtime_error("TaskRequest task_kind is unspecified");
@@ -1933,6 +1931,7 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
     config.splits.push_back(std::move(parsed));
   }
   config.resource_limit = parseResourceGrant(request.resource_grant());
+  applyWorkerCopyInput(request, config);
   validateOperatorBindings(request, config);
   validateRuntimeFilterBindings(request, config);
   if (request.has_execution_options()) {
@@ -2011,10 +2010,7 @@ protocol::v2::TaskRequest parseTaskRequest(const std::vector<uint8_t>& data) {
       !request.GetReflection()->GetUnknownFields(request).empty()) {
     throw std::runtime_error("TaskRequest requires known protocol and attempt identity");
   }
-  if (request.has_copy_source_staging_command_sha256()) {
-    throw std::runtime_error(
-        "COPY source task requires verified Worker-local split binding");
-  }
+  validateWorkerCopyInput(request);
   validateProtocol(request.protocol());
   validatePlanChecksum(request);
   validateCallbackAuthority(request);

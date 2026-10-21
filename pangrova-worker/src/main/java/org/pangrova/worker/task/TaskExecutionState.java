@@ -52,6 +52,14 @@ final class TaskExecutionState {
     // Resource accounting
     private final AtomicLong allocatedMemory = new AtomicLong(0);
     private final AtomicLong allocatedBufferMemory = new AtomicLong(0);
+    private final AtomicLong preNativeReadBytes = new AtomicLong(0);
+
+    void setPreNativeReadBytes(long bytes) {
+        if (bytes < 0) throw new IllegalArgumentException("Worker read usage must not be negative");
+        preNativeReadBytes.accumulateAndGet(bytes, Math::max);
+    }
+
+    long preNativeReadBytes() { return preNativeReadBytes.get(); }
     private final AtomicReference<TaskMemoryPool> taskMemoryPool = new AtomicReference<>();
 
     // Output stats

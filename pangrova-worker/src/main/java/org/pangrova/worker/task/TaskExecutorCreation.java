@@ -12,8 +12,17 @@ final class TaskExecutorCreation {
         try {
             preparation.run();
             byte[] request = info.request().canonicalBytes();
-            nativeInvoked = true;
-            long handle = executor.createTask(request);
+            long handle;
+            if (info.request().copySourceRead() != null) {
+                if (!(executor instanceof org.pangrova.worker.execution.NativeTaskExecutor nativeExecutor)) {
+                    throw new IllegalStateException("COPY requires the Native execution owner");
+                }
+                nativeInvoked = true;
+                handle = nativeExecutor.createCopyTask(info.request());
+            } else {
+                nativeInvoked = true;
+                handle = executor.createTask(request);
+            }
             if (handle <= 0) {
                 throw new IllegalStateException(
                         "Task creation returned no positive actual owner: " + info.taskId());
@@ -21,6 +30,9 @@ final class TaskExecutorCreation {
             info.setExecutorHandle(handle);
             return handle;
         } catch (RuntimeException | Error failure) {
+            if (failure instanceof NativeTaskCreationFailure creation) {
+                info.setPreNativeReadBytes(creation.workerObjectReadBytes());
+            }
             if (!nativeInvoked) {
                 info.nativeCreationRolledBackBeforeEntry();
             } else if (failure instanceof NativeTaskCreationFailure creation

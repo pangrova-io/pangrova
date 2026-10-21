@@ -99,6 +99,15 @@ final class NativeCreationOwners {
             if (failure == null) failure = cleanup;
             else failure.addSuppressed(cleanup);
         }
+        try {
+            if (owner.copyInput != null) {
+                owner.copyInput.close();
+                owner.copyInput = null;
+            }
+        } catch (Throwable cleanup) {
+            if (failure == null) failure = cleanup;
+            else failure.addSuppressed(cleanup);
+        }
         if (failure != null) throw new NativeTaskCreationFailure(owner.handle, failure);
     }
 
@@ -112,6 +121,8 @@ final class NativeCreationOwners {
         volatile boolean nativeClosedWithoutOwner;
         volatile boolean aiRegistered;
         volatile boolean externalRegistered;
+        volatile org.pangrova.worker.copy.VerifiedLocalCopySource copyInput;
+        volatile org.pangrova.worker.copy.CopyTaskReadBudget copyReadBudget;
         volatile byte[] releaseReceipt;
         final java.util.concurrent.CompletableFuture<Void> constructionExit =
                 new java.util.concurrent.CompletableFuture<>();

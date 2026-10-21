@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <openssl/evp.h>
 
 #include <array>
 #include <chrono>
@@ -32,6 +33,56 @@ class TaskObjectReadBudgetTest : public ::testing::Test {
   }
   std::filesystem::path path_;
 };
+
+std::string fileDigest() {
+  constexpr std::string_view bytes = "0123456789abcdefghijklmnopqrstuvwxyz";
+  std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+  unsigned int size = 0;
+  EXPECT_EQ(EVP_Digest(bytes.data(), bytes.size(), digest.data(), &size, EVP_sha256(), nullptr), 1);
+  return {reinterpret_cast<const char*>(digest.data()), size};
+}
+
+TEST_F(TaskObjectReadBudgetTest, PinnedContentQualificationAndScanConsumeTheSameAllowance) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(40);
+  TaskBudgetReadFile input(open(), owner, {});
+  input.verifySha256(fileDigest(), 36);
+  EXPECT_EQ(owner->requestedBytes(), 36);
+  std::array<char, 4> bytes{};
+  EXPECT_EQ(input.pread(0, 4, bytes.data()), "0123");
+  EXPECT_EQ(owner->requestedBytes(), 40);
+  EXPECT_THROW(input.pread(0, 1, bytes.data()), std::runtime_error);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
+
+TEST_F(TaskObjectReadBudgetTest, ContentQualificationRejectsCorruptionAfterActualAdmittedRead) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(36);
+  TaskBudgetReadFile input(open(), owner, {});
+  { std::fstream output(path_, std::ios::in | std::ios::out | std::ios::binary); output << "X"; }
+  EXPECT_THROW(input.verifySha256(fileDigest(), 36), std::runtime_error);
+  EXPECT_EQ(owner->requestedBytes(), 36);
+  EXPECT_EQ(owner->completedReturnedBytes(), 36);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
+
+TEST_F(TaskObjectReadBudgetTest, ContentQualificationRejectsBadPinsAndInsufficientGrantBeforeReading) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(35);
+  TaskBudgetReadFile input(open(), owner, {});
+  EXPECT_THROW(input.verifySha256(fileDigest(), 35), std::runtime_error);
+  EXPECT_THROW(input.verifySha256("invalid-sha256", 36), std::runtime_error);
+  EXPECT_THROW(input.verifySha256(fileDigest(), 36), std::runtime_error);
+  EXPECT_EQ(owner->requestedBytes(), 0);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
+
+TEST_F(TaskObjectReadBudgetTest, ContentQualificationHonorsCancellationBeforeBackendEntry) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(36);
+  folly::CancellationSource cancelled;
+  TaskBudgetReadFile input(open(), owner, cancelled.getToken());
+  cancelled.requestCancellation();
+  EXPECT_THROW(input.verifySha256(fileDigest(), 36), std::runtime_error);
+  EXPECT_EQ(owner->requestedBytes(), 0);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
 
 TEST_F(TaskObjectReadBudgetTest, DownloadQualificationAndHydrationShareOneActualReadGrant) {
   auto owner = std::make_shared<TaskObjectReadBudget>(24);

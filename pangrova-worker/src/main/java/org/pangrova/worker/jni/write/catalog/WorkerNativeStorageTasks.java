@@ -13,7 +13,7 @@ public final class WorkerNativeStorageTasks {
 
     /** Authenticates every Native source/output deployment before enriching its local JNI payload. */
     public static TaskRequest prepare(TaskRequest request, WorkerCatalogRuntime catalogs) {
-        if (request.getWorkerLocalStorageBindingsCount() != 0) {
+        if (request.getWorkerLocalStorageBindingsCount() != 0 || request.hasWorkerLocalCopyInput()) {
             throw new SecurityException("Network TaskRequest must not contain Worker-local storage settings");
         }
         var bindings = bindings(request);

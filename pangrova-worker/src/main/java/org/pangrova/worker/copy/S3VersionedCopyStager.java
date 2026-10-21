@@ -132,6 +132,11 @@ final class S3VersionedCopyStager {
     /** Materializes only verified managed bytes into a task-private local scan file. */
     VerifiedLocalCopySource materialize(StorageProfile profile, String sourceUrl, String tenantId,
                                         StagedSource staged) throws IOException {
+        return materialize(profile, sourceUrl, tenantId, staged, CopyMaterialization.standalone());
+    }
+
+    VerifiedLocalCopySource materialize(StorageProfile profile, String sourceUrl, String tenantId,
+                                        StagedSource staged, CopyMaterialization ownership) throws IOException {
         long deadlineNanos = System.nanoTime() + maxStageNanos;
         requireRetrySource(profile, sourceUrl, tenantId);
         String scope = HexFormat.of().formatHex(
@@ -145,10 +150,15 @@ final class S3VersionedCopyStager {
                 PosixFilePermissions.asFileAttribute(
                         PosixFilePermissions.fromString("rwx------")));
         Path local = privateDirectory.resolve("source.parquet");
+        var proof = new org.pangrova.protocol.rest.copy.CopySourceReadHttp.StagedSource(
+                staged.sourceVersionId(), staged.managedObjectUri(), staged.contentSha256(),
+                staged.contentSize(), staged.tenantScope());
+        var owned = new VerifiedLocalCopySource(local, stagingRoot, proof);
         try {
+            ownership.publishOwner().accept(owned);
             MessageDigest digest = sha256();
             try (InputStream input = managedStorage.open(scope, staged.contentSha256(),
-                    staged.contentSize())) {
+                    staged.contentSize(), ownership.budget()::reserve)) {
                 try (FileChannel channel = FileChannel.open(local, StandardOpenOption.CREATE_NEW,
                         StandardOpenOption.WRITE);
                         OutputStream output = Channels.newOutputStream(channel)) {
@@ -165,14 +175,11 @@ final class S3VersionedCopyStager {
                     throw failure;
                 }
             }
-            var proof = new org.pangrova.protocol.rest.copy.CopySourceReadHttp.StagedSource(
-                    staged.sourceVersionId(), staged.managedObjectUri(), staged.contentSha256(),
-                    staged.contentSize(), staged.tenantScope());
-            return new VerifiedLocalCopySource(local, stagingRoot, proof);
-        } catch (IOException | RuntimeException failure) {
+            owned.verified();
+            return owned;
+        } catch (IOException | RuntimeException | Error failure) {
             try {
-                Files.deleteIfExists(local);
-                Files.deleteIfExists(privateDirectory);
+                owned.close();
             } catch (IOException cleanup) {
                 failure.addSuppressed(cleanup);
             }

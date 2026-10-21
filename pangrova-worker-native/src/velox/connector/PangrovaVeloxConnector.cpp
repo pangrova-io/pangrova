@@ -468,8 +468,7 @@ void PangrovaVeloxDataSource::loadPaimonDeletionVector(
 }
 
 void PangrovaVeloxDataSource::createReaderPair(
-    const std::string& filePath,
-    split::FileFormatType fileFormat,
+    const split::SplitConfig& splitConfig,
     std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
     std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
     std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec,
@@ -479,8 +478,8 @@ void PangrovaVeloxDataSource::createReaderPair(
 #if PANGROVA_HAS_VELOX_DWIO
   const auto& target_type = requestedType ? requestedType : output_type_;
   auto cleanPath = split::normalizeToS3Uri(
-      split::stripFilePrefix(filePath));
-  auto format = resolveFileFormat(fileFormat);
+      split::stripFilePrefix(splitConfig.file_path));
+  auto format = resolveFileFormat(splitConfig.file_format);
 
   facebook::velox::dwio::common::ReaderOptions readerOpts(pool_);
   readerOpts.setFileFormat(format);
@@ -514,8 +513,14 @@ void PangrovaVeloxDataSource::createReaderPair(
   std::shared_ptr<facebook::velox::ReadFile> readFile(
       fileSystem->openFileForRead(cleanPath));
   if (read_budget_) {
-    readFile = std::make_shared<resource::TaskBudgetReadFile>(
+    auto admitted = std::make_shared<resource::TaskBudgetReadFile>(
         std::move(readFile), read_budget_, cancellation_token_);
+    if (!splitConfig.expected_file_sha256.empty()) {
+      admitted->verifySha256(splitConfig.expected_file_sha256, splitConfig.length);
+    }
+    readFile = std::move(admitted);
+  } else if (!splitConfig.expected_file_sha256.empty()) {
+    throw std::runtime_error("Qualified task input requires its admitted read owner");
   }
   std::unique_ptr<facebook::velox::dwio::common::BufferedInput> input;
 #if PANGROVA_HAS_CACHED_BUFFERED_INPUT && PANGROVA_HAS_VELOX_ASYNC_CACHE
@@ -745,7 +750,7 @@ void PangrovaVeloxDataSource::createReaderPair(
     int pushedFilters = decomposeFilterToScanSpec(
         remaining_filter_, scanSpec, readerType, uuidReadPlan && *uuidReadPlan);
     PANGROVA_LOG_INFO << "predicate_pushdown=active"
-                    << " file_path=" << filePath
+                    << " file_path=" << splitConfig.file_path
                     << " filter_type=" << remaining_filter_->type()->toString()
                     << " pushed_subfield_filters=" << pushedFilters
                     << " filter_node=active";
@@ -763,7 +768,7 @@ void PangrovaVeloxDataSource::createReaderPair(
   checkCancelled();
 #else
   throw std::runtime_error(
-      "Velox DWIO readers not available. Cannot open: " + filePath);
+      "Velox DWIO readers not available. Cannot open: " + splitConfig.file_path);
 #endif
 }
 
@@ -780,7 +785,7 @@ void PangrovaVeloxDataSource::openVeloxReader(
   std::shared_ptr<facebook::velox::common::ScanSpec> scanSpec;
   try {
     createReaderPair(
-        split.file_path, split.file_format,
+        split,
         velox_reader_, velox_row_reader_, &scanSpec, nullptr, &parquet_uuid_read_plan_, true);
   } catch (const std::exception& e) {
     PANGROVA_LOG_ERROR << "velox_reader_open_failed"
@@ -988,7 +993,10 @@ void PangrovaVeloxDataSource::initializeMergeReader(
         std::unique_ptr<facebook::velox::dwio::common::RowReader> rowReader;
         std::shared_ptr<facebook::velox::common::ScanSpec> scanSpec;
         std::unique_ptr<ParquetUuidReadPlan> uuidPlan;
-        createReaderPair(path, file.file_format, reader, rowReader, &scanSpec, physical_type, &uuidPlan);
+        split::SplitConfig fileConfig;
+        fileConfig.file_path = path;
+        fileConfig.file_format = file.file_format;
+        createReaderPair(fileConfig, reader, rowReader, &scanSpec, physical_type, &uuidPlan);
         // Filtering an update before primary-key merge can resurrect older rows.
         // Keep non-key predicates in the relational FilterNode after the merge.
         readers.push_back(std::make_unique<EvolvedMergeBatchReader>(

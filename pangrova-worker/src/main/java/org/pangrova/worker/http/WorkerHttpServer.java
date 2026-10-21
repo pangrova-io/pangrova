@@ -118,6 +118,13 @@ public final class WorkerHttpServer {
         checkNotNull(exchangeTransport, "exchangeTransport must not be null");
         this.datasetControl = datasetControl;
         this.copyStageLeases = copyStageLeases;
+        if (copyStageLeases != null && copyStageLeases.supportsNativeInputs()) {
+            taskManager.getSharedNativeExecutor().ifPresent(executor -> {
+                if (executor instanceof org.pangrova.worker.execution.NativeTaskExecutor nativeExecutor) {
+                    nativeExecutor.setCopyInputs(copyStageLeases);
+                }
+            });
+        }
         this.taskResource = new TaskResource(
                 taskManager, exchangeTransport,
                 new org.pangrova.worker.exchange.source.ExchangeSourceRegistry(),

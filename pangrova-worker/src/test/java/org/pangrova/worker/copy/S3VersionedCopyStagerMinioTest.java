@@ -269,6 +269,90 @@ class S3VersionedCopyStagerMinioTest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void taskReadAllowancePrecedesRealGetAndPrivateFileOwnershipPrecedesIo() throws Exception {
+        String bucket = bucketName();
+        String managedBucket = bucketName();
+        byte[] bytes = "admitted-task-input".getBytes(StandardCharsets.UTF_8);
+        try (S3Client objects = client()) {
+            createVersionedBucket(objects, bucket);
+            objects.createBucket(request -> request.bucket(managedBucket));
+            objects.putObject(request -> request.bucket(bucket).key("data/part.parquet"),
+                    RequestBody.fromBytes(bytes));
+            String url = "s3://" + bucket + "/data/part.parquet";
+            var staged = new S3VersionedCopyStager(objects, managed(objects, managedBucket),
+                    temporaryDirectory.resolve("stage"), 1024).stage(profile(bucket), url, "tenant-one");
+            var gets = new java.util.concurrent.atomic.AtomicInteger();
+            var owner = new java.util.concurrent.atomic.AtomicReference<VerifiedLocalCopySource>();
+            try (S3Client counted = client(new ExecutionInterceptor() {
+                @Override
+                public void beforeExecution(Context.BeforeExecution context, ExecutionAttributes attributes) {
+                    if (context.request() instanceof software.amazon.awssdk.services.s3.model.GetObjectRequest get
+                            && get.bucket().equals(managedBucket)) {
+                        assertThat(owner.get()).isNotNull();
+                        assertThatThrownBy(() -> owner.get().path()).isInstanceOf(IllegalStateException.class);
+                        gets.incrementAndGet();
+                    }
+                }
+            })) {
+                var stager = new S3VersionedCopyStager(objects, managed(counted, managedBucket),
+                        temporaryDirectory.resolve("native"), 1024);
+                var denied = new CopyTaskReadBudget(0);
+                assertThatThrownBy(() -> stager.materialize(profile(bucket), url, "tenant-one", staged,
+                        new CopyMaterialization(denied, owner::set)))
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("grant exhausted");
+                assertThat(gets.get()).isZero();
+                assertThat(denied.requestedBytes()).isZero();
+                assertThatThrownBy(() -> managed(counted, managedBucket).open(staged.tenantScope(),
+                        staged.contentSha256(), 0, denied::reserve))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("positive byte range");
+                assertThat(gets.get()).isZero();
+                var accepted = new CopyTaskReadBudget(bytes.length);
+                Path path;
+                try (var file = stager.materialize(profile(bucket), url, "tenant-one", staged,
+                        new CopyMaterialization(accepted, owner::set))) {
+                    path = file.path();
+                    assertThat(java.nio.file.Files.readAllBytes(path)).isEqualTo(bytes);
+                    assertThat(file).isSameAs(owner.get());
+                    assertThat(accepted.requestedBytes()).isEqualTo(bytes.length);
+                    assertThat(gets.get()).isEqualTo(1);
+                }
+                assertThat(path).doesNotExist();
+                try (var files = java.nio.file.Files.list(temporaryDirectory.resolve("native"))) {
+                    assertThat(files.toList()).isEmpty();
+                }
+            }
+        }
+    }
+
+    @Test
+    void admittedRangeRejectsAnAppendedManagedObjectEvenWithForgedOriginalMetadata() throws Exception {
+        String bucket = bucketName();
+        String managedBucket = bucketName();
+        byte[] bytes = "frozen-task-bytes".getBytes(StandardCharsets.UTF_8);
+        try (S3Client objects = client()) {
+            createVersionedBucket(objects, bucket);
+            objects.createBucket(request -> request.bucket(managedBucket));
+            objects.putObject(request -> request.bucket(bucket).key("data/part.parquet"), RequestBody.fromBytes(bytes));
+            var stager = new S3VersionedCopyStager(objects, managed(objects, managedBucket),
+                    temporaryDirectory.resolve("private-inputs"), 1024);
+            String url = "s3://" + bucket + "/data/part.parquet";
+            var proof = stager.stage(profile(bucket), url, "tenant-one");
+            objects.putObject(PutObjectRequest.builder().bucket(managedBucket).key(managedKey(proof))
+                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .metadata(Map.of("sha256", proof.contentSha256(), "content-length", Long.toString(bytes.length)))
+                    .build(), RequestBody.fromBytes("frozen-task-bytes-appended".getBytes(StandardCharsets.UTF_8)));
+            var budget = new CopyTaskReadBudget(bytes.length);
+            assertThatThrownBy(() -> stager.materialize(profile(bucket), url, "tenant-one", proof,
+                    new CopyMaterialization(budget, ignored -> {})))
+                    .isInstanceOf(IOException.class).hasMessageContaining("complete byte range");
+            assertThat(budget.requestedBytes()).isEqualTo(bytes.length);
+            try (var files = java.nio.file.Files.list(temporaryDirectory.resolve("private-inputs"))) {
+                assertThat(files.toList()).isEmpty();
+            }
+        }
+    }
+
     private static String managedKey(S3VersionedCopyStager.StagedSource staged) {
         return "copy-managed/tenants/" + staged.tenantScope() + "/sha256/"
                 + staged.contentSha256().substring(0, 2) + "/" + staged.contentSha256();

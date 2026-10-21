@@ -100,6 +100,18 @@ message TaskRequest {
   // The bearer ticket and source credentials belong only to the private HTTP
   // submission envelope and must never enter this Native-visible message.
   Checksum copy_source_staging_command_sha256 = 19;
+  // Worker -> JNI only. The original network splits and grant stay unchanged
+  // so cancellation and creation recovery retain their exact admission seal.
+  WorkerLocalCopyInput worker_local_copy_input = 20;
+}
+
+message WorkerLocalCopyInput {
+  string split_id = 1;
+  string source_version_id = 2;
+  string local_file_path = 3;
+  bytes content_sha256 = 4;
+  uint64 content_size = 5;
+  uint64 pre_native_read_bytes = 6;
 }
 
 // Resolved Worker-local storage authority, scoped to one immutable deployment,

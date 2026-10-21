@@ -4,6 +4,7 @@ package org.pangrova.worker.execution;
 public final class NativeTaskCreationFailure extends IllegalStateException {
     private final long actualHandle;
     private final boolean withoutNativeOwner;
+    private long workerObjectReadBytes;
 
     NativeTaskCreationFailure(long actualHandle, Throwable failure) {
         this(actualHandle, false, failure);
@@ -31,4 +32,12 @@ public final class NativeTaskCreationFailure extends IllegalStateException {
     public long actualHandle() { return actualHandle; }
     /** True only after a verified pre-entry rollback or exact Native no-owner recovery and callback cleanup. */
     public boolean withoutNativeOwner() { return withoutNativeOwner; }
+
+    NativeTaskCreationFailure withWorkerObjectReadBytes(long bytes) {
+        workerObjectReadBytes = bytes;
+        return this;
+    }
+
+    /** Requested managed-read bytes remain observable even when JNI was never entered. */
+    public long workerObjectReadBytes() { return workerObjectReadBytes; }
 }

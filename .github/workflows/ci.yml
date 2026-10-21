@@ -340,7 +340,8 @@ jobs:
       - name: Run isolated Native runtime owner E2E
         run: |
           for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
-                       WorkerShuffleChannelAdmissionIntegrationTest; do
+                       WorkerShuffleChannelAdmissionIntegrationTest \
+                       'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes'; do
             mvn -B -Pnative-runtime,full-regression \
               -pl pangrova-testing/pangrova-test-e2e \
               -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test \

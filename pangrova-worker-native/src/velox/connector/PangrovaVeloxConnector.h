@@ -179,8 +179,7 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // CachedBufferedInput, ScanSpec). Returns the ScanSpec via outScanSpec
   // for dynamic filtering. Static predicates are bound before reader creation.
   void createReaderPair(
-      const std::string& filePath,
-      split::FileFormatType fileFormat,
+      const split::SplitConfig& splitConfig,
       std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
       std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
       std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec = nullptr,

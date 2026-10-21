@@ -12,6 +12,7 @@ public final class VerifiedLocalCopySource implements AutoCloseable {
     private final Path path;
     private final Path directory;
     private final CopySourceReadHttp.StagedSource proof;
+    private volatile boolean verified;
 
     VerifiedLocalCopySource(Path path, Path stagingRoot, CopySourceReadHttp.StagedSource proof) {
         Path candidate = Objects.requireNonNull(path, "path").toAbsolutePath().normalize();
@@ -32,12 +33,20 @@ public final class VerifiedLocalCopySource implements AutoCloseable {
 
     /** Local path produced from a verified managed object; never from a network split. */
     public Path path() {
+        requireVerified();
         return path;
     }
 
     /** Exact persisted version and content identity verified while producing the local file. */
     public CopySourceReadHttp.StagedSource proof() {
+        requireVerified();
         return proof;
+    }
+
+    void verified() { verified = true; }
+
+    private void requireVerified() {
+        if (!verified) throw new IllegalStateException("COPY local input has not completed verification");
     }
 
     @Override public void close() throws IOException {

@@ -67,7 +67,14 @@ protocol::v2::ExecutorCreationRecoveryRequest creationIdentity(protocol::v2::Tas
   // These bindings are Worker-local injection, not part of the NETWORK digest.
   google::protobuf::RepeatedPtrField<protocol::v2::ObjectStoreExecutionBinding> bindings;
   bindings.Swap(request.mutable_worker_local_storage_bindings());
-  auto restore = folly::makeGuard([&] { bindings.Swap(request.mutable_worker_local_storage_bindings()); });
+  protocol::v2::WorkerLocalCopyInput copy;
+  const bool hadCopy = request.has_worker_local_copy_input();
+  if (hadCopy) copy.Swap(request.mutable_worker_local_copy_input());
+  request.clear_worker_local_copy_input();
+  auto restore = folly::makeGuard([&] {
+    bindings.Swap(request.mutable_worker_local_storage_bindings());
+    if (hadCopy) copy.Swap(request.mutable_worker_local_copy_input());
+  });
   RequestDigestStream stream;
   {
     google::protobuf::io::CodedOutputStream coded(&stream);

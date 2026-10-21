@@ -52,6 +52,32 @@ class CanonicalTaskAdmissionSealsTest {
     }
 
     @Test
+    void networkAdmissionAndSealsRejectWorkerPrivateCopyBindings() {
+        var privateRequest = request().toBuilder().setWorkerLocalCopyInput(
+                org.pangrova.protocol.v2.WorkerLocalCopyInput.newBuilder()
+                        .setLocalFilePath("/tmp/copy-scan-private/source.parquet")).build();
+        assertThatThrownBy(() -> CanonicalTaskAdmissionSeals.create(privateRequest))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> org.pangrova.protocol.task.CanonicalTaskRequests
+                .validateForAdmission(privateRequest)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void copySourceLeafRetainsItsReadTaskKindAndExactCommandChecksum() {
+        var copy = request().toBuilder().setCopySourceStagingCommandSha256(
+                org.pangrova.protocol.task.CanonicalTaskRequests.sha256(new byte[] {9})).build();
+        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(copy);
+        assertThat(copy.getTaskKind()).isEqualTo(TaskKind.TASK_KIND_READ);
+        for (var kind : TaskKind.values()) {
+            if (kind == TaskKind.TASK_KIND_READ || kind == TaskKind.TASK_KIND_WRITE
+                    || kind == TaskKind.UNRECOGNIZED) continue;
+            var unsupported = copy.toBuilder().setTaskKind(kind).build();
+            assertThatThrownBy(() -> org.pangrova.protocol.task.CanonicalTaskRequests
+                    .validateForAdmission(unsupported)).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
     void compactActualNativeReceiptPreservesExactIdentityAndStripsAllResultPayload() {
         var actual = report().setNativeTaskStats(NativeTaskStats.newBuilder().setRowsWritten(13))
                 .setUsage(ResourceUsage.newBuilder().setPeakNativeMemoryBytes(101))

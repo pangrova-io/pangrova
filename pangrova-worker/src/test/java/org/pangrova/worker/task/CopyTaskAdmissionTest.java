@@ -13,7 +13,7 @@ import java.util.HexFormat;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Guards the real admission boundary until verified COPY splits reach Native. */
+/** Guards the real admission boundary when the verified COPY runtime is absent. */
 class CopyTaskAdmissionTest {
     @Test
     void copyTaskCannotReserveOrCreateNativeOwnerBeforeStagingIsWired() {
@@ -38,7 +38,7 @@ class CopyTaskAdmissionTest {
         try (TaskManager manager = TaskManager.forHttpWiringOnly()) {
             assertThatThrownBy(() -> manager.submitTask(descriptor, request))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("pre-Native staging integration");
+                    .hasMessageContaining("configured Native input runtime");
             assertThat(manager.resolveWorkerTaskId(canonical.getAttempt().getTaskId())).isNull();
             assertThat(manager.getRunningTaskCount()).isZero();
         }

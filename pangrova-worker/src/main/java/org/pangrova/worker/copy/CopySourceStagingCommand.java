@@ -105,6 +105,13 @@ public final class CopySourceStagingCommand {
     /** Produces a verified task-private Parquet file without trusting a network file path. */
     public VerifiedLocalCopySource executeForNative(String nonce, CopySourceReadHttp.Scope scope)
             throws IOException {
+        return executeForNative(nonce, scope, CopyMaterialization.standalone());
+    }
+
+    /** Executing tasks must use their actual shared grant rather than standalone preparation. */
+    public VerifiedLocalCopySource executeForNative(String nonce, CopySourceReadHttp.Scope scope,
+                                                   CopyMaterialization ownership) throws IOException {
+        Objects.requireNonNull(ownership, "ownership");
         requireManagedStorage(scope);
         var redeemed = admissions.redeem(nonce, scope);
         var proof = redeemed.stagedSource();
@@ -117,7 +124,7 @@ public final class CopySourceStagingCommand {
             var stager = new S3VersionedCopyStager(source, managedStorage,
                     stagingRoot, maxSourceBytes);
             local = stager.materialize(profile, scope.canonicalSourceUrl(), scope.tenantId(),
-                    existing(profile.name(), scope, proof));
+                    existing(profile.name(), scope, proof), ownership);
         } catch (IOException | RuntimeException | Error failure) {
             closeOnFailure(local, failure);
             throw failure;

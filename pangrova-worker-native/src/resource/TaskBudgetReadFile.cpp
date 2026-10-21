@@ -1,8 +1,12 @@
 #include "resource/TaskBudgetReadFile.h"
 
+#include <algorithm>
+#include <array>
 #include <exception>
 #include <limits>
 #include <stdexcept>
+#include <openssl/crypto.h>
+#include <openssl/evp.h>
 
 #include "folly/executors/InlineExecutor.h"
 
@@ -41,6 +45,33 @@ TaskBudgetReadFile::TaskBudgetReadFile(
     std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation)
     : input_(std::move(input)), budget_(std::move(budget)), cancellation_(std::move(cancellation)),
       size_(fileSize(input_, budget_, cancellation_)) {}
+
+void TaskBudgetReadFile::verifySha256(std::string_view expected, uint64_t declaredLength) const {
+  checkpoint(cancellation_);
+  if (expected.size() != 32 || declaredLength != size_) {
+    throw std::runtime_error("Task file differs from its pinned length or SHA-256 declaration");
+  }
+  std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> digest(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+  if (!digest || EVP_DigestInit_ex(digest.get(), EVP_sha256(), nullptr) != 1) {
+    throw std::runtime_error("Cannot initialize task file qualification");
+  }
+  std::array<char, 64 * 1024> buffer;
+  for (uint64_t offset = 0; offset < declaredLength;) {
+    const auto length = std::min<uint64_t>(buffer.size(), declaredLength - offset);
+    auto bytes = pread(offset, length, buffer.data());
+    if (bytes.size() != length || EVP_DigestUpdate(digest.get(), bytes.data(), bytes.size()) != 1) {
+      throw std::runtime_error("Task file qualification read was truncated");
+    }
+    offset += length;
+  }
+  std::array<unsigned char, EVP_MAX_MD_SIZE> actual{};
+  unsigned int size = 0;
+  if (EVP_DigestFinal_ex(digest.get(), actual.data(), &size) != 1 || size != expected.size() ||
+      CRYPTO_memcmp(actual.data(), expected.data(), size) != 0) {
+    throw std::runtime_error("Task file differs from its pinned SHA-256");
+  }
+  checkpoint(cancellation_);
+}
 
 std::string_view TaskBudgetReadFile::pread(uint64_t offset, uint64_t length,
     void* buffer, const facebook::velox::FileIoContext& context) const {

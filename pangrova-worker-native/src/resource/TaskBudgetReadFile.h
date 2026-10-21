@@ -14,6 +14,7 @@ class TaskBudgetReadFile final : public facebook::velox::ReadFile {
   TaskBudgetReadFile(std::shared_ptr<facebook::velox::ReadFile> input,
       std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation);
   using facebook::velox::ReadFile::pread;
+  void verifySha256(std::string_view expected, uint64_t declaredLength) const;
   std::string_view pread(uint64_t offset, uint64_t length, void* buffer,
       const facebook::velox::FileIoContext& context = {}) const override;
   uint64_t preadv(uint64_t offset, const std::vector<folly::Range<char*>>& buffers,

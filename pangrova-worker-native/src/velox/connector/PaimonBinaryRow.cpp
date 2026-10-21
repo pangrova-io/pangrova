@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <bit>
 #include <charconv>
-#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>

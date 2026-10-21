@@ -183,7 +183,7 @@ ordering for tests that consume the native bundle.
 │ Step 6: Java Full Test (all modules, shared E2E and smoke)       │
 │   mvn -q -Pfull-regression verify                               │
 │                                                                  │
-│ Step 7: Isolated Native owner E2E (three separate JVMs)          │
+│ Step 7: Isolated Native owner E2E (four separate JVMs)          │
 │   see commands below                                             │
 │                                                                  │
 │ ALL REQUIRED STEPS MUST PASS; report blockers accurately.                           │
@@ -196,22 +196,23 @@ and their validation impact according to `development.md`; do not claim a blocke
 chain passed or expand the task into unrelated repairs.
 `full-regression` removes daily filename exclusions and runs ordinary E2E
 groups, including routing integration and performance tests.
-Its shared JVM run excludes only `native-runtime-owner`: these classes start and
+Its shared JVM run excludes only `native-runtime-owner`: these selections start and
 stop the process-wide Native runtime and would invalidate later SQL tests.
-Complete Step 7 by running each owner class in its own Maven invocation/JVM:
+Complete Step 7 by running each owner selection in its own Maven invocation/JVM:
 
 ```bash
 for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
-             WorkerShuffleChannelAdmissionIntegrationTest; do
+             WorkerShuffleChannelAdmissionIntegrationTest \
+             'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes'; do
   mvn -q -Pfull-regression -pl pangrova-testing/pangrova-test-e2e \
     -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test
 done
 ```
 
-The Step 6 shared run, including `ActivationSmokeE2ETest`, and all three isolated
-owner runs must pass; report their test counts
-separately. A single shared JVM run that excludes these classes without the
-three isolated results is incomplete.
+The Step 6 shared run, including `ActivationSmokeE2ETest`, and all four isolated
+owner selections must pass; report their test counts
+separately. A single shared JVM run that excludes these selections without the
+four isolated results is incomplete.
 It does not turn routing integration into independent-process distributed evidence.
 Record discovered test counts and FAIL/SKIPPED/BLOCKED results; a successful Maven
 command that selects no applicable tests is not validation. Use the optional

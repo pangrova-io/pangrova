@@ -136,6 +136,8 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
     }
 
     @Test
+    @org.junit.jupiter.api.Tag("native-runtime-owner")
+    @org.junit.jupiter.api.parallel.ResourceLock("pangrova-packaged-native-runtime")
     void privateTicketStagesExactVersionAndRestartsFromManagedBytes() throws Exception {
         try (var minio = new GenericContainer<>("minio/minio:RELEASE.2024-12-18T13-15-44Z")
                     .withExposedPorts(9000)
@@ -262,6 +264,24 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                         }
                         assertThat(localPath).doesNotExist();
                         assertThat(client.redeem(ticket.nonce(), wireScope).stagedSource()).isEqualTo(proof);
+
+                        var frozenProof = proof;
+                        CopyNativeInputAssertions.verify(command, grant -> {
+                            var leafScope = new JdbcCopySourceReadAdmissions.Scope(scope.tenantId(),
+                                    scope.principal(), scope.profileName(), scope.profileIncarnationId(),
+                                    scope.profileRevision(), scope.canonicalSourceUrl(), scope.managedStorageRootUri(),
+                                    scope.managedBackendIdentitySha256(), scope.executionId(),
+                                    "native-copy-" + UUID.randomUUID(), scope.ownerId(), scope.ownerIncarnation(),
+                                    scope.controlEpoch(), scope.ownerFencingToken(), scope.deadlineEpochMs());
+                            var leafTicket = fixture.admissions.issue(leafScope, fixture.identity, fixture.anchor);
+                            fixture.admissions.redeem(leafTicket, leafScope, fixture.anchor);
+                            fixture.admissions.recordStagedSource(leafTicket, leafScope,
+                                    new JdbcCopySourceReadAdmissions.StagedSource(frozenProof.sourceVersionId(),
+                                            frozenProof.managedObjectUri(), frozenProof.contentSha256(),
+                                            frozenProof.contentSize(), frozenProof.tenantScope()), fixture.anchor);
+                            return CopyNativeInputAssertions.task(fixture.wire(leafScope),
+                                    leafTicket.nonce(), frozenProof, grant);
+                        }, stagingRoot, proof.contentSize());
 
                         fixture.grants.revokeGrants("reader", Privilege.READ_STORAGE_PROFILE,
                                 "incoming", null, null);
