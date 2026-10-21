@@ -160,7 +160,7 @@ final class PaimonSystemReadBindings {
         return DigestUtils.sha256Hex(evidence.toString());
     }
 
-    private static String checksum(FileStoreTable table, org.apache.paimon.fs.Path path,
+    static String checksum(FileStoreTable table, org.apache.paimon.fs.Path path,
             long expectedLength) throws IOException {
         if (expectedLength <= 0 || expectedLength > 64L * 1024 * 1024) {
             throw new IOException("Paimon snapshot metadata object exceeds Native reader limit");

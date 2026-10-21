@@ -289,6 +289,28 @@ message IcebergManifestPartitionSpec {
 // A read-only metadata table is a scan source in the same DataSplit envelope
 // as every other connector source. The opaque_location identifies the pinned
 // metadata source (object or directory); no rows are carried through the Coordinator.
+message PinnedMetadataObject {
+  string uri = 1;
+  uint64 length = 2;
+  bytes sha256 = 3;
+}
+
+// Planning descriptors only. Native reads all result values from the manifest.
+message PaimonFilesReadContext {
+  message Schema {
+    uint64 schema_id = 1;
+    string schema_json = 2;
+  }
+  message FileSelection {
+    bytes identifier_sha256 = 1;
+    string file_uri = 2;
+  }
+  PinnedMetadataObject snapshot = 1;
+  uint64 read_schema_id = 2;
+  repeated Schema schemas = 3;
+  repeated FileSelection files = 4;
+}
+
 message SystemTableSplitDetail {
   enum Kind {
     KIND_UNSPECIFIED = 0;
@@ -303,6 +325,7 @@ message SystemTableSplitDetail {
     ICEBERG_FILES = 9;
     ICEBERG_ENTRIES = 10;
     ICEBERG_REFS = 11;
+    PAIMON_FILES = 12;
   }
   Kind kind = 1;
   // Positive for a Paimon snapshot object or selected Iceberg manifest-list
@@ -335,6 +358,7 @@ message SystemTableSplitDetail {
   bytes iceberg_manifest_list_sha256 = 16;
   int32 iceberg_child_spec_id = 17;
   int32 iceberg_child_content = 18;
+  PaimonFilesReadContext paimon_files = 19;
 }
 
 // Immutable identity of the exact catalog deployment authorized by the

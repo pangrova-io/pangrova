@@ -410,7 +410,8 @@ std::optional<folly::dynamic> AvroContainerReader::nextRecord() {
   if (remaining_rows_ == 0 && !readNextBlock()) return std::nullopt;
   BinaryDecoder decoder(std::string_view(block_).substr(block_position_));
   auto row = decoder.decode(writer_schema_);
-  block_position_ += decoder.position();
+  last_record_size_ = decoder.position();
+  block_position_ += last_record_size_;
   --remaining_rows_;
   if (remaining_rows_ == 0 && block_position_ != block_.size()) {
     throw std::runtime_error("Iceberg Avro block contains unconsumed bytes");

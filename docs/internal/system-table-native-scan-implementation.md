@@ -12,9 +12,55 @@ large-table throughput, and independent image are not yet validated. Iceberg
 `first_row_id` inheritance; its complete SDK nested schema remains open. Iceberg
 `$partitions` now expands frozen entry/snapshot inputs into ordinary Native
 joins and aggregates, with SDK schema and focused SQL edge-case coverage;
-Paimon `$branches` on distributed/object storage, `$files`, and the final full-chain gate remain
-open. This is an implementation specification and failure record, not a
+Paimon `$files` now has its twenty-column Native path; its broader type/filesystem
+matrix, nonlocal `$branches`, and the final full-chain gate remain open. This is an implementation specification and failure record, not a
 production-readiness assertion.
+
+## Paimon `$files` implementation
+
+The Paimon 1.4.1 `FilesTable.TABLE_TYPE` declares twenty columns. The
+[official system-table reference](https://paimon.apache.org/docs/2.1/concepts/system-tables/)
+also identifies optional row tracking and written-column metadata; its version
+must not replace the exact pinned SDK serializer/display contract. The connector
+now resolves `$files` to a read-only selector over the physical base table,
+refreshes the SDK catalog entry before a new binding, and freezes the selected
+snapshot, schemas and original manifests. It uses SDK `FileEntry.mergeEntries`
+with source provenance to select active file identifiers; it does not invent a
+second ADD/DELETE merge algorithm. A later catalog schema update does not change
+an already-bound query's schema. Explicit historical selectors publish their
+snapshot ID in `ConnectorReadBinding`, as ordinary versioned reads do.
+
+The v2 context carries immutable source references, file-identity digests,
+physical URIs and schema declarations. Declarations include only schema ID,
+fields and key definitions; table options and unrelated configuration are omitted.
+It carries no projected system-table rows or preformatted statistics. The complete identifier includes partition,
+bucket, level, file name, extra files, embedded file index and external path.
+Java and Native use the same domain-separated, big-endian length framing.
+Native validates snapshot and manifest SHA-256, decodes original Avro and
+BinaryRow fields, and emits vector batches. Unknown, duplicate or missing
+selected identities fail rather than returning an incomplete successful result.
+The former six-column Java row materializer and its resolver entry are removed.
+
+The output columns are `partition`, `bucket`, `file_path`, `file_format`,
+`schema_id`, `level`, `record_count`, `file_size_in_bytes`, `min_key`, `max_key`,
+`null_value_counts`, `min_value_stats`, `max_value_stats`, `min_sequence_number`,
+`max_sequence_number`, `creation_time`, `deleteRowCount`, `file_source`,
+`first_row_id`, and nullable `write_cols ARRAY<VARCHAR>`. The camel-case delete
+count name follows the pinned SDK. Statistics use the SDK 1.4.1 TreeMap display
+contract, not the JSON representation shown by other Paimon versions. Field-ID
+mapping preserves renamed columns and supplies all-null counts for newly added
+columns without rewriting old manifest statistics.
+
+The current local SQL evidence covers append and primary-key files across
+commits, empty tables, snapshot selection, rename/add-column evolution, SHOW,
+partition overwrite membership, base SELECT revocation, live row policies and
+column masks. Controlled SDK serializer fixtures additionally exercise non-null
+written columns, external paths, compaction source, first row IDs, extra files
+and embedded indexes. These fixtures are explicitly distinguished from actual
+batch-write SQL evidence in their README. The full scalar-statistics type and
+filesystem matrices, larger metadata objects, scale testing and final same-source
+whole-program acceptance remain open; this section is not a production-readiness
+claim. Exact test results and sanitizer status belong to the rolling inventory.
 
 ## Observed break
 
@@ -59,9 +105,8 @@ below.
   `$files` and `$manifests` SELECT paths; SHOW PARTITIONS uses the same frozen
   relational definition as direct `$partitions` SQL. Direct SELECT for Iceberg
   `$files` has the validated scalar/array slice, a typed `column_sizes` map and
-  a field-ID-based `partition` struct where the SDK exposes one; full `$files`,
-  `$entries`, full partition-type/filesystem acceptance, Paimon `$files`, and
-  nonlocal `$branches` remain open. Paimon `$snapshots`,
+  a field-ID-based `partition` struct where the SDK exposes one; full Iceberg `$files`/`$entries`, full partition-type/filesystem acceptance,
+  the Paimon `$files` type/filesystem matrix, and nonlocal `$branches` remain open. Paimon `$snapshots`,
   `$tags`, `$options`, and `$schemas` use typed splits over pinned JSON objects
   and a Native reader. Their declared 14, 7, 2, and 7 columns follow the fixed Paimon
   1.4.1 `SnapshotsTable.TABLE_TYPE`, `TagsTable.TABLE_TYPE`, and

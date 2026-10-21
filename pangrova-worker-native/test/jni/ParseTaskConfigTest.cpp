@@ -856,6 +856,55 @@ TEST(ParseTaskConfigTest, PinsIcebergPartitionFieldIdsAndRejectsUnboundOrDuplica
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
+TEST(ParseTaskConfigTest, ParsesPinnedPaimonFileManifestAndRejectsMixedSourceKinds) {
+  auto request = validRequest();
+  auto* data = addFileSplit(request, proto::FILE_FORMAT_METADATA_AVRO);
+  const std::string manifest = "s3://warehouse/db/orders/manifest/manifest-a";
+  const std::string snapshot = "s3://warehouse/db/orders/snapshot/snapshot-7";
+  data->set_connector_id("paimon");
+  data->set_source_id("db.orders$files");
+  data->set_source_snapshot(snapshot);
+  data->set_data_object_id(manifest);
+  data->set_opaque_location(manifest);
+  data->set_start_offset(0);
+  data->set_length(256);
+  proto::FileSplitDetail detail;
+  ASSERT_TRUE(data->connector_detail().UnpackTo(&detail));
+  auto* system = detail.mutable_system_table();
+  system->set_kind(proto::SystemTableSplitDetail::PAIMON_FILES);
+  system->set_snapshot_id(7);
+  system->set_object_sha256(std::string(32, 'b'));
+  auto* context = system->mutable_paimon_files();
+  context->mutable_snapshot()->set_uri(snapshot);
+  context->mutable_snapshot()->set_length(128);
+  context->mutable_snapshot()->set_sha256(std::string(32, 'c'));
+  context->add_schemas()->set_schema_json("{}");
+  auto* selected = context->add_files();
+  selected->set_identifier_sha256(std::string(32, 'd'));
+  selected->set_file_uri("s3://warehouse/db/orders/bucket-0/a.parquet");
+  data->mutable_connector_detail()->PackFrom(detail);
+  auto parsed = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(parsed.splits.size(), 1);
+  EXPECT_EQ(parsed.splits[0].system_table, split::SystemTableKind::PAIMON_FILES);
+  EXPECT_EQ(parsed.splits[0].system_table_paimon_files_context, context->SerializeAsString());
+
+  system->set_iceberg_format_version(2);
+  data->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  system->clear_iceberg_format_version();
+  context->mutable_snapshot()->set_sha256("short");
+  data->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  context->mutable_snapshot()->set_sha256(std::string(32, 'c'));
+  data->mutable_connector_detail()->PackFrom(detail);
+  data->set_source_snapshot("different-snapshot");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  data->set_source_snapshot(snapshot);
+  system->set_kind(proto::SystemTableSplitDetail::ICEBERG_FILES);
+  data->mutable_connector_detail()->PackFrom(detail);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
 TEST(ParseTaskConfigTest, ParsesPinnedPaimonSnapshotObjectAndRejectsKindDrift) {
   auto request = validRequest();
   auto* data_split = addFileSplit(request, proto::FILE_FORMAT_METADATA_JSON);

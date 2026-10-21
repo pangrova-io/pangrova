@@ -67,6 +67,7 @@ enum class SystemTableKind : uint8_t {
   ICEBERG_FILES,
   ICEBERG_ENTRIES,
   ICEBERG_REFS,
+  PAIMON_FILES,
 };
 
 struct IcebergManifestPartitionField {
@@ -167,6 +168,7 @@ struct SplitConfig {
   uint64_t system_table_snapshot_id = 0;
   std::string system_table_object_sha256;
   std::string system_table_tag_name;
+  std::string system_table_paimon_files_context;
   std::optional<uint64_t> system_table_schema_id;
   std::string system_table_branch_name;
   int64_t system_table_directory_mtime_ms = 0;

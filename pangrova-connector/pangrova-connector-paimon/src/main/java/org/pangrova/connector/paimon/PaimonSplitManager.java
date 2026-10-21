@@ -15,6 +15,8 @@ import org.pangrova.connector.paimon.handle.PaimonMergePolicy;
 import org.pangrova.connector.paimon.handle.PaimonSplit;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonFilesSystemTableSplit;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableSplit;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonBranchSystemTableSplit;
@@ -80,6 +82,11 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                         .map(directory -> (ConnectorSplit) new PaimonBranchSystemTableSplit(
                                 branches.tableName(), branches.sourceIdentity(), directory))
                         .toList());
+            }
+            if (table instanceof PaimonFilesTableHandle files) {
+                if (!files.bound()) throw new IllegalStateException("Paimon files must be bound before split planning");
+                return new FixedSplitSource(files.manifests().stream().map(source -> (ConnectorSplit)
+                        new PaimonFilesSystemTableSplit(files.tableName(), source)).toList());
             }
             if (table instanceof PaimonSystemTableHandle system) {
                 if (!system.bound()) {

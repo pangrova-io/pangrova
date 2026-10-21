@@ -7,6 +7,7 @@ import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
@@ -96,52 +97,34 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
         int separator = tableName.table().lastIndexOf('$');
-        String systemSuffix = separator > 0 ? tableName.table().substring(separator + 1) : "";
-        if (systemSuffix.equalsIgnoreCase("branches")) {
-            String baseName = tableName.table().substring(0, separator);
-            try {
-                Table base = catalog.getTable(Identifier.create(tableName.schema(), baseName));
-                if (!(base instanceof FileStoreTable)) {
-                    throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
-                            "Paimon $branches requires a physical base table");
-                }
-                return PaimonBranchTableHandle.selector(PaimonTableHandleFactory.fromTable(
-                        tableName.schema(), baseName, base));
-            } catch (Catalog.TableNotExistException missing) {
-                return null;
-            }
-        }
-        if (systemSuffix.equalsIgnoreCase("snapshots") || systemSuffix.equalsIgnoreCase("tags")
-                || systemSuffix.equalsIgnoreCase("options")
-                || systemSuffix.equalsIgnoreCase("schemas")) {
-            String baseName = tableName.table().substring(0, separator);
-            try {
-                Table base = catalog.getTable(Identifier.create(tableName.schema(), baseName));
-                if (!(base instanceof FileStoreTable)) {
-                    throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
-                            "Paimon system tables require a physical base table");
-                }
-                return PaimonSystemTableHandle.selector(PaimonTableHandleFactory.fromTable(
-                        tableName.schema(), baseName, base),
-                        systemSuffix.equalsIgnoreCase("tags")
-                                ? PaimonSystemTableHandle.Kind.TAGS
-                                : systemSuffix.equalsIgnoreCase("options")
-                                        ? PaimonSystemTableHandle.Kind.OPTIONS
-                                        : systemSuffix.equalsIgnoreCase("schemas")
-                                                ? PaimonSystemTableHandle.Kind.SCHEMAS
-                                        : PaimonSystemTableHandle.Kind.SNAPSHOTS);
-            } catch (Catalog.TableNotExistException missing) {
-                return null;
-            }
-        }
-        Identifier id = Identifier.create(tableName.schema(), tableName.table());
+        String suffix = separator > 0
+                ? tableName.table().substring(separator + 1).toLowerCase(java.util.Locale.ROOT) : "";
         try {
-            Table table = catalog.getTable(id);
+            if (java.util.Set.of("files", "branches", "snapshots", "tags", "options", "schemas").contains(suffix)) {
+                return nativeMetadataHandle(tableName.schema(), tableName.table().substring(0, separator), suffix);
+            }
+            Table table = catalog.getTable(Identifier.create(tableName.schema(), tableName.table()));
             return PaimonTableHandleFactory.fromTable(tableName.schema(), tableName.table(), table);
-        } catch (Catalog.TableNotExistException e) {
+        } catch (Catalog.TableNotExistException missing) {
             LOG.debug("Table not found: {}", tableName);
             return null;
         }
+    }
+
+    private ConnectorTableHandle nativeMetadataHandle(String schema, String name, String suffix)
+            throws Catalog.TableNotExistException {
+        Table base = catalog.getTable(Identifier.create(schema, name));
+        if (!(base instanceof FileStoreTable)) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                    "Paimon system tables require a physical base table");
+        }
+        var handle = PaimonTableHandleFactory.fromTable(schema, name, base);
+        return switch (suffix) {
+            case "files" -> PaimonFilesTableHandle.selector(handle);
+            case "branches" -> PaimonBranchTableHandle.selector(handle);
+            default -> PaimonSystemTableHandle.selector(handle,
+                    PaimonSystemTableHandle.Kind.valueOf(suffix.toUpperCase(java.util.Locale.ROOT)));
+        };
     }
 
     @Override
@@ -178,6 +161,11 @@ public class PaimonMetadata implements ConnectorMetadata {
                     columns.stream().map(ConnectorTableMetadata.Column::name).toList(),
                     columns, Map.of());
         }
+        if (table instanceof PaimonFilesTableHandle files) {
+            var columns = files.typedColumns();
+            return new ConnectorTableMetadata(new SchemaTableName(files.baseTable().schemaName(), files.tableName()),
+                    columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
+        }
         if (table instanceof PaimonSystemTableHandle system) {
             var columns = system.typedColumns();
             return new ConnectorTableMetadata(
@@ -213,6 +201,14 @@ public class PaimonMetadata implements ConnectorMetadata {
             }
             return Map.copyOf(columns);
         }
+        if (table instanceof PaimonFilesTableHandle files) {
+            Map<String, ColumnHandle> columns = new java.util.LinkedHashMap<>();
+            int fieldId = 1;
+            for (var column : files.typedColumns()) {
+                columns.put(column.name(), new PaimonColumnHandle(fieldId++, column.name(), column.type()));
+            }
+            return Map.copyOf(columns);
+        }
         if (table instanceof PaimonSystemTableHandle system) {
             Map<String, ColumnHandle> columns = new java.util.LinkedHashMap<>();
             int fieldId = 1;
@@ -233,6 +229,7 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
+        if (table instanceof PaimonFilesTableHandle files) return PaimonFilesReadBindings.bind(catalog, files);
         if (table instanceof PaimonBranchTableHandle branches) {
             return PaimonBranchReadBindings.bind(catalog, branches);
         }
@@ -250,6 +247,10 @@ public class PaimonMetadata implements ConnectorMetadata {
             ConnectorReadBinding binding) {
         if (binding.handle() instanceof PaimonBranchTableHandle) {
             PaimonBranchReadBindings.validate(catalog, binding);
+            return;
+        }
+        if (binding.handle() instanceof PaimonFilesTableHandle) {
+            PaimonFilesReadBindings.validate(catalog, binding);
             return;
         }
         if (binding.handle() instanceof PaimonSystemTableHandle) {
@@ -366,7 +367,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public Optional<MetadataTableListing> getMetadataListing(ConnectorSession session, MetadataTableKind requested) {
         return switch (requested) {
-            case SNAPSHOTS, TAGS, BRANCHES, OPTIONS, SCHEMAS -> Optional.of(new MetadataTableListing(requested));
+            case SNAPSHOTS, TAGS, BRANCHES, OPTIONS, SCHEMAS, FILES -> Optional.of(new MetadataTableListing(requested));
             default -> Optional.empty();
         };
     }
@@ -586,7 +587,8 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> applyLimit(
             ConnectorSession session, ConnectorTableHandle table, long limit) {
-        if (table instanceof PaimonSystemTableHandle || table instanceof PaimonBranchTableHandle) {
+        if (table instanceof PaimonSystemTableHandle || table instanceof PaimonBranchTableHandle
+                || table instanceof PaimonFilesTableHandle) {
             return Optional.empty();
         }
         PaimonTableHandle handle = (PaimonTableHandle) table;

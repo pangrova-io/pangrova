@@ -693,10 +693,13 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
   if (detail.has_system_table()) {
     const bool directory = detail.system_table().kind() ==
         proto::SystemTableSplitDetail::PAIMON_BRANCHES;
-    const bool avro = detail.system_table().kind() ==
+    const bool icebergAvro = detail.system_table().kind() ==
             proto::SystemTableSplitDetail::ICEBERG_MANIFESTS ||
         detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_FILES ||
         detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_ENTRIES;
+    const bool paimonFiles = detail.system_table().kind() ==
+        proto::SystemTableSplitDetail::PAIMON_FILES;
+    const bool avro = icebergAvro || paimonFiles;
     const bool files = detail.system_table().kind() ==
             proto::SystemTableSplitDetail::ICEBERG_FILES ||
         detail.system_table().kind() == proto::SystemTableSplitDetail::ICEBERG_ENTRIES;
@@ -715,7 +718,7 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         detail.system_table().directory_zone_offset_seconds() != 0)) {
       throw std::runtime_error("Non-branch system table has directory identity");
     }
-    if (!avro && (detail.system_table().iceberg_partition_specs_size() != 0 ||
+    if (!icebergAvro && (detail.system_table().iceberg_partition_specs_size() != 0 ||
         detail.system_table().iceberg_format_version() != 0 ||
         detail.system_table().iceberg_snapshot_sequence_number() != 0)) {
       throw std::runtime_error("Non-Iceberg manifests split has manifest identity");
@@ -726,6 +729,9 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
         detail.system_table().iceberg_child_spec_id() != 0 ||
         detail.system_table().iceberg_child_content() != 0)) {
       throw std::runtime_error("Non-Iceberg files split has child manifest identity");
+    }
+    if (!paimonFiles && detail.system_table().has_paimon_files()) {
+      throw std::runtime_error("Non-Paimon files split has Paimon manifest context");
     }
     switch (detail.system_table().kind()) {
       case proto::SystemTableSplitDetail::ICEBERG_SNAPSHOTS:
@@ -834,6 +840,28 @@ SplitConfig parseSplit(const proto::DataSplit& split) {
                 })) {
           throw std::runtime_error("Iceberg child manifest partition spec is unbound");
         }
+        break;
+      }
+      case proto::SystemTableSplitDetail::PAIMON_FILES:
+      {
+        const auto& system = detail.system_table();
+        const auto& context = system.paimon_files();
+        if (split.connector_id() != "paimon" || !split.source_id().ends_with("$files") ||
+            split.data_object_id() != split.opaque_location() ||
+            split.partition_values_size() != 0 || system.snapshot_id() == 0 ||
+            system.snapshot_id() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+            system.object_sha256().size() != 32 || !system.tag_name().empty() || system.schema_id() != 0 ||
+            !system.has_paimon_files() || context.files().empty() || context.schemas().empty() ||
+            context.snapshot().uri().empty() || context.snapshot().length() == 0 ||
+            context.snapshot().length() > 64 * 1024 * 1024 || context.snapshot().sha256().size() != 32 ||
+            split.source_snapshot() != context.snapshot().uri() ||
+            split.source_snapshot() == split.opaque_location() || context.ByteSizeLong() > 64 * 1024 * 1024) {
+          throw std::runtime_error("Paimon files split identity or kind mismatch");
+        }
+        config.system_table = split::SystemTableKind::PAIMON_FILES;
+        config.system_table_snapshot_id = system.snapshot_id();
+        config.system_table_object_sha256 = system.object_sha256();
+        config.system_table_paimon_files_context = context.SerializeAsString();
         break;
       }
       case proto::SystemTableSplitDetail::PAIMON_SNAPSHOTS:

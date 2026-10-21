@@ -232,6 +232,7 @@ void PangrovaVeloxDataSource::addSplit(
   // Reset merge reader from any previous split.
   merge_reader_.reset();
   metadata_reader_.reset();
+  paimon_files_reader_.reset();
   iceberg_manifest_reader_.reset();
   iceberg_file_reader_.reset();
   paimon_snapshot_reader_.reset();
@@ -278,6 +279,17 @@ void PangrovaVeloxDataSource::addSplit(
           output_type_, pool_,
           *splitConfig.system_table == split::SystemTableKind::ICEBERG_ENTRIES,
           splitConfig.system_table_iceberg_partition_specs);
+    } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_FILES) {
+      if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
+        throw std::runtime_error("Paimon files split requires metadata Avro format");
+      }
+      protocol::v2::PinnedMetadataObject manifest;
+      manifest.set_uri(splitConfig.file_path);
+      manifest.set_length(splitConfig.length);
+      manifest.set_sha256(splitConfig.system_table_object_sha256);
+      paimon_files_reader_ = std::make_unique<PaimonFilesMetadataReader>(
+          manifest, splitConfig.system_table_snapshot_id, splitConfig.system_table_paimon_files_context,
+          output_type_, pool_);
     } else if (*splitConfig.system_table == split::SystemTableKind::PAIMON_BRANCHES) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_DIRECTORY) {
         throw std::runtime_error("Paimon branches split requires directory format");
@@ -1079,6 +1091,17 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     checkCancelled();
     if (!rowVector) {
       iceberg_file_reader_.reset();
+      return facebook::velox::RowVectorPtr(nullptr);
+    }
+    completed_rows_ += rowVector->size();
+    completed_bytes_ += rowVector->estimateFlatSize();
+    return rowVector;
+  }
+  if (paimon_files_reader_) {
+    auto rowVector = paimon_files_reader_->next(batchSize);
+    checkCancelled();
+    if (!rowVector) {
+      paimon_files_reader_.reset();
       return facebook::velox::RowVectorPtr(nullptr);
     }
     completed_rows_ += rowVector->size();

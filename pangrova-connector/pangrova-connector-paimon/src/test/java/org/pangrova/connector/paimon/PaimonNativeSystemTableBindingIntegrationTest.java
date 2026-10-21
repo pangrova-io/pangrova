@@ -32,6 +32,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.api.parallel.ResourceAccessMode;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonFilesSystemTableSplit;
 import org.pangrova.connector.paimon.handle.PaimonSystemTableSplit;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonBranchSystemTableSplit;
@@ -48,17 +50,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Execution(ExecutionMode.SAME_THREAD)
 class PaimonNativeSystemTableBindingIntegrationTest {
     @Test
-    void listingsUseThePaimonTagAndBranchSchemas() throws Exception {
+    void listingsUseTheNativePaimonMetadataSchemas() throws Exception {
         try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
             var metadata = new PaimonMetadata(catalog, "paimon", registry);
             for (var kind : List.of(org.pangrova.spi.connector.metadata.MetadataTableKind.TAGS,
-                    org.pangrova.spi.connector.metadata.MetadataTableKind.BRANCHES)) {
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.BRANCHES,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.FILES)) {
                 var listing = metadata.getMetadataListing(SESSION, kind).orElseThrow();
                 assertThat(listing.source()).isEqualTo(kind);
                 assertThat(listing.equalityFilters()).isEmpty();
             }
             assertThat(metadata.getMetadataListing(SESSION,
-                    org.pangrova.spi.connector.metadata.MetadataTableKind.FILES)).isEmpty();
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.ENTRIES)).isEmpty();
         }
     }
     @TempDir
@@ -411,6 +414,163 @@ class PaimonNativeSystemTableBindingIntegrationTest {
         }
     }
 
+    @Test
+    void filesBindingPreservesTheSdkSchemaAndOnlyOriginalMetadataDescriptors() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var table = (FileStoreTable) catalog.getTable(Identifier.create("db", "orders"));
+            writeRow(table);
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var selector = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$files"));
+            var binding = metadata.bindRead(SESSION, selector);
+            var handle = (PaimonFilesTableHandle) binding.handle();
+            assertThat(handle.typedColumns()).hasSize(20);
+            var base = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders"));
+            assertThat(metadata.getSystemTable(SESSION, base, "files")).isEmpty();
+            assertThat(metadata.getTableMetadata(SESSION, selector).columns()).containsExactlyElementsOf(
+                    org.apache.paimon.table.system.FilesTable.TABLE_TYPE.getFieldNames());
+            assertThat(handle.manifests()).hasSize(1);
+            assertThat(binding.statistics().rowCount()).isEqualTo(1);
+            var source = handle.manifests().get(0);
+            var encoded = DataSplit.parseFrom(new PaimonFilesSystemTableSplit(
+                    handle.tableName(), source).toSplitInfoProto());
+            var detail = encoded.getConnectorDetail().unpack(FileSplitDetail.class);
+            assertThat(detail.getSystemTable().getKind()).isEqualTo(SystemTableSplitDetail.Kind.PAIMON_FILES);
+            assertThat(detail.getSystemTable().getPaimonFiles()).isEqualTo(source.context());
+            assertThat(encoded.getSourceSnapshot()).isEqualTo(handle.snapshot().getUri());
+            assertThat(source.context().getSchemasList()).singleElement().satisfies(schema ->
+                    assertThat(schema.getSchemaJson())
+                            .contains("\"id\"", "\"fields\"", "\"partitionKeys\"", "\"primaryKeys\"")
+                            .doesNotContain("\"options\"", "\"timeMillis\"", "\"comment\""));
+            assertThat(source.context().getFilesList()).singleElement().satisfies(file -> {
+                assertThat(file.getIdentifierSha256().size()).isEqualTo(32);
+                assertThat(file.getFileUri()).endsWith(".parquet");
+            });
+            metadata.validateReadBinding(SESSION, binding);
+        }
+    }
+
+    @Test
+    void filesBindingFreezesTheHeadWhileLaterCommitsRemainVisibleToNewBindings() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var table = (FileStoreTable) catalog.getTable(Identifier.create("db", "orders"));
+            writeRow(table);
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var selector = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$files"));
+            var first = metadata.bindRead(SESSION, selector);
+            writeRow(table);
+            metadata.validateReadBinding(SESSION, first);
+            var second = metadata.bindRead(SESSION, selector);
+            assertThat(((PaimonFilesTableHandle) first.handle()).snapshotId()).isEqualTo(1);
+            assertThat(((PaimonFilesTableHandle) second.handle()).snapshotId()).isEqualTo(2);
+            assertThat(second.sourceIdentity()).isNotEqualTo(first.sourceIdentity());
+            var historical = metadata.bindRead(SESSION, selector.withTimeTravelSnapshot(1));
+            assertThat(historical.snapshotId()).hasValue(1);
+            assertThat(historical.state()).isEqualTo(
+                    org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT);
+            assertThat(historical.sourceIdentity()).isEqualTo(first.sourceIdentity());
+        }
+    }
+
+    @Test
+    void emptyFilesBindingStaysEmptyAfterTheFirstCommit() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var selector = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$files"));
+            var empty = metadata.bindRead(SESSION, selector);
+            assertThat(((PaimonFilesTableHandle) empty.handle()).manifests()).isEmpty();
+            assertThat(empty.statistics().rowCount()).isZero();
+            writeRow((FileStoreTable) catalog.getTable(Identifier.create("db", "orders")));
+            metadata.validateReadBinding(SESSION, empty);
+            assertThat(metadata.bindRead(SESSION, selector).sourceIdentity()).isNotEqualTo(empty.sourceIdentity());
+        }
+    }
+
+    @Test
+    void filesBindingRejectsSameLengthManifestReplacement() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            writeRow((FileStoreTable) catalog.getTable(Identifier.create("db", "orders")));
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var binding = metadata.bindRead(SESSION,
+                    metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$files")));
+            var object = ((PaimonFilesTableHandle) binding.handle()).manifests().get(0);
+            var path = Path.of(object.uri());
+            byte[] bytes = Files.readAllBytes(path);
+            bytes[bytes.length - 1] ^= 1;
+            Files.write(path, bytes);
+            assertThatThrownBy(() -> metadata.validateReadBinding(SESSION, binding))
+                    .hasMessageContaining("Pinned Paimon manifest changed");
+        }
+    }
+
+    @Test
+    void filesBindingRejectsTableRecreationAtTheSameLocation() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var binding = metadata.bindRead(SESSION,
+                    metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$files")));
+            catalog.dropTable(Identifier.create("db", "orders"), false);
+            createTable(catalog);
+            assertThatThrownBy(() -> metadata.validateReadBinding(SESSION, binding))
+                    .hasMessageContaining("incarnation changed");
+        }
+    }
+
+    @Test
+    void filesBindingSeesExternalSchemaEvolutionAcrossIndependentCatalogCaches() throws Exception {
+        try (var writer = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(writer);
+            var id = Identifier.create("db", "orders");
+            writeRow((FileStoreTable) writer.getTable(id));
+            var options = new Options();
+            options.setString("warehouse", warehouse.toString());
+            try (var reader = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+                var metadata = new PaimonMetadata(reader, "paimon", registry);
+                var selector = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$files"));
+                var original = metadata.bindRead(SESSION, selector);
+                writer.alterTable(id, List.of(SchemaChange.renameColumn("name", "renamed"),
+                        SchemaChange.addColumn("added", DataTypes.BIGINT())), false);
+                var evolved = metadata.bindRead(SESSION, selector);
+                var handle = (PaimonFilesTableHandle) evolved.handle();
+                assertThat(handle.manifests()).singleElement().satisfies(manifest -> {
+                    assertThat(manifest.context().getReadSchemaId()).isEqualTo(1);
+                    assertThat(manifest.context().getSchemasList()).hasSize(2);
+                });
+                assertThat(evolved.sourceIdentity()).isNotEqualTo(original.sourceIdentity());
+                metadata.validateReadBinding(SESSION, original);
+                metadata.validateReadBinding(SESSION, evolved);
+            }
+        }
+    }
+
+    @Test
+    void filesBindingDoesNotTransportTableOptionsInItsSchemaDeclaration() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            createTable(catalog);
+            var id = Identifier.create("db", "orders");
+            writeRow((FileStoreTable) catalog.getTable(id));
+            catalog.alterTable(id, List.of(SchemaChange.setOption("s3.secret-key", "canary-test-secret")), false);
+            var source = (FileStoreTable) catalog.getTable(id);
+            assertThat(source.schema().options()).containsEntry("s3.secret-key", "canary-test-secret");
+            var metadata = new PaimonMetadata(catalog, "paimon", registry);
+            var binding = metadata.bindRead(SESSION,
+                    metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders$files")));
+            var handle = (PaimonFilesTableHandle) binding.handle();
+            for (var manifest : handle.manifests()) {
+                assertThat(manifest.context().getSchemasList()).allSatisfy(schema ->
+                        assertThat(schema.getSchemaJson()).doesNotContain(
+                                "s3.secret-key", "canary-test-secret", "\"options\""));
+                assertThat(com.google.protobuf.ByteString.copyFrom(new PaimonFilesSystemTableSplit(
+                        handle.tableName(), manifest).toSplitInfoProto()).toStringUtf8())
+                        .doesNotContain("s3.secret-key", "canary-test-secret");
+            }
+        }
+    }
+
     private Catalog catalog() throws Exception {
         var options = new Options();
         options.setString("warehouse", warehouse.toString());
@@ -422,7 +582,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
     private static void createTable(Catalog catalog) throws Exception {
         var schema = Schema.newBuilder().column("id", DataTypes.BIGINT())
                 .column("name", DataTypes.STRING()).primaryKey("id")
-                .option("bucket", "1").build();
+                .option("bucket", "1").option("file.format", "parquet").build();
         catalog.createTable(Identifier.create("db", "orders"), schema, false);
     }
 

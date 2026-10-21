@@ -24,6 +24,7 @@
 #include "velox/connector/IcebergManifestListReader.h"
 #include "velox/connector/IcebergManifestEntryReader.h"
 #include "velox/connector/PaimonSnapshotJsonReader.h"
+#include "velox/connector/PaimonFilesMetadataReader.h"
 #include "velox/connector/PaimonBranchDirectoryReader.h"
 #include "velox/connector/PartitionColumnInjector.h"
 #include "velox/connector/SchemaEvolution.h"
@@ -302,6 +303,7 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Pinned Iceberg metadata object; read on the worker through its registered
   // filesystem, never materialized in the coordinator or connector JVM.
   std::unique_ptr<IcebergMetadataJsonReader> metadata_reader_;
+  std::unique_ptr<PaimonFilesMetadataReader> paimon_files_reader_;
   std::unique_ptr<IcebergManifestListReader> iceberg_manifest_reader_;
   std::unique_ptr<IcebergManifestEntryReader> iceberg_file_reader_;
   std::unique_ptr<PaimonSnapshotJsonReader> paimon_snapshot_reader_;

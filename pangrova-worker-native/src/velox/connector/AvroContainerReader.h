@@ -25,6 +25,7 @@ class AvroContainerReader final {
       std::string expectedSha256);
 
   std::optional<folly::dynamic> nextRecord();
+  uint64_t lastRecordSize() const { return last_record_size_; }
   std::string metadataValue(const std::string& key) const;
   const folly::dynamic& writerSchema() const { return writer_schema_; }
 
@@ -45,6 +46,7 @@ class AvroContainerReader final {
   std::string block_;
   uint64_t block_position_ = 0;
   uint64_t remaining_rows_ = 0;
+  uint64_t last_record_size_ = 0;
 };
 
 }  // namespace pangrova::velox
