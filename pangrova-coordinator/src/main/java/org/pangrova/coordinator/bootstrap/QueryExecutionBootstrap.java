@@ -2,6 +2,7 @@ package org.pangrova.coordinator.bootstrap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -407,7 +408,10 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
             org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch) {
         org.pangrova.coordinator.dynamictable.DynamicTableTaskRegistration.register(
-                factory, metadataBootstrap.dynamicTablePublicationStore(), ddlExecutor, dmlDispatch);
+                factory, metadataBootstrap.dynamicTablePublicationStore(), ddlExecutor, dmlDispatch,
+                execution -> Objects.requireNonNull(coordinationService, "Dynamic Table execution authority")
+                        .requireExecutionAnchor(execution),
+                () -> Objects.requireNonNull(coordinationService, "Dynamic Table control term").getCurrentEpoch());
     }
 
     private static void registerBranchTasks(

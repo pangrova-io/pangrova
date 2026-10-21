@@ -47,6 +47,9 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     /** Returns exact durable COPY evidence, including its snapshot ID; conflicting evidence fails closed. */
     Optional<CopyFilePublication> findCopyFilePublication(WriteCommitEntry entry);
 
+    /** Whether an exact durable consumer requires confirmed publication before retiring this intent. */
+    boolean requiresPublication(WriteCommitEntry intent);
+
     /**
      * Marks an existing intent as COMMITTED after successful commit.
      * Must be called AFTER {@code finishDistributedWrite()} succeeds.

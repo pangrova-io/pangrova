@@ -24,6 +24,12 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     private final java.util.Set<String> acknowledged = ConcurrentHashMap.newKeySet();
 
     @Override
+    public boolean requiresPublication(WriteCommitEntry intent) {
+        java.util.Objects.requireNonNull(intent, "intent");
+        return false; // This journal cannot register a durable downstream publication consumer.
+    }
+
+    @Override
     public void recordIntent(WriteCommitEntry entry) {
         if (entry.copyFile() != null) {
             throw new IllegalStateException("COPY requires a durable PostgreSQL write journal");

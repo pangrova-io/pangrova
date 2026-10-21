@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** SQL-to-Native full materialization with durable, atomic Dynamic Table publication. */
 @ResourceLock("pangrova-shared-dynamic-table-runtime")
@@ -102,7 +101,33 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         assertThat(sqlRunner.executeExpectingError("CREATE DYNAMIC TABLE " + anotherLogical
                 + " TARGET_LAG = 'PT0S' AS SELECT id FROM " + source)
                 .message()).contains("HTTP 403", "SECURITY-0002");
-        assertThat(publications.load(TENANT, anotherLogical)).isEmpty();
+        var unpublished = publications.load(TENANT, anotherLogical).orElseThrow();
+        assertThat(unpublished.state()).isEqualTo(DynamicTablePublication.State.CREATING);
+        assertThat(unpublished.publishedTable()).isNull();
+        assertThat(unpublished.revision()).isZero();
+        assertThat(sqlRunner.executeExpectingError("SELECT id FROM " + anotherLogical).message()).isNotBlank();
+    }
+
+    @Test
+    void emptyGenerationHasARealCommittedSnapshotAndChangesOnlyAfterRefresh() throws Exception {
+        String suffix = Long.toHexString(System.nanoTime());
+        String source = CATALOG + "." + SCHEMA + ".dt_empty_source_" + suffix;
+        String logical = CATALOG + "." + SCHEMA + ".dt_empty_rollup_" + suffix;
+        dataSetup.createTestTable(CATALOG, SCHEMA, "dt_empty_source_" + suffix, "id BIGINT");
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + logical
+                + " TARGET_LAG = 'PT0S' REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + source);
+        var empty = publications.load(TENANT, logical).orElseThrow();
+        var emptyAttempt = assertPublishedAttempt(empty);
+        assertIds(logical);
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (42)");
+        assertIds(logical);
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " REFRESH");
+        var refreshed = publications.load(TENANT, logical).orElseThrow();
+        assertThat(refreshed.revision()).isEqualTo(empty.revision() + 1);
+        assertThat(refreshed.publishedTable()).isNotEqualTo(empty.publishedTable());
+        assertPublishedAttempt(refreshed);
+        assertIds(logical, 42L);
+        assertThat(publications.findRefresh(TENANT, emptyAttempt.executionId())).contains(emptyAttempt);
     }
 
     @Test
@@ -122,6 +147,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         assertThat(first.publishedTable()).startsWith(CATALOG + "." + SCHEMA + ".__pg_dt_");
         assertIds(logical, 1L, 2L);
         assertPhysicalCommittedRows(first.publishedTable(), 2);
+        var firstAttempt = assertPublishedAttempt(first);
         assertThat(sqlRunner.executeExpectingError("SELECT id FROM " + first.publishedTable())
                 .message()).contains("Direct access to a Dynamic Table generation is forbidden");
         assertThat(sqlRunner.executeExpectingError("SELECT l.id FROM " + logical
@@ -139,6 +165,8 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         assertIds(logical, 1L, 2L, 3L);
         assertPhysicalCommittedRows(first.publishedTable(), 2);
         assertPhysicalCommittedRows(second.publishedTable(), 3);
+        var secondAttempt = assertPublishedAttempt(second);
+        assertThat(secondAttempt.executionId()).isNotEqualTo(firstAttempt.executionId());
 
         sqlRunner.executeDdl("DROP TABLE " + source);
         assertThat(sqlRunner.executeExpectingError("ALTER DYNAMIC TABLE " + logical + " REFRESH")
@@ -147,9 +175,8 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
                 .isEqualTo(second.publishedTable());
         assertIds(logical, 1L, 2L, 3L);
 
-        assertThatThrownBy(() -> publications.publish(first, first.publishedTable()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("changed during refresh");
+        assertThat(publications.findRefresh(TENANT, firstAttempt.executionId())).contains(firstAttempt);
+        assertThat(publications.findRefresh(TENANT, secondAttempt.executionId())).contains(secondAttempt);
         restoreTestDynamicTableRuntime();
         publications = installDurableDynamicTableRuntime();
         DynamicTablePublication recovered = reopenDynamicTablePublicationStore()
@@ -177,6 +204,38 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
                         assertThat(taskTracker.getTaskIds(queryId)).isEmpty();
                     }
                 });
+    }
+
+    private org.pangrova.metadata.dynamictable.DynamicTableRefreshAttempt assertPublishedAttempt(
+            DynamicTablePublication publication) throws Exception {
+        String execution;
+        try (var connection = stateStoreDataSource().getConnection(); var query = connection.prepareStatement(
+                "SELECT execution_id FROM dynamic_table_refresh_attempts WHERE tenant_id=? AND candidate_table=?")) {
+            query.setString(1, TENANT);
+            query.setString(2, publication.publishedTable());
+            try (var rows = query.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                execution = rows.getString(1);
+                assertThat(rows.next()).isFalse();
+            }
+        }
+        var attempt = publications.findRefresh(TENANT, execution).orElseThrow();
+        assertThat(attempt.state()).isEqualTo(
+                org.pangrova.metadata.dynamictable.DynamicTableRefreshAttempt.State.PUBLISHED);
+        assertThat(attempt.logicalName()).isEqualTo(publication.logicalName());
+        assertThat(attempt.incarnationId()).isEqualTo(publication.incarnationId());
+        assertThat(attempt.baseRevision()).isEqualTo(publication.revision() - 1);
+        assertThat(attempt.commitFingerprint()).matches("[0-9a-f]{64}");
+        try (var catalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString())) {
+            var physical = catalog.loadTable(TableIdentifier.of(SCHEMA,
+                    publication.publishedTable().substring(publication.publishedTable().lastIndexOf('.') + 1)));
+            assertThat(attempt.publication().publishedVersion()).isEqualTo(physical.currentSnapshot().snapshotId());
+            try (var input = physical.io().newInputFile(physical.currentSnapshot().manifestListLocation()).newStream()) {
+                assertThat(attempt.publication().manifestSha256()).isEqualTo(
+                        java.security.MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+            }
+        }
+        return attempt;
     }
 
     private static void assertIds(String table, Long... expected) {

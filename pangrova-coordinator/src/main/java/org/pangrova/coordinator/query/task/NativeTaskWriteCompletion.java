@@ -117,7 +117,7 @@ final class NativeTaskWriteCompletion {
             return false;
         }
 
-        CopyFilePublication copyPublication = commitCatalog(writeState, intent, fragments);
+        CopyFilePublication copyPublication = commitCatalog(writeState, intent);
 
         // A changed owner must reconcile the same intent, never publish another commit.
         if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_catalog_commit")) return false;
@@ -133,7 +133,7 @@ final class NativeTaskWriteCompletion {
     }
 
     private CopyFilePublication commitCatalog(NativeWriteCommitTracker.WriteCommitState writeState,
-            WriteCommitEntry intent, List<byte[]> fragments) {
+            WriteCommitEntry intent) {
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(writeState.catalogName());
         if (!(catalogHandle instanceof ConnectorCatalogHandle connectorCatalog)) {
             throw new IllegalStateException(
@@ -143,8 +143,7 @@ final class NativeTaskWriteCompletion {
                 intent, writeState.outputHandle().targetTable().orElseThrow(),
                 connectorCatalog);
         ConnectorMetadata metadata = catalogHandle.getMetadata(writeState.session());
-        metadata.finishDistributedWrite(
-                writeState.session(), boundHandle, fragments, intent.commitContext());
+        RequiredWritePublication.commit(writeCommitJournal, metadata, writeState.session(), boundHandle, intent);
         if (intent.copyFile() == null) {
             return null;
         }

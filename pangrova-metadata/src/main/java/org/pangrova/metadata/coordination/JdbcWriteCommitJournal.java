@@ -377,6 +377,32 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
+    public boolean requiresPublication(WriteCommitEntry intent) {
+        Objects.requireNonNull(intent, "intent");
+        try (var connection = dataSource.getConnection(); var query = connection.prepareStatement(
+                "SELECT tenant_id,principal,owner_id,owner_incarnation,owner_token,candidate_table "
+                        + "FROM dynamic_table_refresh_attempts WHERE execution_id=?")) {
+            query.setString(1, intent.queryId());
+            try (var rows = query.executeQuery()) {
+                if (!rows.next()) return false;
+                if (!intent.tenantId().equals(rows.getString("tenant_id"))
+                        || !intent.principal().equals(rows.getString("principal"))
+                        || !Objects.equals(intent.ownerId(), rows.getString("owner_id"))
+                        || !Objects.equals(intent.ownerIncarnation(), rows.getString("owner_incarnation"))
+                        || intent.executionFencingToken() != rows.getLong("owner_token")
+                        || !(intent.catalogName() + "." + intent.tableName())
+                                .equals(rows.getString("candidate_table"))) {
+                    throw new IllegalStateException("Write intent differs from its durable publication consumer");
+                }
+                return true;
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot inspect required write publication", failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
+    @Override
     public void markCommitted(String queryId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
         try (Connection conn = dataSource.getConnection();

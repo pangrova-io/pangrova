@@ -65,6 +65,7 @@ final class SecuritySqlFixture implements AutoCloseable {
     private final PersistentColumnMaskStore masks;
     private final DynamicRbacAccessControl authority;
     private final DataSource dataSource;
+    private org.pangrova.spi.connector.metadata.table.QualifiedTableName dynamicPhysical;
 
     SecuritySqlFixture(Path warehouse) throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("security_sql");
@@ -83,7 +84,7 @@ final class SecuritySqlFixture implements AutoCloseable {
         configuration.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
         catalog = new HadoopCatalog(configuration, warehouse.toString());
         catalog.createNamespace(Namespace.of("default"));
-        for (String table : List.of("orders", "source_orders", "__pg_dt_secure_generation")) {
+        for (String table : List.of("orders", "source_orders")) {
             catalog.createTable(TableIdentifier.of("default", table), ordersSchema());
         }
         var store = new JdbcMetadataStore(dataSource);
@@ -113,10 +114,12 @@ final class SecuritySqlFixture implements AutoCloseable {
 
     SqlCompiler dynamicTableCompiler() {
         var publications = new JdbcDynamicTablePublicationStore(dataSource);
-        publications.create("security-test-tenant", "default.default.rollup",
-                "SELECT id FROM default.default.orders", "default", "default");
-        publications.publish(publications.load("security-test-tenant", "default.default.rollup")
-                .orElseThrow(), "default.default.__pg_dt_secure_generation");
+        var attempt = org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures.create(dataSource,
+                "security-test-tenant", "default.default.rollup", "SELECT id FROM default.default.orders",
+                "default", "default");
+        dynamicPhysical = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+                "default", "default", attempt.candidateTable().split("\\.")[2]);
+        catalog.createTable(TableIdentifier.of("default", dynamicPhysical.table()), ordersSchema());
         var schema = metadata.buildCalciteSchema(SessionContextConverter.toConnectorSession(
                 session("schema_reader", Set.of())));
         var rewrite = new DynamicTableRewriter(new DurableDynamicTableResolver(publications,
@@ -124,6 +127,10 @@ final class SecuritySqlFixture implements AutoCloseable {
         var context = new PlannerContext(null, null, null, null, null, rewrite, null, null, null);
         return new SqlCompiler(new PangrovaPlanner(schema, List.of("default", "default"), context),
                 new SubstraitConverter(), new SubstraitPlanSerializer());
+    }
+
+    org.pangrova.spi.connector.metadata.table.QualifiedTableName dynamicPhysical() {
+        return java.util.Objects.requireNonNull(dynamicPhysical);
     }
 
     void grantTable(String role, Privilege privilege, String table) {

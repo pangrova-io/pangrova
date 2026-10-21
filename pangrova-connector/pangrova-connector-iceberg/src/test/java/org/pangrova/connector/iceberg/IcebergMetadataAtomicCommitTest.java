@@ -80,6 +80,50 @@ class IcebergMetadataAtomicCommitTest {
     }
 
     @Test
+    void requiredPublicationReturnsActualSnapshotAndManifestBytes() throws Exception {
+        Table table = createTable("required_publication");
+        var handle = beginInsert("required_publication");
+        var fragments = List.of(buildAppendFragmentBytes(table, "actual.parquet", 3, 1024));
+        var context = context("required-write", handle, fragments);
+        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context);
+        table.refresh();
+        var snapshot = table.currentSnapshot();
+        assertThat(receipt.publishedVersion()).isEqualTo(snapshot.snapshotId());
+        assertThat(snapshot.summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
+                context.commitFingerprint());
+        try (var input = table.io().newInputFile(snapshot.manifestListLocation()).newStream()) {
+            assertThat(receipt.manifestSha256()).isEqualTo(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+        }
+        assertThat(metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context))
+                .isEqualTo(receipt);
+        table.refresh();
+        assertThat(countSnapshots(table)).isEqualTo(1);
+    }
+
+    @Test
+    void requiredEmptyInsertCommitsOneRealSnapshotAndReplaysExactly() {
+        Table table = createTable("required_empty");
+        var handle = beginInsert("required_empty");
+        var context = context("required-empty", handle, List.of());
+        assertThat(table.currentSnapshot()).isNull();
+        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, List.of(), context);
+        table.refresh();
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(receipt.publishedVersion());
+        assertThat(table.currentSnapshot().summary()).containsEntry(
+                IcebergDistributedCommitMarker.EXECUTION_ID, "required-empty");
+        try (var files = table.newScan().planFiles()) {
+            assertThat(files).isEmpty();
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
+        assertThat(metadata.finishDistributedWriteWithPublication(SESSION, handle, List.of(), context))
+                .isEqualTo(receipt);
+        table.refresh();
+        assertThat(countSnapshots(table)).isEqualTo(1);
+    }
+
+    @Test
     void multipleAppendFragments_produceSingleSnapshot() {
         Table table = createTable("multi_append");
         int snapshotCountBefore = countSnapshots(table);

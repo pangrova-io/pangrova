@@ -45,8 +45,10 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
             bootstrap.start();
             var publications = bootstrap.getMetadataBootstrap().dynamicTablePublicationStore();
             assertThat(publications).isNotNull();
-            publications.create("bootstrap-tenant", "lake.analytics.rollup",
-                    "SELECT 1 AS id", "lake", "analytics");
+            publications.create(new org.pangrova.metadata.dynamictable.DynamicTableDefinition(
+                    "bootstrap-tenant", "lake.analytics.rollup", "SELECT 1 AS id", "lake", "analytics"),
+                    org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures.issuer(
+                            bootstrap.metadataDataSource()));
             assertThat(publications.load("bootstrap-tenant", "lake.analytics.rollup"))
                     .isPresent();
         } finally {

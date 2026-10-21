@@ -21,8 +21,6 @@ class DynamicTableReadAuthorizationTest extends ContainerTestBase {
 
     private static final QualifiedTableName LOGICAL =
             new QualifiedTableName("default", "default", "rollup");
-    private static final QualifiedTableName PHYSICAL =
-            new QualifiedTableName("default", "default", "__pg_dt_secure_generation");
 
     @Test
     void logicalGrantAppliesLogicalRowAndColumnPoliciesToPhysicalScan() throws Exception {
@@ -37,29 +35,29 @@ class DynamicTableReadAuthorizationTest extends ContainerTestBase {
             var plan = compiler.compileForPolicyApplication(
                     "SELECT id, department FROM default.default.rollup").toPlannedQuery();
 
-            assertThat(plan.physicalToLogicalDynamicTables()).containsEntry(PHYSICAL, LOGICAL);
+            assertThat(plan.physicalToLogicalDynamicTables()).containsEntry(fixture.dynamicPhysical(), LOGICAL);
             var protectedPlan = fixture.applier(compiler).applyPoliciesObserved(plan, session);
-            var policy = protectedPlan.policies().get(PHYSICAL.toString());
+            var policy = protectedPlan.policies().get(fixture.dynamicPhysical().toString());
             assertThat(policy.rowFilter().orElseThrow()).contains("region", "US");
             assertThat(policy.columnMasks()).containsEntry("department",
                     java.util.Optional.of("'hidden'"));
             assertThat(protectedPlan.plan().tableReferences())
-                    .containsExactly(List.of("default", "default", "__pg_dt_secure_generation"));
+                    .containsExactly(List.of("default", "default", fixture.dynamicPhysical().table()));
         }
     }
 
     @Test
     void physicalGrantCannotReplaceLogicalGrantOrPermitDirectGenerationRead() throws Exception {
         try (var fixture = new SecuritySqlFixture(Files.createTempDirectory("dt-denied-plan"))) {
-            fixture.grantTable("no_access", Privilege.SELECT, PHYSICAL.table());
             SqlCompiler compiler = fixture.dynamicTableCompiler();
+            fixture.grantTable("no_access", Privilege.SELECT, fixture.dynamicPhysical().table());
             var session = SecuritySqlFixture.session("bob", Set.of("no_access"));
 
             assertThatThrownBy(() -> fixture.applier(compiler).compileAndApplyPolicies(
                     "SELECT id FROM default.default.rollup", session))
                     .isInstanceOf(AccessDeniedException.class);
             assertThatThrownBy(() -> fixture.applier(compiler).compileAndApplyPolicies(
-                    "SELECT id FROM default.default.__pg_dt_secure_generation", session))
+                    "SELECT id FROM " + fixture.dynamicPhysical(), session))
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("Direct access");
         }

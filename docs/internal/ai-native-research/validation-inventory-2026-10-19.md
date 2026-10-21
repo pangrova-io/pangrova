@@ -6,6 +6,14 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 Dynamic Table 候选所有权与提交凭据增量：**V66 在 Native I/O 前原子登记不可变定义/候选；同一 execution 的重复预留不重新执行 Native，发布需当前 execution owner、控制任期和精确候选的确认凭据。最初两个 PostgreSQL 反例实际 **2/2 FAIL**：未登记候选也可推进 head、定义默认 schema 可改写。随后新反例实际 **1/1 ERROR** 证明普通 Native 完成流程会先清理已确认 redo 日志，使稍后的 head 发布丢失证明。现于 COMMITTED 的同一事务把精确确认凭据复制到不可变小账本；head 与 attempt outcome 同事务推进，重放保留原回执，不能回退新 head。绑定、伪造凭据、事务回滚、并发候选、owner/控制任期接管、行锁等待后租约到期及 V60 旧 head 升级均有真实 PostgreSQL 检查。
+
+生产提交与恢复路径共同使用显式的 required-publication 能力。Iceberg 确认当前 ancestry 内的精确 commit marker，返回真实 snapshot ID 和 manifest-list 字节摘要；必需的空 INSERT 生成真实空快照。Native Dataset 仍使用其事务性 source proof，不伪造版本或零摘要。相关数据库/普通 journal/COPY 发布检查 **58/58 PASS**；增加 journal consumer 作用域核对后，Dynamic Table/迁移 **27/27 PASS**，最新 5 个错误绑定检查增量通过。SPI 整模块与静态 **753/753 PASS**，Iceberg 整模块与静态 **453/453 PASS**；Metadata、Coordinator、E2E 最近静态检查和最终完整 Java reactor 无测试安装通过。Native/protobuf 输入未变，沿用已核对 JNI，不重复 Native/ASan。
+
+Metadata 整模块首轮 **708 PASS / 1 FAIL**；与后续增量按唯一方法名合并为 **712 PASS / 1 FAIL**。剩余 `JdbcQualityRuleStoreIntegrationTest.persistsRulesAndResultsAcrossStoreRestart` 已确认是既有 `saveResult` upsert 覆盖同 ID 的历史结果，**未记整模块全绿**，留在 #7 下一批修复。Coordinator 首轮 **3,342 PASS / 1 FAIL**，失败是测试观察到推测 copy 登记后就要求 RUNNING；现在等待同一 copy 在 tracker 中登记、到达 RUNNING 且绑定正确 Worker，保留 10 秒期限，10 次并发复验通过。失败批次中的任一重复失败均算该批失败；后续受影响写入/状态/Dynamic Table 检查和定向修复后，滚动 **3,324 个唯一方法 PASS**，10 次复验只算一个方法；不冒充最终全量。
+
+真实 SQL/JNI **3 个唯一场景 PASS**：非空物化/刷新/删源后保留旧 head、空物化/刷新，以及精确逻辑权限不能冒充物理写入。直接检查实际快照 ID、manifest-list SHA-256、持久 attempt 和 Native query/task drain。失败的初次创建保留 `CREATING` 和候选所有权，未把未知外部结果当作不存在。最终安装后只复验受影响非空链路 **1/1 PASS**，加实际启动冒烟 **3/3 PASS**；未重跑另两个已通过场景。实际最终 JVM 中 JDBC/V66、物化器、提交/恢复助手、SPI 和 Iceberg provider 资源与所属当前产物逐字节一致；JNI 保持 `643c6cc996e58c37b5027f31e448aafb6cea4f6853ed1303d444e354bb0608e0`。证据 `/tmp/pangrova-dynamic-attempt-{metadata-rolling,coordinator-rolling,compact-proof-r13,demand-r18,demand-negative-r25,spi-owner-r16,iceberg-owner-r21,sql-r22,final-sql-static-r30,final-artifacts-r31}-20261021.json`；失败原日志均保留。此批完成候选登记/提交凭据/发布子链路；定义者授权、source/reader pins、取消与发布顺序、自动恢复/GC、调度/CDC 仍开放，**17 类本机检查点仍开放**。
+
 **2026-10-21 DiskANN 多文件与空结果增量：**同一已打包 JNI 下，500 行/64 维、多批真实 Native 写入的多文件构建/检索通过；新增两类空结果分别通过：Iceberg 统计已剪掉全部文件时不发行 ANN 工作；每个过滤值分别存在、但没有同一行满足 `category='cat_0' AND id=1` 时，确实发行受支持的 Native 过滤 ANN，保留精确 published artifact/source binding、Native operator stats 和实际 owner release/drain 强断言，最终结果为空。**3 个唯一场景滚动 PASS**。先前新增检查对统计剪枝错误要求 ANN owner，随后使用不在受支持谓词集合的 MOD 而走精确 Native 扫描；这两次是测试路径选取错误，均保留失败日志，不冒充修复生产缺陷。最终用相关列反例进入实际目标算子；未放松其 ANN 强断言。已通过的多文件项和统计剪枝项没有重新执行。原 XML 后续已被定向运行覆盖，证据明确记录前两项由精确二项选集、执行总数和唯一失败名证明，最后一项保留实际 Surefire JVM。日志 `/tmp/pangrova-diskann-{empty-multifile-r1,empty-r2,native-empty-r3,empty-static-r4}-20261021.log`，来源 `/tmp/pangrova-diskann-empty-qualified-20261021.json`。E2E 静态通过；生产/Native 源码未变，沿用已核对的 JNI，未重复 Native/ASan 或整模块模型检查。#22 的跨进程、剩余生命周期和质量范围仍开放，目标规模不由 500 行外推。
 
 **Dynamic Table 下一批真实性审查：**旧 `SqlE2ETestBase.executeRefresh` 用源表/定义子查询覆盖目标读取；CDC recovery 夹具没有实际断源，因此其绿灯不能证明物化/CDC 恢复。生产 `DynamicTableMaterializationService` 目前只支持手动全量物化，明确拒绝计划调度和 CDC；持久 publication 还没有定义者/owner 身份，精确逻辑权限仍不能安全授权隐藏物理 generation 的写入。[Snowflake 的官方权限模型](https://docs.snowflake.com/en/user-guide/dynamic-tables-privileges)把操作权限与 owner role 刷新分开，[Databricks 的定义者语义](https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-materialized-view)也要求按 owner 执行相关策略。下一步需要持久 owner/作用域、受限的 generation 写入授权和真实失败恢复，不能用全局授权或源表透传填补。该审查是缺口证据，**不计 Dynamic Table 验收通过**。当前仍为 **17 类本机检查点开放**；测试容器已退出，磁盘余约 73 GiB。
@@ -190,8 +198,8 @@ Native 测试统一入口 `pangrova-worker-native/bin/run-native-tests.py` 现�
 | C | 18 `GENERATE_SERIES` | 提交 `65c7dffa` 当前源码真实 SQL/JNI E2E **6/6 PASS**；最终同源码全功能回归仍待纳入最终批次。 |
 | C | 19 `COPY INTO` | 已冻结托管源→真实 TaskManager/JNI Native Parquet→Flight 精确值、预算/取消/清理重试通过；`FROM (SELECT …)` 局部通过。生产 proof 转交已接线；源准备的类型化协议/预算/退出已通过；URI SQL、源 schema、文件 claim、写入 commit binding 与 marker/未知提交对账仍未接通；不将输入子链路通过计成整项完成。 |
 | C | 20 系统表 | `$files` field-ID 分区 struct 的 SQL/JNI 3/3、`$entries` 序列和 v3 row ID 的 4/4、标准 `$refs` 的 3/3 与授权矩阵 6/6 已通过。SHOW TAGS/BRANCHES 已贯通真实 Native 查询；两个特殊表名原失败项在新的 106/106 写入/目录批次中恢复。`$partitions` 关系聚合与 v2/v3 SDK 边界、SHOW、授权已通过；Paimon `$files` 20 列、空表/历史/schema 演进/覆盖集合及授权的 SQL 子链路已通过；完整 SDK 嵌套列、全逻辑类型、跨文件系统和 deferred/background 元数据策略矩阵仍未闭合。 |
-| C | 21 Dynamic Table | 手动 full-refresh generation 已有真实 E2E；逻辑授权、持久 attempt/source pin、失败恢复、GC、调度/CDC 未闭合。 |
-| C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多 split、无结果和目标规模质量/成本待验。 |
+| C | 21 Dynamic Table | 手动 full-refresh、不可变持久 attempt、精确 Native/catalog 提交凭据与 fenced head 发布已通过上述 SQL/JNI 增量；定义者/内部写入授权、source/reader pin、取消顺序、自动恢复、GC、调度/CDC 未闭合。 |
+| C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多文件与两类空结果已增量通过，跨进程、其余生命周期与目标规模质量/成本仍待验。 |
 | D：AI/Feature/CDC | 23 独立模型服务 | 提交 `cf767a46` 重封 JAR/Native 后预置真实模型的独立双 Worker HTTP/SQL、分别单独调用、重启和审计 1/1 再通过（`/tmp/pangrova-independent-processes-cf767a46-20261019.log`）；异步批量、取消、乱序、超时、未知完成、fencing 未全闭合。 |
 | D | 24 Feature/CDC/评估 | 单源 Feature View 与数值评估局部通过；多源 point-in-time、真实 Kafka→sink→重启→SQL 和发布闭环未完成。 |
 | E：发布/规模环境 | 3 Linux x86_64 镜像 | 当前无 x86_64 runner；不阻断本机独立 Worker 功能验收，交付 Linux 镜像时必须验。 |

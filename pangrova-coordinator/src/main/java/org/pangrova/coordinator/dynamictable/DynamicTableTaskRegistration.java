@@ -13,6 +13,9 @@ import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
 import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
 
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.function.LongSupplier;
+import org.pangrova.spi.coordination.ExecutionAnchor;
 
 /** Registers the production materialization handlers in one metadata factory. */
 public final class DynamicTableTaskRegistration {
@@ -22,11 +25,13 @@ public final class DynamicTableTaskRegistration {
     /** Wires the exact production DDL and refresh handlers into a metadata factory. */
     public static void register(MetadataExecutionFactory factory,
             JdbcDynamicTablePublicationStore publications, DdlExecutor tableDdl,
-            NativeDmlCompileFunction dmlDispatch) {
+            NativeDmlCompileFunction dmlDispatch,
+            Function<String, ExecutionAnchor> owners,
+            LongSupplier controlEpoch) {
         Objects.requireNonNull(factory, "factory");
         Objects.requireNonNull(publications, "publications");
         var materialization = new DynamicTableMaterializationService(
-                publications, new CtasTask(tableDdl, dmlDispatch));
+                publications, new CtasTask(tableDdl, dmlDispatch), owners, controlEpoch);
         factory.registerTask(CreateDynamicTableStatement.class, materialization::create);
         factory.registerTask(AlterDynamicTableStatement.class, materialization::alter);
         factory.registerTask(DropDynamicTableStatement.class, materialization::drop);

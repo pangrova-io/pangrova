@@ -42,7 +42,8 @@ import java.util.function.Consumer;
  * Iceberg metadata implementation delegating to real Iceberg Catalog API.
  * Acts as anti-corruption layer: Iceberg SDK types stay within this module.
  */
-public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePublicationMetadata {
+public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePublicationMetadata,
+        org.pangrova.spi.connector.metadata.DistributedWritePublicationMetadata {
 
     static final long DEFAULT_PIN_TTL_MS = 1_800_000L; // 30 minutes
     static final long DEFAULT_COMMIT_TIMEOUT_MS = 30_000L; // 30 seconds
@@ -226,6 +227,32 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         }
         writeCommitter.finishDistributedWrite(
                 icebergTable, handle, fragments, tenantId, context);
+    }
+
+    @Override
+    public org.pangrova.spi.connector.metadata.NativeWriteFinalization finishDistributedWriteWithPublication(
+            ConnectorSession session, ConnectorOutputTableHandle outputHandle,
+            List<byte[]> fragments, DistributedWriteCommitContext context) {
+        java.util.Objects.requireNonNull(context, "Required publication needs its exact commit context");
+        finishIcebergDistributedWrite(session, outputHandle, fragments, context);
+        IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
+        Table table = catalog.loadTable(TableIdentifier.of(handle.schemaName(), handle.tableName()));
+        table.refresh();
+        if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(table))) {
+            throw new IllegalStateException("Iceberg table UUID changed before required publication proof");
+        }
+        writeCommitter.ensureEmptyInsertPublication(table, handle, fragments, tenantId(session), context);
+        table.refresh();
+        var snapshot = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        if (snapshot == null || snapshot.manifestListLocation() == null) {
+            throw new IllegalStateException("Required Iceberg publication marker or manifest is absent");
+        }
+        var manifest = table.io().newInputFile(snapshot.manifestListLocation());
+        byte[] checksum = java.util.HexFormat.of().parseHex(
+                IcebergManifestReadBindings.digest(manifest, manifest.getLength()));
+        return new org.pangrova.spi.connector.metadata.NativeWriteFinalization(
+                org.pangrova.spi.connector.metadata.NativeWriteFinalization.Outcome.COMMITTED,
+                snapshot.snapshotId(), checksum);
     }
 
     @Override

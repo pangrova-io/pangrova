@@ -6,6 +6,11 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.metadata.dynamictable.DynamicTablePublication;
+import org.pangrova.metadata.dynamictable.DynamicTableDefinition;
+import org.pangrova.metadata.dynamictable.DynamicTableRefreshAttempt;
+import org.pangrova.metadata.dynamictable.DynamicTableRefreshIssuer;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore;
 import org.pangrova.parser.AstPrinter;
 import org.pangrova.parser.ast.CreateDynamicTableStatement;
@@ -28,8 +33,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.function.Function;
+import java.util.function.LongSupplier;
 
 /** Foreground full-refresh Dynamic Tables backed by Native CTAS and an atomic JDBC head. */
 public final class DynamicTableMaterializationService {
@@ -39,12 +45,18 @@ public final class DynamicTableMaterializationService {
 
     private final JdbcDynamicTablePublicationStore store;
     private final CtasTask ctas;
+    private final Function<String, ExecutionAnchor> owners;
+    private final LongSupplier controlEpoch;
 
     /** Creates the production materializer with a durable publication authority. */
     public DynamicTableMaterializationService(JdbcDynamicTablePublicationStore store,
-            CtasTask ctas) {
+            CtasTask ctas,
+            Function<String, ExecutionAnchor> owners,
+            LongSupplier controlEpoch) {
         this.store = Objects.requireNonNull(store, "store");
         this.ctas = Objects.requireNonNull(ctas, "ctas");
+        this.owners = Objects.requireNonNull(owners, "owners");
+        this.controlEpoch = Objects.requireNonNull(controlEpoch, "controlEpoch");
     }
 
     /** Creates and publishes the first physical generation before reporting success. */
@@ -54,26 +66,17 @@ public final class DynamicTableMaterializationService {
         String logicalName = requireQualifiedName(statement.name());
         String tenantId = tenantId(context);
         String definitionSql = new AstPrinter().print(statement.query());
-        store.create(tenantId, logicalName, definitionSql,
-                context.session().sessionProperties().get("catalog"),
-                context.session().sessionProperties().get("schema"));
-        DynamicTablePublication expected = store.load(tenantId, logicalName).orElseThrow();
-        Identifier candidate = candidateTable(statement.name());
-        try {
-            materialize(candidate, statement.query(), context);
-        } catch (RuntimeException failure) {
-            // A timeout does not prove Native writers have stopped. Retain the
-            // isolated candidate until a fenced, task-drained GC can prove safety.
-            try {
-                store.abandonCreation(expected);
-            } catch (RuntimeException cleanup) {
-                failure.addSuppressed(cleanup);
+        try (var operation = authority(context).enterOperation()) {
+            var reserved = store.create(new DynamicTableDefinition(
+                    tenantId, logicalName, definitionSql, context.session().sessionProperties().get("catalog"),
+                    context.session().sessionProperties().get("schema")), issuer(context));
+            if (reserved.first()) {
+                // A failure may follow an external commit. Keep the definition and candidate for reconciliation.
+                materialize(candidateTable(reserved.attempt()), statement.query(), context);
             }
-            throw failure;
+            if (authority(context).isClosed()) throw new IllegalStateException("Refresh query admission is closed");
+            store.publish(reserved.attempt(), issuer(context));
         }
-        // A lost JDBC acknowledgement may follow a committed head update. Do not
-        // delete the candidate if publication throws: it may already be visible.
-        store.publish(expected, String.join(".", candidate.parts()));
         LOG.info("event=dynamic_table_published queryId={} logicalName={} revision=1",
                 context.queryId(), logicalName);
         return result("Dynamic Table " + logicalName + " created", logicalName);
@@ -92,9 +95,14 @@ public final class DynamicTableMaterializationService {
         if (!(parsed instanceof Query query)) {
             throw new IllegalStateException("Persisted Dynamic Table definition is not a SELECT: " + logicalName);
         }
-        Identifier candidate = candidateTable(statement.name());
-        materialize(candidate, query, withDefinitionBindings(context, expected));
-        store.publish(expected, String.join(".", candidate.parts()));
+        try (var operation = authority(context).enterOperation()) {
+            var reserved = store.reserveRefresh(expected, issuer(context));
+            if (reserved.first()) {
+                materialize(candidateTable(reserved.attempt()), query, withDefinitionBindings(context, expected));
+            }
+            if (authority(context).isClosed()) throw new IllegalStateException("Refresh query admission is closed");
+            store.publish(reserved.attempt(), issuer(context));
+        }
         LOG.info("event=dynamic_table_published queryId={} logicalName={} revision={}",
                 context.queryId(), logicalName, expected.revision() + 1);
         return result("Dynamic Table " + logicalName + " refreshed", logicalName);
@@ -169,11 +177,23 @@ public final class DynamicTableMaterializationService {
         return publication;
     }
 
-    private static Identifier candidateTable(Identifier logicalName) {
-        List<String> parts = logicalName.parts();
-        String candidate = "__pg_dt_" + UUID.randomUUID().toString().replace("-", "");
-        return Identifier.of(parts.get(0).toLowerCase(Locale.ROOT),
-                parts.get(1).toLowerCase(Locale.ROOT), candidate);
+    private static Identifier candidateTable(DynamicTableRefreshAttempt attempt) {
+        return new Identifier(List.of(attempt.candidateTable().split("\\.")));
+    }
+
+    private DynamicTableRefreshIssuer issuer(StatementExecutionContext context) {
+        var user = Objects.requireNonNull(context.session().userIdentity(), "authenticated refresh principal");
+        return new DynamicTableRefreshIssuer(
+                owners.apply(context.queryId()), controlEpoch.getAsLong(), user.principal());
+    }
+
+    private static ConnectorQueryAuthority authority(StatementExecutionContext context) {
+        var authority = context.session().queryAuthority().orElseThrow(() ->
+                new IllegalStateException("Refresh requires its actual query lifetime"));
+        if (!authority.queryId().equals(context.queryId())) {
+            throw new IllegalArgumentException("Refresh differs from its query lifetime");
+        }
+        return authority;
     }
 
     static StatementExecutionContext withDefinitionBindings(

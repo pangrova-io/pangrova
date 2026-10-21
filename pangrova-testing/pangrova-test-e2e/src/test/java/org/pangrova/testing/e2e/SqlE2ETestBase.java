@@ -2486,7 +2486,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         org.pangrova.coordinator.dynamictable.DynamicTableTaskRegistration.register(
                 factory, publications, java.util.Objects.requireNonNull(sharedDdlExecutor),
                 (sm, session, stmt) -> java.util.Objects.requireNonNull(sharedQueryDispatcher)
-                        .executeDmlStatement(sm, stmt, session));
+                        .executeDmlStatement(sm, stmt, session),
+                execution -> requireE2ECoordination().requireExecutionAnchor(execution),
+                () -> requireE2ECoordination().getCurrentEpoch());
         java.util.Objects.requireNonNull(sharedStatementDispatcher).registerFactory(factory);
         return publications;
     }
