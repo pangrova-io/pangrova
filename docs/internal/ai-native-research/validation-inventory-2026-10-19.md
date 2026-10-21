@@ -6,6 +6,10 @@ description: "按当前主分支源码区分已通过、本机待验证、功能
 
 # AI Native 剩余验证清单
 
+**2026-10-21 DiskANN 多文件与空结果增量：**同一已打包 JNI 下，500 行/64 维、多批真实 Native 写入的多文件构建/检索通过；新增两类空结果分别通过：Iceberg 统计已剪掉全部文件时不发行 ANN 工作；每个过滤值分别存在、但没有同一行满足 `category='cat_0' AND id=1` 时，确实发行受支持的 Native 过滤 ANN，保留精确 published artifact/source binding、Native operator stats 和实际 owner release/drain 强断言，最终结果为空。**3 个唯一场景滚动 PASS**。先前新增检查对统计剪枝错误要求 ANN owner，随后使用不在受支持谓词集合的 MOD 而走精确 Native 扫描；这两次是测试路径选取错误，均保留失败日志，不冒充修复生产缺陷。最终用相关列反例进入实际目标算子；未放松其 ANN 强断言。已通过的多文件项和统计剪枝项没有重新执行。原 XML 后续已被定向运行覆盖，证据明确记录前两项由精确二项选集、执行总数和唯一失败名证明，最后一项保留实际 Surefire JVM。日志 `/tmp/pangrova-diskann-{empty-multifile-r1,empty-r2,native-empty-r3,empty-static-r4}-20261021.log`，来源 `/tmp/pangrova-diskann-empty-qualified-20261021.json`。E2E 静态通过；生产/Native 源码未变，沿用已核对的 JNI，未重复 Native/ASan 或整模块模型检查。#22 的跨进程、剩余生命周期和质量范围仍开放，目标规模不由 500 行外推。
+
+**Dynamic Table 下一批真实性审查：**旧 `SqlE2ETestBase.executeRefresh` 用源表/定义子查询覆盖目标读取；CDC recovery 夹具没有实际断源，因此其绿灯不能证明物化/CDC 恢复。生产 `DynamicTableMaterializationService` 目前只支持手动全量物化，明确拒绝计划调度和 CDC；持久 publication 还没有定义者/owner 身份，精确逻辑权限仍不能安全授权隐藏物理 generation 的写入。[Snowflake 的官方权限模型](https://docs.snowflake.com/en/user-guide/dynamic-tables-privileges)把操作权限与 owner role 刷新分开，[Databricks 的定义者语义](https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-syntax-ddl-create-materialized-view)也要求按 owner 执行相关策略。下一步需要持久 owner/作用域、受限的 generation 写入授权和真实失败恢复，不能用全局授权或源表透传填补。该审查是缺口证据，**不计 Dynamic Table 验收通过**。当前仍为 **17 类本机检查点开放**；测试容器已退出，磁盘余约 73 GiB。
+
 **2026-10-21 类型化 COPY 源准备与资源退出增量：**`/v1/task/copy-stage` 已替换伪造关系计划/WRITE 任务，使用同一 v2 descriptor 内的专用准备请求/结果。它受 TaskManager 唯一准入与封印保护，在源 payload 前取得 Node JVM 额度及租户并发/内存额度；已进入的源 GET、托管 PUT/读回和草稿写入共用累计额度。受准入控制的 GET/PUT 禁止 SDK 内部重试，真实 HTTP 检查确认 PUT 条件头保留且仅发送一次，普通客户端仍发送三次。失败保留用量，原额度不重启源 I/O；重放只向 Coordinator 重新授权并读取持久 proof。取消、SDK client/草稿清理失败和 fatal producer 均保留实际 owner，真实退出前不释放额度或声称 drain。准备成功只存在于准备回执，通用 Native 准入回执保持退出语义，不伪造 Native 执行成功。
 
 并发反例先复现 **1/1 FAIL**：8 个重复请求占满执行入口后，另一个尚未进入 I/O 的准备请求返回 pending，持续保留 Node/租户额度。现改为该未启动请求的真实终态拒绝并释放，已在运行的重复请求继续等待原 producer；同一反例 **1/1 PASS**。草稿 unlink 失败后重试、关闭 client 失败仍尝试独立草稿清理、先封印后请求、并发重复、零 Node 容量、租户内存不足、撤销重放和 fatal 清理均有检查。
@@ -184,7 +188,7 @@ Native 测试统一入口 `pangrova-worker-native/bin/run-native-tests.py` 现�
 | C | 16 Native 大写入容量 | 已有小规模实值 E2E；容量、spill、失败后的资源归零未全覆盖。 |
 | C | 17 唯一 Calcite 前端 | 全 DDL/DML/时间旅行生产路径迁移和可达旧 fallback 清理未完成。 |
 | C | 18 `GENERATE_SERIES` | 提交 `65c7dffa` 当前源码真实 SQL/JNI E2E **6/6 PASS**；最终同源码全功能回归仍待纳入最终批次。 |
-| C | 19 `COPY INTO` | 已冻结托管源→真实 TaskManager/JNI Native Parquet→Flight 精确值、预算/取消/清理重试通过；`FROM (SELECT …)` 局部通过。生产 proof 转交已接线；URI SQL、源 schema/准备预算、文件 claim、写入 commit binding 与 marker/未知提交对账仍未接通；不将输入子链路通过计成整项完成。 |
+| C | 19 `COPY INTO` | 已冻结托管源→真实 TaskManager/JNI Native Parquet→Flight 精确值、预算/取消/清理重试通过；`FROM (SELECT …)` 局部通过。生产 proof 转交已接线；源准备的类型化协议/预算/退出已通过；URI SQL、源 schema、文件 claim、写入 commit binding 与 marker/未知提交对账仍未接通；不将输入子链路通过计成整项完成。 |
 | C | 20 系统表 | `$files` field-ID 分区 struct 的 SQL/JNI 3/3、`$entries` 序列和 v3 row ID 的 4/4、标准 `$refs` 的 3/3 与授权矩阵 6/6 已通过。SHOW TAGS/BRANCHES 已贯通真实 Native 查询；两个特殊表名原失败项在新的 106/106 写入/目录批次中恢复。`$partitions` 关系聚合与 v2/v3 SDK 边界、SHOW、授权已通过；Paimon `$files` 20 列、空表/历史/schema 演进/覆盖集合及授权的 SQL 子链路已通过；完整 SDK 嵌套列、全逻辑类型、跨文件系统和 deferred/background 元数据策略矩阵仍未闭合。 |
 | C | 21 Dynamic Table | 手动 full-refresh generation 已有真实 E2E；逻辑授权、持久 attempt/source pin、失败恢复、GC、调度/CDC 未闭合。 |
 | C | 22 DiskANN 生命周期 | 小规模真实构建/检索/GC 局部通过；多 split、无结果和目标规模质量/成本待验。 |

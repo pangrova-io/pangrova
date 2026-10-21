@@ -494,6 +494,51 @@ class DiskAnnDistributedE2ETest extends VectorIndexE2ETestBase {
         waitForNativeTaskCleanup();
     }
 
+    @Test
+    @DisplayName("Native filtered DiskANN returns no rows and drains when no source row matches")
+    void diskAnnEmptyFilteredResultDrainsItsNativeOwner() {
+        String fqn = FQN_PREFIX + "t_diskann_empty_" + System.nanoTime();
+        sqlRunner.executeDdl("CREATE TABLE " + fqn
+                + " (id BIGINT, category VARCHAR, embedding VECTOR(" + DIM + "))");
+        sqlRunner.execute(buildInsertWithCategory(fqn, 64, DIM));
+        sqlRunner.executeDdl("CREATE INDEX idx_diskann_empty ON " + fqn
+                + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_empty", fqn);
+        String queryVector = generateVector(1, DIM);
+        // Both values exist in the file, but never in the same row. Independent
+        // column statistics cannot prune this supported conjunctive predicate.
+        var empty = executeObserved("SELECT id, l2_distance(embedding, " + queryVector + ") AS dist"
+                + " FROM " + fqn + " WHERE category = 'cat_0' AND id = 1"
+                + " ORDER BY l2_distance(embedding, " + queryVector + ") ASC LIMIT 5");
+        assertFilteredAnn(publication, empty);
+        assertThat(empty.rows()).isEmpty();
+        sqlRunner.executeDdl("DROP INDEX idx_diskann_empty ON " + fqn);
+        sqlRunner.executeDdl("DROP TABLE " + fqn);
+    }
+
+    @Test
+    @DisplayName("Metadata-pruned empty DiskANN input issues no ANN work")
+    void diskAnnMetadataPrunedEmptyInputDoesNotIssueAnnWork() {
+        String fqn = FQN_PREFIX + "t_diskann_pruned_" + System.nanoTime();
+        sqlRunner.executeDdl("CREATE TABLE " + fqn
+                + " (id BIGINT, category VARCHAR, embedding VECTOR(" + DIM + "))");
+        sqlRunner.execute(buildInsertWithCategory(fqn, 64, DIM));
+        sqlRunner.executeDdl("CREATE INDEX idx_diskann_pruned ON " + fqn
+                + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        awaitPublishedVectorIndex("idx_diskann_pruned", fqn);
+        String queryVector = generateVector(1, DIM);
+        var empty = executeObserved("SELECT id, l2_distance(embedding, " + queryVector + ") AS dist"
+                + " FROM " + fqn + " WHERE category = 'absent-category'"
+                + " ORDER BY l2_distance(embedding, " + queryVector + ") ASC LIMIT 5");
+        assertThat(empty.rows()).isEmpty();
+        assertThat(empty.tasks().stream().flatMap(task -> task.request().getOperatorBindingsList().stream())
+                .map(binding -> binding.getCapability().getCapabilityId()).toList())
+                .doesNotContain(org.pangrova.protocol.BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID,
+                        org.pangrova.protocol.BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID);
+        sqlRunner.executeDdl("DROP INDEX idx_diskann_pruned ON " + fqn);
+        sqlRunner.executeDdl("DROP TABLE " + fqn);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Case 9: diskAnnRerankPrecision — validates P2-3
     // ─────────────────────────────────────────────────────────────────────────
