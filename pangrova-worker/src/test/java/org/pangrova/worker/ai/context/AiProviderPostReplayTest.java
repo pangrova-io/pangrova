@@ -109,8 +109,26 @@ class AiProviderPostReplayTest {
         assertThat(received).hasValue(1);
     }
 
+    @Test
+    void independentLoopbackRerankingEndpointsEachReceiveExactlyOneUnavailablePost() throws IOException {
+        for (int index = 0; index < 32; index++) {
+            String endpoint = unavailableEndpoint();
+            try (var provider = new OpenAiCompatibleRerankingProvider(
+                    URI.create(endpoint), "model", "", 4, 100.0, 5);
+                    var budget = new AiTransportTestAdmission(
+                            AiCapabilityDescriptor.Operation.RERANKING, 0, 1, 1,
+                            AiTransportTestAdmission.Limits.defaults(), Instant.now().plusSeconds(30))) {
+                assertTerminal(() -> budget.call("rerank-independent-" + endpoint,
+                        () -> provider.score("query", List.of("document"))));
+                assertThat(received).as("POST delivered to %s", endpoint).hasValue(index + 1);
+            } finally {
+                server.stop(0);
+            }
+        }
+    }
+
     private String unavailableEndpoint() throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/model", exchange -> {
             exchange.getRequestBody().readAllBytes();
             received.incrementAndGet();
@@ -118,11 +136,11 @@ class AiProviderPostReplayTest {
             exchange.close();
         });
         server.start();
-        return "http://localhost:" + server.getAddress().getPort() + "/model";
+        return "http://127.0.0.1:" + server.getAddress().getPort() + "/model";
     }
 
     private String successEndpoint(String body) throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/model", exchange -> {
             exchange.getRequestBody().readAllBytes();
             received.incrementAndGet();
@@ -133,12 +151,13 @@ class AiProviderPostReplayTest {
             }
         });
         server.start();
-        return "http://localhost:" + server.getAddress().getPort() + "/model";
+        return "http://127.0.0.1:" + server.getAddress().getPort() + "/model";
     }
 
     private static void assertTerminal(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
         assertThatThrownBy(call)
                 .isInstanceOf(AiInvocationException.class)
+                .hasMessageContaining("HTTP 503")
                 .satisfies(failure -> {
                     AiInvocationException invocation = (AiInvocationException) failure;
                     assertThat(invocation.category())
