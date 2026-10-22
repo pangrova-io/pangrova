@@ -181,8 +181,8 @@ class StructuralPolicyTest(unittest.TestCase):
         for property_name, variable in [('pangrova.e2e.image', 'PANGROVA_E2E_IMAGE'),
                                         ('pangrova.e2e.image-id', 'PANGROVA_E2E_IMAGE_ID')]:
             self.assertIn(f'requiredProperty("{property_name}")', consumer)
-            # The single full-regression verify executes E2E and smoke with this identity.
-            self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 1)
+            # Full regression and the isolated owner suites both require this identity.
+            self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 2)
 
 
 class RuntimeScopeTest(unittest.TestCase):

@@ -595,7 +595,7 @@ jobs:
       - name: Test patch_flight_types.py
         run: python3 pangrova-worker-native/test/PatchFlightTypesTest.py
 
-      - name: Test gate selection, coverage tooling and stub detection
+      - name: Test gate selection and stub detection
         run: python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_*.py' -v
 
       - name: Verify canonical instructions

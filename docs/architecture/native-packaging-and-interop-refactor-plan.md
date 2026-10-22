@@ -669,7 +669,7 @@ Acceptance:
 - C++ release build, GTest, and warning-as-error gate;
 - Linux x86_64 platform bundle and clean-container load test;
 - JAR content, checksum, RPATH, dependency, and symbol audit;
-- dead stubs, module boundaries, Checkstyle, SpotBugs, and diff coverage.
+- dead stubs, module boundaries, Checkstyle, SpotBugs, and diagnostic coverage reports.
 
 ### 8.2 Nightly gates
 

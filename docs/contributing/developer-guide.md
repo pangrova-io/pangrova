@@ -235,7 +235,8 @@ ledgers have been removed. Enums may contain as many values as the domain needs.
 such as Adapter, Visitor, and Observer are valid when they describe the actual role.
 
 Test changed behavior and relevant errors/boundaries. Pure refactors may reuse
-existing coverage; retain the 60% changed executable Java line coverage gate.
+existing tests. Coverage reports are diagnostic; there is no changed-line
+percentage gate.
 Record unrelated baseline/environment failures with evidence and their impact;
 do not disable tests, claim blocked checks passed, or require stashing a shared
 worktree. Submit concise execution evidence with links to complete logs.

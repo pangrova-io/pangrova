@@ -155,12 +155,24 @@ wrong-snapshot overlay rows fail the task.
 
 The generated segment and its row-locator object are immutable and checksummed.
 The Coordinator handles their metadata only and never joins the values to rows.
+Native derives each durable artifact object ID as a bounded SHA-256 identity over
+the artifact, generation, source scope, role, and content checksum. The full
+source-object ID remains a separate field, so long connector paths do not
+overflow the metadata primary key or lose source-snapshot provenance.
+Publication retains the checksummed build split bytes. Query attachment verifies
+the same immutable connector, source snapshot, object, location and physical
+range identity; query-only scan predicates and schema detail may differ.
+
+Generated-value materialization is wired only on a coordinator with a local
+indexing bootstrap that can register the durable commit processor. A query-only
+coordinator can start with indexing flags present, but does not create a dormant
+materialization service or claim that it can process committed writes.
 
 The complete diagram describes the required contract, not a blanket capability
-acceptance result. The SQL ASYNC regression is designed to exercise authentic commit events,
-durable queue consumption, Native generated-value/row-locator reports and atomic
-publication and a final public SQL SELECT against the actual provider result;
-this new regression has not yet been executed. Production query wiring now inserts
+acceptance result. A focused SQL ASYNC regression has exercised authentic commit events,
+durable queue consumption, Native generated-value/row-locator reports, atomic
+publication, and a final public SQL SELECT against the actual provider result;
+the complete E2E suite and release-scale qualification remain pending. Production query wiring now inserts
 the exact generated binding at the physical READ, restores the complete scan schema
 before scan filters, and preserves downstream filter/mask/aggregate ordinals.
 Task-local objects still use the common checksummed artifact binding path.
@@ -220,7 +232,8 @@ restores the array's NULL bit. Readers reject old formats, nonzero padding and
 invented NULL payload; Java/Native build and overlay capabilities both advertise
 version 2.0.0 and the same exact format fingerprint. Dense materialization is
 checked against the memory grant before allocation. Native component acceptance
-does not imply public SQL/provider end-to-end acceptance; that remains pending.
+alone does not imply broad public SQL/provider end-to-end qualification; focused
+generated-value SQL acceptance has passed.
 A syntactic source assignment may recompute even if its value is equal.
 Lance dataset scans now request the SDK row-address metadata through the canonical
 manifest-partition read unit. Each address is checked against the exact fragment
@@ -258,6 +271,16 @@ resolves physical projection from the dataset schema and applies rename, widenin
 missing-column/default, and partition evolution in the Native connector. It does
 not serialize a Velox expression string into Lance SQL; exact residual filtering
 remains a typed Native plan node.
+
+`CREATE INDEX` submits an asynchronous generation; `ALTER INDEX ... REBUILD`
+requires the initial generation to reach `READY` (or a later generation to be
+`STALE`). Live distributed queries bind each exchange consumer to the exact
+canonical output schema of its dispatched producer plan. All producer partitions
+must agree, and the consumer's declared types must match before the plan is
+dispatched. SQL result labels remain separate from these internal wire names.
+Retrieval scans may append only the four fixed physical source-row identity
+fields to the exact declared table schema, in canonical order and with required
+types; generated-value reads reject any other schema difference.
 
 The C++ Lance writer is currently a verified storage primitive, not a table-write
 claim. Canonical v2 defines the requested write format, but the public SQL write
@@ -334,6 +357,18 @@ returned. Read uses exact GET without namespace listing. A Worker-local staging
 file is forced before upload and removed on success or failure; bucket lifecycle
 policy governs immutable-object retention. The filesystem backend exists only
 for deterministic contract tests and is never selected by production config.
+
+Foreground FILE callbacks consume the canonical task's media-byte grant. The
+Coordinator supplies a FILE baseline of at most 64 MiB per task, capped by
+available task memory; a larger governed model binding may raise the shared
+grant. The baseline survives model-operator resource aggregation. Before
+publishing each object, the Worker debits its actual staged byte count against
+the task's cumulative media ledger; an exhausted grant cannot publish another
+object. The FILE function's per-object limit and storage policy remain
+additional bounds.
+The internal Substrait/Native output schema retains physical field identities,
+while Flight uses the SQL root's depth-first names for returned nested FILE
+fields. Result rebinding changes schema metadata without copying payload bytes.
 
 Reference capabilities are derived per tenant from one cluster key obtained via
 an external secret reference at Worker startup. Workers neither generate their

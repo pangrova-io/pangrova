@@ -74,8 +74,21 @@ SHOW INDEXES ON prod.analytics.events;
   type-specific — see each index type's page.
 - Indexes are maintained as data files are written and can be rebuilt online with
   `ALTER INDEX ... REBUILD`.
+- Scalar index rebuilds write each generation under a distinct `v2/.../gN/`
+  storage prefix. Publication selects the new generation only after its files
+  are complete; retained older mappings continue to refer to their original
+  paths until garbage collection. Previously written `v1` paths remain readable
+  through their persisted mappings.
+- Scalar index DROP retains the descriptor until snapshot references and index files are
+  released. Cleanup uses the index's persisted exact scope even if the original
+  user's source-read permission has since been revoked; it cannot build or
+  publish another generation. A per-index PostgreSQL lock serializes new
+  snapshot pins with final cleanup.
 - Paimon file indexes use the catalog filesystem and read the requested physical
   file with its owning table schema. A missing file fails the build instead of
   reading another file or the entire table.
+- Paimon scalar indexes retain each source snapshot with a per-index tag that
+  has no expiry time. If Paimon later expires the numbered snapshot file,
+  index maintenance reads that snapshot through its retained tag.
 - For the design behind index build and evaluation, see
   [Indexing Architecture](../architecture/indexing.md).

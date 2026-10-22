@@ -39,3 +39,7 @@ that the tested path passed for its platform, dependencies, and revision.
 
 Connector-specific behavior takes precedence over generic examples. When adding a statement,
 verify dispatch, implementation, and relevant executed tests before documenting it as supported.
+
+Numeric literals accept decimal and scientific notation, such as `4.`, `.25e2`,
+and `3.3283234E-4`. The parser preserves their decimal value exactly before
+the planner coerces it to the expression or target column type.

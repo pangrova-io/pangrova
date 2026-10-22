@@ -77,6 +77,13 @@ task-scoped Flight result decoder so both Native exchange pages and result
 OutputBuffer pages use the same codec. The singleton global Sort
 remains a scale bottleneck until distributed range-sort/merge is validated.
 
+Splitless sources such as `GENERATE_SERIES` need two cardinality boundaries:
+the planner assigns one producer task to a stage containing the source, and
+the zero-input Native table-function node limits its Velox source pipeline to
+one driver. A task may still use multiple drivers for other pipelines, including
+the scan side of a mixed `UNION ALL`. Table functions with input rows retain
+per-input parallelism.
+
 Result-service shutdown first seals registration and revokes each retained result
 authority, waking its actual pending SDK fetch. It then cancels transport calls
 through Arrow's deadline shutdown and joins the real handlers and serving thread.
@@ -314,6 +321,13 @@ teardown. Queue and Flight retention must both be byte-accounted and bounded;
 the current producer-queue gap is tracked in the
 [AI Native audit](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
 
+The result reader records a Flight stream failure against the exact registered
+Native executor before releasing its output buffer. Both Arrow error statuses
+and C++ exceptions during page allocation or decoding prevent a successful
+TaskReport; the Worker then publishes a failed, zero-completed-coverage
+reconciliation with the Native failure attached. A result stream that returns
+an error is not a successful producer EOF.
+
 ## 6. JNI Boundary
 
 The JNI layer transfers task-control commands, canonical v2 task bytes and
@@ -326,6 +340,9 @@ Arrow IPC bytes synchronously to Java `NativeWriteExecutor`, which decodes
 them for the connector `ConnectorPageSink`. The borrowed direct buffer must
 not outlive that call. The current code in `NativeRuntime`, `JniBridge` and
 `NativeWriteExecutor` is the authoritative interface and lifetime contract.
+Each output-queue pop releases one producer slot. Deferred Velox producers
+are resumed only after their exact batch enters that slot; competing producers
+re-register without blocking the sole write-drain consumer.
 The Arrow C Data bridge exists for columnar interoperability, but does not
 make the network shuffle or result path zero-copy.
 
@@ -370,6 +387,12 @@ retention have distinct lifetimes; a task's pool usage alone is not a complete
 shuffle-memory accounting figure. The exact resource gap and acceptance
 criteria are in [resource-management.md](./resource-management.md) and the
 [AI Native audit](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+
+The Velox allocator retains a strong reference to its registered
+`AsyncDataCache`. Native shutdown joins task and I/O owners, clears the global
+cache pointer, then calls the cache's `shutdown()` before checking allocator
+pages or replacing the memory manager. Dropping only Pangrova's cache reference
+does not release the allocator-owned cache pages.
 
 ## 10. Native I/O
 

@@ -64,7 +64,7 @@ GitHub skip/needs 语义依据 [官方 workflow 文档](https://docs.github.com/
 - Checkstyle 真实解析器：9 个允许边界/API fixtures 通过，14 个越界/内部导入 fixtures 被拒绝。
   SpotBugs 过滤器 API 的正例与反例验证也通过；未放宽现有结构阈值或安全过滤边界。
 - Flight header patch 工具 4 项测试通过；SPI annotation 142 个公共类型通过，历史缺口 0；
-  文档类名引用 174 项通过；E2E truthfulness、门控 shell 语法、canonical layout 均通过。
+  文档类名引用 179 项通过；E2E truthfulness、门控 shell 语法、canonical layout 均通过。
   环境路径全仓检查在归一化一处既有事故记录路径后通过，没有为其增加白名单。
 - actionlint v1.7.12 校验修改的 CI/release/manual-generator workflows 通过；各 workflow
   YAML 均可解析。Stub 全仓实际扫描通过，本机一次运行约 5 秒；不能直接拿历史并发

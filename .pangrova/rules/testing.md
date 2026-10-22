@@ -38,9 +38,11 @@
 - **Deterministic**: No `Thread.sleep`, no random seeds without control, no external network
 - **Self-contained**: No shared mutable state between tests; use `@BeforeEach` for setup
 
-## Coverage Requirements
+## Coverage Guidance
 
-- **Diff coverage**: PRs must hit ≥60% line coverage on changed lines (`diff-coverage-check.sh`)
+- **Changed-line coverage**: Reports are diagnostic, not a PR gate; the former
+  `diff-coverage-check.sh` threshold is retired. Use `-Pcoverage` locally when a
+  report helps locate untested behavior.
 - **Property tests**: Use for serialization, parsing, scheduling, and resource allocation when invariants are stronger than enumerated examples
 - **C++ coverage**: Not gated in CI, but targeted at critical paths (JNI bridge, memory management)
 
@@ -56,8 +58,8 @@ Test observable behavior, not a quota of classes, methods, or catch blocks.
 - Cross-component behavior needs integration coverage; user-facing SQL, protocol,
   JNI, and distributed behavior needs relevant E2E coverage. CLI-only formatting
   does not require a parser-to-native execution test.
-- Retain ≥60% changed executable Java line coverage for PRs. Do not manufacture
-  assertions merely to meet the percentage.
+- Behavior coverage still needs normal, boundary, and error-path tests at the
+  boundaries above; do not manufacture assertions merely to raise a percentage.
 
 ## Selecting Regression Scope
 

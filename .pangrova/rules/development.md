@@ -124,8 +124,9 @@ Coverage depth follows risk:
 - User-visible SQL, protocol, JNI, or distributed behavior should have integration
   or E2E coverage at the appropriate boundary.
 
-Changed-line coverage is enforced by `.pangrova/scripts/diff-coverage-check.sh`.
-Do not write low-value assertions solely to satisfy the threshold.
+Coverage reports are diagnostic, not a percentage gate; use `-Pcoverage` when a
+report helps locate untested behavior. Do not write low-value assertions solely
+to raise coverage.
 
 For TestContainers, use mapped ports and wait strategies. If Docker is unavailable,
 report the missing prerequisite accurately; do not disable the test or claim it
