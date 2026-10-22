@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -66,6 +68,89 @@ TEST(VariantColumnReaderTest, PrimitiveInt64) {
       reinterpret_cast<const char*>(&header), 1,
       reinterpret_cast<const char*>(&value), sizeof(value));
   EXPECT_EQ(result, "1234567890123");
+}
+
+TEST(VariantColumnReaderTest, PrimitiveDecimal4Negative) {
+  // basic_type=0, physical_type=8 (decimal4) → header = (8 << 2) = 0x20
+  uint8_t header = 0x20;
+  int32_t value = -123456789;
+  auto result = decodeVariantValue(
+      reinterpret_cast<const char*>(&header), 1,
+      reinterpret_cast<const char*>(&value), sizeof(value));
+  EXPECT_EQ(result, "-123456789");
+}
+
+TEST(VariantColumnReaderTest, PrimitiveDecimal8Max) {
+  // basic_type=0, physical_type=9 (decimal8) → header = (9 << 2) = 0x24
+  uint8_t header = 0x24;
+  int64_t value = INT64_MAX;
+  auto result = decodeVariantValue(
+      reinterpret_cast<const char*>(&header), 1,
+      reinterpret_cast<const char*>(&value), sizeof(value));
+  EXPECT_EQ(result, "9223372036854775807");
+}
+
+TEST(VariantColumnReaderTest, PrimitiveDecimal16AboveInt64) {
+  // basic_type=0, physical_type=10 (decimal16) → header = (10 << 2) = 0x28
+  // Little-endian 2^64 + 1 must not be truncated to the low 64 bits.
+  uint8_t header = 0x28;
+  std::array<uint8_t, 16> value{};
+  value[0] = 1;
+  value[8] = 1;
+  auto result = decodeVariantValue(
+      reinterpret_cast<const char*>(&header), 1,
+      reinterpret_cast<const char*>(value.data()), value.size());
+  EXPECT_EQ(result, "18446744073709551617");
+}
+
+TEST(VariantColumnReaderTest, PrimitiveDecimal16Max) {
+  uint8_t header = 0x28;
+  std::array<uint8_t, 16> value;
+  value.fill(0xFF);
+  value[15] = 0x7F;
+  auto result = decodeVariantValue(
+      reinterpret_cast<const char*>(&header), 1,
+      reinterpret_cast<const char*>(value.data()), value.size());
+  EXPECT_EQ(result, "170141183460469231731687303715884105727");
+}
+
+TEST(VariantColumnReaderTest, PrimitiveDecimal16Min) {
+  uint8_t header = 0x28;
+  std::array<uint8_t, 16> value{};
+  value[15] = 0x80;
+  auto result = decodeVariantValue(
+      reinterpret_cast<const char*>(&header), 1,
+      reinterpret_cast<const char*>(value.data()), value.size());
+  EXPECT_EQ(result, "-170141183460469231731687303715884105728");
+}
+
+TEST(VariantColumnReaderTest, PrimitiveDecimal16NegativeOne) {
+  uint8_t header = 0x28;
+  std::array<uint8_t, 16> value;
+  value.fill(0xFF);
+  auto result = decodeVariantValue(
+      reinterpret_cast<const char*>(&header), 1,
+      reinterpret_cast<const char*>(value.data()), value.size());
+  EXPECT_EQ(result, "-1");
+}
+
+TEST(VariantColumnReaderTest, InsufficientDecimalBytesReturnsNull) {
+  uint8_t decimal4Header = 0x20;
+  uint8_t decimal8Header = 0x24;
+  uint8_t decimal16Header = 0x28;
+  std::array<uint8_t, 16> value{};
+  EXPECT_EQ(decodeVariantValue(
+                reinterpret_cast<const char*>(&decimal4Header), 1,
+                reinterpret_cast<const char*>(value.data()), 3),
+            "null");
+  EXPECT_EQ(decodeVariantValue(
+                reinterpret_cast<const char*>(&decimal8Header), 1,
+                reinterpret_cast<const char*>(value.data()), 7),
+            "null");
+  EXPECT_EQ(decodeVariantValue(
+                reinterpret_cast<const char*>(&decimal16Header), 1,
+                reinterpret_cast<const char*>(value.data()), 15),
+            "null");
 }
 
 TEST(VariantColumnReaderTest, PrimitiveString) {

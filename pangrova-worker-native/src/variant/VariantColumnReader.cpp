@@ -21,10 +21,13 @@
 
 #include "variant/VariantColumnReader.h"
 
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 #include "observability/PangrovaLog.h"
 
@@ -134,6 +137,51 @@ T readLittleEndian(const char* data) {
   return value;
 }
 
+// Format a 16-byte little-endian two's-complement integer exactly.
+// Variant decimal primitives carry only the unscaled value, so the scale
+// must be applied by the reader using the column's declared type.
+std::string decimal128ToString(const char* data) {
+  const bool negative = (static_cast<uint8_t>(data[15]) & 0x80U) != 0;
+  std::array<uint8_t, 16> magnitude{};
+  if (negative) {
+    unsigned carry = 1;
+    for (size_t i = 0; i < magnitude.size(); ++i) {
+      unsigned value =
+          static_cast<uint8_t>(~static_cast<uint8_t>(data[i])) + carry;
+      magnitude[i] = static_cast<uint8_t>(value & 0xFFU);
+      carry = value >> 8;
+    }
+  } else {
+    for (size_t i = 0; i < magnitude.size(); ++i) {
+      magnitude[i] = static_cast<uint8_t>(data[i]);
+    }
+  }
+
+  // Base-256 to base-10 conversion into a little-endian digit array.
+  std::vector<uint8_t> digits{0};
+  for (auto it = magnitude.rbegin(); it != magnitude.rend(); ++it) {
+    unsigned carry = *it;
+    for (auto& digit : digits) {
+      unsigned value = static_cast<unsigned>(digit) * 256U + carry;
+      digit = static_cast<uint8_t>(value % 10U);
+      carry = value / 10U;
+    }
+    while (carry != 0) {
+      digits.push_back(static_cast<uint8_t>(carry % 10U));
+      carry /= 10U;
+    }
+  }
+
+  std::string result;
+  if (negative) {
+    result.push_back('-');
+  }
+  for (auto it = digits.rbegin(); it != digits.rend(); ++it) {
+    result.push_back(static_cast<char>('0' + *it));
+  }
+  return result;
+}
+
 // Decode a primitive Variant value to its JSON string representation.
 std::string decodePrimitive(
     PrimitiveType physicalType,
@@ -206,22 +254,20 @@ std::string decodePrimitive(
     case PrimitiveType::kBinary:
       return hexEncode(valueBytes, valueLen);
     case PrimitiveType::kDecimal4:
-      if (valueLen >= 4) {
-        return std::to_string(readLittleEndian<int32_t>(valueBytes));
+      if (valueLen < 4) {
+        return "null";
       }
-      return "0";
+      return std::to_string(readLittleEndian<int32_t>(valueBytes));
     case PrimitiveType::kDecimal8:
-      if (valueLen >= 8) {
-        return std::to_string(readLittleEndian<int64_t>(valueBytes));
+      if (valueLen < 8) {
+        return "null";
       }
-      return "0";
+      return std::to_string(readLittleEndian<int64_t>(valueBytes));
     case PrimitiveType::kDecimal16:
-      // 128-bit decimal: output lower 64 bits as approximation.
-      // TODO: tech-debt — full 128-bit decimal formatting with scale.
-      if (valueLen >= 8) {
-        return std::to_string(readLittleEndian<int64_t>(valueBytes));
+      if (valueLen < 16) {
+        return "null";
       }
-      return "0";
+      return decimal128ToString(valueBytes);
   }
   return "null";
 }

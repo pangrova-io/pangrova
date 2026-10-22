@@ -170,7 +170,7 @@ jobs:
         uses: ./.github/actions/setup-iceberg-sdk
 
       - name: Build Java modules
-        run: mvn -B clean package -DskipTests -Prelease -pl '!pangrova-native-bundle'
+        run: mvn -B clean package -DskipTests -pl '!pangrova-native-bundle'
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
