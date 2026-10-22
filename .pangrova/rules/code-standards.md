@@ -155,18 +155,18 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   class, explicit control flow, and meaningful method names. Extract coherent
   operations; do not add forwarding-only classes, generic context bags, compressed
   statements, or extra indirection just to satisfy a metric.
-- No spec/design process references in code comments: ban task IDs, design section refs, phase labels.
+- Comments explain behavior, invariants and tradeoffs. Link issues or designs when
+  useful; do not require removing provenance merely to satisfy a naming rule.
 
 ## Git & PR conventions
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+Prefer [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 <type>(<scope>): <description>
 ```
 - **Types**: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `perf`
 - **Scope**: module name (`parser`, `worker`, `coordinator`, `native`, etc.)
-- **Branch naming**: `feature/{desc}`, `fix/{desc}`, `docs/{desc}`, `refactor/{desc}`
-- **Commit message language**: English only
+- Use descriptive branches; no required prefix or commit-message language gate.
 - **PR checklist**: see `.github/PULL_REQUEST_TEMPLATE.md`
 
 ## Dependency management
@@ -195,7 +195,8 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## Code standards
 
-- **Language**: all identifiers, comments, commit messages, and log messages in English.
+- **Language**: identifiers, code comments and log messages use English. Commit
+  messages must clearly describe the change; language alone is not a gate.
 - **Constructor injection only** — no Spring DI annotations (`@Autowired`, `@Inject`).
 - **YAML config only** — config classes must be immutable.
 - **Arrow/off-heap**: always `try-with-resources`. No cross-thread pointer passing without ownership transfer.
@@ -205,7 +206,9 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - **Error handling**: no exception swallowing; cross-module errors need `ErrorCode` + context; async exceptions must surface. Structured logging (`key=value`); critical paths include `traceId`/`queryId`/`taskId`.
 - **No fallback chains**: `try A; catch → try B; catch → try C` is banned unless each branch handles a genuinely distinct failure mode. One canonical path, no silent degradation.
 - **No backward compatibility shims**: if a new API replaces an old one, remove the old one. No `@Deprecated` forwarding stubs, no version-sniffing branches, no feature flags for dead code paths.
-- **Deprecated code cleanup**: `@Deprecated` methods/classes MUST be deleted, not left behind. Migrate all callers to the replacement API first. `@SuppressWarnings("deprecation")` = migration debt that must be resolved immediately. This is a new project — there are ZERO backward compatibility requirements.
+- **Deprecated code cleanup**: migrate affected callers when replacing an owned API.
+  Third-party deprecations do not require unrelated repository-wide migration.
+  Any necessary suppression must be narrow and explain the migration constraint.
 - **Dead code policy**: commented-out code, unreachable methods, unused imports, unused fields → DELETE immediately. Version control preserves history. "Keeping for future use" is banned.
 
 ## JNI bridge rules
@@ -269,7 +272,8 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `const` on local variables that are not reassigned.
 
 ### Protobuf conventions
-- Files: `snake_case.proto`. Messages: `PascalCase`. Fields: `snake_case`. Package: `pangrova.native.protocol`.
+- Files: `snake_case.proto`. Messages: `PascalCase`. Fields: `snake_case`.
+  Execution boundary package: `pangrova.protocol.v2` (see `architecture.md`).
 - Changes to `.proto` files MUST regenerate code on BOTH sides (Java + C++).
 - Wire format stability: no renumbering of existing fields.
 

@@ -5,7 +5,7 @@ description: "Register, inspect, and drop catalogs via SQL, files, and the CLI u
 
 # Catalog Management
 
-Two ways to register catalogs — SQL at runtime or configuration files at startup — plus the catalog utility.
+Register catalogs through SQL at runtime. YAML files provide configuration references and input to the catalog utility; automatic startup registration remains planned.
 
 
 ## Catalog Management
@@ -28,9 +28,9 @@ DESCRIBE CATALOG prod_iceberg;
 DROP CATALOG prod_iceberg;
 ```
 
-### Method 2: Configuration Files (Startup)
+### Configuration Files (Automatic Startup Loading Planned)
 
-Place YAML files in `config/catalog/` — one file per catalog. The filename (without `.yml`) becomes the catalog name.
+Keep reference YAML files in `config/catalog/`, one file per intended catalog. File creation alone does not register that catalog with the running Coordinator.
 
 ```bash
 # Copy from template

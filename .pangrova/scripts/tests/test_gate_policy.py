@@ -1,7 +1,11 @@
-"""Regression tests for gate scope, PR parsing, and structural-policy alignment."""
+"""Regression tests for validation selection, preserved checks and release wiring."""
 
 import importlib.util
+import json
 import os
+import re
+import sys
+import textwrap
 from pathlib import Path
 import subprocess
 import tempfile
@@ -64,66 +68,30 @@ class GitGateTest(unittest.TestCase):
         self.git('add', name)
         self.git('commit', '-qm', 'fixture')
 
-    def checklist(self, body=None, base=None, env_body=None):
-        env = os.environ.copy()
-        env.pop('PR_BODY', None)
-        if env_body is not None:
-            env['PR_BODY'] = env_body
-        args = ['bash', str(SCRIPTS / 'distributed-checklist-check.sh'),
-                '--base-ref', base or self.base]
-        if body is not None:
-            path = self.root / 'body.md'
-            path.write_text(body)
-            args += ['--pr-body-file', str(path)]
-        return subprocess.run(args, cwd=self.root, env=env, capture_output=True, text=True)
-
-    def performance(self, base=None):
-        return subprocess.run(['python3', str(SCRIPTS / 'ci_change_scope.py'),
+    def selection(self, base=None):
+        return subprocess.run([sys.executable, str(SCRIPTS / 'ci_change_scope.py'),
                                '--base-ref', base or self.base], cwd=self.root,
                               capture_output=True, text=True)
 
-    def test_doc_and_test_only_changes_do_not_require_pr_body(self):
+    def selected(self):
+        result = self.selection()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split('=', 1) for line in result.stdout.splitlines())
+        matrix = json.loads(outputs['native_matrix'])
+        self.assertEqual(len(matrix), 4 if outputs['native'] == 'true' else 1)
+        return {name: outputs[name] for name in ['runtime', 'performance']}
+
+    def test_doc_only_diff_skips_runtime_and_performance(self):
         self.commit_file('pangrova-coordinator/README.md')
-        self.commit_file('pangrova-worker/src/test/java/example/Test.java')
-        self.assertEqual(self.checklist().returncode, 0)
-        result = self.performance()
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'performance=false'))
+        self.assertEqual(self.selected(), {'runtime': 'false', 'performance': 'false'})
 
-    def test_runtime_change_requires_pr_body(self):
+    def test_test_only_diff_retains_correctness(self):
+        self.commit_file('pangrova-worker/src/test/java/example/WorkerTest.java')
+        self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'false'})
+
+    def test_production_diff_requires_both(self):
         self.commit_file('pangrova-worker/src/main/java/example/Worker.java')
-        self.commit_file('pangrova-worker/src/main/resources/docs/template.md')
-        self.assertNotEqual(self.checklist().returncode, 0)
-        self.assertEqual(self.performance().stdout.strip(), 'performance=true')
-
-    def test_runtime_resources_and_docs_named_packages_are_not_documentation(self):
-        self.commit_file('pangrova-worker/src/main/resources/docs/template.md')
-        self.assertNotEqual(self.checklist().returncode, 0)
-        self.commit_file('pangrova-worker/src/main/java/org/pangrova/docs/DocRenderer.java')
-        self.assertNotEqual(self.checklist().returncode, 0)
-
-    def test_configuration_change_requires_checklist(self):
-        self.commit_file('pangrova-metadata/pom.xml')
-        self.assertNotEqual(self.checklist().returncode, 0)
-
-    def test_environment_body_is_preserved_and_last_section_is_read(self):
-        self.commit_file('pangrova-coordinator/src/main/java/example/Coordinator.java')
-        result = self.checklist(env_body='## Distributed Correctness\n- [x] Crash recovery\n')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_justified_na_is_accepted(self):
-        self.commit_file('pangrova-worker/src/main/java/example/Worker.java')
-        result = self.checklist('## Distributed Correctness\nN/A: Logging wording only.\n')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_bare_na_does_not_replace_risk_evidence(self):
-        self.commit_file('pangrova-worker/src/main/java/example/Worker.java')
-        result = self.checklist('## Distributed Correctness\nN/A\n')
-        self.assertNotEqual(result.returncode, 0)
-
-    def test_checked_item_in_another_section_is_not_evidence(self):
-        self.commit_file('pangrova-coordinator/src/main/java/example/Coordinator.java')
-        body = '## Distributed Correctness\n- [ ] Crash recovery\n## Checklist\n- [x] Style\n'
-        self.assertNotEqual(self.checklist(body).returncode, 0)
+        self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
 
     def test_deleted_runtime_path_still_requires_checks(self):
         name = 'pangrova-shuffle/shuffle-core/src/main/java/example/Exchange.java'
@@ -131,12 +99,23 @@ class GitGateTest(unittest.TestCase):
         self.base = self.git('rev-parse', 'HEAD').strip()
         self.git('rm', name)
         self.git('commit', '-qm', 'delete')
-        self.assertNotEqual(self.checklist().returncode, 0)
-        self.assertEqual(self.performance().stdout.strip(), 'performance=true')
+        self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
+
+    def test_rename_from_runtime_to_docs_still_requires_checks(self):
+        name = 'pangrova-worker/src/main/java/example/Worker.java'
+        self.commit_file(name)
+        self.base = self.git('rev-parse', 'HEAD').strip()
+        (self.root / 'docs').mkdir()
+        self.git('mv', name, 'docs/retired.md')
+        self.git('commit', '-qm', 'rename')
+        self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
+
+    def test_space_in_runtime_path_is_not_split(self):
+        self.commit_file('pangrova-worker/src/main/resources/data files/template.md')
+        self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
 
     def test_missing_base_fails_instead_of_reporting_no_changes(self):
-        self.assertNotEqual(self.checklist(base='missing-reference').returncode, 0)
-        self.assertNotEqual(self.performance(base='missing-reference').returncode, 0)
+        self.assertNotEqual(self.selection(base='missing-base').returncode, 0)
 
 
 class StructuralPolicyTest(unittest.TestCase):
@@ -151,7 +130,8 @@ class StructuralPolicyTest(unittest.TestCase):
 
     def test_retired_checks_have_no_active_files_or_ci_calls(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        for name in ('check-bom-usage.sh', 'check-doc-staleness.sh', 'adr-grep-check.sh'):
+        for name in ('check-bom-usage.sh', 'check-doc-staleness.sh', 'adr-grep-check.sh',
+                     'plan-stability-check.sh', 'distributed-checklist-check.sh'):
             self.assertFalse((SCRIPTS / name).exists())
             self.assertNotIn(name, workflow)
 
@@ -189,18 +169,169 @@ class StructuralPolicyTest(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         production = workflow.split('  production-regression:\n', 1)[1].split(
             '\n  tpch-performance:', 1)[0]
-        self.assertIn('IMAGE="$PANGROVA_E2E_IMAGE" docker buildx bake --load', production)
+        normalized = re.sub(r'\s+', ' ', production.replace('\\\n', ' '))
+        self.assertIn('IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA"', normalized)
+        self.assertIn('docker buildx bake --load', normalized)
         self.assertIn('docker image inspect --format', production)
         self.assertIn('"PANGROVA_E2E_IMAGE_ID=$image_id"', production)
-        self.assertIn('stage-production-regression-native.sh "$PANGROVA_E2E_IMAGE_ID"', production)
+        self.assertIn('stage-production-regression-native.sh "$PANGROVA_E2E_IMAGE_ID"', normalized)
         self.assertNotIn('pangrova/pangrova:latest', production)
         consumer = (ROOT / 'pangrova-testing/pangrova-test-e2e/src/test/java/'
                     'org/pangrova/testing/e2e/speculation/IndependentSpeculationProcesses.java').read_text()
         for property_name, variable in [('pangrova.e2e.image', 'PANGROVA_E2E_IMAGE'),
                                         ('pangrova.e2e.image-id', 'PANGROVA_E2E_IMAGE_ID')]:
             self.assertIn(f'requiredProperty("{property_name}")', consumer)
-            # verify executes the E2E leaf too; all three test commands require the identity.
-            self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 2)
+            # The single full-regression verify executes E2E and smoke with this identity.
+            self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 1)
+
+
+class RuntimeScopeTest(unittest.TestCase):
+    def test_native_checks_follow_native_inputs_and_java_boundary_owners(self):
+        for path in ['pangrova-worker-native/src/executor/Executor.cpp',
+                     'pangrova-worker/src/main/java/example/NativeRuntime.java',
+                     'pangrova-protocol/src/main/proto/task.proto',
+                     'pangrova-spi/src/main/java/example/Contract.java',
+                     'pangrova-native-bundle/pom.xml', 'pom.xml',
+                     '.github/workflows/ci.yml', 'unknown-build-input.lock']:
+            with self.subTest(path=path):
+                self.assertTrue(scope.needs_native_checks([path]))
+        for path in ['docs/architecture/overview.md',
+                     'pangrova-planner/src/main/java/example/Planner.java',
+                     'pangrova-parser/src/test/java/example/ParserTest.java',
+                     'pangrova-client/client-cli/src/main/java/example/Cli.java']:
+            with self.subTest(path=path):
+                self.assertFalse(scope.needs_native_checks([path]))
+
+    def test_full_event_selects_all_platforms_without_a_diff(self):
+        result = subprocess.run([sys.executable, str(SCRIPTS / 'ci_change_scope.py'),
+                                 '--full'], capture_output=True, text=True, check=True)
+        outputs = dict(line.split('=', 1) for line in result.stdout.splitlines())
+        self.assertEqual(outputs['runtime'], 'true')
+        self.assertEqual(outputs['native'], 'true')
+        self.assertEqual(outputs['performance'], 'false')
+        matrix = json.loads(outputs['native_matrix'])
+        self.assertEqual({item['classifier'] for item in matrix},
+                         {'linux-x86_64', 'linux-aarch_64', 'osx-x86_64', 'osx-aarch_64'})
+        self.assertEqual(matrix[0]['name'], 'linux-x86_64')
+
+    def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
+        paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
+                 'docs/architecture/overview.md', 'pangrova-worker-native/README.md',
+                 'website/src/pages/index.tsx', 'website/pnpm-lock.yaml',
+                 '.pangrova/scripts/check-spi-annotations.sh',
+                 '.pangrova/scripts/tests/test_gate_policy.py',
+                 '.github/workflows/deploy-website.yml', '.github/ISSUE_TEMPLATE/bug.yml']
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertFalse(scope.needs_runtime([path]))
+                self.assertFalse(scope.needs_performance([path]))
+
+    def test_runtime_tests_resources_dependencies_and_unknown_inputs_are_conservative(self):
+        paths = ['pangrova-worker-native/test/ExampleTest.cpp',
+                 'pangrova-worker/src/main/resources/docs/template.md',
+                 'pangrova-worker/src/test/resources/docs/fixture.md',
+                 'pangrova-client/pangrova-client-cli/pom.xml',
+                 '.pangrova/scripts/proto-descriptors/canonical-v2.descriptor',
+                 '.pangrova/scripts/stage-production-regression-native.sh',
+                 '.pangrova/scripts/build-iceberg-sdk-candidate.sh',
+                 '.pangrova/scripts/ci_change_scope.py', '.pangrova/modules.yaml',
+                 '.github/workflows/ci.yml', '.github/workflows/release.yml',
+                 '.github/actions/setup-iceberg-sdk/action.yml',
+                 '.github/actions/new-runtime-action/action.yml',
+                 '.github/workflows/new-runtime-build.yml',
+                 'config/checkstyle/checkstyle.xml', 'new-build-input.lock']
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertTrue(scope.needs_runtime([path]))
+        self.assertTrue(scope.needs_runtime(['README.md', 'new-build-input.lock']))
+        self.assertFalse(scope.needs_runtime([]))
+
+
+class WorkflowPolicyTest(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+
+    def test_golden_and_wiring_tests_stay_in_selected_maven_suites(self):
+        pom = ET.parse(ROOT / 'pom.xml')
+        ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
+        surefire = pom.find(".//m:plugin[m:artifactId='maven-surefire-plugin']", ns)
+        self.assertIn('**/*Test.java', [e.text for e in surefire.findall('.//m:include', ns)])
+        self.assertNotIn('plan-stability', (ROOT / 'pangrova-planner/pom.xml').read_text())
+        for name in ['TpcdsPlanStabilityTest', 'TpchPlanStabilityTest']:
+            source = (ROOT / 'pangrova-planner/src/test/java/org/pangrova/planner' / f'{name}.java').read_text()
+            self.assertIn('.isRegularFile()', source)
+            self.assertIn('.isEqualTo(expectedPlan)', source)
+        for name in ['SpiWiringVerificationTest', 'BootstrapReachabilityTest']:
+            source = (ROOT / 'pangrova-testing/pangrova-test-e2e/src/test/java/'
+                      'org/pangrova/testing/e2e/arch' / f'{name}.java').read_text()
+            self.assertNotIn('@Tag(', source)
+        e2e = (ROOT / 'pangrova-testing/pangrova-test-e2e/pom.xml').read_text()
+        self.assertNotIn('<exclude>', e2e)
+        smoke = ROOT / ('pangrova-testing/pangrova-test-e2e/src/test/java/'
+                        'org/pangrova/testing/e2e/smoke/ActivationSmokeE2ETest.java')
+        self.assertTrue(smoke.is_file())
+        self.assertNotIn('Run full E2E and real activation smoke', self.workflow)
+
+    def test_release_waits_for_reusable_validation_and_artifacts_do_not_collide(self):
+        release = (ROOT / '.github/workflows/release.yml').read_text()
+        self.assertIn('workflow_call:', self.workflow)
+        self.assertIn('uses: ./.github/workflows/ci.yml', release)
+        self.assertIn('needs: [native-build, validation]', release)
+        self.assertIn('name: release-native-bundle-', release)
+        self.assertNotIn('runner: macos-13', self.workflow + release)
+
+    def test_reference_generator_is_manual_and_no_longer_a_pr_engine_gate(self):
+        reference = (ROOT / '.github/workflows/nightly-operator-fuzzer.yml').read_text()
+        self.assertIn('workflow_dispatch:', reference)
+        self.assertNotIn('schedule:', reference)
+        self.assertNotIn('  fuzzer:', self.workflow)
+
+    def result(self, runtime='false', performance='false', native=None, pr=True, overrides=None):
+        # Execute the workflow's actual final-check program with synthetic GitHub
+        # results. This verifies skip/failure semantics without copying its logic.
+        final_job = self.workflow.split('  validation:\n', 1)[1]
+        program = textwrap.dedent(final_job.split("python3 - <<'PY'\n", 1)[1].rsplit('          PY', 1)[0])
+        jobs = {name: {'result': 'success'} for name in
+                ['change-scope', 'lint', 'doc-consistency', 'dead-stub-detection',
+                 'static-analysis', 'native-build', 'java-build', 'native-sanitizers',
+                 'production-regression', 'tpch-performance', 'jmh-benchmarks']}
+        jobs['change-scope']['outputs'] = {'runtime': runtime, 'performance': performance,
+                                         'native': runtime if native is None else native}
+        for name, result in (overrides or {}).items():
+            jobs[name]['result'] = result
+        return subprocess.run([sys.executable, '-c', program], capture_output=True,
+                              text=True, env={**os.environ, 'RESULTS': json.dumps(jobs),
+                                              'PR_EVENT': str(pr).lower()})
+
+    def test_docs_can_skip_only_unselected_checks(self):
+        result = self.result(overrides={'native-build': 'skipped', 'java-build': 'skipped',
+                                       'production-regression': 'skipped'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(self.result(overrides={'lint': 'skipped'}).returncode, 0)
+
+    def test_selected_checks_cannot_fail_cancel_or_disappear(self):
+        for name in ['native-build', 'java-build', 'native-sanitizers', 'production-regression']:
+            for outcome in ['failure', 'cancelled', 'skipped']:
+                with self.subTest(name=name, outcome=outcome):
+                    self.assertNotEqual(self.result(runtime='true', overrides={name: outcome}).returncode, 0)
+        self.assertNotEqual(self.result(runtime='true', performance='true',
+                                       overrides={'tpch-performance': 'skipped'}).returncode, 0)
+        self.assertNotEqual(self.result(runtime='', pr=True).returncode, 0)
+        self.assertNotEqual(self.result(performance='', pr=True).returncode, 0)
+        self.assertNotEqual(self.result(runtime='false', performance='true').returncode, 0)
+
+    def test_pushes_and_release_calls_cannot_select_docs_only_validation(self):
+        self.assertNotEqual(self.result(runtime='false', pr=False).returncode, 0)
+        self.assertEqual(self.result(runtime='true', pr=False).returncode, 0)
+        self.assertNotEqual(self.result(runtime='true', native='false', pr=False).returncode, 0)
+
+    def test_java_only_changes_may_skip_standalone_native_sanitizers(self):
+        result = self.result(runtime='true', native='false',
+                             overrides={'native-sanitizers': 'skipped'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(self.result(runtime='true', native='false',
+                                       overrides={'production-regression': 'skipped'}).returncode, 0)
+        self.assertNotEqual(self.result(runtime='true', native='').returncode, 0)
 
 
 if __name__ == '__main__':

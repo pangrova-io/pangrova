@@ -5,6 +5,88 @@ description: "逐项核对门禁的实际行为、重复约束、误报风险和
 
 # 质量门禁审计与精简依据
 
+## 2026-10-18 复核与实际整改
+
+本轮沿着“规则入口 → 脚本实现 → Maven/CMake → workflow 调用 → 产物消费者”
+核对实际约束。主要浪费来自重复执行和触发范围过宽，以及只检查作者填字、没有验证
+行为的流程门禁。没有根据 token 成本放宽安全、协议、所有权或真实执行要求。
+下方 2026-10-04 的数据保留为历史快照；与当前行为不同的结论以本节和实际配置为准。
+
+### 发现、证据与修改
+
+| 方向 | 发现及其影响 | 已实施的修改 |
+|---|---|---|
+| 规则入口 | AGENTS 将五份验证文档并列为要求；workflow 又重复 development 生命周期；setup 被描述为每次前置检查 | 按任务路由到所需规则，相关规则读一次；development 统一验证策略；workflow 只保留兼容指引；setup 仅在布局变化或 CI 中检查 |
+| 规范标准 | 强制分支前缀、英文提交、禁止评论引用设计/任务号都不能证明代码正确；第三方弃用警告被要求立即全仓迁移 | 改为清晰表达与有用来源，移除语言/前缀硬限制；第三方迁移按任务范围处理，抑制必须窄且有理由；不改变公共代码命名和模块隔离检查 |
+| 规范矛盾 | C++ protobuf 规范仍写旧包名，而架构要求 canonical v2；Java 并发修改也被笼统要求 ASan | 包名统一为 canonical v2；本地 ASan 针对 native 内存/所有权/JNI/并发风险，Java 并发使用相应 Java 测试 |
+| CI 范围 | 旧 scope 只选择性能作业。文档 PR 仍构建四平台 Native、两个 sanitizer、两个 JDK、生产镜像和全量回归 | scope 同时选择 runtime/native/performance 和平台矩阵。文档、规则、普通门禁工具 PR 保留轻量检查；运行时/测试 PR 保留正确性链，未知输入保守执行 |
+| Native 构建 | 普通 Java 叶模块变更也重建四个平台和两个独立 C++ sanitizer 套件；这些套件未消费变化的 Java 输入 | JNI/protocol/SPI/Native/packaging/build 及未知输入保留四平台与 ASan/UBSan；其他 Java PR 保留 Linux Native 和真实生产镜像 E2E，省去三个额外平台及两个未变输入的 sanitizer 构建。受保护分支 push 与发布仍全部执行 |
+| Maven 生命周期 | 每个 JDK 先 `clean verify -DskipTests`，随后又 `verify`；独立 ArchUnit job 重新编译并重复运行已在常规套件中的测试 | 每个 JDK 一次 verify；ArchUnit 装配/可达性测试继续由 daily/full suites 发现；生产独立进程测试需要的完整 reactor install 保留 |
+| 测试重复 | full-regression reactor 已含 E2E 和 activation smoke，却又重跑完整 E2E 和单独 smoke；两份 daily JaCoCo 也不参与门禁 | 生产 full-regression 一次执行 E2E/smoke；移除后续重复 E2E/smoke、daily coverage instrumentation、独立 ArchUnit job 与 Codecov 上传；`-Pcoverage` 仅保留为按需诊断 |
+| 源码门禁重复 | SPI annotation、E2E truthfulness、proto descriptor 在两个 JDK 中各跑一次；proto 还先 prepare 再内部 prepare | 移到单一 lint job；descriptor 在 runtime 变化时执行一次；廉价 SPI/E2E 模式检查继续运行 |
+| 计划审批文字 | 作者写一句 approval 或打标签即可通过；同时真正的 golden 测试已在 daily/full Maven 中运行 | 删除 approval 脚本与重复 job；保留 golden 文件存在及实际计划相等断言，正常代码评审解释 golden diff。TPC-H 21 / TPC-DS 31 个参数化用例本轮实际通过 |
+| 分布式清单 | 检查 PR 某段有一个勾选或 N/A 理由，不核对 fencing、恢复或幂等性的实际行为 | 删除正文格式脚本和 job，PR 模板改为变更/验证/相关风险；保留分布式风险评审参考及对应行为、装配、集成测试 |
+| Fuzzer 真实性 | FuzzerRunner 只创建 ReferenceEngine，各 fuzzer 的 `run` 只调用 DuckDB `reference_.execute(sql)`，没有 Pangrova 执行及结果比较。CMake 也只链接自身和 DuckDB，却依赖整个 Native job | 移除 PR engine gate 和每日自动运行；保留明确标注为参考 SQL 生成器的手动自检。没有把其通过解释为 Pangrova 查询正确性证据，也没有删除已有工具源码 |
+| Stub 扫描成本 | 对每个生产文件八次 grep，并通过 find 遍历构建/依赖树；成功日志还声称所有生产方法均已实现 | 用 Git 枚举 tracked+未忽略 untracked 源码，一次合并匹配；保留既有例外分类，补正/负例；修复零匹配计数生成双零的缺陷。成功仅表示未检出相应模式；字节码可达性和执行测试仍独立负责 |
+| Hook | `core.hooksPath`/fsmonitor 未配置，Git hooks 目录只有 `.sample`；仓库 hooks/ 另跟踪 13 份 Git 原生样板，setup 没有安装 hook | 删除仓库内重复样板，保留用户 `.git/hooks` 和 Git 配置；不新增 pre-commit/pre-push/commit-msg 强制流程。节省的是检索噪声，不能宣称解除了不存在的拦截 |
+| 环境路径 | 全仓扫描发现既有事故记录写入个人 home 的绝对路径；这个发现可以直接修正，无需关闭整项门禁 | 仅将事故记录来源路径归一化为 `~/Library/Logs/DiagnosticReports/`，保留文件名、栈、PID、UUID 等诊断证据；全仓检查随后通过 |
+| 发布漏洞 | release.yml 只依赖 Native packaging，Java 使用 skipTests；“发布必须全量回归”的文字未真正接线 | 在 tag 上复用同一个 CI workflow，并让发布依赖 validation。发布与验证 artifact 使用不同前缀防止同一次 run 冲突。发布重新构建制品仍必须成功 |
+| 发布可用性 | macos-13 runner 已退役，action-gh-release v1 被当前 actionlint 判为运行时过旧 | Intel/ARM runner 明确为 macos-15-intel / macos-15；发布 action 更新至 v3。依据见 [GitHub runner 公告](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/) 和 [发布 action](https://github.com/softprops/action-gh-release/releases/tag/v3.0.3) |
+
+### 精简后的执行与上下文边界
+
+- 文档/规则/普通门禁工具 PR 启动 scope、lint、doc-consistency、Validation result
+  四个轻量作业；不再启动 Native、JVM 全仓、sanitizer 或生产镜像构建。
+- Java runtime/test 变化继续执行受影响的正确性链。Worker/JNI、协议、SPI、构建依赖
+  或未知输入按保守策略保留全平台；本轮不推断任意 Java 修改都与 native ABI 无关。
+- protected-branch push 和 release tag 不依赖 PR path 判断，明确选择完整正确性链。
+  这是维护集成基线与发布保障的有意保留；文档合并到受保护分支后仍会执行完整 CI。
+- 测试/verify 已包含编译，全回归已覆盖的 E2E/smoke 不另加必跑命令。仅在输入变化、
+  测试未执行或失败定位时重跑。长日志保留在报告中，任务上下文只给命令、结果、阻塞和必要样本。
+- 普通 Java PR 省去的是额外架构和独立 sanitizer 的重复构建；生产镜像仍使用同一
+  源码 revision，并验证镜像 ID、JNI classifier、runtime manifest 和 source commit。
+- 不声称节省固定百分比的 token。本轮消除的是可定位的重复读取、输出和执行来源；
+  没有对真实多轮任务做 token 前后对照测量。
+
+### 反向保护与验证结果
+
+新增稳定的 `Validation result` 汇总结果，避免条件 job 的 skip 被误当成成功。
+被选择的作业失败、取消、意外跳过、缺失 scope 或不一致的 native/performance
+前置条件都会失败；只有明确未选择的检查可以跳过。production-regression 的依赖条件
+也明确区分“纯 Java 不需要独立 sanitizer”与“应跑 sanitizer 但未成功”。相关
+GitHub skip/needs 语义依据 [官方 workflow 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)。
+
+本轮已实际执行：
+
+- Python 门控策略/异常 fixture/stub 检测 37 项通过，包括删除、跨目录重命名、带空格路径、
+  缺失 base、未知输入、完整事件选择、失败/取消/跳过，以及 tracked/untracked/ignored 源码边界。
+- JDK 17 下 planner focused reactor：TPC-H 21、TPC-DS 31，共 52 项通过，失败/错误/跳过均为 0。
+- Checkstyle 真实解析器：9 个允许边界/API fixtures 通过，14 个越界/内部导入 fixtures 被拒绝。
+  SpotBugs 过滤器 API 的正例与反例验证也通过；未放宽现有结构阈值或安全过滤边界。
+- Flight header patch 工具 4 项测试通过；SPI annotation 142 个公共类型通过，历史缺口 0；
+  文档类名引用 174 项通过；E2E truthfulness、门控 shell 语法、canonical layout 均通过。
+  环境路径全仓检查在归一化一处既有事故记录路径后通过，没有为其增加白名单。
+- actionlint v1.7.12 校验修改的 CI/release/manual-generator workflows 通过；各 workflow
+  YAML 均可解析。Stub 全仓实际扫描通过，本机一次运行约 5 秒；不能直接拿历史并发
+  审计的 65 秒快照计算通用加速比。
+- 本轮没有启动 hosted CI、完整 Native/ASan/UBSan、生产镜像或发布；这些结果仍需真实
+  runner 执行，静态检查不能替代部署验收。现有无关文档/网站工作区修改予以保留。
+
+### 仍需区分的风险
+
+本地无法从工作流文件知道 GitHub 当前 branch protection / ruleset 必需检查配置。
+仓库管理员需要将其对齐到 `Validation result`，移除退役 job 的必需状态；本轮没有擅自
+修改远端仓库设置。否则旧状态可能永久等待，或新汇总状态尚未被设为必需。
+
+保留 Checkstyle/SpotBugs/FindSecBugs、canonical descriptor、JNI 生命周期、真实
+worker/process 边界以及发布全量正确性验证。覆盖率报告不作为门禁；`-Pcoverage`
+仅用于按需诊断。
+文本 SPI provider/stub/doc 引用扫描都只是诊断证据，不能代替实际装配和执行。
+本轮不因“规则看起来严格”继续调整命名、复杂度或性能阈值；那些变化需要独立误报或
+可重复测量依据，避免把精简流程变成绕过真实缺陷。
+
+## 2026-10-04 历史审计快照
+
 本次审计的结论是：验证范围应按影响边界选择，结构度量由 Checkstyle 统一执行，历史过程约束不应成为永久代码限制。协议、JNI、安全、资源生命周期、真实执行证据和生产回归继续保留。较少的结构告警不等于较少的真实缺陷，也不等于完整 CI 已通过。
 
 ## 审计范围与证据
@@ -14,7 +96,6 @@ description: "逐项核对门禁的实际行为、重复约束、误报风险和
 2026-10-16 增量审计补充了覆盖率、重复 Java 构建及独立 ArchUnit job 的清理；下文原始分布和时长仍是 2026-10-04 的快照。
 
 2026-10-19 复核发现生产回归仍显式启用 `-Pcoverage`，虽无百分比阈值，却强制对完整 reactor 插桩并生成报告。生产 CI 已移除此 profile；`-Pcoverage` 仅保留为按需诊断工具。功能、协议、Native、真实 E2E 与静态安全门禁继续按其实际边界验收。
-
 结构比较使用仓库锁定的 Checkstyle 10.12.7、Maven Checkstyle Plugin 3.3.1 和 JDK 17，不使用手写方法长度估算。分别扫描当前工作区及提交基线 `e92532a77fcd813009e659a62e7691f08e972899`。提交基线通过 `git cat-file --batch` 导出至临时目录，没有 stash、切换分支或修改共享源码。
 
 当前工作区含大量既有修改，因此两组结果分别报告。扫描仅包含各模块的 `src/main/java`，排除 `target` 中的生成代码；保留与实际配置相同的 `switchBlockAsSingleDecisionPoint=true` 和嵌套深度设置。当前工作区额外比较了应用现有豁免与不应用豁免两种结果。基线比较使用该提交自己的豁免文件。新加入的 `NestedForDepth=3` 在边界测试中单独验证；下表的前后比较不将新增循环检查混入原有指标。
@@ -87,10 +168,6 @@ Checkstyle 将圈复杂度定义为决策点加一，包含布尔运算和循环
 | P0 证据必须粘贴全部 grep | 重复日志增加上下文，逐行同类解释未必增加审查价值 | 保留同类缺陷搜索；提交命令、命中数、代表样本、分类和完整输出链接 |
 | 所有 PR 跑额外 TPC-H/JMH | 不区分文档和运行时修改；短采样性能波动未经稳定复测不能直接认定阈值过紧 | 仅对生产、依赖、benchmark 和相关工具变化触发；未知输入保守触发；10%/15% 等既有回归阈值不改，生产正确性链不删 |
 | 旧工具规则入口 | .claude/.qoder 只含到 canonical rules 的两个符号链接，setup 会自动重建 | 删除两目录和重建逻辑；仅保留 AGENTS.md + .pangrova，setup 改为只读布局验证 |
-| Diff coverage ≥60% | 百分比无法证明 SQL→Native、分布式故障和资源回收等实际行为，且要求全分支每条变更行具备 JaCoCo 报告 | 删除阈值 gate 与强制 CI 插桩；保留按风险选择的功能、集成、Native、E2E、smoke 测试，可选 `-Pcoverage` 用于找未测路径 |
-| Java CI 先 `clean verify -DskipTests` 后 `verify` | 编译和打包生命周期重复执行，后一次 `verify` 已包含必要的编译 | 合并为一次 `clean verify`，保留干净构建和原有日常测试筛选 |
-| 独立 ArchUnit CI job | `SpiWiringVerificationTest` 与 `BootstrapReachabilityTest` 均为未标记的 `*Test.java`，已由 Java 日常测试和生产全量回归选中；独立 job 再次编译全部模块并运行同两类测试 | 删除重复 job，保留测试本身及其日常/生产执行 |
-| 生产 CI 全 reactor 后再次跑共享 E2E 与 ActivationSmoke | `full-regression` 包含 `pangrova-test-e2e` 模块并选中未标记的 `*Test.java`；ActivationSmoke 无排除标签，已在全量回归中执行 | 删除重复调用；三项 `native-runtime-owner` 测试仍各用独立 JVM 执行，保留真实镜像和 JNI 链路 |
 
 ## 保留门禁及其实际边界
 
@@ -107,6 +184,7 @@ Checkstyle 将圈复杂度定义为决策点加一，包含布尔运算和循环
 | 环境路径检查 | 5 个禁止样本、8 个允许样本通过；约 0.03 秒 | 防止机器路径写入活跃文件；本次仅测模式自检，未将其声称为完整仓库扫描通过 |
 | Proto descriptor | 本次核对实现，未以修改后的 descriptor 重新接受协议 | 比较 descriptor 字节和 canonical source 所有权，不是语义兼容分析；安全增加字段也会造成 drift，更新基线不证明 wire/API 兼容。官方区分 [wire-safe 与应用兼容](https://protobuf.dev/programming-guides/proto3/#updating) |
 | JNI symbol symmetry | 保留本地脚本和包装/加载验证要求 | 符号存在不证明所有权、类型和生命周期正确；与 JNI/E2E 测试互补 |
+| Diff coverage ≥60% | 2026-10-16/19 已退役：删除 `diff-coverage-check.sh`，生产回归不再启用 `-Pcoverage` | 不得据此声称覆盖率门禁仍存在；行为测试、协议、Native、真实 E2E 和静态安全门禁仍按各自边界执行 |
 | SpotBugs/FindSecBugs | profile、分析强度、过滤器保持 | 配置的 Medium 是检测优先级/置信度，不等于运行时严重性。没有误报样本和安全分类证据时不整体降级 |
 | Native/WERROR/sanitizers | 构建和相关风险场景保持 | 编译警告、内存与未定义行为直接影响 JVM/查询执行，不与格式清单合并删除 |
 | 生产同源构建和真实 E2E/smoke | 原有 production-regression 与 artifact provenance 保留 | 静态分析/工作流语法通过不能代替实际镜像、部署和 SQL→Native→结果的执行证据 |

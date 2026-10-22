@@ -8,7 +8,7 @@
 
 链路为：AI callback 失败 → SDK Task FAILED → Result route 删除 → 已进入 DoGet 的消费者仍等待 → Native release 发现真实 RPC reader owner → Java 保留 handle/budget → cleanup retry 尚不能完成 → 下一 class 的 drain 验收失败 → shutdown hook 等待 Flight server → Surefire 在 30 秒后强制 Halt。
 
-macOS 原始现场 `java-2026-10-07-164428.ips`：pid 38162，faultingThread 49，SIGABRT，实际栈为 `ResultBatchReader::~ResultBatchReader +388 → RecordBatchStream 析构 → ServerTransport::DoGet → gRPC worker`。同时线程 89 停在 `GrpcServerTransport::Shutdown → FlightResultServer::stop → FlightServerRegistry::shutdownAll → nativeShutdownInternal`。加载 Native UUID `80BD6C8C-31BE-3B74-87E9-0A8836A97D5A` 与现场 `build/libpangrova_native.dylib` 完全一致。反汇编中的 +388 是 noexcept 异常 landing pad；该现场不能进一步确定是哪一个 mutex 地址失效，不能据此捏造 OOM 或特定 global mutex 原因。
+macOS 原始现场 `~/Library/Logs/DiagnosticReports/java-2026-10-07-164428.ips`：pid 38162，faultingThread 49，SIGABRT，实际栈为 `ResultBatchReader::~ResultBatchReader +388 → RecordBatchStream 析构 → ServerTransport::DoGet → gRPC worker`。同时线程 89 停在 `GrpcServerTransport::Shutdown → FlightResultServer::stop → FlightServerRegistry::shutdownAll → nativeShutdownInternal`。加载 Native UUID `80BD6C8C-31BE-3B74-87E9-0A8836A97D5A` 与现场 `build/libpangrova_native.dylib` 完全一致。反汇编中的 +388 是 noexcept 异常 landing pad；该现场不能进一步确定是哪一个 mutex 地址失效，不能据此捏造 OOM 或特定 global mutex 原因。
 
 ### 已复证的生命周期缺陷
 

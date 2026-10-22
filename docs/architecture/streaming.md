@@ -1,17 +1,18 @@
 ---
 title: "Streaming & CDC"
+description: "Current CDC wiring and incomplete streaming and refresh lifecycles"
 sidebar_label: "Streaming & CDC"
 ---
 
-# Pangrova — Streaming & CDC
+# Streaming & CDC
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
 
-> **Current CDC boundary.** Sections 2.4–2.7 retain historical `TableWriter`
-> design sketches, not the running write path. The running pipeline uses
+> **Current CDC boundary.** Sections 2.4–2.5 describe current wiring and gaps;
+> sections 2.6–2.8 retain `TableWriter` contracts and historical writer sketches. The running pipeline uses
 > `CdcPipelineLoop` → `CdcTwoPhaseCommitter` → `ConnectorPageSinkCdcWriter` on the
 > Coordinator. The source offset and Iceberg/Paimon catalog do not share an
 > atomic transaction. `COMMITTING` is now quarantined on ambiguous failure;
@@ -25,7 +26,18 @@ sidebar_label: "Streaming & CDC"
 ## 0. Product Positioning
 
 The Pangrova streaming module is a **declarative incremental data transformation** engine.
-It provides materialized view refresh and CDC-driven incremental ETL capabilities.
+CDC-related components exist, but complete incremental transformation and automatic
+materialized-view refresh remain incomplete. The default continuous-query refresh
+callback only logs a tick, and continuous-query materialization returns unsupported.
+Stream task registration is conditional; dynamic-table DDL and refresh handlers are
+registered when durable metadata publication is configured. That registration does
+not establish automatic refresh scheduling, crash recovery, or exactly-once output.
+
+**Reading scope:** the diagrams, SQL/API examples, SPI sketches, and connector writer
+sketches below describe design or component contracts unless explicitly identified
+as current bootstrap behavior. They do not establish a working distributed ingestion,
+refresh, maintenance, or recovery lifecycle. Use
+[Current Capability Status](../getting-started/capability-status.md) for default wiring.
 
 **It is NOT a general-purpose stream processing engine.**
 
@@ -40,11 +52,11 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 
 | Capability | Description |
 |---|---|
-| CDC Ingestion | Consume Debezium/Maxwell/Canal change events from Kafka, write to Iceberg/Paimon tables |
-| Incremental ETL | Apply schema-aligned transformations during CDC ingestion (column mapping, type coercion) |
-| Materialized View Refresh | Watermark-driven incremental refresh of continuous queries |
-| Table Maintenance | Compaction, snapshot expiration, orphan cleanup triggered by write activity |
-| Watermark Tracking | Per-table event-time watermark for freshness monitoring and refresh triggering |
+| CDC Ingestion | Kafka source/parser and connector-sink components; current bootstrap writes on the Coordinator and has unresolved publication/offset semantics |
+| Incremental ETL | Component/design scope; arbitrary transformation execution is not established |
+| Materialized View Refresh | Target behavior; default refresh callback is log-only |
+| Table Maintenance | Scheduler/provider components; distinct from standalone SQL maintenance, whose default provider is a no-op |
+| Watermark Tracking | Tracking components; does not establish a functioning refresh lifecycle |
 
 #### What Pangrova Streaming is NOT
 
@@ -72,7 +84,7 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 | Primary abstraction | Table (kept fresh) | DataStream / Table | DataFrame (micro-batch) |
 | Processing model | Mini-batch CDC ingest | Record-at-a-time | Micro-batch |
 | State management | Offset + watermark only | Arbitrary keyed state | Arbitrary state |
-| Delivery guarantee | At-least-once + dedup | Exactly-once (barriers) | Exactly-once (WAL) |
+| Delivery guarantee | No qualified exactly-once/effectively-once guarantee | Depends on source/sink and checkpoint configuration | Depends on source/sink and checkpoint configuration |
 | Windowing | Refresh interval only | TUMBLE/HOP/SESSION/CUMULATE | Window operations |
 | Joins | Not supported in stream | Stream-stream, stream-table | Stream-stream, stream-static |
 | User operators | No (declarative only) | Yes (ProcessFunction) | Yes (mapGroupsWithState) |
@@ -273,204 +285,46 @@ public class CdcConsumer implements AutoCloseable {
 
 ### 2.4 CDC vs SQL Write: Transaction Orchestration Comparison
 
-> **See also:** [query-execution.md](./query-execution.md) — distributed transaction orchestration for SQL writes
+The production relational DML path uses Native Workers to produce fragments for
+one Coordinator-owned, fenced catalog publication. It does not use a Coordinator
+row writer for `INSERT VALUES` or other relational DML.
 
-CDC writes and SQL writes share the same `TableWriter SPI`, but their transaction orchestration paths are completely different. This section clarifies the differences between the two to avoid confusion during implementation.
+The current CDC bootstrap is different:
 
-#### Orchestration Path Comparison
-
-| Dimension | SQL Write (INSERT/MERGE) | CDC Write (Kafka Consumer) |
-|---|---|---|
-| Orchestrator | Coordinator (distributed transaction) | CdcConsumer (single-point transaction) |
-| Transaction scope | Parallel writes across multiple Workers → Coordinator coordinates Commit | Single Consumer thread → direct Commit |
-| Resource management | Goes through the Coordinator's ResourceQueue quota check | **Does not** go through the Coordinator; requires independent quota checking (see below) |
-| Memory management | Task-level memory quota, allocated by the Java MemoryArbitrator | Consumer process-level memory, managed by the JVM heap |
-| Failure handling | Coordinator reschedules to another Worker | Consumer restarts and recovers from the Kafka offset |
-| Concurrency control | Coordinator controls the number of parallel Writer Tasks | The number of Kafka partitions determines parallelism |
-
-#### CDC Write Resource Management
-
-The CDC Consumer bypasses the Coordinator and writes directly, so it needs an independent resource management mechanism:
-
-```
-CDC Consumer Resource Check Flow:
-  1. On startup, the Consumer registers with the Coordinator (POST /v1/cdc/register)
-     → The Coordinator allocates CDC-specific resource quota (memory, concurrent write count)
-  2. Before each write(), check the local quota:
-     → Current write concurrency < max_concurrent_writes
-     → Accumulated uncommitted data volume < max_pending_bytes
-  3. When the quota is exceeded, pause consumption (consumer.pause()) and resume after writes complete
-  4. Multi-tenant scenario: the CDC Consumer is bound to a tenant_id, and quota is deducted from the tenant quota
-     (see multi-tenancy.md §4.1 QuotaChecker)
+```text
+StreamingBootstrap
+  -> CdcPipelineLoop
+  -> CdcTwoPhaseCommitter
+  -> ConnectorPageSinkCdcWriter (Coordinator-local)
 ```
 
-
-
-**`POST /v1/cdc/register` API Specification**:
-
-Request:
-```json
-{
-  "consumer_id": "cdc-consumer-001",
-  "tenant_id": "tenant-abc",
-  "target_tables": ["iceberg.db.orders", "iceberg.db.users"],
-  "requested_quota": {
-    "max_concurrent_writes": 4,
-    "max_pending_bytes": 268435456
-  }
-}
-```
-
-Response (200 OK):
-```json
-{
-  "stream_id": "cdc-stream-xyz",
-  "allocated_quota": {
-    "max_concurrent_writes": 4,
-    "max_pending_bytes": 268435456
-  },
-  "heartbeat_interval_ms": 30000,
-  "lease_ttl_ms": 120000
-}
-```
-
-Error Responses:
-| HTTP Status | Error Code | Condition |
-|---|---|---|
-| 400 | `CDC_PARSE_ERROR` (1401) | Invalid request body |
-| 403 | `TENANT_ACCESS_DENIED` (1603) | Tenant not authorized for target tables |
-| 429 | `CDC_QUOTA_EXCEEDED` (1404) | Tenant CDC quota exhausted |
-| 503 | `RESOURCE_EXHAUSTED` (2001) | Coordinator cannot allocate requested resources |
-
-**Heartbeat / Lease Renewal**: After registration, the Consumer sends periodic heartbeats (`POST /v1/cdc/{streamId}/heartbeat`) at `heartbeat_interval_ms`. If no heartbeat is received within `lease_ttl_ms`, the Coordinator reclaims the allocated quota and marks the stream as EXPIRED. The Consumer must re-register to resume.
-
-**Behavioral differences of the TableWriter SPI in the two modes**:
-
-| SPI Method | SQL Write Mode | CDC Write Mode |
-|---|---|---|
-| `write()` / `writeBatch()` | Produces write fragments; the coordinator owns the final atomic catalog commit | Writes data files **and** commits internally (single-point transaction) |
-| `WriteMode` | `APPEND` (INSERT) or `OVERWRITE` | `UPSERT` (CDC default) |
-| `WriteContext.transactionMode` | `COORDINATOR_MANAGED` | `SELF_MANAGED` |
-| Transaction commit | Coordinator collects worker fragments, journals commit intent, and performs the atomic catalog commit | `TableWriter.write()` internally calls `table.newAppend().commit()` |
-
-> **Design Decision**: TableWriter SPI accepts a `WriteContext` parameter (see [§2.6](#26-table-writer-spi) for authoritative definition) to distinguish the two modes. `WriteContext.transactionMode` is `COORDINATOR_MANAGED` (SQL) or `SELF_MANAGED` (CDC). In `COORDINATOR_MANAGED` mode, `write()`/`writeBatch()` only produces a DataFile list without committing; in `SELF_MANAGED` mode, `write()` completes the full transaction commit internally.
+`StreamingBootstrap.createWriteSink()` explicitly reports that Worker dispatch is
+unavailable. A `TableWriter` SPI or an illustrative Native CDC design does not change
+that instantiated path. The CDC sink is not covered by the relational distributed
+write journal. See [Distributed Write](distributed-writes.md) for the current
+publication and repair boundary.
 
 ### 2.5 CDC Write Semantics
 
-> **Guarantee Level: at-least-once with idempotent writes**
+**Current status: correctness and recovery qualification remain open.**
+Catalog publication and source-offset persistence are separate operations. Existing
+primary-key semantics do not prove that replay, partial publication, delete/insert
+phases, or ambiguous outcomes are safe across both Iceberg and Paimon.
 
-The CDC Consumer uses a **write-then-commit-offset** model: it first completes the data write and commits the transaction, then commits the Kafka offset. This ensures data is not lost, but under failure scenarios it may produce duplicate consumption, which is eliminated through primary-key idempotent deduplication.
+The current pipeline fences batch ownership, but ambiguous `COMMITTING` state is
+quarantined rather than blindly replayed. Paimon rejects context-free sink writes;
+UPDATE delete and insert phases are not established as one atomic table publication.
+There is no production claim of exactly-once or effectively-once semantics.
 
-#### Offset Commit Point
-
-The offset commit happens after the data-write transaction succeeds (i.e., after `TableWriter.write()` returns), rather than before or as an atomic commit:
-
-```
-TableWriter.write() commit success  →  consumer.commitSync()
-         ▲                                      ▲
-         │                                      │
-    Data is durable                    Offset is durable
-```
-
-This means:
-- If `write()` succeeds but `commitSync()` fails, the Consumer will re-consume the already-written messages after restart
-- If `write()` fails, the offset is not committed, and the Consumer automatically retries after restart
-
-#### Idempotency Strategy
-
-On write, deduplication is performed by `(primary_key, event_timestamp)`, ensuring duplicate consumption does not produce duplicate data:
-
-| Table Format | Dedup Mechanism | Description |
-|---|---|---|
-| Iceberg | Equality Delete + Insert | First write an equality delete (by primary key + event timestamp), then write the insert; duplicate writes produce identical delete + insert, and results are consistent after compaction |
-| Paimon | Native Changelog Dedup | The Paimon LSM Tree natively deduplicates by primary key; duplicate writes of the same key are merged automatically |
-
-#### Write-Commit Lifecycle
-
-```
-1. consumer.poll()           → Get message batch from Kafka
-2. parseDebeziumMessage()    → Convert to List<CdcRecord>
-3. WriteRecord.fromCdc()     → Convert to List<WriteRecord>
-4. TableWriter.write()       → Write data files + commit transaction
-5. consumer.commitSync()     → Commit Kafka offset
-```
-
-If step 4 succeeds but step 5 fails: after restart, the Consumer re-consumes from the last committed offset, and primary-key idempotent deduplication guarantees eventual data consistency.
-
-#### Failure Recovery Flow
-
-**Consumer Restart Behavior**: After the CdcConsumer process crashes or is killed, the Kafka consumer group triggers a rebalance, and the new instance resumes consumption from the last committed offset. Because the offset is committed after the data write, two failure windows exist:
-
-| Failure Point | Symptom | Recovery Behavior |
-|---|---|---|
-| Before `TableWriter.write()` | Data not written, offset not committed | Consumer restarts, re-polls same batch, normal retry |
-| During `TableWriter.write()` (partial) | Iceberg/Paimon transaction uncommitted | Transaction rollback on timeout; consumer restarts, re-polls and retries full batch |
-| After `TableWriter.write()`, before `commitSync()` | Data written and committed, offset not committed | Consumer restarts, re-consumes already-written messages; **duplicate detection** eliminates duplicates |
-| After `commitSync()` | Both durable | No recovery needed |
-
-**Duplicate Detection**: Duplicate records produced by duplicate consumption are eliminated via `(primary_key, event_timestamp)` deduplication:
-
-- **Iceberg**: Duplicate writes produce identical equality delete + insert pairs. After compaction merges them, multiple writes of the same `(pk, event_ts)` are equivalent to a single write.
-- **Paimon**: The LSM Tree automatically merges by primary key, keeping only the latest version for duplicate writes of the same key.
-
-**Guarantee Level**: at-least-once delivery + idempotent writes = **effectively-once** semantics. It does not provide exactly-once (because the Kafka offset and the Iceberg/Paimon transaction cannot be committed atomically), but achieves an equivalent effect through idempotent deduplication.
-
-#### CDC Write-Commit-Offset Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    participant K as Kafka
-    participant C as CdcConsumer
-    participant P as Parser
-    participant W as TableWriter
-    participant S as Storage<br/>(Iceberg/Paimon)
-
-    Note over K,S: === Normal Flow ===
-
-    C->>K: poll()
-    K-->>C: ConsumerRecords batch
-    C->>P: parseDebeziumMessage()
-    P-->>C: List&lt;CdcRecord&gt;
-    C->>C: WriteRecord.fromCdc()
-    C->>W: write(tableName, records, UPSERT)
-    W->>S: Write data files
-    W->>S: Commit transaction
-    S-->>W: Commit success
-    W-->>C: WriteResult
-    C->>K: commitSync()
-    K-->>C: Offset committed
-    Note over K,S: ✅ Both data and offset durable
-
-    Note over K,S: === Failure: crash after write, before commitSync ===
-
-    C->>K: poll()
-    K-->>C: ConsumerRecords batch
-    C->>P: parseDebeziumMessage()
-    P-->>C: List&lt;CdcRecord&gt;
-    C->>W: write(tableName, records, UPSERT)
-    W->>S: Write data files
-    W->>S: Commit transaction
-    S-->>W: Commit success
-    W-->>C: WriteResult
-    Note over C: ❌ Consumer crashes before commitSync()
-
-    Note over K,S: === Recovery: restart and dedup ===
-
-    C->>K: poll() (from last committed offset)
-    K-->>C: Same ConsumerRecords batch (re-delivered)
-    C->>P: parseDebeziumMessage()
-    P-->>C: List&lt;CdcRecord&gt; (duplicates)
-    C->>W: write(tableName, records, UPSERT)
-    W->>S: Write data files (dedup by primary_key + event_timestamp)
-    W->>S: Commit transaction
-    S-->>W: Commit success (duplicates eliminated)
-    W-->>C: WriteResult
-    C->>K: commitSync()
-    K-->>C: Offset committed
-    Note over K,S: ✅ Recovered: data consistent via idempotent dedup
-```
+The required repair design must bind tenant, source offset range, table identity,
+snapshot, attempt, and fence to a durable Native batch and one observable catalog
+publication. It is a proposed acceptance contract, not implemented support. See the
+[CDC repair contract](distributed-writes.md#cdc-repair-contract-proposed-not-implemented).
 
 ### 2.6 Table Writer SPI
+
+**Scope: SPI contract and illustrative code.** The current CDC bootstrap instantiates
+`ConnectorPageSinkCdcWriter`, not the writer sketches below.
 
 > **This section is the authoritative definition of the unified write SPI.**
 > All other documents (overview.md §5.1, query-execution.md §6, connectors.md §5.1) reference this section.
@@ -614,6 +468,8 @@ public record WriteRecord(
 
 ### 2.7 Iceberg Table Writer (Hybrid Delete Strategy)
 
+**Status: design/component sketch; not the default CDC sink or a delivery guarantee.**
+
 ```java
 /**
  * Iceberg Table Writer with hybrid delete strategy.
@@ -672,6 +528,8 @@ public class IcebergTableWriter implements TableWriter {
 
 ### 2.8 Paimon Table Writer
 
+**Status: design/component sketch; not the default CDC sink or a delivery guarantee.**
+
 ```java
 /**
  * Paimon Table Writer with native changelog support.
@@ -712,10 +570,16 @@ public class PaimonTableWriter implements TableWriter {
         return result;
     }
 }
+```
 
 ---
 
 ### 2.9 TableMaintenanceSpi
+
+This interface describes maintenance operations, not their statement wiring. The
+default standalone `COMPACT`/`OPTIMIZE`/`VACUUM` executor uses a no-op provider;
+catalog-qualified `CALL` uses a separate connector path. See
+[Maintenance SQL](../sql-reference/maintenance.md).
 
 A unified table maintenance interface supporting compaction, orphan cleanup, and snapshot expiration.
 

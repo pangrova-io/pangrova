@@ -9,33 +9,33 @@ import styles from './index.module.css';
 const features = [
   {
     icon: '⚡',
-    title: 'Native Performance',
-    description: 'C++ Velox vectorized execution with Arrow zero-copy JNI — bare-metal throughput without JVM overhead.',
+    title: 'Native Execution',
+    description: 'C++20 / Velox vectorized execution through JNI, with Arrow interoperability. Performance must be measured on the target workload.',
   },
   {
     icon: '🔓',
     title: 'Open Formats',
-    description: 'First-class Apache Iceberg & Paimon connectors. Your data stays in open table formats — no vendor lock-in.',
+    description: 'Built-in Apache Iceberg and Paimon connectors, with a pluggable Connector SPI for additional table formats and data sources. See documented format and operation limits.',
   },
   {
     icon: '🤖',
     title: 'AI-Native SQL',
-    description: 'Vector search, hybrid retrieval, in-DB embeddings, LLM UDFs — AI is a SQL primitive, not an external service.',
+    description: 'Vector, text, and model-function components in SQL. Query shape, index artifacts, and configured external model providers determine availability.',
   },
   {
     icon: '📈',
-    title: 'Elastic Scale',
-    description: 'Multi-active Coordinator HA (no SPOF) + auto-scaling Worker pool. Scale from laptop to petabytes.',
+    title: 'Distributed Architecture',
+    description: 'Coordinator / Worker execution with lease, fencing, and resource components. Capacity, recovery, and HA require deployment qualification.',
   },
   {
     icon: '🛡️',
-    title: 'Enterprise Security',
-    description: 'JWT / LDAP / OAuth2 authentication, RBAC, column masking, row-level filtering — production-ready.',
+    title: 'Security Components',
+    description: 'Authentication, authorization, masking, row filters, and audit components. Configure and validate the runtime path for your deployment.',
   },
   {
     icon: '🔭',
-    title: 'Full Observability',
-    description: 'OpenTelemetry distributed tracing, Prometheus metrics, structured logging — built in from day one.',
+    title: 'Observability',
+    description: 'Tracing, metrics, and structured-logging providers and instrumentation for configured deployments.',
   },
 ];
 
@@ -56,14 +56,15 @@ FROM iceberg.sales.orders
 WHERE order_date >= TIMESTAMP '2024-01-01'
 GROUP BY region
 ORDER BY revenue DESC;`,
-  ai: `-- Vector similarity search with ANN acceleration
-SELECT id, vector_score(embedding, ai_embed('bge-m3', 'noise cancelling'))
+  ai: `-- Example for a four-dimensional vector column.
+-- ANN acceleration requires a matching plan and index binding.
+SELECT id, l2_distance(embedding, ARRAY[1.0, 0.0, 0.0, 0.0]) AS dist
 FROM products
-ORDER BY vector_score DESC
+ORDER BY l2_distance(embedding, ARRAY[1.0, 0.0, 0.0, 0.0]) ASC
 LIMIT 10;`,
   timeTravel: `-- Query data as it existed at a specific point in time
 SELECT * FROM iceberg.analytics.events
-FOR SYSTEM_TIME AS OF 123456789;`,
+FOR SYSTEM_TIME AS OF TIMESTAMP '2024-01-01 00:00:00';`,
 };
 
 function HeroSection() {
@@ -75,7 +76,15 @@ function HeroSection() {
         <h1 className={styles.heroTitle}>{siteConfig.title}</h1>
         <p className={styles.heroSubtitle}>{siteConfig.tagline}</p>
         <p className={styles.heroDescription}>
-          Calcite Optimization + Arrow Zero-Copy + Velox Native Execution
+          Query open lakehouse tables with an open-source SQL engine built on
+          Apache Calcite, Arrow, and Velox. Explore relational analytics and SQL
+          primitives for vector search, full-text retrieval, and AI model invocation.
+        </p>
+        <p>
+          Production qualification remains open. See{' '}
+          <Link to="/docs/getting-started/capability-status" style={{color: 'white', textDecoration: 'underline'}}>
+            current capability status and known gaps
+          </Link>.
         </p>
         <div className={styles.buttons}>
           <Link className="button button--secondary button--lg" to="/docs/getting-started/quickstart">
@@ -117,13 +126,24 @@ function ArchitectureSection() {
     <section className={styles.architectureSection}>
       <div className="container">
         <h2 className={styles.sectionTitle}>Architecture</h2>
-        <div className={styles.archImageWrapper}>
-          <img
-            src="img/architecture.png"
-            alt="Pangrova Architecture"
-            className={styles.archImage}
-          />
-        </div>
+        <CodeBlock language="text">
+{`Client -- HTTP control --> Coordinator
+  parse / authorize / plan / schedule / metadata commit
+                        |
+                        | HTTP task control
+                        v
+Worker JVM -- JNI --> Native Worker (C++ / Velox)
+  provider and          relational execution / retrieval
+  connector callbacks   Native Flight shuffle / results
+                        |
+                        v
+             Output Worker -- Flight --> Client`}
+        </CodeBlock>
+        <p>
+          Main relational path; current CDC writes remain Coordinator-local.
+          See the <Link to="/docs/architecture/overview">system overview</Link> and{' '}
+          <Link to="/docs/getting-started/capability-status">capability boundaries</Link>.
+        </p>
       </div>
     </section>
   );
@@ -173,9 +193,18 @@ function QuickStartSection() {
     <section className={styles.quickStart}>
       <div className="container">
         <h2 className={styles.sectionTitle}>Quick Start</h2>
+        <p>
+          Requires JDK 17, Maven 3.9+, and the Native build prerequisites. Configure
+          metadata, security, and storage before launch; follow the{' '}
+          <Link to="/docs/getting-started/quickstart">full quickstart</Link>.
+          The build below skips tests and does not qualify a release.
+        </p>
         <CodeBlock language="bash">
 {`git clone https://github.com/pangrova-project/pangrova.git
-cd pangrova && mvn clean package -DskipTests
+cd pangrova
+./pangrova-worker-native/bin/setup-native-build-env.sh
+./pangrova-worker-native/bin/build-native.sh
+mvn clean install -DskipTests
 ./bin/pangrova-standalone.sh          # Start engine
 ./bin/pangrova-cli.sh                 # Interactive SQL`}
         </CodeBlock>
@@ -185,9 +214,11 @@ cd pangrova && mvn clean package -DskipTests
 }
 
 export default function Home(): React.JSX.Element {
-  const {siteConfig} = useDocusaurusContext();
   return (
-    <Layout title="Home" description={siteConfig.tagline}>
+    <Layout
+      title="Distributed SQL for Open Lakehouses"
+      description="Pangrova is an extensible open-source distributed SQL engine for open lakehouses, built with Calcite, Arrow, and Velox for native vectorized analytics and AI SQL primitives."
+    >
       <HeroSection />
       <main>
         <FeaturesSection />

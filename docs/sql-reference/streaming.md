@@ -5,7 +5,21 @@ description: "Stream ingestion and dynamic table SQL"
 
 # Streaming
 
-SQL statements for continuous ingestion (streams) and incrementally maintained dynamic tables.
+Stream syntax and dynamic-table syntax have different maturity boundaries.
+
+## Current Execution Status
+
+| Surface | Current wiring |
+|---|---|
+| Stream DDL | Registered when the streaming bootstrap supplies its executor |
+| CDC ingestion | Bootstrap creates a Coordinator-local connector page-sink writer; distributed Native ingestion remains incomplete |
+| Continuous-query refresh | The default scheduler callback logs a tick; it does not execute a refresh |
+| Dynamic-table DDL and lifecycle | Create/alter/drop/show/describe handlers and the durable publication store are wired when metadata publication is configured; the planner supplies a rewriter for published definitions. Continuous-query materialization remains unsupported |
+
+Catalog publication and source offsets are not committed atomically. Do not infer
+exactly-once or effectively-once behavior, complete refresh, or failure recovery from
+these examples. See [Current Capability Status](../getting-started/capability-status.md)
+and [Streaming Architecture](../architecture/streaming.md) for known gaps.
 
 
 ## Stream DDL
@@ -71,6 +85,10 @@ DESCRIBE STREAM clickstream_ingest;
 ---
 
 ## Dynamic Table
+
+**Status: materialization handlers are registered when durable metadata publication
+is configured; continuous-query materialization is not implemented.** The following
+SQL illustrates recognized syntax, not a qualified automatic-refresh service.
 
 ### CREATE DYNAMIC TABLE
 

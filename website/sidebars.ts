@@ -25,6 +25,8 @@ const sidebars: SidebarsConfig = {
       label: 'Getting Started',
       collapsed: false,
       items: [
+        {type: 'doc', id: 'getting-started/project-positioning', label: 'Positioning & Customers'},
+        {type: 'doc', id: 'getting-started/capability-status', label: 'Current Capability Status'},
         {type: 'doc', id: 'getting-started/quickstart', label: 'Quickstart'},
         {
           type: 'category',

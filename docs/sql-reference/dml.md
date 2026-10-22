@@ -121,7 +121,8 @@ a Pangrova extension for table-to-table copies; each execution appends rows.
 File/URI loading is not implemented. A URI source, or file-loading options on a
 subquery source, returns an unsupported-feature error before any write. Do not
 use `COPY INTO` for retryable file ingestion until file discovery, authorization,
-format scanning, and committed file identity tracking are available.
+format scanning, and committed file identity tracking are available. See
+[Current Capability Status](../getting-started/capability-status.md).
 
 ### Syntax
 
@@ -130,12 +131,11 @@ COPY INTO table_name
 FROM (SELECT ...);
 ```
 
-**Source** can be a subquery. URI syntax is parsed but rejected.
+**Source** must be a subquery. URI syntax is parsed but rejected.
 
-**Examples:**
+**Example:**
 
 ```sql
--- Load from subquery
 COPY INTO prod.analytics.events
 FROM (SELECT * FROM staging.raw_events WHERE event_date = DATE '2024-06-01');
 ```

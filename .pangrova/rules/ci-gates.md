@@ -1,109 +1,106 @@
 # CI Gates
 
-Gate scripts live in `.pangrova/scripts/`; CI wiring is defined in `.github/workflows/ci.yml`.
+`.github/workflows/ci.yml` owns execution; `development.md` owns local validation.
+Do not run every gate locally or reread every rule for each task.
 
-The JDK 17/21 daily jobs retain their documented filtered selection; they are not
-full regression. The production-regression job builds the canonical same-source
-Linux Bake image after Native and sanitizer gates, stages its verified classpath
-JNI classifier, and runs `native-runtime,full-regression`, full E2E and
-real activation smoke. Workflow
-configuration and syntax checks alone are not an executed image or deployment
-acceptance result; a missing build runner/image remains a blocker.
+## Selection
 
-## Gate Scripts
+| Change/event | Checks |
+|---|---|
+| Documentation, canonical rules, website, ordinary gate tooling PR | Layout, tooling tests/syntax, environment paths, SPI annotations, E2E truthfulness, doc references |
+| Java runtime/tests PR outside JNI/protocol/SPI owners | Above + Linux native, JDK 17/21 filtered tests, static analysis, same-source production full regression |
+| Native, Worker/JNI, protocol/SPI, packaging, build/config or unknown input PR | Above + all four native platforms and ASan/UBSan |
+| Production/dependency/benchmark inputs PR | Above + complete TPC workload/evidence/production-client transport contracts and JMH performance comparison |
+| Protected-branch push or release workflow call | Full correctness chain regardless of diff |
 
-| Gate | Script | Purpose | Frequency |
-|------|--------|---------|-----------|
-| SPI annotation | `check-spi-annotations.sh` | All public SPI types must have `@Stable`/`@Experimental`/`@Internal` | Every PR |
-| SPI stability | `check-spi-stability.sh` | `@Stable` types must have ≥1 production impl | Local |
-| Proto diff | `proto-descriptor-diff.sh` | Exact descriptor drift and canonical source ownership; not semantic compatibility analysis | Java CI |
-| Doc class refs | `check-doc-class-refs.sh` | Class references in docs must resolve | Doc changes |
-| Stub patterns | `detect-dead-stubs.sh` | Heuristic check for unimplemented method bodies; not reachability proof | Every PR |
-| Plan stability | `plan-stability-check.sh` | Golden query plan diffs flagged | Planner changes |
-| Distributed checklist | `distributed-checklist-check.sh` | Applicable distributed risks or justified N/A | Critical-module production/config/build changes |
-| E2E truthfulness | `check-e2e-truthfulness.sh` | Reject skipped/constant E2E and simulated workers labeled multi-worker | Every PR |
+`.pangrova/scripts/ci_change_scope.py` defines the PR classifier and native platform
+inventory. Runtime and test resources take precedence over Markdown/docs naming. Deleted and renamed
+sources are included; an invalid comparison base fails. Website build/deployment
+remains owned by `deploy-website.yml`. Native tooling conservatively keeps full
+CI unless explicitly classified; local validation still follows actual impact.
 
-## Running Locally
+`Validation result` is the stable aggregate check. Selected jobs must succeed;
+failures, cancellations, missing scope and unexpectedly skipped jobs fail it.
+Documentation PRs may skip only unselected runtime/performance jobs. Repository
+branch protection must reference this check instead of retired individual jobs;
+workflow files cannot update hosted branch protection.
 
-```bash
-# Run a specific gate
-.pangrova/scripts/check-spi-annotations.sh
+Release calls this same workflow at the tag and waits for validation before
+publishing. Release artifacts have distinct names from validation artifacts.
 
-# Select gates relevant to the diff using the table above.
-# Do not run all scripts blindly: some require PR bodies, native binaries,
-# descriptors, or an explicit review base.
-```
+## Check Ownership
 
-## Validation Scope
+| Check | Owner / trigger |
+|---|---|
+| SPI stability annotation presence | `check-spi-annotations.sh`, once in lightweight lint |
+| Proto descriptor/source ownership | `proto-descriptor-diff.sh`, once for runtime CI; exact drift, not semantic compatibility proof |
+| E2E pattern sanity | `check-e2e-truthfulness.sh`, once in lightweight lint; does not prove all tests are meaningful |
+| Stub patterns | `detect-dead-stubs.sh`, runtime CI; heuristic, not reachability proof |
+| Wiring/reachability | `SpiWiringVerificationTest`, `BootstrapReachabilityTest`, daily/full Maven suites |
+| Golden query plans | `TpchPlanStabilityTest`, `TpcdsPlanStabilityTest`, daily/full Maven suites; changed goldens reviewed in normal PR review |
+| Documentation class references | `check-doc-class-refs.sh`, lightweight docs job; heuristic |
+| Java structure and bug patterns | One `verify -Pstatic-analysis`, Checkstyle + SpotBugs/FindSecBugs |
+| Native compilation/tests | Warnings-as-errors + CTest; Linux on runtime PRs, all classifiers for native/boundary/build inputs and protected pushes/releases |
+| Native memory/undefined behavior | ASan + UBSan for native/boundary/build inputs and protected pushes/releases |
+| Production execution | Same-source Bake image, source/image identity, staged JNI/runtime manifest, `native-runtime,full-regression verify` |
 
-Local checks follow `development.md`; CI retains the production-regression chain.
-Checkstyle and SpotBugs run once through `static-analysis`. Structural backstops
-are file length 800, method length 100, cyclomatic complexity 15, and parameters
-10; `if`/`try` nesting limits remain, and `for` nesting is checked by the same parser. Review cohesion before any ceiling is reached.
-SpotBugs currently blocks Medium-and-higher-confidence findings; the parent POM
-is authoritative (confidence is not bug severity).
+The production reactor already runs E2E and `ActivationSmokeE2ETest`; do not run
+both again without a changed input or diagnostic reason. The pre-test reactor
+install remains necessary for independent-process artifact consumers. Daily JDK
+17/21 tests retain their filtered selection and are not full regression. Do not
+add coverage instrumentation to the production or daily runs; `-Pcoverage` stays
+an optional local diagnostic, not a required check.
 
-TPC-H and JMH run for PRs changing production sources/resources, dependencies,
-benchmark inputs, or their workflow/tooling. Docs-only and test-only changes outside
-benchmark infrastructure do not trigger these extra performance jobs. Existing
-performance regression thresholds and full production correctness checks remain.
-
-## Static Analysis
-
-| Tool | Config Location | Profile |
-|------|----------------|---------|
-| Checkstyle | `config/checkstyle/` | `-Pstatic-analysis` |
-| SpotBugs | `config/spotbugs/` | `-Pstatic-analysis` |
-| JaCoCo (optional report) | Parent pom | `-Pcoverage` |
-| PIT (mutation) | Parent pom | `-Pmutation` |
+## Local Commands and Thresholds
 
 ```bash
-# Run static analysis locally
-java -version && mvn -version
 mvn -q -pl <module> -am verify -Pstatic-analysis
-
-# Generate an optional coverage report for investigation
-mvn -q -pl <module> -am verify -Pcoverage
+mvn -q -pl <module> -am verify -Pcoverage   # optional local diagnosis
 ```
 
-## Retired Checks
+Checkstyle owns Java structure: file 800, effective method lines 100, complexity
+15, parameters 10, if/for nesting 3 and try nesting 2. SpotBugs blocks unsuppressed
+Medium-or-higher-confidence findings; confidence is not severity. Parent POM and
+`config/` are authoritative. Native tests and applicable E2E/smoke must pass;
+compiler warnings and sanitizer findings must be zero.
 
-Removed checks must not be recreated by a blanket local runner:
+Optional diagnostics: `check-spi-stability.sh` checks textual provider evidence;
+`jni-symbol-symmetry.sh` checks native exports. Neither replaces actual wiring,
+loader or ownership tests. SPI annotation baseline updates only remove resolved
+or renamed pre-existing gaps, never hide new unannotated public types.
 
-- Fixed dependency-use allowlists: declaring every historical library is not a
-  correctness invariant. Parent version properties and dependency review remain.
-- Document age: commit timestamps do not establish documentation correctness.
-- An ADR trailer check with no ADR directory or participating documents.
-- Historical rename ledgers: current names and architectural boundaries are checked,
-  not whether a valid identifier appeared in an old refactor plan.
-- Package file quotas and historical split lists: ownership, cohesion and dependency
-  direction govern package boundaries, rather than arbitrary 8/15/25-file limits.
-- Duplicate regex structure scanning: Checkstyle is the single executable owner of
-  file/method size, parameter count, complexity, and control-flow nesting.
-- Changed-line coverage thresholds: behavior, integration, Native, E2E, and smoke
-  tests establish acceptance; JaCoCo remains available for optional investigation.
+## Retired Checks and Hooks
 
-See `docs/contributing/quality-gate-audit.md` for evidence and remaining limitations.
+Do not recreate retired checks through a blanket local runner:
 
-## SPI Annotation Baseline
+- Fixed historical dependency-use lists, document age, unused ADR trailers.
+- Historical rename ledgers, package file quotas, duplicate regex structure scans.
+- Changed-line coverage gates, standalone ArchUnit jobs and Codecov uploads. Keep
+  real behavior tests and the optional `-Pcoverage` local report; do not recreate
+  the removed `diff-coverage-check.sh` CI threshold.
+- PR checkbox/N/A enforcement and self-authored plan-approval phrases. Review
+  distributed risks and golden diffs substantively; tests remain authoritative.
+- Reference-only DuckDB execution as a PR engine fuzzer. The SQL generator utility
+  remains manually runnable in `nightly-operator-fuzzer.yml`; it is not differential
+  Pangrova validation and has no automatic nightly schedule.
+- Inactive stock Git hook samples tracked under `hooks/`. Setup validates layout
+  and installs no hook. No mandatory commit-message/language/prefix hook is added.
 
-Pre-existing unannotated types are tracked in `.pangrova/scripts/.spi-annotation-baseline.txt`. Update the baseline only when you annotate or rename a previously-unannotated type.
+Audit evidence and remaining limits: `docs/contributing/quality-gate-audit.md`.
 
-## Quality Thresholds
+## TPC scale performance ownership
 
-| Metric | Threshold | Gate |
-|--------|-----------|------|
-| SPI annotation | 100% new types | `check-spi-annotations.sh` |
-| Proto descriptor drift | Baseline reviewed and synchronized; wire/API compatibility reviewed separately | `proto-descriptor-diff.sh` |
-| Checkstyle | 0 violations | `-Pstatic-analysis` |
-| SpotBugs | 0 unsuppressed Medium-or-higher-confidence findings | `-Pstatic-analysis` |
-| C++ build warnings | 0 (PANGROVA_WERROR=ON) | `cmake --build` |
-| C++ gtests | 100% pass | `ctest` |
-| ASan findings | 0 leaks, 0 errors | `cmake --preset dev-asan + ctest` |
-| Stub patterns | 0 unapproved heuristic stub findings | `detect-dead-stubs.sh` |
-| E2E tests | 100% pass | `pangrova-test-e2e` |
-| E2E truthfulness | 0 assumptions, disabled tests, constant assertions, or simulated multi-worker claims | `check-e2e-truthfulness.sh` |
-| Smoke tests | 100% pass on real SQL/Native connectivity | `ActivationSmokeE2ETest` in `pangrova-test-e2e` |
+PR check ID `tpch-performance` verifies complete derived workloads, real Parquet
+conversion, evidence/comparison rejection paths and the persistent production
+REST client over HTTP/Flight transport fixtures. It does not interpret small SQL
+fixture maxima as P99 or send three-query summaries into the full tail comparator.
+
+`nightly-tpc-benchmark.yml` owns actual exclusive-host SF100/SF1000 engineering
+campaigns, three independent five-round windows and reviewed real baselines.
+Missing dedicated configuration, references, capacity, calibration or cleanup is
+an explicit failed outcome. The unchanged complete-22-query R7/P99 comparator
+remains the separate expensive tail experiment with its 1000-sample floor. No
+fixture or zero-valued baseline qualifies. See `docs/testing/tpc-benchmark-methodology.md`.
 
 ## C++ Quality Gates
 

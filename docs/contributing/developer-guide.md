@@ -1,16 +1,16 @@
 ---
 title: "Developer Guide"
+description: "Development environment, module workflow, and connector development"
 sidebar_label: "Developer Guide"
 ---
 
-# Pangrova — Developer Guide
+# Developer Guide
 
 > **Summary.** Development-environment setup, the module development workflow, and connector development.
 
-> **Module inventory:** The project contains 38 Maven modules (the root aggregator
-> plus 37 sub-modules, four of which are group aggregators). For the authoritative
-> module list, see [Operations](../operations/index.md) and the
-> `<modules>` section of the root `pom.xml`.
+> **Module inventory:** Use the root and child POMs for the actual Maven reactor;
+> the [System Overview](../architecture/overview.md) provides a selected ownership map,
+> not a fixed module count.
 
 ## 1. Development Environment Setup
 
@@ -150,7 +150,7 @@ pangrova-{module}/
 ├── src/
 │   ├── main/
 │   │   ├── java/org/pangrova/{module}/
-│   │   │   ├── {Module}Module.java      # Module entry point (DI module — see [00 §9](../architecture/overview.md) for DI framework choice)
+│   │   │   ├── {Module}Module.java      # Module entry point; follow the owning module's bootstrap/injection pattern
 
 │   │   │   ├── {Module}Config.java      # Configuration class
 │   │   │   ├── api/                     # Public API
@@ -219,9 +219,11 @@ The canonical policy is `.pangrova/rules/development.md`. Start with the closest
 check, then the owning module and affected consumers. Maven `test`/`verify`
 already compiles; avoid duplicate invocations unless diagnosing a failure.
 Runtime JNI/protocol/native/execution changes require affected native, packaging,
-Java, and E2E/smoke validation; memory/ownership/JNI/concurrency changes also need
-ASan. Docs/tooling edits use their own checks. Full production regression remains
-required in CI and before release, and locally for broad execution changes.
+Java, and E2E/smoke validation; native memory/ownership/JNI/concurrency changes
+also need ASan. Docs/tooling edits use their own checks. CI selects lightweight
+checks for docs/rules/gate-tooling PRs; runtime/build/test PRs retain production
+correctness regression. Protected-branch pushes and releases run the complete
+chain; broad execution changes also require full local validation.
 
 Structural ceilings (800 file lines, 100 effective method lines, complexity 15,
 10 parameters) are backstops. Review constructors above 6 dependencies and
@@ -240,7 +242,7 @@ worktree. Submit concise execution evidence with links to complete logs.
 
 Extra TPC-H/JMH jobs are selected by production/dependency/benchmark changes;
 docs and unrelated tests do not require them. Correctness regression and existing
-performance thresholds remain enforced. Static analysis runs once per CI job. Date-based doc-age alarms, the fixed
+performance thresholds remain enforced. Static analysis runs in one owning CI job. Date-based doc-age alarms, the fixed
 historical dependency-use list, and an unused ADR trailer hook are removed.
 See [Quality Gate Audit](quality-gate-audit.md) for measurements and decisions.
 Repository instruction discovery uses `AGENTS.md` and `.pangrova/rules/` only.
@@ -829,7 +831,7 @@ Follow the structured logging format defined in [14 §7](../architecture/observa
 > **Module Structure (§2.1)**: Each connector module follows the convention: `src/main/java/org/pangrova/connector/{format}/spi/` for SPI interfaces and `src/main/java/org/pangrova/connector/{format}/impl/` for implementations. This aligns with [connectors.md §2](../architecture/connectors.md) ClassLoader isolation — SPI packages are loaded by the parent ClassLoader.
 
 
-> **Code Standards (§2.2)**: The authoritative code standards are defined in [overview.md §8.3](../architecture/overview.md). This section provides developer-oriented quick reference only. Any divergence should be resolved in favor of 00 §8.3.
+> **Code Standards (§2.2):** The authoritative policy lives in [repository code standards](https://github.com/pangrova-project/pangrova/blob/main/.pangrova/rules/code-standards.md). This guide is a practical reference and does not override those rules.
 
 
 > **Connector Example (§3.2)**: `ConnectorFactory.create()` signature matches [04 §1.1](../architecture/connectors.md). `getConfigProperties()` returns `Map<String, String>` (not `Properties`) to align with the Connector SPI contract in 04 §1.2.

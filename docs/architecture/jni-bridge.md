@@ -1,9 +1,10 @@
 ---
 title: "JNI Bridge"
+description: "Canonical Java and Native execution protocol and ownership contracts"
 sidebar_label: "JNI Bridge"
 ---
 
-# Pangrova — JNI Bridge
+# JNI Bridge
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
@@ -128,11 +129,6 @@ Java schedules and issues JNI control commands; `NativeRuntime` has no
 `nativeGetNextBatch` row-pull API. The Coordinator does not relay result batches.
 The output consumer is part of task completion: an admitted endpoint is not a
 terminal success report, and unconsumed output must be cancelled and drained.
-The result-server start command carries its listener `bind_host` separately from
-the Worker endpoint advertised to clients. Worker bootstrap uses `worker.host`
-for the listener (`0.0.0.0` by default) and `worker.advertised-host` for the
-endpoint when configured. A test Worker can bind to `127.0.0.1` so an unrelated
-IPv4 service cannot receive its Flight traffic through an IPv6-only listener.
 
 ### 2.2 Memory Ownership Hierarchy
 
@@ -179,7 +175,7 @@ columnar data and has serialization, framing and transport costs; TLS and networ
 transmission are not physically zero-copy. The architecture target is one typed
 Arrow data-plane contract, with necessary conversions measured rather than
 claimed absent. Existing private shuffle page payloads and row-shaped JVM AI/write
-upcalls remain tracked migration gaps in the [root-cause ledger](../internal/ai-native-single-path-root-cause-design.md).
+upcalls remain tracked migration gaps in the [root-cause ledger](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-single-path-root-cause-design.md).
 
 ---
 

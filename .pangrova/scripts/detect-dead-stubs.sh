@@ -163,7 +163,7 @@ is_stub_method() {
     # Count non-trivial statements in the method context
     # (excluding braces, blank lines, comments, annotations, the throw itself)
     local other_statements
-    other_statements=$(echo "$context" | grep -cE '^\s*(if |for |while |switch |return |var |final |[a-zA-Z].*=|[a-zA-Z].*\.[a-zA-Z]+\(.*\);)' 2>/dev/null || echo "0")
+    other_statements=$(echo "$context" | grep -cE '^\s*(if |for |while |switch |return |var |final |[a-zA-Z].*=|[a-zA-Z].*\.[a-zA-Z]+\(.*\);)' 2>/dev/null || true)
 
     # If there are multiple other statements near the throw, it is likely a guard clause
     if [ "$other_statements" -gt 2 ]; then
@@ -171,6 +171,14 @@ is_stub_method() {
     fi
     return 0
 }
+
+# Git enumerates repository sources without traversing ignored build/dependency
+# trees. Include untracked active sources locally; CI sees the tracked revision.
+SOURCE_FILES=$(mktemp "${TMPDIR:-/tmp}/pangrova-stub-sources.XXXXXX")
+trap 'rm -f "$SOURCE_FILES"' EXIT
+git -C "$PROJECT_ROOT" ls-files --cached --others --exclude-standard -z -- \
+    ':(glob)**/src/main/java/**/*.java' > "$SOURCE_FILES"
+STUB_PATTERN=$(IFS='|'; printf '%s' "${STUB_PATTERNS[*]}")
 
 echo "=========================================="
 echo " CI Dead-Stub Detection"
@@ -181,6 +189,7 @@ echo ""
 
 # Find all production Java files (exclude test code, build output, generated sources, third-party)
 while IFS= read -r -d '' java_file; do
+    java_file="$PROJECT_ROOT/$java_file"
     # Skip test code
     if is_test_code "$java_file"; then
         continue
@@ -196,35 +205,33 @@ while IFS= read -r -d '' java_file; do
         continue
     fi
 
-    # Check each stub pattern
-    for pattern in "${STUB_PATTERNS[@]}"; do
-        # Find matching lines with line numbers
-        while IFS=: read -r line_num line_content; do
-            [ -z "$line_num" ] && continue
+    # Match all patterns in one scan per production file.
+    # Find matching lines with line numbers
+    while IFS=: read -r line_num line_content; do
+        [ -z "$line_num" ] && continue
 
-            # Skip guard clauses (legitimate runtime checks for unsupported input)
-            if is_guard_clause "$line_content"; then
-                continue
-            fi
+        # Skip guard clauses (legitimate runtime checks for unsupported input)
+        if is_guard_clause "$line_content"; then
+            continue
+        fi
 
-            # Check if this is actually a stub method (not a guard inside a real method)
-            if ! is_stub_method "$java_file" "$line_num"; then
-                continue
-            fi
+        # Check if this is actually a stub method (not a guard inside a real method)
+        if ! is_stub_method "$java_file" "$line_num"; then
+            continue
+        fi
 
-            # Check if this stub is allowed via annotation or tracking issue
-            if has_allow_pattern "$java_file" "$line_num"; then
-                continue
-            fi
+        # Check if this stub is allowed via annotation or tracking issue
+        if has_allow_pattern "$java_file" "$line_num"; then
+            continue
+        fi
 
-            # This is a violation
-            VIOLATIONS=$((VIOLATIONS + 1))
-            relative_path="${java_file#"$PROJECT_ROOT"/}"
-            VIOLATION_DETAILS="${VIOLATION_DETAILS}  ${RED}✗${NC} ${relative_path}:${line_num}\n"
-            VIOLATION_DETAILS="${VIOLATION_DETAILS}    ${YELLOW}${line_content}${NC}\n\n"
-        done < <(grep -nE "$pattern" "$java_file" 2>/dev/null || true)
-    done
-done < <(find "$PROJECT_ROOT" -path "*/src/main/java/*.java" -print0 2>/dev/null)
+        # This is a violation
+        VIOLATIONS=$((VIOLATIONS + 1))
+        relative_path="${java_file#"$PROJECT_ROOT"/}"
+        VIOLATION_DETAILS="${VIOLATION_DETAILS}  ${RED}✗${NC} ${relative_path}:${line_num}\n"
+        VIOLATION_DETAILS="${VIOLATION_DETAILS}    ${YELLOW}${line_content}${NC}\n\n"
+    done < <(grep -nE "$STUB_PATTERN" "$java_file" 2>/dev/null || true)
+done < "$SOURCE_FILES"
 
 echo ""
 echo "=========================================="
@@ -235,11 +242,7 @@ echo ""
 if [ "$VIOLATIONS" -eq 0 ]; then
     echo -e "${GREEN}✓ No dead stubs found in production code.${NC}"
     echo ""
-    echo "All production-path methods are either:"
-    echo "  - Fully implemented"
-    echo "  - Marked @Experimental with tracking issue"
-    echo "  - In SPI interfaces (intentional default behavior)"
-    echo "  - Guard clauses for unsupported input types"
+    echo "No unapproved stub patterns detected; reachability and runtime behavior require their own tests."
     exit 0
 else
     echo -e "${RED}✗ Found ${VIOLATIONS} dead stub(s) in production code:${NC}"

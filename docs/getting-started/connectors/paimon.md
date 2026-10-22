@@ -14,6 +14,9 @@ Apache Paimon provides streaming lakehouse capabilities with real-time data inge
 
 ### Catalog Configuration
 
+The YAML is a reference format; use SQL registration for the runtime catalog.
+Automatic startup registration remains planned.
+
 ```yaml
 # config/catalog/my-paimon.yml
 connector: paimon
@@ -33,20 +36,6 @@ WITH (
 );
 ```
 
-For a Paimon REST catalog, set `metastore=rest`, `uri`, `warehouse`, and the
-Paimon 1.4 authentication options (`token.provider` and its credentials) in the
-catalog configuration. Keep credentials in the deployment's secret store. The
-connector sends JSON request bodies with `Content-Type: application/json`
-unless that header is explicitly configured. The REST service must return its
-resource `prefix` in `/v1/config`; the Paimon 1.4 client requires it when
-resolving table resources. Validate that the chosen service supports the
-snapshot and commit endpoints before enabling writes. The Apache
-`paimon-rust` filesystem-backed REST server is useful for local integration
-tests, but its current commit path does not enforce table-UUID concurrency
-fencing and is not a production write catalog. See the
-[Paimon REST catalog specification](https://paimon.apache.org/docs/1.4/concepts/rest/overview/)
-and the [Apache test server](https://github.com/apache/paimon-rust/blob/v0.4.0/crates/paimon-rest-server/README.md).
-
 ### Physical file formats
 
 Native scan splits retain the Paimon SDK's exact snapshot ID, physical file
@@ -61,7 +50,7 @@ and [physical file writer](https://github.com/apache/paimon/blob/release-1.4.1/p
 
 The SDK plugin is a test-only dependency, not a second production execution
 runtime. The current source connects the generic `physical_file_scan` read unit
-to the Native ABI 7 reader and public Rust SDK decoder. It retains the original
+to the repository-pinned Native reader ABI and public Rust SDK decoder. It retains the original
 footer (SDK 0.39 defaults to the SDK-defined 0.3 spelling of the 2.0 encoding),
 checks snapshot byte/row bounds, and preserves physical row positions. Worker
 storage settings are resolved per authorized catalog and tenant; no global
@@ -96,7 +85,9 @@ product, non-numeric min/max, and defaults for fields absent from an old file.
 Those options are not completed support; rejecting them prevents incorrect
 Native results. The production SDK plugin is not used as a second reader.
 
-These new sources and the SDK-to-public-SQL fixtures are awaiting centralized
-ABI 7 build and regression results; they are not a completed support claim.
+Source implementations and SDK-to-public-SQL fixtures are not a completed
+production support claim. Consult the current packaged Native and Java integration
+results for the exact ABI and platform; earlier ABI-specific notes are historical.
+Overall production qualification remains open.
 A successful direct Lance Dataset test does not establish Paimon physical-file
 support, and this reader work does not establish a Native physical-file writer.

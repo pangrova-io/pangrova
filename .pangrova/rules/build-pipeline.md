@@ -136,19 +136,21 @@ release gate and must not be inferred from the macOS result.
 | `ci-linux-x86_64` | CI Linux (Release, tests OFF) | `build-ci/` |
 | `ci-osx-aarch64` | CI macOS (Release, tests OFF) | `build-ci/` |
 
-## Full-Chain Build Order
+## Build and Validation Dependencies
 
-This is the reference chain for production regression and broad execution changes.
-Select local validation using `development.md`: isolated Java changes run module
-checks; docs/tooling run their own checks; runtime JNI/protocol/native/execution
-changes validate the affected links below. ASan is required for memory, ownership,
-JNI, or concurrency changes. Full production CI/release validation runs all steps.
+Select local scope using `development.md`. Runtime correctness CI and releases
+validate the full chain; docs/rules/tooling-only PRs use lightweight checks.
+Ordering follows artifact dependencies, rather than a fixed list of repeated runs:
 
-Build artifacts must come from the revision under test. Dependency setup and Lance
-FFI builds may reuse verified outputs when their inputs/toolchains are unchanged.
-After native runtime changes, rebuild and package before Java tests load the library.
-Independent Java and native compilation may run separately; preserve artifact
-ordering for tests that consume the native bundle.
+| Producer | Consumer / required evidence |
+|---|---|
+| Pinned dependencies + Lance FFI | Native configure/build and CTest |
+| Fresh native library | Package before Java tests load JNI |
+| Same-source production image | Verified image ID, source revision, classifier and runtime manifest |
+| Complete installed Java reactor | Independent-process integration tests that resolve reactor artifacts |
+| `native-runtime,full-regression verify` | Unit/integration/E2E/activation smoke in one reactor run |
+| Four isolated `native-runtime-owner` E2E selections | Process-owning Native tests, each in its own JVM |
+| Selected native ASan/UBSan builds + tests | Zero findings before production correctness acceptance |
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -220,3 +222,7 @@ command that selects no applicable tests is not validation. Use the optional
 behavior; a percentage is not a release gate.
 The `pangrova-test-smoke` harness self-test only proves test discovery; the
 `ActivationSmokeE2ETest` in Step 6 is the real full-chain activation test.
+
+The exact production image staging, provenance properties and commands live in
+`.github/workflows/ci.yml`; avoid copying its long argument list into task logs
+or maintaining another full-pipeline runner.

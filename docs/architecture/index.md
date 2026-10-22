@@ -1,19 +1,21 @@
 ---
 title: "Architecture"
+description: "Engine ownership, design constraints, and subsystem implementation references"
 sidebar_position: 1
 ---
 
-# Pangrova Architecture
+# Architecture
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
 
-Pangrova is a high-performance, horizontally scalable **distributed SQL query engine for the
-lakehouse**. It pairs an Apache **Calcite** optimizer with the **Velox** native vectorized
+Pangrova is a **distributed SQL query engine for the lakehouse**. It pairs an Apache **Calcite** optimizer with the **Velox** native vectorized
 execution engine and uses Apache **Arrow** for columnar exchange. Java owns coordination,
-planning, metadata, and final catalog commits; C++ owns vectorized, read-dependent execution.
+planning, metadata, and final catalog commits; C++ owns vectorized relational execution,
+including DML. Known CDC and other migration gaps are described in
+[Current Capability Status](../getting-started/capability-status.md).
 
 ```text
 SQL
@@ -33,8 +35,9 @@ with the **System Overview**, then drill into the subsystem that matters for you
 Architecture documents describe both implemented behavior and explicitly labelled remaining work.
 A class, interface, parser rule, or plan node by itself is not evidence of an end-to-end feature.
 For user-visible support, verify the production entry point, wiring, connector/native implementation,
-and the closest integration or E2E test. The SQL reference should document only syntax that reaches
-an execution path; roadmap material is kept outside the published site.
+and the closest integration or E2E test. The SQL reference explicitly marks recognized syntax with absent or incomplete execution
+wiring. Test existence and source inspection are not a completed runtime qualification.
+Roadmap material is kept outside the published site.
 
 ## How to read these docs
 
@@ -101,21 +104,23 @@ These design references are grouped under the **Operations** and **Contributing*
 
 ## Core design principles
 
-1. **Coordination/execution separation.** Read-dependent work runs in C++/Velox. Java owns
+1. **Coordination/execution separation.** Relational data processing, including DML, runs in C++/Velox. Java owns
    metadata-only operations and the final Iceberg/Paimon catalog commit for distributed writes.
 2. **Control plane vs. data plane.** The control plane (parse, optimize, schedule, metadata) speaks
    HTTP/REST; the data plane (scan, compute, shuffle, results) uses Arrow Flight (gRPC).
-3. **Single source of truth for metadata.** The Java connector is the sole owner of metadata; the
-   native layer never caches it. Queries observe a single consistent snapshot end to end.
-4. **Write atomicity.** Distributed writes use a two-phase commit: either all fragments commit or
-   none do.
+3. **Metadata authority.** Java connectors resolve table metadata; Native receives immutable
+   query bindings. Snapshot and artifact validity must track the authorized table/version.
+   Per-table snapshot pinning does not imply one atomic snapshot across independent catalogs.
+4. **Write publication.** Workers produce fragments for one fenced connector catalog commit.
+   Recovery ambiguity and incomplete paths remain explicit in [Distributed Write](distributed-writes.md);
+   this design does not establish complete distributed-write qualification.
 5. **Extensibility via SPIs.** Stable contracts live in `pangrova-spi` or their owning
    modules. Plugin-capable contracts may be discovered via `ServiceLoader`; not every
    SPI uses service loading. Core SPIs include
    `ConnectorFactory`, `ConnectorMetadata`, `ConnectorSplitManager`, `ConnectorPageSourceProvider`,
    `ConnectorPageSinkProvider`, `TableWriter`, `TableMaintenanceSpi`,
    `DistributedCacheStore`, `TracingProvider`,
-   and `MetricsProvider`. See the [System Overview](./overview.md) for the full signature table.
+   and `MetricsProvider`. Use source declarations and the owning subsystem document for signatures.
 6. **Verifiable operation.** Resource management, caching, resilience, and observability behavior
    must be backed by production wiring and tests before the documentation calls it supported.
 
@@ -124,8 +129,8 @@ These design references are grouped under the **Operations** and **Contributing*
 | Direction | Payload | Transport |
 |---|---|---|
 | Java → Native | Task request (Substrait plan + splits) | Protobuf |
-| Native → Java | Data batches | Arrow C Data Interface (zero-copy); Java pull via `nativeGetNextBatch()` |
-| Native → Java | Status / metrics | Protobuf; Java pull via `nativeGetTaskStats()` |
+| Java ↔ Native | Typed data at interoperability boundaries | Arrow interfaces/IPC where applicable; not an end-to-end zero-copy guarantee |
+| Native → Java | Status / metrics / terminal report | Canonical Protobuf lifecycle APIs |
 
 For the complete, authoritative protocol-mapping table, see the
 [System Overview](./overview.md).

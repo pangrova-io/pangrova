@@ -2,432 +2,176 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Pangrova Architecture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pangrova Target Architecture</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #0d1117; 
-  color: #c9d1d9;
-  padding: 48px 40px;
-  min-width: 1200px;
-}
-.title {
-  text-align: center;
-  font-size: 32px;
-  font-weight: 700;
-  color: #58a6ff;
-  margin-bottom: 6px;
-  letter-spacing: 1px;
-}
-.subtitle {
-  text-align: center;
-  font-size: 14px;
-  color: #8b949e;
-  margin-bottom: 48px;
-}
-.arch-container {
-  max-width: 1100px;
-  margin: 0 auto;
-}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 36px 44px 30px; width: 1200px; background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+h1 { margin: 0; color: #58a6ff; text-align: center; font-size: 30px; letter-spacing: .4px; }
+.subtitle { margin: 8px 0 15px; color: #8b949e; font-size: 14px; text-align: center; }
+.layer { position: relative; border: 1px solid #30363d; border-radius: 12px; padding: 22px 22px 18px; background: #161b22; }
+.label { position: absolute; top: -10px; left: 20px; padding: 0 9px; background: #161b22; font-size: 13px; font-weight: 700; letter-spacing: .6px; color: #58a6ff; text-transform: uppercase; }
+.badge { position: absolute; right: 20px; top: -10px; background: #1f6feb; color: #fff; border-radius: 10px; padding: 3px 11px; font-size: 10px; font-weight: 700; }
+.role { margin: 0 0 14px; color: #b1bac4; font-size: 13px; line-height: 1.5; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.card { padding: 13px 12px; border: 1px solid #30363d; border-radius: 8px; background: #21262d; text-align: center; }
+.name { font-size: 13px; font-weight: 600; color: #79c0ff; }
+.detail { color: #9da7b3; font-size: 11px; line-height: 1.5; margin-top: 5px; }
+.link { display: flex; align-items: center; justify-content: center; gap: 9px; height: 40px; color: #58a6ff; font-size: 11px; font-weight: 600; }
+.link span { background: #1f6feb15; border: 1px solid #1f6feb44; border-radius: 4px; padding: 3px 10px; }
+.note { margin-top: 12px; padding: 8px 12px; border: 1px solid #1f6feb33; background: #1f6feb0b; color: #9da7b3; font-size: 11px; line-height: 1.5; border-radius: 6px; }
+.worker { border: 1px dashed #30363d; border-radius: 14px; background: #10151c; padding: 26px 16px 16px; position: relative; }
+.worker > .label { background: #10151c; color: #8b949e; font-size: 11px; }
+.java { border-color: #d2992255; }
+.java .label, .java .name { color: #e3b341; }
+.java .badge { background: #9e6a03; }
+.java .card { border-color: #d2992233; }
+.jni { margin: 12px 0; padding: 9px 12px; border: 1px solid #8957e555; border-radius: 8px; background: #8957e50b; color: #d2a8ff; text-align: center; font-size: 11px; }
+.jni strong { margin-right: 15px; letter-spacing: .4px; }
+.native { border-color: #23863666; }
+.native .label, .native .name { color: #3fb950; }
+.native .badge { background: #238636; }
+.native .card { border-color: #23863644; }
+.native .note { border-color: #23863644; background: #2386360b; }
+.storage .label { color: #e3b341; }
+.storage .badge { background: #9e6a03; }
+.storage .cards { grid-template-columns: repeat(3, 1fr); }
+.support { border-style: dashed; margin-top: 24px; }
+.support .role { font-size: 12px; margin-bottom: 12px; }
+.support .cards { grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.support .card { padding: 10px 6px; }
+.support .name { font-size: 12px; }
+.support .detail { font-size: 10px; }
+.footer { margin: 17px 0 0; text-align: center; font-size: 10px; color: #8b949e; line-height: 1.6; }
 
-/* ========== Layer System ========== */
-.layer-L0 {
-  border: 2px solid #30363d;
-  border-radius: 14px;
-  padding: 28px 28px 22px;
-  margin-bottom: 12px;
-  background: #161b22;
-  position: relative;
-}
-.layer-L1 {
-  border: 1px solid #21262d;
-  border-radius: 10px;
-  padding: 18px 18px 14px;
-  margin-bottom: 10px;
-  background: #1c2128;
-  position: relative;
-}
-.layer-L1:last-child { margin-bottom: 0; }
-.layer-L2 {
-  border: 1px dashed #30363d;
-  border-radius: 8px;
-  padding: 14px 14px 10px;
-  margin-bottom: 8px;
-  background: #161b2288;
-  position: relative;
-}
-.layer-L2:last-child { margin-bottom: 0; }
-
-/* Layer labels */
-.layer-label {
-  position: absolute;
-  top: -11px;
-  left: 20px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-}
-.layer-L0 > .layer-label { background: #161b22; color: #58a6ff; font-size: 13px; }
-.layer-L1 > .layer-label { background: #1c2128; color: #79c0ff; }
-.layer-L2 > .layer-label { background: #161b22; color: #8b949e; }
-
-/* Badges */
-.badge {
-  position: absolute;
-  top: -11px;
-  right: 20px;
-  padding: 2px 10px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 700;
-  color: #fff;
-}
-.badge-green { background: #238636; }
-.badge-blue { background: #1f6feb; }
-.badge-purple { background: #8957e5; }
-.badge-orange { background: #d29922; }
-
-/* ========== Content Layouts ========== */
-.flex-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.flex-center { display: flex; justify-content: center; align-items: center; }
-.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-
-/* Cards */
-.card {
-  background: #21262d;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 12px 14px;
-  text-align: center;
-}
-.card .icon { font-size: 22px; margin-bottom: 4px; }
-.card .name { font-size: 12px; font-weight: 600; color: #c9d1d9; }
-.card .tech { font-size: 10px; color: #8b949e; margin-top: 3px; }
-
-/* Chips */
-.chip {
-  display: inline-block;
-  background: #21262d;
-  border: 1px solid #30363d;
-  border-radius: 5px;
-  padding: 5px 12px;
-  font-size: 11px;
-  color: #c9d1d9;
-  margin: 3px;
-}
-.chip-ai {
-  background: #8957e512;
-  border-color: #8957e555;
-  color: #d2a8ff;
-}
-.chip-native {
-  background: #23863612;
-  border-color: #23863655;
-  color: #3fb950;
-}
-.chip-java {
-  background: #d2992212;
-  border-color: #d2992255;
-  color: #d29922;
-}
-
-/* ========== Connectors ========== */
-.connector-bar {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 48px;
-  padding: 10px 0;
-}
-.connector-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-.connector-item .arrow-icon { font-size: 16px; }
-.connector-item .arrow-icon.blue { color: #58a6ff; }
-.connector-item .arrow-icon.green { color: #3fb950; }
-.connector-item .proto-label {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 3px;
-}
-.connector-item .proto-label.blue { color: #58a6ff; background: #1f6feb18; border: 1px solid #1f6feb44; }
-.connector-item .proto-label.green { color: #3fb950; background: #23863618; border: 1px solid #23863644; }
-.connector-item .proto-label.purple { color: #d2a8ff; background: #8957e518; border: 1px solid #8957e544; }
-
-/* Pipeline flow */
-.pipeline {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  padding: 6px 0;
-}
-.pipeline .stage {
-  background: #1f6feb15;
-  border: 1px solid #1f6feb44;
-  border-radius: 6px;
-  padding: 8px 16px;
-  font-size: 12px;
-  color: #79c0ff;
-  font-weight: 500;
-  text-align: center;
-}
-.pipeline .stage .sub { font-size: 9px; color: #8b949e; margin-top: 2px; }
-.pipeline .arrow { color: #58a6ff; font-size: 18px; margin: 0 8px; }
-
-/* Legend */
-.legend {
-  display: flex;
-  gap: 24px;
-  justify-content: center;
-  margin-top: 20px;
-  padding: 14px 20px;
-  border: 1px solid #30363d;
-  border-radius: 10px;
-  background: #161b22;
-}
-.legend-item { display: flex; align-items: center; gap: 8px; }
-.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
-.legend-dot.blue { background: #58a6ff; }
-.legend-dot.green { background: #3fb950; }
-.legend-dot.purple { background: #8957e5; }
-.legend-dot.orange { background: #d29922; }
-.legend-text { font-size: 11px; color: #8b949e; }
-
-/* Section divider within layer */
-.section-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: #8b949e;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  margin-bottom: 8px;
-  margin-top: 4px;
-}
+.status-key { display: flex; justify-content: center; gap: 22px; margin: 0 0 28px; font-size: 11px; color: #9da7b3; }
+.status-key span { display: flex; align-items: center; gap: 6px; }
+.mark { width: 11px; height: 8px; border: 1px solid #58a6ff; border-radius: 2px; }
+.mark.partial { border-color: #e3b341; }
+.mark.planned { border: 1px dashed #d2a8ff; }
+.mark.external { border-color: #8b949e; }
+.state { display: block; font-size: 9px; font-weight: 700; letter-spacing: .6px; margin-bottom: 6px; color: #8b949e; }
+.card.existing .state { color: #79c0ff; }
+.card.partial { border-color: #d2992255; }
+.card.partial .state { color: #e3b341; }
+.note.partial { color: #e3b341; border-color: #d2992255; background: #d2992208; }
+.card.planned, .note.planned { border: 1px dashed #8957e588; background: #8957e50a; }
+.card.planned .state, .note.planned { color: #d2a8ff; }
+.card.external { border-color: #8b949e55; }
+.card.external .state { color: #b1bac4; }
+.target-heading { margin: 13px 0 8px; font-size: 10px; color: #d2a8ff; text-transform: uppercase; letter-spacing: .7px; font-weight: 600; }
+.cards.target .card { padding: 10px 9px; }
+.ml { margin: 24px 0; border-color: #8957e577; }
+.ml > .label { color: #d2a8ff; }
+.ml .role { font-size: 12px; }
+.flow { display: flex; gap: 8px; align-items: stretch; }
+.flow .card { flex: 1; }
+.flow .arrow { align-self: center; color: #d2a8ff; font-size: 18px; }
+.flow .name { font-size: 12px; }
+.ml .note { border-color: #8957e533; background: #8957e508; }
 </style>
 </head>
 <body>
-<div class="title">Pangrova Layered Architecture</div>
-<div class="subtitle">Distributed SQL Query Engine for Lakehouse — Five-Layer Hierarchical Design</div>
-
-<div class="arch-container">
-
-  <!-- ═══════════ LAYER 1: CLIENT ═══════════ -->
-  <div class="layer-L0">
-    <div class="layer-label">Layer 1 · Client Access</div>
-    <div class="badge badge-blue">Multi-Protocol</div>
-    <div style="display:flex;justify-content:center;gap:20px;padding:8px 0;">
-      <div class="card"><div class="icon">🔌</div><div class="name">JDBC Driver</div><div class="tech">Type-4 Wire</div></div>
-      <div class="card"><div class="icon">🌐</div><div class="name">REST API</div><div class="tech">OpenAPI 3.0</div></div>
-      <div class="card"><div class="icon">⌨️</div><div class="name">CLI</div><div class="tech">Interactive</div></div>
-      <div class="card"><div class="icon">🤖</div><div class="name">AI Agent SDK</div><div class="tech">MCP/Tool</div></div>
-    </div>
-  </div>
-
-  <!-- ↓ Connector -->
-  <div class="connector-bar">
-    <div class="connector-item">
-      <div class="proto-label blue">HTTP/REST</div>
-      <div class="arrow-icon blue">▼</div>
-    </div>
-    <div class="connector-item">
-      <div class="arrow-icon green">▲</div>
-      <div class="proto-label green">Arrow Flight</div>
-    </div>
-  </div>
-
-  <!-- ═══════════ LAYER 2: COORDINATOR ═══════════ -->
-  <div class="layer-L0">
-    <div class="layer-label">Layer 2 · Coordinator Cluster</div>
-    <div class="badge badge-blue">Multi-Active HA</div>
-
-    <!-- L1: Query Pipeline -->
-    <div class="layer-L1" style="margin-top:6px;">
-      <div class="layer-label">Query Pipeline</div>
-      <div class="pipeline">
-        <div class="stage">SQL Parser<div class="sub">ANTLR4</div></div>
-        <div class="arrow">→</div>
-        <div class="stage">Analyzer<div class="sub">Metadata Resolve</div></div>
-        <div class="arrow">→</div>
-        <div class="stage">Optimizer<div class="sub">Calcite CBO/RBO</div></div>
-        <div class="arrow">→</div>
-        <div class="stage">Plan Generator<div class="sub">Substrait</div></div>
-        <div class="arrow">→</div>
-        <div class="stage">Scheduler<div class="sub">Task Dispatch</div></div>
-      </div>
-    </div>
-
-    <!-- L1: AI Self-Optimization (Layer 2: DB AS AI) -->
-    <div class="layer-L1">
-      <div class="layer-label">AI Self-Optimization</div>
-      <div class="badge badge-purple">Database AS AI</div>
-      <div class="grid-3" style="padding-top:4px;">
-        <div class="card"><div class="name" style="color:#d2a8ff">Semantic Cache</div><div class="tech">HNSW-backed query meaning matching</div></div>
-        <div class="card"><div class="name" style="color:#d2a8ff">Learned Cardinality</div><div class="tech">EMA feedback-loop estimation</div></div>
-        <div class="card"><div class="name" style="color:#d2a8ff">Layout Advisor</div><div class="tech">Pattern-driven partition/sort</div></div>
-        <div class="card"><div class="name" style="color:#d2a8ff">Index Lifecycle</div><div class="tech">Auto staleness detection</div></div>
-        <div class="card"><div class="name" style="color:#d2a8ff">Retrieval Quality</div><div class="tech">Recall/Precision observability</div></div>
-        <div class="card"><div class="name" style="color:#d2a8ff">Conversation Context</div><div class="tech">Multi-turn session memory</div></div>
-      </div>
-    </div>
-
-    <!-- L1: Cluster Management -->
-    <div class="layer-L1">
-      <div class="layer-label">Cluster Management</div>
-      <div class="flex-row" style="justify-content:center;padding-top:4px;">
-        <div class="chip">Leader Election</div>
-        <div class="chip">Worker Registry</div>
-        <div class="chip">Health Monitor</div>
-        <div class="chip">Resource Governor</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ↓ Connector -->
-  <div class="connector-bar">
-    <div class="connector-item">
-      <div class="proto-label blue">HTTP/REST (Task Dispatch)</div>
-      <div class="arrow-icon blue">▼</div>
-    </div>
-    <div class="connector-item">
-      <div class="proto-label green">Arrow Flight (Shuffle)</div>
-      <div class="arrow-icon green">⇅</div>
-    </div>
-  </div>
-
-  <!-- ═══════════ LAYER 3: WORKER ═══════════ -->
-  <div class="layer-L0">
-    <div class="layer-label">Layer 3 · Worker Cluster</div>
-    <div class="badge badge-green">Auto-Scaling</div>
-
-    <!-- L1: Java Runtime (Top) -->
-    <div class="layer-L1" style="border-color:#d2992244;margin-top:6px;">
-      <div class="layer-label" style="color:#d29922;background:#1c2128;">Java Runtime (JVM)</div>
-      <div class="grid-4" style="padding-top:4px;">
-        <div class="card" style="border-color:#d2992233;"><div class="name" style="color:#d29922;">Task Executor</div><div class="tech">Pipeline stages</div></div>
-        <div class="card" style="border-color:#d2992233;"><div class="name" style="color:#d29922;">Shuffle Manager</div><div class="tech">Partitioning + exchange</div></div>
-        <div class="card" style="border-color:#d2992233;"><div class="name" style="color:#d29922;">Memory Governance</div><div class="tech">Spill-to-disk policy</div></div>
-        <div class="card" style="border-color:#d2992233;"><div class="name" style="color:#d29922;">DML Engine</div><div class="tech">ACID writes (Iceberg/Paimon)</div></div>
-      </div>
-
-      <!-- L2: AI Functions within Java Layer -->
-      <div class="layer-L2" style="margin-top:12px;border-color:#8957e533;">
-        <div class="layer-label" style="color:#d2a8ff;background:#161b22;">AI SQL Functions — Database WITH AI</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding-top:4px;">
-          <div class="chip chip-ai">ai_embed()</div>
-          <div class="chip chip-ai">ai_complete()</div>
-          <div class="chip chip-ai">ai_classify()</div>
-          <div class="chip chip-ai">ai_extract()</div>
-          <div class="chip chip-ai">ai_filter()</div>
-          <div class="chip chip-ai">ai_guard()</div>
-          <div class="chip chip-ai">vector_score()</div>
-          <div class="chip chip-ai">text_score()</div>
-          <div class="chip chip-ai">rrf()</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- L1: JNI Bridge (Middle) -->
-    <div class="layer-L1" style="border-color:#8957e544;">
-      <div class="layer-label" style="color:#d2a8ff;background:#1c2128;">JNI Bridge — Zero-Copy Boundary</div>
-      <div style="display:flex;justify-content:center;gap:16px;padding:6px 0;">
-        <div class="chip" style="border-color:#8957e544;color:#d2a8ff;">Arrow C Data Interface</div>
-        <div class="chip" style="border-color:#8957e544;color:#d2a8ff;">Protobuf Plan Transfer</div>
-        <div class="chip" style="border-color:#8957e544;color:#d2a8ff;">Zero-Copy Buffer Sharing</div>
-        <div class="chip" style="border-color:#8957e544;color:#d2a8ff;">Memory Lifetime Bridging</div>
-      </div>
-    </div>
-
-    <!-- L1: C++ Native (Bottom) -->
-    <div class="layer-L1" style="border-color:#23863644;">
-      <div class="layer-label" style="color:#3fb950;background:#1c2128;">C++ Native Execution</div>
-      <div class="badge badge-green">Bare-Metal Performance</div>
-      <div class="grid-3" style="padding-top:4px;">
-        <div class="card" style="border-color:#23863633;"><div class="name" style="color:#3fb950;">Velox Engine</div><div class="tech">Vectorized operators + SIMD</div></div>
-        <div class="card" style="border-color:#23863633;"><div class="name" style="color:#3fb950;">Native I/O</div><div class="tech">Parquet/ORC direct read</div></div>
-        <div class="card" style="border-color:#23863633;"><div class="name" style="color:#3fb950;">Shuffle Partitioner</div><div class="tech">Zero-copy repartition</div></div>
-      </div>
-      <!-- L2: Vector Engines within Native -->
-      <div class="layer-L2" style="margin-top:12px;border-color:#23863644;">
-        <div class="layer-label" style="color:#3fb950;background:#161b22;">Vector Index Engines</div>
-        <div style="display:flex;justify-content:center;gap:12px;padding-top:4px;">
-          <div class="chip chip-native">HNSW (Java)</div>
-          <div class="chip chip-native">IVFPQ (Java)</div>
-          <div class="chip chip-native">DiskANN / Vamana (C++)</div>
-          <div class="chip chip-native">AVX-512 / NEON SIMD Distance</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ↓ Connector -->
-  <div class="connector-bar">
-    <div class="connector-item">
-      <div class="proto-label blue">Connector SPI</div>
-      <div class="arrow-icon blue">▼</div>
-    </div>
-    <div class="connector-item">
-      <div class="proto-label green">Native I/O (Direct)</div>
-      <div class="arrow-icon green">▼</div>
-    </div>
-  </div>
-
-  <!-- ═══════════ LAYER 4: STORAGE ═══════════ -->
-  <div class="layer-L0">
-    <div class="layer-label">Layer 4 · Storage</div>
-    <div class="badge badge-orange">Open Formats</div>
-
-    <div class="grid-2" style="padding-top:4px;">
-      <!-- L1: Table Formats -->
-      <div class="layer-L1">
-        <div class="layer-label">Table Formats</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding-top:4px;">
-          <div class="chip">Apache Iceberg</div>
-          <div class="chip">Apache Paimon</div>
-          <div class="chip" style="color:#8b949e;">Extensible via SPI...</div>
-        </div>
-      </div>
-      <!-- L1: Storage Backends -->
-      <div class="layer-L1">
-        <div class="layer-label">Storage Backends</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding-top:4px;">
-          <div class="chip">S3 / MinIO</div>
-          <div class="chip">HDFS</div>
-          <div class="chip">Local FS</div>
-          <div class="chip">Azure Blob</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════ LAYER 5: CROSS-CUTTING ═══════════ -->
-  <div class="layer-L0" style="margin-top:20px;border-color:#30363d66;border-style:dashed;">
-    <div class="layer-label">Cross-Cutting Concerns</div>
-
-    <div class="grid-4" style="padding-top:4px;">
-      <div class="card"><div class="name" style="color:#79c0ff;">Observability</div><div class="tech">OTel Traces + Prometheus</div></div>
-      <div class="card"><div class="name" style="color:#79c0ff;">Security</div><div class="tech">JWT / LDAP / RBAC</div></div>
-      <div class="card"><div class="name" style="color:#79c0ff;">Resilience</div><div class="tech">Circuit Breaker + Retry</div></div>
-      <div class="card"><div class="name" style="color:#79c0ff;">Governance</div><div class="tech">Audit + Lineage</div></div>
-    </div>
-  </div>
-
-  <!-- Legend -->
-  <div class="legend">
-    <div class="legend-item"><div class="legend-dot blue"></div><div class="legend-text">Control Plane (HTTP/REST)</div></div>
-    <div class="legend-item"><div class="legend-dot green"></div><div class="legend-text">Data Plane (Arrow Flight / Native I/O)</div></div>
-    <div class="legend-item"><div class="legend-dot purple"></div><div class="legend-text">JNI Bridge (Arrow C Data + Protobuf)</div></div>
-    <div class="legend-item"><div class="legend-dot orange"></div><div class="legend-text">Storage (Open Table Formats)</div></div>
-  </div>
+<h1>Pangrova Target Architecture</h1>
+<p class="subtitle">One lakehouse engine for SQL analytics, AI retrieval and ML data delivery · Current foundations + target capabilities</p>
+<div class="status-key">
+  <span><i class="mark"></i> EXISTING · implementation present</span>
+  <span><i class="mark partial"></i> PARTIAL · lifecycle / wiring incomplete</span>
+  <span><i class="mark planned"></i> PLANNED · to be built</span>
+  <span><i class="mark external"></i> EXTERNAL · ecosystem runtime</span>
 </div>
+
+<section class="layer">
+  <div class="label">Layer 1 · Clients &amp; Ecosystem Access</div><div class="badge">SQL / Python / ML</div>
+  <p class="role">Connect applications, notebooks and training jobs to governed lakehouse data.</p>
+  <div class="cards">
+    <div class="card existing"><span class="state">EXISTING</span><div class="name">CLI / JDBC / REST</div><div class="detail">SQL applications · BI · Scripts<br>Submit · Status · Cancel · Results</div></div>
+    <div class="card planned"><span class="state">PLANNED</span><div class="name">Python SDK</div><div class="detail">SQL and dataset APIs · Arrow batches<br>pandas / NumPy · Notebooks</div></div>
+    <div class="card planned"><span class="state">PLANNED</span><div class="name">ML &amp; Agent Adapters</div><div class="detail">PyTorch / JAX dataset integration<br>Agent / MCP tools with governed SQL</div></div>
+  </div>
+</section>
+<div class="link">▼ <span>HTTP / REST · Query control and endpoint discovery; dataset API planned</span></div>
+
+<section class="layer">
+  <div class="label">Layer 2 · Coordination &amp; Data Services</div><div class="badge">Coordinator · Java</div>
+  <p class="role">Plan and govern work; own metadata, version binding, job orchestration and final publication.</p>
+  <div class="cards">
+    <div class="card existing"><span class="state">EXISTING</span><div class="name">Parse, Bind &amp; Authorize</div><div class="detail">ANTLR · Catalog and snapshot resolution<br>Policies · Types · Execution bindings</div></div>
+    <div class="card existing"><span class="state">EXISTING</span><div class="name">Optimize &amp; Plan</div><div class="detail">Calcite · Relational optimization<br>Distributed stages and task plans</div></div>
+    <div class="card existing"><span class="state">EXISTING</span><div class="name">Admit, Schedule &amp; Commit</div><div class="detail">Resources · Worker / query lifecycle<br>Metadata DDL · Fenced catalog commits</div></div>
+  </div>
+  <div class="note">CONTROL STATE · JDBC metadata, leases, query ownership and commit journals.</div>
+  <div class="target-heading">Target data services · extend the same control plane</div>
+  <div class="cards target">
+    <div class="card partial"><span class="state">PARTIAL → TARGET</span><div class="name">Feature Store &amp; Dataset Control</div><div class="detail">Definitions · Version / split / shard plans<br>Metadata publication · Access policy</div></div>
+    <div class="card partial"><span class="state">PARTIAL → TARGET</span><div class="name">Refresh &amp; Data Pipelines</div><div class="detail">CDC · Dynamic tables · Materialized views<br>Embedding / index build and maintenance</div></div>
+    <div class="card partial"><span class="state">PARTIAL → TARGET</span><div class="name">Semantic &amp; Model Lifecycle</div><div class="detail">Semantic views · Model versions · Evaluation<br>Quality gates · Governed publication</div></div>
+  </div>
+  <div class="note partial">PARTIAL → TARGET · Feedback and automation: semantic cache, cardinality feedback, layout / index advisory and retrieval-quality monitoring.</div>
+</section>
+<div class="link">▼ <span>HTTP / REST · Task control; status, artifact and write commit metadata return</span></div>
+
+<div class="worker">
+  <div class="label">Worker · Layers 3 and 4 run together on each Worker</div>
+  <section class="layer java">
+    <div class="label">Layer 3 · Worker Runtime</div><div class="badge">Java / JVM</div>
+    <p class="role">Host Native tasks and provide governed connector, model-provider and storage callbacks.</p>
+    <div class="cards">
+      <div class="card existing"><span class="state">EXISTING</span><div class="name">Task Admission &amp; Lifecycle</div><div class="detail">Validate bindings and resource grants<br>Load Native · Start · Cancel · Release</div></div>
+      <div class="card existing"><span class="state">EXISTING</span><div class="name">Reporting &amp; Connector SDKs</div><div class="detail">Status · Usage · Write commit metadata<br>Worker-side connector write staging</div></div>
+      <div class="card existing"><span class="state">EXISTING</span><div class="name">Governed Provider Egress</div><div class="detail">Secrets · Policy · Limits · Audit<br>Call external model-serving endpoints</div></div>
+    </div>
+  </section>
+  <div class="jni"><strong>↕ JNI BRIDGE</strong>Canonical Protobuf · Arrow C Data / IPC where applicable · Explicit buffer ownership</div>
+  <section class="layer native">
+    <div class="label">Layer 4 · Native Data Processing</div><div class="badge">C++20 / Velox</div>
+    <p class="role">Execute data work: relational operators, retrieval, transformations, writes and batch delivery.</p>
+    <div class="cards">
+      <div class="card existing"><span class="state">EXISTING</span><div class="name">Relational Execution &amp; I/O</div><div class="detail">Scan · Filter · Join · Aggregate · Write<br>Storage access and connector callbacks</div></div>
+      <div class="card partial"><span class="state">PARTIAL → TARGET</span><div class="name">Retrieval &amp; AI Processing</div><div class="detail">Vector / full-text · Fusion · Rerank<br>Generated embeddings · Multimodal data</div></div>
+      <div class="card existing"><span class="state">EXISTING</span><div class="name">Arrow Flight Data Plane</div><div class="detail">Worker ↔ Worker shuffle<br>Output Worker → Client batch streams</div></div>
+    </div>
+    <div class="note planned">PLANNED · Feature / training delivery: point-in-time joins, online feature reads, dataset shards, episode windows and media decoding.</div>
+  </section>
+</div>
+<div class="link" style="color:#3fb950">↕ <span style="color:#3fb950;border-color:#23863655;background:#2386360b">Data reads / writes · Worker processing; metadata publication stays in Layer 2</span></div>
+
+<section class="layer storage">
+  <div class="label">Layer 5 · Lakehouse &amp; Versioned Artifacts</div><div class="badge">Open Storage</div>
+  <p class="role">Persist source data, table snapshots and derived artifacts with traceable version ownership.</p>
+  <div class="cards">
+    <div class="card existing"><span class="state">EXISTING</span><div class="name">Iceberg / Paimon</div><div class="detail">Table schemas · Snapshots · Catalogs<br>Connector SPI metadata and final commits</div></div>
+    <div class="card existing"><span class="state">EXISTING</span><div class="name">Files &amp; Object Storage</div><div class="detail">Data files · Index / embedding artifacts<br>Parquet / ORC / Lance components</div></div>
+    <div class="card planned"><span class="state">PLANNED</span><div class="name">Reproducible ML Data Products</div><div class="detail">Dataset / feature version manifests<br>Training shards · Media / episode exports</div></div>
+  </div>
+</section>
+
+<section class="layer ml">
+  <div class="label">Python → PyTorch · Planned Training Workflow</div>
+  <p class="role">SQL prepares and selects data; Pangrova delivers versioned batches; external training jobs consume them.</p>
+  <div class="flow">
+    <div class="card planned"><span class="state">PLANNED SDK</span><div class="name">1. Select &amp; Pin</div><div class="detail">Python SQL / dataset request<br>Snapshot · Features · Split · Seed / epoch</div></div>
+    <div class="arrow">→</div>
+    <div class="card planned"><span class="state">PLANNED DATASET PATH</span><div class="name">2. Stream Batches</div><div class="detail">Native Worker → Arrow Flight<br>Bounded Arrow RecordBatches</div></div>
+    <div class="arrow">→</div>
+    <div class="card planned"><span class="state">PLANNED ADAPTER</span><div class="name">3. Load Tensors</div><div class="detail">Arrow → tensors · IterableDataset<br>DataLoader · Rank / worker sharding</div></div>
+    <div class="arrow">→</div>
+    <div class="card external"><span class="state">EXTERNAL</span><div class="name">4. Train &amp; Evaluate</div><div class="detail">PyTorch · CPU / GPU transfer<br>Model · Optimizer · Checkpoints</div></div>
+  </div>
+  <div class="note">TARGET MODEL LOOP · Trained version → model registration / evaluation gates → external model serving → Worker provider callback → AI SQL / embeddings.<br>PyTorch uses the DataLoader path above; JAX requires its own planned framework adapter.</div>
+</section>
+
+<section class="layer support">
+  <div class="label">Cross-Cutting Services · Existing Foundations</div>
+  <p class="role">Shared controls apply to SQL, background jobs, Python access and the planned ML data lifecycle.</p>
+  <div class="cards">
+    <div class="card"><div class="name">Security</div><div class="detail">Identity · Policies · Egress</div></div>
+    <div class="card"><div class="name">Resources</div><div class="detail">Admission · Quotas · Spill</div></div>
+    <div class="card"><div class="name">Resilience</div><div class="detail">Recovery · Fencing</div></div>
+    <div class="card"><div class="name">Observability</div><div class="detail">Metrics · Traces · Logs</div></div>
+    <div class="card"><div class="name">Governance</div><div class="detail">Audit · Lineage · Versions</div></div>
+  </div>
+</section>
+<p class="footer">Status describes implementation scope, not production qualification. Dashed cards show work to be built; amber cards have incomplete end-to-end lifecycles.<br>Existing Flight transport does not imply a completed training service. PyTorch / JAX and model serving run outside the SQL engine.</p>
 </body>
 </html>

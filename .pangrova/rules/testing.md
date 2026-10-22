@@ -38,6 +38,12 @@
 - **Deterministic**: No `Thread.sleep`, no random seeds without control, no external network
 - **Self-contained**: No shared mutable state between tests; use `@BeforeEach` for setup
 
+## Coverage Requirements
+
+- **Diff coverage**: PRs must hit ≥60% line coverage on changed lines (`diff-coverage-check.sh`)
+- **Property tests**: Use for serialization, parsing, scheduling, and resource allocation when invariants are stronger than enumerated examples
+- **C++ coverage**: Not gated in CI, but targeted at critical paths (JNI bridge, memory management)
+
 ## Behavior Coverage
 
 Test observable behavior, not a quota of classes, methods, or catch blocks.
@@ -50,16 +56,15 @@ Test observable behavior, not a quota of classes, methods, or catch blocks.
 - Cross-component behavior needs integration coverage; user-facing SQL, protocol,
   JNI, and distributed behavior needs relevant E2E coverage. CLI-only formatting
   does not require a parser-to-native execution test.
-- Use property tests for serialization, parsing, scheduling, and resource allocation
-  when invariants are stronger than enumerated examples. Native JNI and memory
-  paths require relevant runtime and sanitizer tests.
+- Retain ≥60% changed executable Java line coverage for PRs. Do not manufacture
+  assertions merely to meet the percentage.
 
 ## Selecting Regression Scope
 
-Follow `development.md` for local validation. Run focused checks first, then the
-owning module and affected consumers. Full production regression is a CI/release
-requirement, and a local requirement for broad execution changes. Documentation,
-tooling, and isolated Java changes do not automatically trigger native/ASan/E2E.
+Follow `development.md` for validation selection. Full production regression is a
+runtime/build/test CI and release requirement, and a local requirement for broad
+execution changes. Local documentation, tooling and isolated Java changes do not
+automatically require native/ASan/E2E; CI selection follows `ci-gates.md`.
 A missing prerequisite is a reported blocker, never a passing or disabled test.
 
 ## E2E Infrastructure — TestContainers
@@ -88,7 +93,7 @@ classpath, then rerun the affected loader/E2E checks and required broader valida
 Native runtime, JNI, packaging, and protocol changes require the applicable
 Java/native chain in `build-pipeline.md`: build, native tests, fresh packaging,
 Java consumers, and E2E/smoke for affected execution paths. Memory, ownership,
-JNI, or concurrency changes also require ASan validation. Documentation and
+JNI, or native concurrency changes also require ASan validation. Documentation and
 build-tool unit-test changes under the native directory require relevant tooling
 checks; directory location alone does not require rebuilding the runtime.
 
@@ -125,9 +130,7 @@ For chaos/fault-injection tests. Required for CDC EOS tests, distributed consens
 | Image | `pangrova/pangrova:latest` |
 | Coordinator Port | 8080 |
 | Worker Port | 8081 |
-| Coordinator startup | `/v1/health` returns 200 or 503 with `nodeType=COORDINATOR` and `checks.http=true` before Workers start |
-| Readiness | HTTP `/v1/health` → 200 only after node-specific dependencies are ready |
-| Liveness | HTTP `/v1/health/live` → 200 once the node HTTP server has started |
+| Health Check | HTTP `/v1/health` → 200 |
 
 A test counts as multi-worker or distributed E2E only when every advertised
 worker has a distinct process/container and endpoint. Multiple worker IDs that

@@ -5,14 +5,29 @@ description: "COMPACT, OPTIMIZE, VACUUM, clustering, and stored procedures"
 
 # Maintenance
 
-Table maintenance statements that keep lakehouse tables fast and compact.
+Maintenance syntax and catalog procedures have different execution paths.
+
+## Current Execution Status
+
+| Surface | Default behavior |
+|---|---|
+| `COMPACT` / `OPTIMIZE` / `VACUUM` | Registered, but the default bootstrap constructs `MaintenanceExecutor(null)`, selecting a no-op provider |
+| Catalog-qualified `CALL` | Wired to the selected connector's procedure implementation |
+| Clustering / `RECLUSTER` | Parser and task/executor components exist; no default production task registration found |
+
+**A successful standalone maintenance response does not prove that maintenance ran.**
+The no-op provider reports zero work. Use the appropriate connector procedure below
+and verify the resulting table state. Procedure availability and semantics depend on
+the connector, authenticated context, and storage configuration.
+
+See [Current Capability Status](../getting-started/capability-status.md).
 
 
 ## Table Maintenance
 
 ### COMPACT TABLE
 
-Merges small data files to improve read performance.
+Recognized syntax. With an injected provider it delegates to `compactAsync`; the default provider performs no work.
 
 ```sql
 COMPACT prod.analytics.events;
@@ -20,7 +35,7 @@ COMPACT prod.analytics.events;
 
 ### OPTIMIZE TABLE
 
-Rewrites data files for optimal layout (sorting, z-ordering).
+Recognized syntax. It delegates to the same `compactAsync` operation as `COMPACT`; sorting and z-ordering are not established by this handler. The default provider performs no work.
 
 ```sql
 OPTIMIZE prod.analytics.orders;
@@ -28,7 +43,7 @@ OPTIMIZE prod.analytics.orders;
 
 ### VACUUM TABLE
 
-Removes expired snapshots and orphaned data files.
+Recognized syntax. It delegates only to orphan cleanup with a 24-hour cutoff; it does not expire snapshots. The default provider performs no work. Use explicit connector procedures for snapshot expiration or orphan removal.
 
 ```sql
 VACUUM prod.analytics.events;
@@ -37,6 +52,10 @@ VACUUM prod.analytics.events;
 ---
 
 ## Clustering
+
+**Status: syntax and partial implementation only.** The examples below are not
+executable support claims for the default Coordinator. Task registration and a
+qualified maintenance path are required before using this lifecycle.
 
 ### SET CLUSTERING ORDER
 

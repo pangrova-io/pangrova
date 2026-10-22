@@ -1,5 +1,5 @@
 ---
-title: "Planning"
+title: "Deployment Planning"
 description: "Deployment topology selection, sizing guidance, and prerequisites"
 ---
 
@@ -14,24 +14,29 @@ decision points, sizing guidance, and prerequisites shared by all deployment met
 |--------|----------|-------|
 | Standalone (single JVM) | Local development, feature evaluation | [Quickstart](../getting-started/quickstart.md) |
 | Docker Compose | Development and testing clusters | [Docker](docker.md) |
-| Helm / Kubernetes | Cloud-native production deployment | [Helm / Kubernetes](helm-kubernetes.md) |
-| Bare-metal / VM | Production with S3/OSS/MinIO | [Distributed](distributed.md) |
+| Helm / Kubernetes | Cloud cluster setup; production use requires qualification | [Helm / Kubernetes](helm-kubernetes.md) |
+| Bare-metal / VM | Distributed cluster setup with storage dependencies | [Distributed](distributed.md) |
 
 ## Topology
 
 A Pangrova cluster has two roles:
 
-- **Coordinator** — parses and plans SQL, schedules fragments, aggregates results,
-  and serves the REST / catalog APIs. Run 2+ coordinators with HA enabled for
-  production.
-- **Worker** — executes query fragments with vectorized operators. Workers are
-  stateless and register with the coordinator on startup; scale them horizontally
-  with the workload.
+- **Coordinator** — parses and plans SQL, authorizes/admit queries, schedules fragments,
+  serves control/catalog APIs, and performs final catalog publication. Final query
+  aggregation and result streaming belong to an Output Worker. Multiple Coordinators
+  need configured leases/fencing and an available durable state store.
+- **Worker** — executes fragments with Native vectorized operators and serves results.
+  Workers register on startup and retain task, shuffle, spill, cache, and artifact state.
+  Replacement and scaling require validating the workload's recovery/storage behavior.
 
 Query data lives in the object store (S3, OSS, MinIO, HDFS, or local filesystem);
-workers need local disk only for spilling and caches.
+Workers may also use local disk for shuffle and artifact staging; size it for the enabled paths.
+See [Current Capability Status](../getting-started/capability-status.md).
 
 ## Sizing Guidance
+
+These are planning starting points, not benchmark-derived capacity guarantees.
+Measure concurrency, Native/JVM memory, spill, exchange, and storage on the target workload.
 
 | Component | Starting point | Notes |
 |-----------|---------------|-------|

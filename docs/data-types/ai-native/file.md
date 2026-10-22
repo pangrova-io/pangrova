@@ -1,40 +1,55 @@
 ---
 title: "FILE"
-description: "Multimodal file reference type (claim-check pattern)"
+description: "Governed multimodal file references and HTTPS import requirements"
 ---
 
 # FILE
 
+`FILE` stores a governed reference to an object, rather than embedding the full
+payload in every table row.
 
 | Property | Value |
 |----------|-------|
 | Storage | STRUCT (claim-check pattern) |
 | Internal | `ROW<uri VARCHAR, mime_type VARCHAR, size BIGINT, checksum VARCHAR, created_at TIMESTAMP>` |
-| Use case | Multimodal AI function input (images, documents, audio) |
+| URI | Opaque `pangrova-blob://` reference returned by governed storage |
+| Use case | Input to a configured model capability that supports the file's modality |
 
-**Declaration:**
+## Declaration and Construction
 
 ```sql
 CREATE TABLE documents (id BIGINT, attachment FILE);
+
+-- Requires an allowed HTTPS host and configured Worker blob storage.
+-- Replace this illustrative host with an approved, reachable source.
+INSERT INTO documents VALUES
+    (1, FILE_FROM_URL('https://documents.example.com/doc.pdf'));
+
+-- Hex bytes for "hello"; MIME type and size must be allowed by policy.
+INSERT INTO documents VALUES
+    (2, FILE_FROM_BYTES(X'68656C6C6F', 'text/plain'));
 ```
 
-**Construction:**
+`FILE_FROM_URL` accepts **HTTPS only**. The importer checks the configured host
+allowlist, URL structure, public DNS addresses, size, MIME type, and checksum.
+S3, HDFS, plain HTTP, and other source URI schemes are not accepted by this helper.
+The storage backend may use object storage internally; that does not make its
+scheme a supported import URL or expose its credentials to SQL.
+
+## Model Usage
+
+A model object and provider with the required modality must already be configured.
+These names are illustrative registered-model names, not bundled model services.
 
 ```sql
--- From URL
-INSERT INTO documents VALUES (1, FILE_FROM_URL('s3://bucket/doc.pdf'));
-
--- From raw bytes
-INSERT INTO documents VALUES (2, FILE_FROM_BYTES(X'89504E47...', 'image/png'));
+SELECT AI_DESCRIBE_IMAGE('image_model', attachment) AS description FROM documents;
+SELECT AI_OCR('ocr_model', attachment) AS text FROM documents;
 ```
 
-**Usage with AI functions:**
+Use images for image description and supported document/image formats for OCR;
+not every `FILE` payload is valid for every model. `AI_OCR` requires both the model
+and file arguments.
 
-```sql
-SELECT AI_DESCRIBE_IMAGE('gpt-4o', attachment) AS description FROM documents;
-SELECT AI_OCR(attachment) AS text FROM documents;
-```
-
-**Supported URI schemes:** `s3`, `oss`, `gs`, `gcs`, `adls`, `abfs`, `abfss`, `hdfs`, `http`, `https`, `blob`
-
-**See Also:** [AI Functions — File Helpers](../../sql-reference/functions/ai-functions.md#file-helper-functions)
+See [AI Functions — File Helpers](../../sql-reference/functions/ai-functions.md#file-helper-functions),
+[Worker Configuration](../../configuration/worker.md), and
+[Current Capability Status](../../getting-started/capability-status.md).

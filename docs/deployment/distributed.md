@@ -1,11 +1,16 @@
 ---
 title: "Distributed Deployment"
+description: "Distributed cluster setup and deployment qualification requirements"
 sidebar_position: 2
 ---
 
-# Pangrova — Distributed Deployment Guide
+# Distributed Deployment
 
-This guide walks you through deploying an Pangrova cluster on bare-metal servers or VMs with object storage (S3, OSS, MinIO) as the data lake backend. After completing this guide, you will have a production-ready cluster with High Availability.
+This guide describes distributed cluster setup on bare-metal servers or VMs with
+object storage. Completing setup does not establish production readiness or validated
+HA/recovery. Read [Current Capability Status](../getting-started/capability-status.md)
+and complete the [Production Checklist](production-checklist.md) with workload and
+failure-test evidence before accepting a deployment.
 
 ---
 
@@ -38,7 +43,7 @@ This guide walks you through deploying an Pangrova cluster on bare-metal servers
                     └──────────────────────┘
 ```
 
-**Minimum production cluster**: 2 Coordinators + 3 Workers + 1 PostgreSQL + Object Storage
+**Example topology for evaluation**: 2 Coordinators + 3 Workers + PostgreSQL + object storage. A single database remains an availability dependency; this is not a qualified minimum production configuration.
 
 ---
 

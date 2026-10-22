@@ -5,13 +5,35 @@ description: "ANN similarity search: distance functions, HNSW/IVFPQ indexes, hyb
 
 # Vector Search
 
-Pangrova provides native vector similarity search with HNSW and IVFPQ indexing algorithms, SIMD-optimized distance computation (AVX-512, AVX2, NEON), and distributed scatter-gather execution. Vector search integrates seamlessly with SQL queries, enabling KNN search, filtered search, and hybrid search (vector + full-text) with reranking.
+Pangrova has Native vector distance, index, and retrieval implementations. SQL
+recognition, exact distance ordering, ANN binding, full-text retrieval, and model
+reranking are distinct execution paths.
+
+## Current Execution Boundaries
+
+- ANN rewriting requires an eligible ascending distance order, positive limit,
+  literal query vector, and matching index. An unbound query can execute ordinary
+  exact SQL; a bound ANN task must obey its explicit fallback policy.
+- A `WHERE` clause does not prove that predicates reach the ANN backend as prefilters.
+  The strategy-selection helper is not wired as a general default adaptive planner.
+- Hybrid rewriting covers bounded positive `MATCH` plus vector-distance patterns.
+  Arbitrary OR/NOT, GROUP BY/HAVING, or retrieval combinations are not blanket support.
+- Multi-vector source expressions require per-source bindings; the current collector
+  rejects the ambiguous multi-vector form shown below.
+- Text-to-vector shorthand is not wired by default. Explicit model invocation,
+  artifacts, and provider dependencies must be verified for the query used.
+
+These examples are query shapes and syntax references, not measured recall/latency
+or a qualification of every combination. See
+[Current Capability Status](../../getting-started/capability-status.md).
 
 ---
 
 ## Distance Functions
 
-All distance functions follow the convention that **lower values indicate greater similarity**, so results can be uniformly sorted in ascending order regardless of the chosen metric.
+The distance-order functions below use **lower values for greater similarity**.
+`COSINE_SIMILARITY` is a separate similarity score whose larger values indicate
+greater similarity; it is not the ascending distance key for ANN rewriting.
 
 ### L2_DISTANCE
 
@@ -214,13 +236,17 @@ ORDER BY l2_distance(embedding, ARRAY[1.0, 0.0, 0.0, 0.0]) ASC
 LIMIT 10;
 ```
 
-When a VECTOR index exists on the column, the planner automatically routes to ANN search. Without an index, brute-force scan is used as fallback.
+An index alone does not guarantee ANN routing. The query must match the eligible
+rewrite shape and resolve a compatible index artifact. Without an ANN binding,
+ordinary exact distance ordering can remain in the Native relational plan. A failure
+in an already bound ANN task is governed by its explicit policy, not silent exact fallback.
 
 ---
 
 ### Filtered Vector Search
 
-Combine WHERE clauses with vector ORDER BY for pre-filtered similarity search.
+Combine relational predicates with distance ordering. This expresses a filtered SQL
+result; it does not establish that filtering happens inside HNSW traversal.
 
 ```sql
 -- Find similar electronics products
@@ -231,15 +257,11 @@ ORDER BY l2_distance(embedding, ARRAY[0.5, 0.5, 0.0, 0.0]) ASC
 LIMIT 10;
 ```
 
-**Execution Strategy Selection:**
-
-The planner automatically selects the optimal execution strategy based on estimated filter selectivity:
-
-| Selectivity | Strategy | Description |
-|-------------|----------|-------------|
-| High (> 50%) | `ANN_THEN_FILTER` | Run ANN with over-fetched K, then post-filter |
-| Moderate (20-50%) | `FILTERED_ANN` | Evaluate filter inline during HNSW graph traversal |
-| Low (< 20%) | `FILTER_THEN_BRUTEFORCE` | Apply filter first, brute-force scan survivors |
+**Planner limitation:** the source contains strategy-selection components, but the
+default production path does not establish automatic selectivity-based routing among
+`ANN_THEN_FILTER`, `FILTERED_ANN`, and `FILTER_THEN_BRUTEFORCE`. Inspect the actual
+plan and validate correctness/recall under filters. No fixed selectivity threshold
+or optimal strategy is claimed by this reference.
 
 ---
 
@@ -343,7 +365,8 @@ RERANK BY cascade(rrf(60), cross_encoder('reranker-v2', 10));
 
 #### Multi-Vector ON Clause
 
-Target specific vector columns for reranking:
+**Status: recognized syntax with missing per-source execution bindings.**
+The current collector rejects this multi-vector form; it is not a runnable example:
 
 ```sql
 SELECT id FROM documents
@@ -361,7 +384,11 @@ RERANK BY rrf(60) ON (text_embedding, image_embedding);
 
 ## Auto-Embedding Pipeline
 
-Automate vector generation using generated columns. See [AI Functions — Auto-Embedding](ai-functions.md#auto-embedding-generated-columns) for full details.
+Generated-column and embedding components exist, but model admission, materialization,
+publication, and asynchronous refresh/recovery need validation for the selected path.
+The following illustrates the intended lifecycle; it is not proof that SYNC, ASYNC,
+or BACKFILL modes are all complete. See
+[AI Functions — Auto-Embedding](ai-functions.md#auto-embedding-generated-columns).
 
 ```sql
 -- Create table with auto-embedding
@@ -382,7 +409,7 @@ CREATE INDEX idx_articles_vec ON articles(embedding)
 INSERT INTO articles (id, title, content)
 VALUES (1, 'Introduction to ML', 'Machine learning is a subset of AI...');
 
--- Search immediately works
+-- Query shape after successful materialization and index publication
 SELECT id, title, cosine_distance(embedding, ARRAY[...]) AS dist
 FROM articles
 ORDER BY cosine_distance(embedding, ARRAY[...]) ASC
@@ -391,42 +418,18 @@ LIMIT 5;
 
 ---
 
-## Best Practices
+## Evaluation Guidance
 
-### Dimension Selection
+Use a fixed model version and dimension matching the stored vectors. Validate actual
+Native capability inventory, index artifact generation, source snapshot, and query
+plan before measuring performance. Compare exact results with ANN results on the
+same authorized dataset, including filtered and updated data.
 
-| Use Case | Recommended Dimension | Model Examples |
-|----------|----------------------|----------------|
-| General text search | 768–1024 | bge-m3, text-embedding-3-small |
-| High-precision retrieval | 1536–3072 | text-embedding-3-large |
-| Image embeddings | 512–768 | CLIP ViT |
-| Lightweight/mobile | 256–384 | all-MiniLM-L6 |
-
-### Index Algorithm Selection
-
-| Scenario | Algorithm | Why |
-|----------|-----------|-----|
-| < 1M vectors, high recall | HNSW | Best recall/latency tradeoff |
-| > 10M vectors, memory-constrained | IVFPQ | Compressed storage, lower memory |
-| Rapidly changing data | HNSW | Supports incremental inserts |
-| Static datasets | IVFPQ | Optimized for batch-loaded data |
-
-### Performance Tuning
-
-1. **Index build**: Increase `efConstruction` for better recall at the cost of build time
-2. **Query latency**: Tune `efSearch` (query-time parameter) to balance recall vs speed
-3. **Batch inserts**: Perform bulk inserts before creating the index, or use `ALTER INDEX REBUILD` after
-4. **Filtered search**: For highly selective filters (< 5% rows), pre-filter then brute-force is faster
-5. **Hybrid search**: Use RRF for simple fusion; use cross-encoder for highest quality reranking
-
-### SYNC vs ASYNC Embedding
-
-| Scenario | Mode | Rationale |
-|----------|------|-----------|
-| Real-time search required | SYNC | Vectors available immediately |
-| High-throughput ingestion | ASYNC | Non-blocking inserts |
-| Batch ETL pipelines | ASYNC + BACKFILL | Separate compute from load |
-| Interactive applications | SYNC | Consistent user experience |
+Measure recall, latency, memory, build time, provider calls, and refresh lag. HNSW
+and IVFPQ parameters require workload measurements; no universal size/selectivity
+threshold, model dimension recommendation, or speed advantage is established here.
+Incremental index updates and generated-embedding modes also require their own
+publication and recovery evidence.
 
 ---
 

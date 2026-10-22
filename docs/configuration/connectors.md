@@ -10,17 +10,24 @@ Connector and catalog configuration keys.
 
 ## Connector Configuration
 
-Connectors are configured exclusively through per-catalog YAML files in
-`${PANGROVA_CONF_DIR}/catalog/<name>.yml`. Each file declares a `connector`
-type (`iceberg` or `paimon`) plus a flat `properties` map passed to the
-ConnectorFactory. See [Catalog Configuration](#catalog-configuration-catalognameyml)
-below for the full property reference and examples.
+Register connectors through SQL `CREATE CATALOG ... USING ... WITH (...)`.
+Per-catalog YAML files in `${PANGROVA_CONF_DIR}/catalog/<name>.yml` describe a
+`connector` and a flat `properties` map, but automatic startup registration is
+planned. Creating a file does not create a runtime catalog. See
+[Catalog Management](../getting-started/catalogs/catalog-management.md) and the
+[configuration examples](#catalog-configuration-catalognameyml) below.
 
 ---
 
 ## Storage Backend Configuration
 
-Pangrova uses object storage (S3, OSS, MinIO, GCS, ADLS) as the primary data lake layer. Storage credentials are configured at two levels:
+Storage settings depend on the connector SDK and Native storage implementation.
+The provider variables below are configuration references, not evidence that every
+provider works across every read/write/AI path. Native reads and governed AI blobs
+require the authorized catalog/tenant storage binding; SDK environment defaults alone
+do not establish that binding. See [Worker Configuration](worker.md).
+
+For SDK-backed catalog operations, configurations may include:
 
 1. **Environment variables** in `pangrova-env.sh` — global defaults for all catalogs
 2. **Per-catalog properties** in `catalog/<name>.yml` — override per data source
@@ -41,11 +48,11 @@ Pangrova uses object storage (S3, OSS, MinIO, GCS, ADLS) as the primary data lak
 | `s3.region` | string | No | Per-catalog region override |
 | `s3.path-style-access` | bool | No | Enable path-style access (required for MinIO/Ceph). Default: `false` |
 
-**Authentication priority** (highest → lowest):
-1. Per-catalog properties (`s3.*` in catalog YAML)
-2. Environment variables (`AWS_*`)
-3. Instance profile / IAM role (EC2, ECS, EKS Pod Identity)
-4. Default credential chain (SDK auto-discovery)
+**Credential resolution is connector- and execution-path-specific.** SDK defaults,
+explicit catalog properties, temporary credentials, and instance roles do not have
+one engine-wide priority order. Use property names consumed by the selected connector
+and verify the authorized Worker storage binding; an environment credential is not
+itself authorization to access a catalog or tenant's objects.
 
 ### Alibaba Cloud OSS
 
@@ -93,7 +100,7 @@ OSS is S3-compatible. Configure as S3 with a custom endpoint:
 
 ## Catalog Configuration (`catalog/<name>.yml`)
 
-Each catalog has its own YAML file in `${PANGROVA_CONF_DIR}/catalog/`. The file name (without `.yml`) becomes the catalog name in SQL (e.g. `catalog/my_lake.yml` → `USE my_lake`).
+Reference files may be kept in `${PANGROVA_CONF_DIR}/catalog/`. Register the desired SQL name with `CREATE CATALOG`; the default startup path does not derive a registered catalog from the filename.
 
 ### YAML Structure
 
@@ -149,20 +156,6 @@ All other properties are passed through to Hadoop Configuration (supporting S3, 
 | `scope` | string | — | No | OAuth2 scope |
 | `token` | string | — | No | Pre-existing bearer token |
 
-The current write path rejects Iceberg REST catalogs because its declaration
-fence has only been verified with atomic whole-metadata pointer comparison on
-JDBC and local Hadoop catalogs. REST table creation and metadata access remain
-available, but `INSERT` and other writes require a catalog-specific atomic
-declaration fence before they can be enabled safely.
-This includes filtered `DELETE`: the connector checks the catalog capability
-before publication and fences changes to the selected schema, partition spec,
-location, format version, and generated/vector declaration properties. An
-accepted filtered `DELETE` records the canonical declaration in its snapshot
-summary for historical reads without copying unrelated table properties. An
-Iceberg REST server backed by JDBC does not expose the backing JDBC metadata
-pointer comparison through the standard REST commit requirements, so the
-connector still rejects REST writes through that server.
-
 #### Encryption (both modes)
 
 | Property | Type | Description |
@@ -193,10 +186,6 @@ All other properties are passed through to Paimon Options (supporting S3, HDFS, 
 | Property | Type | Default | Required | Description |
 |----------|------|---------|----------|-------------|
 | `uri` | string | — | Yes | Paimon REST Catalog server endpoint |
-| `warehouse` | string | — | Yes | Server-side catalog/instance identifier expected by the Paimon REST service, not a local filesystem path |
-
-This endpoint must implement the Paimon REST protocol. An Iceberg REST endpoint,
-including Gravitino's Iceberg REST service, is not interchangeable with it.
 
 ### Example: Iceberg on S3 (hadoop mode)
 

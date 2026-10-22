@@ -1,9 +1,6 @@
-name: Nightly Operator Fuzzer
+name: Reference SQL Generator Self-Test
 
 on:
-  schedule:
-    # Run at 02:00 UTC every day
-    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       iterations:
@@ -26,21 +23,12 @@ env:
 
 jobs:
   operator-fuzzer:
-    name: Operator Fuzzer (${{ github.event.inputs.iterations || '10000' }} plans)
+    # Executes DuckDB only; this is not Pangrova engine differential testing.
+    name: Reference generator (${{ github.event.inputs.iterations || '10000' }} plans)
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
-
-      - name: Cache native deps
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.pangrova/native-deps
-            ~/.pangrova/velox
-          key: pangrova-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
-          restore-keys: |
-            pangrova-native-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install build tools
         run: |

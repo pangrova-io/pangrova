@@ -18,11 +18,14 @@ Read only the rules relevant to the task:
 
 - `architecture.md`: module boundaries, execution routing, and wiring.
 - `code-standards.md`: Java, C++, dependencies, and JNI conventions.
-- `development.md`, `testing.md`, `build-pipeline.md`, `ci-gates.md`, and
-	`workflow.md`: implementation, validation, and CI requirements.
+- `development.md`: validation scope and failure triage; start here for changes.
+- `testing.md`: test infrastructure, when adding or changing tests.
+- `build-pipeline.md`: native/integration build commands, when needed.
+- `ci-gates.md`: gate ownership, when changing CI or repository tooling.
 
-Executable gates live in `.pangrova/scripts/`. Verify the canonical rule layout with
-`.pangrova/setup.sh --check`.
+Executable gates live in `.pangrova/scripts/`. Run `.pangrova/setup.sh --check`
+when changing instruction layout; it is not a prerequisite for each task.
+Read each relevant rule once, and revisit only if its content or task scope changes.
 
 ## Environment
 

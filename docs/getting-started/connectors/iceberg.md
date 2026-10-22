@@ -14,6 +14,9 @@ Apache Iceberg provides ACID transactions, schema evolution, and time travel on 
 
 ### Catalog Configuration
 
+The YAML below is a reference format; automatic startup registration is planned.
+Use the SQL registration path below to create the runtime catalog.
+
 ```yaml
 # config/catalog/my-iceberg.yml
 connector: iceberg
@@ -44,7 +47,7 @@ WITH (
 | `rest` | REST catalog (e.g., Polaris, Unity) | `uri` |
 | `jdbc` | JDBC backed catalog | `uri`, `jdbc.user`, `jdbc.password` |
 
-### Supported Iceberg Features
+### Iceberg Feature Boundaries
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -54,8 +57,8 @@ WITH (
 | Time travel | Supported | FOR SYSTEM_TIME AS OF / FOR SYSTEM_VERSION AS OF |
 | MERGE INTO | Supported | Row-level deletes via position delete files |
 | INSERT OVERWRITE | Supported | Dynamic and static overwrite |
-| COMPACT / OPTIMIZE | Supported | Small file compaction |
-| VACUUM | Supported | Snapshot expiration + orphan cleanup |
+| COMPACT / OPTIMIZE | Connector procedures only by default | `CALL catalog.compact(...)` performs compaction; the standalone SQL statement selects a no-op provider in the default bootstrap |
+| VACUUM | Connector procedures only by default | Standalone `VACUUM` invokes orphan cleanup with a 24-hour cutoff, not snapshot expiration, and is a no-op by default; use `CALL ...remove_orphan_files` / `expire_snapshots` |
 | Hidden partitioning | Supported | year/month/day/hour/bucket/truncate transforms |
 | Metadata tables | Partially supported | `$snapshots`, `$history`, `$refs`, `$manifests`, `$partitions`, and supported projections of `$files`/`$entries`. |
 

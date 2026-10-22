@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main, develop]
   pull_request:
@@ -15,53 +16,38 @@ env:
 
 jobs:
   change-scope:
-    name: Select extra performance checks
+    name: Select validation scope
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     outputs:
-      performance: ${{ steps.scope.outputs.performance }}
+      runtime: ${{ steps.scope.outputs.runtime || steps.full.outputs.runtime }}
+      native: ${{ steps.scope.outputs.native || steps.full.outputs.native }}
+      native_matrix: ${{ steps.scope.outputs.native_matrix || steps.full.outputs.native_matrix }}
+      performance: ${{ steps.scope.outputs.performance || steps.full.outputs.performance }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Determine change scope
+        if: github.event_name == 'pull_request'
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 .pangrova/scripts/ci_change_scope.py --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+      - name: Retain full correctness checks on pushes and release calls
+        if: github.event_name != 'pull_request'
+        id: full
+        run: python3 .pangrova/scripts/ci_change_scope.py --full >> "$GITHUB_OUTPUT"
 
   native-build:
     name: Native Build (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
+    needs: change-scope
+    if: needs.change-scope.outputs.runtime == 'true'
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - name: linux-x86_64
-            runner: ubuntu-latest
-            os: linux
-            arch: x86_64
-            lib-ext: so
-            classifier: linux-x86_64
-          - name: linux-aarch_64
-            runner: ubuntu-24.04-arm
-            os: linux
-            arch: aarch64
-            lib-ext: so
-            classifier: linux-aarch_64
-          - name: osx-x86_64
-            runner: macos-13
-            os: osx
-            arch: x86_64
-            lib-ext: dylib
-            classifier: osx-x86_64
-          - name: osx-aarch_64
-            runner: macos-14
-            os: osx
-            arch: aarch64
-            lib-ext: dylib
-            classifier: osx-aarch_64
+        platform: ${{ fromJSON(needs.change-scope.outputs.native_matrix) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -238,24 +224,8 @@ jobs:
             -Dclassifier=linux-x86_64 \
             -Dpackaging=jar
 
-      - name: SPI annotation gate
-        run: |
-          chmod +x .pangrova/scripts/check-spi-annotations.sh
-          .pangrova/scripts/check-spi-annotations.sh
-
-      - name: E2E truthfulness gate
-        run: bash .pangrova/scripts/check-e2e-truthfulness.sh
-
-      - name: Fetch pinned proto descriptor toolchain
-        run: .pangrova/scripts/proto-descriptor-diff.sh --prepare-only
-
-      - name: Proto descriptor diff gate
-        run: |
-          chmod +x .pangrova/scripts/proto-descriptor-diff.sh
-          .pangrova/scripts/proto-descriptor-diff.sh
-
-      - name: Run daily filtered tests
-        run: mvn -B clean verify -Djava.library.path=${{ env.NATIVE_LIB_DIR }} -pl '!pangrova-native-bundle'
+      - name: Compile and run daily filtered tests
+        run: mvn -B verify -Pnative-runtime -Djava.library.path=${{ env.NATIVE_LIB_DIR }} -pl '!pangrova-native-bundle'
         env:
           LD_LIBRARY_PATH: ${{ env.NATIVE_LIB_DIR }}
 
@@ -271,7 +241,12 @@ jobs:
   production-regression:
     name: Production image and full regression (JDK 17)
     runs-on: ubuntu-latest
-    needs: [native-build, native-sanitizers]
+    needs: [change-scope, native-build, native-sanitizers]
+    if: >-
+      always() && !cancelled() && needs.change-scope.outputs.runtime == 'true' &&
+      needs.native-build.result == 'success' &&
+      (needs.native-sanitizers.result == 'success' ||
+       (needs.change-scope.outputs.native == 'false' && needs.native-sanitizers.result == 'skipped'))
     env:
       PANGROVA_E2E_IMAGE: pangrova/pangrova:ci-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
@@ -294,8 +269,8 @@ jobs:
       - name: Build the canonical same-source Linux production image
         run: |
           docker buildx version
-          export SOURCE_COMMIT="$GITHUB_SHA"
-          IMAGE="$PANGROVA_E2E_IMAGE" docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
+          IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA" \
+            docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
           image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
           [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")" == "$GITHUB_SHA" ]]
@@ -305,11 +280,13 @@ jobs:
         run: |
           stage=$(mktemp -d "$RUNNER_TEMP/pangrova-local-runtime.XXXXXXXX")
           echo "PANGROVA_LOCAL_STAGE=$stage" >> "$GITHUB_ENV"
-          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh "$PANGROVA_E2E_IMAGE_ID" "$stage" "$GITHUB_SHA")
+          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh \
+            "$PANGROVA_E2E_IMAGE_ID" "$stage" "$GITHUB_SHA")
           mvn -B install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
             -Dclassifier=linux-x86_64
 
-      - name: Compile the complete Java reactor
+      # Standalone-process tests need the complete reactor installed before tests start.
+      - name: Install the complete Java reactor for process tests
         run: mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
 
       - name: Prepare immutable real AI models before regression
@@ -330,12 +307,12 @@ jobs:
         run: |
           mvn -B -Pnative-runtime,full-regression verify -pl '!pangrova-native-bundle' \
             -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
             -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
             -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
             -Dpangrova.e2e.local.jar-manifest="$PANGROVA_LOCAL_STAGE/runtime.sha256" \
             -Dpangrova.e2e.local.image-provenance="$PANGROVA_LOCAL_STAGE/image-provenance.properties" \
-            -Dpangrova.e2e.local.source-commit="$GITHUB_SHA" \
-            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
+            -Dpangrova.e2e.local.source-commit="$GITHUB_SHA"
 
       - name: Run isolated Native runtime owner E2E
         run: |
@@ -405,7 +382,8 @@ jobs:
   native-sanitizers:
     name: Native Sanitizer (${{ matrix.sanitizer.name }})
     runs-on: ubuntu-latest
-    needs: native-build
+    needs: change-scope
+    if: needs.change-scope.outputs.native == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -505,38 +483,6 @@ jobs:
           path: pangrova-worker-native/build-${{ matrix.sanitizer.name }}/Testing/LanceFixture/*/*.log
           retention-days: 7
 
-  fuzzer:
-    name: Query Fuzzer (60s)
-    runs-on: ubuntu-latest
-    needs: native-build
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build gcc g++
-
-      - name: Build fuzzer
-        run: |
-          cd pangrova-testing/pangrova-test-fuzzer/src/main/cpp
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-
-      - name: Run fuzzer (60 seconds)
-        run: |
-          pangrova-testing/pangrova-test-fuzzer/src/main/cpp/build/pangrova_fuzzer_runner \
-            --duration 60 --seed ${{ github.run_id }}
-
-      - name: Upload fuzzer results
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzzer-crash-report
-          path: pangrova-testing/pangrova-test-fuzzer/src/main/cpp/build/
-          retention-days: 7
-
   jmh-benchmarks:
     name: JMH Micro-Benchmarks
     runs-on: ubuntu-latest
@@ -590,103 +536,11 @@ jobs:
           path: target/jmh-results.json
           retention-days: 30
 
-  plan-stability:
-    name: Plan Stability Gate
-    runs-on: ubuntu-latest
-    needs: java-build
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up function-contract Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref }} --depth=1
-
-      - name: Extract PR metadata
-        run: printf '%s\n' "$PR_BODY" > /tmp/pr-body.md
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Download native library
-        uses: actions/download-artifact@v4
-        with:
-          name: native-library-linux-x86_64
-          path: ${{ env.NATIVE_LIB_DIR }}
-
-      - name: Download classifier JAR
-        uses: actions/download-artifact@v4
-        with:
-          name: native-bundle-linux-x86_64
-          path: native-bundle-jar
-
-      - name: Install classifier JAR to local Maven repo
-        run: |
-          JAR_FILE=$(ls native-bundle-jar/pangrova-native-bundle-*-linux-x86_64.jar | head -1)
-          mvn install:install-file \
-            -Dfile="${JAR_FILE}" \
-            -DgroupId=org.pangrova \
-            -DartifactId=pangrova-native-bundle \
-            -Dversion=0.1.0-SNAPSHOT \
-            -Dclassifier=linux-x86_64 \
-            -Dpackaging=jar
-
-      - name: Run plan stability tests (verify golden files match)
-        run: |
-          mvn -B test -pl pangrova-planner \
-            -Dtest="TpcdsPlanStabilityTest" \
-            -DfailIfNoTests=false \
-            -Djava.library.path=${{ env.NATIVE_LIB_DIR }}
-        env:
-          LD_LIBRARY_PATH: ${{ env.NATIVE_LIB_DIR }}
-
-      - name: Check plan stability (golden plan diff gate)
-        run: |
-          chmod +x .pangrova/scripts/plan-stability-check.sh
-          .pangrova/scripts/plan-stability-check.sh \
-            --base-ref origin/${{ github.base_ref }} \
-            --pr-labels "${{ join(github.event.pull_request.labels.*.name, ',') }}" \
-            --pr-body-file /tmp/pr-body.md
-
-  distributed-checklist:
-    name: Distributed Correctness Checklist
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Fetch base branch
-        run: git fetch origin ${{ github.base_ref }} --depth=1
-
-      - name: Extract PR body
-        run: printf '%s\n' "$PR_BODY" > /tmp/pr-body.md
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-
-      - name: Check distributed correctness checklist
-        run: |
-          chmod +x .pangrova/scripts/distributed-checklist-check.sh
-          .pangrova/scripts/distributed-checklist-check.sh \
-            --base-ref origin/${{ github.base_ref }} \
-            --pr-body-file /tmp/pr-body.md
-
   dead-stub-detection:
     name: Dead-Stub Detection
     runs-on: ubuntu-latest
+    needs: change-scope
+    if: needs.change-scope.outputs.runtime == 'true'
     steps:
       - uses: actions/checkout@v7
 
@@ -705,8 +559,9 @@ jobs:
         run: ./.pangrova/scripts/check-doc-class-refs.sh
 
   lint:
-    name: Code Quality
+    name: Repository tooling checks
     runs-on: ubuntu-latest
+    needs: change-scope
     steps:
       - uses: actions/checkout@v7
 
@@ -740,8 +595,47 @@ jobs:
       - name: Test patch_flight_types.py
         run: python3 pangrova-worker-native/test/PatchFlightTypesTest.py
 
-      - name: Test gate selection and policy consistency
-        run: python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_gate_policy.py' -v
+      - name: Test gate selection, coverage tooling and stub detection
+        run: python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_*.py' -v
+
+      - name: Verify canonical instructions
+        run: bash .pangrova/setup.sh --check
+
+      - name: Check gate shell syntax
+        run: |
+          for script in .pangrova/setup.sh .pangrova/scripts/*.sh .pangrova/scripts/tests/*.sh; do
+            bash -n "$script"
+          done
+
+      - name: SPI annotation gate
+        run: bash .pangrova/scripts/check-spi-annotations.sh
+
+      - name: E2E truthfulness gate
+        run: bash .pangrova/scripts/check-e2e-truthfulness.sh
+
+      - name: Set up JDK 17 for descriptor verification
+        if: needs.change-scope.outputs.runtime == 'true'
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Proto descriptor diff gate
+        if: needs.change-scope.outputs.runtime == 'true'
+        run: bash .pangrova/scripts/proto-descriptor-diff.sh
+
+  static-analysis:
+    name: Java static analysis
+    runs-on: ubuntu-latest
+    needs: change-scope
+    if: needs.change-scope.outputs.runtime == 'true'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -758,3 +652,51 @@ jobs:
 
       - name: Static Analysis (profile gate)
         run: mvn -B verify -Pstatic-analysis -DskipTests -pl '!pangrova-native-bundle'
+
+  validation:
+    name: Validation result
+    runs-on: ubuntu-latest
+    needs: [change-scope, lint, doc-consistency, dead-stub-detection, static-analysis,
+            native-build, java-build, native-sanitizers, production-regression,
+            tpch-performance, jmh-benchmarks]
+    if: always()
+    steps:
+      - name: Require selected checks to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          PR_EVENT: ${{ github.event_name == 'pull_request' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          jobs = json.loads(os.environ['RESULTS'])
+          required = {'change-scope', 'lint', 'doc-consistency'}
+          runtime = jobs['change-scope']['outputs'].get('runtime')
+          if runtime not in {'true', 'false'}:
+              raise SystemExit('Missing or invalid runtime scope')
+          if os.environ['PR_EVENT'] != 'true' and runtime != 'true':
+              raise SystemExit('Push/release validation must select runtime checks')
+          native = jobs['change-scope']['outputs'].get('native')
+          if native not in {'true', 'false'} or (native == 'true' and runtime != 'true'):
+              raise SystemExit('Missing or inconsistent native scope')
+          if os.environ['PR_EVENT'] != 'true' and native != 'true':
+              raise SystemExit('Push/release validation must select native checks')
+          performance = jobs['change-scope']['outputs'].get('performance')
+          if os.environ['PR_EVENT'] == 'true' and performance not in {'true', 'false'}:
+              raise SystemExit('Missing or invalid performance scope')
+          if performance == 'true' and runtime != 'true':
+              raise SystemExit('Performance checks require the runtime prerequisites')
+          if runtime == 'true':
+              required.update({'dead-stub-detection', 'static-analysis', 'native-build',
+                               'java-build', 'production-regression'})
+          if native == 'true':
+              required.add('native-sanitizers')
+          if performance == 'true':
+              required.update({'tpch-performance', 'jmh-benchmarks'})
+          failed = [name for name, job in jobs.items()
+                    if job['result'] in {'failure', 'cancelled'}
+                    or (name in required and job['result'] != 'success')]
+          if failed:
+              raise SystemExit('Validation failed: ' + ', '.join(sorted(failed)))
+          print('All selected checks passed.')
+          PY

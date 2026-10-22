@@ -37,6 +37,9 @@ Detailed language and naming rules are in `code-standards.md`.
 
 ## Java Commands
 
+The test/verify commands below already compile. Choose one lifecycle invocation
+for the required result; a separate compile is a diagnostic option.
+
 ```bash
 # Focused module checks
 mvn -q -pl <module> -am compile test-compile
@@ -63,7 +66,8 @@ cmake --build pangrova-worker-native/build --parallel
 python3 pangrova-worker-native/bin/run-native-tests.py
 ```
 
-Run AddressSanitizer validation for memory, ownership, JNI, or concurrency changes:
+Run AddressSanitizer validation for native memory, ownership, JNI, or native
+concurrency changes; Java-only concurrency uses the relevant Java stress/race tests:
 
 ```bash
 VELOX_BUILD_DIR=/path/to/asan/velox/build \
@@ -120,9 +124,8 @@ Coverage depth follows risk:
 - User-visible SQL, protocol, JNI, or distributed behavior should have integration
   or E2E coverage at the appropriate boundary.
 
-Do not write low-value assertions solely to satisfy a coverage percentage. Optional
-JaCoCo reports can help identify untested paths, but production acceptance depends
-on passing behavior, integration, and E2E tests at the affected boundaries.
+Changed-line coverage is enforced by `.pangrova/scripts/diff-coverage-check.sh`.
+Do not write low-value assertions solely to satisfy the threshold.
 
 For TestContainers, use mapped ports and wait strategies. If Docker is unavailable,
 report the missing prerequisite accurately; do not disable the test or claim it
@@ -138,10 +141,15 @@ passed.
    boundaries.
 5. Repeat timing-sensitive tests after concurrency or flakiness fixes.
 6. Run repository gates relevant to the changed files. Full production regression
-   remains required in CI and before release; run it locally for broad execution
+   remains required for runtime/build/test PRs, protected-branch pushes and releases;
+   documentation/rule/tooling-only PRs use the lightweight CI checks described in
+   `ci-gates.md`. Run full regression locally for broad execution
    changes or when focused checks cannot establish the affected boundaries.
 7. Tooling/docs edits under a native directory require their own checks; runtime
    directory location alone does not mandate ASan or rebuilding unchanged JNI.
+8. A passing full-regression reactor includes its E2E and activation smoke tests.
+   Do not rerun those suites separately unless their inputs changed, they did not
+   execute, or a failure needs diagnosis. Report concise results and link long logs.
 
 ## Connectivity
 
