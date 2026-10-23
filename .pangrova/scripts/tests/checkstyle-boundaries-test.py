@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real Checkstyle with allowed and rejected structural boundary fixtures."""
+"""Exercise real Checkstyle diagnostics and blocking code-rule fixtures."""
 
 from copy import deepcopy
 from pathlib import Path
@@ -104,7 +104,9 @@ def main():
     <dependencies><dependency><groupId>com.puppycrawl.tools</groupId>
       <artifactId>checkstyle</artifactId><version>{ENGINE_VERSION}</version>
     </dependency></dependencies>
-    <configuration><configLocation>{root / 'checks.xml'}</configLocation></configuration>
+    <configuration><configLocation>{root / 'checks.xml'}</configLocation>
+      <violationSeverity>error</violationSeverity><failsOnError>true</failsOnError>
+    </configuration>
   </plugin></plugins></build>
 </project>''')
         result = subprocess.run(['mvn', '-B', '-q', 'checkstyle:check'], cwd=root,
@@ -112,15 +114,28 @@ def main():
         report = root / 'target/checkstyle-result.xml'
         if not report.exists():
             raise RuntimeError('Checkstyle produced no evidence:\n' + result.stdout + result.stderr)
+        warnings = {"FileLength", "MethodLength", "CyclomaticComplexity", "ParameterNumber"}
         findings = {}
         for file in ET.parse(report).findall('file'):
             errors = {error.get('source').rsplit('.', 1)[-1].removesuffix('Check')
                       for error in file.findall('error')}
+            for error in file.findall('error'):
+                check = error.get('source').rsplit('.', 1)[-1].removesuffix('Check')
+                assert error.get('severity') == ('warning' if check in warnings else 'error'), error.attrib
             if errors:
                 findings[Path(file.get('name')).stem] = errors
         assert findings == {name: {check} for name, check in expected.items()}, findings
-        assert result.returncode != 0, 'Over-limit fixtures must fail the real Maven gate'
-        print('PASS: 9 allowed boundary/API fixtures; 14 structural/internal-import fixtures rejected by real Checkstyle.')
+        assert result.returncode != 0, 'Blocking import/nesting fixtures must fail the real Maven gate'
+        for name, check in expected.items():
+            if check not in warnings:
+                (sources / f'{name}.java').unlink()
+        warnings_only = subprocess.run(['mvn', '-B', '-q', 'checkstyle:check'], cwd=root,
+                                       capture_output=True, text=True)
+        assert warnings_only.returncode == 0, warnings_only.stdout + warnings_only.stderr
+        remaining = [error for file in ET.parse(report).findall('file') for error in file.findall('error')]
+        assert len(remaining) == sum(check in warnings for check in expected.values()), remaining
+        assert all(error.get('severity') == 'warning' for error in remaining), remaining
+        print('PASS: boundaries retained as diagnostics; internal imports/nesting block; warnings-only build passes.')
 
 
 if __name__ == '__main__':

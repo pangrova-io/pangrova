@@ -58,8 +58,9 @@ mvn -q -pl <module> -am verify -Pstatic-analysis
 mvn -q -pl <module> -am verify -Pcoverage   # optional local diagnosis
 ```
 
-Checkstyle owns Java structure: file 800, effective method lines 100, complexity
-15, parameters 10, if/for nesting 3 and try nesting 2. SpotBugs blocks unsuppressed
+Checkstyle reports file 800, effective method lines 100, complexity 15 and
+parameters 10 as nonblocking review warnings. Errors still fail the Maven gate;
+if/for nesting 3 and try nesting 2 remain errors. SpotBugs blocks unsuppressed
 Medium-or-higher-confidence findings; confidence is not severity. Parent POM and
 `config/` are authoritative. Native tests and applicable E2E/smoke must pass;
 compiler warnings and sanitizer findings must be zero.
