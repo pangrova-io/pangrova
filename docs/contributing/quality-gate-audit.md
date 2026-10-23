@@ -27,6 +27,17 @@ Maven 明确只阻断 error。嵌套、非法导入、危险代码模式、模�
 过深嵌套产生 error 并导致构建失败；删除错误夹具后，保留超限夹具的构建成功。
 政策测试同时检查严重级别及 Maven 阻断阈值。没有增加按文件名的指标豁免。
 
+### JDBC 参数位置的精确排除
+
+`JdbcMaterializationRepository` 的 SQL 含超过十个占位符，MagicNumber 将绑定位置
+11–26 当成业务数值。将它们改成 `INDEX_ELEVEN` 一类常量不能解释 SQL。
+采用 [Checkstyle 官方 XPath 过滤能力](https://checkstyle.org/filters/suppressionxpathsinglefilter.html)，
+仅排除此适配器的 `statement.set*` 第一实参，以及三个现有 JDBC helper 的第二实参
+中的直接整数索引。绑定值、其他表达式及其他类仍受原检查约束。
+
+真实 Maven 夹具确认索引 23–26 可通过，而同一方法的绑定值 `777`、业务预算
+`5000` 仍阻断；其他类中的索引也未被排除。该排除不改变 SQL 或运行时验证。
+
 
 ## 2026-10-18 复核与实际整改
 
