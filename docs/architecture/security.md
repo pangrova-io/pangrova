@@ -493,8 +493,17 @@ The `row_policies.priority` field does not affect AND/OR semantics; instead it c
 | User matches no policy | Returns `Optional.empty()` -> no filter | No policy = no restriction (access must be controlled via RBAC privileges) |
 | All matching policies are disabled | Same as above | Disabled policies do not participate in merging |
 | Policy expression fails to parse | Throws `PangrovaException(INTERNAL_ERROR)` -> query fails | Security first: on a policy error, deny access rather than degrading to no filter |
-| Policy references a nonexistent user_attribute | That attribute returns the empty string `""` | No exception thrown, but the filter condition may not match (fails safe) |
+| An interactive policy references a nonexistent user_attribute | That attribute returns the empty string `""` | The predicate determines whether it matches; policy authors must handle absent attributes explicitly |
+| A deferred execution's policy references current_groups() or user_attribute(...) | Rejected before rendering or execution | A stored principal does not reconstruct the original authentication claims |
 | Policy contains a subquery (e.g., `IN (SELECT ...)`) | The subquery is expanded during the Calcite optimization phase | Subquery results are cached per-query and not shared across queries |
+
+Deferred execution restores the persisted principal and tenant through
+`DeferredSubjectContext` and resolves roles from current durable grants. Its
+internal subject marker only adds restrictions. Row filters and selected,
+non-exempt column masks reject policies requiring ephemeral groups or attributes;
+they do not substitute missing claims with empty values. The publication-time
+policy reader uses the same guard. Stable principal expressions such as
+`current_user()` remain available.
 
 ```java
 

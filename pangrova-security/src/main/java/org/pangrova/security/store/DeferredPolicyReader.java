@@ -2,18 +2,15 @@ package org.pangrova.security.store;
 
 import org.pangrova.security.authz.DeferredAuthorizationScope.PolicySnapshot;
 import org.pangrova.security.authz.DeferredAuthorizationScope.TablePermission;
-import org.pangrova.security.authz.AuthorizationDeniedException;
+import org.pangrova.security.authz.DeferredSubjectContext;
 import org.pangrova.security.mask.ColumnMask;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.rowfilter.RowPolicy;
-import org.pangrova.spi.security.UserIdentity;
 
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -27,16 +24,16 @@ final class DeferredPolicyReader {
                                   TablePermission permission) throws SQLException {
         // The principal is the persisted authenticated subject, not a maintenance identity.
         // Groups and ephemeral authentication attributes are deliberately not reconstructed.
-        var subject = new UserIdentity(principal, Set.of(), Map.of(), Instant.EPOCH);
+        var subject = DeferredSubjectContext.fromPrincipal(principal, null);
         var policies = readRows(connection, permission);
         policies.stream().filter(policy -> policy.appliesTo(roles))
-                .forEach(policy -> requireStableSubjectContext(policy.filterExpression()));
+                .forEach(policy -> DeferredSubjectContext.requireStable(subject, policy.filterExpression()));
         var rowFilter = RowLevelSecurityFilter.renderPolicies(subject, roles, policies);
         Map<String, Optional<String>> masks = new TreeMap<>();
         for (String column : permission.columns()) {
             var columnMasks = readMasks(connection, permission, column);
             columnMasks.stream().filter(mask -> mask.appliesTo(roles) && !mask.isExempt(roles))
-                    .forEach(mask -> requireStableSubjectContext(mask.maskExpression()));
+                    .forEach(mask -> DeferredSubjectContext.requireStable(subject, mask.maskExpression()));
             masks.put(column, ColumnMaskingProcessor.renderMasks(subject, roles, column, columnMasks));
         }
         return new PolicySnapshot(rowFilter, masks);
@@ -89,11 +86,4 @@ final class DeferredPolicyReader {
         statement.setString(3, permission.table().table());
     }
 
-    private static void requireStableSubjectContext(String expression) {
-        String normalized = expression.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
-        if (normalized.contains("current_groups()") || normalized.contains("user_attribute(")) {
-            throw new AuthorizationDeniedException(
-                    "Deferred policy requires a current identity-context resolver; resubmit after reauthorization");
-        }
-    }
 }

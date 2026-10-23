@@ -2,6 +2,10 @@ package org.pangrova.security.rowfilter;
 
 import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.pangrova.security.authz.AuthorizationDeniedException;
+import org.pangrova.security.authz.DeferredSubjectContext;
 
 import java.time.Instant;
 import java.util.List;
@@ -10,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Validates: Requirements 18.7 — RowLevelSecurityFilter merges policies and binds user context.
@@ -20,6 +25,33 @@ class RowLevelSecurityFilterTest {
             "alice", Set.of("analyst"), Map.of("department", "engineering"), Instant.now());
     private static final UserIdentity ADMIN = new UserIdentity(
             "bob", Set.of("admin"), Map.of(), Instant.now());
+
+    @ParameterizedTest
+    @ValueSource(strings = {"current_groups()", "CURRENT_GROUPS ( )",
+            "user_attribute('department')", "USER_ATTRIBUTE ( 'department' )"})
+    void deferredPrincipalCannotBindMissingAuthenticationContextAsEmpty(String contextFunction) {
+        var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
+        var policy = new RowPolicy(90, "deferred_context", "lake", "default", "orders",
+                "department = " + contextFunction, List.of("reader"), true, 1);
+        var filter = new RowLevelSecurityFilter(new InMemoryRowPolicyStore(List.of(policy)));
+
+        assertThatThrownBy(() -> filter.getFilter(subject, Set.of("reader"), "lake", "default", "orders"))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("identity-context");
+    }
+
+    @Test
+    void deferredPrincipalStillUsesCurrentPersistedRolesAndStablePrincipal() {
+        var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
+        var policy = new RowPolicy(90, "owner", "lake", "default", "orders",
+                "owner = current_user()", List.of("reader"), true, 1);
+        var filter = new RowLevelSecurityFilter(new InMemoryRowPolicyStore(List.of(policy)));
+
+        assertThat(subject.groups()).isEmpty();
+        assertThat(subject.attributes()).containsEntry("tenant_id", "tenant-one");
+        assertThat(filter.getFilter(subject, Set.of("reader"), "lake", "default", "orders"))
+                .hasValue("(owner = 'alice')");
+        assertThat(filter.getFilter(subject, Set.of(), "lake", "default", "orders")).isEmpty();
+    }
 
     @Test
     void returnsEmptyWhenNoPolicies() {

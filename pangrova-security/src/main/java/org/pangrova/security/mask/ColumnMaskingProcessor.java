@@ -1,6 +1,7 @@
 package org.pangrova.security.mask;
 
 import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.authz.DeferredSubjectContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,6 +70,7 @@ public class ColumnMaskingProcessor {
                     user.principal(), mask.maskId(), column);
             return Optional.empty();
         }
+        DeferredSubjectContext.requireStable(user, mask.maskExpression());
         return Optional.of(mask.maskExpression().replace("{column}", column));
     }
 }
