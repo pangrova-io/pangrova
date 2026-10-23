@@ -1,6 +1,6 @@
 ---
 title: "Conditional"
-description: "CASE, COALESCE, NULLIF, IS NULL, BETWEEN, IN, LIKE"
+description: "CASE, COALESCE, NULLIF, null and Boolean truth tests, BETWEEN, IN, LIKE"
 ---
 
 # Conditional Functions
@@ -51,6 +51,26 @@ A simple CASE compares its operand with each WHEN value using SQL equality.
 NULL does not match NULL in a simple CASE; use a searched `WHEN value IS NULL`
 branch to handle it. Without a matching branch, CASE returns ELSE, or NULL when
 ELSE is omitted.
+
+## Boolean Truth Tests
+
+`predicate IS [NOT] TRUE`, `predicate IS [NOT] FALSE`, and
+`predicate IS [NOT] UNKNOWN` accept a Boolean operand and always return a
+non-NULL Boolean. `UNKNOWN` denotes the NULL truth value.
+
+| Operand | IS TRUE | IS FALSE | IS UNKNOWN | IS NOT TRUE | IS NOT FALSE | IS NOT UNKNOWN |
+| --- | --- | --- | --- | --- | --- | --- |
+| TRUE | TRUE | FALSE | FALSE | FALSE | TRUE | TRUE |
+| FALSE | FALSE | TRUE | FALSE | TRUE | FALSE | TRUE |
+| NULL | FALSE | FALSE | TRUE | TRUE | TRUE | FALSE |
+
+```sql
+-- Reject both false and unknown validation results.
+SELECT id FROM orders WHERE (amount > 0) IS NOT TRUE;
+```
+
+Unlike `NOT (amount > 0)`, this predicate also selects rows whose amount is NULL.
+Parenthesize compound operands when combining truth tests with AND or OR.
 
 ## COALESCE
 

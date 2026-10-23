@@ -13,6 +13,7 @@ import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.expression.InExpression;
 import org.pangrova.parser.ast.expression.InSubqueryExpression;
 import org.pangrova.parser.ast.expression.IsNullExpression;
+import org.pangrova.parser.ast.expression.TruthTestExpression;
 import org.pangrova.parser.ast.expression.LikeExpression;
 import org.pangrova.parser.ast.expression.MapConstructor;
 import org.pangrova.parser.ast.expression.NotExpression;
@@ -67,6 +68,7 @@ public interface Expression {
         if (this instanceof InExpression) return ExpressionType.IN;
         if (this instanceof InSubqueryExpression) return ExpressionType.IN_SUBQUERY;
         if (this instanceof IsNullExpression) return ExpressionType.IS_NULL;
+        if (this instanceof TruthTestExpression) return ExpressionType.TRUTH_TEST;
         if (this instanceof LikeExpression) return ExpressionType.LIKE;
         if (this instanceof NotExpression) return ExpressionType.NOT;
         if (this instanceof NotInExpression) return ExpressionType.NOT_IN;

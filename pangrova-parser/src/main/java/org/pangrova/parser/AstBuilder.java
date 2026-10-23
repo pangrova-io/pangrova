@@ -665,6 +665,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Expression visitNotInListExpr(PangrovaSqlParser.NotInListExprContext ctx) { return expr.visitNotInListExpr(ctx); }
     @Override public Expression visitParenExpr(PangrovaSqlParser.ParenExprContext ctx) { return expr.visitParenExpr(ctx); }
     @Override public Expression visitIsNullExpr(PangrovaSqlParser.IsNullExprContext ctx) { return expr.visitIsNullExpr(ctx); }
+    @Override public Expression visitTruthTestExpr(PangrovaSqlParser.TruthTestExprContext ctx) { return expr.visitTruthTestExpr(ctx); }
     @Override public Expression visitBetweenExpr(PangrovaSqlParser.BetweenExprContext ctx) { return expr.visitBetweenExpr(ctx); }
     @Override public Expression visitLikeExpr(PangrovaSqlParser.LikeExprContext ctx) { return expr.visitLikeExpr(ctx); }
     @Override public Expression visitExistsExpr(PangrovaSqlParser.ExistsExprContext ctx) { return expr.visitExistsExpr(ctx); }

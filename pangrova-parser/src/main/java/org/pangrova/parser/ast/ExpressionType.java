@@ -24,6 +24,7 @@ public enum ExpressionType {
     IN,
     IN_SUBQUERY,
     IS_NULL,
+    TRUTH_TEST,
     LIKE,
     NOT,
     NOT_IN,

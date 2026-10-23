@@ -318,6 +318,7 @@ expression
     | left=expression NOT IN LPAREN query RPAREN                    #notInSubqueryExpr
     | left=expression NOT IN LPAREN expressionList RPAREN           #notInListExpr
     | left=expression IS NOT? NULL                                  #isNullExpr
+    | left=expression IS NOT? truth=(TRUE | FALSE | UNKNOWN)         #truthTestExpr
     | left=expression BETWEEN low=expression AND high=expression    #betweenExpr
     | left=expression LIKE right=expression                         #likeExpr
     | NOT expression                                                #notExpr
@@ -1030,6 +1031,7 @@ OR          : O R;
 NOT         : N O T;
 TRUE        : T R U E;
 FALSE       : F A L S E;
+UNKNOWN     : U N K N O W N;
 NULL        : N U L L;
 ASC         : A S C;
 DESC        : D E S C;
@@ -1434,6 +1436,7 @@ fragment LETTER : [a-zA-Z];
 // Non-reserved keywords (can be used as identifiers)
 nonReservedKeyword
     : REFRESH | MATERIALIZED | MATERIALIZE | VIEW | SEMANTIC | FEATURE
+    | UNKNOWN
     | PUBLISH | EXPECTING | EPOCH
     | INCREMENTAL | COMPACT | OPTIMIZE | VACUUM
     | CATALOG | CATALOGS | DESCRIBE | PROPERTIES | CALL

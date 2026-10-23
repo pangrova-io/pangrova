@@ -14,6 +14,7 @@ import org.pangrova.parser.ast.expression.ExtractExpression;
 import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.expression.InExpression;
 import org.pangrova.parser.ast.expression.IsNullExpression;
+import org.pangrova.parser.ast.expression.TruthTestExpression;
 import org.pangrova.parser.ast.expression.LikeExpression;
 import org.pangrova.parser.ast.expression.MapConstructor;
 import org.pangrova.parser.ast.expression.NotExpression;
@@ -88,6 +89,7 @@ final class ExpressionToSqlNodeConverter {
                 entry(CastExpression.class, e -> convertCast((CastExpression) e)),
                 entry(UnaryMinusExpression.class, e -> convertUnaryMinus((UnaryMinusExpression) e)),
                 entry(IsNullExpression.class, e -> convertIsNull((IsNullExpression) e)),
+                entry(TruthTestExpression.class, e -> convertTruthTest((TruthTestExpression) e)),
                 entry(BetweenExpression.class, e -> convertBetween((BetweenExpression) e)),
                 entry(LikeExpression.class, e -> convertLike((LikeExpression) e)),
                 entry(ExistsExpression.class, e -> convertExists((ExistsExpression) e)),
@@ -324,6 +326,15 @@ final class ExpressionToSqlNodeConverter {
     private SqlNode convertIsNull(IsNullExpression isn) {
         SqlOperator op = isn.negated() ? SqlStdOperatorTable.IS_NOT_NULL : SqlStdOperatorTable.IS_NULL;
         return op.createCall(POS, convert(isn.operand()));
+    }
+
+    private SqlNode convertTruthTest(TruthTestExpression truth) {
+        SqlOperator operator = switch (truth.value()) {
+            case TRUE -> truth.negated() ? SqlStdOperatorTable.IS_NOT_TRUE : SqlStdOperatorTable.IS_TRUE;
+            case FALSE -> truth.negated() ? SqlStdOperatorTable.IS_NOT_FALSE : SqlStdOperatorTable.IS_FALSE;
+            case UNKNOWN -> truth.negated() ? SqlStdOperatorTable.IS_NOT_UNKNOWN : SqlStdOperatorTable.IS_UNKNOWN;
+        };
+        return operator.createCall(POS, convert(truth.operand()));
     }
 
     private SqlNode convertBetween(BetweenExpression bet) {

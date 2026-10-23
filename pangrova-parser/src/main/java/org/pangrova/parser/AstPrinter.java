@@ -11,6 +11,7 @@ import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.expression.InExpression;
 import org.pangrova.parser.ast.expression.InSubqueryExpression;
 import org.pangrova.parser.ast.expression.IsNullExpression;
+import org.pangrova.parser.ast.expression.TruthTestExpression;
 import org.pangrova.parser.ast.expression.LikeExpression;
 import org.pangrova.parser.ast.expression.MapConstructor;
 import org.pangrova.parser.ast.expression.NotExpression;
@@ -196,6 +197,7 @@ public final class AstPrinter {
                 Map.entry(StarFunctionCall.class, e -> printStarFn((StarFunctionCall) e)),
                 Map.entry(LikeExpression.class, e -> printLike((LikeExpression) e)),
                 Map.entry(IsNullExpression.class, e -> printIsNull((IsNullExpression) e)),
+                Map.entry(TruthTestExpression.class, e -> printTruthTest((TruthTestExpression) e)),
                 Map.entry(UnaryMinusExpression.class, e -> printUnaryMinus((UnaryMinusExpression) e)),
                 Map.entry(ExtractExpression.class, e -> printExtract((ExtractExpression) e)),
                 Map.entry(SubstringExpression.class, e -> printSubstringExpr((SubstringExpression) e)),
@@ -353,6 +355,10 @@ public final class AstPrinter {
 
     private String printIsNull(IsNullExpression isNull) {
         return printExpr(isNull.operand()) + (isNull.negated() ? " IS NOT NULL" : " IS NULL");
+    }
+
+    private String printTruthTest(TruthTestExpression truth) {
+        return "(" + printExpr(truth.operand()) + ") IS " + (truth.negated() ? "NOT " : "") + truth.value().name();
     }
 
     private String printUnaryMinus(UnaryMinusExpression unary) {
