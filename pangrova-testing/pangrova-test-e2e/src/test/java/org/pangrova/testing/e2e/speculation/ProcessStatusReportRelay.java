@@ -26,8 +26,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 
-/** Network observation and delay only: all registration, reports and responses come from real processes. */
+/** Observes real processes; optional HTTP endpoint translation routes control traffic through a proxy. */
 @ThreadSafe
 final class ProcessStatusReportRelay implements AutoCloseable {
     private static final Set<String> HOP_HEADERS = Set.of("connection", "content-length", "expect", "host",
@@ -40,6 +41,7 @@ final class ProcessStatusReportRelay implements AutoCloseable {
     private final CopyOnWriteArrayList<Heartbeat> heartbeats = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Throwable> forwardingFailures = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<ReportHold> holds = new CopyOnWriteArrayList<>();
+    private volatile ToIntFunction<WorkerRegistrationRequest> httpPortMapping = WorkerRegistrationRequest::httpPort;
     private volatile URI coordinator;
     private volatile boolean closed;
 
@@ -55,6 +57,11 @@ final class ProcessStatusReportRelay implements AutoCloseable {
     void connect(URI actualCoordinator) {
         if (coordinator != null) throw new IllegalStateException("Coordinator endpoint is already bound");
         coordinator = Objects.requireNonNull(actualCoordinator);
+    }
+
+    void mapWorkerHttpPorts(ToIntFunction<WorkerRegistrationRequest> mapping) {
+        if (!registrations.isEmpty()) throw new IllegalStateException("Workers are already registered");
+        httpPortMapping = Objects.requireNonNull(mapping);
     }
 
     ReportHold holdReports(Predicate<TaskStatusReport> select) {
@@ -80,7 +87,7 @@ final class ProcessStatusReportRelay implements AutoCloseable {
             Registration registration = observeRegistration(exchange, body);
             Heartbeat heartbeat = observeHeartbeat(exchange, body);
             delaySelected(delivery);
-            HttpResponse<byte[]> response = send(exchange, body);
+            HttpResponse<byte[]> response = send(exchange, registration == null ? body : mappedRegistration(registration));
             if (delivery != null) delivery.response().set(response);
             if (registration != null) registration.response().set(response);
             if (heartbeat != null) heartbeat.response().set(response);
@@ -99,6 +106,19 @@ final class ProcessStatusReportRelay implements AutoCloseable {
             forwardingFailures.add(failure);
             throw failure;
         }
+    }
+
+    private byte[] mappedRegistration(Registration registration) throws IOException {
+        var actual = registration.request();
+        int port = httpPortMapping.applyAsInt(actual);
+        if (port == actual.httpPort()) return registration.body();
+        // Only network routing changes. Identity, capabilities, Native endpoints and all task
+        // reports remain the exact production values; keep the original registration for evidence.
+        var forwarded = new WorkerRegistrationRequest(actual.workerId(), actual.httpHost(), port,
+                actual.transportPort(), actual.resultServerPort(), actual.protocolVersion(),
+                actual.rackId(), actual.dataLocality(), actual.shuffleMode(),
+                actual.capabilityInventory(), actual.copyTaskTlsPort());
+        return JsonMapperFactory.shared().writeValueAsBytes(forwarded);
     }
 
     private Delivery observe(HttpExchange exchange, byte[] body) throws IOException {

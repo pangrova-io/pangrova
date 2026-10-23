@@ -3,6 +3,9 @@ package org.pangrova.testing.e2e.speculation;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.extension.TestWatcher;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
 import org.pangrova.testing.ContainerTestBase;
 import org.pangrova.testing.E2ETest;
@@ -20,6 +23,13 @@ import static org.awaitility.Awaitility.await;
 class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
     private static final String READ_SQL = "SELECT MAX(payload) FROM spec_catalog.default.input";
     private static IndependentSpeculationProcesses processes;
+    @RegisterExtension
+    static final TestWatcher DIAGNOSTICS = new TestWatcher() {
+        @Override public void testFailed(ExtensionContext context, Throwable cause) {
+            if (processes != null) cause.addSuppressed(new IllegalStateException(
+                    "Independent speculation diagnostics retained at " + processes.retainDiagnostics()));
+        }
+    };
 
     @BeforeAll
     static void startActualProcesses() throws Exception {
@@ -168,7 +178,7 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
             var original = scenario.original();
             var copy = scenario.copy();
             assertThat(copy.workerId()).isNotEqualTo(original.workerId());
-            assertThat(processes.workers().stream().map(worker -> worker.process().get().getContainerId()).distinct()).hasSize(2);
+            assertThat(processes.workers().stream().map(worker -> processes.pid(worker.workerId())).distinct()).hasSize(2);
             assertThat(processes.workers().stream().map(worker -> worker.http().port()).distinct()).hasSize(2);
             scenario.report(id(copy), "FINISHED");
             assertRead(scenario.complete(true));
