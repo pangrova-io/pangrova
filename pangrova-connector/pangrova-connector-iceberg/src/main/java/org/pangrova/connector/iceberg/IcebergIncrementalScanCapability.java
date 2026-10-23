@@ -17,9 +17,9 @@ import java.util.List;
  * <p>Iceberg supports incremental append scan via snapshot-diff but does
  * not natively produce a changelog stream. The {@link #isAppendOnly}
  * method walks the snapshot chain from {@code toSnapshotId} back to
- * {@code fromSnapshotId} and checks each intermediate snapshot for
- * delete manifests — their presence indicates non-append operations
- * (equality deletes, position deletes, or overwrites).</p>
+ * {@code fromSnapshotId} and requires each intermediate operation to be an
+ * append without delete manifests. Overwrites can remove data files without
+ * creating delete manifests.</p>
  *
  * <p>Thread-safe: all state is final and Iceberg Catalog is safe for
  * concurrent reads.</p>
@@ -47,27 +47,18 @@ public final class IcebergIncrementalScanCapability implements IncrementalScanCa
     /**
      * {@inheritDoc}
      *
-     * <p>Iceberg snapshot IDs are non-sequential random longs, so the
-     * numeric comparison {@code fromSnapshotId > toSnapshotId} serves
-     * as a fast-fail contract check per the SPI specification. When
-     * {@code fromSnapshotId == toSnapshotId}, no changes exist and the
-     * method returns {@code true} without loading the table.</p>
+     * <p>Iceberg snapshot IDs are opaque positive identifiers; only parent
+     * ancestry establishes the direction of an interval. Equal endpoints are
+     * append-only only when that snapshot actually exists.</p>
      *
      * <p>For the actual range check, the method walks the snapshot
      * parent chain from {@code toSnapshotId} back to
-     * {@code fromSnapshotId}, inspecting each snapshot for delete
-     * manifests.</p>
+     * {@code fromSnapshotId}, inspecting each operation and its delete manifests.</p>
      */
     @Override
     public boolean isAppendOnly(String tableName, long fromSnapshotId, long toSnapshotId) {
-        if (fromSnapshotId > toSnapshotId) {
-            throw new IllegalArgumentException(
-                    "fromSnapshotId (" + fromSnapshotId
-                            + ") must not be greater than toSnapshotId ("
-                            + toSnapshotId + ")");
-        }
-        if (fromSnapshotId == toSnapshotId) {
-            return true;
+        if (fromSnapshotId <= 0 || toSnapshotId <= 0) {
+            throw new IllegalArgumentException("Snapshot identifiers must be positive");
         }
 
         TableIdentifier tableId = parseTableIdentifier(tableName);
@@ -75,7 +66,7 @@ public final class IcebergIncrementalScanCapability implements IncrementalScanCa
 
         List<Snapshot> rangeSnapshots = collectSnapshotsInRange(
                 table, fromSnapshotId, toSnapshotId);
-        return hasNoDeleteManifests(table, rangeSnapshots);
+        return containsOnlyAppends(table, rangeSnapshots);
     }
 
     /**
@@ -116,12 +107,12 @@ public final class IcebergIncrementalScanCapability implements IncrementalScanCa
     private record SnapshotChainResult(List<Snapshot> snapshots, boolean foundTarget) { }
 
     /**
-     * Returns {@code true} if none of the given snapshots contain
-     * delete manifests.
+     * Returns {@code true} only for append operations without delete manifests.
+     * An overwrite can remove rows without producing a delete manifest.
      */
-    private boolean hasNoDeleteManifests(Table table, List<Snapshot> snapshots) {
+    private boolean containsOnlyAppends(Table table, List<Snapshot> snapshots) {
         for (Snapshot snapshot : snapshots) {
-            if (!snapshot.deleteManifests(table.io()).isEmpty()) {
+            if (!"append".equals(snapshot.operation()) || !snapshot.deleteManifests(table.io()).isEmpty()) {
                 LOG.debug("event=delete_manifests_found snapshot_id={} table={}",
                         snapshot.snapshotId(), table.name());
                 return false;
