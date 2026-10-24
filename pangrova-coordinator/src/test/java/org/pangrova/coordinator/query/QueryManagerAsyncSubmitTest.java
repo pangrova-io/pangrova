@@ -345,6 +345,73 @@ class QueryManagerAsyncSubmitTest {
     }
 
     @Test
+    void realDispatcherFailureRetainsAdmissionUntilFailedStateIsPublished() {
+        var dependencies = SlowQueryDispatcher.buildMinimalContext();
+        try (var remote = (RemoteTaskDispatcher) dependencies.dispatcher()) {
+            var dispatcher = new QueryDispatcher(dependencies, null, null);
+            var manager = new QueryManager(QueryManagerContext.minimalAsync(
+                    dispatcher, TestObservability.TRACING,
+                    AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
+            String queryId = "real-dispatch-failure";
+
+            assertThatThrownBy(() -> manager.submitQuery(queryId, "THIS IS NOT VALID SQL !!!",
+                    new CoordinatorSessionContext(queryId, java.util.Map.of(),
+                            new org.pangrova.spi.security.UserIdentity("test-user", java.util.Set.of("public"),
+                                    java.util.Map.of(), java.time.Instant.EPOCH), "default")))
+                    .isInstanceOf(org.pangrova.parser.ParseException.class);
+            assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FAILED);
+            assertThat(manager.getQueryError(queryId)).isPresent();
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() -> {
+                // The minimal fixture has no production cleanup scheduler; drive its actual retry tick.
+                manager.retryPendingTerminalCompletions();
+                assertThat(manager.getActiveQueryCount()).isZero();
+            });
+        }
+    }
+
+    @Test
+    void failureAfterWriteReadinessStillPublishesFailedState() {
+        var failDispatch = new CountDownLatch(1);
+        var executingState = new AtomicReference<QueryStateMachine>();
+        var compiler = new SqlCompiler() {
+            @Override
+            public org.pangrova.planner.PlanResult compileForPolicyApplication(String sql) {
+                var state = executingState.get();
+                state.tryTransition(QueryStateMachine.State.SCHEDULING);
+                state.tryTransition(QueryStateMachine.State.RUNNING);
+                state.markWriteDispatchReady();
+                await(failDispatch);
+                throw new org.pangrova.spi.security.AccessDeniedException("publication permission revoked");
+            }
+        };
+        var dependencies = SlowQueryDispatcher.buildMinimalContext(compiler);
+        try (var remote = (RemoteTaskDispatcher) dependencies.dispatcher()) {
+            var dispatcher = new QueryDispatcher(dependencies, null, null) {
+                @Override
+                public DispatchResult execute(QueryStateMachine sm, String sql, CoordinatorSessionContext session) {
+                    executingState.set(sm);
+                    return super.execute(sm, sql, session);
+                }
+            };
+            var manager = new QueryManager(QueryManagerContext.minimalAsync(
+                    dispatcher, TestObservability.TRACING,
+                    AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
+            String queryId = "failure-after-readiness";
+            var submitted = manager.submitQuery(queryId, "SELECT 1",
+                    org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session(queryId));
+            assertThat(submitted.state()).isEqualTo("RUNNING");
+            failDispatch.countDown();
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() -> {
+                assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FAILED);
+                assertThat(manager.getQueryError(queryId).orElseThrow().errorCode()).isEqualTo("SECURITY-0002");
+                assertThat(manager.getActiveQueryCount()).isZero();
+            });
+        } finally {
+            failDispatch.countDown();
+        }
+    }
+
+    @Test
     @DisplayName("terminal write failure wakes submit before endpoint timeout")
     void terminalFailurePreservesCommitErrorBeforeEndpointTimeout() throws Exception {
         CountDownLatch dispatched = new CountDownLatch(1);
@@ -488,7 +555,10 @@ class QueryManagerAsyncSubmitTest {
         }
 
         private static QueryDispatcherContext buildMinimalContext() {
-            SqlCompiler compiler = new SqlCompiler();
+            return buildMinimalContext(new SqlCompiler());
+        }
+
+        private static QueryDispatcherContext buildMinimalContext(SqlCompiler compiler) {
             TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
             return QueryDispatcherContext.withDefaults(
                     compiler, null, null, null,

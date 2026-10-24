@@ -70,7 +70,9 @@ final class QueryAsyncSubmission {
                 } catch (RuntimeException | Error failure) {
                     context.failure().set(failure);
                     LOG.error("event=async_query_execution_failed queryId={}", context.queryId(), failure);
-                    fail(context, "INTERNAL_ERROR", failure.getClass().getSimpleName(),
+                    String code = failure instanceof PangrovaException known
+                            ? known.getErrorCode().getCode() : "INTERNAL_ERROR";
+                    fail(context, code, failure.getClass().getSimpleName(),
                             String.valueOf(failure.getMessage()), "async_dispatch_failed");
                 } finally {
                     org.pangrova.observability.logging.LogContext.restore(previousLogContext);

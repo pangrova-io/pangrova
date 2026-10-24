@@ -1267,6 +1267,22 @@ Query execution anchors are renewed in a batch for one exact Coordinator incarna
 
 If any node crashes mid-operation, does the system recover to a consistent state? Task state must be persisted to WAL before dispatch. Workers deduplicate by task ID + attempt number. Orphaned files cleaned by background GC.
 
+QueryManager owns failure publication and physical cleanup. QueryDispatcher propagates
+execution failures while retaining the metadata admission needed to record FAILED.
+In particular, once an asynchronous write submission has returned, early dispatcher
+cleanup can claim the drained execution scope and permanently close that admission;
+the original exception then exists only in the background Future while clients keep
+seeing RUNNING. The manager records the failure before its existing terminal cleanup
+path seals issuance, cancels outstanding tasks, verifies exact drain receipts, and
+releases ownership. Typed Pangrova errors retain their stable code in asynchronous
+query status, including authorization failures after a Native commit.
+
+The lifecycle review also checked [Trino's failure transition](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/execution/QueryStateMachine.java):
+it retains the original failure before notifying state listeners and protects failure
+publication from cleanup exceptions. Pangrova additionally requires its metadata
+admission to remain open until the terminal transition; its physical cleanup order
+must respect that local invariant rather than copying another engine's call order.
+
 ### 4. Slow-Node Tolerance
 
 Can a slow node block the entire operation indefinitely? Worker heartbeat timeout (default 60s) prevents false positives. Circuit breaker on metadata store after 5 consecutive slow responses.
