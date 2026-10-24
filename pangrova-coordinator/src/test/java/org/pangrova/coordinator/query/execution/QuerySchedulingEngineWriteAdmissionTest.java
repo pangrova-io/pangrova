@@ -418,7 +418,8 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         return new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(other, request.session(), request.writeMode(),
                 request.observedReadPermissions(), request.requiredWritePrivileges(),
                 new org.pangrova.spi.coordination.WriteDeclarationSnapshot(other, declaration.schemaSha256(),
-                        declaration.generatedColumnsSha256(), declaration.hasGeneratedColumns()));
+                        declaration.generatedColumnsSha256(), declaration.hasGeneratedColumns()),
+                request.internalMaterializationExecution());
     }
 
     private static CoordinatorSessionContext session(String queryId) {

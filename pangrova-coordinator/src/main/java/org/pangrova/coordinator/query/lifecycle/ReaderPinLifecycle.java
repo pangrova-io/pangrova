@@ -11,6 +11,9 @@ import java.util.Collection;
  */
 public interface ReaderPinLifecycle {
 
+    /** Default renewal period; well inside the kernel's pin lease window. */
+    Duration DEFAULT_RENEW_INTERVAL = Duration.ofSeconds(20);
+
     /** Lifecycle used when no materialization authority is wired. */
     ReaderPinLifecycle NOOP = new ReaderPinLifecycle() {
         @Override
@@ -42,6 +45,6 @@ public interface ReaderPinLifecycle {
      * @return renewal period in nanoseconds
      */
     default long renewIntervalNanos() {
-        return Duration.ofSeconds(20).toNanos();
+        return DEFAULT_RENEW_INTERVAL.toNanos();
     }
 }

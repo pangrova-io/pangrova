@@ -23,7 +23,7 @@ public interface GeneratedWriteAuthoritySupplier {
     record WriteAuthorityRequest(
             QualifiedTableName table, ConnectorSession session, String writeMode,
             List<TablePermission> observedReadPermissions, Set<Privilege> requiredWritePrivileges,
-            WriteDeclarationSnapshot compiledDeclaration) {
+            WriteDeclarationSnapshot compiledDeclaration, boolean internalMaterializationExecution) {
         public WriteAuthorityRequest {
             Objects.requireNonNull(table, "table");
             Objects.requireNonNull(session, "session");

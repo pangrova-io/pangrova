@@ -31,6 +31,10 @@ public final class PlanningIncrementalSelectors {
             if (table == null || table.isBlank() || range == null) {
                 throw new IllegalArgumentException("Resolved incremental range selector is invalid");
             }
+            if (table.startsWith(PROPERTY_PREFIX)) {
+                throw new IllegalArgumentException(
+                        "Incremental range selector must be an unqualified table key: " + table);
+            }
             properties.put(PROPERTY_PREFIX + table.toLowerCase(Locale.ROOT), range.encode());
         });
         return new SelectedSession(session.getUser(), session.getCatalog(), session.getSchema(),

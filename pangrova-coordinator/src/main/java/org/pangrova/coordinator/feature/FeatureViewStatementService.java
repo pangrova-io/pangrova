@@ -223,8 +223,7 @@ public final class FeatureViewStatementService {
         var properties = new java.util.HashMap<>(session.sessionProperties());
         properties.put("catalog", source.catalog());
         properties.put("schema", source.schema());
-        return new CoordinatorSessionContext(session.queryId(), properties,
-                session.userIdentity(), session.tenantId(), session.queryAuthority(), session.traceContext());
+        return session.withSessionProperties(properties);
     }
 
     private Actor requireActor(CoordinatorSessionContext session) {

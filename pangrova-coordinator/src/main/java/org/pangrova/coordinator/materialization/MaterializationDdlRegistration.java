@@ -34,6 +34,20 @@ public final class MaterializationDdlRegistration {
     private MaterializationDdlRegistration() {
     }
 
+    /**
+     * Registers the unified materialization DDL handlers.
+     *
+     * @param factory metadata execution factory receiving the handlers
+     * @param repository durable materialization repository
+     * @param catalog published-materialization read model
+     * @param catalogs connector catalog registry
+     * @param coordination leader election
+     * @param tableDdl shared table DDL executor
+     * @param dmlDispatch native DML compile function
+     * @param metadataDataSource metadata data source
+     * @param accessControl authorization policy
+     * @return the wired kernel factory
+     */
     public static MaterializationKernelFactory register(MetadataExecutionFactory factory,
             JdbcMaterializationRepository repository,
             JdbcMaterializationCatalog catalog,

@@ -3,12 +3,17 @@ package org.pangrova.spi.connector.metadata.table;
 import org.pangrova.spi.annotation.Experimental;
 
 /**
- * Inclusive snapshot interval selecting only rows appended to a source.
+ * Snapshot interval selecting only rows appended to a source.
  *
  * <p>The range is carried by a connector table handle when a materialization
  * refresh reads a proven append-only change set. It is authoritative only when
  * produced by the coordinator from a pinned source vector; client session
  * properties can never create one.
+ *
+ * <p>Snapshot identifiers are opaque provider values, not ordered counters:
+ * Iceberg generates random 63-bit ids, so only the provider can prove that the
+ * target snapshot descends from the base snapshot. The range therefore validates
+ * identity only, and the connector rejects a pair that is not an append chain.
  *
  * @param fromInclusive base snapshot the change set starts after
  * @param toInclusive target snapshot the change set ends at
@@ -20,8 +25,11 @@ public record SnapshotRange(long fromInclusive, long toInclusive) {
         if (fromInclusive <= 0) {
             throw new IllegalArgumentException("fromInclusive must be positive");
         }
-        if (toInclusive <= fromInclusive) {
-            throw new IllegalArgumentException("toInclusive must be greater than fromInclusive");
+        if (toInclusive <= 0) {
+            throw new IllegalArgumentException("toInclusive must be positive");
+        }
+        if (toInclusive == fromInclusive) {
+            throw new IllegalArgumentException("toInclusive must differ from fromInclusive");
         }
     }
 

@@ -9,6 +9,7 @@ import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlNode;
+import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
@@ -111,8 +112,12 @@ public final class PangrovaPlanner {
         DynamicTableSqlRewriter dynamicTableSqlRewriter = deps.dynamicTableRewriter() != null
                 ? new DynamicTableSqlRewriter(this.parserFactory, deps.dynamicTableRewriter())
                 : null;
+        DynamicTableAstRewriter dynamicTableAstRewriter = deps.dynamicTableRewriter() != null
+                ? new DynamicTableAstRewriter(deps.dynamicTableRewriter())
+                : null;
         this.dynamicTablePlanningSupport =
-                new DynamicTablePlanningSupport(this.parserFactory, dynamicTableSqlRewriter);
+                new DynamicTablePlanningSupport(this.parserFactory, dynamicTableSqlRewriter,
+                        dynamicTableAstRewriter);
         this.versionPinner = deps.metadataVersionProvider() != null
                 ? new CrossCatalogVersionPinner(deps.metadataVersionProvider()) : null;
         // CBO disabled by default: Calcite RelDecorrelator hits internal assertion
@@ -299,7 +304,8 @@ public final class PangrovaPlanner {
      * @return plan result containing the optimized RelNode
      */
     public PlanResult planFromAst(org.pangrova.parser.ast.Statement stmt) {
-        SqlNode sqlNode = parserFactory.convertAstToSqlNode(stmt);
+        var rewrite = dynamicTablePlanningSupport.rewriteAstIfWired(stmt);
+        SqlNode sqlNode = parserFactory.convertAstToSqlNode(rewrite.statement());
         SqlValidator validator = buildValidator();
         SqlNode validated = validate(validator, sqlNode);
         RelOptCluster cluster = buildCluster();
@@ -308,7 +314,8 @@ public final class PangrovaPlanner {
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
         if (containsMutation(relNode)) {
             verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of());
+            return new PlanResult(relNode, preOptColumnNames, List.of(),
+                    rewrite.physicalToLogical());
         }
         RelNode optimized = optimizationRunner.optimize(relNode);
         List<RuntimeFilterDescriptor> filterDescriptors =
@@ -317,7 +324,8 @@ public final class PangrovaPlanner {
                 materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
         recordConstantFold(materializedViewRewritten);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors);
+        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors,
+                rewrite.physicalToLogical());
     }
 
     // ---- Cross-catalog metadata version pinning ----

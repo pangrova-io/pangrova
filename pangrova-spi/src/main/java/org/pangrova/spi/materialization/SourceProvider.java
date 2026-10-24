@@ -34,6 +34,22 @@ public interface SourceProvider {
     MaterializationCapabilities capabilities(SourceRef source);
 
     /**
+     * Returns the source columns a partition-replace change set identifies
+     * partitions by.
+     *
+     * <p>Planning uses this to verify that a definition exposes every
+     * partition column before offering partition replacement. A source
+     * without identity partitioning, or a connector that cannot prove
+     * partition replacement, returns an empty list.
+     *
+     * @param source source table
+     * @return partition column names, empty when partition replacement is unavailable
+     */
+    default java.util.List<String> partitionColumns(SourceRef source) {
+        return java.util.List.of();
+    }
+
+    /**
      * Describes an exact source snapshot previously observed by the planner.
      *
      * <p>The provider is the authority for snapshot identity, schema

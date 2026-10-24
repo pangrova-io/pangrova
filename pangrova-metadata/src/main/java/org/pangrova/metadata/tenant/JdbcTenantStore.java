@@ -177,6 +177,26 @@ public final class JdbcTenantStore implements TenantStore {
     public static void requireDeferredTenant(
             Connection connection, String principal, String tenantId,
             org.pangrova.security.authz.DeferredAuthorizationScope scope) throws SQLException {
+        requireDeferredTenant(connection, principal, tenantId, scope, table -> false);
+    }
+
+    /**
+     * Validates tenant membership and namespace, exempting engine-owned resources
+     * from the tenant's user-facing catalog/schema restriction.
+     *
+     * <p>Kernel-authored materialization writes name reserved internal tables in
+     * the same catalog. Those tables are not tenant resources, so the tenant
+     * namespace must not reject them, while every user-facing resource in the
+     * same scope is still checked.</p>
+     *
+     * @param engineOwnedResource identifies tables created and owned by the engine
+     */
+    public static void requireDeferredTenant(
+            Connection connection, String principal, String tenantId,
+            org.pangrova.security.authz.DeferredAuthorizationScope scope,
+            java.util.function.Predicate<
+                    org.pangrova.spi.connector.metadata.table.QualifiedTableName>
+                    engineOwnedResource) throws SQLException {
         try (var statement = connection.prepareStatement(
                 "SELECT t.* FROM tenants t JOIN tenant_user_memberships m ON m.tenant_id=t.tenant_id "
                         + "WHERE t.tenant_id=? AND m.user_principal=? AND t.status='ACTIVE'")) {
@@ -190,6 +210,9 @@ public final class JdbcTenantStore implements TenantStore {
                 Tenant tenant = mapTenant(result);
                 for (var permission : scope.permissions()) {
                     var table = permission.table();
+                    if (engineOwnedResource.test(table)) {
+                        continue;
+                    }
                     if ((!tenant.allowedCatalogs().isEmpty() && !tenant.allowedCatalogs().contains(table.catalog()))
                             || (!tenant.allowedSchemas().isEmpty()
                             && !tenant.allowedSchemas().contains(table.schema()))) {

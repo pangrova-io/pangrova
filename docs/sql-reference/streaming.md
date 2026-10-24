@@ -121,7 +121,7 @@ zero lag would mean "always running", which the scheduler does not offer.
 | Mode | Kernel mode | Behavior |
 | --- | --- | --- |
 | omitted, `SNAPSHOT`, or `FULL` | `FULL` | Every refresh recomputes the full definition. Creation bootstraps a full generation. |
-| `AUTO` or `INCREMENTAL` | `INCREMENTAL` | Every refresh must apply a proven change set. The definition must be eligible and the source connector must prove a supported mode (currently append-only). Creation bootstraps the base full generation. |
+| `AUTO` or `INCREMENTAL` | `INCREMENTAL` | Every refresh must apply a proven change set. The definition must be eligible and the source connector must prove a supported mode (append-only or partition replacement). Creation bootstraps the base full generation. |
 | `CDC` | — | Not implemented; the statement is rejected. |
 
 An incremental object never falls back to a full recomputation. If the
@@ -129,14 +129,30 @@ definition or connector cannot prove an incremental change set, creation and
 refresh fail closed with `MATERIALIZATION_INCREMENTAL_UNSUPPORTED`; switch to
 `REFRESH_MODE = FULL` to recompute fully.
 
+A definition that reads another Dynamic Table or Materialized View is always
+full-only. Each publication replaces the upstream physical table, so no change
+proof can span the base generation and the newly pinned upstream table; such a
+definition is rejected at creation when it requests `AUTO` or `INCREMENTAL`.
+
 `INCREMENTAL_STRATEGY` pins how an incremental object applies changes:
 
 | Value | Behavior |
 | --- | --- |
-| omitted or `AUTO` | The kernel selects the first registered strategy the planned definition supports. |
+| omitted or `AUTO` | The kernel selects the first registered strategy the planned definition supports, preferring partition replacement for partition-aligned sources. |
 | `APPEND_ONLY` | Pins append-only merge. The definition must be a single-source projection/filter whose connector can prove an append-only change set. |
-| `PARTITION_REPLACE`, `AFFECTED_KEY` | Parsed and mapped to kernel strategies, but rejected until the deployment registers them. |
+| `PARTITION_REPLACE` | Pins partition replacement. The source connector must expose identity partitions and the definition must project every partition column directly. A single-table grouping aggregate is accepted when every partition column is a grouping key. |
+| `AFFECTED_KEY` | Parsed and mapped to the kernel strategy, but rejected until the deployment registers it. |
 | `CDC` | Rejected. |
+
+`PARTITION_REPLACE` replaces only the partitions whose data or delete files
+changed in the interval, including deletes and file rewrites that an append-only
+proof cannot cover. It copies the unchanged base partitions and recomputes the
+definition for changed partitions, so the definition must expose each
+partition column as a directly derived output column. A partition column that
+is projected through an expression, or an aggregate that does not group by a
+partition column, makes the object ineligible at creation. When the column is
+not exposed, pin `INCREMENTAL_STRATEGY = APPEND_ONLY` if the connector can
+prove append-only intervals.
 
 `INCREMENTAL_STRATEGY` is only valid with `REFRESH_MODE = AUTO` or
 `INCREMENTAL`; a full-refresh object that carries a strategy is rejected at
@@ -184,9 +200,10 @@ FROM prod.analytics.orders
 WHERE status = 'completed';
 ```
 
-`AUTO` currently proves append-only change sets for a single-source
-projection/filter definition. Joins, aggregates, unions, and connectors without
-an append-only proof are rejected rather than silently recomputed.
+`AUTO` proves append-only change sets for a single-source projection/filter
+definition, and partition replacement for a partition-aligned projection or
+grouping aggregate. Joins, unions, windows, and connectors without a matching
+proof are rejected rather than silently recomputed.
 
 **With CDC refresh mode (not implemented):**
 
@@ -217,6 +234,12 @@ ALTER DYNAMIC TABLE prod.analytics.daily_revenue_summary SUSPEND;
 ```sql
 ALTER DYNAMIC TABLE prod.analytics.daily_revenue_summary RESUME;
 ```
+
+`SUSPEND` moves an active object into the durable `SUSPENDED` state and
+suspends its schedule; an explicit `REFRESH` is rejected until `RESUME`
+restores the `ACTIVE` state and the schedule. The published generation stays
+readable while suspended. A manual-only object has no schedule to suspend and
+is left unchanged.
 
 **REFRESH (manual trigger):**
 
@@ -280,7 +303,9 @@ Without `CASCADE`, the statement fails while another live materialization
 consumes the target. `DROP ... CASCADE` drops every transitive dependent first,
 deepest dependent first, so no live definition ever references a dropped
 object. Physical generations are retained until reader pins and GC allow
-collection.
+collection. The dropped name keeps a durable tombstone, and creating the same
+name again starts a new incarnation at definition revision 1 instead of
+reusing the old identity; earlier generations stay collectable history.
 
 ### SHOW DYNAMIC TABLES
 
@@ -364,7 +389,9 @@ ALTER MATERIALIZED VIEW prod.analytics.daily_revenue_mv
 `SET REFRESH_MODE` and `RENAME TO` follow the dynamic-table semantics: the mode
 change publishes a forced full generation before the new configuration is
 committed, and a rename preserves definitions, generations, and the schedule
-while rejecting live dependents.
+while rejecting live dependents. `SUSPEND` and `RESUME` also follow the
+dynamic-table contract: a suspended view keeps serving its published head but
+rejects explicit refreshes until resumed.
 
 Apart from `CREATE OR REPLACE`, `ALTER` manages scheduling and refresh only; it
 never changes the stored definition. A definition change requires `CREATE OR

@@ -39,6 +39,7 @@ import org.pangrova.materialization.extension.MaterializationExtensionRegistry;
 import org.pangrova.materialization.port.SourcePinning;
 import org.pangrova.materialization.strategy.AppendOnlyRefreshStrategy;
 import org.pangrova.materialization.strategy.FullRefreshStrategy;
+import org.pangrova.materialization.strategy.PartitionReplaceRefreshStrategy;
 import org.pangrova.spi.materialization.ChangeProof;
 import org.pangrova.spi.materialization.ChangeSetMode;
 import org.pangrova.spi.materialization.ChangeSetPlan;
@@ -120,6 +121,16 @@ public final class MaterializationTestFixtures {
             fingerprints.put(source, "policy-fingerprint");
         }
         return new PolicySnapshot(fingerprints);
+    }
+
+    public static MaterializationObject header(MaterializationId object) {
+        return MaterializationObject.creating(object, MaterializationKind.DYNAMIC_TABLE,
+                INCARNATION, DEFINER, SecurityMode.DEFINER, RefreshMode.FULL, Optional.empty(),
+                NOW);
+    }
+
+    public static DefinitionRevision definition(MaterializationId object, SourceVector vector) {
+        return definition(object, 1, "SELECT id, name FROM orders", vector.snapshots().keySet());
     }
 
     public static DefinitionRevision definition(MaterializationId object, long revision, String sql) {
@@ -211,18 +222,11 @@ public final class MaterializationTestFixtures {
             Optional<GenerationId> base) {
         return RefreshAttempt.reserve(
                 attemptId,
-                object,
-                INCARNATION,
-                1,
-                0,
-                base,
-                kind,
-                vector,
-                TriggerKind.MANUAL,
+                header(object),
+                definition(object, vector),
                 REQUESTER,
-                DEFINER,
-                fence(),
-                candidate,
+                new RefreshAttempt.AttemptScope(
+                        base, kind, vector, TriggerKind.MANUAL, fence(), candidate),
                 NOW);
     }
 
@@ -234,7 +238,8 @@ public final class MaterializationTestFixtures {
     public static MaterializationExtensionRegistry extensions() {
         return new MaterializationExtensionRegistry(
                 List.of(),
-                List.of(new FullRefreshStrategy(), new AppendOnlyRefreshStrategy()),
+                List.of(new FullRefreshStrategy(), new AppendOnlyRefreshStrategy(),
+                        new PartitionReplaceRefreshStrategy()),
                 List.of(),
                 List.of());
     }
@@ -248,6 +253,8 @@ public final class MaterializationTestFixtures {
         private RuntimeException pinFailure;
         private RuntimeException unpinFailure;
         private RuntimeException changeSetFailure;
+        private java.util.List<org.pangrova.spi.materialization.PartitionChange> partitionChanges =
+                java.util.List.of();
         private int failingPinCall = -1;
         private int pinCalls;
         private java.util.function.UnaryOperator<PinnedSource> pinResponse = source -> source;
@@ -290,6 +297,12 @@ public final class MaterializationTestFixtures {
             this.pinResponse = response;
         }
 
+        /** Makes subsequent partition-replace change sets report these partitions. */
+        public void respondWithPartitions(
+                java.util.List<org.pangrova.spi.materialization.PartitionChange> changes) {
+            this.partitionChanges = java.util.List.copyOf(changes);
+        }
+
         @Override
         public PinnedSource pin(String tenant, SourceRef source, SourceSnapshotRef expected,
                 String pinOwner) {
@@ -313,7 +326,8 @@ public final class MaterializationTestFixtures {
                 throw failure;
             }
             ChangeSetPlan plan = new ChangeSetPlan(from.source(), from.snapshot(), to.snapshot(),
-                    mode, "change-set-" + changeSets.size(), NOW);
+                    mode, "change-set-" + changeSets.size(), NOW,
+                    mode == ChangeSetMode.PARTITION_REPLACE ? partitionChanges : java.util.List.of());
             changeSets.add(plan);
             return plan;
         }

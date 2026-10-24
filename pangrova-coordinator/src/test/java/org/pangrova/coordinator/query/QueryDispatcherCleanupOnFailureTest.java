@@ -147,11 +147,10 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
 
         assertThrows(NoAvailableWorkerException.class, () -> dispatcher.execute(state, SQL, admittedSession));
 
-        // Direct dispatch releases its resources; QueryManager owns durable terminalization.
+        // QueryManager publishes the failure, then claims the physical cleanup.
         assertThat(state.getState()).isEqualTo(QueryStateMachine.State.SCHEDULING);
-        assertThat(registered.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).isEmpty();
-        assertThat(unrelated.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         dispatcher.cleanupQuery(session.queryId());
+        assertThat(registered.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).isEmpty();
         assertThat(unrelated.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         unrelatedOwner.seal();
         unrelated.cleanupQuery(unrelatedOwner.authority());
@@ -175,11 +174,10 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         assertThrows(NoAvailableWorkerException.class,
                 () -> dispatcher.execute(state, SQL, admittedSession));
 
+        dispatcher.cleanupQuery(failing.queryId());
         assertThat(connector.getPinnedSnapshot(failing.queryId(), SCHEMA, TABLE)).isEmpty();
         connector.pinSnapshotForQuery(failing.queryId(), SCHEMA, TABLE, snapshotId);
         assertThat(connector.getPinnedSnapshot(failing.queryId(), SCHEMA, TABLE)).isEmpty();
-        assertThat(connector.getPinnedSnapshot(other.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
-        dispatcher.cleanupQuery(failing.queryId());
         assertThat(connector.getPinnedSnapshot(other.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         otherOwner.seal();
         connector.cleanupQuery(otherOwner.authority());

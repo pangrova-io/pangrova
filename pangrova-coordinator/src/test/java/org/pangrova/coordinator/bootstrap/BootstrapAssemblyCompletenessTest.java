@@ -346,7 +346,8 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
                         org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
                         new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
-                        null, null, null, null, null, null, null, null), shuffleDirectory);
+                        null, null, null, null, null, null, null, null,
+                        org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory()), shuffleDirectory);
         workerBootstrap.start();
 
         assertThat(workerBootstrap.getTaskManager()).isNotNull();
@@ -396,7 +397,8 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
                         org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
                         new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
-                        null, null, null, null, null, null, null, null), shuffleDirectory);
+                        null, null, null, null, null, null, null, null,
+                        org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory()), shuffleDirectory);
         workerBootstrap.start();
 
         assertThat(workerBootstrap.isStarted()).isTrue();
@@ -414,7 +416,8 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
                         org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
                         new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
-                        null, null, null, null, null, null, null, null), shuffleDirectory);
+                        null, null, null, null, null, null, null, null,
+                        org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory()), shuffleDirectory);
         workerBootstrap.start();
 
         assertThatCode(() -> workerBootstrap.shutdown()).doesNotThrowAnyException();

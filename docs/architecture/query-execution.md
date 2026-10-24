@@ -2348,8 +2348,9 @@ DROP TABLE IF EXISTS catalog.db.orders PURGE;    -- Also delete data files
 
 INSERT INTO catalog.db.orders VALUES (1, 100, 99.99, DATE '2024-01-01', 'pending');
 INSERT INTO catalog.db.orders SELECT * FROM staging.orders WHERE date = '2024-01-01';
-INSERT OVERWRITE catalog.db.orders PARTITION (order_date = '2024-01-01')
-    SELECT * FROM staging.orders WHERE date = '2024-01-01';
+INSERT OVERWRITE catalog.db.orders (id, customer_id, amount, status)
+    PARTITION (order_date = DATE '2024-01-01')
+    VALUES (1, 100, 99.99, 'pending');
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- UPDATE / DELETE

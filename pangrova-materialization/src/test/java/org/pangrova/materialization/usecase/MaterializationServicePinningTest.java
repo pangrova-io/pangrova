@@ -26,7 +26,6 @@ import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.domain.PinState;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.RefreshAttempt;
@@ -200,7 +199,8 @@ class MaterializationServicePinningTest {
                 Optional.empty(),
                 Optional.<TargetLag>empty(),
                 Map.of(),
-                new CommandId("create-pin-1"));
+                new CommandId("create-pin-1"),
+                false);
     }
 
     private MaterializationService service(SourceVector vector) {
@@ -210,7 +210,8 @@ class MaterializationServicePinningTest {
                 vector,
                 Set.of(),
                 MaterializationTestFixtures.policies(vector.snapshots().keySet()),
-                Set.of(RefreshKind.Full.INSTANCE));
+                Set.of(RefreshKind.Full.INSTANCE),
+                org.pangrova.materialization.domain.PartitionAlignment.NONE);
         return new MaterializationService(new KernelPorts(
                 repository, new EmptyCatalog(), planner, execution, pins, authorizer,
                 runtime, runtime, verification -> {
@@ -250,11 +251,6 @@ class MaterializationServicePinningTest {
 
         @Override
         public void requireRead(MaterializationId object, Principal requester) {
-        }
-
-        @Override
-        public PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources) {
-            throw new UnsupportedOperationException();
         }
 
         @Override

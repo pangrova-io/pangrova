@@ -33,6 +33,13 @@ public final class ReaderPinLeases {
         this(repository, clock, DEFAULT_LEASE);
     }
 
+    /**
+     * Creates a lease registry with an explicit lease duration.
+     *
+     * @param repository durable reader pin store
+     * @param clock time source
+     * @param lease pin lease duration
+     */
     public ReaderPinLeases(MaterializationRepository repository, Clock clock, Duration lease) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");

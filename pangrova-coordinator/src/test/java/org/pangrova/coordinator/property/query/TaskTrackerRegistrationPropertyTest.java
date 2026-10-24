@@ -63,7 +63,8 @@ class TaskTrackerRegistrationPropertyTest {
         workerHttpServer.start();
 
         taskTracker = new CoordinatorTaskTracker();
-        orchestrator = buildOrchestrator(workerHttpServer.getPort());
+        orchestrator = buildOrchestrator(workerHttpServer.getPort(),
+                workerTaskManager.workerExecutionIdentity());
 
         var dagEngine = orchestrator.dagEngine();
         workerTaskManager.setAutoFinishReporter(report ->
@@ -133,9 +134,10 @@ class TaskTrackerRegistrationPropertyTest {
                 .map(s -> "q-" + s);
     }
 
-    private QueryDispatcher buildOrchestrator(int workerPort) {
+    private QueryDispatcher buildOrchestrator(int workerPort,
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity workerIdentity) {
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        wm.registerWorker(workerInfo(workerPort));
+        wm.registerWorker(workerInfo(workerPort, workerIdentity));
         RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
         dispatcher.setControlEpochSupplier(() -> 1L);
@@ -154,7 +156,9 @@ class TaskTrackerRegistrationPropertyTest {
                 null, null);
     }
 
-    private static WorkerInfo workerInfo(int httpPort) {
-        return TestWorkerInfoBuilder.active("test-worker", "localhost", httpPort, TRANSPORT_PORT);
+    private static WorkerInfo workerInfo(int httpPort,
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity workerIdentity) {
+        return TestWorkerInfoBuilder.active("test-worker", "localhost", httpPort,
+                TRANSPORT_PORT, workerIdentity);
     }
 }

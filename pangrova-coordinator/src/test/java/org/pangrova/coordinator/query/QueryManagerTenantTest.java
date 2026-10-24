@@ -67,7 +67,8 @@ class QueryManagerTenantTest {
                 null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
         workerHttpServer.start();
 
-        orchestrator = buildOrchestrator(workerHttpServer.getPort());
+        orchestrator = buildOrchestrator(workerHttpServer.getPort(),
+                workerTaskManager.workerExecutionIdentity());
 
         var dagEngine = orchestrator.dagEngine();
         workerTaskManager.setAutoFinishReporter(report ->
@@ -177,7 +178,8 @@ class QueryManagerTenantTest {
                 null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
         localServer.start();
         try {
-            QueryDispatcher orchestrator = buildOrchestrator(localServer.getPort());
+            QueryDispatcher orchestrator = buildOrchestrator(localServer.getPort(),
+                    localTaskManager.workerExecutionIdentity());
             var dagEngine = orchestrator.dagEngine();
             localTaskManager.setAutoFinishReporter(report ->
                     dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
@@ -200,12 +202,13 @@ class QueryManagerTenantTest {
         }
     }
 
-    private static QueryDispatcher buildOrchestrator(int workerPort) {
+    private static QueryDispatcher buildOrchestrator(int workerPort,
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity workerIdentity) {
         SqlCompiler compiler = new SqlCompiler();
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         wm.registerWorker(TestWorkerInfoBuilder.active(
-                "test-w", "localhost", workerPort, 0));
+                "test-w", "localhost", workerPort, 0, workerIdentity));
         RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
         dispatcher.setControlEpochSupplier(() -> 1L);

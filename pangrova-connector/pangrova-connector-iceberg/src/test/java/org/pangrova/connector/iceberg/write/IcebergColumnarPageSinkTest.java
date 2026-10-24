@@ -112,15 +112,16 @@ class IcebergColumnarPageSinkTest {
             assertThat(allocator.getAllocatedMemory()).isZero();
             metadata = sink.finishWithMetadata();
         }
-        if (overwrite && !partitioned) {
-            // An unpartitioned overwrite must still describe the empty replacement
-            // so the coordinator can remove rows from an existing table.
+        if (overwrite) {
+            // An overwrite describes the complete replacement, including an
+            // empty one: an unscoped overwrite must clear the table rather
+            // than leave the previous content behind.
             JsonNode commit = new ObjectMapper().readTree(metadata);
             assertThat(commit.path("operation").asText()).isEqualTo("OVERWRITE");
             assertThat(commit.path("dataFiles").isArray()).isTrue();
             assertThat(commit.path("dataFiles").size()).isZero();
         } else {
-            // Empty append and untouched dynamic-partition overwrite are no-ops.
+            // Empty append is a no-op.
             assertThat(metadata).isEmpty();
         }
         assertThat(readFiles(table, metadata)).isEmpty();

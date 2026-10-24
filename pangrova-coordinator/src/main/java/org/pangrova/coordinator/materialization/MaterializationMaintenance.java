@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -58,6 +57,8 @@ public final class MaterializationMaintenance implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(MaterializationMaintenance.class);
 
+    private static final long SHUTDOWN_TIMEOUT_MILLIS = 10_000L;
+
     private final MaterializationKernelFactory kernels;
     private final HighAvailabilityCoordinationService coordination;
     private final String coordinatorId;
@@ -70,17 +71,30 @@ public final class MaterializationMaintenance implements AutoCloseable {
     private final SourcePinSweeper sourcePins;
     private final MaterializationScheduler scheduler;
     private final ScheduledExecutorService ticker;
+    private final ExecutorService controlExecutor;
     private final ExecutorService refreshExecutor;
     private final Settings settings;
     private final AtomicBoolean running = new AtomicBoolean();
-    private final AtomicBoolean batchScheduled = new AtomicBoolean();
+    private final AtomicBoolean controlScheduled = new AtomicBoolean();
+    private final AtomicBoolean schedulesScheduled = new AtomicBoolean();
     private volatile ScheduledFuture<?> tickTask;
 
+    /**
+     * Creates the maintenance loops.
+     *
+     * @param dependencies physical store, source pinning, executors, and policy
+     * @param kernels unified materialization kernel factory
+     * @param coordination leader election
+     * @param coordinatorId identity of this coordinator
+     * @param queryManager query state machine registry
+     * @param compiler definition compiler
+     * @param results result service used by synthetic refresh queries
+     * @param recovery commit recovery port
+     */
     public MaterializationMaintenance(MaterializationKernelFactory kernels,
             HighAvailabilityCoordinationService coordination, String coordinatorId,
             QueryManager queryManager, SqlCompiler compiler, CoordinatorResultService results,
-            PhysicalGenerationStore store, CommitRecovery recovery, SourcePinning sourcePinning,
-            ScheduledExecutorService ticker, ExecutorService refreshExecutor, Settings settings) {
+            CommitRecovery recovery, Dependencies dependencies) {
         this.kernels = java.util.Objects.requireNonNull(kernels, "kernels");
         this.coordination = java.util.Objects.requireNonNull(coordination, "coordination");
         this.coordinatorId = java.util.Objects.requireNonNull(coordinatorId, "coordinatorId");
@@ -89,15 +103,31 @@ public final class MaterializationMaintenance implements AutoCloseable {
         this.results = java.util.Objects.requireNonNull(results, "results");
         this.repository = kernels.repository();
         this.recovery = java.util.Objects.requireNonNull(recovery, "recovery");
-        this.collector = new GenerationGarbageCollector(repository,
-                java.util.Objects.requireNonNull(store, "store"), kernels.clock());
-        this.sourcePins = new SourcePinSweeper(repository,
-                java.util.Objects.requireNonNull(sourcePinning, "sourcePinning"), kernels.clock());
+        this.collector = new GenerationGarbageCollector(repository, dependencies.store(),
+                kernels.clock());
+        this.sourcePins = new SourcePinSweeper(repository, dependencies.sourcePinning(),
+                kernels.clock());
+        this.settings = dependencies.settings();
         this.scheduler = new MaterializationScheduler(repository, this::refresh,
                 kernels.clock(), settings.scheduler());
-        this.ticker = java.util.Objects.requireNonNull(ticker, "ticker");
-        this.refreshExecutor = java.util.Objects.requireNonNull(refreshExecutor, "refreshExecutor");
-        this.settings = java.util.Objects.requireNonNull(settings, "settings");
+        this.ticker = dependencies.ticker();
+        this.controlExecutor = dependencies.controlExecutor();
+        this.refreshExecutor = dependencies.refreshExecutor();
+    }
+
+    /** Construction-time collaborators of the maintenance loops. */
+    public record Dependencies(PhysicalGenerationStore store, SourcePinning sourcePinning,
+            ScheduledExecutorService ticker, ExecutorService controlExecutor,
+            ExecutorService refreshExecutor, Settings settings) {
+
+        public Dependencies {
+            java.util.Objects.requireNonNull(store, "store");
+            java.util.Objects.requireNonNull(sourcePinning, "sourcePinning");
+            java.util.Objects.requireNonNull(ticker, "ticker");
+            java.util.Objects.requireNonNull(controlExecutor, "controlExecutor");
+            java.util.Objects.requireNonNull(refreshExecutor, "refreshExecutor");
+            java.util.Objects.requireNonNull(settings, "settings");
+        }
     }
 
     /** Starts the leader-gated maintenance tick. */
@@ -115,32 +145,50 @@ public final class MaterializationMaintenance implements AutoCloseable {
         if (!running.get() || !isElected()) {
             return;
         }
-        if (!batchScheduled.compareAndSet(false, true)) {
+        submit(controlScheduled, controlExecutor, this::runControlPlane,
+                "materialization_maintenance_failed");
+        submit(schedulesScheduled, refreshExecutor, this::runSchedules,
+                "materialization_schedules_failed");
+    }
+
+    /**
+     * Runs one unit of maintenance on a dedicated executor.
+     *
+     * <p>Control-plane work and scheduled refreshes use different executors so a
+     * refresh that runs for minutes cannot starve reconciliation, source-pin
+     * reclamation, or GC of subsequent ticks.
+     */
+    private static void submit(AtomicBoolean scheduled, ExecutorService executor,
+            Runnable task, String failureEvent) {
+        if (!scheduled.compareAndSet(false, true)) {
             return;
         }
         try {
-            refreshExecutor.execute(() -> {
+            executor.execute(() -> {
                 try {
-                    runOnce();
+                    task.run();
                 } catch (RuntimeException failure) {
-                    LOG.warn("event=materialization_maintenance_failed error={}",
-                            failure.getMessage(), failure);
+                    LOG.warn("event={} error={}", failureEvent, failure.getMessage(), failure);
                 } finally {
-                    batchScheduled.set(false);
+                    scheduled.set(false);
                 }
             });
         } catch (RejectedExecutionException rejected) {
-            batchScheduled.set(false);
-            LOG.debug("event=materialization_maintenance_rejected");
+            scheduled.set(false);
+            LOG.debug("event=materialization_maintenance_rejected eventName={}", failureEvent);
         }
     }
 
-    /** Runs one maintenance batch: due schedules, recovery, then garbage collection. */
     void runOnce() {
+        runControlPlane();
+        runSchedules();
+    }
+
+    /** Reconciliation, source-pin reclamation, and generation GC. */
+    void runControlPlane() {
         if (!running.get() || !isElected()) {
             return;
         }
-        runSchedules();
         reconcile();
         sweepSourcePins();
         try {
@@ -155,6 +203,9 @@ public final class MaterializationMaintenance implements AutoCloseable {
     }
 
     private void runSchedules() {
+        if (!running.get() || !isElected()) {
+            return;
+        }
         for (int executed = 0; executed < settings.schedulesPerTick() && running.get(); executed++) {
             MaterializationScheduler.Run run;
             try {
@@ -168,7 +219,10 @@ public final class MaterializationMaintenance implements AutoCloseable {
                         failure.getMessage(), failure);
                 return;
             }
-            if (!run.succeeded()) {
+            if (run.deferred()) {
+                LOG.debug("event=materialization_schedule_deferred object={}",
+                        run.claimed().object().canonicalName());
+            } else if (!run.succeeded()) {
                 LOG.warn("event=materialization_schedule_failed object={} error={}",
                         run.claimed().object().canonicalName(),
                         run.failure() == null ? "unknown" : run.failure().getMessage());
@@ -245,7 +299,8 @@ public final class MaterializationMaintenance implements AutoCloseable {
             registered = true;
             CoordinatorSessionContext session = new CoordinatorSessionContext(
                     queryId, definition.sessionProperties(),
-                    new UserIdentity(header.definer().name(), Set.of(), Map.of(), Instant.now()),
+                    new UserIdentity(header.definer().name(), definition.definerGroups(),
+                            Map.of(), Instant.now()),
                     object.tenant().value());
             StatementExecutionContext context = new StatementExecutionContext(
                     state, queryId, session, compiler, results);
@@ -310,7 +365,8 @@ public final class MaterializationMaintenance implements AutoCloseable {
         if (task != null) {
             task.cancel(false);
         }
-        ExecutorDrain.shutdownAndAwait(refreshExecutor, 10_000L);
+        ExecutorDrain.shutdownAndAwait(controlExecutor, SHUTDOWN_TIMEOUT_MILLIS);
+        ExecutorDrain.shutdownAndAwait(refreshExecutor, SHUTDOWN_TIMEOUT_MILLIS);
         LOG.info("event=materialization_maintenance_stopped coordinatorId={}", coordinatorId);
     }
 

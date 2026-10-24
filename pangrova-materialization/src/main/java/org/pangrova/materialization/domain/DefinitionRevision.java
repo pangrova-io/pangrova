@@ -26,6 +26,7 @@ import org.pangrova.spi.materialization.SourceRef;
  * @param policySnapshot source policy fingerprints captured at planning time
  * @param securityMode execution security mode
  * @param definer persisted definer principal
+ * @param definerGroups identity groups bound to the definer when the revision was planned
  * @param sessionProperties planning session properties bound at definition time
  * @param createdAt creation instant
  */
@@ -40,27 +41,63 @@ public record DefinitionRevision(
         PolicySnapshot policySnapshot,
         SecurityMode securityMode,
         Principal definer,
+        Set<String> definerGroups,
         Map<String, String> sessionProperties,
         Instant createdAt) {
 
+    private static final Comparator<Dependency> DEPENDENCY_ORDER =
+            Comparator.comparing((Dependency dependency) -> dependency.upstream().canonicalName())
+                    .thenComparing(dependency -> dependency.kind().name());
+
+    /** Creates a revision whose definer carries no group identity. */
+    public DefinitionRevision(MaterializationId object, long revision, String sql, Binding binding,
+            OutputSchema outputSchema, Set<SourceRef> sources, Set<Dependency> dependencies,
+            PolicySnapshot policySnapshot, SecurityMode securityMode, Principal definer,
+            Map<String, String> sessionProperties, Instant createdAt) {
+        this(object, revision, sql, binding, outputSchema, sources, dependencies, policySnapshot,
+                securityMode, definer, Set.of(), sessionProperties, createdAt);
+    }
+
     public DefinitionRevision {
+        requireIdentity(object, revision);
+        sql = Require.text(sql, "definition sql");
+        requirePayload(binding, outputSchema, sources, dependencies, policySnapshot);
+        sources = Set.copyOf(sources);
+        dependencies = orderedDependencies(object, revision, dependencies);
+        requirePolicyCoverage(policySnapshot, sources);
+        requireSupportedSecurity(securityMode);
+        if (definer == null || createdAt == null) {
+            throw new IllegalArgumentException("definer and createdAt must not be null");
+        }
+        definerGroups = definerGroups == null
+                ? Set.of() : Set.copyOf(new TreeSet<>(definerGroups));
+        sessionProperties = sessionProperties == null
+                ? Map.of() : Map.copyOf(new TreeMap<>(sessionProperties));
+    }
+
+    private static void requireIdentity(MaterializationId object, long revision) {
         if (object == null) {
             throw new IllegalArgumentException("object must not be null");
         }
         if (revision < 1) {
             throw new IllegalArgumentException("definition revision must be positive");
         }
-        sql = Require.text(sql, "definition sql");
+    }
+
+    private static void requirePayload(Binding binding, OutputSchema outputSchema,
+            Set<SourceRef> sources, Set<Dependency> dependencies, PolicySnapshot policySnapshot) {
         if (binding == null || outputSchema == null || policySnapshot == null) {
-            throw new IllegalArgumentException("binding, outputSchema, and policySnapshot must not be null");
+            throw new IllegalArgumentException(
+                    "binding, outputSchema, and policySnapshot must not be null");
         }
         if (sources == null || dependencies == null) {
             throw new IllegalArgumentException("sources and dependencies must not be null");
         }
-        sources = Set.copyOf(sources);
-        TreeSet<Dependency> ordered = new TreeSet<>(
-                Comparator.comparing((Dependency dependency) -> dependency.upstream().canonicalName())
-                        .thenComparing(dependency -> dependency.kind().name()));
+    }
+
+    private static Set<Dependency> orderedDependencies(MaterializationId object, long revision,
+            Set<Dependency> dependencies) {
+        TreeSet<Dependency> ordered = new TreeSet<>(DEPENDENCY_ORDER);
         ordered.addAll(dependencies);
         for (Dependency dependency : ordered) {
             if (!object.equals(dependency.downstream())) {
@@ -71,11 +108,18 @@ public record DefinitionRevision(
                         "dependency revision must match the definition revision");
             }
         }
-        dependencies = Set.copyOf(ordered);
+        return Set.copyOf(ordered);
+    }
+
+    private static void requirePolicyCoverage(PolicySnapshot policySnapshot,
+            Set<SourceRef> sources) {
         if (!policySnapshot.fingerprints().keySet().equals(sources)) {
             throw new IllegalArgumentException(
                     "policy snapshot must contain exactly one entry per source");
         }
+    }
+
+    private static void requireSupportedSecurity(SecurityMode securityMode) {
         if (securityMode == null) {
             throw new IllegalArgumentException("securityMode must not be null");
         }
@@ -83,11 +127,6 @@ public record DefinitionRevision(
             throw MaterializationException.invalidDefinition(
                     "unsupported security mode: " + securityMode);
         }
-        if (definer == null || createdAt == null) {
-            throw new IllegalArgumentException("definer and createdAt must not be null");
-        }
-        sessionProperties = sessionProperties == null
-                ? Map.of() : Map.copyOf(new TreeMap<>(sessionProperties));
     }
 
     /**
@@ -114,6 +153,8 @@ public record DefinitionRevision(
                 .append(securityMode)
                 .append('|')
                 .append(definer.name());
+        definerGroups.stream().sorted()
+                .forEach(group -> canonical.append("|group:").append(group));
         sessionProperties.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .forEach(property -> canonical.append("|prop:")
@@ -123,8 +164,7 @@ public record DefinitionRevision(
                 .sorted(Comparator.comparing(SourceRef::canonicalName))
                 .forEach(source -> canonical.append("|src:").append(source.canonicalName()));
         dependencies.stream()
-                .sorted(Comparator.comparing((Dependency dependency) -> dependency.upstream().canonicalName())
-                        .thenComparing(dependency -> dependency.kind().name()))
+                .sorted(DEPENDENCY_ORDER)
                 .forEach(dependency -> canonical.append("|dep:")
                         .append(dependency.upstream().canonicalName())
                         .append(':')

@@ -115,13 +115,13 @@ final class QueryExecutionBootstrap {
 
     QueryDispatcher buildQueryDispatcher(
             WorkerManager wm, CoordinatorTaskTracker tt, DefaultModuleContext mc,
-            CircuitBreakerPolicy circuitBreaker, CoordinatorResultService resultService,
+            CircuitBreakerPolicy circuitBreaker, CoordinatorResultService resultSvc,
             SplitAssignmentManager splitAssignmentManager,
             SpeculativeStageHandler speculativeStageHandler,
             QueryStateJournal stateJournal) {
         this.workerManager = java.util.Objects.requireNonNull(wm, "workerManager must not be null");
-        this.resultService = java.util.Objects.requireNonNull(resultService, "resultService must not be null");
-        SqlCompiler compiler = mc.require(SqlCompiler.class).withNativeCapabilities(() -> {
+        this.resultService = java.util.Objects.requireNonNull(resultSvc, "resultService must not be null");
+        SqlCompiler scopedCompiler = mc.require(SqlCompiler.class).withNativeCapabilities(() -> {
             var inventories = wm.getActiveWorkers().stream().map(
                     org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList();
             if (inventories.isEmpty()) {
@@ -129,8 +129,8 @@ final class QueryExecutionBootstrap {
             }
             return org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(inventories);
         });
-        mc.bind(SqlCompiler.class, compiler);
-        this.compiler = compiler;
+        mc.bind(SqlCompiler.class, scopedCompiler);
+        this.compiler = scopedCompiler;
         CircuitBreakerPolicy cb = circuitBreaker;
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
                 cb != null ? cb : CircuitBreakerPolicy.noOp(), tracingProvider,
@@ -164,7 +164,7 @@ final class QueryExecutionBootstrap {
                 splitAssignmentManager, speculativeStageHandler,
                 config.spillBudget(),
                 moduleWiring != null ? moduleWiring.getResilienceRegistry() : null);
-        QueryDispatcherContext deps = new QueryDispatcherContext(compiler,
+        QueryDispatcherContext deps = new QueryDispatcherContext(scopedCompiler,
                 security, scheduling,
                 mc.optional(CatalogRegistry.class),
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
@@ -191,7 +191,7 @@ final class QueryExecutionBootstrap {
             });
         }
         var dispatcher = buildStatementDispatcher(
-                compiler, tt, deps, queryDispatcherRef, resultService);
+                scopedCompiler, tt, deps, queryDispatcherRef, this.resultService);
         var qd = new QueryDispatcher(deps, dispatcher, tracingProvider);
         if (writeAuthoritySupplier != null) {
             qd.setGeneratedWriteAuthoritySupplier(writeAuthoritySupplier);
@@ -204,9 +204,9 @@ final class QueryExecutionBootstrap {
     }
 
     private org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher buildStatementDispatcher(
-            SqlCompiler compiler, CoordinatorTaskTracker tt, QueryDispatcherContext deps,
+            SqlCompiler compilerSnapshot, CoordinatorTaskTracker tt, QueryDispatcherContext deps,
             AtomicReference<QueryDispatcher> queryDispatcherRef,
-            CoordinatorResultService resultService) {
+            CoordinatorResultService resultSvc) {
         if (metadataBootstrap == null) {
             return null;
         }
@@ -237,13 +237,60 @@ final class QueryExecutionBootstrap {
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
 
         var securityApplier = new org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier(
-                compiler, deps.accessControlEnforcer(),
+                compilerSnapshot, deps.accessControlEnforcer(),
                 deps.columnMaskApplier(), deps.rowFilterApplier());
 
         // 2-Factory architecture: MetadataExecutionFactory (direct metadata ops)
         // + PlanExecutionFactory (compilation + DAG dispatch).
         this.metadataFactory = buildMetadataFactory(
                 ddlExecutor, showDescribeExecutor, maintenanceExecutor, catalog, dmlDispatch);
+        registerOptionalMetadataTasks(indexing, dmlDispatch, ddlExecutor, queryDispatcherRef);
+        registerBranchTasks(metadataFactory, catalog);
+        registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
+
+        var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
+                new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
+                        dmlDispatch, writeCallback,
+                        (sql, sess) -> {
+                            boolean timeTravel = org.pangrova.parser.TimeTravelSqlClauses
+                                    .extract(sql).references().stream()
+                                    .anyMatch(ref -> ref.table().timeTravelSpec().isPresent());
+                            var explained = securityApplier.compileForExplain(sql, sess, timeTravel);
+                            return explained.plan().planExplanation() + System.lineSeparator()
+                                    + explained.rewrite().describe();
+                        },
+                        catalog,
+                        generatedValueMaterialization));
+
+        var factories = new ArrayList<
+                org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory<?>>();
+        factories.add(metadataFactory);
+        factories.add(planFactory);
+
+        var schemaListener = new org.pangrova.coordinator.query.execution.dispatch.listener.SchemaRefreshListener(
+                () -> compilerSnapshot, securityApplier::updateCompiler);
+
+        // DDL leader routing guard: only instantiated when explicitly enabled via config.
+        // Default is OFF — DDL executes on any coordinator, relying on connector-level
+        // concurrency control and cross-node invalidation propagation for consistency.
+        org.pangrova.coordinator.query.execution.dispatch.DdlLeadershipGuard ddlGuard = null;
+        if (config.ddlLeaderRoutingEnabled() && coordinationService != null) {
+            ddlGuard = new org.pangrova.coordinator.query.execution.dispatch.DdlLeadershipGuard(
+                    coordinationService, config.coordinatorId());
+            LOG.info("event=ddl_leader_routing_enabled coordinatorId={}", config.coordinatorId());
+        }
+
+        var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
+                compilerSnapshot, resultSvc,
+                List.copyOf(factories), List.of(schemaListener), accessControl, ddlGuard);
+        return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
+    }
+
+    /** Registers metadata tasks whose wiring depends on optional modules. */
+    private void registerOptionalMetadataTasks(IndexingBootstrap indexing,
+            org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch,
+            org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
+            AtomicReference<QueryDispatcher> queryDispatcherRef) {
         if (semanticViewStore != null) {
             registerSemanticViewTasks(metadataFactory, semanticViewStore);
         }
@@ -269,45 +316,6 @@ final class QueryExecutionBootstrap {
                 && coordinationService != null && metadataDataSource != null) {
             registerDynamicTableTasks(metadataFactory, ddlExecutor, dmlDispatch);
         }
-        registerBranchTasks(metadataFactory, catalog);
-        registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
-
-        var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
-                new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
-                        dmlDispatch, writeCallback,
-                        (sql, sess) -> {
-                            boolean timeTravel = org.pangrova.parser.TimeTravelSqlClauses
-                                    .extract(sql).references().stream()
-                                    .anyMatch(ref -> ref.table().timeTravelSpec().isPresent());
-                            var explained = securityApplier.compileForExplain(sql, sess, timeTravel);
-                            return explained.plan().planExplanation() + System.lineSeparator()
-                                    + explained.rewrite().describe();
-                        },
-                        catalog,
-                        generatedValueMaterialization));
-
-        var factories = new ArrayList<
-                org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory<?>>();
-        factories.add(metadataFactory);
-        factories.add(planFactory);
-
-        var schemaListener = new org.pangrova.coordinator.query.execution.dispatch.listener.SchemaRefreshListener(
-                () -> compiler, securityApplier::updateCompiler);
-
-        // DDL leader routing guard: only instantiated when explicitly enabled via config.
-        // Default is OFF — DDL executes on any coordinator, relying on connector-level
-        // concurrency control and cross-node invalidation propagation for consistency.
-        org.pangrova.coordinator.query.execution.dispatch.DdlLeadershipGuard ddlGuard = null;
-        if (config.ddlLeaderRoutingEnabled() && coordinationService != null) {
-            ddlGuard = new org.pangrova.coordinator.query.execution.dispatch.DdlLeadershipGuard(
-                    coordinationService, config.coordinatorId());
-            LOG.info("event=ddl_leader_routing_enabled coordinatorId={}", config.coordinatorId());
-        }
-
-        var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
-                compiler, resultService,
-                List.copyOf(factories), List.of(schemaListener), accessControl, ddlGuard);
-        return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
     }
 
     /**

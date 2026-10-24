@@ -58,8 +58,12 @@ public final class SessionContextConverter {
         }
         props.remove("tenant_id");
         props.remove("pangrova.tenant_id");
+        props.remove(org.pangrova.planner.mv.DynamicTableRewriter.INTERNAL_EXECUTION_PROPERTY);
         if (ctx.tenantId() != null && !ctx.tenantId().isBlank()) {
             props.put("tenant_id", ctx.tenantId());
+        }
+        if (ctx.internalMaterializationExecution()) {
+            props.put(org.pangrova.planner.mv.DynamicTableRewriter.INTERNAL_EXECUTION_PROPERTY, "true");
         }
         ConnectorSession session = new ConnectorSessionAdapter(user, catalog, schema, props,
                 ctx.queryAuthority());

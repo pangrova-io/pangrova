@@ -44,6 +44,7 @@ public final class PaimonAuditLogSystemTable implements ConnectorSystemTable {
             .toFormatter();
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final HexFormat HEX = HexFormat.of();
+    private static final long NANOS_PER_MILLI = 1_000_000L;
 
     private final Table table;
     private final List<String> columnNames;
@@ -133,8 +134,8 @@ public final class PaimonAuditLogSystemTable implements ConnectorSystemTable {
                         .toBigDecimal().toPlainString();
             }
             case DATE -> LocalDate.ofEpochDay(row.getInt(position)).toString();
-            case TIME_WITHOUT_TIME_ZONE -> LocalTime.ofNanoOfDay(row.getInt(position) * 1_000_000L)
-                    .format(TIME_FORMAT);
+            case TIME_WITHOUT_TIME_ZONE -> LocalTime.ofNanoOfDay(
+                    row.getInt(position) * NANOS_PER_MILLI).format(TIME_FORMAT);
             case TIMESTAMP_WITHOUT_TIME_ZONE ->
                     row.getTimestamp(position, ((TimestampType) type).getPrecision())
                             .toLocalDateTime().format(TIMESTAMP_FORMAT);

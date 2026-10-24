@@ -10,6 +10,7 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.materialization.domain.InternalNamespace;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
+import org.pangrova.materialization.domain.ObjectState;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.PublishedMaterialization;
@@ -103,7 +104,8 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
         PublishedMaterialization second = published(logical);
         assertThat(second.physicalTable().qualifiedName())
                 .isNotEqualTo(first.physicalTable().qualifiedName());
-        assertThat(second.definitionRevision()).isEqualTo(2);
+        assertThat(second.definitionRevision()).isEqualTo(1);
+        assertThat(objectRevision(logical)).isEqualTo(2L);
         assertIds(logical, 1L, 2L, 3L);
         assertPhysicalCommittedRows(first.physicalTable().qualifiedName(), 2);
         assertPhysicalCommittedRows(second.physicalTable().qualifiedName(), 3);
@@ -120,6 +122,89 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
         assertThat(sqlRunner.executeExpectingError("SELECT id FROM " + logical).message())
                 .isNotBlank();
         assertPhysicalCommittedRows(second.physicalTable().qualifiedName(), 3);
+
+        var tombstone = authority.repository().findObject(id(logical)).orElseThrow();
+        assertThat(tombstone.state()).isEqualTo(ObjectState.Dropped.INSTANCE);
+
+        sqlRunner.executeDdl("CREATE MATERIALIZED VIEW " + logical
+                + " AS SELECT id FROM " + source + " WHERE id >= 2");
+        PublishedMaterialization reclaimed = published(logical);
+        assertThat(authority.repository().findObject(id(logical)).orElseThrow().incarnation())
+                .isNotEqualTo(tombstone.incarnation());
+        assertThat(reclaimed.definitionRevision()).isEqualTo(1);
+        assertThat(objectRevision(logical)).isEqualTo(1L);
+        assertIds(logical, 2L, 3L);
+
+        sqlRunner.executeDdl("DROP MATERIALIZED VIEW " + logical);
+        assertThat(authority.catalog().findPublished(id(logical))).isEmpty();
+    }
+
+    @Test
+    void replaceRenameAndScheduleChangesFollowTheKernelContract() {
+        String suffix = Long.toHexString(System.nanoTime());
+        String sourceTable = "mv_ddl_source_" + suffix;
+        String logicalTable = "mv_ddl_totals_" + suffix;
+        String renamedTable = logicalTable + "_v2";
+        String source = CATALOG + "." + SCHEMA + "." + sourceTable;
+        String logical = CATALOG + "." + SCHEMA + "." + logicalTable;
+        String renamed = CATALOG + "." + SCHEMA + "." + renamedTable;
+        dataSetup.createTestTable(CATALOG, SCHEMA, sourceTable, "id BIGINT");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (1), (2)");
+
+        sqlRunner.executeDdl("CREATE MATERIALIZED VIEW " + logical
+                + " AS SELECT id FROM " + source);
+        PublishedMaterialization first = published(logical);
+        assertThat(first.definitionRevision()).isEqualTo(1);
+        assertIds(logical, 1L, 2L);
+
+        assertThat(sqlRunner.executeExpectingError("CREATE OR REPLACE MATERIALIZED VIEW " + logical
+                + " AS SELECT id FROM " + CATALOG + "." + SCHEMA + ".mv_missing_" + suffix)
+                .message()).isNotBlank();
+        assertThat(published(logical).physicalTable().qualifiedName())
+                .isEqualTo(first.physicalTable().qualifiedName());
+        assertThat(objectRevision(logical)).isEqualTo(1L);
+        assertIds(logical, 1L, 2L);
+
+        sqlRunner.executeDdl("CREATE OR REPLACE MATERIALIZED VIEW " + logical
+                + " AS SELECT id FROM " + source + " WHERE id >= 2");
+        PublishedMaterialization replaced = published(logical);
+        assertThat(replaced.definitionRevision()).isEqualTo(2);
+        assertThat(replaced.physicalTable().qualifiedName())
+                .isNotEqualTo(first.physicalTable().qualifiedName());
+        assertIds(logical, 2L);
+
+        sqlRunner.executeDdl("ALTER MATERIALIZED VIEW " + logical
+                + " SET TARGET_LAG = 'PT2M'");
+        List<TypedRow> scheduled = sqlRunner.execute(
+                "SHOW MATERIALIZED VIEWS LIKE '%" + logicalTable + "%'");
+        assertThat(scheduled).hasSize(1);
+        assertThat(scheduled.get(0).getString("mv_name")).isEqualTo(logical);
+        assertThat(scheduled.get(0).getString("schedule_state")).isEqualTo("ACTIVE");
+        assertThat(scheduled.get(0).getString("target_lag")).isEqualTo("PT2M");
+
+        sqlRunner.executeDdl("ALTER MATERIALIZED VIEW " + logical
+                + " SET REFRESH_MODE = INCREMENTAL");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (3)");
+        sqlRunner.executeDdl("REFRESH MATERIALIZED VIEW " + logical);
+        assertIds(logical, 2L, 3L);
+        assertThat(authority.repository().findPublishedGeneration(id(logical))
+                .orElseThrow().refreshKind())
+                .isEqualTo(org.pangrova.materialization.domain.RefreshKind
+                        .IncrementalAppendOnly.INSTANCE);
+
+        String headBeforeRename = published(logical).physicalTable().qualifiedName();
+        sqlRunner.executeDdl("ALTER MATERIALIZED VIEW " + logical
+                + " RENAME TO " + renamed);
+        assertThat(published(renamed).physicalTable().qualifiedName())
+                .isEqualTo(headBeforeRename);
+        assertThat(sqlRunner.executeExpectingError("SELECT id FROM " + logical).message())
+                .isNotBlank();
+        assertIds(renamed, 2L, 3L);
+
+        sqlRunner.executeDdl("DROP MATERIALIZED VIEW IF EXISTS " + CATALOG + "." + SCHEMA
+                + ".mv_ddl_missing_" + suffix);
+        sqlRunner.executeDdl("DROP MATERIALIZED VIEW " + renamed);
+        assertThat(authority.catalog().findPublished(id(renamed))).isEmpty();
     }
 
     @Test
@@ -218,7 +303,8 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
         grants.addGrant(PrivilegeGrant.of(role, Privilege.ALTER,
                 "TABLE", CATALOG, SCHEMA, logicalTable, null));
         sqlRunner.executeDdl("REFRESH MATERIALIZED VIEW " + logical);
-        assertThat(published(logical).definitionRevision()).isEqualTo(2);
+        assertThat(published(logical).definitionRevision()).isEqualTo(1);
+        assertThat(objectRevision(logical)).isEqualTo(2L);
 
         grants.addGrant(PrivilegeGrant.of(role, Privilege.DROP,
                 "TABLE", CATALOG, SCHEMA, logicalTable, null));
@@ -232,6 +318,10 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
 
     private PublishedMaterialization published(String logical) {
         return authority.catalog().findPublished(id(logical)).orElseThrow();
+    }
+
+    private long objectRevision(String logical) {
+        return authority.repository().findObject(id(logical)).orElseThrow().revision();
     }
 
     private String explain(String sql) {

@@ -119,21 +119,21 @@ class GeneratedWriteAuthorityAdmissionTest {
     @Test
     void requestRequiresAuthenticatedPrincipalAndExplicitWriteMode() {
         assertThatThrownBy(() -> new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(
-                TABLE, new TestSession(""), "INSERT", List.of(), Set.of(Privilege.INSERT), request().compiledDeclaration()))
+                TABLE, new TestSession(""), "INSERT", List.of(), Set.of(Privilege.INSERT), request().compiledDeclaration(), false))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(
-                TABLE, new TestSession("writer"), " ", List.of(), Set.of(Privilege.INSERT), request().compiledDeclaration()))
+                TABLE, new TestSession("writer"), " ", List.of(), Set.of(Privilege.INSERT), request().compiledDeclaration(), false))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void requestRejectsMissingOrDifferentCompiledTarget() {
         assertThatThrownBy(() -> new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(
-                TABLE, new TestSession("writer"), "INSERT", List.of(), Set.of(Privilege.INSERT), null))
+                TABLE, new TestSession("writer"), "INSERT", List.of(), Set.of(Privilege.INSERT), null, false))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("compiledDeclaration");
         var other = receipt(new QualifiedTableName("catalog", "schema", "other"), ORDINARY, false).declaration();
         assertThatThrownBy(() -> new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(
-                TABLE, new TestSession("writer"), "INSERT", List.of(), Set.of(Privilege.INSERT), other))
+                TABLE, new TestSession("writer"), "INSERT", List.of(), Set.of(Privilege.INSERT), other, false))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("requested table");
     }
 
@@ -144,7 +144,7 @@ class GeneratedWriteAuthorityAdmissionTest {
     private static GeneratedWriteAuthoritySupplier.WriteAuthorityRequest request(GeneratedColumnSet definitions) {
         return new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(
                 TABLE, new TestSession("writer"), "INSERT", List.of(), Set.of(Privilege.INSERT),
-                receipt(TABLE, definitions, definitions.getDefinitionsCount() != 0).declaration());
+                receipt(TABLE, definitions, definitions.getDefinitionsCount() != 0).declaration(), false);
     }
 
     private static GeneratedColumnSet definitions(boolean generated) {

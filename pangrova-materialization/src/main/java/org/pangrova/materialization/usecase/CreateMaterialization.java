@@ -2,6 +2,7 @@ package org.pangrova.materialization.usecase;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.pangrova.materialization.domain.CommandId;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
@@ -19,6 +20,7 @@ import org.pangrova.materialization.domain.TargetLag;
  * @param definitionSql definition query
  * @param requester principal issuing the command
  * @param definer principal the definition runs as
+ * @param definerGroups identity groups bound to the definer
  * @param securityMode security mode; only DEFINER is supported
  * @param refreshMode configured refresh mode
  * @param incrementalStrategy configured strategy, empty for AUTO
@@ -33,6 +35,7 @@ public record CreateMaterialization(
         String definitionSql,
         Principal requester,
         Principal definer,
+        Set<String> definerGroups,
         SecurityMode securityMode,
         RefreshMode refreshMode,
         Optional<StrategyId> incrementalStrategy,
@@ -40,6 +43,16 @@ public record CreateMaterialization(
         Map<String, String> sessionProperties,
         CommandId commandId,
         boolean ifNotExists) {
+
+    /** Creates a command whose definer carries no group identity. */
+    public CreateMaterialization(MaterializationId object, MaterializationKind kind,
+            String definitionSql, Principal requester, Principal definer,
+            SecurityMode securityMode, RefreshMode refreshMode,
+            Optional<StrategyId> incrementalStrategy, Optional<TargetLag> targetLag,
+            Map<String, String> sessionProperties, CommandId commandId, boolean ifNotExists) {
+        this(object, kind, definitionSql, requester, definer, Set.of(), securityMode, refreshMode,
+                incrementalStrategy, targetLag, sessionProperties, commandId, ifNotExists);
+    }
 
     public CreateMaterialization {
         if (object == null || kind == null || requester == null || definer == null
@@ -50,6 +63,7 @@ public record CreateMaterialization(
         if (definitionSql == null || definitionSql.isBlank()) {
             throw new IllegalArgumentException("definitionSql must not be blank");
         }
+        definerGroups = definerGroups == null ? Set.of() : Set.copyOf(definerGroups);
         incrementalStrategy = incrementalStrategy == null ? Optional.empty() : incrementalStrategy;
         targetLag = targetLag == null ? Optional.empty() : targetLag;
         sessionProperties = sessionProperties == null ? Map.of() : Map.copyOf(sessionProperties);
@@ -59,12 +73,4 @@ public record CreateMaterialization(
         }
     }
 
-    public CreateMaterialization(MaterializationId object, MaterializationKind kind,
-            String definitionSql, Principal requester, Principal definer,
-            SecurityMode securityMode, RefreshMode refreshMode,
-            Optional<StrategyId> incrementalStrategy, Optional<TargetLag> targetLag,
-            Map<String, String> sessionProperties, CommandId commandId) {
-        this(object, kind, definitionSql, requester, definer, securityMode, refreshMode,
-                incrementalStrategy, targetLag, sessionProperties, commandId, false);
-    }
 }

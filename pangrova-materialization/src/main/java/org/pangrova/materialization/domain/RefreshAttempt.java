@@ -52,44 +52,74 @@ public record RefreshAttempt(
         Instant updatedAt) {
 
     public RefreshAttempt {
+        requireIdentity(id, object, incarnation);
+        requireRevision(definitionRevision, baseObjectRevision);
+        baseGeneration = Require.notNull(baseGeneration, "baseGeneration");
+        requireScope(refreshKind, sourceVector, trigger, requesting, definer, fence, candidateTable);
+        if (state == null) {
+            throw new IllegalArgumentException("state must not be null");
+        }
+        evidence = Require.notNull(evidence, "evidence");
+        errorCode = Require.notNull(errorCode, "errorCode");
+        requireBaseConsistency(refreshKind, baseGeneration);
+        requireStateEvidence(state, evidence, errorCode);
+        requireTimestamps(createdAt, updatedAt);
+    }
+
+    private static void requireIdentity(AttemptId id, MaterializationId object,
+            IncarnationId incarnation) {
         if (id == null || object == null || incarnation == null) {
             throw new IllegalArgumentException("id, object, and incarnation must not be null");
         }
+    }
+
+    private static void requireRevision(long definitionRevision, long baseObjectRevision) {
         if (definitionRevision < 1) {
             throw new IllegalArgumentException("definitionRevision must be positive");
         }
         if (baseObjectRevision < 0) {
             throw new IllegalArgumentException("baseObjectRevision must not be negative");
         }
-        baseGeneration = Require.notNull(baseGeneration, "baseGeneration");
+    }
+
+    private static void requireScope(RefreshKind refreshKind, SourceVector sourceVector,
+            TriggerKind trigger, Principal requesting, Principal definer, ExecutionFence fence,
+            PhysicalTableRef candidateTable) {
         if (refreshKind == null || sourceVector == null || trigger == null) {
             throw new IllegalArgumentException("refreshKind, sourceVector, and trigger are required");
         }
         if (requesting == null || definer == null || fence == null || candidateTable == null) {
-            throw new IllegalArgumentException("requesting, definer, fence, and candidateTable are required");
+            throw new IllegalArgumentException(
+                    "requesting, definer, fence, and candidateTable are required");
         }
-        if (state == null) {
-            throw new IllegalArgumentException("state must not be null");
-        }
-        evidence = Require.notNull(evidence, "evidence");
-        errorCode = Require.notNull(errorCode, "errorCode");
+    }
+
+    private static void requireBaseConsistency(RefreshKind refreshKind,
+            Optional<GenerationId> baseGeneration) {
         if (refreshKind.isIncremental() && baseGeneration.isEmpty()) {
             throw new IllegalArgumentException("incremental attempt must name a base generation");
         }
         if (!refreshKind.isIncremental() && baseGeneration.isPresent()) {
             throw new IllegalArgumentException("full attempt must not name a base generation");
         }
+    }
+
+    private static void requireStateEvidence(AttemptState state,
+            Optional<CommitEvidence> attemptEvidence, Optional<String> attemptErrorCode) {
         if ((state == AttemptState.Committed.INSTANCE || state == AttemptState.Published.INSTANCE)
-                && evidence.isEmpty()) {
+                && attemptEvidence.isEmpty()) {
             throw new IllegalArgumentException("committed or published attempt requires commit evidence");
         }
-        if (state == AttemptState.Failed.INSTANCE && errorCode.isEmpty()) {
+        if (state == AttemptState.Failed.INSTANCE && attemptErrorCode.isEmpty()) {
             throw new IllegalArgumentException("failed attempt requires an error code");
         }
-        if (createdAt == null || updatedAt == null) {
+    }
+
+    private static void requireTimestamps(Instant attemptCreatedAt, Instant attemptUpdatedAt) {
+        if (attemptCreatedAt == null || attemptUpdatedAt == null) {
             throw new IllegalArgumentException("createdAt and updatedAt must not be null");
         }
-        if (updatedAt.isBefore(createdAt)) {
+        if (attemptUpdatedAt.isBefore(attemptCreatedAt)) {
             throw new IllegalArgumentException("updatedAt must not precede createdAt");
         }
     }
@@ -97,41 +127,45 @@ public record RefreshAttempt(
     /**
      * Creates a durable reservation in the preparing state.
      *
+     * <p>The reservation snapshots the object header and the definition revision
+     * it executes against, so a later header or definition change can never
+     * retroactively alter what this attempt reserved.
+     *
      * @param id attempt identity
-     * @param object owning object
-     * @param incarnation object incarnation
-     * @param definitionRevision definition revision
-     * @param baseObjectRevision observed head revision
+     * @param header object header observed at reservation
+     * @param definition definition revision being executed
+     * @param requesting principal that requested the refresh
+     * @param scope execution scope of the attempt
+     * @param now reservation instant
+     * @return preparing attempt
+     */
+    public static RefreshAttempt reserve(AttemptId id, MaterializationObject header,
+            DefinitionRevision definition, Principal requesting, AttemptScope scope,
+            Instant now) {
+        return new RefreshAttempt(id, header.id(), header.incarnation(), definition.revision(),
+                header.revision(), scope.baseGeneration(), scope.refreshKind(),
+                scope.sourceVector(), scope.trigger(), requesting, definition.definer(),
+                scope.fence(), scope.candidateTable(), AttemptState.Preparing.INSTANCE,
+                Optional.empty(), Optional.empty(), now, now);
+    }
+
+    /**
+     * Execution scope of a reservation.
+     *
      * @param baseGeneration base generation for incremental kinds
      * @param refreshKind resolved refresh kind
      * @param sourceVector exact source snapshots
      * @param trigger attempt origin
-     * @param requesting requesting principal
-     * @param definer definer principal
      * @param fence execution fence
      * @param candidateTable reserved candidate table
-     * @param now reservation instant
-     * @return preparing attempt
      */
-    public static RefreshAttempt reserve(
-            AttemptId id,
-            MaterializationId object,
-            IncarnationId incarnation,
-            long definitionRevision,
-            long baseObjectRevision,
+    public record AttemptScope(
             Optional<GenerationId> baseGeneration,
             RefreshKind refreshKind,
             SourceVector sourceVector,
             TriggerKind trigger,
-            Principal requesting,
-            Principal definer,
             ExecutionFence fence,
-            PhysicalTableRef candidateTable,
-            Instant now) {
-        return new RefreshAttempt(id, object, incarnation, definitionRevision, baseObjectRevision,
-                baseGeneration, refreshKind, sourceVector, trigger, requesting, definer, fence,
-                candidateTable, AttemptState.Preparing.INSTANCE, Optional.empty(), Optional.empty(),
-                now, now);
+            PhysicalTableRef candidateTable) {
     }
 
     /**

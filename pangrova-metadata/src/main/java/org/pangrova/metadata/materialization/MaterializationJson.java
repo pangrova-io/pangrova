@@ -50,6 +50,26 @@ final class MaterializationJson {
         return node.toString();
     }
 
+    static String definerGroups(Set<String> groups) {
+        ArrayNode array = MAPPER.createArrayNode();
+        groups.stream().sorted().forEach(array::add);
+        return array.toString();
+    }
+
+    static Set<String> definerGroups(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            throw corrupt("definition definer groups must be a JSON array");
+        }
+        Set<String> groups = new TreeSet<>();
+        for (JsonNode entry : node) {
+            if (!entry.isTextual() || entry.asText().isBlank()) {
+                throw corrupt("definition definer group must be a non-blank string");
+            }
+            groups.add(entry.asText());
+        }
+        return Set.copyOf(groups);
+    }
+
     static Map<String, String> sessionProperties(JsonNode node) {
         if (node == null || !node.isObject()) {
             throw corrupt("definition session properties must be a JSON object");
@@ -65,7 +85,8 @@ final class MaterializationJson {
         return Map.copyOf(properties);
     }
 
-    static String sources(Set<SourceRef> sources) {        ArrayNode array = MAPPER.createArrayNode();
+    static String sources(Set<SourceRef> sources) {
+        ArrayNode array = MAPPER.createArrayNode();
         sources.stream()
                 .sorted(Comparator.comparing(SourceRef::canonicalName))
                 .forEach(source -> array.add(source(source)));

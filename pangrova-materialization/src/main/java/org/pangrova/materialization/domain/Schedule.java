@@ -132,6 +132,24 @@ public record Schedule(
     }
 
     /**
+     * Releases the lease and retries later without counting a failure.
+     *
+     * <p>Used when the refresh could not start because another refresh of the
+     * same object already holds the execution slot; that is contention, not a
+     * defect of this schedule.
+     *
+     * @param retryAt next retry instant
+     * @return updated schedule with the lease released
+     */
+    public Schedule defer(Instant retryAt) {
+        if (retryAt == null) {
+            throw new IllegalArgumentException("retryAt must not be null");
+        }
+        return new Schedule(object, targetLag, Optional.of(retryAt), lastSuccessAt,
+                consecutiveFailures, state, Optional.empty(), version + 1);
+    }
+
+    /**
      * Suspends automatic scheduling while retaining the target lag.
      *
      * @return suspended schedule
@@ -148,16 +166,19 @@ public record Schedule(
     /**
      * Resumes automatic scheduling.
      *
-     * @param nextDueAt first deadline after resumption
+     * @param dueAt first deadline after resumption
      * @return active schedule
      */
-    public Schedule resume(Instant nextDueAt) {
+    public Schedule resume(Instant dueAt) {
         if (state != ScheduleState.SUSPENDED || targetLag.isEmpty()) {
             throw MaterializationException.invalidStateTransition(
                     "cannot resume a " + state + " schedule without a target lag for "
                             + object.canonicalName());
         }
-        return new Schedule(object, targetLag, Optional.of(nextDueAt), lastSuccessAt,
+        if (dueAt == null) {
+            throw new IllegalArgumentException("dueAt must not be null");
+        }
+        return new Schedule(object, targetLag, Optional.of(dueAt), lastSuccessAt,
                 consecutiveFailures, ScheduleState.ACTIVE, Optional.empty(), version + 1);
     }
 

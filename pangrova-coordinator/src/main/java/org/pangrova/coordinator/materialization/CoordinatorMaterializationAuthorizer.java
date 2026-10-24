@@ -1,10 +1,6 @@
 package org.pangrova.coordinator.materialization;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -14,7 +10,6 @@ import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.port.MaterializationAction;
@@ -78,6 +73,8 @@ public final class CoordinatorMaterializationAuthorizer implements Materializati
             case SELECT -> accessControl.checkCanSelectFromTable(identity, catalog, schema, table);
             case CREATE -> throw MaterializationException.requestRejected(
                     "CREATE is not a management action for " + object.canonicalName());
+            default -> throw new IllegalStateException(
+                    "Unhandled materialization action: " + action);
         }
     }
 
@@ -89,15 +86,6 @@ public final class CoordinatorMaterializationAuthorizer implements Materializati
         }
         accessControl.checkCanSelectFromTable(identity(requester),
                 object.name().parts().get(0), object.name().parts().get(1), object.name().tableName());
-    }
-
-    @Override
-    public PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources) {
-        Map<SourceRef, String> fingerprints = sources.stream().collect(
-                java.util.stream.Collectors.toMap(source -> source,
-                        source -> sha256("policy:" + definer.name() + ':' + source.canonicalName()),
-                        (left, right) -> left, java.util.LinkedHashMap::new));
-        return new PolicySnapshot(fingerprints);
     }
 
     @Override
@@ -144,12 +132,4 @@ public final class CoordinatorMaterializationAuthorizer implements Materializati
         return new UserIdentity(principal.name(), Set.of(), Map.of(), Instant.now());
     }
 
-    private static String sha256(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is required by the Java runtime", failure);
-        }
-    }
 }

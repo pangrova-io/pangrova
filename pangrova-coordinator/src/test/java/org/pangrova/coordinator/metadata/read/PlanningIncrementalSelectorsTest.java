@@ -90,6 +90,19 @@ class PlanningIncrementalSelectorsTest {
     }
 
     @Test
+    void alreadyPrefixedKeysAreRejectedBeforeBinding() {
+        var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
+                "query", Map.of(), null, "tenant"));
+
+        assertThatThrownBy(() -> PlanningIncrementalSelectors.bind(session, Map.of(
+                PlanningIncrementalSelectors.PROPERTY_PREFIX
+                        + PlanningSnapshotSelectors.tableKey("cat", "db", "orders"),
+                new SnapshotRange(7, 9))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unqualified table key");
+    }
+
+    @Test
     void invalidRangesAreRejectedBeforeBinding() {
         var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
                 "query", Map.of(), null, "tenant"));
@@ -99,7 +112,7 @@ class PlanningIncrementalSelectorsTest {
                 .hasMessageContaining("invalid");
         assertThatThrownBy(() -> new SnapshotRange(2, 2))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("greater than");
+                .hasMessageContaining("differ");
         assertThatThrownBy(() -> SnapshotRange.parse("1"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("from:to");

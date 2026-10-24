@@ -4,6 +4,7 @@ import java.util.List;
 import org.pangrova.materialization.extension.MaterializationExtensionRegistry;
 import org.pangrova.materialization.strategy.AppendOnlyRefreshStrategy;
 import org.pangrova.materialization.strategy.FullRefreshStrategy;
+import org.pangrova.materialization.strategy.PartitionReplaceRefreshStrategy;
 
 /** Explicit extension registration for the production materialization kernel. */
 public final class MaterializationExtensions {
@@ -19,7 +20,8 @@ public final class MaterializationExtensions {
     public static MaterializationExtensionRegistry standard() {
         return new MaterializationExtensionRegistry(
                 List.of(),
-                List.of(new FullRefreshStrategy(), new AppendOnlyRefreshStrategy()),
+                List.of(new FullRefreshStrategy(), new AppendOnlyRefreshStrategy(),
+                        new PartitionReplaceRefreshStrategy()),
                 List.of(),
                 List.of());
     }

@@ -20,7 +20,6 @@ import org.pangrova.materialization.domain.Schedule;
 import org.pangrova.materialization.domain.SecurityMode;
 import org.pangrova.materialization.domain.StrategyId;
 import org.pangrova.materialization.domain.TargetLag;
-import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.domain.TriggerKind;
 import org.pangrova.materialization.port.PublishedMaterialization;
 import org.pangrova.materialization.usecase.CreateMaterialization;
@@ -56,10 +55,22 @@ public final class KernelDynamicTableService {
 
     private final MaterializationKernelFactory kernels;
 
+    /**
+     * Creates the kernel service adapter.
+     *
+     * @param kernels unified materialization kernel factory
+     */
     public KernelDynamicTableService(MaterializationKernelFactory kernels) {
         this.kernels = Objects.requireNonNull(kernels, "kernels");
     }
 
+    /**
+     * Executes CREATE DYNAMIC TABLE.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result receipt
+     */
     public StatementResult create(CreateDynamicTableStatement statement,
             StatementExecutionContext context) {
         requireSupportedDefinition(statement);
@@ -72,6 +83,7 @@ public final class KernelDynamicTableService {
                 new AstPrinter().print(statement.query()),
                 principal,
                 principal,
+                context.session().userIdentity().groups(),
                 SecurityMode.DEFINER,
                 refreshMode,
                 incrementalStrategy(statement.incrementalStrategy()),
@@ -82,6 +94,13 @@ public final class KernelDynamicTableService {
         return result("Dynamic Table " + object.name() + " created", object.name().toString());
     }
 
+    /**
+     * Executes ALTER DYNAMIC TABLE.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result receipt
+     */
     public StatementResult alter(AlterDynamicTableStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
@@ -141,6 +160,13 @@ public final class KernelDynamicTableService {
                 "Unsupported Dynamic Table action " + action.getClass().getSimpleName());
     }
 
+    /**
+     * Executes DROP DYNAMIC TABLE.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result receipt
+     */
     public StatementResult drop(DropDynamicTableStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
@@ -150,11 +176,19 @@ public final class KernelDynamicTableService {
         return result("Dynamic Table " + object.name() + " dropped", object.name().toString());
     }
 
+    /**
+     * Executes SHOW DYNAMIC TABLES.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result rows
+     */
     public StatementResult show(ShowDynamicTablesStatement statement,
             StatementExecutionContext context) {
         List<TypedRow> rows = kernels.catalog()
                 .listPublished(MaterializationKernelFactory.tenant(context)).stream()
                 .filter(published -> published.kind() == MaterializationKind.DYNAMIC_TABLE)
+                .filter(published -> kernels.mayRead(context, published.object()))
                 .map(published -> scheduleRow(published,
                         materialization(published.object()), schedule(published.object())).build())
                 .toList();
@@ -163,9 +197,17 @@ public final class KernelDynamicTableService {
                 "revision"), null, StatementCategory.DYNAMIC_TABLE);
     }
 
+    /**
+     * Executes DESCRIBE DYNAMIC TABLE.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result row
+     */
     public StatementResult describe(DescribeDynamicTableStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
+        kernels.requireRead(context, object);
         PublishedMaterialization published = kernels.catalog().findPublished(object)
                 .orElseThrow(() -> MaterializationException.notFound(object));
         MaterializationObject header = materialization(object);
@@ -224,7 +266,7 @@ public final class KernelDynamicTableService {
                 || strategy.get() == org.pangrova.parser.ast.IncrementalStrategy.AUTO) {
             return java.util.Optional.empty();
         }
-        return java.util.Optional.of(switch (strategy.get()) {
+        StrategyId resolved = switch (strategy.get()) {
             case AUTO -> throw new IllegalArgumentException(
                     "AUTO resolves to the unconfigured strategy");
             case APPEND_ONLY -> StrategyId.APPEND_ONLY;
@@ -232,7 +274,8 @@ public final class KernelDynamicTableService {
             case AFFECTED_KEY -> StrategyId.AFFECTED_KEY;
             case CDC -> throw new UnsupportedOperationException(
                     "CDC incremental strategy is not yet materialized");
-        });
+        };
+        return java.util.Optional.of(resolved);
     }
 
     private static java.util.Optional<TargetLag> targetLag(CreateDynamicTableStatement statement) {

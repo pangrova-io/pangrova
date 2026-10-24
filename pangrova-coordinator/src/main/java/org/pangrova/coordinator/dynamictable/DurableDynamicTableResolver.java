@@ -4,7 +4,6 @@ import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
-import org.pangrova.planner.mv.DynamicTableNotReadyException;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 

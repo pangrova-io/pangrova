@@ -198,33 +198,7 @@ final class QueryBootstrap {
                     metadataDataSource);
         }
         embeddingModelRegistry = runtimeWiring.createEmbeddingModelRegistry();
-        var materializationWiring = new QueryMaterializationWiring(
-                new QueryMaterializationWiring.Dependencies(
-                        config, moduleWiring, metadataDataSource, artifactBuildStore,
-                        workerManager, taskScheduler, splitAssignmentManager,
-                        aiInfrastructureStores, accessControl, embeddingModelRegistry));
-        generatedValueMaterialization = materializationWiring.createGeneratedValue(catalog);
-        materializationWiring.bindGeneratedValueReads(moduleContext, catalog);
-        org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore =
-                aiInfrastructureStores == null ? null
-                        : aiInfrastructureStores.semanticViews();
-        var featureViewService =
-                materializationWiring.createFeatureView(catalog);
-        executionWiring = new QueryExecutionBootstrap(config, tracingProvider, accessControl,
-                metadataBootstrap, moduleWiring, streamingBootstrap, coordinationService,
-                writeCommitTracker, generatedValueMaterialization, semanticViewStore,
-                featureViewService, embeddingModelRegistry,
-                durableRecovery::resolveShuffleOwner, metadataDataSource);
-        queryDispatcher = executionWiring.buildQueryDispatcher(workerManager, taskTracker,
-                moduleContext, resolveCircuitBreaker(), controlPlaneResultService,
-                splitAssignmentManager, speculativeStageHandler, stateJournal);
-        this.remoteTaskDispatcher = executionWiring.remoteTaskDispatcher();
-        if (speculativeTaskLauncher != null) {
-            speculativeTaskLauncher.setDispatchDependencies(
-                    remoteTaskDispatcher, workerManager, taskTracker);
-            speculativeTaskLauncher.setCancelRetrier(queryDispatcher.cancelRetrier());
-            taskTracker.addExecutionDrainListener(speculativeTaskLauncher::executionDrained);
-        }
+        wireExecutionContext(moduleContext, catalog, readerPinLeases);
         var queryManagerResult = runtimeWiring.buildQueryManager(queryDispatcher, stateJournal);
         queryManager = queryManagerResult.queryManager();
         if (readerPinLeases != null) {
@@ -269,6 +243,38 @@ final class QueryBootstrap {
         LOG.info("event=query_bootstrap_complete speculation={} pullMode={} embedding={}",
                 config.speculationEnabled(), config.pullModeSplitAssignmentEnabled(),
                 config.embeddingEnabled());
+    }
+
+    /** Builds the execution wiring, dispatcher, and speculative dependencies. */
+    private void wireExecutionContext(DefaultModuleContext moduleContext, CatalogRegistry catalog,
+            org.pangrova.materialization.usecase.ReaderPinLeases readerPinLeases) {
+        var materializationWiring = new QueryMaterializationWiring(
+                new QueryMaterializationWiring.Dependencies(
+                        config, moduleWiring, metadataDataSource, artifactBuildStore,
+                        workerManager, taskScheduler, splitAssignmentManager,
+                        aiInfrastructureStores, accessControl, embeddingModelRegistry));
+        generatedValueMaterialization = materializationWiring.createGeneratedValue(catalog);
+        materializationWiring.bindGeneratedValueReads(moduleContext, catalog);
+        org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore =
+                aiInfrastructureStores == null ? null
+                        : aiInfrastructureStores.semanticViews();
+        var featureViewService =
+                materializationWiring.createFeatureView(catalog);
+        executionWiring = new QueryExecutionBootstrap(config, tracingProvider, accessControl,
+                metadataBootstrap, moduleWiring, streamingBootstrap, coordinationService,
+                writeCommitTracker, generatedValueMaterialization, semanticViewStore,
+                featureViewService, embeddingModelRegistry,
+                durableRecovery::resolveShuffleOwner, metadataDataSource);
+        queryDispatcher = executionWiring.buildQueryDispatcher(workerManager, taskTracker,
+                moduleContext, resolveCircuitBreaker(), controlPlaneResultService,
+                splitAssignmentManager, speculativeStageHandler, stateJournal);
+        this.remoteTaskDispatcher = executionWiring.remoteTaskDispatcher();
+        if (speculativeTaskLauncher != null) {
+            speculativeTaskLauncher.setDispatchDependencies(
+                    remoteTaskDispatcher, workerManager, taskTracker);
+            speculativeTaskLauncher.setCancelRetrier(queryDispatcher.cancelRetrier());
+            taskTracker.addExecutionDrainListener(speculativeTaskLauncher::executionDrained);
+        }
     }
 
     private static boolean isArtifactTask(org.pangrova.protocol.v2.TaskKind kind) {
@@ -404,11 +410,16 @@ final class QueryBootstrap {
                 new org.pangrova.coordinator.materialization.MaterializationMaintenance(
                         kernels, service, config.coordinatorId(), queryManager,
                         executionWiring.compiler(), executionWiring.resultService(),
-                        store, recovery, kernels.sourcePinning(), schedulerExecutor(),
-                        org.pangrova.common.concurrent.ManagedExecutorFactory
-                                .newSingleThreadExecutor("materialization-refresh"),
-                        org.pangrova.coordinator.materialization.MaterializationMaintenance
-                                .Settings.defaults(config.coordinatorId()));
+                        recovery,
+                        new org.pangrova.coordinator.materialization.MaterializationMaintenance
+                                .Dependencies(store, kernels.sourcePinning(), schedulerExecutor(),
+                                        org.pangrova.common.concurrent.ManagedExecutorFactory
+                                                .newSingleThreadExecutor("materialization-control"),
+                                        org.pangrova.common.concurrent.ManagedExecutorFactory
+                                                .newSingleThreadExecutor("materialization-refresh"),
+                                        org.pangrova.coordinator.materialization
+                                                .MaterializationMaintenance.Settings.defaults(
+                                                        config.coordinatorId())));
         materializationMaintenance.start();
     }
 

@@ -86,9 +86,10 @@ recovery. There is no old-version decoder or forwarding constructor.
 Static overwrite supports typed identity-partition source columns, including
 partial partition specifications. The SDK row-filter overwrite clears all
 matching partitions even if the new result is empty or contains fewer partition
-values; added files must satisfy the captured filter. Unscoped dynamic overwrite
-retains partition replacement semantics. Unscoped empty overwrite clears the
-whole table. Unknown/non-partition columns, transform-only partition columns,
+values; added files must satisfy the captured filter. Unscoped overwrite
+replaces the whole table from the Native plan's complete replacement content, so
+a partition that loses all of its rows is emptied rather than left behind, and
+an unscoped empty overwrite clears the whole table. Unknown/non-partition columns, transform-only partition columns,
 unrepresented null/binary values and invalid typed literals reject before
 dispatch; these unsupported options are not claimed as implemented. Schema/spec
 changes since static allocation reject instead of rebinding the scope.

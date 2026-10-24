@@ -9,6 +9,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
@@ -23,6 +24,8 @@ import org.pangrova.spi.materialization.ChangeSetPlan;
 import org.pangrova.spi.materialization.MaterializationCapabilities;
 import org.pangrova.spi.materialization.MaterializationSourceException;
 import org.pangrova.spi.materialization.PinnedSource;
+import org.pangrova.spi.materialization.PartitionChange;
+import org.pangrova.spi.materialization.PartitionValue;
 import org.pangrova.spi.materialization.SourceRef;
 import org.pangrova.spi.materialization.SourceSnapshotRef;
 
@@ -138,7 +141,8 @@ class IcebergMaterializationSourceProviderTest {
                     .isEqualTo(MaterializationSourceException.Reason.PROOF_INCOMPLETE);
 
             ChangeSetPlan unproven = new ChangeSetPlan(source, from.snapshot(), to.snapshot(),
-                    ChangeSetMode.APPEND_ONLY, "plan:delete", java.time.Instant.now());
+                    ChangeSetMode.APPEND_ONLY, "plan:delete", java.time.Instant.now(),
+                    java.util.List.of());
             assertThat(provider.verify(unproven).complete()).isFalse();
         }
     }
@@ -184,6 +188,106 @@ class IcebergMaterializationSourceProviderTest {
         }
     }
 
+    @Test
+    void partitionReplaceNamesEveryChangedIdentityPartition() throws IOException {
+        HadoopTestGuard.assumeHadoopCompatible();
+        SourceRef source = new SourceRef("iceberg", "lake", "db", "items");
+        try (var catalog = catalog()) {
+            Table table = partitionedTable(catalog);
+            DataFile eu = appendPartition(table, "eu-1", "eu");
+            var provider = new IcebergMaterializationSourceProvider("lake", catalog);
+            assertThat(provider.capabilities(source).supports(ChangeSetMode.PARTITION_REPLACE))
+                    .isTrue();
+            PinnedSource from = provider.pin(
+                    source, "t1", describe(provider, source, table), "attempt-1");
+
+            table.refresh();
+            DataFile euReplacement = appendPartition(table, "eu-2", "eu");
+            DataFile us = appendPartition(table, "us-1", "us");
+            table.newOverwrite()
+                    .deleteFile(eu)
+                    .addFile(euReplacement)
+                    .addFile(us)
+                    .commit();
+            PinnedSource to = provider.pin(
+                    source, "t1", describe(provider, source, table), "attempt-2");
+
+            ChangeSetPlan plan = provider.changeSet(from, to, ChangeSetMode.PARTITION_REPLACE);
+            assertThat(plan.changedPartitions()).hasSize(2);
+            assertThat(plan.changedPartitions().get(0).values())
+                    .extracting(value -> value.column() + '=' + value.literal())
+                    .containsExactly("region='eu'");
+            assertThat(plan.changedPartitions().get(1).values())
+                    .extracting(value -> value.column() + '=' + value.literal())
+                    .containsExactly("region='us'");
+            assertThat(provider.verify(plan).complete()).isTrue();
+
+            ChangeSetPlan partial = new ChangeSetPlan(source, from.snapshot(), to.snapshot(),
+                    ChangeSetMode.PARTITION_REPLACE, "plan:partial", java.time.Instant.now(),
+                    java.util.List.of(new PartitionChange(
+                            java.util.List.of(new PartitionValue("region", "'eu'")))));
+            assertThat(provider.verify(partial).complete()).isFalse();
+        }
+    }
+
+    @Test
+    void partitionReplaceMarksPartitionsTouchedOnlyByDeleteFiles() throws IOException {
+        HadoopTestGuard.assumeHadoopCompatible();
+        SourceRef source = new SourceRef("iceberg", "lake", "db", "items");
+        try (var catalog = catalog()) {
+            Table table = partitionedTable(catalog);
+            appendPartition(table, "eu-1", "eu");
+            appendPartition(table, "us-1", "us");
+            var provider = new IcebergMaterializationSourceProvider("lake", catalog);
+            PinnedSource from = provider.pin(
+                    source, "t1", describe(provider, source, table), "attempt-1");
+
+            table.refresh();
+            table.newRowDelta().addDeletes(FileMetadata
+                    .deleteFileBuilder(table.spec())
+                    .ofPositionDeletes()
+                    .withPath(table.location() + "/data/eu-deletes.parquet")
+                    .withFileSizeInBytes(64)
+                    .withPartitionPath("region=eu")
+                    .withRecordCount(1)
+                    .build()).commit();
+            PinnedSource to = provider.pin(
+                    source, "t1", describe(provider, source, table), "attempt-2");
+
+            ChangeSetPlan plan = provider.changeSet(from, to, ChangeSetMode.PARTITION_REPLACE);
+            assertThat(plan.changedPartitions()).hasSize(1);
+            assertThat(plan.changedPartitions().get(0).values())
+                    .extracting(value -> value.column() + '=' + value.literal())
+                    .containsExactly("region='eu'");
+            assertThat(provider.verify(plan).complete()).isTrue();
+        }
+    }
+
+    @Test
+    void nonIdentityPartitioningCannotProvePartitionReplacement() throws IOException {
+        HadoopTestGuard.assumeHadoopCompatible();
+        SourceRef source = new SourceRef("iceberg", "lake", "db", "items");
+        try (var catalog = catalog()) {
+            Table table = bucketedTable(catalog);
+            var provider = new IcebergMaterializationSourceProvider("lake", catalog);
+            assertThat(provider.capabilities(source).supports(ChangeSetMode.PARTITION_REPLACE))
+                    .isFalse();
+            append(table, "first");
+            PinnedSource from = provider.pin(
+                    source, "t1", describe(provider, source, table), "attempt-1");
+            table.refresh();
+            append(table, "second");
+            PinnedSource to = provider.pin(
+                    source, "t1", describe(provider, source, table), "attempt-2");
+
+            assertThatThrownBy(() ->
+                    provider.changeSet(from, to, ChangeSetMode.PARTITION_REPLACE))
+                    .isInstanceOf(MaterializationSourceException.class)
+                    .extracting(failure -> ((MaterializationSourceException) failure).reason())
+                    .isEqualTo(MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED);
+        }
+    }
+
     private static String emptyIdentity(Table table) {
         var operations = (org.apache.iceberg.HasTableOperations) table;
         return org.apache.commons.codec.digest.DigestUtils.sha256Hex(
@@ -209,6 +313,36 @@ class IcebergMaterializationSourceProviderTest {
     private static Table table(HadoopCatalog catalog) {
         catalog.createNamespace(Namespace.of("db"));
         return catalog.createTable(TableIdentifier.of("db", "items"), schema());
+    }
+
+    private static Table partitionedTable(HadoopCatalog catalog) {
+        catalog.createNamespace(Namespace.of("db"));
+        return catalog.createTable(TableIdentifier.of("db", "items"), partitionedSchema(),
+                org.apache.iceberg.PartitionSpec.builderFor(partitionedSchema())
+                        .identity("region").build());
+    }
+
+    private static Table bucketedTable(HadoopCatalog catalog) {
+        catalog.createNamespace(Namespace.of("db"));
+        return catalog.createTable(TableIdentifier.of("db", "items"), schema(),
+                org.apache.iceberg.PartitionSpec.builderFor(schema())
+                        .bucket("id", 4).build());
+    }
+
+    private static Schema partitionedSchema() {
+        return new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+    }
+
+    private static DataFile appendPartition(Table table, String name, String region) {
+        DataFile file = DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/" + name + ".parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withPartitionPath("region=" + region)
+                .withRecordCount(1).withFileSizeInBytes(32).build();
+        table.newFastAppend().appendFile(file).commit();
+        return file;
     }
 
     private static DataFile append(Table table, String name) {

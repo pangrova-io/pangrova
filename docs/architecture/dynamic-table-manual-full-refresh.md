@@ -22,7 +22,21 @@ CREATE / ALTER ... REFRESH
 Every statement goes through the kernel; no DDL or refresh path writes a
 physical generation directly, and no coordinator process holds the published
 state in memory. Queries and `SHOW` / `DESCRIBE` read only the published head.
-Direct SQL access to the internal namespace is rejected at parse time.
+Direct SQL access to the internal namespace is rejected during authorization;
+`SHOW SCHEMAS` omits the internal schema, and `SHOW TABLES` / `DESCRIBE` on the
+internal schema or a generation fail closed.
+
+The kernel executes its own CTAS and incremental append as trusted internal
+work. Trust is a typed coordinator-session fact, never a client property: the
+session converter strips the reserved property before it sets it, and only the
+kernel's execution engine marks the session. Trusted work may name a physical
+generation, but still passes tenant membership and every non-reserved access
+check; client SQL that names an internal generation is rejected. Statements
+dispatched as a parsed AST (DML and CTAS) are rewritten against the durable
+publication head by `DynamicTableAstRewriter`, the same substitution the SQL
+text path applies, and the plan carries the physical-to-logical mapping so
+authorization checks the logical object and write bookkeeping never records a
+generation as a client write source.
 
 ## SQL surface
 

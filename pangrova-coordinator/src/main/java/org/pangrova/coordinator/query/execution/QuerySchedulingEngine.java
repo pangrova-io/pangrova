@@ -133,9 +133,7 @@ final class QuerySchedulingEngine {
         Map<String, String> properties = new java.util.HashMap<>(
                 session.sessionProperties());
         properties.put(POLICY_CONTEXT_PROPERTY, signature);
-        return new CoordinatorSessionContext(
-                session.queryId(), properties, session.userIdentity(), session.tenantId(), session.queryAuthority(),
-                session.traceContext());
+        return session.withSessionProperties(properties);
     }
 
     // ── Worker dispatch ──
@@ -200,7 +198,8 @@ final class QuerySchedulingEngine {
             var tableHandle = org.pangrova.coordinator.query.statement.TableResolver
                     .requireTableHandle(metadata, connectorSession, qualifiedName);
             var deferredAuthority = resolveGeneratedWriteAuthority(
-                    qualifiedName, metadata, tableHandle, connectorSession, dmlCtx.writeMode(), observation);
+                    qualifiedName, metadata, tableHandle, connectorSession, dmlCtx.writeMode(), observation,
+                    session.internalMaterializationExecution());
             var reservation = writeCommitTracker.reserveWriteContext(queryId);
             if (!reservation.owner()) {
                 requireSameAdmittedWrite(reservation.awaitResult(), connectorSession,
@@ -268,7 +267,8 @@ final class QuerySchedulingEngine {
     private org.pangrova.spi.coordination.WriteAuthorizationReceipt resolveGeneratedWriteAuthority(
             org.pangrova.spi.connector.metadata.table.QualifiedTableName table,
             ConnectorMetadata metadata, ConnectorTableHandle handle,
-            ConnectorSession session, String writeMode, WritePolicyObservation observation) {
+            ConnectorSession session, String writeMode, WritePolicyObservation observation,
+            boolean internalMaterializationExecution) {
         var currentMetadata = metadata.getTableMetadata(session, handle);
         var definitions = org.pangrova.protocol.GeneratedColumnMetadataCodec.decode(currentMetadata.properties());
         var currentDeclaration = org.pangrova.spi.coordination.WriteDeclarationSnapshot.capture(
@@ -279,7 +279,8 @@ final class QuerySchedulingEngine {
         }
         return GeneratedWriteAuthorityAdmission.resolve(
                 new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(table, session, writeMode,
-                        observation.reads(), observation.writePrivileges(), observation.declaration()),
+                        observation.reads(), observation.writePrivileges(), observation.declaration(),
+                        internalMaterializationExecution),
                 definitions, generatedWriteAuthoritySupplier);
     }
 

@@ -43,7 +43,7 @@ It does not invent missing topics or ranges. Recovery of old active/committed ro
 without complete checkpoints fails explicitly; those rows require reconciliation
 with actual source and catalog publication evidence before streams resume.
 
-Migration V74 adds an immutable checkpoint identity to stream state. Existing
+Migration V75 adds an immutable checkpoint identity to stream state. Existing
 streams retain their original source key and default Kafka consumer group; the
 migration does not guess which historical publication belongs to which creation.
 New stream creations receive independent identities used by both the durable
@@ -114,7 +114,7 @@ Worker/publication requirements above.
 - The first stream-identity selection passed 37 tests without skips, covering
   state creation/update/delete, epoch properties, cached offsets, CDC recovery and
   scheduler wiring. A subsequent nine-test selection also passed without skips,
-  including the V74 upgrade, real Kafka same-name recreation, checkpoint identity
+  including the V75 upgrade, real Kafka same-name recreation, checkpoint identity
   isolation, scheduler shutdown and watermark cleanup. Full Streaming verification
   after the identity and pipeline-lifecycle changes passed 236 tests without failures,
   errors or skips, including Checkstyle and SpotBugs (with the invokedynamic analysis

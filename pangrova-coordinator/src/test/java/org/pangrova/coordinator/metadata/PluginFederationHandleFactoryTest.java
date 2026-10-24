@@ -97,8 +97,12 @@ class PluginFederationHandleFactoryTest {
     }
 
     private static CatalogDescriptor connectorDescriptor(String name, String provider) {
+        Map<String, String> properties = "iceberg".equals(provider)
+                ? Map.of("type", "hadoop", "warehouse",
+                        System.getProperty("java.io.tmpdir") + "/pangrova-plugin-" + name)
+                : Map.of();
         return new CatalogDescriptor(
                 name, CatalogType.CONNECTOR, provider,
-                CatalogState.ACTIVE, Map.of(), "", Set.of());
+                CatalogState.ACTIVE, properties, "", Set.of());
     }
 }

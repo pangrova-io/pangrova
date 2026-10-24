@@ -70,20 +70,32 @@ public final class QualityReadSql {
         // Use the production grammar. Only extract an expression after verifying that
         // user text has not added any clause to the enclosing SELECT.
         var statement = EXPRESSION_PARSER.parse("SELECT (" + expression + ")");
-        if (!(statement instanceof Query query) || query.distinct() || query.selectItems().size() != 1
-                || !(query.selectItems().get(0) instanceof ExpressionItem item) || item.alias().isPresent()
-                || !query.from().isEmpty() || !query.joins().isEmpty() || query.where().isPresent()
-                || !query.groupBy().isEmpty() || query.having().isPresent() || query.qualify().isPresent()
-                || !query.windowDefinitions().isEmpty() || !query.orderBy().isEmpty() || query.rerankBy().isPresent()
-                || query.limit().isPresent() || query.offset().isPresent()) {
+        if (!(statement instanceof Query query)
+                || !isSingleProjection(query) || !isBareExpression(query)) {
             throw new GovernanceQueryException(expression, "Quality rule requires one SQL expression");
         }
         try {
+            ExpressionItem item = (ExpressionItem) query.selectItems().get(0);
             return new AstToSqlNodeConverter().convertExpression(item.expression());
         } catch (IllegalArgumentException failure) {
             throw new GovernanceQueryException(expression,
                     "Quality predicate cannot be compiled: " + failure.getMessage(), failure);
         }
+    }
+
+    private static boolean isSingleProjection(Query query) {
+        return !query.distinct()
+                && query.selectItems().size() == 1
+                && query.selectItems().get(0) instanceof ExpressionItem item
+                && item.alias().isEmpty();
+    }
+
+    private static boolean isBareExpression(Query query) {
+        return query.from().isEmpty() && query.joins().isEmpty() && !query.where().isPresent()
+                && query.groupBy().isEmpty() && !query.having().isPresent()
+                && !query.qualify().isPresent() && query.windowDefinitions().isEmpty()
+                && query.orderBy().isEmpty() && !query.rerankBy().isPresent()
+                && !query.limit().isPresent() && !query.offset().isPresent();
     }
 
     private static final class ScalarPredicate extends SqlBasicVisitor<Void> {

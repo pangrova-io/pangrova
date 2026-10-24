@@ -94,8 +94,8 @@ Lifecycle:
 | `CREATE MATERIALIZED VIEW ... AS SELECT` | Persist the object, definition revision and schedule, plan once under the definer identity, execute native CTAS, commit evidence, publish revision 1. Optional `TARGET_LAG` / `REFRESH_MODE` select scheduling and refresh strategy |
 | `REFRESH MATERIALIZED VIEW` | Re-plan the stored definition against current catalog state, build a new candidate generation, verify the commit evidence, CAS-publish the new head |
 | `ALTER MATERIALIZED VIEW ... REFRESH / SUSPEND / RESUME / SET TARGET_LAG` | Manual refresh, schedule suspension/resumption, or durable target-lag change without touching the definition or published head |
-| `SHOW` / `DESCRIBE` | Read only the published head; never scan an in-flight candidate |
-| `DROP` | Mark the object dropped; physical generations stay until GC proves them unpinned. A plain drop fails while a live materialization consumes the object; `CASCADE` drops transitive dependents first, deepest dependent first |
+| `SHOW` / `DESCRIBE` | Read only the published head; never scan an in-flight candidate. Both require `SELECT` on the object, and `SHOW` omits objects the session cannot read |
+| `DROP` | Drop in one transaction: clear the published head, retire the head generation for GC, and settle every in-flight attempt. Physical tables stay until GC proves them unpinned. A plain drop fails while a live materialization consumes the object; `CASCADE` drops transitive dependents first, deepest dependent first |
 
 Guarantees:
 
@@ -104,7 +104,8 @@ Guarantees:
 - Publishing is a CAS on the object revision; a stale attempt cannot overwrite
   a newer head.
 - Physical generations live in `<catalog>.__pangrova_materializations` as
-  `__pg_mat_<32 hex>`; direct SQL access is rejected at parse time.
+  `__pg_mat_<32 hex>`; direct SQL access is rejected during authorization and
+  the namespace is hidden from `SHOW SCHEMAS` / `SHOW TABLES` / `DESCRIBE`.
 - The definition is compiled in the query cluster, with the session properties
   captured at create time, and never recursively rewrites through another
   materialization.
@@ -118,6 +119,30 @@ Guarantees:
   creates an `ACTIVE` durable schedule, and `REFRESH_MODE = AUTO` persists
   incremental refresh with the same fail-closed strategy rules. `PT0S` is
   rejected as an ambiguous target lag.
+- A redefinition advances the definition revision; the next refresh
+  bootstraps one full generation before incremental refresh resumes, because
+  the published generation no longer describes the new output.
+- Recovery only settles attempts whose execution anchor is no longer live;
+  quarantined attempts are retried after the quiescing grace even while their
+  anchor lives. A live coordinator is never robbed of its in-flight attempt.
+- Reader-pin insertion serializes with generation collection, so a generation
+  selected by GC cannot be dropped after a concurrent reader pinned it.
+- A scheduled refresh that loses to a concurrent publication releases its
+  lease and retries after the base backoff without counting a failure.
+  Reconciliation, source-pin reclamation, and GC run on their own executor, so
+  a refresh that lasts for minutes never delays recovery or reclamation.
+- Policy fingerprints include the effective row filter and column masks for
+  each source, so a policy change fails the next refresh with `policyDrift`
+  instead of silently serving data computed under the old policy.
+- Definition revisions persist the definer principal together with its groups.
+  Planning, policy fingerprinting, and native execution all rebuild the definer
+  identity from that persisted state, so group-derived grants and RLS behavior
+  stay identical across manual and scheduled refreshes.
+- An ambiguous commit is quarantined rather than guessed: only evidence that
+  proves the commit or proves its absence settles the attempt. `DROP` settles
+  every remaining attempt of the object, so a quarantined name can be recreated.
+- A replayed command id is scoped to the object that recorded it and re-checks
+  the caller's authority before returning the stored outcome.
 
 ### 2.3 Query Rewrite
 

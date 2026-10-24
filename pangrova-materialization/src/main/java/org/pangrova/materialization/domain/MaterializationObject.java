@@ -41,9 +41,7 @@ public record MaterializationObject(
         Instant updatedAt) {
 
     public MaterializationObject {
-        if (id == null || kind == null || incarnation == null) {
-            throw new IllegalArgumentException("id, kind, and incarnation must not be null");
-        }
+        requireIdentity(id, kind, incarnation);
         if (definitionRevision < 1) {
             throw new IllegalArgumentException("definitionRevision must be positive");
         }
@@ -51,20 +49,43 @@ public record MaterializationObject(
             throw new IllegalArgumentException("revision must not be negative");
         }
         publishedGeneration = Require.notNull(publishedGeneration, "publishedGeneration");
-        if (state == null || definer == null || securityMode == null || refreshMode == null) {
-            throw new IllegalArgumentException("state, definer, securityMode, and refreshMode are required");
-        }
+        requirePayload(state, definer, securityMode, refreshMode);
         incrementalStrategy = Require.notNull(incrementalStrategy, "incrementalStrategy");
-        if (refreshMode == RefreshMode.FULL && incrementalStrategy.isPresent()) {
-            throw new IllegalArgumentException("FULL refresh mode cannot carry an incremental strategy");
-        }
+        requireRefreshConfiguration(refreshMode, incrementalStrategy);
         if (state == ObjectState.Creating.INSTANCE && publishedGeneration.isPresent()) {
             throw new IllegalArgumentException("a creating object cannot have a published generation");
         }
-        if (createdAt == null || updatedAt == null) {
+        requireTimestamps(createdAt, updatedAt);
+    }
+
+    private static void requireIdentity(MaterializationId id, MaterializationKind kind,
+            IncarnationId incarnation) {
+        if (id == null || kind == null || incarnation == null) {
+            throw new IllegalArgumentException("id, kind, and incarnation must not be null");
+        }
+    }
+
+    private static void requirePayload(ObjectState state, Principal definer,
+            SecurityMode securityMode, RefreshMode refreshMode) {
+        if (state == null || definer == null || securityMode == null || refreshMode == null) {
+            throw new IllegalArgumentException(
+                    "state, definer, securityMode, and refreshMode are required");
+        }
+    }
+
+    private static void requireRefreshConfiguration(RefreshMode refreshMode,
+            Optional<StrategyId> incrementalStrategy) {
+        if (refreshMode == RefreshMode.FULL && incrementalStrategy.isPresent()) {
+            throw new IllegalArgumentException(
+                    "FULL refresh mode cannot carry an incremental strategy");
+        }
+    }
+
+    private static void requireTimestamps(Instant headCreatedAt, Instant headUpdatedAt) {
+        if (headCreatedAt == null || headUpdatedAt == null) {
             throw new IllegalArgumentException("createdAt and updatedAt must not be null");
         }
-        if (updatedAt.isBefore(createdAt)) {
+        if (headUpdatedAt.isBefore(headCreatedAt)) {
             throw new IllegalArgumentException("updatedAt must not precede createdAt");
         }
     }
@@ -138,6 +159,28 @@ public record MaterializationObject(
     }
 
     /**
+     * Completes a drop by clearing the published generation.
+     *
+     * <p>The caller retires the generation in the same transaction. Leaving the
+     * reference in place would hide the physical table from garbage collection
+     * forever, because only generations unreferenced by their head are eligible.
+     *
+     * @param expectedRevision head revision the caller observed
+     * @param now mutation instant
+     * @return dropped header without a published generation
+     */
+    public MaterializationObject dropped(long expectedRevision, Instant now) {
+        requireRevision(expectedRevision);
+        if (state != ObjectState.Dropping.INSTANCE) {
+            throw MaterializationException.invalidStateTransition(
+                    "object " + id.canonicalName() + " must be dropping before it is dropped");
+        }
+        return new MaterializationObject(id, kind, incarnation, definitionRevision, revision + 1,
+                Optional.empty(), ObjectState.Dropped.INSTANCE, definer, securityMode, refreshMode,
+                incrementalStrategy, createdAt, now);
+    }
+
+    /**
      * Replaces the definition and the refresh configuration in one header step.
      *
      * <p>{@code CREATE OR REPLACE} uses this so the next full refresh executes
@@ -147,6 +190,7 @@ public record MaterializationObject(
      * @param newDefinitionRevision replacement definition revision
      * @param newRefreshMode replacement refresh mode
      * @param newStrategy replacement strategy; empty means AUTO
+     * @param newDefiner principal the replacement definition runs as
      * @param expectedRevision head revision the caller observed
      * @param now mutation instant
      * @return updated header with an incremented revision
@@ -155,20 +199,22 @@ public record MaterializationObject(
             long newDefinitionRevision,
             RefreshMode newRefreshMode,
             Optional<StrategyId> newStrategy,
+            Principal newDefiner,
             long expectedRevision,
             Instant now) {
         requireRevision(expectedRevision);
         if (newDefinitionRevision <= definitionRevision) {
             throw new IllegalArgumentException("replacement definition revision must advance");
         }
-        if (newRefreshMode == null || newStrategy == null) {
-            throw new IllegalArgumentException("refresh mode and strategy must not be null");
+        if (newRefreshMode == null || newStrategy == null || newDefiner == null) {
+            throw new IllegalArgumentException(
+                    "refresh mode, strategy, and definer must not be null");
         }
         if (newRefreshMode == RefreshMode.FULL && newStrategy.isPresent()) {
             throw new IllegalArgumentException("FULL refresh mode cannot carry an incremental strategy");
         }
         return new MaterializationObject(id, kind, incarnation, newDefinitionRevision, revision + 1,
-                publishedGeneration, state, definer, securityMode, newRefreshMode, newStrategy,
+                publishedGeneration, state, newDefiner, securityMode, newRefreshMode, newStrategy,
                 createdAt, now);
     }
 

@@ -4,6 +4,7 @@ import java.util.Set;
 import org.pangrova.materialization.domain.Binding;
 import org.pangrova.materialization.domain.Dependency;
 import org.pangrova.materialization.domain.OutputSchema;
+import org.pangrova.materialization.domain.PartitionAlignment;
 import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.RefreshKind;
 import org.pangrova.materialization.domain.SourceVector;
@@ -22,6 +23,7 @@ import org.pangrova.spi.materialization.SourceRef;
  * @param dependencies materialization objects consumed by the definition
  * @param policySnapshot source policy fingerprints
  * @param supportedRefreshKinds refresh kinds the shape and sources can support
+ * @param partitionAlignment source partition columns exposed by the definition
  */
 public record PlannedDefinition(
         Binding binding,
@@ -29,7 +31,8 @@ public record PlannedDefinition(
         SourceVector sourceVector,
         Set<Dependency> dependencies,
         PolicySnapshot policySnapshot,
-        Set<RefreshKind> supportedRefreshKinds) {
+        Set<RefreshKind> supportedRefreshKinds,
+        PartitionAlignment partitionAlignment) {
 
     public PlannedDefinition {
         if (binding == null || outputSchema == null || sourceVector == null || policySnapshot == null) {
@@ -38,6 +41,9 @@ public record PlannedDefinition(
         }
         if (dependencies == null || supportedRefreshKinds == null) {
             throw new IllegalArgumentException("dependencies and refresh kinds must not be null");
+        }
+        if (partitionAlignment == null) {
+            throw new IllegalArgumentException("partitionAlignment must not be null");
         }
         dependencies = Set.copyOf(dependencies);
         supportedRefreshKinds = Set.copyOf(supportedRefreshKinds);

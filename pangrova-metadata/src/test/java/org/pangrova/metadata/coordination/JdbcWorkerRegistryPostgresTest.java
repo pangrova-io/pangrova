@@ -61,7 +61,7 @@ class JdbcWorkerRegistryPostgresTest {
     void unidentifiedRegistrationStaysUndispatchableUntilTheWorkerRegistersItsIdentity() throws Exception {
         var dataSource = SharedPostgresContainer.isolatedDataSource("worker_registry_identity_upgrade");
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
-                .target("80").load().migrate();
+                .target("78").load().migrate();
         long now = System.currentTimeMillis();
         try (var connection = dataSource.getConnection();
                 var insert = connection.prepareStatement("""

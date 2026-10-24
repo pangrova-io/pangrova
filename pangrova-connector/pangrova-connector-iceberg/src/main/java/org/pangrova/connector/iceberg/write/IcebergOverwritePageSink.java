@@ -14,9 +14,9 @@ import java.util.StringJoiner;
 /**
  * Writes pages to an Iceberg table using overwrite semantics.
  *
- * <p>For partitioned tables, uses Iceberg's {@code ReplacePartitions} (dynamic
- * partition overwrite): only partitions touched by the new data are replaced,
- * leaving other partitions intact. For unpartitioned tables, replaces all data.
+ * <p>The written rows are the table's complete replacement content, so the
+ * commit replaces all existing data (or exactly the allocation's static
+ * partition scope). Partitions that receive no rows are therefore emptied.
  */
 public final class IcebergOverwritePageSink extends AbstractIcebergPageSink {
 
@@ -81,8 +81,10 @@ public final class IcebergOverwritePageSink extends AbstractIcebergPageSink {
 
     private byte[] collectPartitionedMetadata() {
         if (!hasPartitionedData()) {
+            // An empty replacement must still be published as an overwrite so
+            // every pre-existing row is removed.
             LOG.debug("event=partitioned_overwrite_empty");
-            return new byte[0];
+            return serializeOverwriteMetadata(List.of());
         }
 
         List<DataFile> dataFiles = closeAndCollectPartitionFiles();

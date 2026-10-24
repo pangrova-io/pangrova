@@ -89,6 +89,14 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         assertThat(sqlRunner.executeExpectingError("SELECT l.id FROM " + logical
                 + " l JOIN " + firstPhysical + " p ON l.id=p.id")
                 .message()).contains("Direct access to a Dynamic Table generation is forbidden");
+        assertThat(sqlRunner.execute("SHOW SCHEMAS"))
+                .noneMatch(row -> InternalNamespace.SCHEMA_NAME.equals(
+                        row.getString("schema_name")));
+        assertThat(sqlRunner.executeExpectingError(
+                "SHOW TABLES FROM " + InternalNamespace.SCHEMA_NAME)
+                .message()).contains("materialization namespace is forbidden");
+        assertThat(sqlRunner.executeExpectingError("DESCRIBE " + firstPhysical)
+                .message()).contains("materialization namespace is forbidden");
 
         sqlRunner.execute("INSERT INTO " + source + " VALUES (3)");
         assertIds(source, 1L, 2L, 3L);
@@ -201,6 +209,129 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void downstreamRefreshObservesTheNewUpstreamHead() throws Exception {
+        String suffix = Long.toHexString(System.nanoTime());
+        String sourceTable = "dt_chain_source_" + suffix;
+        String upstreamTable = "dt_chain_upstream_" + suffix;
+        String downstreamTable = "dt_chain_downstream_" + suffix;
+        String source = CATALOG + "." + SCHEMA + "." + sourceTable;
+        String upstream = CATALOG + "." + SCHEMA + "." + upstreamTable;
+        String downstream = CATALOG + "." + SCHEMA + "." + downstreamTable;
+        dataSetup.createTestTable(CATALOG, SCHEMA, sourceTable, "id BIGINT");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (1), (2)");
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + upstream
+                + " REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + source);
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + downstream
+                + " REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + upstream);
+        assertIds(upstream, 1L, 2L);
+        assertIds(downstream, 1L, 2L);
+
+        assertThat(sqlRunner.executeExpectingError("CREATE DYNAMIC TABLE " + CATALOG + "."
+                + SCHEMA + ".dt_chain_incremental_" + suffix
+                + " REFRESH_MODE = INCREMENTAL AS SELECT id FROM " + upstream).message())
+                .contains("no compatible incremental strategy");
+
+        String upstreamHead = published(upstream).physicalTable().qualifiedName();
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (3)");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + upstream + " REFRESH");
+        assertIds(upstream, 1L, 2L, 3L);
+        assertThat(published(upstream).physicalTable().qualifiedName())
+                .isNotEqualTo(upstreamHead);
+
+        assertIds(downstream, 1L, 2L);
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + downstream + " REFRESH");
+        assertIds(downstream, 1L, 2L, 3L);
+    }
+
+    @Test
+    void incrementalAndFullRefreshesAgreeOnTheSameSource() throws Exception {
+        String suffix = Long.toHexString(System.nanoTime());
+        String sourceTable = "dt_oracle_source_" + suffix;
+        String fullTable = "dt_oracle_full_" + suffix;
+        String incrementalTable = "dt_oracle_incremental_" + suffix;
+        String source = CATALOG + "." + SCHEMA + "." + sourceTable;
+        String full = CATALOG + "." + SCHEMA + "." + fullTable;
+        String incremental = CATALOG + "." + SCHEMA + "." + incrementalTable;
+        String definition = " AS SELECT id FROM " + source + " WHERE id % 2 = 1";
+        dataSetup.createTestTable(CATALOG, SCHEMA, sourceTable, "id BIGINT");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (1), (2)");
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + full
+                + " REFRESH_MODE = SNAPSHOT" + definition);
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + incremental
+                + " REFRESH_MODE = INCREMENTAL" + definition);
+        assertIds(full, 1L);
+        assertIds(incremental, 1L);
+
+        for (String delta : new String[] {"(3), (4)", "(5), (6)"}) {
+            sqlRunner.execute("INSERT INTO " + source + " VALUES " + delta);
+            sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + full + " REFRESH");
+            sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + incremental + " REFRESH");
+            assertThat(published(incremental).refreshKind())
+                    .isEqualTo(org.pangrova.materialization.domain.RefreshKind
+                            .IncrementalAppendOnly.INSTANCE);
+            assertThat(sqlRunner.execute("SELECT id FROM " + incremental + " ORDER BY id"))
+                    .extracting(row -> row.getLong("id"))
+                    .containsExactlyElementsOf(sqlRunner.execute(
+                            "SELECT id FROM " + full + " ORDER BY id").stream()
+                            .map(row -> row.getLong("id")).toList());
+        }
+        assertIds(full, 1L, 3L, 5L);
+        assertIds(incremental, 1L, 3L, 5L);
+    }
+
+    @Test
+    void partitionReplacementRefreshRecomputesOnlyChangedPartitions() throws Exception {
+        String suffix = Long.toHexString(System.nanoTime());
+        String sourceTable = "dt_pr_source_" + suffix;
+        String scanTable = "dt_pr_scan_" + suffix;
+        String aggregateTable = "dt_pr_agg_" + suffix;
+        String source = CATALOG + "." + SCHEMA + "." + sourceTable;
+        String scan = CATALOG + "." + SCHEMA + "." + scanTable;
+        String aggregate = CATALOG + "." + SCHEMA + "." + aggregateTable;
+        sqlRunner.executeDdl("CREATE TABLE " + source
+                + " (id BIGINT, region VARCHAR, amount DOUBLE) PARTITIONED BY (region)");
+        sqlRunner.execute("INSERT INTO " + source
+                + " VALUES (1, 'eu', 10.0), (2, 'us', 20.0)");
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + scan
+                + " REFRESH_MODE = INCREMENTAL AS SELECT id, region, amount FROM " + source);
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + aggregate
+                + " REFRESH_MODE = INCREMENTAL AS SELECT region, SUM(amount) AS total FROM "
+                + source + " GROUP BY region");
+        assertThat(published(scan).refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(published(aggregate).refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        String scanHead = published(scan).physicalTable().qualifiedName();
+        String aggregateHead = published(aggregate).physicalTable().qualifiedName();
+
+        // A delete and an insert in the same partition: append-only cannot prove
+        // this interval, partition replacement can.
+        sqlRunner.execute("DELETE FROM " + source + " WHERE id = 1");
+        assertThat(sqlRunner.execute("SELECT id FROM " + source + " ORDER BY id"))
+                .extracting(row -> row.getLong("id"))
+                .containsExactly(2L);
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (3, 'eu', 30.0)");
+        assertThat(sqlRunner.execute("SELECT id FROM " + source + " ORDER BY id"))
+                .extracting(row -> row.getLong("id"))
+                .containsExactly(2L, 3L);
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + scan + " REFRESH");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + aggregate + " REFRESH");
+
+        assertThat(published(scan).refreshKind())
+                .isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+        assertThat(published(aggregate).refreshKind())
+                .isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+        assertThat(published(scan).physicalTable().qualifiedName()).isNotEqualTo(scanHead);
+        assertThat(published(aggregate).physicalTable().qualifiedName())
+                .isNotEqualTo(aggregateHead);
+        assertThat(sqlRunner.execute("SELECT id, region, amount FROM " + scan + " ORDER BY id"))
+                .extracting(row -> row.getLong("id") + ":" + row.getString("region")
+                        + ":" + row.getDouble("amount"))
+                .containsExactly("2:us:20.0", "3:eu:30.0");
+        assertThat(sqlRunner.execute("SELECT region, total FROM " + aggregate + " ORDER BY region"))
+                .extracting(row -> row.getString("region") + ":" + row.getDouble("total"))
+                .containsExactly("eu:30.0", "us:20.0");
+    }
+
+    @Test
     void emptyGenerationHasARealCommittedSnapshotAndChangesOnlyAfterRefresh() throws Exception {
         String suffix = Long.toHexString(System.nanoTime());
         String source = CATALOG + "." + SCHEMA + ".dt_empty_source_" + suffix;
@@ -222,6 +353,55 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         assertPublishedGeneration(logical);
         assertPhysicalCommittedRows(refreshed.physicalTable().qualifiedName(), 1);
         assertIds(logical, 42L);
+    }
+
+    @Test
+    void ddlChangesFollowTheKernelContract() throws Exception {
+        String suffix = Long.toHexString(System.nanoTime());
+        String sourceTable = "dt_ddl_source_" + suffix;
+        String logicalTable = "dt_ddl_rollup_" + suffix;
+        String source = CATALOG + "." + SCHEMA + "." + sourceTable;
+        String logical = CATALOG + "." + SCHEMA + "." + logicalTable;
+        String renamed = CATALOG + "." + SCHEMA + "." + logicalTable + "_v2";
+        dataSetup.createTestTable(CATALOG, SCHEMA, sourceTable, "id BIGINT");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (1), (2)");
+        sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + logical
+                + " REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + source);
+        PublishedMaterialization first = published(logical);
+        assertThat(header(logical).definitionRevision()).isEqualTo(1);
+        assertIds(logical, 1L, 2L);
+
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " SET TARGET_LAG = 'PT2M'");
+        List<TypedRow> shown = sqlRunner.execute("SHOW DYNAMIC TABLES");
+        assertThat(shown).anySatisfy(row -> {
+            assertThat(row.getString("dt_name")).isEqualTo(logical);
+            assertThat(row.getString("refresh_mode")).isEqualTo("FULL");
+            assertThat(row.getString("schedule_state")).isEqualTo("ACTIVE");
+            assertThat(row.getString("target_lag")).isEqualTo("PT2M");
+        });
+
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " SET REFRESH_MODE = INCREMENTAL");
+        PublishedMaterialization reconfigured = published(logical);
+        assertThat(reconfigured.refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(reconfigured.physicalTable().qualifiedName())
+                .isNotEqualTo(first.physicalTable().qualifiedName());
+        assertThat(header(logical).definitionRevision()).isEqualTo(1);
+
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (3)");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " REFRESH");
+        var appended = authority.repository().findPublishedGeneration(id(logical)).orElseThrow();
+        assertThat(appended.refreshKind()).isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
+        assertIds(logical, 1L, 2L, 3L);
+
+        String headBeforeRename = published(logical).physicalTable().qualifiedName();
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + logical + " RENAME TO " + renamed);
+        assertThat(published(renamed).physicalTable().qualifiedName()).isEqualTo(headBeforeRename);
+        assertThat(sqlRunner.executeExpectingError("SELECT id FROM " + logical).message())
+                .isNotBlank();
+        assertIds(renamed, 1L, 2L, 3L);
+
+        sqlRunner.executeDdl("DROP DYNAMIC TABLE " + renamed);
+        assertThat(authority.catalog().findPublished(id(renamed))).isEmpty();
     }
 
     @Test
@@ -260,6 +440,8 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
 
         String anotherLogical = CATALOG + "." + SCHEMA + ".dt_new_" + suffix;
         grants.addGrant(PrivilegeGrant.of(role, Privilege.CREATE_TABLE,
+                "TABLE", CATALOG, SCHEMA, "dt_new_" + suffix, null));
+        grants.addGrant(PrivilegeGrant.of(role, Privilege.SELECT,
                 "TABLE", CATALOG, SCHEMA, "dt_new_" + suffix, null));
         sqlRunner.executeDdl("CREATE DYNAMIC TABLE " + anotherLogical
                 + " REFRESH_MODE = SNAPSHOT AS SELECT id FROM " + source);

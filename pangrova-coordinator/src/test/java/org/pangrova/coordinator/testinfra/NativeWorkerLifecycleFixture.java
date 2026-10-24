@@ -31,7 +31,8 @@ public final class NativeWorkerLifecycleFixture {
                 original.registrationRetryConfig(), original.httpHost(), original.internalAuthSecret(),
                 original.shuffleMode(), original.cacheConfig(), original.advertisedHost(),
                 original.shuffleAdvertisedHost(),
-                original.nativeFunctionConfig(), original.transportSecurityConfig()));
+                original.nativeFunctionConfig(), original.transportSecurityConfig(),
+                original.admissionStateDirectory()));
         worker.setCatalogResourceResolver(new LifecycleCatalogGuard());
         return worker;
     }

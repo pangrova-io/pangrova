@@ -151,9 +151,9 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         PhysicalTableRef candidateTable = candidateTable();
         AttemptId attemptId = AttemptId.random();
         GenerationId generationId = GenerationId.random();
-        RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, object, incarnation, 1, 0,
-                Optional.empty(), RefreshKind.Full.INSTANCE, vector, TriggerKind.CREATION,
-                requester, definer, fence, candidateTable, now);
+        RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, header, definition, requester,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE,
+                        vector, TriggerKind.CREATION, fence, candidateTable), now);
         Generation candidate = Generation.candidate(generationId, object, incarnation, 1,
                 attemptId, Optional.empty(), candidateTable, RefreshKind.Full.INSTANCE, vector, now);
         MaterializationWriteCapability capability = new MaterializationWriteCapability(object,
@@ -367,9 +367,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         PhysicalTableRef candidateTable = candidateTable();
         AttemptId attemptId = AttemptId.random();
         GenerationId generationId = GenerationId.random();
-        RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, object, incarnation, 1, 0,
-                Optional.empty(), RefreshKind.Full.INSTANCE, vector, TriggerKind.MANUAL,
-                requester, definer, fence, candidateTable, now);
+        RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, header,
+                definition(object, source, definer, now), requester,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE,
+                        vector, TriggerKind.MANUAL, fence, candidateTable), now);
         Generation candidate = Generation.candidate(generationId, object, incarnation, 1,
                 attemptId, Optional.empty(), candidateTable, RefreshKind.Full.INSTANCE, vector, now);
         MaterializationWriteCapability capability = new MaterializationWriteCapability(object,
@@ -387,9 +388,9 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 evidence, now);
         repository.recordCommitEvidence(attemptId, evidence, now);
 
-        assertThat(repository.findUnsettledAttempts(now.plusSeconds(1)))
+        assertThat(repository.findReconcilableAttempts(now.plusSeconds(1)))
                 .extracting(RefreshAttempt::id)
-                .contains(attemptId);
+                .doesNotContain(attemptId);
 
         CommitEvidence conflicting = new CommitEvidence("paimon", "f".repeat(64), MANIFEST_HASH,
                 "paimon-v1", now);
@@ -399,6 +400,9 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                                 .isEqualTo(PangrovaErrorCode.MATERIALIZATION_EVIDENCE_MISMATCH));
 
         expireAnchor(dataSource, authority.anchor());
+        assertThat(repository.findReconcilableAttempts(now.plusSeconds(1)))
+                .extracting(RefreshAttempt::id)
+                .contains(attemptId);
         PublishCommand command = new PublishCommand(object, 0, candidate, attempt, evidence,
                 fence, CommandId.random());
         assertThatThrownBy(() -> repository.publish(command, event(
@@ -436,9 +440,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 "iceberg", "snap-1", "b".repeat(64), "c".repeat(64), now, true);
         SourceVector vector = new SourceVector(Map.of(source, snapshot), 1);
 
-        repository.createObject(MaterializationObject.creating(upstream,
-                        MaterializationKind.DYNAMIC_TABLE, incarnation, definer,
-                        SecurityMode.DEFINER, RefreshMode.FULL, Optional.empty(), now),
+        MaterializationObject upstreamHeader = MaterializationObject.creating(upstream,
+                MaterializationKind.DYNAMIC_TABLE, incarnation, definer,
+                SecurityMode.DEFINER, RefreshMode.FULL, Optional.empty(), now);
+        repository.createObject(upstreamHeader,
                 definition(upstream, source, definer, now),
                 Schedule.scheduled(upstream, new TargetLag(Duration.ofMinutes(5)),
                         now.minusSeconds(1)),
@@ -482,9 +487,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         PhysicalTableRef candidateTable = candidateTable();
         AttemptId attemptId = AttemptId.random();
         GenerationId generationId = GenerationId.random();
-        RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, upstream, incarnation, 1, 0,
-                Optional.empty(), RefreshKind.Full.INSTANCE, vector, TriggerKind.MANUAL,
-                requester, definer, fence, candidateTable, now);
+        RefreshAttempt attempt = RefreshAttempt.reserve(attemptId, upstreamHeader,
+                definition(upstream, source, definer, now), requester,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE,
+                        vector, TriggerKind.MANUAL, fence, candidateTable), now);
         Generation candidate = Generation.candidate(generationId, upstream, incarnation, 1,
                 attemptId, Optional.empty(), candidateTable, RefreshKind.Full.INSTANCE, vector,
                 now);

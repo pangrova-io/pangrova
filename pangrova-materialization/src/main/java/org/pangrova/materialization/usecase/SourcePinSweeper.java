@@ -28,6 +28,13 @@ public final class SourcePinSweeper {
     private final SourcePinning sourcePinning;
     private final Clock clock;
 
+    /**
+     * Creates a sweeper over durable source holds.
+     *
+     * @param repository durable repository
+     * @param sourcePinning source pin release port
+     * @param clock time source
+     */
     public SourcePinSweeper(MaterializationRepository repository,
             SourcePinning sourcePinning, Clock clock) {
         if (repository == null || sourcePinning == null || clock == null) {

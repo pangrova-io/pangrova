@@ -272,7 +272,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                                         new org.pangrova.observability.noop.NoOpTracingProvider(), authority.secret())) {
                                     dispatcher.setCopySourceBinder(new org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceTaskBinder(
-                                            fixture.admissions, execution -> fixture.anchor, null));
+                                            fixture.admissions, execution -> fixture.anchor));
                                     var wrongSource = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, 0)
                                             .taskRequest().toBuilder();
                                     wrongSource.getSplitsBuilder(0).setSourceSnapshot("not-the-frozen-version");

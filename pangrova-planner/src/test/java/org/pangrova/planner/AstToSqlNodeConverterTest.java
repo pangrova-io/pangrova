@@ -25,6 +25,7 @@ import org.apache.calcite.sql.*;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -167,6 +168,38 @@ class AstToSqlNodeConverterTest {
         SqlNode node = converter.convert(stmt);
         assertThat(node).isInstanceOf(SqlInsert.class);
         assertThat(node.toString()).containsIgnoringCase("VALUES").contains("1");
+    }
+
+    @Test
+    void convertInsertOverwriteWithStaticPartitionProjectsThePartitionValue() {
+        InsertOverwriteStatement stmt = new InsertOverwriteStatement(
+                Identifier.of("db", "tbl"), Optional.of(List.of("id")),
+                Optional.of(Map.of("region", Literal.ofString("eu"))),
+                List.of(List.of(Literal.ofInteger(10))));
+
+        SqlInsert insert = (SqlInsert) converter.convert(stmt);
+
+        assertThat(insert.getTargetColumnList()).hasSize(2);
+        assertThat(((SqlIdentifier) insert.getTargetColumnList().get(0)).getSimple())
+                .isEqualTo("id");
+        assertThat(((SqlIdentifier) insert.getTargetColumnList().get(1)).getSimple())
+                .isEqualTo("region");
+        SqlCall row = ((SqlCall) insert.getSource()).operand(0);
+        assertThat(row.operandCount()).isEqualTo(2);
+        assertThat(row.operand(0).toString()).isEqualTo("10");
+        assertThat(row.operand(1).toString()).isEqualTo("'eu'");
+    }
+
+    @Test
+    void convertInsertOverwriteWithStaticPartitionRequiresExplicitColumns() {
+        InsertOverwriteStatement stmt = new InsertOverwriteStatement(
+                Identifier.of("db", "tbl"), Optional.empty(),
+                Optional.of(Map.of("region", Literal.ofString("eu"))),
+                List.of(List.of(Literal.ofInteger(10))));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> converter.convert(stmt))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("explicit column list");
     }
 
     @Test

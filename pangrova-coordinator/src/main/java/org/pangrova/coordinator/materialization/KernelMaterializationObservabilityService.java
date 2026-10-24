@@ -48,10 +48,22 @@ public final class KernelMaterializationObservabilityService {
 
     private final MaterializationRepository repository;
 
+    /**
+     * Creates the observability read model.
+     *
+     * @param repository durable materialization repository
+     */
     public KernelMaterializationObservabilityService(MaterializationRepository repository) {
         this.repository = Objects.requireNonNull(repository, "repository");
     }
 
+    /**
+     * Lists materialization objects of the authenticated tenant.
+     *
+     * @param statement SHOW statement
+     * @param context statement execution context
+     * @return result rows
+     */
     public StatementResult listObjects(ShowMaterializationsStatement statement,
             StatementExecutionContext context) {
         List<TypedRow> rows = repository.listObjects(tenant(context)).stream()
@@ -60,6 +72,13 @@ public final class KernelMaterializationObservabilityService {
         return new StatementResult(rows, OBJECT_COLUMNS, null, StatementCategory.SHOW);
     }
 
+    /**
+     * Lists refresh attempts of one object or the whole tenant.
+     *
+     * @param statement SHOW statement
+     * @param context statement execution context
+     * @return result rows
+     */
     public StatementResult listRefreshHistory(
             ShowMaterializationRefreshHistoryStatement statement,
             StatementExecutionContext context) {
@@ -70,6 +89,13 @@ public final class KernelMaterializationObservabilityService {
         return new StatementResult(rows, ATTEMPT_COLUMNS, null, StatementCategory.SHOW);
     }
 
+    /**
+     * Lists recorded dependency edges.
+     *
+     * @param statement SHOW statement
+     * @param context statement execution context
+     * @return result rows
+     */
     public StatementResult listDependencies(
             ShowMaterializationDependenciesStatement statement,
             StatementExecutionContext context) {
@@ -80,6 +106,13 @@ public final class KernelMaterializationObservabilityService {
         return new StatementResult(rows, DEPENDENCY_COLUMNS, null, StatementCategory.SHOW);
     }
 
+    /**
+     * Lists garbage-collection decisions.
+     *
+     * @param statement SHOW statement
+     * @param context statement execution context
+     * @return result rows
+     */
     public StatementResult listGcHistory(ShowMaterializationGcHistoryStatement statement,
             StatementExecutionContext context) {
         List<TypedRow> rows = repository.findGcHistory(tenant(context),

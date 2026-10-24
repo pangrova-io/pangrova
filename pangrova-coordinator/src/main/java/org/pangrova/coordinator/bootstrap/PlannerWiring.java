@@ -91,7 +91,8 @@ final class PlannerWiring {
                     readerPin(session);
             dynamicTableRewriter = new DynamicTableRewriter(new DurableDynamicTableResolver(
                     materializations, tenantId, session.getCatalog().orElse(null),
-                    session.getSchema().orElse(null), pinner));
+                    session.getSchema().orElse(null), pinner),
+                    DynamicTableRewriter.isInternalExecution(session));
         }
         return new PangrovaPlanner(rootSchema, path,
                 new PlannerContext(stats, mvCatalog, cache,
@@ -111,7 +112,7 @@ final class PlannerWiring {
         }
         String tenantId = session.getProperties().getOrDefault("tenant_id", "default");
         return KernelMaterializedViewRewriteCatalog.create(materializations, tenantId, session,
-                accessControl, java.time.Instant.now()).orElse(null);
+                accessControl, java.time.Instant.now(), readerPin(session)).orElse(null);
     }
 
     /** Leases every published generation this admitted query resolves for execution. */

@@ -96,6 +96,24 @@ class MaterializationSchedulerTest {
     }
 
     @Test
+    void concurrentPublicationDefersWithoutCountingAFailure() {
+        repository.putSchedule(Schedule.scheduled(OBJECT, LAG, NOW.minusSeconds(5)));
+        refresher.failure = MaterializationException.concurrentPublication(
+                "another refresh already owns the object");
+
+        MaterializationScheduler.Run run = scheduler.runOnce().orElseThrow();
+
+        assertThat(run.succeeded()).isFalse();
+        assertThat(run.deferred()).isTrue();
+        assertThat(run.failure()).isSameAs(refresher.failure);
+        Schedule stored = repository.findSchedule(OBJECT).orElseThrow();
+        assertThat(stored.consecutiveFailures()).isZero();
+        assertThat(stored.lease()).isEmpty();
+        assertThat(stored.version()).isEqualTo(2);
+        assertThat(stored.nextDueAt()).contains(NOW.plusSeconds(10));
+    }
+
+    @Test
     void suspendsScheduleAfterConsecutiveFailureThreshold() {
         repository.putSchedule(new Schedule(OBJECT, Optional.of(LAG),
                 Optional.of(NOW.minusSeconds(1)), Optional.empty(), 2, ScheduleState.ACTIVE,

@@ -94,8 +94,14 @@ final class GeneratedWriteAuthorityResolver {
                     DeferredAuthorizationScope.PolicySnapshot.empty())));
             var scope = new DeferredAuthorizationScope(permissions,
                     Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, models)));
-            JdbcTenantStore.requireDeferredTenant(connection, principal, tenant, scope);
-            PersistentDeferredAuthorization.requireCurrent(connection, principal, scope);
+            JdbcTenantStore.requireDeferredTenant(connection, principal, tenant, scope,
+                    request.internalMaterializationExecution()
+                            ? org.pangrova.coordinator.query.security.AccessControlEnforcer
+                                    ::isReservedDynamicTableGeneration
+                            : table -> false);
+            if (!request.internalMaterializationExecution()) {
+                PersistentDeferredAuthorization.requireCurrent(connection, principal, scope);
+            }
             var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
             connection.commit();
             return receipt;

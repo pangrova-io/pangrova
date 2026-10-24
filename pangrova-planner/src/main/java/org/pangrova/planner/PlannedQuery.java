@@ -228,6 +228,36 @@ public final class PlannedQuery {
         return scanCount(plan) == 1 && isProjectionFilterScan(plan);
     }
 
+    /**
+     * Returns whether this plan is a single-table grouping aggregate that can be
+     * recomputed one partition at a time.
+     *
+     * <p>The plan must read one table through projections and filters and then
+     * group with a single, non-empty grouping set. Grouping sets, windows,
+     * joins, set operations, sorting, and limits can make a source partition
+     * contribute to rows owned by another partition, so they are rejected.
+     *
+     * @return true when the plan is a partition-local grouping aggregate
+     */
+    public boolean isPartitionLocalAggregate() {
+        return scanCount(plan) == 1 && isAggregateShape(plan);
+    }
+
+    private static boolean isAggregateShape(RelNode node) {
+        if (node instanceof org.apache.calcite.rel.core.Aggregate aggregate) {
+            return !aggregate.hasEmptyGroup()
+                    && aggregate.getGroupSets().size() == 1
+                    && aggregate.getInputs().size() == 1
+                    && isProjectionFilterScan(aggregate.getInput());
+        }
+        if (node instanceof org.apache.calcite.rel.core.Project
+                || node instanceof org.apache.calcite.rel.core.Filter
+                || node instanceof org.apache.calcite.rel.core.Calc) {
+            return node.getInputs().size() == 1 && isAggregateShape(node.getInput(0));
+        }
+        return false;
+    }
+
     private static boolean isProjectionFilterScan(RelNode node) {
         if (node instanceof TableScan) {
             return true;

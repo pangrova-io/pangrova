@@ -26,7 +26,6 @@ import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.RefreshAttempt;
@@ -208,6 +207,74 @@ class MaterializationServiceIncrementalTest {
                 .isEqualTo(RefreshKind.IncrementalAppendOnly.INSTANCE);
     }
 
+    @Test
+    void redefinitionBootstrapsAFullGenerationBeforeIncrementalResumes() {
+        planner.kinds = Set.of(RefreshKind.Full.INSTANCE, RefreshKind.IncrementalAppendOnly.INSTANCE);
+        service().create(command(RefreshMode.INCREMENTAL,
+                Optional.of(StrategyId.APPEND_ONLY), "create-1"));
+        Generation base = repository.findPublishedGeneration(OBJECT).orElseThrow();
+
+        service().redefine(new RedefineMaterialization(OBJECT,
+                MaterializationTestFixtures.REQUESTER,
+                "SELECT id, name FROM orders WHERE id > 10", Map.of(),
+                new CommandId("redefine-1")));
+
+        planner.vector = MaterializationTestFixtures.vector(Map.of(ORDERS,
+                MaterializationTestFixtures.snapshot(ORDERS, "snap-3")), 3);
+        MaterializationOutcome refreshed = service().refresh(new RefreshMaterialization(
+                OBJECT, MaterializationTestFixtures.REQUESTER, TriggerKind.MANUAL,
+                new CommandId("refresh-1")));
+
+        assertThat(refreshed.generation().refreshKind()).isEqualTo(RefreshKind.Full.INSTANCE);
+        assertThat(refreshed.generation().definitionRevision()).isEqualTo(2);
+        assertThat(refreshed.generation().baseGeneration()).isEmpty();
+        assertThat(refreshed.generation().id()).isNotEqualTo(base.id());
+        assertThat(execution.requests.get(1).attempt().baseGeneration()).isEmpty();
+        assertThat(execution.requests.get(1).plan()).get().satisfies(plan -> {
+            assertThat(plan.kind()).isEqualTo(RefreshKind.Full.INSTANCE);
+            assertThat(plan.changeSets()).isEmpty();
+        });
+        assertThat(pins.changeSets()).isEmpty();
+    }
+
+    @Test
+    void partitionReplaceRefreshPlansOnlyTheChangedPartitions() {
+        planner.kinds = Set.of(RefreshKind.Full.INSTANCE,
+                RefreshKind.IncrementalPartitionReplace.INSTANCE);
+        planner.alignment = new org.pangrova.materialization.domain.PartitionAlignment(
+                org.pangrova.materialization.domain.PartitionAlignment.Shape.SCAN,
+                List.of(new org.pangrova.materialization.domain.PartitionAlignment.Column(
+                        "region", "name", false)));
+        MaterializationOutcome created = service().create(command(RefreshMode.INCREMENTAL,
+                Optional.of(StrategyId.PARTITION_REPLACE), "create-1"));
+        Generation base = created.generation();
+
+        planner.vector = MaterializationTestFixtures.vector(
+                Map.of(ORDERS, MaterializationTestFixtures.snapshot(ORDERS, "snap-2")), 2);
+        pins.respondWithPartitions(List.of(
+                new org.pangrova.spi.materialization.PartitionChange(List.of(
+                        new org.pangrova.spi.materialization.PartitionValue("region", "'eu'")))));
+
+        MaterializationOutcome refreshed = service().refresh(new RefreshMaterialization(
+                OBJECT, MaterializationTestFixtures.REQUESTER, TriggerKind.MANUAL,
+                new CommandId("refresh-1")));
+
+        assertThat(refreshed.generation().refreshKind())
+                .isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+        assertThat(refreshed.generation().baseGeneration()).contains(base.id());
+        assertThat(execution.requests.get(1).plan()).get().satisfies(plan -> {
+            assertThat(plan.kind()).isEqualTo(RefreshKind.IncrementalPartitionReplace.INSTANCE);
+            assertThat(plan.canonicalSql())
+                    .contains("WHERE ((\"name\" IS NULL OR \"name\" <> 'eu'))")
+                    .contains("WHERE (\"name\" = 'eu')");
+            assertThat(plan.changeSets()).containsOnlyKeys(ORDERS);
+        });
+        assertThat(pins.changeSets()).singleElement().satisfies(plan -> {
+            assertThat(plan.mode()).isEqualTo(ChangeSetMode.PARTITION_REPLACE);
+            assertThat(plan.changedPartitions()).hasSize(1);
+        });
+    }
+
     private MaterializationWriteCapability capability(int index) {
         return authorizer.capabilities.get(index);
     }
@@ -225,7 +292,8 @@ class MaterializationServiceIncrementalTest {
                 strategy,
                 Optional.<TargetLag>empty(),
                 Map.of(),
-                new CommandId(commandId));
+                new CommandId(commandId),
+                false);
     }
 
     private MaterializationService service() {
@@ -239,6 +307,8 @@ class MaterializationServiceIncrementalTest {
 
         private SourceVector vector;
         private Set<RefreshKind> kinds;
+        private org.pangrova.materialization.domain.PartitionAlignment alignment =
+                org.pangrova.materialization.domain.PartitionAlignment.NONE;
 
         private MutablePlanner(SourceVector vector, Set<RefreshKind> kinds) {
             this.vector = vector;
@@ -253,7 +323,8 @@ class MaterializationServiceIncrementalTest {
                     vector,
                     Set.of(),
                     MaterializationTestFixtures.policies(vector.snapshots().keySet()),
-                    kinds);
+                    kinds,
+                    alignment);
         }
     }
 
@@ -286,11 +357,6 @@ class MaterializationServiceIncrementalTest {
 
         @Override
         public void requireRead(MaterializationId object, Principal requester) {
-        }
-
-        @Override
-        public PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources) {
-            throw new UnsupportedOperationException();
         }
 
         @Override

@@ -1,16 +1,23 @@
 package org.pangrova.connector.iceberg;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.apache.iceberg.ContentFile;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
@@ -22,6 +29,8 @@ import org.pangrova.spi.materialization.ChangeSetMode;
 import org.pangrova.spi.materialization.ChangeSetPlan;
 import org.pangrova.spi.materialization.MaterializationCapabilities;
 import org.pangrova.spi.materialization.MaterializationSourceException;
+import org.pangrova.spi.materialization.PartitionChange;
+import org.pangrova.spi.materialization.PartitionValue;
 import org.pangrova.spi.materialization.PinnedSource;
 import org.pangrova.spi.materialization.SourceProvider;
 import org.pangrova.spi.materialization.SourceRef;
@@ -34,7 +43,9 @@ import org.pangrova.spi.materialization.SourceSnapshotRef;
  * observe the same snapshot keep independent holds. The provider proves
  * append-only change intervals by walking the parent chain; any non-append
  * operation or delete manifest makes the interval unprovable, and the provider
- * fails closed instead of guessing.
+ * fails closed instead of guessing. Partitioned tables additionally support
+ * partition replacement when every partition field is an identity transform:
+ * the provider names the partitions with added or removed data or delete files.
  */
 public final class IcebergMaterializationSourceProvider implements SourceProvider {
 
@@ -45,6 +56,12 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
     private final Catalog catalog;
     private final String catalogName;
 
+    /**
+     * Creates the provider over a resolved Iceberg catalog.
+     *
+     * @param catalogName logical catalog name reported in source references
+     * @param catalog Iceberg catalog used for snapshots and manifests
+     */
     public IcebergMaterializationSourceProvider(String catalogName, Catalog catalog) {
         if (catalogName == null || catalogName.isBlank()) {
             throw new IllegalArgumentException("catalogName must not be blank");
@@ -66,11 +83,29 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                 true,
                 true,
                 true,
-                false,
+                partitionReplaceSupported(load(source)),
                 false,
                 false,
                 true,
                 true);
+    }
+
+    @Override
+    public java.util.List<String> partitionColumns(SourceRef source) {
+        requireSource(source);
+        Table table = load(source);
+        if (!partitionReplaceSupported(table)) {
+            return java.util.List.of();
+        }
+        java.util.List<String> columns = new ArrayList<>(table.spec().fields().size());
+        for (PartitionField field : table.spec().fields()) {
+            String column = table.schema().findColumnName(field.sourceId());
+            if (column == null) {
+                return java.util.List.of();
+            }
+            columns.add(column);
+        }
+        return java.util.List.copyOf(columns);
     }
 
     @Override
@@ -212,14 +247,21 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         Table table = load(source);
         long fromId = snapshotId(from, table);
         long toId = snapshotId(to, table);
-        if (mode != ChangeSetMode.APPEND_ONLY) {
+        List<PartitionChange> changedPartitions;
+        if (mode == ChangeSetMode.APPEND_ONLY) {
+            requireAppendOnly(table, fromId, toId, source);
+            changedPartitions = List.of();
+        } else if (mode == ChangeSetMode.PARTITION_REPLACE) {
+            requirePartitionReplaceable(table, source);
+            changedPartitions = changedPartitions(table, fromId, toId, source);
+        } else {
             throw unsupported(source, mode);
         }
-        requireAppendOnly(table, fromId, toId, source);
-        String fingerprint = sha256("iceberg-change-set-v1|" + source.canonicalName()
-                + '|' + fromId + '|' + toId + '|' + mode.name());
+        String fingerprint = sha256("iceberg-change-set-v2|" + source.canonicalName()
+                + '|' + fromId + '|' + toId + '|' + mode.name()
+                + '|' + partitionFingerprint(changedPartitions));
         return new ChangeSetPlan(source, from.snapshot(), to.snapshot(), mode,
-                fingerprint, Instant.now());
+                fingerprint, Instant.now(), changedPartitions);
     }
 
     @Override
@@ -229,7 +271,14 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         Table table = load(source);
         long fromId = parseSnapshot(plan.fromSnapshot(), source);
         long toId = parseSnapshot(plan.toSnapshot(), source);
-        boolean complete = appendOnly(table, fromId, toId, source);
+        boolean complete;
+        if (plan.mode() == ChangeSetMode.PARTITION_REPLACE) {
+            requirePartitionReplaceable(table, source);
+            complete = plan.changedPartitions()
+                    .equals(changedPartitions(table, fromId, toId, source));
+        } else {
+            complete = appendOnly(table, fromId, toId, source);
+        }
         return new ChangeProof(source, Long.toString(fromId), Long.toString(toId),
                 plan.mode(), sha256(plan.planFingerprint() + "|verified|" + complete),
                 STRATEGY_VERSION, Instant.now(), complete);
@@ -309,6 +358,20 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
         if (fromId == toId) {
             return true;
         }
+        List<Snapshot> range = snapshotsAfter(table, fromId, toId, source);
+        for (Snapshot snapshot : range) {
+            if (!"append".equals(snapshot.operation())) {
+                return false;
+            }
+            if (!snapshot.deleteManifests(table.io()).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static List<Snapshot> snapshotsAfter(
+            Table table, long fromId, long toId, SourceRef source) {
         Snapshot current = table.snapshot(toId);
         if (current == null) {
             throw new MaterializationSourceException(
@@ -328,15 +391,115 @@ public final class IcebergMaterializationSourceProvider implements SourceProvide
                     "Iceberg snapshot " + fromId + " is not an ancestor of " + toId
                             + " for " + source.canonicalName());
         }
-        for (Snapshot snapshot : range) {
-            if (!"append".equals(snapshot.operation())) {
-                return false;
-            }
-            if (!snapshot.deleteManifests(table.io()).isEmpty()) {
-                return false;
-            }
+        return range;
+    }
+
+    private static boolean partitionReplaceSupported(Table table) {
+        PartitionSpec spec = table.spec();
+        return spec.isPartitioned()
+                && spec.fields().stream().allMatch(field -> field.transform().isIdentity());
+    }
+
+    private static void requirePartitionReplaceable(Table table, SourceRef source) {
+        if (!partitionReplaceSupported(table)) {
+            throw new MaterializationSourceException(
+                    MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                    "Iceberg source " + source.canonicalName()
+                            + " has no identity-partitioned spec for partition replacement");
         }
-        return true;
+    }
+
+    /**
+     * Collects the partitions whose files were added or removed in the interval.
+     *
+     * <p>Only identity partition specs are accepted, so a partition value maps
+     * directly to one source column. The result is ordered canonically so that
+     * planning and verification derive exactly the same list.
+     */
+    private static List<PartitionChange> changedPartitions(
+            Table table, long fromId, long toId, SourceRef source) {
+        if (fromId == toId) {
+            return List.of();
+        }
+        PartitionSpec spec = table.spec();
+        Map<String, PartitionChange> changes = new LinkedHashMap<>();
+        for (Snapshot snapshot : snapshotsAfter(table, fromId, toId, source)) {
+            collectPartitions(table, spec, snapshot.addedDataFiles(table.io()), changes, source);
+            collectPartitions(table, spec, snapshot.removedDataFiles(table.io()), changes, source);
+            // A merge-on-read delete changes the rows of its partition without
+            // touching any data file, so delete-file partitions are changes too.
+            collectPartitions(table, spec, snapshot.addedDeleteFiles(table.io()), changes, source);
+            collectPartitions(table, spec, snapshot.removedDeleteFiles(table.io()), changes, source);
+        }
+        return changes.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
+                .map(Map.Entry::getValue)
+                .toList();
+    }
+
+    private static void collectPartitions(Table table, PartitionSpec spec,
+            Iterable<? extends ContentFile<?>> files, Map<String, PartitionChange> changes,
+            SourceRef source) {
+        Types.StructType partitionType = spec.partitionType();
+        for (ContentFile<?> file : files) {
+            if (file.specId() != spec.specId()) {
+                throw new MaterializationSourceException(
+                        MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                        "Iceberg content file of " + source.canonicalName()
+                                + " uses partition spec " + file.specId()
+                                + " instead of " + spec.specId());
+            }
+            List<PartitionValue> values = new ArrayList<>(spec.fields().size());
+            for (int index = 0; index < spec.fields().size(); index++) {
+                PartitionField field = spec.fields().get(index);
+                String column = table.schema().findColumnName(field.sourceId());
+                if (column == null) {
+                    throw new MaterializationSourceException(
+                            MaterializationSourceException.Reason.SHAPE_MISMATCH,
+                            "Iceberg partition field " + field.name() + " of "
+                                    + source.canonicalName() + " has no source column");
+                }
+                Types.NestedField partitionField = partitionType.fields().get(index);
+                Object value = file.partition().get(index,
+                        partitionField.type().typeId().javaClass());
+                values.add(new PartitionValue(column, literal(partitionField, value, source)));
+            }
+            PartitionChange change = new PartitionChange(values);
+            changes.putIfAbsent(partitionFingerprint(List.of(change)), change);
+        }
+    }
+
+    private static String literal(
+            Types.NestedField field, Object value, SourceRef source) {
+        if (value == null) {
+            return null;
+        }
+        return switch (field.type().typeId()) {
+            case INTEGER -> ((Number) value).longValue() + "";
+            case LONG -> ((Number) value).longValue() + "";
+            case DATE -> "DATE '" + LocalDate.ofEpochDay(((Number) value).longValue()) + "'";
+            case STRING -> "'" + value.toString().replace("'", "''") + "'";
+            case BOOLEAN -> ((Boolean) value) ? "TRUE" : "FALSE";
+            case DECIMAL -> ((BigDecimal) value).toPlainString();
+            default -> throw new MaterializationSourceException(
+                    MaterializationSourceException.Reason.CHANGESET_UNSUPPORTED,
+                    "Iceberg partition type " + field.type() + " of " + source.canonicalName()
+                            + " cannot be expressed as a SQL literal");
+        };
+    }
+
+    private static String partitionFingerprint(List<PartitionChange> partitions) {
+        StringBuilder canonical = new StringBuilder();
+        for (PartitionChange change : partitions) {
+            canonical.append('[');
+            for (PartitionValue value : change.values()) {
+                canonical.append(value.column()).append('=')
+                        .append(value.literal() == null ? "\\N" : value.literal())
+                        .append(',');
+            }
+            canonical.append(']');
+        }
+        return canonical.toString();
     }
 
     private Table load(SourceRef source) {

@@ -42,40 +42,69 @@ public record Generation(
         Optional<Instant> publishedAt) {
 
     public Generation {
-        if (id == null || object == null || incarnation == null || producingAttempt == null) {
-            throw new IllegalArgumentException("id, object, incarnation, and producingAttempt must not be null");
-        }
+        requireIdentity(id, object, incarnation, producingAttempt);
         if (definitionRevision < 1) {
             throw new IllegalArgumentException("definitionRevision must be positive");
         }
         baseGeneration = Require.notNull(baseGeneration, "baseGeneration");
-        if (physicalTable == null || refreshKind == null || sourceVector == null || state == null) {
-            throw new IllegalArgumentException("physicalTable, refreshKind, sourceVector, and state are required");
-        }
+        requirePayload(physicalTable, refreshKind, sourceVector, state);
         evidence = Require.notNull(evidence, "evidence");
         publishedAt = Require.notNull(publishedAt, "publishedAt");
+        requireBaseConsistency(refreshKind, baseGeneration);
+        requireEvidence(state, evidence);
+        requirePublicationInstant(state, publishedAt);
+        if (createdAt == null) {
+            throw new IllegalArgumentException("createdAt must not be null");
+        }
+    }
+
+    private static void requireIdentity(GenerationId id, MaterializationId object,
+            IncarnationId incarnation, AttemptId producingAttempt) {
+        if (id == null || object == null || incarnation == null || producingAttempt == null) {
+            throw new IllegalArgumentException(
+                    "id, object, incarnation, and producingAttempt must not be null");
+        }
+    }
+
+    private static void requirePayload(PhysicalTableRef physicalTable, RefreshKind refreshKind,
+            SourceVector sourceVector, GenerationState state) {
+        if (physicalTable == null || refreshKind == null || sourceVector == null || state == null) {
+            throw new IllegalArgumentException(
+                    "physicalTable, refreshKind, sourceVector, and state are required");
+        }
+    }
+
+    private static void requireBaseConsistency(RefreshKind refreshKind,
+            Optional<GenerationId> baseGeneration) {
         if (refreshKind.isIncremental() && baseGeneration.isEmpty()) {
             throw new IllegalArgumentException("incremental generation must name a base generation");
         }
         if (!refreshKind.isIncremental() && baseGeneration.isPresent()) {
             throw new IllegalArgumentException("full generation must not name a base generation");
         }
-        if ((state == GenerationState.Committed.INSTANCE || state == GenerationState.Published.INSTANCE)
-                && evidence.isEmpty()) {
-            throw new IllegalArgumentException("committed or published generation requires commit evidence");
+    }
+
+    private static void requireEvidence(GenerationState state,
+            Optional<CommitEvidence> generationEvidence) {
+        if ((state == GenerationState.Committed.INSTANCE
+                || state == GenerationState.Published.INSTANCE)
+                && generationEvidence.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "committed or published generation requires commit evidence");
         }
-        if (state == GenerationState.Published.INSTANCE && publishedAt.isEmpty()) {
+    }
+
+    private static void requirePublicationInstant(GenerationState state,
+            Optional<Instant> publicationInstant) {
+        if (state == GenerationState.Published.INSTANCE && publicationInstant.isEmpty()) {
             throw new IllegalArgumentException("published generation requires a publication instant");
         }
         if (state != GenerationState.Published.INSTANCE
                 && state != GenerationState.Retired.INSTANCE
                 && state != GenerationState.Collected.INSTANCE
-                && publishedAt.isPresent()) {
+                && publicationInstant.isPresent()) {
             throw new IllegalArgumentException(
                     "only published, retired, or collected generations carry a publication instant");
-        }
-        if (createdAt == null) {
-            throw new IllegalArgumentException("createdAt must not be null");
         }
     }
 

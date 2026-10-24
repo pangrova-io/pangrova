@@ -1,11 +1,12 @@
 package org.pangrova.planner;
 
+import org.pangrova.parser.ast.Statement;
 import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -18,11 +19,14 @@ final class DynamicTablePlanningSupport {
 
     private final PangrovaParserFactory parserFactory;
     private final DynamicTableSqlRewriter dynamicTableSqlRewriter;
+    private final DynamicTableAstRewriter dynamicTableAstRewriter;
 
     DynamicTablePlanningSupport(PangrovaParserFactory parserFactory,
-                                DynamicTableSqlRewriter dynamicTableSqlRewriter) {
+                                DynamicTableSqlRewriter dynamicTableSqlRewriter,
+                                DynamicTableAstRewriter dynamicTableAstRewriter) {
         this.parserFactory = parserFactory;
         this.dynamicTableSqlRewriter = dynamicTableSqlRewriter;
+        this.dynamicTableAstRewriter = dynamicTableAstRewriter;
     }
 
     /**
@@ -33,6 +37,14 @@ final class DynamicTablePlanningSupport {
             return new DynamicTableSqlRewriter.RewriteWithAuthority(sql, java.util.Map.of());
         }
         return dynamicTableSqlRewriter.rewriteWithAuthority(sql);
+    }
+
+    /** AST rewrite for statements dispatched without a SQL text round-trip. */
+    DynamicTableAstRewriter.RewriteWithAuthority rewriteAstIfWired(Statement statement) {
+        if (dynamicTableAstRewriter == null) {
+            return new DynamicTableAstRewriter.RewriteWithAuthority(statement, java.util.Map.of());
+        }
+        return dynamicTableAstRewriter.rewrite(statement);
     }
 
     /**

@@ -54,7 +54,9 @@ public final class DynamicTableSqlRewriter {
 
     /** Returns the rewritten SQL and the durable logical identity of each physical scan. */
     public RewriteWithAuthority rewriteWithAuthority(String sql) {
-        rejectExplicitGenerationReference(sql);
+        if (!dynamicTableRewriter.allowDirectGenerationAccess()) {
+            rejectExplicitGenerationReference(sql);
+        }
         String rewritten = sql;
         Map<QualifiedTableName, QualifiedTableName> physicalToLogical = new HashMap<>();
         Map<QualifiedTableName, Optional<DynamicTableRewriter.PublishedTarget>> pinnedTargets =

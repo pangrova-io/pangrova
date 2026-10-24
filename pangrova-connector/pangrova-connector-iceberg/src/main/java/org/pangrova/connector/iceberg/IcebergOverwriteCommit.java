@@ -18,16 +18,12 @@ final class IcebergOverwriteCommit {
         if (!handle.staticPartitions().isEmpty()) {
             return scoped(table, handle, files);
         }
-        if (files.isEmpty()) {
-            var overwrite = table.newOverwrite().overwriteByRowFilter(Expressions.alwaysTrue());
-            if (handle.baseSnapshotId() != IcebergOutputTableHandle.NO_SNAPSHOT) {
-                overwrite.validateFromSnapshot(handle.baseSnapshotId());
-                overwrite.validateNoConflictingData();
-                overwrite.validateNoConflictingDeletes();
-            }
-            return overwrite;
-        }
-        var overwrite = table.newReplacePartitions();
+        // The native plan emits the complete replacement content: INSERT OVERWRITE
+        // selects, and copy-on-write UPDATE/DELETE/MERGE emit every survivor.
+        // Dynamic partition replacement only replaces partitions that receive
+        // rows, so a partition that became empty would keep its old rows. The
+        // allocation is authoritative only under a whole-table overwrite.
+        var overwrite = table.newOverwrite().overwriteByRowFilter(Expressions.alwaysTrue());
         if (handle.baseSnapshotId() != IcebergOutputTableHandle.NO_SNAPSHOT) {
             overwrite.validateFromSnapshot(handle.baseSnapshotId());
             overwrite.validateNoConflictingData();

@@ -55,10 +55,22 @@ public final class KernelMaterializedViewService {
 
     private final MaterializationKernelFactory kernels;
 
+    /**
+     * Creates the kernel service adapter.
+     *
+     * @param kernels unified materialization kernel factory
+     */
     public KernelMaterializedViewService(MaterializationKernelFactory kernels) {
         this.kernels = Objects.requireNonNull(kernels, "kernels");
     }
 
+    /**
+     * Executes CREATE MATERIALIZED VIEW, including OR REPLACE.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result receipt
+     */
     public StatementResult create(CreateMaterializedViewStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
@@ -70,6 +82,7 @@ public final class KernelMaterializedViewService {
                 new AstPrinter().print(statement.query()),
                 principal,
                 principal,
+                context.session().userIdentity().groups(),
                 SecurityMode.DEFINER,
                 KernelDynamicTableService.refreshMode(statement.refreshMode()),
                 KernelDynamicTableService.incrementalStrategy(statement.incrementalStrategy()),
@@ -88,6 +101,13 @@ public final class KernelMaterializedViewService {
                 object.name().toString());
     }
 
+    /**
+     * Executes ALTER MATERIALIZED VIEW.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result receipt
+     */
     public StatementResult alter(AlterMaterializedViewStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
@@ -137,6 +157,13 @@ public final class KernelMaterializedViewService {
                         + action.getClass().getSimpleName());
     }
 
+    /**
+     * Executes REFRESH MATERIALIZED VIEW.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result receipt
+     */
     public StatementResult refresh(RefreshMaterializedViewStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
@@ -147,6 +174,13 @@ public final class KernelMaterializedViewService {
                 object.name().toString());
     }
 
+    /**
+     * Executes DROP MATERIALIZED VIEW.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result receipt
+     */
     public StatementResult drop(DropMaterializedViewStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
@@ -157,11 +191,19 @@ public final class KernelMaterializedViewService {
                 object.name().toString());
     }
 
+    /**
+     * Executes SHOW MATERIALIZED VIEWS.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result rows
+     */
     public StatementResult show(ShowMaterializedViewsStatement statement,
             StatementExecutionContext context) {
         List<TypedRow> rows = kernels.catalog()
                 .listPublished(MaterializationKernelFactory.tenant(context)).stream()
                 .filter(published -> published.kind() == MaterializationKind.MATERIALIZED_VIEW)
+                .filter(published -> kernels.mayRead(context, published.object()))
                 .filter(published -> matchesLike(
                         published.object().name().toString(), statement.pattern()))
                 .map(published -> scheduleRow(published,
@@ -174,9 +216,17 @@ public final class KernelMaterializedViewService {
                 "published_table", "revision"), null, StatementCategory.DYNAMIC_TABLE);
     }
 
+    /**
+     * Executes DESCRIBE MATERIALIZED VIEW.
+     *
+     * @param statement parsed statement
+     * @param context statement execution context
+     * @return result row
+     */
     public StatementResult describe(DescribeMaterializedViewStatement statement,
             StatementExecutionContext context) {
         MaterializationId object = object(statement.name(), context);
+        kernels.requireRead(context, object);
         PublishedMaterialization published = kernels.catalog().findPublished(object)
                 .orElseThrow(() -> MaterializationException.notFound(object));
         TypedRow row = scheduleRow(published,

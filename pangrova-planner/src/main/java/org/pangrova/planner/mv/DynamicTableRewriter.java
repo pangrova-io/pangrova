@@ -19,12 +19,42 @@ import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 @org.pangrova.common.concurrent.ThreadSafe
 public final class DynamicTableRewriter {
 
+    /**
+     * Reserved connector-session property binding kernel-authored materialization
+     * execution. The coordinator always removes client copies before setting it
+     * from its trusted execution context, so a client can never forge it.
+     */
+    public static final String INTERNAL_EXECUTION_PROPERTY =
+            "pangrova.materialization.internal-execution";
+
     private final PublishedTargetResolver publishedTargetResolver;
+    private final boolean allowDirectGenerationAccess;
 
     /** Resolves only durable, published physical generations for the current session. */
     public DynamicTableRewriter(PublishedTargetResolver publishedTargetResolver) {
+        this(publishedTargetResolver, false);
+    }
+
+    /**
+     * @param allowDirectGenerationAccess true only for kernel-authored
+     *        materialization execution, which must read its pinned base
+     *        generation; ordinary client SQL must never set this
+     */
+    public DynamicTableRewriter(PublishedTargetResolver publishedTargetResolver,
+            boolean allowDirectGenerationAccess) {
         this.publishedTargetResolver = Objects.requireNonNull(publishedTargetResolver,
                 "publishedTargetResolver");
+        this.allowDirectGenerationAccess = allowDirectGenerationAccess;
+    }
+
+    /** Returns whether this session may name a reserved physical generation. */
+    public boolean allowDirectGenerationAccess() {
+        return allowDirectGenerationAccess;
+    }
+
+    /** Reads the reserved internal-execution binding from a converted session. */
+    public static boolean isInternalExecution(org.pangrova.spi.connector.ConnectorSession session) {
+        return "true".equals(session.getProperties().get(INTERNAL_EXECUTION_PROPERTY));
     }
 
     /** Component-preserving query-local authority for one published generation. */

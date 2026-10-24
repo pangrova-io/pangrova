@@ -157,10 +157,23 @@ public interface MaterializationRepository {
     /**
      * Lists attempts that may need reconciliation.
      *
-     * @param updatedBefore only attempts last updated before this instant
-     * @return unsettled attempts
+     * <p>An attempt is reconcilable only when its execution anchor is no longer
+     * live, or when it is quarantined and has been observed for the full grace
+     * period. A live anchor means the owning coordinator may still be writing,
+     * so recovery must never race it.
+     *
+     * @param observedBefore quarantine observation cutoff
+     * @return attempts safe to reconcile
      */
-    List<RefreshAttempt> findUnsettledAttempts(Instant updatedBefore);
+    List<RefreshAttempt> findReconcilableAttempts(Instant observedBefore);
+
+    /**
+     * Marks an attempt as executing in the data plane.
+     *
+     * @param attempt attempt identity
+     * @param now transition instant
+     */
+    void markAttemptBuilding(AttemptId attempt, Instant now);
 
     /**
      * Finds the durable schedule of an object.
@@ -207,6 +220,28 @@ public interface MaterializationRepository {
      */
     boolean createObjectIfAbsent(MaterializationObject object, DefinitionRevision definition,
             Schedule schedule, CommandId commandId, MaterializationEvent event);
+
+    /**
+     * Reclaims the logical name of a dropped object for a new incarnation.
+     *
+     * <p>The replacement keeps the durable audit trail (events, attempts, and
+     * generations of the previous incarnation) but clears the definition and
+     * schedule rows owned by the dropped incarnation, because those tables are
+     * keyed by the logical name rather than the incarnation. The attempt fails
+     * without side effects when the object is no longer dropped or has already
+     * been reclaimed by a concurrent create.
+     *
+     * @param expectedDropped object header observed in the dropped state
+     * @param replacement new incarnation header starting at revision 0
+     * @param definition first definition revision of the new incarnation
+     * @param schedule initial schedule of the new incarnation
+     * @param commandId idempotency key of the create command
+     * @param event creation event
+     * @return true when this call reclaimed the name
+     */
+    boolean reclaimDroppedObject(MaterializationObject expectedDropped,
+            MaterializationObject replacement, DefinitionRevision definition, Schedule schedule,
+            CommandId commandId, MaterializationEvent event);
 
     /**
      * Renames an object and cascades its logical name through dependent rows.
@@ -309,11 +344,33 @@ public interface MaterializationRepository {
     /**
      * Settles an attempt and its candidate generation in a non-publishing state.
      *
-     * @param attempt settled attempt
+     * <p>The update is conditional on the attempt still being in the state the
+     * caller observed, so recovery can never overwrite a transition that won a
+     * concurrent race.
+     *
+     * @param previous attempt state the caller observed
+     * @param settled settled attempt
      * @param generation settled generation
      * @param event settlement event
      */
-    void settleAttempt(RefreshAttempt attempt, Generation generation, MaterializationEvent event);
+    void settleAttempt(RefreshAttempt previous, RefreshAttempt settled, Generation generation,
+            MaterializationEvent event);
+
+    /**
+     * Completes a drop by clearing the head generation and retiring it.
+     *
+     * <p>The header CAS, generation retirement, active-attempt settlement, and
+     * event append are one transaction so a crash cannot leave a dropped object
+     * that still hides its physical table from garbage collection.
+     *
+     * @param dropped dropped header without a published generation
+     * @param publishedGeneration generation referenced before the drop, when any
+     * @param expectedRevision head revision the caller observed
+     * @param commandId idempotency key
+     * @param event drop event
+     */
+    void dropObject(MaterializationObject dropped, Optional<GenerationId> publishedGeneration,
+            long expectedRevision, CommandId commandId, MaterializationEvent event);
 
     /**
      * Lists acquired source pins that can be reclaimed without re-running data.
@@ -449,6 +506,25 @@ public interface MaterializationRepository {
      * @param entry pending ledger entry
      */
     void recordGcDecision(GcLedgerEntry entry);
+
+    /**
+     * Collects one generation while holding its row lock.
+     *
+     * <p>The generation is re-validated under {@code FOR UPDATE} immediately
+     * before the physical drop, so a reader pin or a new base reference that
+     * appears after the candidate scan either blocks until collection finishes
+     * or is rejected by the pin path. The physical drop runs inside the same
+     * transaction; the durable state transition and the applied ledger entry
+     * commit only after it succeeds.
+     *
+     * @param generation generation expected to be collectable
+     * @param entry pending ledger entry
+     * @param event collection event
+     * @param physicalDrop physical table drop
+     * @return true when the generation was collected
+     */
+    boolean collectGeneration(Generation generation, GcLedgerEntry entry,
+            MaterializationEvent event, Runnable physicalDrop);
 
     /**
      * Marks a GC decision applied or failed.

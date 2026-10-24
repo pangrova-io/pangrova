@@ -6,7 +6,6 @@ import java.util.Optional;
 import org.pangrova.materialization.domain.GcLedgerEntry;
 import org.pangrova.materialization.domain.Generation;
 import org.pangrova.materialization.domain.GenerationState;
-import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.port.Clock;
 import org.pangrova.materialization.port.MaterializationEvent;
@@ -34,6 +33,13 @@ public final class GenerationGarbageCollector {
     private final PhysicalGenerationStore store;
     private final Clock clock;
 
+    /**
+     * Creates a collector over the durable ledger and the physical store.
+     *
+     * @param repository durable repository
+     * @param store physical generation store
+     * @param clock time source
+     */
     public GenerationGarbageCollector(MaterializationRepository repository,
             PhysicalGenerationStore store, Clock clock) {
         if (repository == null || store == null || clock == null) {
@@ -73,12 +79,14 @@ public final class GenerationGarbageCollector {
                     now);
             repository.recordGcDecision(entry);
             try {
-                store.drop(generation.object(), generation.physicalTable());
-                repository.saveGeneration(generation.collect(),
-                        event(generation, now));
-                repository.updateGcDecision(
-                        entry.entryId(), GcLedgerEntry.GcState.APPLIED, clock.now());
-                collected++;
+                boolean collectedNow = repository.collectGeneration(generation, entry,
+                        event(generation, now),
+                        () -> store.drop(generation.object(), generation.physicalTable()));
+                if (collectedNow) {
+                    collected++;
+                } else {
+                    skipped++;
+                }
             } catch (RuntimeException failure) {
                 markFailed(entry, failure);
                 failed++;

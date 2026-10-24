@@ -248,7 +248,8 @@ class ObservabilityChainTest extends org.pangrova.coordinator.testinfra.SignedOi
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null,
+                org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
                 config, shuffleDirectory);
 

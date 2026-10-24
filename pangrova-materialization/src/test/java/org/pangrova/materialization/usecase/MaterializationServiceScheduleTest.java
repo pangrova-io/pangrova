@@ -20,7 +20,6 @@ import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.MaterializationObject;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.domain.ObjectState;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.domain.RefreshMode;
@@ -58,17 +57,23 @@ class MaterializationServiceScheduleTest {
         assertThat(suspended.state()).isEqualTo(ScheduleState.SUSPENDED);
         assertThat(suspended.targetLag())
                 .contains(new TargetLag(Duration.ofMinutes(1)));
+        MaterializationObject suspendedHeader = repository.findObject(object).orElseThrow();
+        assertThat(suspendedHeader.state()).isEqualTo(ObjectState.Suspended.INSTANCE);
 
         service.suspend(new SuspendMaterialization(object,
                 MaterializationTestFixtures.REQUESTER, new CommandId("suspend-2")));
         assertThat(repository.findSchedule(object).orElseThrow().version())
                 .isEqualTo(suspended.version());
+        assertThat(repository.findObject(object).orElseThrow().revision())
+                .isEqualTo(suspendedHeader.revision());
     }
 
     @Test
     void resumeActivatesSuspendedScheduleAndRepeatsAsNoOp() {
         MaterializationId object = MaterializationTestFixtures.objectId("orders_dt");
-        repository.putObject(active(object));
+        MaterializationObject suspendedObject = active(object)
+                .transitionTo(ObjectState.Suspended.INSTANCE, 1, MaterializationTestFixtures.NOW);
+        repository.putObject(suspendedObject);
         repository.putSchedule(Schedule.scheduled(object,
                 new TargetLag(Duration.ofMinutes(1)), MaterializationTestFixtures.NOW)
                 .suspend());
@@ -79,11 +84,16 @@ class MaterializationServiceScheduleTest {
         Schedule active = repository.findSchedule(object).orElseThrow();
         assertThat(active.state()).isEqualTo(ScheduleState.ACTIVE);
         assertThat(active.nextDueAt()).contains(MaterializationTestFixtures.NOW);
+        MaterializationObject resumed = repository.findObject(object).orElseThrow();
+        assertThat(resumed.state()).isEqualTo(ObjectState.Active.INSTANCE);
+        assertThat(resumed.revision()).isEqualTo(suspendedObject.revision() + 1);
 
         service.resume(new ResumeMaterialization(object,
                 MaterializationTestFixtures.REQUESTER, new CommandId("resume-2")));
         assertThat(repository.findSchedule(object).orElseThrow().version())
                 .isEqualTo(active.version());
+        assertThat(repository.findObject(object).orElseThrow().revision())
+                .isEqualTo(resumed.revision());
     }
 
     @Test
@@ -242,11 +252,6 @@ class MaterializationServiceScheduleTest {
 
         @Override
         public void requireRead(MaterializationId object, Principal requester) {
-        }
-
-        @Override
-        public PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources) {
-            throw new UnsupportedOperationException();
         }
 
         @Override

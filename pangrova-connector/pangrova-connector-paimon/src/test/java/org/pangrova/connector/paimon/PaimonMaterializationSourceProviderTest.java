@@ -122,7 +122,8 @@ class PaimonMaterializationSourceProviderTest {
                     .isEqualTo(MaterializationSourceException.Reason.PROOF_INCOMPLETE);
 
             ChangeSetPlan unproven = new ChangeSetPlan(SOURCE, from.snapshot(), to.snapshot(),
-                    ChangeSetMode.APPEND_ONLY, "plan:overwrite", java.time.Instant.now());
+                    ChangeSetMode.APPEND_ONLY, "plan:overwrite", java.time.Instant.now(),
+                    java.util.List.of());
             assertThat(provider.verify(unproven).complete()).isFalse();
         }
     }

@@ -14,6 +14,8 @@ import java.time.Instant;
  */
 public record TargetLag(Duration value) {
 
+    private static final Duration MAX_TARGET_LAG = Duration.ofDays(365);
+
     public TargetLag {
         if (value == null) {
             throw new IllegalArgumentException("target lag must not be null");
@@ -21,7 +23,7 @@ public record TargetLag(Duration value) {
         if (value.isZero() || value.isNegative()) {
             throw new IllegalArgumentException("target lag must be positive");
         }
-        if (value.compareTo(Duration.ofDays(365)) > 0) {
+        if (value.compareTo(MAX_TARGET_LAG) > 0) {
             throw new IllegalArgumentException("target lag must not exceed 365 days");
         }
     }

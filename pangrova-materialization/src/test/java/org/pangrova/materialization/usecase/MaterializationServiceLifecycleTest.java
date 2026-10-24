@@ -27,7 +27,6 @@ import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.MaterializationObject;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.RefreshAttempt;
@@ -114,6 +113,29 @@ class MaterializationServiceLifecycleTest {
                     assertThat(error.getMessage()).contains("already exists");
                 });
         assertThat(execution.requests).hasSize(1);
+    }
+
+    @Test
+    void createAfterDropStartsANewIncarnation() {
+        MaterializationOutcome created = service().create(create(
+                "SELECT id, name FROM orders", RefreshMode.FULL, Optional.empty(),
+                Optional.empty(), "create-1", false));
+        service().drop(new DropMaterialization(OBJECT, MaterializationTestFixtures.REQUESTER,
+                new CommandId("drop-1")));
+
+        MaterializationOutcome recreated = service().create(create(
+                "SELECT id FROM orders", RefreshMode.FULL, Optional.empty(),
+                Optional.empty(), "create-2", false));
+
+        assertThat(recreated.newlyPublished()).isTrue();
+        assertThat(recreated.object().incarnation())
+                .isNotEqualTo(created.object().incarnation());
+        assertThat(recreated.object().definitionRevision()).isEqualTo(1);
+        assertThat(recreated.generation().definitionRevision()).isEqualTo(1);
+        assertThat(repository.findObject(OBJECT).orElseThrow().state())
+                .isEqualTo(org.pangrova.materialization.domain.ObjectState.Active.INSTANCE);
+        assertThat(repository.findDefinition(OBJECT, 1)).isPresent();
+        assertThat(execution.requests).hasSize(2);
     }
 
     @Test
@@ -233,7 +255,9 @@ class MaterializationServiceLifecycleTest {
                 Optional.empty(), "create-1", false));
         CommandId commandId = new CommandId("mode-resume");
         repository.recordCommand(new CommandRecord(MaterializationTestFixtures.TENANT, commandId,
-                "pending refresh mode", MaterializationTestFixtures.NOW));
+                "{\"object\":\"" + OBJECT.canonicalName()
+                        + "\",\"revision\":1,\"action\":\"altered\"}",
+                MaterializationTestFixtures.NOW));
 
         MaterializationOutcome outcome = service().setRefreshMode(new SetRefreshMode(OBJECT,
                 MaterializationTestFixtures.REQUESTER, RefreshMode.INCREMENTAL,
@@ -382,7 +406,8 @@ class MaterializationServiceLifecycleTest {
                     vector,
                     Set.of(),
                     MaterializationTestFixtures.policies(vector.snapshots().keySet()),
-                    kinds);
+                    kinds,
+                    org.pangrova.materialization.domain.PartitionAlignment.NONE);
         }
     }
 
@@ -415,11 +440,6 @@ class MaterializationServiceLifecycleTest {
 
         @Override
         public void requireRead(MaterializationId object, Principal requester) {
-        }
-
-        @Override
-        public PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources) {
-            throw new UnsupportedOperationException();
         }
 
         @Override

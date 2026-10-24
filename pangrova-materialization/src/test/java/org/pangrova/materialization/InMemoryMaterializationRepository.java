@@ -63,6 +63,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     private final Map<AttemptId, MaterializationWriteCapability> capabilities = new HashMap<>();
     private final List<GcLedgerEntry> gcLedger = new ArrayList<>();
     private final List<MaterializationEvent> events = new ArrayList<>();
+    private final java.util.Set<String> liveAnchors = new java.util.HashSet<>();
     private boolean failNextScheduleUpdate;
 
     public InMemoryMaterializationRepository(Clock clock) {
@@ -92,6 +93,16 @@ public final class InMemoryMaterializationRepository implements MaterializationR
 
     public List<MaterializationEvent> events() {
         return List.copyOf(events);
+    }
+
+    /** Models a coordinator execution anchor that is still being renewed. */
+    public void putLiveAnchor(String anchor) {
+        liveAnchors.add(anchor);
+    }
+
+    /** Models an execution anchor whose owner disappeared. */
+    public void removeAnchor(String anchor) {
+        liveAnchors.remove(anchor);
     }
 
     public List<GcLedgerEntry> gcLedger() {
@@ -246,10 +257,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     public Optional<RefreshAttempt> findActiveAttempt(MaterializationId object) {
         return attempts.values().stream()
                 .filter(attempt -> attempt.object().equals(object))
-                .filter(attempt -> attempt.state() == AttemptState.Preparing.INSTANCE
-                        || attempt.state() == AttemptState.Building.INSTANCE
-                        || attempt.state() == AttemptState.Committed.INSTANCE
-                        || attempt.state() == AttemptState.Quarantined.INSTANCE)
+                .filter(attempt -> isActive(attempt.state()))
                 .findFirst();
     }
 
@@ -261,16 +269,37 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     }
 
     @Override
-    public List<RefreshAttempt> findUnsettledAttempts(Instant updatedBefore) {
+    public List<RefreshAttempt> findReconcilableAttempts(Instant observedBefore) {
         return attempts.values().stream()
-                .filter(attempt -> attempt.state() == AttemptState.Preparing.INSTANCE
-                        || attempt.state() == AttemptState.Building.INSTANCE
-                        || attempt.state() == AttemptState.Committed.INSTANCE
-                        || attempt.state() == AttemptState.Quarantined.INSTANCE)
-                .filter(attempt -> attempt.updatedAt().isBefore(updatedBefore))
+                .filter(attempt -> isActive(attempt.state()))
+                .filter(attempt -> !liveAnchors.contains(attempt.fence().executionAnchor())
+                        || (attempt.state() == AttemptState.Quarantined.INSTANCE
+                                && attempt.updatedAt().isBefore(observedBefore)))
                 .sorted(Comparator.comparing(RefreshAttempt::updatedAt)
                         .thenComparing(attempt -> attempt.id().value()))
                 .toList();
+    }
+
+    private static boolean isActive(AttemptState state) {
+        return state == AttemptState.Preparing.INSTANCE
+                || state == AttemptState.Building.INSTANCE
+                || state == AttemptState.Committed.INSTANCE
+                || state == AttemptState.Quarantined.INSTANCE;
+    }
+
+    @Override
+    public void markAttemptBuilding(AttemptId attempt, Instant now) {
+        RefreshAttempt current = attempts.get(attempt);
+        if (current == null) {
+            throw MaterializationException.requestRejected(
+                    "attempt " + attempt.value() + " does not exist");
+        }
+        if (current.state() != AttemptState.Preparing.INSTANCE
+                && current.state() != AttemptState.Building.INSTANCE) {
+            throw MaterializationException.concurrentPublication(
+                    "attempt " + attempt.value() + " is no longer preparing");
+        }
+        attempts.put(attempt, current.markBuilding(now));
     }
 
     @Override
@@ -290,7 +319,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         putDefinition(definition);
         putSchedule(schedule);
         recordCommand(new CommandRecord(object.id().tenant(), commandId,
-                "created:" + object.id().canonicalName(), clock.now()));
+                reference(object.id(), "created"), clock.now()));
         events.add(event);
     }
 
@@ -302,6 +331,21 @@ public final class InMemoryMaterializationRepository implements MaterializationR
             return false;
         }
         createObject(object, definition, schedule, commandId, event);
+        return true;
+    }
+
+    @Override
+    public boolean reclaimDroppedObject(MaterializationObject expectedDropped,
+            MaterializationObject replacement, DefinitionRevision definition, Schedule schedule,
+            CommandId commandId, MaterializationEvent event) {
+        MaterializationObject current = objects.get(replacement.id());
+        if (current == null || current.state() != ObjectState.Dropped.INSTANCE
+                || !current.incarnation().equals(expectedDropped.incarnation())) {
+            return false;
+        }
+        definitions.remove(replacement.id());
+        schedules.remove(replacement.id());
+        createObject(replacement, definition, schedule, commandId, event);
         return true;
     }
 
@@ -337,8 +381,8 @@ public final class InMemoryMaterializationRepository implements MaterializationR
                         definition.revision(), definition.sql(), definition.binding(),
                         definition.outputSchema(), definition.sources(), dependencies,
                         definition.policySnapshot(), definition.securityMode(),
-                        definition.definer(), definition.sessionProperties(),
-                        definition.createdAt()));
+                        definition.definer(), definition.definerGroups(),
+                        definition.sessionProperties(), definition.createdAt()));
             }
             definitions.put(object.id(), renamed);
         }
@@ -378,7 +422,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
                 : capability);
 
         recordCommand(new CommandRecord(object.id().tenant(), commandId,
-                "renamed:" + object.id().canonicalName(), clock.now()));
+                reference(object.id(), "renamed"), clock.now()));
         events.add(event);
     }
 
@@ -439,7 +483,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         putDefinition(definition);
         objects.put(object.id(), object);
         recordCommand(new CommandRecord(object.id().tenant(), commandId,
-                "redefined:" + object.id().canonicalName() + ':' + definition.revision(), clock.now()));
+                reference(object.id(), "redefined"), clock.now()));
         events.add(event);
     }
 
@@ -461,7 +505,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         }
         objects.put(object.id(), object);
         recordCommand(new CommandRecord(object.id().tenant(), commandId,
-                "updated:" + object.id().canonicalName(), clock.now()));
+                reference(object.id(), "updated"), clock.now()));
         events.add(event);
     }
 
@@ -479,7 +523,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
                             + object.revision() + " for " + attempt.object().canonicalName());
         }
         if (findActiveAttempt(attempt.object()).isPresent()) {
-            throw MaterializationException.requestRejected(
+            throw MaterializationException.concurrentPublication(
                     "an active attempt already exists for " + attempt.object().canonicalName());
         }
         putAttempt(attempt);
@@ -653,7 +697,7 @@ public final class InMemoryMaterializationRepository implements MaterializationR
         objects.put(desired.id(), desired);
         advanceDependentSchedules(desired.id(), now);
         recordCommand(new CommandRecord(command.object().tenant(), command.commandId(),
-                "published:" + command.object().canonicalName() + ':' + published.id().value(), now));
+                reference(command.object(), "published"), now));
         events.add(event);
         PublicationResult result = new PublicationResult(desired, published, true);
         publicationReceipts.put(commandKey(command.object().tenant(), command.commandId()),
@@ -662,19 +706,105 @@ public final class InMemoryMaterializationRepository implements MaterializationR
     }
 
     @Override
-    public void settleAttempt(RefreshAttempt attempt, Generation generation,
-            MaterializationEvent event) {
-        if (!attempts.containsKey(attempt.id())) {
+    public void settleAttempt(RefreshAttempt previous, RefreshAttempt attempt,
+            Generation generation, MaterializationEvent event) {
+        RefreshAttempt current = attempts.get(previous.id());
+        if (current == null) {
             throw MaterializationException.requestRejected(
-                    "attempt " + attempt.id().value() + " does not exist");
+                    "attempt " + previous.id().value() + " does not exist");
         }
         if (!generations.containsKey(generation.id())) {
             throw MaterializationException.requestRejected(
                     "generation " + generation.id().value() + " does not exist");
         }
+        if (attempt.updatedAt().isBefore(previous.updatedAt())) {
+            throw MaterializationException.requestRejected(
+                    "attempt update instant must not move backwards");
+        }
+        if (current.state() != previous.state()) {
+            throw MaterializationException.concurrentPublication(
+                    "attempt " + previous.id().value() + " is no longer in state "
+                            + previous.state());
+        }
         attempts.put(attempt.id(), attempt);
         generations.put(generation.id(), generation);
         events.add(event);
+    }
+
+    @Override
+    public void dropObject(MaterializationObject dropped,
+            Optional<GenerationId> publishedGeneration, long expectedRevision,
+            CommandId commandId, MaterializationEvent event) {
+        MaterializationObject current = objects.get(dropped.id());
+        if (current == null) {
+            throw MaterializationException.notFound(dropped.id());
+        }
+        if (current.revision() != expectedRevision || dropped.revision() != expectedRevision + 1) {
+            throw MaterializationException.concurrentPublication(
+                    "object header for " + dropped.id().canonicalName()
+                            + " is no longer dropping at revision " + expectedRevision);
+        }
+        if (current.state() != ObjectState.Dropping.INSTANCE) {
+            throw MaterializationException.invalidStateTransition(
+                    "object " + dropped.id().canonicalName() + " is not dropping");
+        }
+        objects.put(dropped.id(), dropped);
+        if (publishedGeneration.isPresent()) {
+            generations.computeIfPresent(publishedGeneration.orElseThrow(),
+                    (id, generation) -> generation.state() == GenerationState.Published.INSTANCE
+                            ? generation.retire() : generation);
+        }
+        Instant now = dropped.updatedAt();
+        for (RefreshAttempt attempt : List.copyOf(attempts.values())) {
+            if (!attempt.object().equals(dropped.id())) {
+                continue;
+            }
+            if (attempt.state() == AttemptState.Committed.INSTANCE) {
+                attempts.put(attempt.id(), attempt.supersede("object dropped", now));
+            } else if (isActive(attempt.state())) {
+                attempts.put(attempt.id(), attempt.abandon("object dropped", now));
+            }
+        }
+        recordCommand(new CommandRecord(dropped.id().tenant(), commandId,
+                reference(dropped.id(), "dropped"), now));
+        events.add(event);
+    }
+
+    @Override
+    public boolean collectGeneration(Generation generation, GcLedgerEntry entry,
+            MaterializationEvent event, Runnable physicalDrop) {
+        Generation current = generations.get(generation.id());
+        if (current == null || current.state() != generation.state()) {
+            return false;
+        }
+        Instant now = clock.now();
+        boolean pinned = readerPins.getOrDefault(generation.id(), List.of()).stream()
+                .anyMatch(pin -> pin.isActiveAt(now));
+        if (pinned || hasLiveBase(generation) || publishedGeneration(generation.id())) {
+            return false;
+        }
+        physicalDrop.run();
+        generations.put(generation.id(), generation.collect());
+        updateGcDecision(entry.entryId(), GcLedgerEntry.GcState.APPLIED, event.occurredAt());
+        events.add(event);
+        return true;
+    }
+
+    private boolean hasLiveBase(Generation generation) {
+        return generations.values().stream()
+                .filter(other -> !other.id().equals(generation.id()))
+                .filter(other -> other.baseGeneration().filter(generation.id()::equals).isPresent())
+                .anyMatch(other -> other.state() == GenerationState.Candidate.INSTANCE
+                        || other.state() == GenerationState.Committed.INSTANCE
+                        || other.state() == GenerationState.Published.INSTANCE
+                        || other.state() == GenerationState.Quarantined.INSTANCE);
+    }
+
+    private boolean publishedGeneration(GenerationId generation) {
+        return objects.values().stream()
+                .anyMatch(object -> object.publishedGeneration()
+                        .filter(generation::equals)
+                        .isPresent());
     }
 
     @Override
@@ -876,5 +1006,9 @@ public final class InMemoryMaterializationRepository implements MaterializationR
 
     private static String commandKey(TenantId tenant, CommandId commandId) {
         return tenant.value() + '\u0000' + commandId.value();
+    }
+
+    private static String reference(MaterializationId object, String action) {
+        return "{\"object\":\"" + object.canonicalName() + "\",\"action\":\"" + action + "\"}";
     }
 }

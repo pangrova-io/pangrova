@@ -112,6 +112,29 @@ class KernelMaterializedViewRewriteCatalogTest {
         assertThat(create(catalog, session("anonymous", Map.of()))).isEmpty();
     }
 
+    @Test
+    void exposedCandidateGenerationIsReaderPinned() {
+        PublishedMaterialization view = materializedView("lake.db.orders_mv", NOW);
+        var pinned = new java.util.ArrayList<GenerationId>();
+        var rewrite = KernelMaterializedViewRewriteCatalog.create(
+                new FakeCatalog(List.of(view)), TENANT, session("alice", Map.of()),
+                allowAll(), NOW, published -> pinned.add(published.generation())).orElseThrow();
+
+        assertThat(rewrite.candidates(Set.of("lake.db.orders"))).hasSize(1);
+        assertThat(pinned).containsExactly(view.generation());
+    }
+
+    @Test
+    void candidateWhoseGenerationCannotBePinnedIsNotOffered() {
+        var rewrite = KernelMaterializedViewRewriteCatalog.create(
+                new FakeCatalog(List.of(materializedView("lake.db.orders_mv", NOW))), TENANT,
+                session("alice", Map.of()), allowAll(), NOW, published -> {
+                    throw new IllegalStateException("generation is no longer readable");
+                }).orElseThrow();
+
+        assertThat(rewrite.candidates(Set.of("lake.db.orders"))).isEmpty();
+    }
+
     private Optional<MaterializedViewRewriteCatalog> create(MaterializationCatalog catalog,
             ConnectorSession session) {
         return create(catalog, session, allowAll());

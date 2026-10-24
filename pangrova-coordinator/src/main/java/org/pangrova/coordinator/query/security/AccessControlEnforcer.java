@@ -20,7 +20,6 @@ import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.UserIdentity;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -61,11 +60,28 @@ public final class AccessControlEnforcer {
                                   List<DmlWriteTarget> dmlWriteTargets,
                                   UserIdentity identity,
                                   Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
+        checkTableAccess(tableReferences, dmlWriteTargets, identity, physicalToLogical, false);
+    }
+
+    /**
+     * Checks table access for a plan, optionally admitting kernel-authored
+     * materialization execution.
+     *
+     * <p>Internal execution may read its pinned base generation and write the
+     * fenced candidate under the reserved namespace; every other reference,
+     * and every user-issued statement, keeps the reserved-name guard.</p>
+     */
+    public void checkTableAccess(List<List<String>> tableReferences,
+                                  List<DmlWriteTarget> dmlWriteTargets,
+                                  UserIdentity identity,
+                                  Map<QualifiedTableName, QualifiedTableName> physicalToLogical,
+                                  boolean internalMaterializationExecution) {
         rejectAnonymous(identity);
         for (List<String> qualifiedName : tableReferences) {
             QualifiedTableName ref = QualifiedTableName.resolve(qualifiedName);
             QualifiedTableName logical = physicalToLogical.get(ref);
-            if (isReservedDynamicTableGeneration(ref) && logical == null) {
+            if (!internalMaterializationExecution
+                    && isReservedDynamicTableGeneration(ref) && logical == null) {
                 throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
             }
             QualifiedTableName authorized = logical == null ? ref : logical;
@@ -73,7 +89,9 @@ public final class AccessControlEnforcer {
         }
         for (DmlWriteTarget target : dmlWriteTargets) {
             QualifiedTableName ref = QualifiedTableName.resolve(target.qualifiedTableName());
-            rejectReservedGeneration(ref);
+            if (!internalMaterializationExecution || !isReservedDynamicTableGeneration(ref)) {
+                rejectReservedGeneration(ref);
+            }
             enforceWritePrivilege(identity, ref, target.operation());
         }
     }
@@ -115,6 +133,14 @@ public final class AccessControlEnforcer {
     public void checkTableAccess(List<List<String>> tableReferences, UserIdentity identity,
                                   Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         checkTableAccess(tableReferences, List.of(), identity, physicalToLogical);
+    }
+
+    /** Read-only variant for kernel-authored materialization execution. */
+    public void checkTableAccess(List<List<String>> tableReferences, UserIdentity identity,
+                                  Map<QualifiedTableName, QualifiedTableName> physicalToLogical,
+                                  boolean internalMaterializationExecution) {
+        checkTableAccess(tableReferences, List.of(), identity, physicalToLogical,
+                internalMaterializationExecution);
     }
 
     /** Reserved physical names cannot be directly selected or created by users. */

@@ -12,17 +12,23 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.materialization.InMemoryMaterializationRepository;
 import org.pangrova.materialization.MaterializationTestFixtures;
+import org.pangrova.materialization.domain.AttemptId;
+import org.pangrova.materialization.domain.AttemptState;
 import org.pangrova.materialization.domain.CommandId;
 import org.pangrova.materialization.domain.Dependency;
 import org.pangrova.materialization.domain.DependencyKind;
+import org.pangrova.materialization.domain.Generation;
+import org.pangrova.materialization.domain.GenerationState;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.GenerationId;
+import org.pangrova.materialization.domain.PhysicalTableRef;
+import org.pangrova.materialization.domain.RefreshKind;
+import org.pangrova.materialization.domain.SourceVector;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.MaterializationObject;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.domain.ObjectState;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.domain.RefreshMode;
@@ -74,6 +80,52 @@ class MaterializationServiceDropTest {
 
         assertThat(repository.storedObject(object).orElseThrow().state())
                 .isEqualTo(ObjectState.Dropped.INSTANCE);
+    }
+
+    @Test
+    void dropRetiresThePublishedGenerationAndSettlesInFlightAttempts() {
+        MaterializationId object = MaterializationTestFixtures.objectId("orders_dt");
+        SourceVector vector = MaterializationTestFixtures.vector(
+                MaterializationTestFixtures.source("orders"));
+        PhysicalTableRef headTable = MaterializationTestFixtures.candidate(0);
+        Generation published = Generation.candidate(MaterializationTestFixtures.GENERATION_ID,
+                        object, MaterializationTestFixtures.INCARNATION, 1,
+                        MaterializationTestFixtures.ATTEMPT_ID, Optional.empty(), headTable,
+                        RefreshKind.Full.INSTANCE, vector, MaterializationTestFixtures.NOW)
+                .commit(MaterializationTestFixtures.evidence("commit-head"),
+                        MaterializationTestFixtures.NOW)
+                .publish(MaterializationTestFixtures.NOW);
+        repository.putObject(active(object, MaterializationKind.DYNAMIC_TABLE));
+        repository.putGeneration(published);
+
+        AttemptId inFlightId = new AttemptId(
+                java.util.UUID.fromString("00000000-0000-0000-0000-0000000000cc"));
+        PhysicalTableRef inFlightTable = MaterializationTestFixtures.candidate(1);
+        Generation inFlight = Generation.candidate(
+                        new GenerationId(java.util.UUID.fromString(
+                                "00000000-0000-0000-0000-0000000000dd")),
+                        object, MaterializationTestFixtures.INCARNATION, 1, inFlightId,
+                        Optional.empty(), inFlightTable,
+                        RefreshKind.Full.INSTANCE, vector, MaterializationTestFixtures.NOW)
+                .quarantine();
+        repository.putGeneration(inFlight);
+        repository.putAttempt(MaterializationTestFixtures.attempt(object, inFlightId,
+                        inFlightTable, RefreshKind.Full.INSTANCE, vector,
+                        Optional.empty())
+                .markBuilding(MaterializationTestFixtures.NOW)
+                .quarantine("ambiguous commit", MaterializationTestFixtures.NOW));
+
+        service().drop(new DropMaterialization(object,
+                MaterializationTestFixtures.REQUESTER, new CommandId("drop-retire")));
+
+        MaterializationObject stored = repository.storedObject(object).orElseThrow();
+        assertThat(stored.state()).isEqualTo(ObjectState.Dropped.INSTANCE);
+        assertThat(stored.publishedGeneration()).isEmpty();
+        assertThat(repository.findGeneration(MaterializationTestFixtures.GENERATION_ID)
+                .orElseThrow().state()).isEqualTo(GenerationState.Retired.INSTANCE);
+        assertThat(repository.findAttempt(inFlightId).orElseThrow().state())
+                .isEqualTo(AttemptState.Abandoned.INSTANCE);
+        assertThat(repository.findActiveAttempt(object)).isEmpty();
     }
 
     @Test
@@ -202,11 +254,6 @@ class MaterializationServiceDropTest {
 
         @Override
         public void requireRead(MaterializationId object, Principal requester) {
-        }
-
-        @Override
-        public PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources) {
-            throw new UnsupportedOperationException();
         }
 
         @Override

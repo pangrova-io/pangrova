@@ -1,6 +1,7 @@
 package org.pangrova.spi.materialization;
 
 import java.time.Instant;
+import java.util.List;
 import org.pangrova.spi.annotation.Stable;
 
 /**
@@ -8,7 +9,9 @@ import org.pangrova.spi.annotation.Stable;
  *
  * <p>The plan is opaque to the kernel. Its fingerprint is persisted with the
  * attempt so that a retry can be matched to the exact change interval and
- * strategy version that produced it.
+ * strategy version that produced it. A partition-replace plan additionally
+ * names every partition whose rows changed; the kernel copies all other
+ * partitions from the base generation.
  *
  * @param source source table the plan applies to
  * @param fromSnapshot base snapshot
@@ -16,6 +19,8 @@ import org.pangrova.spi.annotation.Stable;
  * @param mode change-set mode used by the plan
  * @param planFingerprint canonical hash of the connector plan
  * @param plannedAt instant at which the plan was produced
+ * @param changedPartitions partitions with changed rows; empty unless the mode is
+ *         {@link ChangeSetMode#PARTITION_REPLACE}
  */
 @Stable(since = "1.0")
 public record ChangeSetPlan(
@@ -24,7 +29,8 @@ public record ChangeSetPlan(
         SourceSnapshotRef toSnapshot,
         ChangeSetMode mode,
         String planFingerprint,
-        Instant plannedAt) {
+        Instant plannedAt,
+        List<PartitionChange> changedPartitions) {
 
     public ChangeSetPlan {
         if (source == null) {
@@ -41,6 +47,11 @@ public record ChangeSetPlan(
         }
         if (plannedAt == null) {
             throw new IllegalArgumentException("plannedAt must not be null");
+        }
+        changedPartitions = changedPartitions == null ? List.of() : List.copyOf(changedPartitions);
+        if (mode != ChangeSetMode.PARTITION_REPLACE && !changedPartitions.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "only a partition-replace plan may carry changed partitions");
         }
         if (!source.connectorId().equals(fromSnapshot.connectorId())
                 || !source.connectorId().equals(toSnapshot.connectorId())) {

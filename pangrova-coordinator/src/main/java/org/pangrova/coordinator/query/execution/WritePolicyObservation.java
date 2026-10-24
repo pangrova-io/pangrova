@@ -34,10 +34,6 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
     }
 
     static WritePolicyObservation capture(ObservedPlan observed, SqlCompiler compiler, Statement statement) {
-        if (!observed.plan().physicalToLogicalDynamicTables().isEmpty()) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
-                    "Dynamic Table write sources require logical-identity deferred authorization");
-        }
         var schemas = AuthorizedRelationSchemas.extract(observed.plan().serializeValidated(compiler));
         if (!schemas.keySet().equals(observed.policies().keySet())) {
             throw new org.pangrova.spi.security.AccessDeniedException(
@@ -51,6 +47,7 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
                 throw new IllegalArgumentException("Ambiguous compiled source table identity");
             }
         }
+        var logicalByPhysical = observed.plan().physicalToLogicalDynamicTables();
         List<TablePermission> reads = new ArrayList<>();
         schemas.forEach((name, bytes) -> {
             try {
@@ -62,7 +59,10 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
                     throw new org.pangrova.spi.security.AccessDeniedException(
                             "Write read columns lack exact policy evidence");
                 }
-                reads.add(new TablePermission(java.util.Objects.requireNonNull(tables.get(name)), columns,
+                var scan = java.util.Objects.requireNonNull(tables.get(name));
+                // A rewritten Dynamic Table scan defers to its logical identity, exactly as
+                // a query read does; the physical generation is never an authorization subject.
+                reads.add(new TablePermission(logicalByPhysical.getOrDefault(scan, scan), columns,
                         Privilege.SELECT, ReadMode.SECURITY_TRANSFORMED, policies));
             } catch (com.google.protobuf.InvalidProtocolBufferException exception) {
                 throw new IllegalArgumentException("Compiled write schema is malformed", exception);

@@ -8,6 +8,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
@@ -26,9 +27,13 @@ import org.slf4j.LoggerFactory;
  * A view is skipped when the requester lacks unfiltered SELECT on it, when the
  * view belongs to another schema (its unqualified definition names would bind to
  * the query's schema), or when its generation is older than the configured
- * staleness bound. Groups are not carried by {@link ConnectorSession}; the
- * reconstructed identity can only under-approximate a role-derived grant, so a
- * skipped rewrite is the safe outcome.
+ * staleness bound. Rewriting happens only after the requester's policies were
+ * applied and only for plans that carried none, so a rewrite never bypasses a
+ * row filter or column mask; every candidate is still reader-pinned so GC
+ * cannot drop the physical generation while the query reads it. Groups are not
+ * carried by {@link ConnectorSession}; the reconstructed identity can only
+ * under-approximate a role-derived grant, so a skipped rewrite is the safe
+ * outcome.
  */
 public final class KernelMaterializedViewRewriteCatalog implements MaterializedViewRewriteCatalog {
 
@@ -47,10 +52,12 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
     private final String defaultSchema;
     private final Duration maxStaleness;
     private final Instant queryStart;
+    private final Consumer<PublishedMaterialization> pinner;
 
     private KernelMaterializedViewRewriteCatalog(MaterializationCatalog catalog, TenantId tenant,
             AccessControl accessControl, UserIdentity requester, String defaultCatalog,
-            String defaultSchema, Duration maxStaleness, Instant queryStart) {
+            String defaultSchema, Duration maxStaleness, Instant queryStart,
+            Consumer<PublishedMaterialization> pinner) {
         this.catalog = catalog;
         this.tenant = tenant;
         this.accessControl = accessControl;
@@ -59,6 +66,7 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
         this.defaultSchema = defaultSchema;
         this.maxStaleness = maxStaleness;
         this.queryStart = queryStart;
+        this.pinner = pinner;
     }
 
     /**
@@ -75,6 +83,23 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
     public static Optional<MaterializedViewRewriteCatalog> create(MaterializationCatalog catalog,
             String tenantId, ConnectorSession session, AccessControl accessControl,
             Instant queryStart) {
+        return create(catalog, tenantId, session, accessControl, queryStart, published -> { });
+    }
+
+    /**
+     * Creates a rewrite catalog that leases each candidate generation for the query.
+     *
+     * @param catalog published materialization read model
+     * @param tenantId authenticated tenant
+     * @param session authenticated connector session
+     * @param accessControl authorization policy, or null to disable rewrite
+     * @param queryStart planning instant
+     * @param pinner leases a candidate's published generation before it is exposed
+     * @return rewrite catalog when enabled
+     */
+    public static Optional<MaterializedViewRewriteCatalog> create(MaterializationCatalog catalog,
+            String tenantId, ConnectorSession session, AccessControl accessControl,
+            Instant queryStart, Consumer<PublishedMaterialization> pinner) {
         if (catalog == null || accessControl == null || tenantId == null || tenantId.isBlank()) {
             return Optional.empty();
         }
@@ -99,7 +124,7 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
         return Optional.of(new KernelMaterializedViewRewriteCatalog(catalog,
                 new TenantId(tenantId), accessControl, identity,
                 catalogName.toLowerCase(Locale.ROOT), schemaName.toLowerCase(Locale.ROOT),
-                staleness.get(), queryStart));
+                staleness.get(), queryStart, java.util.Objects.requireNonNull(pinner, "pinner")));
     }
 
     @Override
@@ -126,12 +151,31 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
                         published.object().canonicalName(), published.publishedAt());
                 continue;
             }
+            if (!pin(published)) {
+                continue;
+            }
             candidates.add(new PublishedView(parts.get(0), parts.get(1), parts.get(2),
                     published.definitionSql(), published.physicalTable().catalog(),
                     published.physicalTable().schema(), published.physicalTable().table(),
                     published.definitionRevision(), published.publishedAt(), maxStaleness));
         }
         return candidates;
+    }
+
+    /**
+     * Leases the candidate generation, skipping the view when it disappeared
+     * between listing and pinning. A failed pin must never fail the query: the
+     * original plan still reads the source tables.
+     */
+    private boolean pin(PublishedMaterialization published) {
+        try {
+            pinner.accept(published);
+            return true;
+        } catch (RuntimeException failure) {
+            LOG.info("event=materialized_view_rewrite_skipped view={} reason=unpinnable error={}",
+                    published.object().canonicalName(), failure.getMessage());
+            return false;
+        }
     }
 
     private boolean requesterMayRead(List<String> parts) {

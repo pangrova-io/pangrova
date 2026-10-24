@@ -90,4 +90,44 @@ class InsertOverwriteTest extends PangrovaE2ETestBase {
             assertQueryReturnsEmpty("SELECT * FROM " + fqn());
         }
     }
+
+    // ── Partitioned overwrite ──
+
+    @Nested
+    @DisplayName("Partitioned INSERT OVERWRITE")
+    class PartitionedOverwrite {
+
+        private void createPartitionedTable() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, region VARCHAR) PARTITIONED BY (region)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1, 'eu'), (2, 'us')");
+        }
+
+        @Test
+        @DisplayName("Unscoped overwrite empties a partition absent from the result")
+        void overwriteEmptiesVanishedPartition() {
+            createPartitionedTable();
+
+            executeDml("INSERT OVERWRITE " + fqn() + " VALUES (3, 'eu')");
+
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn());
+            assertThat(rows).hasSize(1);
+            assertThat(((Number) rows.get(0).getRaw("id")).longValue()).isEqualTo(3L);
+            assertThat(rows.get(0).getRaw("region")).isEqualTo("eu");
+        }
+
+        @Test
+        @DisplayName("Static partition overwrite leaves other partitions untouched")
+        void overwriteStaticPartitionKeepsOtherPartitions() {
+            createPartitionedTable();
+
+            executeDml("INSERT OVERWRITE " + fqn() + " (id) PARTITION (region = 'eu') VALUES (10)");
+
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn() + " ORDER BY id");
+            assertThat(rows).hasSize(2);
+            assertThat(((Number) rows.get(0).getRaw("id")).longValue()).isEqualTo(2L);
+            assertThat(rows.get(0).getRaw("region")).isEqualTo("us");
+            assertThat(((Number) rows.get(1).getRaw("id")).longValue()).isEqualTo(10L);
+            assertThat(rows.get(1).getRaw("region")).isEqualTo("eu");
+        }
+    }
 }

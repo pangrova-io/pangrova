@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.statement;
 
+import org.pangrova.materialization.domain.InternalNamespace;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.ShowSchemasStatement;
@@ -13,6 +14,7 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +59,9 @@ public final class ShowDescribeExecutor {
         ConnectorMetadata metadata = TableResolver.getMetadata(
                 catalogRegistry, catalog, session);
         List<String> schemas = metadata.listSchemaNames(session);
+        schemas = schemas.stream()
+                .filter(s -> !InternalNamespace.isReservedSchema(s))
+                .toList();
         if (accessControl != null && user != null) {
             schemas = schemas.stream()
                     .filter(s -> canAccessSchema(user, catalog, s))
@@ -90,11 +95,15 @@ public final class ShowDescribeExecutor {
         List<String> parts = stmt.qualifiedName();
         String catalog = parts.size() >= 2 ? parts.get(0) : TableResolver.defaultCatalog(context);
         String schema = parts.size() >= 2 ? parts.get(1) : parts.get(0);
+        rejectReservedNamespace(schema, null);
         ConnectorSession session = TableResolver.buildSession(context, catalog, schema);
         ConnectorMetadata metadata = TableResolver.getMetadata(
                 catalogRegistry, catalog, session);
         List<SchemaTableName> tables = metadata.listTables(
                 session, Optional.of(schema));
+        tables = tables.stream()
+                .filter(t -> !InternalNamespace.isReservedTable(t.table()))
+                .toList();
         if (accessControl != null && user != null) {
             tables = tables.stream()
                     .filter(t -> canSelectTable(user, catalog, schema, t.table()))
@@ -123,6 +132,7 @@ public final class ShowDescribeExecutor {
     public List<TypedRow> executeDescribeTable(DescribeTableStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(
                 stmt.tableName().parts(), context);
+        rejectReservedNamespace(ref.schema(), ref.table());
         ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata = TableResolver.getMetadata(
                 catalogRegistry, ref.catalog(), session);
@@ -136,6 +146,13 @@ public final class ShowDescribeExecutor {
                         .putString("data_type", col.type().name())
                         .build())
                 .toList();
+    }
+
+    private static void rejectReservedNamespace(String schema, String table) {
+        if (InternalNamespace.isReservedSchema(schema) || InternalNamespace.isReservedTable(table)) {
+            throw new AccessDeniedException(
+                    "Direct access to the materialization namespace is forbidden");
+        }
     }
 
     /** Lists the catalogs visible to the coordinator. */

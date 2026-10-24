@@ -3,6 +3,7 @@ package org.pangrova.materialization.usecase;
 import java.time.Duration;
 import java.util.Optional;
 import org.pangrova.materialization.domain.CommandId;
+import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.Schedule;
 import org.pangrova.materialization.domain.TriggerKind;
@@ -23,11 +24,28 @@ import java.util.UUID;
  */
 public final class MaterializationScheduler {
 
+    private static final int MAX_BACKOFF_EXPONENT = 20;
+    private static final double JITTER_FLOOR = 0.9d;
+    private static final long JITTER_HASH_MULTIPLIER = 31L;
+    private static final int JITTER_PERCENT_RANGE = 21;
+    private static final Duration DEFAULT_LEASE_DURATION = Duration.ofMinutes(5);
+    private static final Duration DEFAULT_MAX_BACKOFF = Duration.ofHours(1);
+    private static final Duration DEFAULT_BASE_BACKOFF = Duration.ofMinutes(2);
+    private static final int DEFAULT_MAX_CONSECUTIVE_FAILURES = 8;
+
     private final MaterializationRepository repository;
     private final ScheduledRefresh refresher;
     private final Clock clock;
     private final Settings settings;
 
+    /**
+     * Creates a scheduler over the durable schedule records.
+     *
+     * @param repository durable repository
+     * @param refresher refresh callback invoked under the claimed command id
+     * @param clock time source
+     * @param settings scheduler configuration
+     */
     public MaterializationScheduler(MaterializationRepository repository,
             ScheduledRefresh refresher, Clock clock, Settings settings) {
         if (repository == null || refresher == null || clock == null || settings == null) {
@@ -56,11 +74,37 @@ public final class MaterializationScheduler {
         try {
             refresher.refresh(schedule.object(), commandId, TriggerKind.SCHEDULED);
         } catch (RuntimeException failure) {
+            if (isConcurrentPublication(failure)) {
+                defer(schedule);
+                return Optional.of(new Run(schedule, false, true, failure));
+            }
             recordFailure(schedule, failure);
-            return Optional.of(new Run(schedule, false, failure));
+            return Optional.of(new Run(schedule, false, false, failure));
         }
         recordSuccess(schedule);
-        return Optional.of(new Run(schedule, true, null));
+        return Optional.of(new Run(schedule, true, false, null));
+    }
+
+    private static boolean isConcurrentPublication(RuntimeException failure) {
+        return failure instanceof MaterializationException known
+                && known.getErrorCode()
+                        == org.pangrova.common.exception.PangrovaErrorCode
+                                .MATERIALIZATION_CONCURRENT_PUBLICATION;
+    }
+
+    /**
+     * Re-arms a contended schedule without counting a failure.
+     *
+     * <p>Another refresh of the same object already owns the execution slot,
+     * so retrying after the base backoff is expected to succeed without the
+     * schedule drifting toward suspension.
+     */
+    private void defer(Schedule claimed) {
+        java.time.Instant now = clock.now();
+        repository.findSchedule(claimed.object())
+                .filter(current -> current.version() == claimed.version())
+                .ifPresent(current -> repository.updateSchedule(
+                        current.defer(now.plus(settings.baseBackoff())), current.version()));
     }
 
     private void recordSuccess(Schedule claimed) {
@@ -89,15 +133,16 @@ public final class MaterializationScheduler {
 
     Duration backoff(MaterializationId object, int failures) {
         long base = settings.baseBackoff().toMillis();
-        int exponent = Math.min(Math.max(failures - 1, 0), 20);
+        int exponent = Math.min(Math.max(failures - 1, 0), MAX_BACKOFF_EXPONENT);
         long scaled;
         if (base > (Long.MAX_VALUE >> exponent)) {
             scaled = Long.MAX_VALUE;
         } else {
             scaled = base << exponent;
         }
-        double jitter = 0.9d + Math.floorMod(
-                31L * object.canonicalName().hashCode() + failures, 21) / 100.0d;
+        double jitter = JITTER_FLOOR + Math.floorMod(
+                JITTER_HASH_MULTIPLIER * object.canonicalName().hashCode() + failures,
+                JITTER_PERCENT_RANGE) / 100.0d;
         long withJitter = Math.min(settings.maxBackoff().toMillis(),
                 (long) Math.min(Long.MAX_VALUE / 2.0, scaled * jitter));
         return Duration.ofMillis(Math.max(1L, withJitter));
@@ -146,8 +191,8 @@ public final class MaterializationScheduler {
 
         /** Production defaults. */
         public static Settings defaults(String owner) {
-            return new Settings(owner, Duration.ofMinutes(2), Duration.ofSeconds(15),
-                    Duration.ofHours(1), 8);
+            return new Settings(owner, DEFAULT_LEASE_DURATION, DEFAULT_BASE_BACKOFF,
+                    DEFAULT_MAX_BACKOFF, DEFAULT_MAX_CONSECUTIVE_FAILURES);
         }
     }
 
@@ -156,8 +201,11 @@ public final class MaterializationScheduler {
      *
      * @param claimed claimed schedule
      * @param succeeded whether the refresh callback completed
+     * @param deferred whether the refresh was skipped because another refresh
+     *                 of the same object already held the execution slot
      * @param failure callback failure when unsuccessful
      */
-    public record Run(Schedule claimed, boolean succeeded, RuntimeException failure) {
+    public record Run(Schedule claimed, boolean succeeded, boolean deferred,
+            RuntimeException failure) {
     }
 }

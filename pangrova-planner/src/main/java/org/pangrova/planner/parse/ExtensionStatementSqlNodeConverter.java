@@ -39,9 +39,12 @@ import org.apache.calcite.sql.SqlUpdate;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
 import java.util.function.Function;
 
 /**
@@ -234,7 +237,30 @@ final class ExtensionStatementSqlNodeConverter {
     }
 
     private SqlNode convertInsertOverwriteValues(InsertOverwriteStatement stmt) {
-        return valuesInsert(stmt.tableName(), stmt.columns(), stmt.values());
+        if (stmt.partitionSpec().isEmpty() || stmt.partitionSpec().get().isEmpty()) {
+            return valuesInsert(stmt.tableName(), stmt.columns(), stmt.values());
+        }
+        if (stmt.columns().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "INSERT OVERWRITE with PARTITION requires an explicit column list");
+        }
+        // A static partition is written from the PARTITION clause, not from the
+        // VALUES rows. Project each partition value so the row carries the same
+        // partition the output handle scopes the overwrite to.
+        List<String> targetColumns = new ArrayList<>(stmt.columns().get());
+        List<Expression> staticValues = new ArrayList<>();
+        new TreeMap<>(stmt.partitionSpec().get()).forEach((column, value) -> {
+            targetColumns.add(column);
+            staticValues.add(value);
+        });
+        List<List<Expression>> rows = stmt.values().stream()
+                .map(row -> {
+                    List<Expression> effective = new ArrayList<>(row);
+                    effective.addAll(staticValues);
+                    return List.copyOf(effective);
+                })
+                .toList();
+        return valuesInsert(stmt.tableName(), Optional.of(targetColumns), rows);
     }
 
     private SqlInsert valuesInsert(

@@ -52,6 +52,11 @@ public final class JdbcMaterializationCatalog implements MaterializationCatalog 
 
     private final DataSource dataSource;
 
+    /**
+     * Creates the published-object catalog over the metadata connection pool.
+     *
+     * @param dataSource pool that owns the materialization schema
+     */
     public JdbcMaterializationCatalog(DataSource dataSource) {
         if (dataSource == null) {
             throw new IllegalArgumentException("dataSource must not be null");

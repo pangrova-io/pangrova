@@ -6,6 +6,7 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.CtasTask;
 import org.pangrova.materialization.domain.MaterializationException;
+import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.Clock;
@@ -16,6 +17,8 @@ import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.materialization.JdbcMaterializationCatalog;
 import org.pangrova.metadata.materialization.JdbcMaterializationRepository;
 import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Builds kernel collaborators bound to one coordinator statement.
@@ -34,6 +37,17 @@ public final class MaterializationKernelFactory {
     private final DataSource metadataDataSource;
     private final AccessControl accessControl;
 
+    /**
+     * Creates the kernel factory.
+     *
+     * @param repository durable materialization repository
+     * @param catalog published-materialization read model
+     * @param catalogs connector catalog registry
+     * @param coordination leader election
+     * @param ctas native CTAS task
+     * @param metadataDataSource metadata data source
+     * @param accessControl authorization policy, or null when disabled
+     */
     public MaterializationKernelFactory(JdbcMaterializationRepository repository,
             JdbcMaterializationCatalog catalog, CatalogRegistry catalogs,
             HighAvailabilityCoordinationService coordination, CtasTask ctas,
@@ -47,12 +61,18 @@ public final class MaterializationKernelFactory {
         this.accessControl = accessControl;
     }
 
+    /**
+     * Builds a kernel service bound to one statement execution.
+     *
+     * @param context statement execution context
+     * @return materialization service
+     */
     public MaterializationService service(StatementExecutionContext context) {
         TenantId tenant = tenant(context);
         CoordinatorExecutionFence fence = new CoordinatorExecutionFence(
                 coordination, context.queryId(), coordination::getActiveLeaderEpoch);
         CoordinatorMaterializationPlanner planner = new CoordinatorMaterializationPlanner(
-                context.compiler(), context.session(), catalogs, catalog, tenant);
+                context.compiler(), context.session(), catalogs, catalog, tenant, accessControl);
         return new MaterializationService(new KernelPorts(
                 repository,
                 catalog,
@@ -101,11 +121,58 @@ public final class MaterializationKernelFactory {
         return new CoordinatorClock();
     }
 
+    /**
+     * Rejects metadata inspection when the session may not read the object.
+     *
+     * @param context statement execution context
+     * @param object materialization identity
+     */
+    public void requireRead(StatementExecutionContext context, MaterializationId object) {
+        new CoordinatorMaterializationAuthorizer(context.session(), accessControl)
+                .requireRead(object, principal(context));
+    }
+
+    /**
+     * Returns whether the session may read the object, for row filtering.
+     *
+     * @param context statement execution context
+     * @param object materialization identity
+     * @return true when the object is visible to the session
+     */
+    public boolean mayRead(StatementExecutionContext context, MaterializationId object) {
+        UserIdentity identity = context.session().userIdentity();
+        if (identity == null) {
+            return false;
+        }
+        if (accessControl == null) {
+            return true;
+        }
+        try {
+            accessControl.checkCanSelectFromTable(identity, object.name().parts().get(0),
+                    object.name().parts().get(1), object.name().tableName());
+            return true;
+        } catch (AccessDeniedException denied) {
+            return false;
+        }
+    }
+
+    /**
+     * Returns the authenticated tenant, falling back to {@code default}.
+     *
+     * @param context statement execution context
+     * @return tenant identity
+     */
     public static TenantId tenant(StatementExecutionContext context) {
         String tenant = context.session().tenantId();
         return new TenantId(tenant == null || tenant.isBlank() ? "default" : tenant);
     }
 
+    /**
+     * Returns the authenticated principal or rejects the command.
+     *
+     * @param context statement execution context
+     * @return principal identity
+     */
     public static Principal principal(StatementExecutionContext context) {
         if (context.session().userIdentity() == null) {
             throw MaterializationException.requestRejected(

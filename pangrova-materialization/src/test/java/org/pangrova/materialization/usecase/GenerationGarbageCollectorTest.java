@@ -30,6 +30,7 @@ import org.pangrova.materialization.domain.RefreshKind;
 import org.pangrova.materialization.domain.RefreshMode;
 import org.pangrova.materialization.domain.TriggerKind;
 import org.pangrova.materialization.port.Clock;
+import org.pangrova.materialization.port.MaterializationEvent;
 import org.pangrova.materialization.port.MaterializationEventType;
 import org.pangrova.materialization.port.PhysicalGenerationStore;
 
@@ -111,6 +112,37 @@ class GenerationGarbageCollectorTest {
         assertThat(report.examined()).isZero();
         assertThat(store.dropped).isEmpty();
         assertThat(repository.gcLedger()).isEmpty();
+    }
+
+    @Test
+    void collectionRechecksReaderPinsInsertedAfterSelection() {
+        Generation head = published(HEAD_ID, HEAD_ATTEMPT, candidateTable(1), NOW);
+        Generation retired = published(RETIRED_ID, RETIRED_ATTEMPT, candidateTable(0),
+                NOW.minus(Duration.ofHours(2))).retire();
+        repository.putObject(object.publish(HEAD_ID, 0, NOW));
+        repository.putGeneration(head);
+        repository.putGeneration(retired);
+        GcLedgerEntry entry = GcLedgerEntry.pending(RETIRED_ID, "state=RETIRED", NOW);
+        repository.recordGcDecision(entry);
+        // A reader pins the generation after the collector selected it and
+        // before the row lock is taken.
+        repository.pinReader(new ReaderPin(RETIRED_ID, QueryId.random(), "query-owner",
+                NOW.plus(Duration.ofMinutes(10)), NOW));
+
+        boolean collected = repository.collectGeneration(retired, entry,
+                new MaterializationEvent("gc-race", MaterializationEventType.GC_COLLECTED,
+                        object.id(), Optional.empty(), Optional.of(RETIRED_ATTEMPT),
+                        Optional.of(RETIRED_ID), Optional.empty(),
+                        MaterializationTestFixtures.REQUESTER,
+                        MaterializationTestFixtures.REQUESTER, "collected", NOW),
+                () -> store.drop(object.id(), candidateTable(0)));
+
+        assertThat(collected).isFalse();
+        assertThat(store.dropped).isEmpty();
+        assertThat(repository.findGeneration(RETIRED_ID).orElseThrow().state())
+                .isEqualTo(GenerationState.Retired.INSTANCE);
+        assertThat(repository.gcLedger()).singleElement().satisfies(ledger ->
+                assertThat(ledger.state()).isEqualTo(GcLedgerEntry.GcState.PENDING));
     }
 
     @Test
@@ -225,11 +257,12 @@ class GenerationGarbageCollectorTest {
     }
 
     private RefreshAttempt attempt(AttemptId attemptId, PhysicalTableRef table) {
-        return RefreshAttempt.reserve(attemptId, object.id(),
-                MaterializationTestFixtures.INCARNATION, 1, 0, Optional.empty(),
-                RefreshKind.Full.INSTANCE, VECTOR, TriggerKind.MANUAL,
-                MaterializationTestFixtures.REQUESTER, MaterializationTestFixtures.DEFINER,
-                MaterializationTestFixtures.fence(), table, NOW.minus(Duration.ofHours(3)));
+        return RefreshAttempt.reserve(attemptId, object,
+                MaterializationTestFixtures.definition(object.id(), VECTOR),
+                MaterializationTestFixtures.REQUESTER,
+                new RefreshAttempt.AttemptScope(Optional.empty(), RefreshKind.Full.INSTANCE, VECTOR,
+                        TriggerKind.MANUAL, MaterializationTestFixtures.fence(), table),
+                NOW.minus(Duration.ofHours(3)));
     }
 
     private static PhysicalTableRef candidateTable(int discriminator) {

@@ -19,7 +19,6 @@ import org.pangrova.materialization.domain.MaterializationKind;
 import org.pangrova.materialization.domain.MaterializationObject;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.domain.ObjectState;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.domain.RefreshKind;
@@ -166,7 +165,8 @@ class MaterializationServiceRedefineTest {
                     MaterializationTestFixtures.vector(sources.toArray(SourceRef[]::new)),
                     Set.of(),
                     MaterializationTestFixtures.policies(sources),
-                    Set.of(RefreshKind.Full.INSTANCE));
+                    Set.of(RefreshKind.Full.INSTANCE),
+                    org.pangrova.materialization.domain.PartitionAlignment.NONE);
         };
         Clock clock = () -> MaterializationTestFixtures.NOW;
         return new MaterializationService(new KernelPorts(
@@ -219,11 +219,6 @@ class MaterializationServiceRedefineTest {
 
         @Override
         public void requireRead(MaterializationId object, Principal requester) {
-        }
-
-        @Override
-        public PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources) {
-            throw new UnsupportedOperationException();
         }
 
         @Override

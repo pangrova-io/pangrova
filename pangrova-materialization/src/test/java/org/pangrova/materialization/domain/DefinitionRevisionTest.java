@@ -80,6 +80,9 @@ class DefinitionRevisionTest {
                 object, 1, SQL, binding(SQL), outputSchema(), sources, Set.of(),
                 policies(sources), SecurityMode.DEFINER, DEFINER,
                 Map.of("timezone", "UTC"), NOW);
+        DefinitionRevision otherGroups = new DefinitionRevision(
+                object, 1, SQL, binding(SQL), outputSchema(), sources, Set.of(),
+                policies(sources), SecurityMode.DEFINER, DEFINER, Set.of("analysts"), Map.of(), NOW);
         DefinitionRevision otherSources = definition(object, 1, SQL, Set.of(source("customers")));
 
         assertThat(base.fingerprint())
@@ -89,6 +92,7 @@ class DefinitionRevisionTest {
                 .isNotEqualTo(otherSchema.fingerprint())
                 .isNotEqualTo(otherDefiner.fingerprint())
                 .isNotEqualTo(otherProperties.fingerprint())
+                .isNotEqualTo(otherGroups.fingerprint())
                 .isNotEqualTo(otherSources.fingerprint());
         assertThat(base.sameSemantics(otherSql)).isFalse();
         assertThat(base.sameSemantics(null)).isFalse();

@@ -3,7 +3,6 @@ package org.pangrova.materialization.port;
 import java.util.Set;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.MaterializationKind;
-import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
@@ -48,15 +47,6 @@ public interface MaterializationAuthorizer {
      * @param requester requesting principal
      */
     void requireRead(MaterializationId object, Principal requester);
-
-    /**
-     * Captures the source policy fingerprints the definer will read under.
-     *
-     * @param definer persisted definer
-     * @param sources definition sources
-     * @return policy snapshot containing exactly one entry per source
-     */
-    PolicySnapshot captureSourcePolicies(Principal definer, Set<SourceRef> sources);
 
     /**
      * Issues the internal write capability for a reserved attempt.

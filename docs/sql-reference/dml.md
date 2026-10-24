@@ -60,12 +60,16 @@ VALUES
 **With PARTITION clause:**
 
 ```sql
-INSERT OVERWRITE prod.analytics.orders (order_id, user_id, product_id, amount, order_date, status)
+INSERT OVERWRITE prod.analytics.orders (order_id, user_id, product_id, amount, order_date)
 PARTITION (status = 'archived')
 VALUES
-  (7001, 'u-4001', 'prod-50', 75.00, DATE '2024-01-10', 'archived'),
-  (7002, 'u-4002', 'prod-60', 120.00, DATE '2024-01-11', 'archived');
+  (7001, 'u-4001', 'prod-50', 75.00, DATE '2024-01-10'),
+  (7002, 'u-4002', 'prod-60', 120.00, DATE '2024-01-11');
 ```
+
+A static partition value comes from the `PARTITION` clause, so the partition
+column must be omitted from the column list. The overwrite replaces exactly the
+named partition scope; every other partition keeps its current data.
 
 ### DELETE FROM
 

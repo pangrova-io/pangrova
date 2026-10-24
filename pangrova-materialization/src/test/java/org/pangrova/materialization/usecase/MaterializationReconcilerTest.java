@@ -176,14 +176,31 @@ class MaterializationReconcilerTest {
     }
 
     @Test
-    void ignoresAttemptsInsideTheGraceWindow() {
+    void leavesAttemptsWhoseExecutionAnchorIsStillLive() {
         givenAttemptInState(committedAttempt(), committedGeneration());
+        repository.putLiveAnchor(MaterializationTestFixtures.fence().executionAnchor());
 
-        ReconcileReport report = reconciler.runOnce(Duration.ofMinutes(60));
+        ReconcileReport report = reconciler.runOnce(GRACE);
 
         assertThat(report.examined()).isZero();
         assertThat(storedObject().publishedGeneration()).isEmpty();
         assertThat(storedAttempt().state()).isEqualTo(AttemptState.Committed.INSTANCE);
+    }
+
+    @Test
+    void leavesQuarantinedAttemptInsideTheGraceWindowWhileTheAnchorLives() {
+        RefreshAttempt quarantined = buildingAttempt().quarantine("ambiguous execution",
+                RECOVERY_NOW.minus(Duration.ofMinutes(1)));
+        givenAttemptInState(quarantined, candidateGeneration().quarantine());
+        repository.putLiveAnchor(MaterializationTestFixtures.fence().executionAnchor());
+        recovery.outcome = new CommitRecovery.Committed(MaterializationTestFixtures.evidence("c-4"));
+
+        ReconcileReport report = reconciler.runOnce(GRACE);
+
+        assertThat(report.examined()).isZero();
+        assertThat(storedAttempt().state()).isEqualTo(AttemptState.Quarantined.INSTANCE);
+        assertThat(storedGeneration().state()).isEqualTo(GenerationState.Quarantined.INSTANCE);
+        assertThat(fence.issued).isZero();
     }
 
     private void givenAttemptInState(RefreshAttempt attempt, Generation generation) {

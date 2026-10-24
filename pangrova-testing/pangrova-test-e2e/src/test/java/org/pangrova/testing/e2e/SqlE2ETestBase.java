@@ -33,6 +33,7 @@ import org.pangrova.operations.bootstrap.BootstrapPhase;
 import org.pangrova.operations.bootstrap.HealthCheckEndpoint;
 import org.pangrova.operations.bootstrap.SystemBootstrapSequence;
 import org.pangrova.planner.PangrovaPlanner;
+import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.query.SubmitQueryRequest;
@@ -2469,7 +2470,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
                         dmlDispatch, null,
-                        (sql, sess) -> sql,
+                        (sql, sess) -> {
+                            SqlCompiler compiler = buildSqlCompiler().forSession(
+                                    org.pangrova.coordinator.query.session.SessionContextConverter
+                                            .toConnectorSession(sess));
+                            PlannedQuery query = compiler.compileForPolicyApplication(sql)
+                                    .toPlannedQuery();
+                            PlannedQuery optimized = compiler.optimizeProtectedQuery(query, true);
+                            return optimized.planExplanation() + System.lineSeparator()
+                                    + compiler.lastMaterializedViewRewrite().describe();
+                        },
                         metadataBootstrap.catalogRegistry(),
                         sharedGeneratedValueCoordinator));
 
@@ -2579,7 +2589,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                     materializationCatalog(),
                                     session.getProperties().getOrDefault("tenant_id", E2E_TENANT_ID),
                                     session.getCatalog().orElse(null),
-                                    session.getSchema().orElse(null)));
+                                    session.getSchema().orElse(null)),
+                            org.pangrova.planner.mv.DynamicTableRewriter.isInternalExecution(session));
                     var materializationCatalog = materializationCatalog();
                     var mvCatalog = materializationCatalog == null ? null
                             : org.pangrova.coordinator.materialization

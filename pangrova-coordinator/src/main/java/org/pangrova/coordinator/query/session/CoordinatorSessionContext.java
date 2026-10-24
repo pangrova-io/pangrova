@@ -22,7 +22,8 @@ public record CoordinatorSessionContext(
         Optional<ConnectorQueryAuthority> queryAuthority,
         ExecutionTraceContext traceContext,
         Map<String, Long> sourceSnapshots,
-        Map<String, SnapshotRange> sourceIncrementalRanges
+        Map<String, SnapshotRange> sourceIncrementalRanges,
+        boolean internalMaterializationExecution
 ) {
 
     public CoordinatorSessionContext {
@@ -51,7 +52,7 @@ public record CoordinatorSessionContext(
             UserIdentity userIdentity, String tenantId, Optional<ConnectorQueryAuthority> queryAuthority,
             ExecutionTraceContext traceContext) {
         this(queryId, sessionProperties, userIdentity, tenantId, queryAuthority, traceContext,
-                Map.of(), Map.of());
+                Map.of(), Map.of(), false);
     }
 
     /** Creates an authenticated request context before engine query admission. */
@@ -68,7 +69,22 @@ public record CoordinatorSessionContext(
     public CoordinatorSessionContext withTraceContext(ExecutionTraceContext context) {
         return new CoordinatorSessionContext(
                 queryId, sessionProperties, userIdentity, tenantId, queryAuthority, context,
-                sourceSnapshots, sourceIncrementalRanges);
+                sourceSnapshots, sourceIncrementalRanges, internalMaterializationExecution);
+    }
+
+    /**
+     * Replaces session properties while preserving trusted engine state.
+     *
+     * <p>Source selectors and the internal-execution marker are kernel-issued;
+     * rebuilding a session for property enrichment must never drop them.
+     *
+     * @param properties replacement session properties
+     * @return copy carrying the same trusted state
+     */
+    public CoordinatorSessionContext withSessionProperties(Map<String, String> properties) {
+        return new CoordinatorSessionContext(queryId, properties, userIdentity, tenantId,
+                queryAuthority, traceContext, sourceSnapshots, sourceIncrementalRanges,
+                internalMaterializationExecution);
     }
 
     /** Binds the actual engine-owned query lifetime without altering the authenticated actor. */
@@ -77,7 +93,8 @@ public record CoordinatorSessionContext(
             throw new IllegalStateException("Session already belongs to another query lifetime");
         }
         return new CoordinatorSessionContext(queryId, sessionProperties, userIdentity, tenantId,
-                Optional.of(authority), traceContext, sourceSnapshots, sourceIncrementalRanges);
+                Optional.of(authority), traceContext, sourceSnapshots, sourceIncrementalRanges,
+                internalMaterializationExecution);
     }
 
     /**
@@ -88,7 +105,7 @@ public record CoordinatorSessionContext(
             throw new IllegalStateException("An admitted session cannot change its query identity");
         }
         return new CoordinatorSessionContext(newQueryId, sessionProperties, userIdentity, tenantId, queryAuthority,
-                traceContext, sourceSnapshots, sourceIncrementalRanges);
+                traceContext, sourceSnapshots, sourceIncrementalRanges, internalMaterializationExecution);
     }
 
     /**
@@ -103,7 +120,8 @@ public record CoordinatorSessionContext(
      */
     public CoordinatorSessionContext withSourceSnapshots(Map<String, Long> snapshots) {
         return new CoordinatorSessionContext(queryId, sessionProperties, userIdentity, tenantId,
-                queryAuthority, traceContext, snapshots, sourceIncrementalRanges);
+                queryAuthority, traceContext, snapshots, sourceIncrementalRanges,
+                internalMaterializationExecution);
     }
 
     /**
@@ -119,6 +137,31 @@ public record CoordinatorSessionContext(
      */
     public CoordinatorSessionContext withSourceIncrementalRanges(Map<String, SnapshotRange> ranges) {
         return new CoordinatorSessionContext(queryId, sessionProperties, userIdentity, tenantId,
-                queryAuthority, traceContext, sourceSnapshots, ranges);
+                queryAuthority, traceContext, sourceSnapshots, ranges,
+                internalMaterializationExecution);
+    }
+
+    /** Binds the durable definer identity under which kernel-authored execution runs. */
+    public CoordinatorSessionContext withUserIdentity(UserIdentity identity) {
+        return new CoordinatorSessionContext(queryId, sessionProperties,
+                checkNotNull(identity, "identity must not be null"), tenantId, queryAuthority,
+                traceContext, sourceSnapshots, sourceIncrementalRanges,
+                internalMaterializationExecution);
+    }
+
+    /**
+     * Marks this query as kernel-authored materialization execution.
+     *
+     * <p>Only the materialization kernel sets this after validating the write
+     * capability for the attempt. It lets the fenced candidate and its pinned
+     * base generation pass the planner and access-control reserved-name guards;
+     * it never widens authority for ordinary client SQL, and it is not
+     * derivable from client session properties.</p>
+     *
+     * @return copy carrying the trusted internal-execution marker
+     */
+    public CoordinatorSessionContext withInternalMaterializationExecution() {
+        return new CoordinatorSessionContext(queryId, sessionProperties, userIdentity, tenantId,
+                queryAuthority, traceContext, sourceSnapshots, sourceIncrementalRanges, true);
     }
 }

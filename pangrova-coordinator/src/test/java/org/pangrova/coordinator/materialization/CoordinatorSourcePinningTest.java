@@ -217,7 +217,7 @@ class CoordinatorSourcePinningTest {
         public ChangeSetPlan changeSet(PinnedSource from, PinnedSource to, ChangeSetMode mode) {
             changeSets++;
             return new ChangeSetPlan(from.source(), from.snapshot(), to.snapshot(), mode,
-                    "change-set-" + changeSets, Instant.EPOCH);
+                    "change-set-" + changeSets, Instant.EPOCH, java.util.List.of());
         }
 
         @Override

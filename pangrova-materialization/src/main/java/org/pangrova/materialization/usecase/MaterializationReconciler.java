@@ -12,7 +12,6 @@ import org.pangrova.materialization.domain.Generation;
 import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationObject;
 import org.pangrova.materialization.domain.ObjectState;
-import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.port.Clock;
 import org.pangrova.materialization.port.CommitRecovery;
@@ -46,6 +45,17 @@ public final class MaterializationReconciler {
     private final Clock clock;
     private final Duration recoveryLease;
 
+    /**
+     * Creates a reconciler over the durable attempt and publication records.
+     *
+     * @param repository durable repository
+     * @param recovery commit recovery probe of the execution connector
+     * @param verifier publication verifier
+     * @param leases execution lease issuer
+     * @param fences execution fence validator
+     * @param clock time source
+     * @param recoveryLease lease issued while adopting a recovered attempt
+     */
     public MaterializationReconciler(MaterializationRepository repository,
             CommitRecovery recovery, PublicationVerifier verifier, LeaseService leases,
             FenceValidator fences, Clock clock, Duration recoveryLease) {
@@ -66,9 +76,10 @@ public final class MaterializationReconciler {
     }
 
     /**
-     * Reconciles every attempt that has been unsettled longer than the grace period.
+     * Reconciles every attempt whose execution anchor is no longer live, plus
+     * quarantined attempts observed for longer than the grace period.
      *
-     * @param grace minimum age before an attempt is considered orphaned
+     * @param grace minimum observation period of a quarantined attempt
      * @return reconciliation counters
      */
     public ReconcileReport runOnce(Duration grace) {
@@ -82,7 +93,7 @@ public final class MaterializationReconciler {
         int abandoned = 0;
         int quarantined = 0;
         int failed = 0;
-        for (RefreshAttempt attempt : repository.findUnsettledAttempts(now.minus(grace))) {
+        for (RefreshAttempt attempt : repository.findReconcilableAttempts(now.minus(grace))) {
             examined++;
             Optional<Generation> generation = repository.findGenerationByAttempt(attempt.id());
             if (generation.isEmpty()) {
@@ -97,6 +108,7 @@ public final class MaterializationReconciler {
                     case ABANDONED -> abandoned++;
                     case QUARANTINED -> quarantined++;
                     case DEFERRED -> failed++;
+                    default -> throw new IllegalStateException("Unhandled reconcile outcome: " + kind);
                 }
             } catch (RuntimeException failure) {
                 failed++;
@@ -192,13 +204,13 @@ public final class MaterializationReconciler {
     }
 
     private void supersede(RefreshAttempt attempt, Generation generation, Instant now) {
-        repository.settleAttempt(attempt.supersede("newer head or definition", now), generation,
-                event(MaterializationEventType.ATTEMPT_RECONCILED, attempt,
+        repository.settleAttempt(attempt, attempt.supersede("newer head or definition", now),
+                generation, event(MaterializationEventType.ATTEMPT_RECONCILED, attempt,
                         "superseded by newer head or definition", now));
     }
 
     private void abandon(RefreshAttempt attempt, Generation generation, String reason, Instant now) {
-        repository.settleAttempt(attempt.abandon("reconcile: " + reason, now), generation,
+        repository.settleAttempt(attempt, attempt.abandon("reconcile: " + reason, now), generation,
                 event(MaterializationEventType.ATTEMPT_RECONCILED, attempt,
                         "abandoned uncommitted attempt: " + reason, now));
     }
@@ -206,7 +218,7 @@ public final class MaterializationReconciler {
     private void quarantine(RefreshAttempt attempt, Generation generation, String reason,
             Instant now) {
         RefreshAttempt quarantined = attempt.quarantine(reason, now);
-        repository.settleAttempt(quarantined, generation.quarantine(),
+        repository.settleAttempt(attempt, quarantined, generation.quarantine(),
                 event(MaterializationEventType.ATTEMPT_QUARANTINED, attempt, reason, now));
     }
 

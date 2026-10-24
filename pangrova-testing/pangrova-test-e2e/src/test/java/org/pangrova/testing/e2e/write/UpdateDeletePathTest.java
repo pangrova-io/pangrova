@@ -127,5 +127,35 @@ class UpdateDeletePathTest extends PangrovaE2ETestBase {
 
             assertQueryReturnsEmpty("SELECT * FROM " + fqn());
         }
+
+        @Test
+        @DisplayName("DELETE that empties a partition removes that partition")
+        void deleteEmptiesPartition() {
+            executeDdl("CREATE TABLE " + fqn()
+                    + " (id BIGINT, region VARCHAR) PARTITIONED BY (region)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1, 'eu'), (2, 'us'), (3, 'eu')");
+
+            executeDml("DELETE FROM " + fqn() + " WHERE region = 'eu'");
+
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn());
+            assertThat(rows).hasSize(1);
+            assertThat(((Number) rows.get(0).getRaw("id")).longValue()).isEqualTo(2L);
+            assertThat(rows.get(0).getRaw("region")).isEqualTo("us");
+        }
+
+        @Test
+        @DisplayName("DELETE keeps survivors inside a partition")
+        void deleteKeepsSurvivorsInPartition() {
+            executeDdl("CREATE TABLE " + fqn()
+                    + " (id BIGINT, region VARCHAR) PARTITIONED BY (region)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1, 'eu'), (2, 'eu'), (3, 'us')");
+
+            executeDml("DELETE FROM " + fqn() + " WHERE id = 2");
+
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn() + " ORDER BY id");
+            assertThat(rows).hasSize(2);
+            assertThat(((Number) rows.get(0).getRaw("id")).longValue()).isEqualTo(1L);
+            assertThat(((Number) rows.get(1).getRaw("id")).longValue()).isEqualTo(3L);
+        }
     }
 }

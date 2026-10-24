@@ -171,6 +171,29 @@ class RefreshStrategyTest {
                 .isEqualTo(PangrovaErrorCode.MATERIALIZATION_REQUEST_REJECTED);
     }
 
+    @Test
+    void refreshContextAcceptsARepublishedGeneratedUpstream() {
+        SourceRef upstreamBefore = new SourceRef(
+                "iceberg", "lake", "__pangrova_materializations", "__pg_mat_before");
+        SourceRef upstreamAfter = new SourceRef(
+                "iceberg", "lake", "__pangrova_materializations", "__pg_mat_after");
+        DefinitionRevision definition = definition(OBJECT, 1, DEFINITION_SQL,
+                Set.of(ORDERS, upstreamBefore));
+        SourceVector vector = new SourceVector(Map.of(
+                ORDERS, snapshot(ORDERS, "snap-1"),
+                upstreamAfter, snapshot(upstreamAfter, "snap-1")), 2);
+
+        RefreshContext context = new RefreshContext(definition, Optional.empty(), vector, CANDIDATE);
+
+        assertThat(full.validate(context).compatible()).isTrue();
+        assertThatThrownBy(() -> new RefreshContext(definition, Optional.empty(),
+                new SourceVector(Map.of(
+                        source("customers"), snapshot(source("customers"), "snap-1"),
+                        upstreamAfter, snapshot(upstreamAfter, "snap-1")), 2), CANDIDATE))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("definition sources");
+    }
+
     private void assertIncompatible(RefreshContext context) {
         assertThat(appendOnly.validate(context).compatible()).isFalse();
         assertThatThrownBy(() -> appendOnly.plan(context))
@@ -217,7 +240,8 @@ class RefreshStrategyTest {
 
     private static Map<SourceRef, ChangeSetPlan> changeSets(String fromToken, String toToken) {
         return Map.of(ORDERS, new ChangeSetPlan(ORDERS, snapshot(ORDERS, fromToken),
-                snapshot(ORDERS, toToken), ChangeSetMode.APPEND_ONLY, "change-set-1", NOW));
+                snapshot(ORDERS, toToken), ChangeSetMode.APPEND_ONLY, "change-set-1", NOW,
+                java.util.List.of()));
     }
 
     private static ChangeProof proof(String fromToken, String toToken, boolean complete) {

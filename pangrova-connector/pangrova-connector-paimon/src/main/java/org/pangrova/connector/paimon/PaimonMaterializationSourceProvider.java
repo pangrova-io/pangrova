@@ -42,6 +42,12 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
     private final Catalog catalog;
     private final String catalogName;
 
+    /**
+     * Creates the provider over a resolved Paimon catalog.
+     *
+     * @param catalogName logical catalog name reported in source references
+     * @param catalog Paimon catalog used for snapshots and manifests
+     */
     public PaimonMaterializationSourceProvider(String catalogName, Catalog catalog) {
         if (catalogName == null || catalogName.isBlank()) {
             throw new IllegalArgumentException("catalogName must not be blank");
@@ -152,7 +158,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         String fingerprint = sha256("paimon-change-set-v1|" + source.canonicalName()
                 + '|' + fromId + '|' + toId + '|' + mode.name());
         return new ChangeSetPlan(source, from.snapshot(), to.snapshot(), mode,
-                fingerprint, Instant.now());
+                fingerprint, Instant.now(), List.of());
     }
 
     @Override

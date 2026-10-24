@@ -99,7 +99,7 @@ public class SecurityPolicyApplier {
         }
         var physicalToLogical = plan.physicalToLogicalDynamicTables();
         accessControlEnforcer.checkTableAccess(plan.tableReferences(), session.userIdentity(),
-                physicalToLogical);
+                physicalToLogical, session.internalMaterializationExecution());
         ObservedQueryPolicies observations = new ObservedQueryPolicies();
         PlannedQuery protectedPlan = plan
                 .applyColumnMasks(columnMaskApplier.withAuthorityMapping(physicalToLogical)

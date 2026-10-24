@@ -77,9 +77,12 @@ is_excluded() {
         # JDK types and common third-party API types
         AtomicReference|CompletableFuture|ConcurrentHashMap|CopyOnWriteArrayList)
             return 0 ;;
-        ScheduledExecutorService|Semaphore|ServiceLoader|Closeable|Exception)
+        ScheduledExecutorService|Semaphore|ServiceLoader|Closeable|AutoCloseable|Exception)
             return 0 ;;
         IllegalStateException|UnsupportedOperationException)
+            return 0 ;;
+        # Third-party observability API types, not Pangrova implementations
+        Meter|Tracer)
             return 0 ;;
         RelNode|LogicalTableModify|LogicalValues|TableModify|TableScan|CalciteSchema)
             return 0 ;;

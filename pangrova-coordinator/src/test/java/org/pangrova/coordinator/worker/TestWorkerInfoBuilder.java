@@ -38,6 +38,17 @@ public final class TestWorkerInfoBuilder {
     }
 
     /**
+     * Creates an ACTIVE worker bound to a real execution incarnation.
+     */
+    public static WorkerInfo active(String workerId, String host, int httpPort, int transportPort,
+                                    org.pangrova.protocol.rest.worker.WorkerExecutionIdentity identity) {
+        return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
+                HealthState.ACTIVE, MemoryPressure.NONE,
+                0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
+                null, List.of(), null, canonicalInventory(), identity);
+    }
+
+    /**
      * Creates a worker with the specified health state and default metrics.
      */
     public static WorkerInfo withState(String workerId, String host, int httpPort, int transportPort,
