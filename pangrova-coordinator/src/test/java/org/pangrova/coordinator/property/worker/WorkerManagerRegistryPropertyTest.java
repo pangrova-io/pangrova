@@ -82,7 +82,8 @@ class WorkerManagerRegistryPropertyTest {
                 m.performanceScore(), m.resourcePoolId(),
                 2, m.rackId(), m.dataLocality(), null,
                 org.pangrova.coordinator.worker.TestWorkerInfoBuilder
-                        .canonicalInventory()));
+                        .canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id.workerId())));
     }
 
     @Provide
@@ -189,7 +190,8 @@ class WorkerManagerRegistryPropertyTest {
                     template.performanceScore(), null,
                     template.protocolVersion(), template.rackId(),
                     template.dataLocality(), null,
-                    template.capabilityInventory());
+                    template.capabilityInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(uniqueId));
             manager.registerWorker(worker);
             registeredIds.add(uniqueId);
         }

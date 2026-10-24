@@ -156,7 +156,7 @@ class RestDtoImmutabilityTest {
                 "w-1", "localhost", 8080, 9090, 0, 2,
                 null, mutable, null,
                 org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture
-                        .encodedInventory());
+                        .encodedInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
 
         mutable.add("injected");
 

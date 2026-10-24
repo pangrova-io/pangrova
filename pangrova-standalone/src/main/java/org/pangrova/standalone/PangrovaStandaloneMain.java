@@ -129,7 +129,7 @@ public final class PangrovaStandaloneMain {
                 config.getString(WorkerOptions.WORKER_ADVERTISED_HOST),
                 config.getString(WorkerOptions.SHUFFLE_ADVERTISED_HOST),
                 null,
-                buildTransportSecurityConfig(config));
+                buildTransportSecurityConfig(config), config.getString(WorkerOptions.ADMISSION_STATE_DIRECTORY));
     }
 
     private static WorkerBootstrapConfig.TransportSecurityConfig buildTransportSecurityConfig(

@@ -14,6 +14,15 @@ sidebar_label: "Observability"
 
 ## 1. Overall Architecture
 
+Coordinator and Worker bootstraps own their `TelemetryInitializer` and inject
+its configured `Meter` and `Tracer` into `OtelMetricsProvider` and
+`OtelTracingProvider`. These two implementations are not class-path
+`ServiceLoader` providers: they require the configured SDK and its lifecycle.
+Registering them in `META-INF/services` fails the
+[JDK provider-constructor contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/ServiceLoader.html#developing-service-providers).
+Logging and task-context wrapping retain their independently constructible
+service registrations.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        Observability Architecture                            │

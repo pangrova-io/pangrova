@@ -181,6 +181,7 @@ class WorkerCapabilityMatcherTest {
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
                 1024L * 1024 * 1024, Instant.now(), 1.0,
                 null, 2, null, List.of(), null,
-                inventory);
+                inventory,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-1"));
     }
 }

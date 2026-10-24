@@ -67,6 +67,8 @@ public final class WorkerBootstrap {
     }
 
     private void startPhases() {
+        refs.setAdmissionIncarnation(org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
+                java.nio.file.Path.of(config.admissionStateDirectory())));
         observability.initialize(config);
         // Task 148: create the shared MemoryArbitrator BEFORE native init
         // so NativeMemoryCoordinator and WorkerResourceBootstrap share a

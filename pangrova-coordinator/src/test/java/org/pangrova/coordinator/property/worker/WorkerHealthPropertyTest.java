@@ -173,7 +173,8 @@ class WorkerHealthPropertyTest {
                     0.5, 0, 1024L * 1024 * 1024,
                     now.minusSeconds(120), 1.0, null, 2,
                     null, List.of(), null,
-                    org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory()));
+                    org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id)));
         });
 
         manager.removeDeadWorkers();

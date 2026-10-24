@@ -246,7 +246,9 @@ final class ActualShuffleService implements AutoCloseable {
                 attempt.getQueryOrJobId(), attempt.getStageId(), attempt.getPartitionId(),
                 attempt.getTaskId(), attempt.getControlEpoch(),
                 new org.pangrova.shuffle.exchange.ExchangeAttemptFence(attempt.getPlanEpoch(),
-                        attempt.getAttemptId(), attempt.getFencingToken()), exchangeOwner);
+                        attempt.getAttemptId(), attempt.getFencingToken()), exchangeOwner,
+                attempt.getWorkerExecutionIdentity().getAdmissionDomainId(),
+                attempt.getWorkerExecutionIdentity().getIncarnationId());
         var capability = control().renewAccess(RenewAccessRequest.newBuilder()
                 .setOperation(ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ)
                 .setShuffleId(producer.registration().getShuffleId()).setExecutionOwner(owner)

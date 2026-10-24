@@ -38,7 +38,7 @@ class BufferMemoryGovernanceTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-failure")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            var request = request(TASK_MEMORY, ActualNativeTaskPlans.failingCast());
+            var request = runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.failingCast()));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FAILED);
             assertThat(tasks.terminalReport(info).error().message()).contains("not-an-integer");
@@ -69,7 +69,7 @@ class BufferMemoryGovernanceTest {
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-sequence")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             for (int index = 0; index < taskCount; index++) {
-                var info = tasks.submit(request(TASK_MEMORY, ActualNativeTaskPlans.values(batchCount, 2)));
+                var info = tasks.submit(runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.values(batchCount, 2))));
                 tasks.awaitState(info, TaskManager.TaskState.RUNNING);
                 assertThat(tasks.consume(info).rows()).isEqualTo(batchCount * 2L);
                 tasks.awaitState(info, TaskManager.TaskState.FINISHED);
@@ -83,7 +83,7 @@ class BufferMemoryGovernanceTest {
             throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-key-" + taskSuffix)) {
-            var request = request(TASK_MEMORY, ActualNativeTaskPlans.values(1, 2)).toBuilder();
+            var request = runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.values(1, 2))).toBuilder();
             request.getAttemptBuilder().setTaskId("task-key-" + taskSuffix);
             var info = tasks.submit(request.build());
             tasks.awaitState(info, TaskManager.TaskState.RUNNING);
@@ -99,7 +99,7 @@ class BufferMemoryGovernanceTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-grant")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            var info = tasks.submit(request(taskMemory, ActualNativeTaskPlans.values(batches, 2)));
+            var info = tasks.submit(runtime.bindWorker(request(taskMemory, ActualNativeTaskPlans.values(batches, 2))));
             tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertHeldGrant(runtime, info, taskMemory);
             assertThat(tasks.consume(info).rows()).isEqualTo(batches * 2L);

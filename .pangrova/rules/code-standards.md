@@ -137,13 +137,14 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
 
 ## Quality gates
 
-- Java source file ≤ 800 lines. Method/constructor ≤ 100 nonblank,
-  noncomment lines. Cyclomatic complexity ≤ 15, measured by Checkstyle's Java
-  parser. Do not maintain a second regex-based approximation of these metrics.
+- Java structural review diagnostics: file 800 lines, method/constructor 100
+  nonblank/noncomment lines, cyclomatic complexity 15 and parameters 10.
+  Checkstyle reports thresholds as warnings, not build failures. They identify
+  review and testing needs, not correctness. Do not duplicate them with regex scans.
 - Keep nesting shallow. Checkstyle nesting limits are `NestedIfDepth=3`,
   `NestedForDepth=3`, and `NestedTryDepth=2`. Review mixed control-flow nesting
   and extract coherent operations when the combined structure obscures intent.
-- Method/constructor parameters ≤ 10. Review constructors with more than 6
+- Review constructors with more than 6
   dependencies for mixed responsibilities; introduce a parameter/dependency
   object only when its members form a cohesive concept.
 - Review interfaces above 12 methods for unrelated consumer responsibilities.
@@ -151,7 +152,7 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   their owning domain and group documentation by meaning.
 - Repeated domain logic should be shared when it has the same meaning and change
   lifecycle. A third occurrence prompts review, not automatic extraction.
-- Size ceilings are backstops, not targets. Keep one clear responsibility per
+- Size thresholds are review signals, not targets. Keep one clear responsibility per
   class, explicit control flow, and meaningful method names. Extract coherent
   operations; do not add forwarding-only classes, generic context bags, compressed
   statements, or extra indirection just to satisfy a metric.

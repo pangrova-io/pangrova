@@ -4,6 +4,7 @@
 // Unit tests for HandleRegistry: generation tracking, double-release detection,
 // stale handle rejection, and concurrent safety.
 
+#include "CanonicalTestAttempt.h"
 #include "jni/registry/HandleRegistry.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
@@ -29,6 +30,7 @@ pangrova::executor::TaskExecutorConfig makeTestConfig(const std::string& id) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = id;
   config.query_id = "test-query";
+  pangrova::test::bindTestAttempt(config);
   return config;
 }
 

@@ -230,7 +230,7 @@ class OutputTaskMemoryReleaseTest {
         var monitor = Executors.newSingleThreadExecutor(task -> new Thread(task, "unavailable-result-completion"));
         manager = new TaskManager(new TaskManagerContext(reports, runtime.executor(),
                 new MemoryRefs(resources, runtime.nodePool(), null), new TransportRefs(null, null, null), monitor),
-                "unavailable-result-worker", 0.0);
+                "unavailable-result-worker", 0.0, runtime.admissionIncarnation());
         var request = runtime.valuesRequest(true);
         String id = manager.submitTask(descriptor(request, "OUTPUT"), SubmitTaskRequest.from(request));
         var info = manager.tasks.get(id);
@@ -342,7 +342,7 @@ class OutputTaskMemoryReleaseTest {
         var monitor = Executors.newSingleThreadExecutor(task -> new Thread(task, "actual-native-completion"));
         manager = new TaskManager(new TaskManagerContext(reporter, runtime.executor(),
                 new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
-                "actual-native-budget-worker", 0.0);
+                "actual-native-budget-worker", 0.0, runtime.admissionIncarnation());
         String id = manager.submitTask(descriptor(request, taskType), SubmitTaskRequest.from(request));
         return manager.tasks.get(id);
     }

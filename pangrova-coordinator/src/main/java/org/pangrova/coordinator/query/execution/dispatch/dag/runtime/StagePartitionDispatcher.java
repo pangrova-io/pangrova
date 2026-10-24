@@ -26,7 +26,8 @@ public final class StagePartitionDispatcher {
 
     /** Returns the actual bound request and HTTP acknowledgement; no result or owner is synthesized. */
     public Issued dispatch(SubmitTaskRequest request, WorkerInfo worker) {
-        var bound = dispatcher.bindSourceInput(accessBinder.apply(dispatcher.bindControlIdentity(request)));
+        var targetBound = dispatcher.bindWorkerIdentity(request, worker);
+        var bound = dispatcher.bindSourceInput(accessBinder.apply(dispatcher.bindControlIdentity(targetBound)));
         requirePreservedAttempt(request, bound);
         long remaining = Math.subtractExact(bound.taskRequest().getDeadlineEpochMs(), System.currentTimeMillis());
         if (remaining <= 0) {
@@ -60,8 +61,11 @@ public final class StagePartitionDispatcher {
     private static void requirePreservedAttempt(SubmitTaskRequest request, SubmitTaskRequest bound) {
         var original = request.taskRequest().getAttempt();
         var actual = bound.taskRequest().getAttempt();
-        if (!original.toBuilder().clearExecutionOwner().clearControlEpoch().build()
-                .equals(actual.toBuilder().clearExecutionOwner().clearControlEpoch().build())
+        if (!original.toBuilder().clearExecutionOwner().clearControlEpoch().clearWorkerExecutionIdentity().build()
+                .equals(actual.toBuilder().clearExecutionOwner().clearControlEpoch()
+                        .clearWorkerExecutionIdentity().build())
+                || original.hasWorkerExecutionIdentity()
+                    && !original.getWorkerExecutionIdentity().equals(actual.getWorkerExecutionIdentity())
                 || original.hasExecutionOwner() && !original.getExecutionOwner().equals(actual.getExecutionOwner())
                 || original.getControlEpoch() > 0 && original.getControlEpoch() != actual.getControlEpoch()) {
             throw new IllegalStateException("Control or access binding changed the issued partition identity");

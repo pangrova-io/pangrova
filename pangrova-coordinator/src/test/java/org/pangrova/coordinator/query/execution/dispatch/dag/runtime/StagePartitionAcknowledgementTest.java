@@ -72,6 +72,8 @@ class StagePartitionAcknowledgementTest {
         TaskDispatcher binding = new TaskDispatcher() {
             @Override public SubmitTaskRequest bindSourceInput(SubmitTaskRequest request) {
                 assertThat(accessComplete).isTrue();
+                assertThat(request.taskRequest().getAttempt().getWorkerExecutionIdentity())
+                        .isEqualTo(worker.workerExecutionIdentity().toProto());
                 var result = request.withBoundTask(request.taskRequest().toBuilder()
                         .setDeadlineEpochMs(request.taskRequest().getDeadlineEpochMs() - 1).build());
                 bound.set(result);
@@ -88,10 +90,24 @@ class StagePartitionAcknowledgementTest {
             }
         };
         var dispatcher = new StagePartitionDispatcher(binding, new DispatchCanceller(binding, tracker), request -> {
+            assertThat(request.taskRequest().getAttempt().getWorkerExecutionIdentity())
+                    .isEqualTo(worker.workerExecutionIdentity().toProto());
             accessComplete.set(true);
             return request;
         });
         assertThat(dispatcher.dispatch(request(5_000), worker).request()).isSameAs(bound.get());
+    }
+
+    @Test
+    void aPreviouslyBoundPhysicalWorkerCannotBeReplacedBeforeDispatch() {
+        var bound = transport.bindWorkerIdentity(request(5_000), worker);
+        var replacement = TestWorkerInfoBuilder.active("replacement", "localhost", 8080, 8081);
+
+        assertThatThrownBy(() -> partitions.dispatch(bound, replacement))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("registered Worker incarnation");
+        assertThat(tracker.getTaskRequest(TASK)).isNull();
+        assertThat(transport.response).isNotDone();
     }
 
     private static SubmitTaskRequest request(long durationMillis) {

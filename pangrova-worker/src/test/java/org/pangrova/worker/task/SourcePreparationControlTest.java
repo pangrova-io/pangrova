@@ -41,7 +41,7 @@ class SourcePreparationControlTest {
             calls.incrementAndGet();
             return PROOF;
         })) {
-            var request = request("sealed");
+            var request = request("sealed", fixture.manager);
             assertThat(fixture.manager.sealAdmission(request.admissionSeal())).isPresent();
             assertThatThrownBy(() -> fixture.control.execute(request)).isInstanceOf(TaskAdmissionException.class);
             assertThat(calls).hasValue(0);
@@ -60,7 +60,7 @@ class SourcePreparationControlTest {
             await(release);
             return PROOF;
         })) {
-            var request = request("running");
+            var request = request("running", fixture.manager);
             var running = executor.submit(() -> fixture.control.execute(request));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(fixture.control.seal(request.admissionSeal())).isEmpty();
@@ -88,7 +88,7 @@ class SourcePreparationControlTest {
             budget.reserveRead(5);
             throw new IOException("source interrupted");
         })) {
-            var request = request("cleanup");
+            var request = request("cleanup", fixture.manager);
             var result = fixture.control.execute(request);
             assertThat(PrepareCopySourceResponse.from(result).resultFor(request).getIoJoined()).isFalse();
             assertThat(result.getUsage().getObjectStoreReadBytes()).isEqualTo(5);
@@ -114,7 +114,7 @@ class SourcePreparationControlTest {
             if (!allowed.get()) throw new org.pangrova.spi.security.AccessDeniedException("revoked");
             return PROOF;
         })) {
-            var request = request("replay");
+            var request = request("replay", fixture.manager);
             var result = fixture.control.execute(request);
             assertThat(fixture.control.execute(request)).isEqualTo(result);
             allowed.set(false);
@@ -135,7 +135,7 @@ class SourcePreparationControlTest {
             budget.reserveRead(5);
             throw new IOException("backend failure");
         })) {
-            var request = request("failure");
+            var request = request("failure", fixture.manager);
             var failed = fixture.control.execute(request);
             assertThat(failed.getError().getErrorClass()).isEqualTo(ErrorClass.ERROR_CLASS_TRANSPORT);
             assertThat(fixture.control.execute(request)).isEqualTo(failed);
@@ -157,7 +157,7 @@ class SourcePreparationControlTest {
         })) {
             long held = fixture.node.tryReserve(4 * HEAP - 10);
             try {
-                assertThatThrownBy(() -> fixture.control.execute(request("capacity")))
+                assertThatThrownBy(() -> fixture.control.execute(request("capacity", fixture.manager)))
                         .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("memory");
                 assertThat(fixture.node.getUsedBytes()).isEqualTo(held);
                 assertThat(fixture.quota.getTenantActiveQueryCount("tenant")).isZero();
@@ -178,7 +178,7 @@ class SourcePreparationControlTest {
             budget.reserveRead(5);
             throw failure;
         })) {
-            var request = request("fatal");
+            var request = request("fatal", fixture.manager);
             assertThatThrownBy(() -> fixture.control.execute(request)).isSameAs(failure);
             assertThat(fixture.control.seal(request.admissionSeal())).isPresent();
             var replay = fixture.control.execute(request);
@@ -202,7 +202,7 @@ class SourcePreparationControlTest {
             await(release);
             return PROOF;
         })) {
-            var request = request("duplicate");
+            var request = request("duplicate", fixture.manager);
             var first = executor.submit(() -> fixture.control.execute(request));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             var second = executor.submit(() -> fixture.control.execute(request));
@@ -226,7 +226,7 @@ class SourcePreparationControlTest {
             return PROOF;
         })) {
             fixture.tracker.setQuota("tenant", new org.pangrova.resource.tenant.TenantResourceQuota(HEAP - 1, 2));
-            assertThatThrownBy(() -> fixture.control.execute(request("tenant-heap")))
+            assertThatThrownBy(() -> fixture.control.execute(request("tenant-heap", fixture.manager)))
                     .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("tenant quota");
             assertThat(calls).hasValue(0);
             fixture.assertReleased();
@@ -249,7 +249,7 @@ class SourcePreparationControlTest {
             return PROOF;
         })) {
             try {
-                var request = request("producer");
+                var request = request("producer", fixture.manager);
                 var deliveries = new java.util.ArrayList<java.util.concurrent.Future<
                         org.pangrova.protocol.v2.SourcePreparationResult>>();
                 deliveries.add(executor.submit(() -> fixture.control.execute(request)));
@@ -260,7 +260,7 @@ class SourcePreparationControlTest {
                 org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).until(() ->
                         threads.size() == 8 && threads.stream()
                                 .allMatch(thread -> thread.getState() == Thread.State.TIMED_WAITING));
-                var refused = fixture.control.execute(request("capacity-refused"));
+                var refused = fixture.control.execute(request("capacity-refused", fixture.manager));
                 assertThat(refused.getIoJoined()).isTrue();
                 assertThat(refused.getError().getErrorClass()).isEqualTo(ErrorClass.ERROR_CLASS_ADMISSION);
                 assertThat(refused.getUsage().getObjectStoreReadBytes()).isZero();
@@ -286,7 +286,7 @@ class SourcePreparationControlTest {
         }
     }
 
-    private static PrepareCopySourceRequest request(String taskId) {
+    private static PrepareCopySourceRequest request(String taskId, TaskManager manager) {
         long deadline = System.currentTimeMillis() + 60_000;
         var scope = new CopySourceReadHttp.Scope("tenant", "user", "incoming",
                 "f92e704f-2443-4d3a-a496-cd6507dd97db", 1, "s3://incoming/file.parquet",
@@ -294,6 +294,7 @@ class SourcePreparationControlTest {
         var command = SourcePreparationRequest.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
                 .setAttempt(org.pangrova.protocol.v2.TaskAttemptId.newBuilder().setQueryOrJobId("query").setTaskId(taskId)
                         .setPlanEpoch(1).setFencingToken(1L << 32 | 1L).setControlEpoch(1)
+                        .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())
                         .setExecutionOwner(org.pangrova.protocol.v2.ExecutionOwnerIdentity.newBuilder()
                                 .setOwnerId("coordinator").setOwnerIncarnation("test").setFencingToken(1)))
                 .setSecurity(org.pangrova.protocol.v2.SecurityContext.newBuilder().setTenantId("tenant").setPrincipal("user"))

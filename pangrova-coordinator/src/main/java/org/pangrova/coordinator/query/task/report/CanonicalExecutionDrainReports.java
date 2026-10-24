@@ -38,6 +38,14 @@ final class CanonicalExecutionDrainReports {
                     throw invalid("No-owner receipt violates its sealed Worker admission authority");
                 }
             }
+            case EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED -> {
+                if (status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED
+                        || status.getState() != TaskState.TASK_STATE_CANCELLED
+                        || !status.getAttempt().hasWorkerExecutionIdentity() || status.hasNativeTaskStats()
+                        || !status.getError().getCode().equals("WORKER_INCARNATION_RETIRED")) {
+                    throw invalid("Retired Worker receipt lacks its exact physical incarnation authority");
+                }
+            }
             case UNRECOGNIZED -> throw invalid("Unknown execution drain state");
             default -> throw invalid("Unknown execution drain state");
         }

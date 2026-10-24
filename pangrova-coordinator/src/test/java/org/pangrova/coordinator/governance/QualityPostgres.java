@@ -1,12 +1,12 @@
-package org.pangrova.governance.testinfra;
+package org.pangrova.coordinator.governance;
 
 import org.testcontainers.containers.PostgreSQLContainer;
 
-/** JVM-wide actual PostgreSQL instance for independent governance SQL oracle tests. */
-public final class SharedPostgresContainer {
-    private static final PostgreSQLContainer<?> POSTGRES = startPostgres();
+/** JVM-wide actual PostgreSQL instance for structured quality SQL oracle tests. */
+final class QualityPostgres {
+    static final PostgreSQLContainer<?> POSTGRES = startPostgres();
 
-    private SharedPostgresContainer() {}
+    private QualityPostgres() {}
 
     public static String jdbcUrl() {
         return POSTGRES.getJdbcUrl();

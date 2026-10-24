@@ -128,6 +128,8 @@ class BatchStreamAssemblerTest {
                 .setPartitionId(0).setPlanEpoch(2).setAttemptId(0).setFencingToken(3)
                 .setTaskId("task-1").setControlEpoch(4)
                 .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId("owner")
-                        .setOwnerIncarnation("incarnation").setFencingToken(5)).build();
+                        .setOwnerIncarnation("incarnation").setFencingToken(5)).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
+                        .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
     }
 }

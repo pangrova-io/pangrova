@@ -84,6 +84,9 @@ final class ExchangeProtocolMapper {
                         .setOwnerId(owner.ownerId())
                         .setOwnerIncarnation(owner.ownerIncarnation())
                         .setFencingToken(owner.fencingToken()))
+                .setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId(attempt.workerAdmissionDomainId())
+                        .setIncarnationId(attempt.workerIncarnationId()))
                 .build();
     }
 }

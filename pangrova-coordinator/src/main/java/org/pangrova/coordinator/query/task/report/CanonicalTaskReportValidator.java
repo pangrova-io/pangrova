@@ -114,6 +114,10 @@ public final class CanonicalTaskReportValidator {
         if (!matchesOuterAttempt(actual, report, outer)) {
             throw invalid("Native status attempt differs from its REST envelope");
         }
+        if (expected != null && !actual.getWorkerExecutionIdentity()
+                .equals(expected.taskRequest().getAttempt().getWorkerExecutionIdentity())) {
+            throw invalid("Native status Worker incarnation differs from the dispatched request");
+        }
         long expectedControl = expected != null
                 ? expected.taskRequest().getAttempt().getControlEpoch() : 0L;
         if (actual.getControlEpoch() != expectedControl) {

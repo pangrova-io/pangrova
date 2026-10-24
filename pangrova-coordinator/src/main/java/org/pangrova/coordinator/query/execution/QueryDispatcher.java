@@ -125,15 +125,9 @@ public class QueryDispatcher {
         } catch (Exception e) {
             LOG.error("event=execute_crash queryId={} error={}",
                     session.queryId(), e.getMessage(), e);
-            // QueryManager owns the terminal transition and its durable journal,
-            // active-count and admission cleanup. This layer only releases the
-            // dispatch ownership it acquired before propagating the failure.
-            try {
-                ownershipTracker.cancelDispatchedTasks(session.queryId());
-                ownershipTracker.cleanupQuery(session.queryId());
-            } catch (RuntimeException | Error cleanup) {
-                if (cleanup != e) e.addSuppressed(cleanup);
-            }
+            // QueryManager must publish the failed state before claiming physical
+            // cleanup. Early cleanup closes metadata admission and can prevent that
+            // transition after the asynchronous submit response has already returned.
             throw wrapIfNeeded(e, session.queryId());
         }
     }

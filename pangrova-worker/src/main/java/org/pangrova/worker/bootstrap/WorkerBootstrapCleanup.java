@@ -37,6 +37,10 @@ final class WorkerBootstrapCleanup {
         steps.attempt(() -> NativeFunctionBootstrap.close(refs));
         steps.requireSuccess();
         WorkerResourceBootstrap.releaseResources(refs, observability);
+        if (refs.admissionIncarnation() != null) {
+            refs.admissionIncarnation().closeAfterDrain(() -> {});
+            refs.setAdmissionIncarnation(null);
+        }
     }
 
     private void closeHeartbeat() {

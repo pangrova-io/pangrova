@@ -322,7 +322,7 @@ public final class WorkerManager {
                 existing.performanceScore(), existing.resourcePoolId(),
                 existing.protocolVersion(),
                 existing.rackId(), existing.dataLocality(), newSummary,
-                existing.capabilityInventory(), existing.copyTaskTlsPort());
+                existing.capabilityInventory(), existing.copyTaskTlsPort(), existing.workerExecutionIdentity());
     }
 
     /**
@@ -403,7 +403,8 @@ public final class WorkerManager {
                 info.resultServerPort(),
                 info.cacheSummary(),
                 inventoryPool.encode(info.capabilityInventory()),
-                info.copyTaskTlsPort());
+                info.copyTaskTlsPort(), info.workerExecutionIdentity().admissionDomainId(),
+                info.workerExecutionIdentity().incarnationId());
     }
 
     private static HeartbeatSnapshot toHeartbeatSnapshot(HeartbeatData data) {
@@ -435,7 +436,9 @@ public final class WorkerManager {
                 snapshot.dataLocality(),
                 snapshot.cacheSummary(),
                 CapabilityInventoryCodec.decode(snapshot.capabilityInventory()),
-                snapshot.copyTaskTlsPort());
+                snapshot.copyTaskTlsPort(),
+                new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity(
+                        snapshot.admissionDomainId(), snapshot.incarnationId()));
     }
 
     private HealthState classifyHealth(long elapsedMs) {

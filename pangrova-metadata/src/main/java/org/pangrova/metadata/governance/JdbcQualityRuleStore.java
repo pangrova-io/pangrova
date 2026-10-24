@@ -18,6 +18,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.governance.quality.QualityCheckResult;
 import org.pangrova.governance.quality.alert.Severity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.rule.QualityRuleStore;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.slf4j.Logger;
@@ -55,7 +56,13 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 enabled            BOOLEAN       NOT NULL DEFAULT TRUE,
                 schedule           VARCHAR(255),
                 created_at         TIMESTAMP     NOT NULL,
-                updated_at         TIMESTAMP     NOT NULL
+                updated_at         TIMESTAMP     NOT NULL,
+                execution_principal VARCHAR(512),
+                execution_tenant    VARCHAR(255),
+                CONSTRAINT quality_rule_execution_identity CHECK (
+                    (execution_principal IS NULL AND execution_tenant IS NULL AND NOT enabled)
+                    OR (execution_principal IS NOT NULL AND length(trim(execution_principal)) > 0
+                        AND execution_tenant IS NOT NULL AND length(trim(execution_tenant)) > 0))
             )
             """;
 
@@ -80,14 +87,15 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     private static final String SQL_MERGE_RULE =
             "INSERT INTO quality_rules (rule_id, rule_name, catalog_name, schema_name, "
                     + "table_name, check_expression, severity, message, enabled, schedule, "
-                    + "created_at, updated_at) "
-                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                    + "created_at, updated_at, execution_principal, execution_tenant) "
+                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     + "ON CONFLICT (rule_id) DO UPDATE SET "
                     + "rule_name=EXCLUDED.rule_name, catalog_name=EXCLUDED.catalog_name, "
                     + "schema_name=EXCLUDED.schema_name, table_name=EXCLUDED.table_name, "
                     + "check_expression=EXCLUDED.check_expression, severity=EXCLUDED.severity, "
                     + "message=EXCLUDED.message, enabled=EXCLUDED.enabled, "
-                    + "schedule=EXCLUDED.schedule, updated_at=EXCLUDED.updated_at";
+                    + "schedule=EXCLUDED.schedule, updated_at=EXCLUDED.updated_at, "
+                    + "execution_principal=EXCLUDED.execution_principal, execution_tenant=EXCLUDED.execution_tenant";
 
     private static final String SQL_GET_RULE =
             "SELECT * FROM quality_rules WHERE rule_id = ?";
@@ -194,10 +202,8 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     @Override
     public void saveResult(QualityCheckResult result) {
         Objects.requireNonNull(result, "result must not be null");
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(SQL_INSERT_RESULT)) {
-            bindResult(ps, result);
-            ps.executeUpdate();
+        try (Connection conn = dataSource.getConnection()) {
+            insertResult(conn, result);
             LOG.debug("event=quality_result_saved resultId={} ruleId={} passed={}",
                     result.resultId(), result.ruleId(), result.passed());
         } catch (SQLException e) {
@@ -232,6 +238,8 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     private static final int RULE_CREATED_AT_PARAM = 11;
     private static final int RULE_UPDATED_AT_PARAM = 12;
     private static final int RESULT_ERROR_MESSAGE_PARAM = 11;
+    private static final int RULE_PRINCIPAL_PARAM = 13;
+    private static final int RULE_TENANT_PARAM = 14;
 
     private static List<DataQualityRule> collectRules(PreparedStatement ps) throws SQLException {
         try (ResultSet rs = ps.executeQuery()) {
@@ -258,6 +266,19 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 ? Timestamp.from(rule.createdAt()) : Timestamp.from(Instant.now()));
         ps.setTimestamp(RULE_UPDATED_AT_PARAM, rule.updatedAt() != null
                 ? Timestamp.from(rule.updatedAt()) : Timestamp.from(Instant.now()));
+        QualityExecutionIdentity identity = rule.executionIdentity();
+        ps.setString(RULE_PRINCIPAL_PARAM, identity == null ? null : identity.principal());
+        ps.setString(RULE_TENANT_PARAM, identity == null ? null : identity.tenantId());
+    }
+
+    static long insertResult(Connection connection, QualityCheckResult result) throws SQLException {
+        try (var statement = connection.prepareStatement(SQL_INSERT_RESULT + " RETURNING result_id")) {
+            bindResult(statement, result);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) throw new SQLException("Quality result insertion returned no identity");
+                return rows.getLong(1);
+            }
+        }
     }
 
     private static void bindResult(PreparedStatement ps, QualityCheckResult result)
@@ -276,7 +297,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
         ps.setString(RESULT_ERROR_MESSAGE_PARAM, result.errorMessage());
     }
 
-    private static DataQualityRule mapRule(ResultSet rs) throws SQLException {
+    static DataQualityRule mapRule(ResultSet rs) throws SQLException {
         Timestamp createdAt = rs.getTimestamp("created_at");
         Timestamp updatedAt = rs.getTimestamp("updated_at");
         return new DataQualityRule(
@@ -291,6 +312,8 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 rs.getBoolean("enabled"),
                 rs.getString("schedule"),
                 createdAt != null ? createdAt.toInstant() : null,
-                updatedAt != null ? updatedAt.toInstant() : null);
+                updatedAt != null ? updatedAt.toInstant() : null,
+                rs.getString("execution_principal") == null ? null : new QualityExecutionIdentity(
+                        rs.getString("execution_principal"), rs.getString("execution_tenant")));
     }
 }

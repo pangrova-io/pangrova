@@ -261,7 +261,9 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
                                 attempt.getPlanEpoch(),
                                 attempt.getAttemptId(),
                                 attempt.getFencingToken()),
-                        owner);
+                        owner,
+                        attempt.getWorkerExecutionIdentity().getAdmissionDomainId(),
+                        attempt.getWorkerExecutionIdentity().getIncarnationId());
         List<ShuffleServerEndpoint> endpoints =
                 binding.getEndpointsList().stream()
                         .map(

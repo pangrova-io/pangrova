@@ -10,6 +10,14 @@ public final class TestShuffleServiceConfig {
 
     private TestShuffleServiceConfig() {}
 
+    public static String admissionDirectory() {
+        try {
+            return Files.createTempDirectory("pangrova-test-admission-").toString();
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
+    }
+
     public static WorkerBootstrapConfig.ResourceConfig resources(
             WorkerBootstrapConfig.ResourceConfig original) {
         final String spillDirectory;
@@ -40,6 +48,6 @@ public final class TestShuffleServiceConfig {
                 original.internalAuthSecret(), original.shuffleMode(), original.cacheConfig(),
                 original.advertisedHost(), original.shuffleAdvertisedHost(),
                 original.nativeFunctionConfig(),
-                original.transportSecurityConfig());
+                original.transportSecurityConfig(), org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 }

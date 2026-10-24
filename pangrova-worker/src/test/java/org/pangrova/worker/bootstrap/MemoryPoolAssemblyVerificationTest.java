@@ -148,7 +148,7 @@ class MemoryPoolAssemblyVerificationTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, rc, 0, false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         bootstrap = configuredBootstrap(config);
         bootstrap.start();
 
@@ -179,7 +179,7 @@ class MemoryPoolAssemblyVerificationTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 
     private RootMemoryPool getRootPool() throws Exception {

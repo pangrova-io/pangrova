@@ -112,7 +112,9 @@ public final class ExchangeSourceConverter {
                         attempt.getFencingToken()),
                 new ShuffleExecutionOwner(
                         owner.getOwnerId(), owner.getOwnerIncarnation(),
-                        owner.getFencingToken()));
+                        owner.getFencingToken()),
+                attempt.getWorkerExecutionIdentity().getAdmissionDomainId(),
+                attempt.getWorkerExecutionIdentity().getIncarnationId());
     }
 
     private static ExchangeEndpoint toEndpoint(ExchangePartitionSource source) {

@@ -43,6 +43,7 @@ final class TaskSubmissionHandler {
         // deduplication, memory allocation, or Native task creation. In
         // particular, a stale leader must not receive a successful dedup reply.
         var canonical = request.taskRequest();
+        owner.verifyWorkerExecutionIdentity(canonical.getAttempt());
         owner.verifyControlEpochForAdmission(canonical.getAttempt().getControlEpoch());
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);

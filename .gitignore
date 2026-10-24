@@ -79,3 +79,6 @@ secrets/
 .qoder/
 .codex/
 *.local
+
+# Persistent local Worker incarnation authority (retain across restarts, never commit)
+/data/worker-admission/

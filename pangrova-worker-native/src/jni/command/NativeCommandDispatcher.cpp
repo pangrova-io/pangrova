@@ -4,6 +4,7 @@
 // Command dispatcher: routes canonical v2 RuntimeCommand messages.
 // Each handler is a standalone function — single responsibility per command.
 
+#include "jni/command/TaskAttemptIdentity.h"
 #include "jni/command/NativeCommandDispatcher.h"
 
 #include <algorithm>
@@ -157,20 +158,8 @@ bool validateAttemptIdentity(const proto::RuntimeCommand& command,
         proto::ERROR_CLASS_INVALID_REQUEST, "MISSING_COMMAND_ATTEMPT");
     return false;
   }
-  const auto& attempt = command.attempt();
-  const auto& owner = attempt.execution_owner();
-  const bool matches =
-      attempt.query_or_job_id() == executor.queryId() &&
-      attempt.stage_id() == executor.stageId() &&
-      attempt.partition_id() == executor.partitionId() &&
-      attempt.plan_epoch() == executor.planEpoch() &&
-      attempt.attempt_id() == executor.attemptId() &&
-      attempt.fencing_token() == executor.fencingToken() &&
-      attempt.task_id() == executor.taskId() &&
-      attempt.control_epoch() == executor.controlEpoch() &&
-      owner.owner_id() == executor.ownerId() &&
-      owner.owner_incarnation() == executor.ownerIncarnation() &&
-      owner.fencing_token() == executor.ownerFencingToken();
+  const bool matches = command.attempt().SerializeAsString() ==
+      admittedTaskAttempt(executor).SerializeAsString();
   if (!matches) {
     response = errorResponse(
         "Task-scoped command attempt identity does not match the executor",

@@ -100,6 +100,7 @@ protected:
     config.owner_fencing_token = 23;
     config.deadline_epoch_ms = deadline_epoch_ms_;
     config.resource_limit.max_memory_bytes = 1024LL * 1024 * 1024;
+    bindContext(config);
     handle_ = HandleRegistry::instance().create(
         std::make_shared<pangrova::executor::TaskExecutor>(config));
   }
@@ -132,7 +133,16 @@ protected:
     owner->set_owner_id("coordinator-1");
     owner->set_owner_incarnation("incarnation-2");
     owner->set_fencing_token(23);
+    auto* worker = attempt->mutable_worker_execution_identity();
+    worker->set_admission_domain_id("00000000-0000-0000-0000-000000000001");
+    worker->set_incarnation_id("00000000-0000-0000-0000-000000000002");
     return result;
+  }
+
+  void bindContext(pangrova::executor::TaskExecutorConfig& config) const {
+    proto::ExecutionCallbackContext context;
+    *context.mutable_attempt() = command(proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE).attempt();
+    config.callback_context = context.SerializeAsString();
   }
 
   template <typename Payload>
@@ -294,6 +304,18 @@ TEST_F(NativeCommandExchangeTest, RejectsAnonymousOrMismatchedAttempt) {
   EXPECT_EQ(fenced.error().code(), "COMMAND_ATTEMPT_FENCE_MISMATCH");
 }
 
+TEST_F(NativeCommandExchangeTest, RejectsCommandForAnotherWorkerIncarnation) {
+  auto request = command(proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE);
+  request.mutable_attempt()->mutable_worker_execution_identity()->set_incarnation_id(
+      "00000000-0000-0000-0000-000000000099");
+  request.mutable_payload()->PackFrom(externalConnect());
+  const auto encoded = request.SerializeAsString();
+  const auto response = parseResponse(dispatchCommandWithHandle(
+      {encoded.begin(), encoded.end()}, handle_));
+  EXPECT_FALSE(response.success());
+  EXPECT_EQ(response.error().code(), "COMMAND_ATTEMPT_FENCE_MISMATCH");
+}
+
 TEST_F(NativeCommandExchangeTest, UsesDefaultBudgetForUnboundLocalExecutor) {
   HandleRegistry::instance().release(handle_);
   handle_ = 0;
@@ -312,6 +334,7 @@ TEST_F(NativeCommandExchangeTest, UsesDefaultBudgetForUnboundLocalExecutor) {
   config.owner_incarnation = "incarnation-2";
   config.owner_fencing_token = 23;
   config.deadline_epoch_ms = deadline_epoch_ms_;
+  bindContext(config);
   handle_ = HandleRegistry::instance().create(
       std::make_shared<pangrova::executor::TaskExecutor>(config));
 

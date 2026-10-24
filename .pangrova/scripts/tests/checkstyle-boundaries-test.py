@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real Checkstyle with allowed and rejected structural boundary fixtures."""
+"""Exercise real Checkstyle diagnostics and blocking code-rule fixtures."""
 
 from copy import deepcopy
 from pathlib import Path
@@ -45,7 +45,8 @@ def main():
     checker.append(deepcopy(CONFIG.find('./module[@name="FileLength"]')))
     walker = ET.SubElement(checker, 'module', name='TreeWalker')
     for name in ('MethodLength', 'ParameterNumber', 'CyclomaticComplexity',
-                 'NestedIfDepth', 'NestedForDepth', 'NestedTryDepth', 'IllegalImport'):
+                 'NestedIfDepth', 'NestedForDepth', 'NestedTryDepth', 'IllegalImport',
+                 'MagicNumber', 'SuppressionXpathSingleFilter'):
         walker.append(deepcopy(CONFIG.find(f'.//module[@name="{name}"]')))
     expected = {'File801': 'FileLength', 'Method101': 'MethodLength',
                 'Complexity16': 'CyclomaticComplexity', 'Parameters11': 'ParameterNumber',
@@ -67,6 +68,26 @@ def main():
         root = Path(directory)
         sources = root / 'src/main/java'
         sources.mkdir(parents=True)
+        jdbc = sources / 'org/pangrova/metadata/materialization/JdbcMaterializationRepository.java'
+        jdbc.parent.mkdir(parents=True)
+        jdbc.write_text('''class JdbcMaterializationRepository {
+    void bind(java.sql.PreparedStatement statement) throws java.sql.SQLException {
+        statement.setString(26, "value");
+        setJson(statement, 26, "{}");
+        setInstant(statement, 25, null);
+        bindNullableUuid(statement, 24, null);
+        statement.setInt(23, 777);
+        int retryBudget = 5000;
+    }
+}
+''')
+        (sources / 'OtherJdbc.java').write_text('''class OtherJdbc {
+    void bind(java.sql.PreparedStatement statement) throws java.sql.SQLException {
+        statement.setInt(23, 777);
+    }
+}
+''')
+        expected.update({'JdbcMaterializationRepository': 'MagicNumber', 'OtherJdbc': 'MagicNumber'})
         for name, imported in imports.items():
             (sources / f'{name}.java').write_text(f'import {imported};\nclass {name} {{}}\n')
         for length in (800, 801):
@@ -104,7 +125,9 @@ def main():
     <dependencies><dependency><groupId>com.puppycrawl.tools</groupId>
       <artifactId>checkstyle</artifactId><version>{ENGINE_VERSION}</version>
     </dependency></dependencies>
-    <configuration><configLocation>{root / 'checks.xml'}</configLocation></configuration>
+    <configuration><configLocation>{root / 'checks.xml'}</configLocation>
+      <violationSeverity>error</violationSeverity><failsOnError>true</failsOnError>
+    </configuration>
   </plugin></plugins></build>
 </project>''')
         result = subprocess.run(['mvn', '-B', '-q', 'checkstyle:check'], cwd=root,
@@ -112,15 +135,33 @@ def main():
         report = root / 'target/checkstyle-result.xml'
         if not report.exists():
             raise RuntimeError('Checkstyle produced no evidence:\n' + result.stdout + result.stderr)
+        warnings = {"FileLength", "MethodLength", "CyclomaticComplexity", "ParameterNumber"}
         findings = {}
         for file in ET.parse(report).findall('file'):
             errors = {error.get('source').rsplit('.', 1)[-1].removesuffix('Check')
                       for error in file.findall('error')}
+            for error in file.findall('error'):
+                check = error.get('source').rsplit('.', 1)[-1].removesuffix('Check')
+                assert error.get('severity') == ('warning' if check in warnings else 'error'), error.attrib
             if errors:
                 findings[Path(file.get('name')).stem] = errors
+            if Path(file.get('name')).stem == 'JdbcMaterializationRepository':
+                assert len(file.findall('error')) == 2, file.attrib
+                assert {error.get('line') for error in file.findall('error')} == {'7', '8'}
+            if Path(file.get('name')).stem == 'OtherJdbc':
+                assert len(file.findall('error')) == 2, file.attrib
         assert findings == {name: {check} for name, check in expected.items()}, findings
-        assert result.returncode != 0, 'Over-limit fixtures must fail the real Maven gate'
-        print('PASS: 9 allowed boundary/API fixtures; 14 structural/internal-import fixtures rejected by real Checkstyle.')
+        assert result.returncode != 0, 'Blocking import/nesting fixtures must fail the real Maven gate'
+        for name, check in expected.items():
+            if check not in warnings:
+                next(sources.rglob(f'{name}.java')).unlink()
+        warnings_only = subprocess.run(['mvn', '-B', '-q', 'checkstyle:check'], cwd=root,
+                                       capture_output=True, text=True)
+        assert warnings_only.returncode == 0, warnings_only.stdout + warnings_only.stderr
+        remaining = [error for file in ET.parse(report).findall('file') for error in file.findall('error')]
+        assert len(remaining) == sum(check in warnings for check in expected.values()), remaining
+        assert all(error.get('severity') == 'warning' for error in remaining), remaining
+        print('PASS: boundaries retained as diagnostics; internal imports/nesting block; warnings-only build passes.')
 
 
 if __name__ == '__main__':

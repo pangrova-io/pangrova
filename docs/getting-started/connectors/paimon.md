@@ -50,6 +50,15 @@ fencing and is not a production write catalog. See the
 [Paimon REST catalog specification](https://paimon.apache.org/docs/1.4/concepts/rest/overview/)
 and the [Apache test server](https://github.com/apache/paimon-rust/blob/v0.4.0/crates/paimon-rest-server/README.md).
 
+### Incremental snapshot validation
+
+Append-only capability checks validate that both snapshot endpoints exist before
+inspecting the interval. Equal IDs describe an empty interval only for an existing
+table and snapshot. Missing or expired endpoints, non-positive IDs, and reversed
+intervals fail explicitly; they cannot be accepted as an empty change set. Paimon
+snapshot IDs advance sequentially, while retained history may lose older snapshots
+through [snapshot expiration](https://paimon.apache.org/docs/1.4/maintenance/manage-snapshots/).
+
 ### Physical file formats
 
 Native scan splits retain the Paimon SDK's exact snapshot ID, physical file

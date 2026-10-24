@@ -83,14 +83,16 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 "w-dup", "host-old", 8080, 9090, 2,
                 "rack-a", List.of("/data/0"),
                 "NONE", 0.1, 1, 512L, now, now,
-                0, null, CANONICAL_INVENTORY, 8443);
+                0, null, CANONICAL_INVENTORY, 8443,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(first);
 
         WorkerSnapshot second = new WorkerSnapshot(
                 "w-dup", "host-new", 9999, 7777, 2,
                 "rack-b", List.of("/data/1"),
                 "HIGH", 0.9, 5, 2048L, now + 1000, now + 1000,
-                0, null, UPDATED_CANONICAL_INVENTORY, 9443);
+                0, null, UPDATED_CANONICAL_INVENTORY, 9443,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(second);
 
         // Verify only one row exists
@@ -153,7 +155,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 "w-fresh", "host-1", 8080, 9090, 2,
                 null, List.of(),
                 "NONE", 0.0, 0, 0L, now, now,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(fresh);
 
         // Stale worker: heartbeat 10 minutes ago
@@ -162,7 +165,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 null, List.of(),
                 "NONE", 0.0, 0, 0L, now - Duration.ofMinutes(10).toMillis(),
                 now - Duration.ofMinutes(10).toMillis(), 0, null,
-                CANONICAL_INVENTORY);
+                CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(stale);
 
         List<WorkerSnapshot> active = registry.getActiveWorkers(Duration.ofMinutes(5));
@@ -179,7 +183,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 null, List.of(),
                 "NONE", 0.0, 0, 0L, now - Duration.ofHours(1).toMillis(),
                 now - Duration.ofHours(1).toMillis(), 0, null,
-                CANONICAL_INVENTORY);
+                CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(old);
 
         // Recent worker
@@ -187,7 +192,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 "w-recent", "host-2", 8081, 9091, 2,
                 null, List.of(),
                 "NONE", 0.0, 0, 0L, now, now,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(recent);
 
         int expired = registry.expireStale(Duration.ofMinutes(30));
@@ -212,7 +218,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 "w-json", "host-1", 8080, 9090, 2,
                 null, List.of("/data/1", "/data/2"),
                 "NONE", 0.0, 0, 0L, now, now,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(worker);
 
         WorkerSnapshot got = registry.getWorker("w-json").orElseThrow();
@@ -228,7 +235,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                 id, host, httpPort, transportPort, 2,
                 "rack-a", List.of("/data/0"),
                 "NONE", 0.1, 2, 1024L, now, now,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
     }
 
     private static void initSchema(DataSource ds) throws Exception {
@@ -242,6 +250,7 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                         transport_port INT NOT NULL,
                         result_server_port INT NOT NULL DEFAULT 0,
                         copy_task_tls_port INT NOT NULL DEFAULT 0,
+                    admission_domain_id VARCHAR(36), incarnation_id VARCHAR(36),
                         protocol_version INT NOT NULL DEFAULT 2 CHECK (protocol_version = 2),
                         capability_inventory_proto TEXT NOT NULL,
                         rack_id VARCHAR(128) DEFAULT NULL,

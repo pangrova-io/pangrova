@@ -153,7 +153,8 @@ class JournalRecoveryOwnerScopeTest {
                 MemoryPressure.NONE, 0.0, 0, 1_000_000L,
                 Instant.now().minusSeconds(120), // 2 minutes ago → DEAD
                 0.0, null, 2, null, java.util.List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("w-dead"));
         workers.registerWorker(deadWorker);
 
         // Even with grace window, truly DEAD workers (registered but stale) fail the query

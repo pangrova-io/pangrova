@@ -920,6 +920,7 @@
                     </dependencies>
                     <configuration>
                         <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+                        <violationSeverity>error</violationSeverity>
                         <suppressionsLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/suppressions.xml</suppressionsLocation>
                         <consoleOutput>true</consoleOutput>
                         <failsOnError>true</failsOnError>

@@ -5,6 +5,40 @@ description: "逐项核对门禁的实际行为、重复约束、误报风险和
 
 # 质量门禁审计与精简依据
 
+## 2026-10-23：结构数字改为可见诊断
+
+用户要求按实际风险去掉多余门禁。对新物化内核的核对表明，集中校验不可变
+attempt/generation 身份会触发构造器参数和圈复杂度门槛；事务仓库的行数还包含
+大量声明式 SQL。只为了数字拆成转发类或通用参数袋不能证明职责更合理。
+
+保留 FileLength=800、MethodLength=100、CyclomaticComplexity=15 和
+ParameterNumber=10 的实际解析检查及 XML 报告，将这四项严重级别设为 warning。
+Maven 明确只阻断 error。嵌套、非法导入、危险代码模式、模块方向、SpotBugs、
+功能及故障测试保持原有阻断语义；覆盖率仍是可选诊断。
+
+这是本项目的风险决策，不宣称数字门槛存在统一业界标准。
+[Checkstyle 官方圈复杂度说明](https://checkstyle.org/checks/metrics/cyclomaticcomplexity.html)
+将指标用于衡量测试路径复杂度，也允许在拆分损害可读性/封装时例外；
+[FileLength](https://checkstyle.org/checks/sizes/filelength.html)建议按具体职责拆分长类。
+实际职责和分支测试仍需评审。此前本页的“硬上限”描述仅为历史决策记录，
+当前以本节及 canonical rules 为准。
+
+真实 Maven/Checkstyle 夹具分别验证：指标超限仍产生 warning；非法 JDK 导入及
+过深嵌套产生 error 并导致构建失败；删除错误夹具后，保留超限夹具的构建成功。
+政策测试同时检查严重级别及 Maven 阻断阈值。没有增加按文件名的指标豁免。
+
+### JDBC 参数位置的精确排除
+
+`JdbcMaterializationRepository` 的 SQL 含超过十个占位符，MagicNumber 将绑定位置
+11–26 当成业务数值。将它们改成 `INDEX_ELEVEN` 一类常量不能解释 SQL。
+采用 [Checkstyle 官方 XPath 过滤能力](https://checkstyle.org/filters/suppressionxpathsinglefilter.html)，
+仅排除此适配器的 `statement.set*` 第一实参，以及三个现有 JDBC helper 的第二实参
+中的直接整数索引。绑定值、其他表达式及其他类仍受原检查约束。
+
+真实 Maven 夹具确认索引 23–26 可通过，而同一方法的绑定值 `777`、业务预算
+`5000` 仍阻断；其他类中的索引也未被排除。该排除不改变 SQL 或运行时验证。
+
+
 ## 2026-10-18 复核与实际整改
 
 本轮沿着“规则入口 → 脚本实现 → Maven/CMake → workflow 调用 → 产物消费者”

@@ -167,6 +167,7 @@ class WorkerCopyTaskTlsTest {
         coordinator.start();
         WorkerComponentRefs refs = new WorkerComponentRefs();
         refs.setHttpServer(server);
+        refs.setTaskManager(taskManager);
         refs.setNativeCapabilityInventory(org.pangrova.protocol.CapabilityInventoryCodec.encode(
                 org.pangrova.protocol.v2.CapabilityInventory.parseFrom(
                         org.pangrova.testing.testkit.function.ActualNativeCatalogue.bytes())));
@@ -180,7 +181,7 @@ class WorkerCopyTaskTlsTest {
                 defaults.registrationRetryConfig(), "localhost", "test-secret",
                 defaults.shuffleMode(), defaults.cacheConfig(), "localhost",
                 defaults.shuffleAdvertisedHost(), defaults.nativeFunctionConfig(),
-                defaults.transportSecurityConfig());
+                defaults.transportSecurityConfig(), org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         try {
             WorkerHeartbeatBootstrap.register(config, refs);
             assertThat(registration.get()).isNotNull();
@@ -215,7 +216,7 @@ class WorkerCopyTaskTlsTest {
         return context;
     }
 
-    private static SubmitTaskRequest copyTask() {
+    private SubmitTaskRequest copyTask() {
         var scope = new CopySourceReadHttp.Scope("tenant", "test-user", "incoming",
                 "f92e704f-2443-4d3a-a496-cd6507dd97db", 1,
                 "s3://incoming/file.parquet", "s3://managed/copy", "a".repeat(64),
@@ -230,11 +231,13 @@ class WorkerCopyTaskTlsTest {
                         .setGrantId("task-42:grant").setCpuSlots(1)
                         .setNativeMemoryBytes(64L * 1024 * 1024))
                 .build();
+        task = task.toBuilder().setAttempt(task.getAttempt().toBuilder()
+                .setWorkerExecutionIdentity(taskManager.workerExecutionIdentity().toProto())).build();
         return SubmitTaskRequest.from(task, new CopySourceReadHttp.RedeemRequest(
                 "n".repeat(43), scope));
     }
 
-    private static byte[] preparationBody() throws Exception {
+    private byte[] preparationBody() throws Exception {
         var nativeRequest = copyTask();
         var task = nativeRequest.taskRequest();
         var preparation = org.pangrova.protocol.v2.SourcePreparationRequest.newBuilder()

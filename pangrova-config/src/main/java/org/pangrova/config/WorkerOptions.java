@@ -222,6 +222,11 @@ public final class WorkerOptions {
             .withDescription("Number of threads for the task scheduler")
             .build();
 
+    public static final ConfigOption<String> ADMISSION_STATE_DIRECTORY =
+            ConfigOptions.key("worker.admission.state-directory")
+            .stringType().defaultValue("data/worker-admission")
+            .withDescription("Persistent exclusive local directory for Worker execution incarnation proof").build();
+
     public static final ConfigOption<String> SPILL_DIRECTORY = ConfigOptions.key("worker.spill.directory")
             .stringType()
             .withDescription("Directory for spilling intermediate data to disk")

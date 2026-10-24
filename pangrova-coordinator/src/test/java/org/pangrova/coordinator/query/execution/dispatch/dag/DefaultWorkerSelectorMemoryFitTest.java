@@ -167,6 +167,7 @@ class DefaultWorkerSelectorMemoryFitTest {
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
                 availableMemoryBytes, Instant.now(), 1.0,
                 "default", 2, null, List.of(), cacheSummary,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
     }
 }

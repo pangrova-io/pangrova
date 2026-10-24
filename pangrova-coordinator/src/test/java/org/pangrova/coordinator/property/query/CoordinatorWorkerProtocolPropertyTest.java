@@ -393,7 +393,8 @@ class CoordinatorWorkerProtocolPropertyTest {
                 2, "rack-1", List.of("local-data"), null,
                 org.pangrova.protocol.CapabilityInventoryCodec.encode(
                         org.pangrova.coordinator.worker.TestWorkerInfoBuilder
-                                .canonicalInventory()));
+                                .canonicalInventory()),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
 
         assertThat(req.workerId()).isEqualTo(workerId);
         assertThat(req.httpHost()).isEqualTo("host-" + workerId);

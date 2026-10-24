@@ -188,6 +188,13 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         return request.withBoundTask(org.pangrova.protocol.NativeWriteBindings.bindAttempt(bound.build()));
     }
 
+    private volatile java.util.function.Supplier<java.util.List<WorkerInfo>> recoveryWorkers;
+
+    /** Supplies current physical Worker destinations for recovering an original admission domain. */
+    public void setRecoveryWorkers(java.util.function.Supplier<java.util.List<WorkerInfo>> workers) {
+        recoveryWorkers = checkNotNull(workers, "recoveryWorkers");
+    }
+
     /** Composition-root wiring for durable frozen COPY source authority. */
     public void setCopySourceBinder(java.util.function.UnaryOperator<SubmitTaskRequest> binder) {
         copySourceBinder = checkNotNull(binder, "copySourceBinder");
@@ -264,7 +271,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     }
 
     private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
-        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(request));
+        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
@@ -440,7 +447,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
 
         // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
-        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(request));
+        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = serializeRequest(stamped);
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
@@ -614,8 +621,35 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     @Override
     public SchedulerCancelResult cancelTask(SubmitTaskRequest request, String workerHost, int httpPort) {
+        var attempt = request.taskRequest().getAttempt();
+        if (!attempt.hasWorkerExecutionIdentity()) {
+            return SchedulerCancelResult.failed("Issued task has no physical Worker execution identity", false);
+        }
+        var inventory = recoveryWorkers;
+        if (inventory != null) {
+            String domain = attempt.getWorkerExecutionIdentity().getAdmissionDomainId();
+            var destinations = inventory.get().stream()
+                    .filter(worker -> domain.equals(worker.workerExecutionIdentity().admissionDomainId()))
+                    .map(worker -> new RecoveryDestination(worker.host(), worker.httpPort(),
+                            worker.workerExecutionIdentity()))
+                    .distinct().toList();
+            if (destinations.size() > 1) {
+                return SchedulerCancelResult.failed("Ambiguous current Worker admission domain", true);
+            }
+            if (!destinations.isEmpty()) {
+                var destination = destinations.get(0);
+                // Route to the exclusive successor, retaining the ORIGINAL sealed attempt bytes.
+                return taskControlClient.cancelTask(request, destination.host(), destination.port());
+            }
+        }
+        // The original endpoint may still own the task even before re-registration completes.
+        // Its exact seal remains authoritative; an unknown endpoint never implies successful drain.
         return taskControlClient.cancelTask(request, workerHost, httpPort);
     }
+
+    private record RecoveryDestination(String host, int port,
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity identity) { }
+
     @Override
     public void notifyUpstreamCommit(String workerHost, int httpPort,
                                      String queryId, int upstreamStageId) {

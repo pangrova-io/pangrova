@@ -1,5 +1,6 @@
 package org.pangrova.governance;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.classification.AuditConfigStore;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageBackend;
@@ -52,6 +53,18 @@ class GovernanceContextInitializeTest {
 
         // CronScheduler schedules enabled rules; disabled ones are filtered by store
         assertThat(ruleStore.getAllEnabledRules()).hasSize(2);
+        assertThat(scheduledRuleNames).containsExactlyInAnyOrder("null_check", "range_check");
+    }
+
+    @Test
+    void queryRuntimeOwnershipDoesNotAlsoStartLegacyCron() {
+        var names = new CopyOnWriteArrayList<String>();
+        var store = new InMemoryQualityRuleStore();
+        store.saveRule(rule(11, "query_owned", true, "* * * * *"));
+        module = buildModule(store, names);
+        module.initialize(false);
+        assertThat(names).isEmpty();
+        assertThat(store.getAllEnabledRules()).hasSize(1);
     }
 
     @Test
@@ -76,7 +89,12 @@ class GovernanceContextInitializeTest {
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
                 ruleStore, new DefaultQualityRuleExecutor(), alerter);
-        CronScheduler scheduler = new CronScheduler(handler);
+        CronScheduler scheduler = new CronScheduler(handler) {
+            @Override public void scheduleRule(DataQualityRule rule) {
+                scheduledNames.add(rule.ruleName());
+                super.scheduleRule(rule);
+            }
+        };
         TagBasedSecurityPolicy policy = new TagBasedSecurityPolicy(
                 new NoOpColumnMaskStore(), new NoOpAuditConfigStore());
         return new GovernanceContext(new GovernanceDeps(
@@ -99,7 +117,8 @@ class GovernanceContextInitializeTest {
     private static DataQualityRule rule(long id, String name, boolean enabled, String schedule) {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 "expression", Severity.WARNING, "msg", enabled, schedule,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 
     // --- In-memory implementations for real testing (no mocks) ---

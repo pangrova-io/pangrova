@@ -11,9 +11,9 @@ class IndependentSpeculationReadinessTest {
     void registrationAloneDoesNotMakeTwoWorkersSchedulable() throws Exception {
         var registered = JsonMapperFactory.shared().readTree("""
                 [
-                  {"workerId":"e2e-worker-1","healthState":"ACTIVE",
+                  {"workerId":"local-worker-1","healthState":"ACTIVE",
                    "memoryPressure":"NONE","availableMemoryBytes":0},
-                  {"workerId":"e2e-worker-2","healthState":"ACTIVE",
+                  {"workerId":"local-worker-2","healthState":"ACTIVE",
                    "memoryPressure":"NONE","availableMemoryBytes":0}
                 ]
                 """);
@@ -21,9 +21,9 @@ class IndependentSpeculationReadinessTest {
 
         var afterFirstHeartbeat = JsonMapperFactory.shared().readTree("""
                 [
-                  {"workerId":"e2e-worker-1","healthState":"ACTIVE",
+                  {"workerId":"local-worker-1","healthState":"ACTIVE",
                    "memoryPressure":"NONE","availableMemoryBytes":536870912},
-                  {"workerId":"e2e-worker-2","healthState":"ACTIVE",
+                  {"workerId":"local-worker-2","healthState":"ACTIVE",
                    "memoryPressure":"NONE","availableMemoryBytes":0}
                 ]
                 """);
@@ -31,9 +31,9 @@ class IndependentSpeculationReadinessTest {
 
         var afterBothHeartbeats = JsonMapperFactory.shared().readTree("""
                 [
-                  {"workerId":"e2e-worker-1","healthState":"ACTIVE",
+                  {"workerId":"local-worker-1","healthState":"ACTIVE",
                    "memoryPressure":"NONE","availableMemoryBytes":536870912},
-                  {"workerId":"e2e-worker-2","healthState":"ACTIVE",
+                  {"workerId":"local-worker-2","healthState":"ACTIVE",
                    "memoryPressure":"NONE","availableMemoryBytes":536870912}
                 ]
                 """);
@@ -44,9 +44,9 @@ class IndependentSpeculationReadinessTest {
     void criticalPressureIsNotSchedulableDespiteReportedMemory() throws Exception {
         var workers = JsonMapperFactory.shared().readTree("""
                 [
-                  {"workerId":"e2e-worker-1","healthState":"ACTIVE",
+                  {"workerId":"local-worker-1","healthState":"ACTIVE",
                    "memoryPressure":"CRITICAL","availableMemoryBytes":536870912},
-                  {"workerId":"e2e-worker-2","healthState":"ACTIVE",
+                  {"workerId":"local-worker-2","healthState":"ACTIVE",
                    "memoryPressure":"NONE","availableMemoryBytes":536870912}
                 ]
                 """);

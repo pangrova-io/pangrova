@@ -19,8 +19,8 @@ class OutputBufferResetBetweenTasksTest {
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-result-isolation")) {
             var first =
                     tasks.submit(
-                            ActualNativeTaskFixture.planTaskRequest(
-                                    true, ActualNativeTaskPlans.values(2, 3)));
+                            runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
+                                    true, ActualNativeTaskPlans.values(2, 3))));
             assertThat(tasks.consume(first).values())
                     .containsExactlyInAnyOrder(0L, 1L, 2L, 3L, 4L, 5L);
             tasks.awaitState(first, TaskManager.TaskState.FINISHED);
@@ -57,8 +57,8 @@ class OutputBufferResetBetweenTasksTest {
             tasks.awaitState(first, TaskManager.TaskState.FINISHED);
             var second =
                     tasks.submit(
-                            ActualNativeTaskFixture.planTaskRequest(
-                                    true, ActualNativeTaskPlans.values(0, 0)));
+                            runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
+                                    true, ActualNativeTaskPlans.values(0, 0))));
             var received = tasks.consume(second);
             tasks.awaitState(second, TaskManager.TaskState.FINISHED);
             assertThat(received.rows()).isZero();

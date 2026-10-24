@@ -1,5 +1,6 @@
 package org.pangrova.governance.quality;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.alert.AlertChannelRegistry;
 import org.pangrova.governance.quality.alert.DataQualityAlerter;
 import org.pangrova.governance.quality.alert.Severity;
@@ -101,7 +102,8 @@ class QualityCheckServiceTest {
         ruleStore.saveRule(new DataQualityRule(
                 2, "disabled_rule", "catalog", "schema", "orders",
                 "col IS NOT NULL", Severity.WARNING, "msg", false, null,
-                Instant.now(), Instant.now()));
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant")));
 
         QualityRuleExecutor executor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
@@ -128,6 +130,7 @@ class QualityCheckServiceTest {
     private static DataQualityRule rule(long id, String name, String expression) {
         return new DataQualityRule(id, name, "catalog", "schema", "orders",
                 expression, Severity.WARNING, "msg", true, null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 }

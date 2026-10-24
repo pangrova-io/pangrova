@@ -24,7 +24,8 @@ class InMemoryWorkerRegistryTest {
                 null, List.of(),
                 "NONE", 0.1, 0, 1024L,
                 lastHeartbeatMs, lastHeartbeatMs - 10_000,
-                0, null, "dGVzdA==");
+                0, null, "dGVzdA==",
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
     }
 
     @Test
@@ -33,13 +34,15 @@ class InMemoryWorkerRegistryTest {
         assertThatThrownBy(() -> new WorkerSnapshot(
                 "w1", "host-w1", 8080, 9090, 1,
                 null, List.of(), "NONE", 0.1, 0, 1024L,
-                now, now, 0, null, "dGVzdA=="))
+                now, now, 0, null, "dGVzdA==",
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("canonical v2");
         assertThatThrownBy(() -> new WorkerSnapshot(
                 "w1", "host-w1", 8080, 9090, 2,
                 null, List.of(), "NONE", 0.1, 0, 1024L,
-                now, now, 0, null, ""))
+                now, now, 0, null, "",
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("capabilityInventory");
     }
@@ -72,7 +75,8 @@ class InMemoryWorkerRegistryTest {
                 "w1", "host-a", 8080, 9090, 2,
                 "rack-1", List.of("/data/1"),
                 "NONE", 0.1, 0, 2048L,
-                now - 5000, now - 60_000, 0, null, "dGVzdA==");
+                now - 5000, now - 60_000, 0, null, "dGVzdA==",
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(w);
 
         HeartbeatSnapshot hb = new HeartbeatSnapshot("HIGH", 0.95, 5, 512L);

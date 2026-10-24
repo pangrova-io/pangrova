@@ -235,6 +235,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // Worker-side resources that must be explicitly closed in teardown.
     // Without tracking these, each test class leaks thread pools and native handles.
     private static volatile TaskManager workerTaskManagerRef;
+    private static org.pangrova.common.lifecycle.ProcessIncarnationStore workerAdmissionIncarnation;
     // The native write executor registered with the C++ bridge. We keep a reference
     // so that, once the worker TaskManager is created, we can wire it for per-task
     // commit metadata draining (TaskStatusCollector relies on this to surface
@@ -534,6 +535,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static void closeFailedNativeStartup(Throwable failure) {
         try {
             NativeRuntime.shutdownNativeRuntime();
+            if (workerAdmissionIncarnation != null) {
+                workerAdmissionIncarnation.closeAfterDrain(() -> {});
+                workerAdmissionIncarnation = null;
+            }
             sharedResultReadTickets = null;
             if (sharedShuffleServiceLease != null) {
                 sharedShuffleServiceLease.close();
@@ -617,6 +622,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         // Flight may retain IPC batches after a task exits. Only release its
         // process-lifetime NodePool/arbitrator lease after Native confirms stop.
         NativeRuntime.shutdownNativeRuntime();
+        if (workerAdmissionIncarnation != null) {
+            workerAdmissionIncarnation.closeAfterDrain(() -> {});
+            workerAdmissionIncarnation = null;
+        }
         sharedResultReadTickets = null;
         SHARED_NATIVE_FUNCTION_STARTUP.close();
         if (sharedShuffleServiceLease != null) {
@@ -2010,7 +2019,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     t.setDaemon(true);
                     return t;
                 }));
-        TaskManager manager = new TaskManager(deps, WORKER_ID, 0.0);
+        workerAdmissionIncarnation = org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
+                java.nio.file.Path.of(org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory()));
+        TaskManager manager = new TaskManager(deps, WORKER_ID, 0.0, workerAdmissionIncarnation);
         manager.requireControlEpochHandshake();
         manager.observeControlEpoch(requireE2ECoordination().getCurrentEpoch());
         return manager;
@@ -2776,7 +2787,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, availableMemoryBytes,
                 Instant.now(), 1.0, null, 2,
-                null, List.of(), null, advertisement.inventory());
+                null, List.of(), null, advertisement.inventory(),
+                java.util.Objects.requireNonNull(workerTaskManagerRef).workerExecutionIdentity());
         workerManager.registerWorker(workerInfo);
     }
 

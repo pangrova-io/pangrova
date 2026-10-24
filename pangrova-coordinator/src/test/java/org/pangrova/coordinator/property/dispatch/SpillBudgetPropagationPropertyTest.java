@@ -109,6 +109,7 @@ class SpillBudgetPropagationPropertyTest {
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
                 4L * 1024 * 1024 * 1024, Instant.now(), 1.0,
                 "default", 2, null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory()));
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-1")));
     }
 }

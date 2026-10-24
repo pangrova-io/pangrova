@@ -83,6 +83,10 @@ class RemoteShuffleProtocolContractTest {
         assertThat(request.getPartitionId()).isEqualTo(5);
         assertThat(request.getConsumerAttempt()).isEqualTo(
                 RemoteShuffleClient.toProtocol(context));
+        assertThat(request.getConsumerAttempt().getWorkerExecutionIdentity().getAdmissionDomainId())
+                .isEqualTo(context.taskAttempt().workerAdmissionDomainId());
+        assertThat(request.getConsumerAttempt().getWorkerExecutionIdentity().getIncarnationId())
+                .isEqualTo(context.taskAttempt().workerIncarnationId());
         assertThat(request.getDeadlineEpochMs()).isEqualTo(
                 context.deadlineEpochMillis());
         assertThat(request.getAccessCapability()).isEqualTo(access);
@@ -94,7 +98,9 @@ class RemoteShuffleProtocolContractTest {
                         "query-1", 3, 2, "task-3-2", 13L,
                         new ExchangeAttemptFence(11L, 4, 47L),
                         new ShuffleExecutionOwner(
-                                "coordinator-1", "incarnation-1", 23L)),
+                                "coordinator-1", "incarnation-1", 23L),
+                        "00000000-0000-0000-0000-000000000001",
+                        "00000000-0000-0000-0000-000000000002"),
                 5, System.currentTimeMillis() + 60_000L);
     }
 

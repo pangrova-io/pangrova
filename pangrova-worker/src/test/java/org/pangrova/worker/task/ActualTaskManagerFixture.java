@@ -37,7 +37,7 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
         this.reports = reports;
         var monitor = Executors.newSingleThreadExecutor(task -> new Thread(task, "actual-jni-task-monitor"));
         context = new TaskManagerContext(reports, runtime.executor(), memory, runtime.transports(), monitor);
-        manager = new TaskManager(context, workerId, 0.0);
+        manager = new TaskManager(context, workerId, 0.0, runtime.admissionIncarnation());
     }
 
     public TaskManager manager() { return manager; }

@@ -119,7 +119,7 @@ class GitGateTest(unittest.TestCase):
 
 
 class StructuralPolicyTest(unittest.TestCase):
-    def test_readability_backstops_match_documented_policy(self):
+    def test_structural_diagnostics_remain_visible_without_blocking_correctness(self):
         config = ET.parse(ROOT / 'config/checkstyle/checkstyle.xml')
         policy = (ROOT / '.pangrova/rules/code-standards.md').read_text()
         for module, maximum in [('FileLength', 800), ('MethodLength', 100),
@@ -127,6 +127,11 @@ class StructuralPolicyTest(unittest.TestCase):
             prop = config.find(f'.//module[@name="{module}"]/property[@name="max"]')
             self.assertEqual(int(prop.get('value')), maximum, module)
             self.assertIn(str(maximum), policy)
+            severity = config.find(f'.//module[@name="{module}"]/property[@name="severity"]')
+            self.assertEqual(severity.get("value"), "warning", module)
+        pom = ET.parse(ROOT / "pom.xml")
+        ns = {"m": "http://maven.apache.org/POM/4.0.0"}
+        self.assertEqual(pom.find(".//m:violationSeverity", ns).text, "error")
 
     def test_retired_checks_have_no_active_files_or_ci_calls(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()

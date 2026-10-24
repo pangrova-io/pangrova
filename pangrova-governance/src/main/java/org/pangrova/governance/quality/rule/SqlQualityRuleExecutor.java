@@ -6,9 +6,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
-import java.util.regex.Pattern;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -20,8 +17,8 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * violating rows, then collects a bounded sample of failing rows for
  * diagnostic purposes. Results are reported to the governance audit log.</p>
  *
- * <p>SQL construction uses the rule's {@code checkExpression} as a WHERE
- * predicate. A row passes if the expression evaluates to true; it fails
+ * <p>The adapter parses the rule's {@code checkExpression} as one expression
+ * before constructing the count or sample query. A row passes if the expression evaluates to true; it fails
  * otherwise, including SQL UNKNOWN (NULL). The executor runs two queries:</p>
  * <ol>
  *   <li>Count query: total rows and failing rows</li>
@@ -31,10 +28,6 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(SqlQualityRuleExecutor.class);
-
-    /** Whitelist pattern for SQL identifiers: letters, digits, underscores, hyphens. */
-    private static final Pattern SAFE_IDENTIFIER_PATTERN =
-            Pattern.compile("[a-zA-Z_][a-zA-Z0-9_\\-]*");
 
     /** Nanoseconds per millisecond, for elapsed-time conversion. */
     private static final long NANOS_PER_MILLI = 1_000_000;
@@ -53,6 +46,9 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
     @Override
     public QualityCheckResult execute(DataQualityRule rule) {
         checkNotNull(rule, "rule must not be null");
+        if (!rule.enabled() || rule.executionIdentity() == null) {
+            throw new IllegalArgumentException("Quality rule is disabled or has no execution identity");
+        }
         validateExpression(rule);
 
         long startNanos = System.nanoTime();
@@ -92,102 +88,17 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
     }
 
     private QualityQueryResult runCountQuery(DataQualityRule rule) {
-        String countSql = buildCountSql(rule);
-        return queryRunner.execute(countSql);
+        return queryRunner.execute(request(rule, GovernanceQueryRunner.QueryType.COUNTS), rule.executionIdentity());
     }
 
     private List<List<String>> runSampleQuery(DataQualityRule rule) {
-        String sampleSql = buildSampleSql(rule);
-        QualityQueryResult sampleResult = queryRunner.execute(sampleSql);
-        return sampleResult.failingSamples();
+        return queryRunner.execute(request(rule, GovernanceQueryRunner.QueryType.SAMPLES),
+                rule.executionIdentity()).failingSamples();
     }
 
-    /**
-     * Builds SQL that counts total rows and rows violating the rule expression.
-     *
-     * <p>Result schema: total_rows (BIGINT), failed_rows (BIGINT)</p>
-     *
-     * <p>Table identifiers are quoted to prevent injection. The check expression
-     * is validated against disallowed patterns as a defense-in-depth measure.</p>
-     */
-    String buildCountSql(DataQualityRule rule) {
-        String fqn = safeQualifiedTableName(rule);
-        String expression = validateCheckExpression(rule.checkExpression());
-        return String.format(Locale.ROOT,
-                "SELECT COUNT(*) AS total_rows, "
-                        + "COUNT(CASE WHEN (%s) IS NOT TRUE THEN 1 END) AS failed_rows "
-                        + "FROM %s",
-                expression, fqn);
-    }
-
-    /**
-     * Builds SQL that retrieves a sample of rows violating the rule expression.
-     */
-    String buildSampleSql(DataQualityRule rule) {
-        String fqn = safeQualifiedTableName(rule);
-        String expression = validateCheckExpression(rule.checkExpression());
-        return String.format(Locale.ROOT,
-                "SELECT * FROM %s WHERE (%s) IS NOT TRUE LIMIT %d",
-                fqn, expression, QualityQueryResult.MAX_SAMPLES);
-    }
-
-    /**
-     * Constructs a fully-qualified table name from quoted identifier components.
-     * Each component is double-quoted to prevent injection via crafted names.
-     */
-    private String safeQualifiedTableName(DataQualityRule rule) {
-        return quoteIdentifier(rule.catalogName()) + "."
-                + quoteIdentifier(rule.schemaName()) + "."
-                + quoteIdentifier(rule.tableName());
-    }
-
-    /**
-     * Quotes a SQL identifier using double-quotes, escaping any embedded double-quotes.
-     * Rejects identifiers containing characters outside the safe set.
-     */
-    private static String quoteIdentifier(String identifier) {
-        if (identifier == null || identifier.isBlank()) {
-            throw new GovernanceQueryException("",
-                    "Identifier must not be null or blank");
-        }
-        if (!SAFE_IDENTIFIER_PATTERN.matcher(identifier).matches()) {
-            throw new GovernanceQueryException("",
-                    "Identifier contains unsafe characters: " + identifier);
-        }
-        return "\"" + identifier.replace("\"", "\"\"") + "\"";
-    }
-
-    /** Keywords that indicate advanced injection attempts beyond simple comments/semicolons. */
-    private static final Set<String> BLOCKED_KEYWORDS = Set.of(
-            "union", "into", "exec", "execute", "xp_", "sp_",
-            "drop", "alter", "create", "truncate", "grant", "revoke",
-            "insert", "update", "delete", "merge"
-    );
-
-    /**
-     * Validates that a check expression does not contain obvious injection patterns.
-     * Rejects semicolons, line comments, block comments, UNION SELECT, subqueries,
-     * and DDL/DML keywords as defense-in-depth.
-     */
-    private static String validateCheckExpression(String expression) {
-        if (expression == null || expression.isBlank()) {
-            throw new GovernanceQueryException("",
-                    "Check expression must not be null or blank");
-        }
-        String lower = expression.toLowerCase(Locale.ROOT);
-        if (lower.contains(";") || lower.contains("--") || lower.contains("/*")) {
-            throw new GovernanceQueryException(expression,
-                    "Check expression contains disallowed characters: " + expression);
-        }
-        // Detect advanced injection: UNION SELECT, subqueries, DDL/DML keywords
-        for (String keyword : BLOCKED_KEYWORDS) {
-            // Match whole-word boundaries to avoid false positives (e.g., "updated_at")
-            if (lower.matches(".*\\b" + keyword + "\\b.*")) {
-                throw new GovernanceQueryException(expression,
-                        "Check expression contains blocked keyword '" + keyword + "': " + expression);
-            }
-        }
-        return expression;
+    private static QualityReadRequest request(DataQualityRule rule, GovernanceQueryRunner.QueryType type) {
+        return new QualityReadRequest(rule.catalogName(), rule.schemaName(), rule.tableName(),
+                rule.checkExpression(), type);
     }
 
     private String buildErrorMessage(DataQualityRule rule, QualityQueryResult result,

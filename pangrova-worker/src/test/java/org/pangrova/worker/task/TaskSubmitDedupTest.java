@@ -25,7 +25,7 @@ class TaskSubmitDedupTest {
     void duplicateSubmitReturnsSameTaskId() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest request = buildRequest("coord-task-1", "q-dedup-1");
+        SubmitTaskRequest request = buildRequest("coord-task-1", "q-dedup-1", manager);
         TaskDescriptor descriptor = toDescriptor(request);
 
         String firstId = manager.submitTask(descriptor, request);
@@ -38,8 +38,8 @@ class TaskSubmitDedupTest {
     void differentCoordinatorTaskIdsCreateSeparateTasks() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest req1 = buildRequest("coord-task-1", "q-dedup-2");
-        SubmitTaskRequest req2 = buildRequest("coord-task-2", "q-dedup-2");
+        SubmitTaskRequest req1 = buildRequest("coord-task-1", "q-dedup-2", manager);
+        SubmitTaskRequest req2 = buildRequest("coord-task-2", "q-dedup-2", manager);
         TaskDescriptor desc1 = toDescriptor(req1);
         TaskDescriptor desc2 = toDescriptor(req2);
 
@@ -58,7 +58,7 @@ class TaskSubmitDedupTest {
 
     @Test
     void nullCoordinatorTaskIdRejectedByProtobufBuilder() {
-        assertThatThrownBy(() -> buildRequest(null, "q-dedup-null"))
+        assertThatThrownBy(() -> buildRequest(null, "q-dedup-null", null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -80,7 +80,7 @@ class TaskSubmitDedupTest {
     void delayedSubmitCannotRecreateCancelledAttempt() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest request = buildRequest("coord-task-cancel", "q-dedup-5");
+        SubmitTaskRequest request = buildRequest("coord-task-cancel", "q-dedup-5", manager);
         TaskDescriptor descriptor = toDescriptor(request);
 
         String firstId = manager.submitTask(descriptor, request);
@@ -96,7 +96,7 @@ class TaskSubmitDedupTest {
     void taskCountUnchangedOnDuplicateSubmit() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
-        SubmitTaskRequest request = buildRequest("coord-task-count", "q-dedup-6");
+        SubmitTaskRequest request = buildRequest("coord-task-count", "q-dedup-6", manager);
         TaskDescriptor descriptor = toDescriptor(request);
 
         manager.submitTask(descriptor, request);
@@ -108,9 +108,8 @@ class TaskSubmitDedupTest {
         assertThat(countAfterSecond).isEqualTo(countAfterFirst);
     }
 
-    private static SubmitTaskRequest buildRequest(String taskId, String queryId) {
-        return SubmitTaskRequest.from(
-                org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
+    private static SubmitTaskRequest buildRequest(String taskId, String queryId, TaskManager manager) {
+        var builder = org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
                                 taskId, queryId, 0, 0,
                                 org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                                 new byte[]{0x01})
@@ -118,7 +117,9 @@ class TaskSubmitDedupTest {
                                 .setGrantId(taskId + ":grant")
                                 .setCpuSlots(1)
                                 .setNativeMemoryBytes(64L * 1024 * 1024))
-                        .build());
+                        .build();
+        return SubmitTaskRequest.from(builder.toBuilder().setAttempt(builder.getAttempt().toBuilder()
+                .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())).build());
     }
 
     private static TaskDescriptor toDescriptor(SubmitTaskRequest request) {

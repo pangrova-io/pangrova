@@ -20,7 +20,7 @@ class ShuffleErrorCallbackPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-shuffle-error")) {
             var request =
-                    ActualNativeShuffleRequests.producer(4, ActualNativeTaskPlans.failingCast());
+                    runtime.bindWorker(ActualNativeShuffleRequests.producer(4, ActualNativeTaskPlans.failingCast()));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FAILED);
             var report = TaskReport.parseFrom(info.terminalTaskReport());

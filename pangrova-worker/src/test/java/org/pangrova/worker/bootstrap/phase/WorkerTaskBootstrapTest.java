@@ -42,7 +42,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         assertThatThrownBy(() -> WorkerTaskBootstrap.createStatusReporter(config, NOOP_OBSERVABILITY))
                 .isInstanceOf(BootstrapFailedException.class)
@@ -58,7 +58,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         var reporter = WorkerTaskBootstrap.createStatusReporter(config, NOOP_OBSERVABILITY);
         assertThat(reporter).isNotNull();
@@ -83,7 +83,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         WorkerComponentRefs refs = new WorkerComponentRefs();
         refs.setNativeAvailable(false);
 
@@ -123,7 +123,7 @@ class WorkerTaskBootstrapTest {
                 false, null, null, null,
                 null, null,
                 "host.testcontainers.internal", "worker-1",
-                null, null);
+                null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         assertThat(WorkerHttpBootstrap.resolveAdvertisedHost(config))
                 .isEqualTo("host.testcontainers.internal");
@@ -149,7 +149,7 @@ class WorkerTaskBootstrapTest {
                 false, null, null, null,
                 null, null,
                 "host.testcontainers.internal", "0.0.0.0",
-                null, null);
+                null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         assertThatThrownBy(() -> WorkerTaskBootstrap.resolveShuffleAdvertisedHost(
                 config, "host.testcontainers.internal"))

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.bootstrap;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.governance.GovernanceDeps;
 import org.pangrova.governance.GovernanceContext;
@@ -340,7 +341,8 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
                                                boolean enabled, String schedule) {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 "expression", Severity.WARNING, "msg", enabled, schedule,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 
     private static Tenant createTenant(String tenantId, int maxConcurrent) {

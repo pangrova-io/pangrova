@@ -89,6 +89,7 @@ class WorkerManagerHealthEvalTest {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.5, 0, 1024 * 1024 * 1024L, heartbeat,
                 1.0, null, 2, null, List.of(), null,
-                TestWorkerInfoBuilder.canonicalInventory());
+                TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
     }
 }

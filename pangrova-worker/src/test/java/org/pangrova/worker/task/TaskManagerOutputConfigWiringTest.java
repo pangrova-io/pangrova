@@ -21,7 +21,7 @@ class TaskManagerOutputConfigWiringTest {
     void taskWithCustomBufferGrantCompletesWithItsActualValues() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-custom-grant")) {
-            var request = request(true, 4L * 1024 * 1024, 3);
+            var request = runtime.bindWorker(request(true, 4L * 1024 * 1024, 3));
             var info = tasks.submit(request);
             assertThat(info.allocatedBufferMemory())
                     .isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
@@ -36,7 +36,7 @@ class TaskManagerOutputConfigWiringTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-no-result")) {
             var request =
-                    request(false, 8L * 1024 * 1024, 2).toBuilder().clearExecutionOptions().build();
+                    runtime.bindWorker(request(false, 8L * 1024 * 1024, 2)).toBuilder().clearExecutionOptions().build();
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(request.getExecutionOptions().getDirectResultOutput()).isFalse();
@@ -54,7 +54,7 @@ class TaskManagerOutputConfigWiringTest {
     void outputReservationRespectsTheExactCanonicalByteGrant() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-exact-budget")) {
-            var request = request(true, 1024L * 1024, 1);
+            var request = runtime.bindWorker(request(true, 1024L * 1024, 1));
             var info = tasks.submit(request);
             assertThat(info.allocatedBufferMemory()).isEqualTo(1024L * 1024);
             assertThat(runtime.arbitrator().queryAllocationsSnapshot())
@@ -71,7 +71,7 @@ class TaskManagerOutputConfigWiringTest {
     void computeWithoutOutputGrantDoesNotInventADefaultReservation() {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-no-budget")) {
-            var request = request(false, 0, 1);
+            var request = runtime.bindWorker(request(false, 0, 1));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(info.allocatedBufferMemory()).isZero();
@@ -102,7 +102,7 @@ class TaskManagerOutputConfigWiringTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-zero-budget")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            assertThatThrownBy(() -> tasks.submit(request(true, 0, 1)))
+            assertThatThrownBy(() -> tasks.submit(runtime.bindWorker(request(true, 0, 1))))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("positive serialized-buffer grant");
             assertThat(tasks.manager().tasks).isEmpty();

@@ -168,7 +168,7 @@ class WorkerBootstrapE2ETest extends ContainerTestBase {
                 null,
                 null,
                 org.pangrova.worker.jni.NativeFunctionConfig.DEFAULT,
-                WorkerBootstrapConfig.TransportSecurityConfig.disabled());
+                WorkerBootstrapConfig.TransportSecurityConfig.disabled(), org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         worker = new WorkerBootstrap(config);
         worker.installProductionCatalogRuntime();
         worker.start();

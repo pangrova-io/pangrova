@@ -41,6 +41,7 @@ class JdbcWorkerRegistryTest {
                     transport_port INT NOT NULL,
                     result_server_port INT NOT NULL DEFAULT 0,
                     copy_task_tls_port INT NOT NULL DEFAULT 0,
+                    admission_domain_id VARCHAR(36), incarnation_id VARCHAR(36),
                     protocol_version INT NOT NULL DEFAULT 2 CHECK (protocol_version = 2),
                     capability_inventory_proto TEXT NOT NULL,
                     rack_id VARCHAR(128),
@@ -107,10 +108,12 @@ class JdbcWorkerRegistryTest {
         long now = System.currentTimeMillis();
         WorkerSnapshot fresh = new WorkerSnapshot("w-fresh", "host1", 8080, 9090, 2,
                 null, List.of(), "NONE", 0.1, 0, 1024, now, now,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         WorkerSnapshot stale = new WorkerSnapshot("w-stale", "host2", 8080, 9090, 2,
                 null, List.of(), "NONE", 0.1, 0, 1024, now - 120_000, now - 120_000,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
 
         registry.register(fresh);
         registry.register(stale);
@@ -125,7 +128,8 @@ class JdbcWorkerRegistryTest {
         long now = System.currentTimeMillis();
         WorkerSnapshot stale = new WorkerSnapshot("w-stale", "host1", 8080, 9090, 2,
                 null, List.of(), "NONE", 0.1, 0, 1024, now - 120_000, now - 120_000,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
         registry.register(stale);
 
         int expired = registry.expireStale(Duration.ofSeconds(60));
@@ -137,6 +141,7 @@ class JdbcWorkerRegistryTest {
         long now = System.currentTimeMillis();
         return new WorkerSnapshot(id, host, httpPort, httpPort + 1000, 2,
                 null, List.of(), "NONE", 0.1, 0, 1024, now, now,
-                0, null, CANONICAL_INVENTORY);
+                0, null, CANONICAL_INVENTORY,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
     }
 }

@@ -1,5 +1,6 @@
 package org.pangrova.metadata.governance;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
 import org.pangrova.metadata.exception.MetastoreException;
 
@@ -52,9 +53,11 @@ class JdbcQualityRuleStoreRecoveryIntegrationTest {
         Instant created = Instant.parse("2026-01-01T00:00:00Z");
         Instant updated = created.plusSeconds(1);
         store.saveRule(new DataQualityRule(1, "initial", "c", "s", "t", "x IS NOT NULL",
-                Severity.WARNING, "initial", true, null, created, created));
+                Severity.WARNING, "initial", true, null, created, created,
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant")));
         store.saveRule(new DataQualityRule(1, "revised", "c", "s", "t", "x > 0",
-                Severity.ERROR, "revised", false, null, updated, updated));
+                Severity.ERROR, "revised", false, null, updated, updated,
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant")));
         var fresh = initializedStore(dataSource);
         var loaded = fresh.getRule(1).orElseThrow();
         assertThat(loaded.ruleName()).isEqualTo("revised");

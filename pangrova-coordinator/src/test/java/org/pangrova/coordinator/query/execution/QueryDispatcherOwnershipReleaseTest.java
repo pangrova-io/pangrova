@@ -154,19 +154,23 @@ class QueryDispatcherOwnershipReleaseTest {
     }
 
     @Test
-    void failedQuery_cleanupInCatchBlock_releasesOwnership() {
+    void failedQuery_preservesMetadataAdmissionUntilTerminalCleanup() {
         String queryId = "q-fail-cleanup";
-        CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), null, null);
+        CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "default");
 
         // Acquire ownership
         haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
 
-        // Execute invalid SQL — triggers the catch block in execute() which calls cleanupQuery
+        // Dispatch propagates the failure without closing the terminal metadata scope.
         QueryStateMachine sm = new QueryStateMachine();
         assertThrows(org.pangrova.parser.ParseException.class,
                 () -> dispatcher.execute(sm, "THIS IS NOT VALID SQL !!!", session));
 
-        // The catch block in execute() calls cleanupQuery, which should release ownership
+        try (var terminalOperation = dispatcher.enterQueryMetadataOperation(queryId)) {
+            assertTrue(sm.tryTransition(QueryStateMachine.State.FAILED));
+        }
+        dispatcher.cleanupQuery(queryId);
+
         boolean canReacquire = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
         assertTrue(canReacquire, "ownership should be released after failed query cleanup");
     }

@@ -83,6 +83,9 @@ public final class QualityCheckService {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Quality rule not found: ruleId=" + ruleId));
 
+        if (!rule.enabled()) {
+            throw new IllegalArgumentException("Quality rule is disabled: ruleId=" + ruleId);
+        }
         LOG.info("event=on_demand_single_rule_check ruleId={} ruleName={}",
                 rule.ruleId(), rule.ruleName());
 

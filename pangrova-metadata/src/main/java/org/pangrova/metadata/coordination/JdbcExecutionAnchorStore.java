@@ -21,10 +21,11 @@ import static org.pangrova.metadata.store.JdbcSupport.canonicalInstant;
 import static org.pangrova.metadata.store.JdbcSupport.getInstant;
 import static org.pangrova.metadata.store.JdbcSupport.setInstant;
 
-/** JDBC execution-anchor store using database-clock leases and fenced row locks. */
+/** PostgreSQL execution ownership with database-clock leases and monotonic per-execution fencing. */
 public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcExecutionAnchorStore.class);
+    private static final int ACQUISITION_LOCK_NAMESPACE = 0x5047414E;
 
     private static final String SELECT_FOR_UPDATE =
             "SELECT owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version "
@@ -101,12 +102,25 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         requireRequest(executionId, ownerId, ownerIncarnation, leaseDuration);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
+            lockAcquisition(connection, executionId);
             Optional<ExecutionAnchor> result = acquireLocked(
                     connection, executionId, ownerId, ownerIncarnation, leaseDuration);
             connection.commit();
             return result;
         } catch (SQLException failure) {
             throw storeFailure("acquire", executionId, failure);
+        }
+    }
+
+    private static void lockAcquisition(Connection connection, String executionId) throws SQLException {
+        // Row locks cannot serialize an absent identifier. Hold this transaction-scoped lock
+        // before allocating a token so another owner cannot acquire and release the same ID
+        // while this transaction is paused between sequence allocation and INSERT.
+        try (var statement = connection.prepareStatement(
+                "SELECT pg_advisory_xact_lock(?, hashtext('execution_anchor'::regclass::oid::text || ':' || ?))")) {
+            statement.setInt(1, ACQUISITION_LOCK_NAMESPACE);
+            statement.setString(2, executionId);
+            statement.execute();
         }
     }
 
@@ -395,6 +409,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     }
 
     private static long nextToken(Connection connection) throws SQLException {
+        // V78 restarts above every legacy cached range and disables sequence caching.
+        // Uniqueness alone is insufficient: Workers reject a replacement token below its predecessor.
         String product = connection.getMetaData().getDatabaseProductName();
         String sql = product != null && product.toLowerCase().contains("h2")
                 ? "SELECT NEXT VALUE FOR execution_anchor_token_seq"

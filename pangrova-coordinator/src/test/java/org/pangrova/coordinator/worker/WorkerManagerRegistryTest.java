@@ -42,7 +42,8 @@ class WorkerManagerRegistryTest {
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, null,
                 2, null, List.of(), null,
-                TestWorkerInfoBuilder.canonicalInventory(), 8443);
+                TestWorkerInfoBuilder.canonicalInventory(), 8443,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
     }
 
     private static WorkerSnapshot workerSnapshot(String id, long lastHeartbeatMs) {
@@ -52,7 +53,8 @@ class WorkerManagerRegistryTest {
                 "NONE", 0.1, 0, 1024L * 1024 * 1024,
                 lastHeartbeatMs, lastHeartbeatMs, 0, null,
                 org.pangrova.protocol.CapabilityInventoryCodec.encode(
-                        TestWorkerInfoBuilder.canonicalInventory()), 8443);
+                        TestWorkerInfoBuilder.canonicalInventory()), 8443,
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
     }
 
     // --- test cases ---
@@ -73,6 +75,8 @@ class WorkerManagerRegistryTest {
         assertThat(snapshot.httpPort()).isEqualTo(8080);
         assertThat(snapshot.transportPort()).isEqualTo(9090);
         assertThat(snapshot.copyTaskTlsPort()).isEqualTo(8443);
+        assertThat(snapshot.admissionDomainId()).isEqualTo(info.workerExecutionIdentity().admissionDomainId());
+        assertThat(snapshot.incarnationId()).isEqualTo(info.workerExecutionIdentity().incarnationId());
     }
 
     /**
@@ -95,6 +99,8 @@ class WorkerManagerRegistryTest {
         assertThat(snapshot.host()).isEqualTo("host-w-2");
         assertThat(snapshot.httpPort()).isEqualTo(8080);
         assertThat(snapshot.copyTaskTlsPort()).isEqualTo(8443);
+        assertThat(snapshot.admissionDomainId()).isEqualTo(info.workerExecutionIdentity().admissionDomainId());
+        assertThat(snapshot.incarnationId()).isEqualTo(info.workerExecutionIdentity().incarnationId());
     }
 
     /**
@@ -131,6 +137,12 @@ class WorkerManagerRegistryTest {
                 .containsExactlyInAnyOrder("w-10", "w-11", "w-12");
         assertThat(active).extracting(WorkerInfo::copyTaskTlsPort)
                 .containsOnly(8443);
+        assertThat(active).allSatisfy(worker -> {
+            assertThat(worker.workerExecutionIdentity().admissionDomainId())
+                    .isEqualTo("00000000-0000-0000-0000-0000000000d1");
+            assertThat(worker.workerExecutionIdentity().incarnationId())
+                    .isEqualTo("00000000-0000-0000-0000-0000000000e1");
+        });
     }
 
     /**

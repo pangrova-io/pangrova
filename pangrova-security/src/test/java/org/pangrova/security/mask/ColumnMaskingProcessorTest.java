@@ -2,6 +2,10 @@ package org.pangrova.security.mask;
 
 import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.pangrova.security.authz.AuthorizationDeniedException;
+import org.pangrova.security.authz.DeferredSubjectContext;
 
 import java.time.Instant;
 import java.util.List;
@@ -10,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Validates: Requirements 18.8 — ColumnMaskingProcessor evaluates masks with role and exemption logic.
@@ -20,6 +25,32 @@ class ColumnMaskingProcessorTest {
             "alice", Set.of("analyst"), Map.of(), Instant.now());
     private static final UserIdentity ADMIN = new UserIdentity(
             "bob", Set.of("admin"), Map.of(), Instant.now());
+
+    @ParameterizedTest
+    @ValueSource(strings = {"current_groups()", "CURRENT_GROUPS ( )",
+            "user_attribute('department')", "USER_ATTRIBUTE ( 'department' )"})
+    void deferredPrincipalCannotEvaluateMaskWithMissingAuthenticationContext(String contextFunction) {
+        var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
+        var mask = new ColumnMask(90, "deferred_context", "lake", "default", "users", "email",
+                "CASE WHEN " + contextFunction + " = '' THEN {column} ELSE NULL END",
+                List.of("reader"), List.of(), true);
+        var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(mask)));
+
+        assertThatThrownBy(() -> processor.getMask(subject, Set.of("reader"), "lake", "default", "users", "email"))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("identity-context");
+    }
+
+    @Test
+    void deferredSubjectGuardDoesNotEvaluateUnselectedOrExemptMasks() {
+        var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
+        var mask = new ColumnMask(90, "deferred_context", "lake", "default", "users", "email",
+                "user_attribute('department')", List.of("reader"), List.of("unmasked"), true);
+        var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(mask)));
+
+        assertThat(processor.getMask(subject, Set.of("reader", "unmasked"),
+                "lake", "default", "users", "email")).isEmpty();
+        assertThat(processor.getMask(subject, Set.of(), "lake", "default", "users", "email")).isEmpty();
+    }
 
     @Test
     void returnsEmptyWhenNoMasks() {

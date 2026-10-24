@@ -144,7 +144,7 @@ class ThreadPoolAndQuotaGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         workerBootstrap = TestWorkerBootstrap.create(config);
         workerBootstrap.start();
 
@@ -163,7 +163,7 @@ class ThreadPoolAndQuotaGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         workerBootstrap = TestWorkerBootstrap.create(config);
         workerBootstrap.start();
         assertThat(workerBootstrap.isStarted()).isTrue();

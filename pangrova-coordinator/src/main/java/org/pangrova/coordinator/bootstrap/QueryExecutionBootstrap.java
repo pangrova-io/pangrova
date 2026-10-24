@@ -135,6 +135,7 @@ final class QueryExecutionBootstrap {
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
                 cb != null ? cb : CircuitBreakerPolicy.noOp(), tracingProvider,
                 config.internalAuthSecret());
+        rtd.setRecoveryWorkers(wm::getActiveWorkers);
         if (config.shuffleTlsConfig() != null) {
             rtd.configureCopyTaskTls(config.shuffleTlsConfig());
         }

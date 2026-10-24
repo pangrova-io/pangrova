@@ -283,7 +283,9 @@ class ShuffleAccessRenewalIntegrationTest extends ContainerTestBase {
         return TaskAttemptId.newBuilder().setQueryOrJobId(queryId).setStageId(1)
                 .setPartitionId(0).setPlanEpoch(2).setAttemptId(1)
                 .setFencingToken(1).setControlEpoch(1).setTaskId("producer")
-                .setExecutionOwner(owner()).build();
+                .setExecutionOwner(owner()).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
+                        .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
     }
 
     private void replaceAnchor(ExecutionOwnerIdentity owner) throws Exception {

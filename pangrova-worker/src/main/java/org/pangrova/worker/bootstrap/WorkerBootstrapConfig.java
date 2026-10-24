@@ -40,7 +40,8 @@ public record WorkerBootstrapConfig(
         String advertisedHost,
         String shuffleAdvertisedHost,
         NativeFunctionConfig nativeFunctionConfig,
-        TransportSecurityConfig transportSecurityConfig) {
+        TransportSecurityConfig transportSecurityConfig,
+        String admissionStateDirectory) {
 
     private static final int MAX_TCP_PORT = 65_535;
 
@@ -49,6 +50,9 @@ public record WorkerBootstrapConfig(
 
     public WorkerBootstrapConfig {
         checkWorkerId(workerId);
+        if (admissionStateDirectory == null || admissionStateDirectory.isBlank()) {
+            throw new IllegalArgumentException("admissionStateDirectory must not be blank");
+        }
         checkPort(httpPort, "httpPort");
         checkPort(transportPort, "transportPort");
         resourceConfig = orDefault(resourceConfig, ResourceConfig.defaults());
@@ -106,7 +110,7 @@ public record WorkerBootstrapConfig(
                 null,
                 null,
                 NativeFunctionConfig.DEFAULT,
-                TransportSecurityConfig.disabled());
+                TransportSecurityConfig.disabled(), "data/worker-admission");
     }
 
     /** Mutual-TLS configuration for Native shuffle and result transport. */

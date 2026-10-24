@@ -52,6 +52,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final LocalRuntimeArtifacts artifacts;
     private final org.pangrova.worker.jni.NativeFunctionConfig functions;
     private final Inet4Address advertisedAddress;
+    private final boolean speculation;
     private final ProcessSecurityAuthority security;
     private final ProcessStatusReportRelay reports;
     private final TestTlsAuthority tls;
@@ -60,7 +61,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final Map<String, TestTlsAuthority.Identity> workerIdentities = new LinkedHashMap<>();
     private final Map<String, OwnedProcess> workers = new LinkedHashMap<>();
     private final Map<String, RegisteredWorker> acceptedWorkers = new LinkedHashMap<>();
-    private final List<OwnedProcess> owned = new ArrayList<>();
+    private final List<OwnedProcess> owned = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2)).build();
     private OwnedProcess coordinator;
@@ -76,6 +77,16 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     IndependentLocalProcesses(org.pangrova.worker.jni.NativeFunctionConfig functions) throws Exception {
+        this(functions, false);
+    }
+
+    IndependentLocalProcesses(boolean speculation) throws Exception {
+        this(org.pangrova.worker.jni.NativeFunctionConfig.DEFAULT, speculation);
+    }
+
+    private IndependentLocalProcesses(org.pangrova.worker.jni.NativeFunctionConfig functions,
+                                      boolean speculation) throws Exception {
+        this.speculation = speculation;
         this.functions = java.util.Objects.requireNonNull(functions, "functions");
         if (!functions.autoRegister()) {
             throw new IllegalArgumentException("Independent Workers must register their actual Native functions");
@@ -143,7 +154,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 "-XX:MaxDirectMemorySize=128m",
                 // CLI status polling and multi-file seeding exceed the public default of 100/min.
                 // Rate-limit behavior is covered by dedicated HTTP integration tests.
-                "-Dpangrova.http.max-requests-per-minute=1000");
+                "-Dpangrova.http.max-requests-per-minute=100000",
+                "-Dpangrova.speculation.single-task-duration-threshold-ms=15000");
         awaitCoordinatorControlPlane();
         reports.connect(URI.create("http://127.0.0.1:" + coordinatorPort));
         startWorker("local-worker-1");
@@ -244,6 +256,14 @@ final class IndependentLocalProcesses implements AutoCloseable {
     Path warehouse() { return warehouse; }
     String hostJdbcUrl() { return security.hostJdbcUrl(); }
     int coordinatorPort() { return coordinatorPort; }
+    HttpResponse<byte[]> replayReport(ProcessStatusReportRelay.Delivery actual) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + coordinatorPort
+                        + "/v1/task/status-report"))
+                .header("Authorization", "Bearer " + internalSecret)
+                .header("Content-Type", "application/json").timeout(Duration.ofSeconds(30))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(actual.body())).build();
+        return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+    }
     void awaitClusterReady() {
         awaitHealth("Coordinator with registered Worker and catalog", coordinator, coordinatorPort);
     }
@@ -263,6 +283,36 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     QueryResult query(String sql, ResultProtocol expectedProtocol) throws Exception {
+        return requireSuccessfulQuery(executeSql(sql, expectedProtocol), expectedProtocol);
+    }
+
+    QueryResult requireSuccessfulQuery(CliOutcome outcome, ResultProtocol expectedProtocol) {
+        if (outcome.exitCode() != 0 || outcome.receipt() == null
+                || outcome.output() == null) {
+            preserveDiagnostics = true;
+            throw new IllegalStateException("Public CLI query failed: exit=" + outcome.exitCode()
+                    + " log=" + outcome.errors() + " workspace=" + workspace);
+        }
+        JsonNode record = outcome.receipt();
+        if (!"FINISHED".equals(record.path("state").asText())
+                || !record.path("resultConsumed").asBoolean()
+                || record.path("queryId").asText().isBlank()) {
+            preserveDiagnostics = true;
+            throw new IllegalStateException("CLI did not prove terminal result handling: " + record);
+        }
+        String queryId = record.path("queryId").asText();
+        QueryStatusResponse publicStatus = status(queryId);
+        if (!"FINISHED".equals(publicStatus.state())
+                || publicStatus.resultEndpoint() == null
+                || !expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol())) {
+            preserveDiagnostics = true;
+            throw new IllegalStateException("Public query state or typed result protocol disagrees"
+                    + " with CLI receipt: " + queryId + " status=" + publicStatus);
+        }
+        return new QueryResult(queryId, outcome.output());
+    }
+
+    CliOutcome executeSql(String sql, ResultProtocol expectedProtocol) throws Exception {
         String suffix = UUID.randomUUID().toString();
         Path source = privateFile("query-" + suffix, ".sql");
         Path output = workspace.resolve("query-" + suffix + ".out");
@@ -311,29 +361,10 @@ final class IndependentLocalProcesses implements AutoCloseable {
             preserveDiagnostics = true;
             throw interrupted;
         }
-        if (client.exitValue() != 0 || !Files.isRegularFile(receipt)
-                || !Files.isRegularFile(output)) {
-            preserveDiagnostics = true;
-            throw new IllegalStateException("Public CLI query failed: exit=" + client.exitValue()
-                    + " log=" + Files.readString(log) + " workspace=" + workspace);
-        }
-        JsonNode record = JsonMapperFactory.shared().readTree(Files.readString(receipt));
-        if (!"FINISHED".equals(record.path("state").asText())
-                || !record.path("resultConsumed").asBoolean()
-                || record.path("queryId").asText().isBlank()) {
-            preserveDiagnostics = true;
-            throw new IllegalStateException("CLI did not prove terminal result handling: " + record);
-        }
-        String queryId = record.path("queryId").asText();
-        QueryStatusResponse publicStatus = status(queryId);
-        if (!"FINISHED".equals(publicStatus.state())
-                || publicStatus.resultEndpoint() == null
-                || !expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol())) {
-            preserveDiagnostics = true;
-            throw new IllegalStateException("Public query state or typed result protocol disagrees"
-                    + " with CLI receipt: " + queryId + " status=" + publicStatus);
-        }
-        return new QueryResult(queryId, Files.readString(output));
+        JsonNode record = Files.isRegularFile(receipt)
+                ? JsonMapperFactory.shared().readTree(Files.readString(receipt)) : null;
+        return new CliOutcome(client.exitValue(), Files.isRegularFile(output) ? Files.readString(output) : null,
+                Files.readString(log), record);
     }
 
     private RegisteredWorker awaitRegistration(
@@ -469,6 +500,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   port: %d
                   role: QUERY
                   internal-auth-secret: "%s"
+                  speculation:
+                    enabled: %s
                   ha:
                     enabled: false
                   transport:
@@ -499,7 +532,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                       user-dn-pattern: uid={0},dc=pangrova,dc=org
                 tenant:
                   enabled: true
-                """.formatted(coordinatorPort, internalSecret, advertisedAddress.getHostAddress(),
+                """.formatted(coordinatorPort, internalSecret, speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
                 tls.root(), advertisedAddress.getHostAddress(),
                 security.hostJdbcUrl(), security.hostLdapUrl());
@@ -509,6 +542,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
         var identity = workerIdentities.get(id);
         return """
                 worker:
+                  admission:
+                    state-directory: "%s"
                   id: "%s"
                   host: 0.0.0.0
                   advertised-host: "%s"
@@ -545,7 +580,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                       enabled: false
                   cdc:
                     enabled: false
-                """.formatted(id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
+                """.formatted(workspace.resolve("admission-" + id), id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
                 identity.certificateChain(), identity.privateKey(), tls.root(),
                 advertisedAddress.getHostAddress(),
                 spill, shuffleSpill) + aiWorkerYaml();
@@ -773,6 +808,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     record QueryResult(String queryId, String output) { }
+
+    record CliOutcome(int exitCode, String output, String errors, JsonNode receipt) { }
 
     private record OwnedProcess(String name, Process process, Path config, Path log) { }
 

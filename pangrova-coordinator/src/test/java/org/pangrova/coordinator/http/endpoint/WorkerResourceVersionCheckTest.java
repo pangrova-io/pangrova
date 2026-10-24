@@ -46,7 +46,8 @@ class WorkerResourceVersionCheckTest {
     void registrationEnvelopeRejectsLegacyVersion1() {
         assertThatThrownBy(() -> new WorkerRegistrationRequest(
                 "worker-1", "host-1", 8080, 9090, 0,
-                1, null, List.of(), null, canonicalInventory()))
+                1, null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-1")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("canonical v2");
     }
@@ -55,7 +56,8 @@ class WorkerResourceVersionCheckTest {
     void register_compatibleVersion2_succeeds() throws Exception {
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
                 "worker-2", "host-2", 8080, 9090, 0,
-                2, null, List.of(), null, canonicalInventory());
+                2, null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-2"));
 
         HttpResponse<String> response = registerOverHttp(request, INTERNAL_SECRET);
 
@@ -71,7 +73,8 @@ class WorkerResourceVersionCheckTest {
         var inventory = TestWorkerInfoBuilder.canonicalInventory().toBuilder()
                 .addSupportedRelationTypeUrls("x".repeat(1024 * 1024)).build();
         var request = new WorkerRegistrationRequest("worker-large-inventory", "host-2", 8080,
-                9090, 0, 2, null, List.of(), null, CapabilityInventoryCodec.encode(inventory));
+                9090, 0, 2, null, List.of(), null, CapabilityInventoryCodec.encode(inventory),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-large-inventory"));
         assertThat(JsonMapperFactory.writer().writeValueAsBytes(request).length)
                 .isGreaterThan(RequestLimitConfig.DEFAULT_MAX_REQUEST_SIZE_BYTES);
         assertThat(registerOverHttp(request, INTERNAL_SECRET).statusCode()).isEqualTo(200);
@@ -81,7 +84,8 @@ class WorkerResourceVersionCheckTest {
     void registeredWorkerRejectsOversizedMetadataEvenWhenInventoryIsSmall() throws Exception {
         var request = new WorkerRegistrationRequest("worker-large-metadata", "host-2", 8080,
                 9090, 0, 2, "x".repeat(WorkerRegistrationRequest.MAX_METADATA_JSON_BYTES),
-                List.of(), null, canonicalInventory());
+                List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-large-metadata"));
         assertThat(registerOverHttp(request, INTERNAL_SECRET).statusCode()).isEqualTo(400);
     }
 
@@ -89,7 +93,8 @@ class WorkerResourceVersionCheckTest {
     void compatibleInventoryCannotReplaceInternalServiceAuthentication() throws Exception {
         var request = new WorkerRegistrationRequest(
                 "worker-unauthenticated", "host-2", 8080, 9090, 0,
-                2, null, List.of(), null, canonicalInventory());
+                2, null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-unauthenticated"));
         assertThat(registerOverHttp(request, "wrong-secret").statusCode()).isEqualTo(401);
     }
 
@@ -123,7 +128,8 @@ class WorkerResourceVersionCheckTest {
     void register_missingCanonicalInventory_isRejected() {
         assertThatThrownBy(() -> new WorkerRegistrationRequest(
                 "worker-no-inventory", "host-2", 8080, 9090, 0,
-                2, null, List.of(), null, null))
+                2, null, List.of(), null, null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-no-inventory")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("capabilityInventory");
     }
@@ -133,7 +139,8 @@ class WorkerResourceVersionCheckTest {
         assertThatThrownBy(() ->
                 new WorkerRegistrationRequest(
                         "worker-3", "host-3", 8080, 9090, 0,
-                        0, null, List.of(), null, canonicalInventory()))
+                        0, null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-3")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("protocolVersion");
     }
@@ -142,7 +149,8 @@ class WorkerResourceVersionCheckTest {
     void registrationEnvelopeRejectsFutureVersion() {
         assertThatThrownBy(() -> new WorkerRegistrationRequest(
                 "worker-4", "host-4", 8080, 9090, 0,
-                99, null, List.of(), null, canonicalInventory()))
+                99, null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-4")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("canonical v2");
     }

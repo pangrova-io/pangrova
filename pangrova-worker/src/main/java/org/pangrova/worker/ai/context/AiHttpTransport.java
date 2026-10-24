@@ -6,6 +6,11 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Governed HTTP entity transport; bytes exclude headers, TLS and TCP retransmissions. */
 public final class AiHttpTransport {
@@ -26,13 +31,11 @@ public final class AiHttpTransport {
             HttpRequest.Builder builder =
                     HttpRequest.newBuilder(request, (name, value) -> true)
                             .method(request.method(), new AiSingleSendBodyPublisher(publisher));
-            request.timeout()
-                    .ifPresent(
-                            timeout ->
-                                    builder.timeout(
-                                            AiProviderCallContext.remainingTimeout(timeout)));
+            Duration timeout = AiProviderCallContext.remainingTimeout(request.timeout().orElseThrow(
+                    () -> new IllegalArgumentException("AI HTTP request requires a bounded timeout")));
+            builder.timeout(timeout);
             try {
-                return client.send(builder.build(), info -> new AiBoundedBodySubscriber(attempt));
+                return sendThroughBody(client, builder.build(), attempt, timeout);
             } catch (IOException failure) {
                 rethrowResourceFailure(failure);
                 throw new AiInvocationException(
@@ -41,6 +44,44 @@ public final class AiHttpTransport {
                         "AI provider POST outcome is unknown after transport failure",
                         failure);
             }
+        }
+    }
+
+    private static HttpResponse<String> sendThroughBody(
+            HttpClient client, HttpRequest request, AiProviderCallContext.PhysicalAttempt attempt, Duration timeout)
+            throws IOException, InterruptedException {
+        var body = new AiBoundedBodySubscriber(attempt);
+        long timeoutNanos = timeout.toNanos();
+        long started = System.nanoTime();
+        var response = client.sendAsync(request, info -> body);
+        try {
+            // JDK 17's request timeout ends at response headers, not at the end of the body.
+            long remaining = timeoutNanos - (System.nanoTime() - started);
+            return response.get(Math.max(0L, remaining), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException expired) {
+            var failure = new HttpTimeoutException("AI provider response body exceeded its deadline");
+            body.abort(failure);
+            response.cancel(true);
+            throw failure;
+        } catch (InterruptedException interrupted) {
+            body.abort(interrupted);
+            response.cancel(true);
+            throw interrupted;
+        } catch (ExecutionException failed) {
+            Throwable cause = failed.getCause();
+            if (cause instanceof IOException io) {
+                throw io;
+            }
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IOException("AI provider transport failed", cause);
+        } finally {
+            // This barrier stops every late body callback before the physical permit is closed.
+            body.abort(new IOException("AI provider exchange is closed"));
         }
     }
 

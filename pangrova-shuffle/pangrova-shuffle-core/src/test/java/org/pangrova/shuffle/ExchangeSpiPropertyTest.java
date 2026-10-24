@@ -129,7 +129,9 @@ class ExchangeSpiPropertyTest {
                 new ExchangeTaskAttempt(
                         queryId, 0, 0, "task-0", 1L,
                         new ExchangeAttemptFence(1L, 0, 1L),
-                        new ShuffleExecutionOwner("owner", "incarnation", 1L)),
+                        new ShuffleExecutionOwner("owner", "incarnation", 1L),
+                        "00000000-0000-0000-0000-000000000001",
+                        "00000000-0000-0000-0000-000000000002"),
                 partitionId,
                 Long.MAX_VALUE);
     }

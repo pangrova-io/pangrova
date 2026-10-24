@@ -204,7 +204,8 @@ class DefaultWorkerSelectorModelResolutionTest {
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
                 ONE_GIB, Instant.now(), 1.0,
                 "default", 2, null, List.of(), null,
-                inventory);
+                inventory,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
     }
 
     private static ModelAvailability model(

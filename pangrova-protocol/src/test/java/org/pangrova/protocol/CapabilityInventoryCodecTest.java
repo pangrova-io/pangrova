@@ -60,7 +60,7 @@ class CapabilityInventoryCodecTest {
     void maximumCanonicalInventoryFitsTheRegistrationWireContract() throws Exception {
         String encoded = CapabilityInventoryCodec.encode(inventorySized(3 * 1024 * 1024));
         var request = new WorkerRegistrationRequest("worker-1", "localhost", 8080, 9090,
-                0, 2, null, java.util.List.of(), null, encoded);
+                0, 2, null, java.util.List.of(), null, encoded, new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
         var mapper = JsonMapperFactory.shared();
         request.requireBoundedMetadata(mapper);
         byte[] body = mapper.writeValueAsBytes(request);
@@ -74,7 +74,7 @@ class CapabilityInventoryCodecTest {
         String encoded = CapabilityInventoryCodec.encode(baseInventory().build());
         var request = new WorkerRegistrationRequest("worker-1", "localhost", 8080, 9090,
                 0, 2, "x".repeat(WorkerRegistrationRequest.MAX_METADATA_JSON_BYTES),
-                java.util.List.of(), null, encoded);
+                java.util.List.of(), null, encoded, new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> request.requireBoundedMetadata(JsonMapperFactory.shared()))
                 .isInstanceOf(IllegalArgumentException.class)

@@ -10,6 +10,7 @@ import org.pangrova.parser.ast.expression.ExtractExpression;
 import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.expression.InExpression;
 import org.pangrova.parser.ast.expression.IsNullExpression;
+import org.pangrova.parser.ast.expression.TruthTestExpression;
 import org.pangrova.parser.ast.expression.LikeExpression;
 import org.pangrova.parser.ast.expression.MapConstructor;
 import org.pangrova.parser.ast.expression.NotExpression;
@@ -134,6 +135,12 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
         Expression operand = (Expression) visit(ctx.left);
         boolean negated = ctx.NOT() != null;
         return new IsNullExpression(operand, negated);
+    }
+
+    @Override
+    public Expression visitTruthTestExpr(PangrovaSqlParser.TruthTestExprContext ctx) {
+        var value = TruthTestExpression.TruthValue.valueOf(ctx.truth.getText().toUpperCase(java.util.Locale.ROOT));
+        return new TruthTestExpression((Expression) visit(ctx.left), value, ctx.NOT() != null);
     }
 
     @Override

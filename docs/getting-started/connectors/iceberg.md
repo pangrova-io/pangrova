@@ -68,6 +68,14 @@ The Native reader rejects unsupported codecs and malformed or oversized blocks.
 
 ### Snapshot metadata
 
+Incremental append eligibility follows the snapshot parent chain over `(base, target]`.
+Snapshot IDs need not increase: a retained snapshot with ID `900` can be the parent
+of snapshot `800`. Both endpoints must exist, and the base must be an ancestor of
+the target. Equal existing endpoints represent an empty interval. Every intervening
+commit must be an append without delete manifests; an overwrite is not append-only
+even if it creates no delete manifest. These checks follow the
+[Iceberg snapshot specification](https://iceberg.apache.org/spec/#snapshots).
+
 `SELECT * FROM catalog.schema.table$snapshots` and
 `SHOW SNAPSHOTS FROM catalog.schema.table` expose retained Iceberg snapshots.
 Expired snapshots are absent; an empty table returns no rows.

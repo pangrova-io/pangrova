@@ -29,7 +29,8 @@ class ArtifactBuildWorkerMemorySelectionTest {
                 "worker", "localhost", 8080, 9090, 9191,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0,
                 2 * GIB - 128 * 1024 * 1024, Instant.now(), 1.0,
-                null, 2, null, List.of(), null, inventory);
+                null, 2, null, List.of(), null, inventory,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker"));
         OperatorBinding binding = OperatorBinding.newBuilder()
                 .setPlanNodeId("hnsw-build")
                 .setCapability(capability)

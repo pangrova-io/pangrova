@@ -22,9 +22,9 @@ import org.pangrova.spi.annotation.Experimental;
  *       (e.g. Paimon changelog).</li>
  *   <li>{@link #isAppendOnly(String, long, long)} — inspect the snapshot
  *       range and return whether all changes are pure appends (no deletes
- *       or updates). Implementations must throw
- *       {@link IllegalArgumentException} when
- *       {@code fromSnapshotId > toSnapshotId}.</li>
+ *       or updates). Implementations must validate snapshot existence and
+ *       connector-specific ancestry. Numeric snapshot ID ordering is not a
+ *       portable ancestry test.</li>
  * </ul>
  *
  * <p>Implementations must be thread-safe; the coordinator may invoke
@@ -61,14 +61,14 @@ public interface IncrementalScanCapability {
      * <p>An append-only range contains only newly added data files with
      * no delete files (equality delete or position delete) and no
      * update operations. This determines whether the coordinator can
-     * use a lightweight incremental path or must fall back to a full
-     * refresh.</p>
+     * use the requested incremental path. An unprovable interval must be
+     * rejected; it must not silently become a full refresh.</p>
      *
      * @param tableName      fully qualified table name
      * @param fromSnapshotId exclusive lower bound snapshot ID
      * @param toSnapshotId   inclusive upper bound snapshot ID
      * @return {@code true} if the range contains only appends
-     * @throws IllegalArgumentException if {@code fromSnapshotId > toSnapshotId}
+     * @throws IllegalArgumentException if an endpoint is invalid or the base is not an ancestor
      */
     boolean isAppendOnly(String tableName, long fromSnapshotId, long toSnapshotId);
 }

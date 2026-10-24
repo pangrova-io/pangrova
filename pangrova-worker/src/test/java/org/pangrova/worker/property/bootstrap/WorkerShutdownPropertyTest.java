@@ -70,7 +70,7 @@ class WorkerShutdownPropertyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         WorkerBootstrap bootstrap = org.pangrova.worker.bootstrap.TestWorkerBootstrap.create(config);
 
         try {
@@ -99,7 +99,7 @@ class WorkerShutdownPropertyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         WorkerBootstrap bootstrap = new WorkerBootstrap(config);
 
         assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();

@@ -172,6 +172,54 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void persistsExactWorkerAttemptAndRejectsOtherIncarnationAfterRestart() throws Exception {
+        String queryId = "worker-identity-query";
+        String shuffleId = "worker-identity-shuffle";
+        seedAnchor(queryId, owner());
+        var producer = attempt(0, 1).toBuilder().setQueryOrJobId(queryId).build();
+        var other = producer.toBuilder().setWorkerExecutionIdentity(
+                producer.getWorkerExecutionIdentity().toBuilder()
+                        .setIncarnationId("00000000-0000-0000-0000-000000000003")).build();
+        var batch = new StoredBatch(new BatchIdentity(shuffleId, 0, 0, 0, 0),
+                producer, shuffleId + "/batch", 4, 1, new byte[32]);
+        var impostor = new StoredBatch(batch.identity(), other, batch.objectKey(), 4, 1, new byte[32]);
+        var summary = new ShuffleServiceModel.PartitionExpectation(0, 0, 4, 1, 1, new byte[32]);
+        try (var store = PostgresShuffleStore.create(config().database())) {
+            store.register(registerCommand(queryId, shuffleId, 1, System.currentTimeMillis() + 60_000));
+            String reservation = store.batchStore().beginWriteIntent(batch, 60_000);
+            assertThatThrownBy(() -> store.batchStore().beginWriteIntent(impostor, 60_000))
+                    .isInstanceOf(SecurityException.class).hasMessageContaining("attempt identity conflicts");
+            store.batchStore().completeWriteIntent(reservation, batch);
+            store.batchStore().commitAttempt(new ShuffleServiceModel.CommitCommand(
+                    shuffleId, producer, List.of(summary)));
+        }
+        try (var restarted = PostgresShuffleStore.create(config().database())) {
+            assertThat(restarted.batchStore().readCommittedPage(shuffleId, 0, -1, -1, 10))
+                    .singleElement().extracting(StoredBatch::producerAttempt).isEqualTo(producer);
+            assertThatThrownBy(() -> restarted.batchStore().readAttemptPage(shuffleId, other, 0, -1, 10))
+                    .isInstanceOf(SecurityException.class).hasMessageContaining("durable identity");
+            assertThatThrownBy(() -> restarted.batchStore().commitAttempt(
+                    new ShuffleServiceModel.CommitCommand(shuffleId, other, List.of(summary))))
+                    .isInstanceOf(SecurityException.class).hasMessageContaining("attempt identity conflicts");
+            // A migrated legacy row has no recoverable target; it is never silently filled from a requester.
+            try (var connection = DriverManager.getConnection(
+                    POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                    var statement = connection.prepareStatement(
+                            "UPDATE shuffle.shuffle_attempt_fence SET canonical_attempt = NULL WHERE shuffle_id = ?")) {
+                statement.setString(1, shuffleId);
+                statement.executeUpdate();
+            }
+            assertThatThrownBy(() -> restarted.batchStore().readCommittedPage(shuffleId, 0, -1, -1, 10))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("Legacy shuffle attempt");
+            assertThatThrownBy(() -> restarted.batchStore().beginWriteIntent(batch, 60_000))
+                    .isInstanceOf(SecurityException.class).hasMessageContaining("attempt identity conflicts");
+            var cleanup = restarted.beginCleanup(new CleanupCommand(queryId, owner()),
+                    new CleanupLease("legacy-cleaner", 100, 200)).orElseThrow();
+            restarted.completeCleanup(cleanup);
+        }
+    }
+
+    @Test
     void renewsQueryCleanupExpiryWhenANewStageRegisters() throws Exception {
         try (PostgresShuffleStore store = PostgresShuffleStore.create(config().database())) {
             var first = store.register(registerCommand(
@@ -277,7 +325,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     .setQueryOrJobId(queryId).setStageId(1).setPlanEpoch(2)
                     .setPartitionId(0).setAttemptId(0).setFencingToken(1)
                     .setTaskId("write-intent-producer").setControlEpoch(1)
-                    .setExecutionOwner(owner()).build();
+                    .setExecutionOwner(owner()).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
+                        .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
             StoredBatch batch = new StoredBatch(new BatchIdentity(shuffleId, 0, 0, 0, 0),
                     producer, shuffleId + "/late.bin", 4, 1, new byte[32]);
             String reservation = store.batchStore().beginWriteIntent(batch, 300_000);
@@ -340,7 +390,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 .setQueryOrJobId(queryId).setStageId(1).setPlanEpoch(2)
                 .setPartitionId(0).setAttemptId(0).setFencingToken(1)
                 .setTaskId("uncertain-producer").setControlEpoch(1)
-                .setExecutionOwner(owner()).build();
+                .setExecutionOwner(owner()).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
+                        .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
         StoredBatch batch = new StoredBatch(new BatchIdentity(shuffleId, 0, 0, 0, 0),
                 producer, objectKey, 4, 1, new byte[32]);
         try (PostgresShuffleStore store = PostgresShuffleStore.create(config().database())) {
@@ -490,6 +542,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     + "capability_expires_at_ms, state) VALUES "
                     + "('upgrade-reservation', 'upgrade-query', 1, 1, 1, 1, "
                     + "decode(repeat('00', 32), 'hex'), 100000, 'REGISTERED')");
+            statement.execute("INSERT INTO shuffle.shuffle_attempt_fence "
+                    + "(shuffle_id, producer_partition_id, producer_attempt_id, producer_fencing_token, task_id, "
+                    + "control_epoch) VALUES ('upgrade-reservation', 0, 0, 1, 'legacy-task', 1)");
             statement.execute("INSERT INTO shuffle.shuffle_write_intent "
                     + "(reservation_id, shuffle_id, object_key, state) VALUES "
                     + "('00000000-0000-0000-0000-000000000001', "
@@ -505,6 +560,12 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                                 + "shuffle.shuffle_write_intent WHERE shuffle_id = ?")) {
             statement.setString(1, shuffleId);
             try (var row = statement.executeQuery()) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getBoolean(1)).isTrue();
+            }
+            try (var legacy = connection.createStatement();
+                    var row = legacy.executeQuery("SELECT canonical_attempt IS NULL FROM "
+                            + "shuffle.shuffle_attempt_fence WHERE shuffle_id = 'upgrade-reservation'")) {
                 assertThat(row.next()).isTrue();
                 assertThat(row.getBoolean(1)).isTrue();
             }
@@ -679,13 +740,17 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         return TaskAttemptId.newBuilder().setQueryOrJobId("query-1").setStageId(1)
                 .setPartitionId(0).setPlanEpoch(2).setAttemptId(attemptId)
                 .setFencingToken(fence).setTaskId("producer-" + attemptId)
-                .setControlEpoch(fence).setExecutionOwner(owner()).build();
+                .setControlEpoch(fence).setExecutionOwner(owner()).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
+                        .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
     }
 
     private static TaskAttemptId consumerAttempt() {
         return TaskAttemptId.newBuilder().setQueryOrJobId("query-1").setStageId(2)
                 .setPartitionId(0).setPlanEpoch(2).setAttemptId(0).setFencingToken(30)
-                .setTaskId("consumer").setControlEpoch(30).setExecutionOwner(owner()).build();
+                .setTaskId("consumer").setControlEpoch(30).setExecutionOwner(owner()).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
+                        .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
     }
 
     private static ExecutionOwnerIdentity owner() {

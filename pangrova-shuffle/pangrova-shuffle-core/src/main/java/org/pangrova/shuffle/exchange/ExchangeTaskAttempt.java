@@ -12,13 +12,17 @@ public record ExchangeTaskAttempt(
         String taskId,
         long controlEpoch,
         ExchangeAttemptFence fence,
-        ShuffleExecutionOwner executionOwner) {
+        ShuffleExecutionOwner executionOwner,
+        String workerAdmissionDomainId,
+        String workerIncarnationId) {
 
     public ExchangeTaskAttempt {
         requireNonNull(queryId, "queryId must not be null");
         requireNonNull(taskId, "taskId must not be null");
         requireNonNull(fence, "fence must not be null");
         requireNonNull(executionOwner, "executionOwner must not be null");
+        requireCanonicalUuid(workerAdmissionDomainId, "workerAdmissionDomainId");
+        requireCanonicalUuid(workerIncarnationId, "workerIncarnationId");
         if (queryId.isBlank()) {
             throw new IllegalArgumentException("queryId must not be blank");
         }
@@ -33,6 +37,13 @@ public record ExchangeTaskAttempt(
         }
         if (controlEpoch <= 0) {
             throw new IllegalArgumentException("controlEpoch must be positive");
+        }
+    }
+
+    private static void requireCanonicalUuid(String value, String name) {
+        requireNonNull(value, name + " must not be null");
+        if (!java.util.UUID.fromString(value).toString().equals(value)) {
+            throw new IllegalArgumentException(name + " must be a canonical UUID");
         }
     }
 }

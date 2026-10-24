@@ -50,7 +50,9 @@ class ShuffleCapabilityAuthorityTest {
                 .setQueryOrJobId("query-1").setStageId(2).setPartitionId(3)
                 .setPlanEpoch(4).setAttemptId(5).setFencingToken(6)
                 .setTaskId("task-1").setControlEpoch(8).setExecutionOwner(OWNER)
-                .build();
+                .setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
+                        .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
         CapabilityScope exact = CapabilityScope.forTask(
                 CapabilityOperation.WRITE, "shuffle-1", OWNER, attempt);
         var grant = authority.issue(exact, now + 60_000);

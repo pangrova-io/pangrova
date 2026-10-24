@@ -146,7 +146,8 @@ class RemoteTaskDispatcherEpochCatchupTest {
                 0.1, 0, 4L * 1024 * 1024 * 1024,
                 Instant.now(), 0.9, null, 2,
                 null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("w-epoch"));
     }
 
     private static HttpServer startServer(Responder responder) throws IOException {

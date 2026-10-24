@@ -67,7 +67,7 @@ class WorkerShutdownResourceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         WorkerBootstrap bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
         assertThat(bootstrap.isStarted()).isTrue();
@@ -86,7 +86,7 @@ class WorkerShutdownResourceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         WorkerBootstrap bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 

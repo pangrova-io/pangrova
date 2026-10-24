@@ -55,7 +55,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 
@@ -77,7 +77,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 
@@ -99,7 +99,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 

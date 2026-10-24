@@ -1245,6 +1245,40 @@ class CheckpointTriggerPolicy:
 
 ---
 
+## 15. Durable process incarnation ownership
+
+`ProcessIncarnationStore` supplies a local physical-exit proof for services that
+retain task admission in memory. A persistent directory holds an opaque domain
+UUID and a checksum-chained incarnation ledger. Startup takes an exclusive file
+lock, validates every complete ledger record, and forces the new incarnation to
+disk before exposing its identity. Only a successor holding that same lock can
+recognize recorded predecessor incarnations as retired. A different directory,
+unknown incarnation, expired lease, or missing heartbeat does not establish exit.
+
+The lock is held until the owning service actually joins all physical execution
+owners, or the JVM terminates. `closeAfterDrain` deliberately requires the real
+join callback rather than implementing generic `AutoCloseable`. Failed joins
+retain the lock. Beginning shutdown permanently closes admission of new named
+authorities, even if the join fails; an authority cannot be recreated under the
+same incarnation after losing its in-memory admission state. Drain callbacks can
+still inspect the identity and retired incarnations.
+
+Use a persistent local filesystem supporting exclusive file locks. Keep each
+process domain in its own directory; never copy, replace, or delete that directory
+while it is serving execution ownership. Java documents that file locks are held
+on behalf of the JVM and released on channel closure or JVM termination, so an
+application-level join must precede explicit release. See the
+[JDK 17 FileLock contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/nio/channels/FileLock.html).
+The append-before-admission ordering follows the same durability principle as
+[PostgreSQL write-ahead logging](https://www.postgresql.org/docs/16/wal-intro.html).
+These primitives provide proof only when the service binds requests to the exact
+identity and enforces admission and shutdown ownership; they do not by themselves
+complete Worker or Coordinator recovery wiring.
+
+Local checks cover a killed independent JVM, successful and failed joins,
+concurrent shutdown, rejection of late/recreated authorities, unknown identities,
+a torn unpublished startup tail, and corruption of a complete ledger record.
+
 ## Appendix: Distributed Correctness PR Checklist
 
 CI enforces this checklist when PRs modify `pangrova-coordinator/`, `pangrova-worker/`, `pangrova-shuffle/`, or `pangrova-metadata/`.
@@ -1257,11 +1291,31 @@ What happens if a network partition occurs? Consider: Coordinator↔Worker, Work
 
 Can concurrent execution on multiple coordinators (split-brain) cause data corruption? All metadata writes must use fencing tokens (monotonic epoch). Stale coordinators must be rejected with `FENCED_OUT`.
 
+Execution ownership uses a globally unique PostgreSQL sequence token, and each replacement of the same execution ID must receive a strictly greater token. `CACHE 1000` allowed pooled backends to return reserved ranges out of order. Migration V78 drains anchor transactions, locks the sequence, and restarts it above both its reserved high watermark and every live anchor, with `CACHE 1 NO CYCLE`. Existing pooled sessions retain their identity and sequence permissions; the transactional storage rewrite discards their unused cached values. Exhaustion aborts the migration instead of wrapping or reusing tokens. PostgreSQL 16 also rewrites storage for a CACHE change; the explicit RESTART establishes the upgrade floor rather than assuming cache settings alone establish it. See [PostgreSQL sequence caching](https://www.postgresql.org/docs/16/sql-createsequence.html) and [the PostgreSQL 16 implementation](https://github.com/postgres/postgres/blob/REL_16_STABLE/src/backend/commands/sequence.c).
+
+Acquiring an execution ID also takes a transaction-scoped advisory lock before inspecting its row or allocating a token. This serializes absent-row acquisition across release and reuse of that ID; row locks alone cannot prevent a delayed low-token INSERT after a newer owner has acquired and released the same ID. Different IDs remain independent apart from harmless hash collisions. The rollout must replace old Coordinator binaries before relying on this absent-row guarantee; the database migration cannot add the advisory-lock protocol to older code. Batch recovery continues to lock existing rows before issuing replacement tokens.
+
 Query execution anchors are renewed in a batch for one exact Coordinator incarnation. Local admission and release may run concurrently, but the bulk renewal holds an exclusive boundary against those cache mutations. A changed batch row count alone is not evidence of lost ownership: the Coordinator checks each locally retained anchor's current fenced token before demoting. A genuinely missing or replaced token still fails closed.
 
 ### 3. Crash Recovery
 
 If any node crashes mid-operation, does the system recover to a consistent state? Task state must be persisted to WAL before dispatch. Workers deduplicate by task ID + attempt number. Orphaned files cleaned by background GC.
+
+QueryManager owns failure publication and physical cleanup. QueryDispatcher propagates
+execution failures while retaining the metadata admission needed to record FAILED.
+In particular, once an asynchronous write submission has returned, early dispatcher
+cleanup can claim the drained execution scope and permanently close that admission;
+the original exception then exists only in the background Future while clients keep
+seeing RUNNING. The manager records the failure before its existing terminal cleanup
+path seals issuance, cancels outstanding tasks, verifies exact drain receipts, and
+releases ownership. Typed Pangrova errors retain their stable code in asynchronous
+query status, including authorization failures after a Native commit.
+
+The lifecycle review also checked [Trino's failure transition](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/execution/QueryStateMachine.java):
+it retains the original failure before notifying state listeners and protects failure
+publication from cleanup exceptions. Pangrova additionally requires its metadata
+admission to remain open until the terminal transition; its physical cleanup order
+must respect that local invariant rather than copying another engine's call order.
 
 ### 4. Slow-Node Tolerance
 

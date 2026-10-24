@@ -1,4 +1,10 @@
-package org.pangrova.governance.quality.rule;
+package org.pangrova.coordinator.governance;
+
+import org.pangrova.governance.quality.rule.DataQualityRule;
+import org.pangrova.governance.quality.rule.GovernanceQueryException;
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
+import org.pangrova.governance.quality.rule.QualityQueryResult;
+import org.pangrova.governance.quality.rule.SqlQualityRuleExecutor;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.quality.alert.Severity;
@@ -15,11 +21,11 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Executes generated quality SQL against PostgreSQL; not Native or public SQL E2E. */
-class SqlQualityRuleExecutorIntegrationTest extends ContainerTestBase {
+class QualityPredicateSqlIntegrationTest extends ContainerTestBase {
 
     @Test
     void falseAndUnknownPredicatesBothViolateTheRuleInActualSql() throws Exception {
-        var postgres = SharedGovernancePostgres.POSTGRES;
+        var postgres = QualityPostgres.POSTGRES;
         String schema = "quality_predicate_" + UUID.randomUUID().toString().replace("-", "");
         try (var connection = DriverManager.getConnection(
                 postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
@@ -28,10 +34,11 @@ class SqlQualityRuleExecutorIntegrationTest extends ContainerTestBase {
             statement.execute("CREATE TABLE " + schema + ".rows (id BIGINT, amount BIGINT)");
             statement.execute("INSERT INTO " + schema + ".rows VALUES (1, 1), (2, -1), (3, 0), (4, NULL)");
             var samples = new ArrayList<List<String>>();
-            var executor = new SqlQualityRuleExecutor(sql -> executeSql(connection, sql, samples));
+            var executor = new SqlQualityRuleExecutor((request, identity) -> executeSql(connection, QualityReadSql.render(request), samples));
             var now = Instant.now();
             var rule = new DataQualityRule(1, "positive_amount", connection.getCatalog(), schema,
-                    "rows", "amount > 0", Severity.WARNING, "must be positive", true, null, now, now);
+                    "rows", "amount > 0", Severity.WARNING, "must be positive", true, null, now, now,
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
 
             var result = executor.execute(rule);
 

@@ -1,6 +1,7 @@
 package org.pangrova.security.rowfilter;
 
 import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.authz.DeferredSubjectContext;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -95,6 +96,7 @@ public class RowLevelSecurityFilter {
     }
 
     private static ParameterizedFilter bindUserContext(String expression, UserIdentity user) {
+        DeferredSubjectContext.requireStable(user, expression);
         List<ParameterizedFilter.BoundParameter> params = new ArrayList<>();
         int paramIndex = 1;
 

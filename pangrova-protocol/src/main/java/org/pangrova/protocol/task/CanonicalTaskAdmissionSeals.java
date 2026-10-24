@@ -98,6 +98,21 @@ public final class CanonicalTaskAdmissionSeals {
                         .setFailedComponent("worker-admission")).build();
     }
 
+    /** Caller must prove retirement of the exact durable target incarnation before invoking this. */
+    public static TaskReport retiredIncarnation(TaskAdmissionSealRequest request) {
+        validate(request, request.getAttempt().getTaskId());
+        if (!request.getAttempt().hasWorkerExecutionIdentity()) {
+            throw new IllegalArgumentException("Retirement receipt requires exact Worker execution identity");
+        }
+        return TaskReport.newBuilder().setAttempt(request.getAttempt()).setState(TaskState.TASK_STATE_CANCELLED)
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED)
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED)
+                .setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_CANCELLED)
+                        .setCode("WORKER_INCARNATION_RETIRED")
+                        .setMessage("Target Worker incarnation has physically relinquished all execution owners")
+                        .setFailedComponent("worker-admission")).build();
+    }
+
     /**
      * Projects bounded exit-only metadata from an authenticated, validated actual receipt.
      * @param actual actual terminal report with execution drain evidence
@@ -154,6 +169,13 @@ public final class CanonicalTaskAdmissionSeals {
                 }
             }
             default -> throw new IllegalArgumentException("Drain receipt has no canonical report origin");
+        }
+        if (actual.getExecutionDrainState()
+                == ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED
+                && (!cancelled || actual.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED
+                        || !actual.getAttempt().hasWorkerExecutionIdentity() || actual.hasNativeTaskStats()
+                        || !actual.getError().getCode().equals("WORKER_INCARNATION_RETIRED"))) {
+            throw new IllegalArgumentException("Incarnation retirement receipt contradicts its physical authority");
         }
         if (actual.getExecutionDrainState()
                 == ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER

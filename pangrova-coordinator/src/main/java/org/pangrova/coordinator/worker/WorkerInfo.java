@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.rest.worker.WorkerExecutionIdentity;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.resource.MemoryPressure;
@@ -34,7 +35,8 @@ public record WorkerInfo(
         List<String> dataLocality,
         CacheCatalogSummary cacheSummary,
         CapabilityInventory capabilityInventory,
-        int copyTaskTlsPort) {
+        int copyTaskTlsPort,
+        WorkerExecutionIdentity workerExecutionIdentity) {
     private static final int MAX_TCP_PORT = 65535;
 
     /** Compatibility constructor for snapshots without a dedicated COPY task listener. */
@@ -44,14 +46,16 @@ public record WorkerInfo(
                       double cpuUtilization, int runningTaskCount, long availableMemoryBytes,
                       Instant lastHeartbeat, double performanceScore, String resourcePoolId,
                       int protocolVersion, String rackId, List<String> dataLocality,
-                      CacheCatalogSummary cacheSummary, CapabilityInventory capabilityInventory) {
+                      CacheCatalogSummary cacheSummary, CapabilityInventory capabilityInventory,
+                      WorkerExecutionIdentity workerExecutionIdentity) {
         this(workerId, host, httpPort, transportPort, resultServerPort, healthState,
                 memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes,
                 lastHeartbeat, performanceScore, resourcePoolId, protocolVersion, rackId,
-                dataLocality, cacheSummary, capabilityInventory, 0);
+                dataLocality, cacheSummary, capabilityInventory, 0, workerExecutionIdentity);
     }
 
     public WorkerInfo {
+        checkNotNull(workerExecutionIdentity, "workerExecutionIdentity must not be null");
         checkNotNull(workerId, "workerId must not be null");
         checkNotNull(host, "host must not be null");
         checkNotNull(healthState, "healthState must not be null");
@@ -80,7 +84,7 @@ public record WorkerInfo(
                 newState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort);
+                rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity);
     }
 
     /** Returns a Worker snapshot with the updated cache summary. */
@@ -89,13 +93,14 @@ public record WorkerInfo(
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, summary, capabilityInventory, copyTaskTlsPort);
+                rackId, dataLocality, summary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity);
     }
 
     WorkerInfo withCapabilityInventory(CapabilityInventory inventory) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, resultServerPort,
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore, resourcePoolId,
-                protocolVersion, rackId, dataLocality, cacheSummary, inventory, copyTaskTlsPort);
+                protocolVersion, rackId, dataLocality, cacheSummary, inventory, copyTaskTlsPort,
+                workerExecutionIdentity);
     }
 }

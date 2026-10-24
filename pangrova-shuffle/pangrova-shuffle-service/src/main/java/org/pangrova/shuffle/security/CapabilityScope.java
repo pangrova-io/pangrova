@@ -32,6 +32,13 @@ public record CapabilityScope(
                 || taskAttempt.getControlEpoch() <= 0)) {
             throw new IllegalArgumentException("task-bound capability attempt is incomplete");
         }
+        validateWorkerIdentity(taskAttempt);
+    }
+
+    private static void validateWorkerIdentity(TaskAttemptId taskAttempt) {
+        if (taskAttempt != null) {
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(taskAttempt.getWorkerExecutionIdentity());
+        }
     }
 
     private static boolean validResource(CapabilityOperation operation, String subject) {

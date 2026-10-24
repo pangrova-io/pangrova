@@ -24,6 +24,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Canonical control encoding/validation only, not proof that an execution owner exited. */
 class CanonicalTaskAdmissionSealsTest {
     @Test
+    void retiredIncarnationRequiresExactWorkerTargetAndCannotInventSuccess() {
+        var unbound = CanonicalTaskAdmissionSeals.create(request());
+        assertThatThrownBy(() -> CanonicalTaskAdmissionSeals.retiredIncarnation(unbound))
+                .isInstanceOf(IllegalArgumentException.class);
+        var worker = new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity(
+                "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002");
+        var task = request();
+        var bound = task.toBuilder().setAttempt(task.getAttempt().toBuilder()
+                .setWorkerExecutionIdentity(worker.toProto())).build();
+        var seal = CanonicalTaskAdmissionSeals.create(bound);
+        assertThat(seal.getCanonicalRequestChecksum()).isNotEqualTo(unbound.getCanonicalRequestChecksum());
+        var retired = CanonicalTaskAdmissionSeals.retiredIncarnation(seal);
+        assertThat(CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(retired)).isEqualTo(retired);
+        assertThatThrownBy(() -> CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(retired.toBuilder()
+                .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED).clearError().build()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(retired.toBuilder()
+                .setAttempt(retired.getAttempt().toBuilder().clearWorkerExecutionIdentity()).build()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void networkDigestEqualsActualDeterministicEncodingAndChangesWithExactAuthority() throws Exception {
         var request = request();
         var bytes = new ByteArrayOutputStream();

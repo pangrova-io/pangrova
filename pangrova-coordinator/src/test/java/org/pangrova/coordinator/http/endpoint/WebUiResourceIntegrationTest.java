@@ -133,7 +133,8 @@ class WebUiResourceIntegrationTest {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.5, 3, 1024L * 1024 * 512,
                 Instant.now(), 0.9, null, 2, null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-001"));
         workerManager.registerWorker(worker);
 
         try {

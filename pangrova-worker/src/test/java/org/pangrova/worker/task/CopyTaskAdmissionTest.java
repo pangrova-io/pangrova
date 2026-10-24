@@ -25,9 +25,10 @@ class CopyTaskAdmissionTest {
                                 org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET).build()));
         var canonical = CanonicalTaskRequestTestFixture.builder("copy-task", "copy-query", 0, 0,
                 TaskKind.TASK_KIND_READ, new byte[] {1}).addSplits(split).build();
-        var request = SubmitTaskRequest.from(canonical);
-        var descriptor = org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.toTaskDescriptor(request);
         try (TaskManager manager = TaskManager.forHttpWiringOnly()) {
+            var request = SubmitTaskRequest.from(canonical.toBuilder().setAttempt(canonical.getAttempt().toBuilder()
+                    .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())).build());
+            var descriptor = org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.toTaskDescriptor(request);
             assertThatThrownBy(() -> manager.submitTask(descriptor, request))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COPY source split");
             assertThat(manager.resolveWorkerTaskId(canonical.getAttempt().getTaskId())).isNull();
@@ -51,11 +52,11 @@ class CopyTaskAdmissionTest {
                         .setGrantId("task-42:grant").setCpuSlots(1)
                         .setNativeMemoryBytes(64L * 1024 * 1024))
                 .build();
-        var request = SubmitTaskRequest.from(canonical,
-                new CopySourceReadHttp.RedeemRequest("n".repeat(43), scope));
-        var descriptor = org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter
-                .toTaskDescriptor(request);
         try (TaskManager manager = TaskManager.forHttpWiringOnly()) {
+            var request = SubmitTaskRequest.from(canonical.toBuilder().setAttempt(canonical.getAttempt().toBuilder()
+                            .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())).build(),
+                    new CopySourceReadHttp.RedeemRequest("n".repeat(43), scope));
+            var descriptor = org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.toTaskDescriptor(request);
             assertThatThrownBy(() -> manager.submitTask(descriptor, request))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("configured Native input runtime");

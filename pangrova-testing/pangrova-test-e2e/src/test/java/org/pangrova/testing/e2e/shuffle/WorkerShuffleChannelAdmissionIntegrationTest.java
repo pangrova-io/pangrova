@@ -50,7 +50,7 @@ class WorkerShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
             long available = runtime.arbitrator().getAvailableMemory();
             try (var manager = new TaskManager(new TaskManagerContext(observed::add, executor,
                     new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
-                    "actual-channel-admission-worker", 0.0)) {
+                    "actual-channel-admission-worker", 0.0, runtime.admissionIncarnation())) {
                 var envelope = SubmitTaskRequest.from(request);
                 var id = manager.submitTask(TaskRequestDtoConverter.toTaskDescriptor(envelope), envelope);
                 assertThat(manager.getTaskSpiState(id)).contains(org.pangrova.spi.execution.TaskStatus.TaskState.FAILED);

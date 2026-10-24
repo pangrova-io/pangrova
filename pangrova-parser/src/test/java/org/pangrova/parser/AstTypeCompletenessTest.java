@@ -73,6 +73,8 @@ class AstTypeCompletenessTest {
                 new InSubqueryExpression(DUMMY_LIT, DUMMY_QUERY),
                 new IsNullExpression(DUMMY_LIT, false),
                 new LikeExpression(DUMMY_LIT, DUMMY_LIT),
+                new org.pangrova.parser.ast.expression.TruthTestExpression(DUMMY_LIT,
+                        org.pangrova.parser.ast.expression.TruthTestExpression.TruthValue.TRUE, false),
                 new NotExpression(DUMMY_LIT),
                 new NotInExpression(DUMMY_LIT, List.of()),
                 new NotInSubqueryExpression(DUMMY_LIT, DUMMY_QUERY),
@@ -121,6 +123,7 @@ class AstTypeCompletenessTest {
             case IN -> "in";
             case IN_SUBQUERY -> "in_sub";
             case IS_NULL -> "null";
+            case TRUTH_TEST -> "truth";
             case LIKE -> "like";
             case NOT -> "not";
             case NOT_IN -> "not_in";
