@@ -1245,6 +1245,40 @@ class CheckpointTriggerPolicy:
 
 ---
 
+## 15. Durable process incarnation ownership
+
+`ProcessIncarnationStore` supplies a local physical-exit proof for services that
+retain task admission in memory. A persistent directory holds an opaque domain
+UUID and a checksum-chained incarnation ledger. Startup takes an exclusive file
+lock, validates every complete ledger record, and forces the new incarnation to
+disk before exposing its identity. Only a successor holding that same lock can
+recognize recorded predecessor incarnations as retired. A different directory,
+unknown incarnation, expired lease, or missing heartbeat does not establish exit.
+
+The lock is held until the owning service actually joins all physical execution
+owners, or the JVM terminates. `closeAfterDrain` deliberately requires the real
+join callback rather than implementing generic `AutoCloseable`. Failed joins
+retain the lock. Beginning shutdown permanently closes admission of new named
+authorities, even if the join fails; an authority cannot be recreated under the
+same incarnation after losing its in-memory admission state. Drain callbacks can
+still inspect the identity and retired incarnations.
+
+Use a persistent local filesystem supporting exclusive file locks. Keep each
+process domain in its own directory; never copy, replace, or delete that directory
+while it is serving execution ownership. Java documents that file locks are held
+on behalf of the JVM and released on channel closure or JVM termination, so an
+application-level join must precede explicit release. See the
+[JDK 17 FileLock contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/nio/channels/FileLock.html).
+The append-before-admission ordering follows the same durability principle as
+[PostgreSQL write-ahead logging](https://www.postgresql.org/docs/16/wal-intro.html).
+These primitives provide proof only when the service binds requests to the exact
+identity and enforces admission and shutdown ownership; they do not by themselves
+complete Worker or Coordinator recovery wiring.
+
+Local checks cover a killed independent JVM, successful and failed joins,
+concurrent shutdown, rejection of late/recreated authorities, unknown identities,
+a torn unpublished startup tail, and corruption of a complete ledger record.
+
 ## Appendix: Distributed Correctness PR Checklist
 
 CI enforces this checklist when PRs modify `pangrova-coordinator/`, `pangrova-worker/`, `pangrova-shuffle/`, or `pangrova-metadata/`.
