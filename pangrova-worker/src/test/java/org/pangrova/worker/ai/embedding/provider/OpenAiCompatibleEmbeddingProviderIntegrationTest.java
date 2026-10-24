@@ -170,6 +170,78 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
         }
     }
 
+    @Test
+    void realModelBodyStallIsBoundedAndNextExplicitInvocationRecovers() throws Exception {
+        var input = request(EmbeddingPurpose.RAW, List.of("real response body deadline"));
+        float[] expected = embed(false, input).vectors().get(0);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var bodyStarted = new java.util.concurrent.CountDownLatch(1);
+        var forwarded = new java.util.concurrent.atomic.AtomicInteger();
+        var relay = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        var threads = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var caller = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var upstream = java.net.http.HttpClient.newHttpClient();
+        relay.setExecutor(threads);
+        relay.createContext("/v1/embeddings", exchange -> {
+            try (exchange) {
+                byte[] requestBody = exchange.getRequestBody().readAllBytes();
+                int ordinal = forwarded.incrementAndGet();
+                var actual = upstream.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(
+                                "http://" + ollama.getHost() + ":" + ollama.getMappedPort(11434) + "/v1/embeddings"))
+                        .timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
+                        .POST(java.net.http.HttpRequest.BodyPublishers.ofByteArray(requestBody)).build(),
+                        java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+                byte[] body = actual.body();
+                exchange.sendResponseHeaders(actual.statusCode(), body.length);
+                exchange.getResponseBody().write(body, 0, 1);
+                exchange.getResponseBody().flush();
+                bodyStarted.countDown();
+                if (ordinal == 1 && !release.await(20, java.util.concurrent.TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("body fault relay was not released");
+                }
+                exchange.getResponseBody().write(body, 1, body.length - 1);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        relay.start();
+        var stalled = new OpenAiCompatibleEmbeddingProvider(new OpenAiEmbeddingConfig(
+                "http://127.0.0.1:" + relay.getAddress().getPort() + "/v1/embeddings", MODEL,
+                "", 384, 8, 1000, "", "", 3));
+        var defaults = AiTransportTestAdmission.Limits.defaults();
+        var singleSlot = new AiTransportTestAdmission.Limits(1, defaults.items(), defaults.attempts(),
+                defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
+        try (var budget = new AiTransportTestAdmission(
+                org.pangrova.spi.ai.AiCapabilityDescriptor.Operation.EMBEDDING, 384, 1, 1,
+                singleSlot, java.time.Instant.now().plusSeconds(30))) {
+            var outcome = caller.submit(() -> {
+                try {
+                    budget.call("body-fault", () -> stalled.embed(input));
+                    throw new AssertionError("incomplete model response was published");
+                } catch (AiInvocationException failure) {
+                    return failure;
+                }
+            });
+            assertThat(bodyStarted.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var failure = outcome.get(8, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(failure.category()).isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+            assertThat(failure.retryable()).isFalse();
+            assertThat(failure).hasCauseInstanceOf(HttpTimeoutException.class);
+            assertThat(forwarded).hasValue(1);
+            var recovered = budget.call("new-explicit-invocation", () -> stalled.embed(input));
+            assertCoordinates(recovered.vectors().get(0), expected);
+            assertThat(forwarded).hasValue(2);
+            assertThat(budget.usage().getProviderAttempts()).isEqualTo(2);
+        } finally {
+            release.countDown();
+            caller.shutdownNow();
+            relay.stop(0);
+            threads.shutdownNow();
+            assertThat(caller.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(threads.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     private void assertNewInvocationAfterRecovery(int failedInvocations) throws IOException {
         proxy.disable();
         for (int ordinal = 0; ordinal < failedInvocations; ordinal++) {

@@ -42,3 +42,18 @@ terminal serializer have focused tests. A single real SQL Task through the
 callback, cancellation, result publication, and coordinator retry boundaries
 still needs an independent end-to-end test; these component checks do not prove
 that chain or endpoint-side deduplication.
+
+## Complete response deadlines
+
+On JDK 17 the HTTP request timeout stops at response headers. The governed
+transport therefore waits for its asynchronous response with an explicit deadline
+covering the entire body, capped by the remaining task lifetime and configured
+provider timeout. See the [OpenJDK timeout change for JDK 26](https://inside.java/2026/03/04/jdk-26-http-client/).
+
+Deadline expiry and caller interruption seal the body subscriber before releasing
+physical admission. The seal serializes with any in-progress byte accounting and
+rejects later subscriptions or buffers. The client cancels its HTTP exchange;
+this proves that the client will not retain or publish further response data. It
+does not prove that the remote model stopped or never executed. These paths retain
+`PROVIDER_OUTCOME_UNCERTAIN` and never authorize replay. A later explicitly admitted
+invocation can acquire the released client concurrency slot.

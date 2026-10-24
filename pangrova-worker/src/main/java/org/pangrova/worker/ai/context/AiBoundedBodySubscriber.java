@@ -27,7 +27,7 @@ final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<Strin
     }
 
     @Override
-    public void onSubscribe(Flow.Subscription value) {
+    public synchronized void onSubscribe(Flow.Subscription value) {
         if (subscription != null || finished) {
             value.cancel();
             return;
@@ -37,7 +37,7 @@ final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<Strin
     }
 
     @Override
-    public void onNext(List<ByteBuffer> buffers) {
+    public synchronized void onNext(List<ByteBuffer> buffers) {
         if (finished) {
             return;
         }
@@ -56,15 +56,26 @@ final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<Strin
     }
 
     @Override
-    public void onError(Throwable failure) {
+    public synchronized void onError(Throwable failure) {
         if (!finished) {
             finished = true;
             delegate.onError(failure);
         }
     }
 
+    /** Seals delivery before the sending thread releases the physical admission. */
+    synchronized void abort(Throwable failure) {
+        if (!finished) {
+            finished = true;
+            if (subscription != null) {
+                subscription.cancel();
+            }
+            delegate.onError(failure);
+        }
+    }
+
     @Override
-    public void onComplete() {
+    public synchronized void onComplete() {
         if (!finished) {
             finished = true;
             delegate.onComplete();
