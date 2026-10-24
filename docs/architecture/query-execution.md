@@ -2277,7 +2277,7 @@ As of 2026-09-27, real Iceberg E2E covers basic DML, static-partition
 and catalog commit. A `MERGE` combining `DELETE` with another action is rejected
 rather than decomposed into non-atomic commits. Arbitrary distributed DML shapes,
 multiple matching source rows, and cross-worker failure recovery are not yet
-certified; see the [internal AI Native audit](../internal/ai-native-roadmap.md).
+certified; see the [internal AI Native audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
 
 
 ### 12.2 DDL Syntax

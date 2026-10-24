@@ -72,6 +72,7 @@ class DynamicTableAggregateE2ETest extends SqlE2ETestBase {
         // DELETE one row from category A, then refresh
         sqlRunner.execute("DELETE FROM " + SOURCE_TABLE
                 + " WHERE category = 'A' AND amount = 10.0");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH");
 
         // After refresh, aggregate for A should roll back to 20.0
         List<TypedRow> afterDelete = sqlRunner.execute(

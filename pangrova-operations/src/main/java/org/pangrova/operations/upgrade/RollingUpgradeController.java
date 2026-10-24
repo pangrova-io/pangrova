@@ -19,7 +19,7 @@ import java.util.Objects;
  * {@link NodeOperations} backend. No production infrastructure executor
  * (Kubernetes, SSH, etc.) is wired.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova-project/pangrova/issues/F-OPS-002-rolling-upgrade")
+@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-rolling-upgrade")
 public final class RollingUpgradeController {
 
     private static final Logger LOG = LoggerFactory.getLogger(RollingUpgradeController.class);

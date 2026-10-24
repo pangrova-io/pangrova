@@ -52,30 +52,34 @@ explicit Maven generator interpreter use
 accepts `PANGROVA_FUNCTION_CONTRACT_PYTHON`, and CMake accepts `Python3_EXECUTABLE`.
 The host OS's older default Python is not a compliant build runtime.
 
+Run these commands from the repository root with JDK 17, Maven 3.9+, Python 3.10+,
+and Gradle 8.14.4 installed. The native prerequisite check reports the additional
+platform toolchain requirements without installing OS packages.
+
 ```bash
-# 1. Clone the code
 git clone https://github.com/pangrova/pangrova.git
 cd pangrova
 
-# 2. Install dependencies (macOS)
-brew install cmake ninja ccache protobuf
+# Check native tools, then build the pinned Java connector dependency.
+./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools
+.pangrova/scripts/build-iceberg-sdk-candidate.sh
 
-# 3. Build Java modules
+# Build native dependencies, Lance, the engine, and packaged JNI resources.
+./pangrova-worker-native/bin/build-native.sh
 mvn clean install -DskipTests
 
-# 4. Build the Native module
-cd pangrova-worker-native
-mkdir build && cd build
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
-ninja
-
-# 5. Run tests
+# Validate the native and Java suites (Docker is needed for container tests).
+python3 pangrova-worker-native/bin/run-native-tests.py
 mvn test
-cd pangrova-worker-native/build && ctest
 
-# 6. Start a local cluster
-./bin/start-local-cluster.sh
+# Start Coordinator and Worker in one JVM.
+./bin/pangrova-standalone.sh
 ```
+
+The patched Iceberg candidate is built from pinned upstream source and checked
+patches; it is not a Maven Central release. Set `GRADLE_BIN` when Gradle 8.14.4 is
+not the default executable. For the full release validation chain, use the
+repository's build-pipeline rule and the production CI workflow.
 
 ### 1.3 Matching AddressSanitizer Dependencies
 
@@ -515,7 +519,7 @@ public class CsvConnectorIntegrationTest {
 
 ## 4. Connector Development Quickstart
 
-Step-by-step guide from project creation to running integration tests. Assumes JDK 17+, Maven 3.8+, Docker installed.
+Step-by-step guide from project creation to running integration tests. Assumes JDK 17+, Maven 3.9+, Docker installed.
 
 ### Step 1: Create Module
 
@@ -832,32 +836,16 @@ Follow the structured logging format defined in [14 §7](../architecture/observa
 > **Module Structure (§2.1)**: Each connector module follows the convention: `src/main/java/org/pangrova/connector/{format}/spi/` for SPI interfaces and `src/main/java/org/pangrova/connector/{format}/impl/` for implementations. This aligns with [connectors.md §2](../architecture/connectors.md) ClassLoader isolation — SPI packages are loaded by the parent ClassLoader.
 
 
-> **Code Standards (§2.2):** The authoritative policy lives in [repository code standards](https://github.com/pangrova-project/pangrova/blob/main/.pangrova/rules/code-standards.md). This guide is a practical reference and does not override those rules.
+> **Code Standards (§2.2):** The authoritative policy lives in [repository code standards](https://github.com/pangrova/pangrova/blob/main/.pangrova/rules/code-standards.md). This guide is a practical reference and does not override those rules.
 
 
 > **Connector Example (§3.2)**: `ConnectorFactory.create()` signature matches [04 §1.1](../architecture/connectors.md). `getConfigProperties()` returns `Map<String, String>` (not `Properties`) to align with the Connector SPI contract in 04 §1.2.
 
 ---
 
-## Appendix: Quick Start (English)
+## Appendix: Native E2E prerequisites
 
-### Prerequisites
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| JDK | 17+ | Java compilation and runtime |
-| Maven | 3.8+ | Build management |
-| Git | 2.30+ | Version control |
-| Docker | 20+ | Integration tests (TestContainers) |
-| CMake + Ninja | 3.20+ | Native C++ build (optional) |
-
-### Build & Run
-
-```bash
-mvn clean package -DskipTests          # Full build
-bin/pangrova-standalone.sh               # Start standalone
-bin/pangrova-cli.sh                      # Interactive SQL
-```
+Complete the [build setup](#12-quick-start) before running these checks.
 
 ### Running Tests
 

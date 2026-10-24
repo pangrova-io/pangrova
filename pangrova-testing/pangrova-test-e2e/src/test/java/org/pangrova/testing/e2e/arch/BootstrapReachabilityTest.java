@@ -77,9 +77,6 @@ class BootstrapReachabilityTest {
      */
     private static final Set<String> BASELINED_ORPHANS = Set.of(
             "org.pangrova.coordinator.clustering.ClusteringScheduler",
-            "org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshCoordinator",
-            "org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshLockCoordinator",
-            "org.pangrova.coordinator.dynamictable.schedule.RefreshScheduler",
             "org.pangrova.coordinator.query.cache.CacheWarmupService",
             "org.pangrova.coordinator.scheduler.StageScheduler",
             "org.pangrova.coordinator.scheduler.ft.FaultTolerantStageScheduler",

@@ -20,7 +20,7 @@ class PaimonTableHandleTest {
         PaimonTableHandle handle = new PaimonTableHandle(
                 "default", "orders", "file:/warehouse/default.db/orders",
                 Optional.empty(), "[]", List.of(), List.of(), options,
-                PaimonTableHandle.NO_LIMIT);
+                PaimonTableHandle.NO_LIMIT, Optional.empty());
         options.put("bucket", "2");
 
         assertThat(handle.properties()).containsEntry("bucket", "1").doesNotContainKey("owner");

@@ -6,7 +6,7 @@ import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.planner.mv.MaterializedViewQueryRewriter;
+import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
 import org.pangrova.planner.metadata.MetadataVersionProvider;
 import org.pangrova.planner.stats.StatisticsCollector;
 
@@ -15,7 +15,7 @@ import org.pangrova.planner.stats.StatisticsCollector;
  * Null fields disable the corresponding feature.
  *
  * @param statisticsCollector statistics collector for CBO, or null to disable
- * @param materializedViewRewriter materialized view rewriter, or null to disable
+ * @param materializedViewCatalog published materialized view catalog, or null to disable rewrite
  * @param queryResultCache query result cache, or null to disable
  * @param dynamicPartitionPruningConfig DPP configuration, or null to disable
  * @param runtimeFilterRegistry shared registry for DPP runtime filters, or null to create internal
@@ -26,7 +26,7 @@ import org.pangrova.planner.stats.StatisticsCollector;
  */
 public record PlannerContext(
         StatisticsCollector statisticsCollector,
-        MaterializedViewQueryRewriter materializedViewRewriter,
+        MaterializedViewRewriteCatalog materializedViewCatalog,
         QueryResultCache queryResultCache,
         DynamicPartitionPruningConfig dynamicPartitionPruningConfig,
         RuntimeFilterRegistry runtimeFilterRegistry,
@@ -42,13 +42,13 @@ public record PlannerContext(
     /** Backward-compatible constructor without CBO config. */
     public PlannerContext(
             StatisticsCollector statisticsCollector,
-            MaterializedViewQueryRewriter materializedViewRewriter,
+            MaterializedViewRewriteCatalog materializedViewCatalog,
             QueryResultCache queryResultCache,
             DynamicPartitionPruningConfig dynamicPartitionPruningConfig,
             RuntimeFilterRegistry runtimeFilterRegistry,
             DynamicTableRewriter dynamicTableRewriter,
             MetadataVersionProvider metadataVersionProvider) {
-        this(statisticsCollector, materializedViewRewriter, queryResultCache,
+        this(statisticsCollector, materializedViewCatalog, queryResultCache,
                 dynamicPartitionPruningConfig, runtimeFilterRegistry,
                 dynamicTableRewriter, metadataVersionProvider, null, null);
     }

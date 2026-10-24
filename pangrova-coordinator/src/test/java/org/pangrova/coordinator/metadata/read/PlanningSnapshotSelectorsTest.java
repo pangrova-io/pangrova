@@ -50,4 +50,19 @@ class PlanningSnapshotSelectorsTest {
         assertThat(PlanningSnapshotSelectors.snapshot(replaced, "cat", "db", "first")).isEmpty();
         assertThat(PlanningSnapshotSelectors.snapshot(replaced, "cat", "db", "second")).hasValue(9);
     }
+
+    @Test
+    void trustedKernelSnapshotsBindWhileClientSelectorsAreStripped() {
+        var context = new CoordinatorSessionContext("query", Map.of(
+                "catalog", "cat",
+                "pangrova.source_snapshot.cat.db.forged", "99"), null, "tenant")
+                .withSourceSnapshots(Map.of(
+                        PlanningSnapshotSelectors.tableKey("cat", "db", "orders"), 7L));
+
+        var session = SessionContextConverter.toConnectorSession(context);
+
+        assertThat(PlanningSnapshotSelectors.snapshot(session, "cat", "db", "orders")).hasValue(7);
+        assertThat(session.getProperties())
+                .doesNotContainKey("pangrova.source_snapshot.cat.db.forged");
+    }
 }

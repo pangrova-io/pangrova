@@ -132,8 +132,9 @@ class ArchitectureRegressionE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT
                     + " TARGET_LAG = 'PT5M' AS SELECT * FROM " + SRC);
             sqlRunner.execute("INSERT INTO " + SRC + " VALUES (2,'B',20.0),(3,'C',30.0)");
+            sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT + " REFRESH");
             List<TypedRow> rows = sqlRunner.execute("SELECT * FROM " + DT);
-            assertThat(rows).hasSizeGreaterThanOrEqualTo(1);
+            assertThat(rows).hasSize(3);
         }
         @Test
         @DisplayName("Aggregate DT maintains correct totals")

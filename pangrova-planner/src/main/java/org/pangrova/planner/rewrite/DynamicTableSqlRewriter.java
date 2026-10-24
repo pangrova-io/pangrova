@@ -24,7 +24,7 @@ import java.util.Optional;
 
 /**
  * Pre-parse SQL rewriter that replaces Dynamic Table names with their
- * physical target table ({@code __dt_NAME}).
+ * published physical generation.
  *
  * <p>Extracted from {@link PangrovaPlanner} to keep the planner focused on
  * plan generation. Supports chained DT resolution (DT_C → DT_B → source)
@@ -45,36 +45,7 @@ public final class DynamicTableSqlRewriter {
     }
 
     /**
-     * Returns the underlying DT rewriter for merge-on-read resolution.
-     */
-    public DynamicTableRewriter getDynamicTableRewriter() {
-        return dynamicTableRewriter;
-    }
-
-    /**
-     * Extracts table names referenced in the SQL for merge-on-read resolution.
-     * Returns simple (unqualified) table names from the AST.
-     */
-    public List<String> extractTableNames(String sql) {
-        try {
-            Statement ast = parserFactory.parseToAst(sql);
-            List<TableRef> refs = extractTableRefs(ast);
-            List<String> names = new ArrayList<>();
-            for (TableRef ref : refs) {
-                String name = extractSimpleName(ref.name());
-                if (name != null) {
-                    names.add(name);
-                }
-            }
-            return names;
-        } catch (Exception e) {
-            LOG.debug("event=dt_extract_table_names_failed reason={}", e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * Rewrites Dynamic Table references in SQL text to physical target tables.
+     * Rewrites Dynamic Table references in SQL text to published physical generations.
      * Iterates to resolve chained DTs; returns original SQL unchanged if no DTs found.
      */
     public String rewrite(String sql) {
@@ -134,6 +105,7 @@ public final class DynamicTableSqlRewriter {
 
     private static boolean generationTableName(List<? extends Token> tokens, int start) {
         String last = null;
+        boolean reservedSchema = false;
         int index = start;
         while (index < tokens.size()) {
             Token token = tokens.get(index);
@@ -151,14 +123,25 @@ public final class DynamicTableSqlRewriter {
                 }
             }
             last = part;
+            reservedSchema |= RESERVED_SCHEMA.equalsIgnoreCase(part);
             index++;
             if (index >= tokens.size() || tokens.get(index).getType() != PangrovaSqlLexer.DOT) {
                 break;
             }
             index++;
         }
-        return last != null && last.toLowerCase(java.util.Locale.ROOT).startsWith("__pg_dt_");
+        if (last == null) {
+            return false;
+        }
+        String lower = last.toLowerCase(java.util.Locale.ROOT);
+        return reservedSchema || lower.startsWith(CANDIDATE_PREFIX)
+                || lower.startsWith(LEGACY_CANDIDATE_PREFIX);
     }
+
+    // Mirrors the kernel's InternalNamespace; the planner must not depend on materialization.
+    private static final String RESERVED_SCHEMA = "__pangrova_materializations";
+    private static final String CANDIDATE_PREFIX = "__pg_mat_";
+    private static final String LEGACY_CANDIDATE_PREFIX = "__pg_dt_";
 
     /** Query-owned, immutable table identity mapping consumed by protected planning. */
     public record RewriteWithAuthority(String sql,
@@ -197,40 +180,28 @@ public final class DynamicTableSqlRewriter {
     private String rewriteTableRef(String sql, TableRef ref,
             Map<QualifiedTableName, QualifiedTableName> physicalToLogical,
             Map<QualifiedTableName, Optional<DynamicTableRewriter.PublishedTarget>> pinnedTargets) {
-        if (!dynamicTableRewriter.usesRegistry()) {
-            List<String> nameParts = ref.name().parts();
-            Optional<DynamicTableRewriter.PublishedTarget> target = dynamicTableRewriter
-                    .canonicalPublishedLogical(nameParts)
-                    .map(logical -> pinnedTargets.computeIfAbsent(logical,
-                            ignored -> dynamicTableRewriter.resolvePublishedTarget(nameParts)))
-                    .orElseGet(() -> dynamicTableRewriter.resolvePublishedTarget(nameParts));
-            if (target.isEmpty()) {
-                return sql;
-            }
-            var published = target.orElseThrow();
-            String replaced = replaceTableRef(sql, ref.name(), published.physical().toString(), true);
-            if (replaced.equals(sql)) {
-                return sql;
-            }
-            QualifiedTableName previous = physicalToLogical.putIfAbsent(
-                    published.physical(), published.logical());
-            if (previous != null && !previous.equals(published.logical())) {
-                throw new IllegalStateException("Physical Dynamic Table generation has ambiguous authority");
-            }
-            LOG.info("event=dt_sql_rewrite original={} target={}",
-                    published.logical(), published.physical());
-            return replaced;
-        }
-        String tableName = extractSimpleName(ref.name());
-        if (tableName == null) {
-            return sql;
-        }
-        Optional<String> target = dynamicTableRewriter.resolveTargetTable(tableName);
+        List<String> nameParts = ref.name().parts();
+        Optional<DynamicTableRewriter.PublishedTarget> target = dynamicTableRewriter
+                .canonicalPublishedLogical(nameParts)
+                .map(logical -> pinnedTargets.computeIfAbsent(logical,
+                        ignored -> dynamicTableRewriter.resolvePublishedTarget(nameParts)))
+                .orElseGet(() -> dynamicTableRewriter.resolvePublishedTarget(nameParts));
         if (target.isEmpty()) {
             return sql;
         }
-        LOG.info("event=dt_sql_rewrite original={} target={}", tableName, target.get());
-        return replaceTableRef(sql, ref.name(), target.get(), false);
+        var published = target.orElseThrow();
+        String replaced = replaceTableRef(sql, ref.name(), published.physical().toString());
+        if (replaced.equals(sql)) {
+            return sql;
+        }
+        QualifiedTableName previous = physicalToLogical.putIfAbsent(
+                published.physical(), published.logical());
+        if (previous != null && !previous.equals(published.logical())) {
+            throw new IllegalStateException("Physical Dynamic Table generation has ambiguous authority");
+        }
+        LOG.info("event=dt_sql_rewrite original={} target={}",
+                published.logical(), published.physical());
+        return replaced;
     }
 
     private List<TableRef> extractTableRefs(Statement ast) {
@@ -258,16 +229,7 @@ public final class DynamicTableSqlRewriter {
         return List.of();
     }
 
-    private static String extractSimpleName(Identifier id) {
-        List<String> parts = id.parts();
-        if (parts.isEmpty()) {
-            return null;
-        }
-        return parts.get(parts.size() - 1);
-    }
-
-    private static String replaceTableRef(String sql, Identifier id, String newName,
-            boolean rejectQuotedIdentifiers) {
+    private static String replaceTableRef(String sql, Identifier id, String newName) {
         List<String> parts = id.parts();
         if (parts.isEmpty()) {
             return sql;
@@ -308,12 +270,10 @@ public final class DynamicTableSqlRewriter {
             }
             int last = matchingIdentifier(tokens, depths, i + 1, queryDepth, parts);
             if (last >= 0) {
-                if (rejectQuotedIdentifiers) {
-                    for (int nameToken = i + 1; nameToken <= last; nameToken++) {
-                        if (tokens.get(nameToken).getType() == PangrovaSqlLexer.QUOTED_IDENTIFIER
-                                || tokens.get(nameToken).getType() == PangrovaSqlLexer.BACKTICK_IDENTIFIER) {
-                            return sql;
-                        }
+                for (int nameToken = i + 1; nameToken <= last; nameToken++) {
+                    if (tokens.get(nameToken).getType() == PangrovaSqlLexer.QUOTED_IDENTIFIER
+                            || tokens.get(nameToken).getType() == PangrovaSqlLexer.BACKTICK_IDENTIFIER) {
+                        return sql;
                     }
                 }
                 String replacement = newName.contains(".") ? newName

@@ -329,11 +329,19 @@ implementation; Paimon CDC and atomic UPDATE remain unclosed.
 Participant rollback now claims `PREPARED → ROLLING_BACK` before aborting staged
 files; otherwise a concurrent publisher could claim `COMMITTING` between the
 state read and file deletion. PostgreSQL tests exercise this interleaving.
-The current JDBC row still records only one representative partition, and
-`findLastCommittedOffsets` reconstructs its topic from the stream ID. It
-cannot safely restore a multi-topic/multi-partition source. A durable batch
-intent must retain every exact `(topic, partition, next_offset)` and expose
-those offsets only with a committed publication outcome in one JDBC transaction.
+The JDBC intent stores every exact topic/partition start/end range in
+`offset_ranges`. The COMMITTED state transition exposes the entire checkpoint
+for recovery at once; source acknowledgement follows that durable transition.
+Checkpoint identities include starting offsets and topics, and reuse of an
+explicit batch identity with different ranges is rejected. Failed batches remain
+pending rather than polling past unpublished data. Recovery uses the recorded
+topics and committed next offsets, overriding stale startup offsets for those
+partitions. This does not resolve ambiguous external catalog publication.
+
+Migration V73 retains old representative columns as reconciliation evidence.
+Old active/committed records without complete source checkpoints cannot be safely
+reconstructed and explicitly block recovery until reconciled against actual
+source and catalog history. The migration never substitutes a stream ID for a topic.
 
 ### CDC Repair Contract (Proposed, Not Implemented)
 

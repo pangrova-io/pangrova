@@ -1,41 +1,36 @@
-# Website
+# Pangrova website
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
-
-## Installation
-
-```bash
-yarn
-```
-
-## Local Development
+The Docusaurus site publishes `../docs` and `blog/`. Use Node.js 22 and pnpm 10,
+matching `.github/workflows/deploy-website.yml`. `pnpm-lock.yaml` is the dependency
+lockfile; do not introduce a second package-manager lockfile.
 
 ```bash
-yarn start
+cd website
+pnpm install --frozen-lockfile
+pnpm start
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
-
-## Build
+Before submitting a documentation or site change:
 
 ```bash
-yarn build
+pnpm run typecheck
+pnpm run build
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+Broken routes, Markdown targets and anchors fail the build. Navigation is owned
+by `sidebars.ts`; documentation format is described in
+[the documentation guide](../docs/contributing/documentation.md).
 
-## Deployment
+`docs/internal/` is excluded from the website. Those files are still visible in a
+public Git repository. Link to retained source evidence with a GitHub URL when
+needed; a local site link to an excluded document cannot resolve.
 
-Using SSH:
+`static/img/` is the shared image source for this site and the root README. The
+root README maintains the current execution diagram as Mermaid source.
+Retain `static/.nojekyll`, which is a GitHub Pages deployment marker.
 
-```bash
-USE_SSH=true yarn deploy
-```
-
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+Pull requests validate the site without deployment. Pushes to `main` publish the
+validated `build/` artifact through GitHub Pages; a manual run on `main` can also
+publish. Configure the repository's Pages source as GitHub Actions. No local
+`gh-pages` branch deployment is needed. The canonical URL is
+https://pangrova.github.io/pangrova/.

@@ -106,10 +106,10 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
     }
 
     // ----------------------------------------------------------------
-    // Materialized View — Materialized View Query Rewriting
+    // Materialized View — Calcite substitution
     // ----------------------------------------------------------------
     @Nested
-    @DisplayName("Materialized View: MaterializedViewQueryRewriter ↔ PangrovaPlanner")
+    @DisplayName("Materialized View: CalciteMaterializedViewRewriter ↔ PangrovaPlanner")
     class MaterializedViewIntegrationStatus {
 
         @Test
@@ -124,28 +124,27 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
         }
 
         @Test
-        @DisplayName("PangrovaPlanner.plan() does NOT call MaterializedViewQueryRewriter.rewrite() directly")
-        void planMethodDoesNotCallMaterializedViewRewrite() {
-            Method[] methods = PangrovaPlanner.class.getDeclaredMethods();
-            Set<String> methodNames = Arrays.stream(methods)
-                    .map(Method::getName)
+        @DisplayName("MaterializedViewRewritePass delegates to CalciteMaterializedViewRewriter")
+        void rewritePassUsesCalciteRewriter() {
+            Set<String> fieldTypeNames = Arrays.stream(
+                            org.pangrova.planner.optimization.MaterializedViewRewritePass.class
+                                    .getDeclaredFields())
+                    .map(f -> f.getType().getSimpleName())
                     .collect(Collectors.toSet());
 
-            assertFalse(methodNames.contains("rewriteWithMV"),
-                    "No materialized view rewrite method exists in PangrovaPlanner");
-            assertFalse(methodNames.contains("applyMaterializedViewRewrite"),
-                    "No materialized view rewrite method exists in PangrovaPlanner");
+            assertTrue(fieldTypeNames.contains("CalciteMaterializedViewRewriter"),
+                    "The rewrite pass must own the Calcite substitution engine");
         }
 
         @Test
-        @DisplayName("PangrovaPlanner constructors do NOT accept MaterializedViewRegistry")
-        void constructorsDoNotAcceptMaterializedViewRegistry() {
-            boolean anyConstructorHasMvManager = Arrays.stream(PangrovaPlanner.class.getConstructors())
-                    .flatMap(c -> Arrays.stream(c.getParameterTypes()))
-                    .anyMatch(t -> t.getSimpleName().equals("MaterializedViewRegistry"));
+        @DisplayName("PangrovaPlanner exposes the policy-gated rewrite entry point")
+        void plannerExposesProtectedOptimization() {
+            Set<String> methodNames = Arrays.stream(PangrovaPlanner.class.getDeclaredMethods())
+                    .map(Method::getName)
+                    .collect(Collectors.toSet());
 
-            assertFalse(anyConstructorHasMvManager,
-                    "PangrovaPlanner constructors do not accept MaterializedViewRegistry yet");
+            assertTrue(methodNames.contains("optimizeProtectedQuery"),
+                    "Policy-gated optimization must remain the only rewrite entry point");
         }
     }
 
@@ -179,11 +178,10 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
         @Test
         @DisplayName("Materialized View classes are loadable")
         void materializedViewClassesExist() throws ClassNotFoundException {
-            Class.forName("org.pangrova.planner.mv.MaterializedViewQueryRewriter");
-            Class.forName("org.pangrova.planner.mv.MaterializedViewRegistry");
-            Class.forName("org.pangrova.planner.mv.DigestPlanRewriter");
-            Class.forName("org.pangrova.planner.mv.MaterializedViewDefinition");
-            Class.forName("org.pangrova.planner.mv.MaterializedViewCandidate");
+            Class.forName("org.pangrova.planner.mv.CalciteMaterializedViewRewriter");
+            Class.forName("org.pangrova.planner.mv.MaterializedViewPlanEligibility");
+            Class.forName("org.pangrova.planner.mv.MaterializedViewRewriteCatalog");
+            Class.forName("org.pangrova.planner.optimization.MaterializedViewRewritePass");
         }
     }
 }

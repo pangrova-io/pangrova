@@ -10,6 +10,7 @@ import org.pangrova.spi.streaming.CdcSourceReader;
 import org.pangrova.spi.streaming.CdcWriteSink;
 import org.pangrova.spi.streaming.TopicPartitionOffset;
 import org.pangrova.streaming.cdc.CdcPipelineConfig;
+import org.pangrova.streaming.cdc.commit.SourceId;
 import org.pangrova.streaming.cdc.CdcPipelineListener;
 import org.pangrova.streaming.cdc.CdcPipelineLoop;
 import org.pangrova.streaming.cdc.CdcPipelineLoopContext;
@@ -45,12 +46,50 @@ public final class StreamScheduler implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(StreamScheduler.class);
 
-    /**
-     * Holds a pipeline loop together with its target table name,
-     * so {@link #stop(String)} can call {@code WatermarkTracker.removeTable()}.
-     * BUG-D22 fix.
-     */
-    record PipelineEntry(CdcPipelineLoop loop, String targetTable) {}
+    /** One reserved stream slot; queued cancellation and execution have exclusive resource ownership. */
+    private final class PipelineEntry implements Runnable {
+        private final String streamName;
+        private final String targetTable;
+        private final AtomicBoolean claimed = new AtomicBoolean();
+        private CdcSourceReader reader;
+        private CdcWriteSink sink;
+        private volatile CdcPipelineLoop loop;
+        private volatile StreamState state;
+
+        PipelineEntry(StreamState state) {
+            streamName = state.streamName();
+            targetTable = state.targetTable();
+        }
+
+        void install(CdcPipelineLoop newLoop, CdcSourceReader newReader, CdcWriteSink newSink) {
+            reader = newReader;
+            sink = newSink;
+            loop = newLoop;
+        }
+
+        void stop() {
+            CdcPipelineLoop installed = loop;
+            if (installed != null) {
+                installed.stop();
+                if (claimed.compareAndSet(false, true)) {
+                    closeUnstarted(reader, sink);
+                }
+            }
+        }
+
+        @Override
+        public void run() {
+            if (!claimed.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                loop.run();
+            } finally {
+                activePipelines.remove(streamName, this);
+                removeUnusedWatermark(targetTable);
+            }
+        }
+    }
 
     private final StreamSchedulerContext deps;
     private final ConcurrentHashMap<String, PipelineEntry> activePipelines = new ConcurrentHashMap<>();
@@ -59,20 +98,28 @@ public final class StreamScheduler implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean(false);
     /** BUG-D16 fix: prevents new pipelines from starting between stopAll and resume. */
     private final AtomicBoolean paused = new AtomicBoolean(false);
-    private volatile String coordinatorId = "";
+    private final String coordinatorId;
+    private final Object lifecycleLock = new Object();
     /** Optional consumer that drives execution of registered continuous queries. */
     private volatile ContinuousQueryConsumer continuousQueryConsumer;
 
-    public StreamScheduler(StreamSchedulerContext deps) {
-        this.deps = Objects.requireNonNull(deps, "deps must not be null");
-        this.pipelineExecutor = ManagedExecutorFactory.newFixedThreadPool(
-                "pangrova-cdc-pipeline", deps.config().pipelineThreadPoolSize());
+    /** Creates a scheduler with the durable identity of its coordinator process. */
+    public StreamScheduler(StreamSchedulerContext deps, String coordinatorId) {
+        this(deps, requireCoordinatorId(coordinatorId), ManagedExecutorFactory.newFixedThreadPool(
+                "pangrova-cdc-pipeline", deps.config().pipelineThreadPoolSize()));
     }
 
-    // Package-private constructor for testing with custom executor
-    StreamScheduler(StreamSchedulerContext deps, ExecutorService executor) {
+    StreamScheduler(StreamSchedulerContext deps, String coordinatorId, ExecutorService executor) {
         this.deps = Objects.requireNonNull(deps, "deps must not be null");
+        this.coordinatorId = requireCoordinatorId(coordinatorId);
         this.pipelineExecutor = Objects.requireNonNull(executor, "executor must not be null");
+    }
+
+    private static String requireCoordinatorId(String coordinatorId) {
+        if (coordinatorId == null || coordinatorId.isBlank()) {
+            throw new IllegalArgumentException("coordinatorId must not be blank");
+        }
+        return coordinatorId;
     }
 
     /**
@@ -100,61 +147,64 @@ public final class StreamScheduler implements AutoCloseable {
         return continuousQueryConsumer;
     }
 
-    public void setCoordinatorId(String coordinatorId) {
-        this.coordinatorId = coordinatorId;
-    }
-
-    /**
-     * Starts a pipeline for the given stream state.
-     * If the stream's coordinatorId doesn't match, re-acquires it.
-     */
+    /** Reserves a local slot before claiming a new durable attempt or allocating source resources. */
     public void start(StreamState state) {
-        if (closed.get()) {
-            LOG.warn("event=stream_start_rejected stream={} reason=scheduler_closed", state.streamName());
-            return;
-        }
-        // BUG-D16 fix: reject new pipelines while paused (leadership loss in progress)
-        if (paused.get()) {
-            LOG.warn("event=stream_start_rejected stream={} reason=scheduler_paused", state.streamName());
-            return;
-        }
-
-        // Re-acquisition check: ensure this coordinator owns the stream
-        StreamState currentState = state;
-        if (!coordinatorId.isEmpty() && !coordinatorId.equals(state.coordinatorId())) {
-            StreamState reacquired = state.withReacquisition(coordinatorId);
-            try {
-                deps.stateStore().saveStateIfEpoch(reacquired, state.epoch());
-                currentState = reacquired;
-                LOG.info("event=stream_reacquired stream={} newCoordinatorId={} newEpoch={}",
-                        currentState.streamName(), coordinatorId, currentState.epoch());
-            } catch (Exception e) {
-                LOG.warn("event=stream_reacquisition_failed stream={} error={}",
-                        state.streamName(), e.getMessage());
+        PipelineEntry entry = new PipelineEntry(state);
+        synchronized (lifecycleLock) {
+            if (closed.get() || paused.get()
+                    || activePipelines.putIfAbsent(state.streamName(), entry) != null) {
                 return;
             }
         }
-
-        // Effectively final for use in lambda below
-        final StreamState effectiveState = currentState;
-        String streamName = effectiveState.streamName();
-        if (activePipelines.containsKey(streamName)) {
-            LOG.info("event=stream_already_active stream={}", streamName);
+        StreamState claimed = state.withReacquisition(coordinatorId);
+        try {
+            deps.stateStore().saveStateIfEpoch(claimed, state.epoch());
+        } catch (org.pangrova.common.exception.StaleEpochException stale) {
+            activePipelines.remove(state.streamName(), entry);
+            LOG.info("event=stream_claim_lost stream={}", state.streamName());
             return;
+        } catch (RuntimeException | Error failure) {
+            activePipelines.remove(state.streamName(), entry);
+            throw failure;
         }
-
-        CdcSourceReader reader = deps.sourceReaderFactory().apply(effectiveState);
-        CdcWriteSink writeSink = deps.writeSinkFactory().apply(effectiveState);
-
-        // BUG-013 fix: Load offsets here but defer seekToOffsets to CdcPipelineLoop.run()
-        // so it executes on the pipeline thread. CdcSourceReader (e.g., KafkaConsumer)
-        // is not thread-safe — seeking on the scheduler thread while the pipeline thread
-        // polls would cause ConcurrentModificationException.
-        Map<TopicPartitionOffset, Long> offsets = deps.offsetStore().loadOffsets(streamName);
-        if (!offsets.isEmpty()) {
-            LOG.info("event=stream_offset_loaded stream={} partitions={}", streamName, offsets.size());
+        entry.state = claimed;
+        try {
+            preparePipeline(entry, claimed);
+        } catch (RuntimeException | Error failure) {
+            entry.stop();
+            pipelineFailed(entry, claimed, failure);
+            throw failure;
         }
+    }
 
+    private void preparePipeline(PipelineEntry entry, StreamState effectiveState) {
+        String streamName = effectiveState.streamName();
+        CdcSourceReader reader = null;
+        CdcWriteSink writeSink = null;
+        boolean transferred = false;
+        try {
+            reader = deps.sourceReaderFactory().apply(effectiveState);
+            writeSink = deps.writeSinkFactory().apply(effectiveState);
+            Map<TopicPartitionOffset, Long> offsets = deps.offsetStore().loadOffsets(streamName);
+            CdcPipelineLoop loop = createLoop(entry, effectiveState, reader, writeSink, offsets);
+            synchronized (lifecycleLock) {
+                if (closed.get() || paused.get() || activePipelines.get(streamName) != entry) {
+                    return;
+                }
+                entry.install(loop, reader, writeSink);
+                transferred = true;
+                pipelineExecutor.execute(entry);
+            }
+        } finally {
+            if (!transferred) {
+                closeUnstarted(reader, writeSink);
+            }
+        }
+    }
+
+    private CdcPipelineLoop createLoop(PipelineEntry entry, StreamState effectiveState,
+            CdcSourceReader reader, CdcWriteSink writeSink, Map<TopicPartitionOffset, Long> offsets) {
+        String streamName = effectiveState.streamName();
         CdcRecordConverter converter = deps.converterRegistry().get(effectiveState.sourceFormat());
         StreamConfig config = deps.config();
 
@@ -164,6 +214,7 @@ public final class StreamScheduler implements AutoCloseable {
 
         CdcPipelineConfig pipelineConfig = new CdcPipelineConfig(
                 streamName,
+                new SourceId(effectiveState.checkpointId()),
                 effectiveState.targetTable(),
                 batchSize,
                 Duration.ofSeconds(1),
@@ -172,12 +223,7 @@ public final class StreamScheduler implements AutoCloseable {
                 5,
                 Duration.parse(config.defaultFlushInterval()));
 
-        CdcPipelineListener listener = ex -> {
-            LOG.error("event=pipeline_failed stream={} error={}", streamName, ex.getMessage());
-            StreamState failed = effectiveState.withError(ex.getMessage());
-            deps.stateStore().saveState(failed);
-            activePipelines.remove(streamName);
-        };
+        CdcPipelineListener listener = failure -> pipelineFailed(entry, effectiveState, failure);
 
         CdcQuotaEnforcer quotaEnforcer = new CdcQuotaEnforcer(
                 config.defaultMaxConcurrentWrites(), config.defaultMaxPendingBytes());
@@ -186,31 +232,82 @@ public final class StreamScheduler implements AutoCloseable {
                 reader, converter, writeSink, quotaEnforcer,
                 deps.watermarkTracker(), deps.maintenanceScheduler(),
                 new CdcPipelineRuntimeHooks(
-                        listener, BackoffStrategy.retry(100, CDC_RETRY_MAX_DELAY_MS), null));
+                        listener, BackoffStrategy.retry(100, CDC_RETRY_MAX_DELAY_MS), deps.commitCoordinator()));
 
-        CdcPipelineLoop loop = new CdcPipelineLoop(pipelineConfig, loopDeps, offsets);
-        PipelineEntry entry = new PipelineEntry(loop, effectiveState.targetTable());
-        PipelineEntry existing = activePipelines.putIfAbsent(streamName, entry);
-        if (existing != null) {
-            LOG.info("event=stream_already_active_concurrent stream={}", streamName);
-            return;
-        }
-        pipelineExecutor.submit(loop);
-
-        LOG.info("event=stream_pipeline_started stream={} target={}", streamName, effectiveState.targetTable());
+        return new CdcPipelineLoop(pipelineConfig, loopDeps, offsets);
     }
 
-    /**
-     * Stops a pipeline for the given stream.
-     * BUG-D22 fix: also removes watermark tracking state for the target table.
-     */
+    private void pipelineFailed(PipelineEntry entry, StreamState state, Throwable failure) {
+        if (activePipelines.get(state.streamName()) != entry) {
+            return;
+        }
+        try {
+            StreamState failed = state.withError(failure.getMessage()).toBuilder()
+                    .epoch(Math.incrementExact(state.epoch())).build();
+            deps.stateStore().saveStateIfEpoch(failed, state.epoch());
+        } catch (org.pangrova.common.exception.StaleEpochException stale) {
+            LOG.info("event=stream_failure_callback_stale stream={}", state.streamName());
+        } catch (RuntimeException persistenceFailure) {
+            failure.addSuppressed(persistenceFailure);
+            LOG.error("event=stream_failure_persistence_failed stream={}", state.streamName(), persistenceFailure);
+        } finally {
+            activePipelines.remove(state.streamName(), entry);
+            removeUnusedWatermark(entry.targetTable);
+        }
+    }
+
+    /** Stops the exact locally registered attempt, including one still being prepared or queued. */
     public void stop(String streamName) {
-        PipelineEntry entry = activePipelines.remove(streamName);
+        PipelineEntry entry;
+        synchronized (lifecycleLock) {
+            entry = activePipelines.remove(streamName);
+        }
         if (entry != null) {
-            entry.loop().stop();
-            deps.watermarkTracker().removeTable(entry.targetTable());
-            LOG.info("event=stream_pipeline_stopped stream={} targetTableRemoved={}",
-                    streamName, entry.targetTable());
+            entry.stop();
+            removeUnusedWatermark(entry.targetTable);
+        }
+    }
+
+    /** Reconciles remote DDL changes and discovers RUNNING streams while locally active. */
+    public void reconcile() {
+        List<PipelineEntry> entries;
+        synchronized (lifecycleLock) {
+            if (closed.get() || paused.get()) return;
+            entries = List.copyOf(activePipelines.values());
+        }
+        for (PipelineEntry entry : entries) {
+            StreamState attempt = entry.state;
+            if (attempt == null) continue;
+            var current = deps.stateStore().loadState(entry.streamName);
+            boolean unchanged = current.filter(state -> state.lifecycleState() == StreamLifecycleState.RUNNING
+                    && state.epoch() == attempt.epoch()
+                    && state.checkpointId().equals(attempt.checkpointId())
+                    && state.tenantId().equals(attempt.tenantId())).isPresent();
+            if (!unchanged && activePipelines.remove(entry.streamName, entry)) {
+                entry.stop();
+                removeUnusedWatermark(entry.targetTable);
+            }
+        }
+        resumeAll();
+    }
+
+    private void removeUnusedWatermark(String targetTable) {
+        synchronized (lifecycleLock) {
+            if (activePipelines.values().stream().noneMatch(entry -> entry.targetTable.equals(targetTable))) {
+                deps.watermarkTracker().removeTable(targetTable);
+            }
+        }
+    }
+
+    private static void closeUnstarted(CdcSourceReader reader, CdcWriteSink sink) {
+        for (AutoCloseable resource : new AutoCloseable[] {reader, sink}) {
+            if (resource != null) {
+                try {
+                    resource.close();
+                } catch (Exception failure) {
+                    LOG.warn("event=stream_unstarted_resource_close_failed", failure);
+                }
+            }
         }
     }
 
@@ -219,6 +316,7 @@ public final class StreamScheduler implements AutoCloseable {
      * Called on HA leader election.
      */
     public void resumeAll() {
+        if (closed.get() || paused.get()) return;
         List<StreamState> runningStreams = deps.stateStore().listByState(StreamLifecycleState.RUNNING);
         LOG.info("event=stream_resume_all count={}", runningStreams.size());
         for (StreamState state : runningStreams) {
@@ -238,22 +336,25 @@ public final class StreamScheduler implements AutoCloseable {
      * BUG-D22 fix: also removes watermark tracking state for each target table.
      */
     public void stopAll() {
-        paused.set(true);
-        LOG.info("event=stream_stop_all count={}", activePipelines.size());
-        for (Map.Entry<String, PipelineEntry> entry : activePipelines.entrySet()) {
-            entry.getValue().loop().stop();
-            deps.watermarkTracker().removeTable(entry.getValue().targetTable());
+        List<PipelineEntry> entries;
+        synchronized (lifecycleLock) {
+            paused.set(true);
+            entries = List.copyOf(activePipelines.values());
+            activePipelines.clear();
         }
-        activePipelines.clear();
+        for (PipelineEntry entry : entries) {
+            entry.stop();
+            removeUnusedWatermark(entry.targetTable);
+        }
     }
 
-    /**
-     * Resumes accepting new pipelines after a stopAll.
-     * Called on re-election as leader.
-     */
+    /** Accepts new work again after leadership is regained. */
     public void resume() {
-        paused.set(false);
-        LOG.info("event=stream_scheduler_resumed");
+        synchronized (lifecycleLock) {
+            if (!closed.get()) {
+                paused.set(false);
+            }
+        }
     }
 
     @Override

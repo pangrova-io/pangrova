@@ -2,6 +2,9 @@ package org.pangrova.coordinator.streaming;
 
 import org.pangrova.spi.streaming.SourceRecord;
 import org.pangrova.spi.streaming.TopicPartitionOffset;
+import org.pangrova.testing.ContainerTestBase;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -21,8 +24,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration test verifying Kafka offset seek-back on truncation.
@@ -32,10 +38,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * are delivered on subsequent polls.</p>
  */
 @Testcontainers
-class KafkaCdcSourceReaderIntegrationTest {
+class KafkaCdcSourceReaderIntegrationTest extends ContainerTestBase {
 
-    private static final String TOPIC = "seek-back-test";
-    private static final String GROUP_ID = "seek-back-test-group";
+    private String topic;
+    private String groupId;
 
     @Container
     private static final KafkaContainer KAFKA = new KafkaContainer(
@@ -45,7 +51,13 @@ class KafkaCdcSourceReaderIntegrationTest {
     private KafkaProducer<byte[], byte[]> producer;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        topic = "seek-back-" + UUID.randomUUID();
+        groupId = "recovery-" + UUID.randomUUID();
+        try (var admin = AdminClient.create(Map.of("bootstrap.servers", KAFKA.getBootstrapServers()))) {
+            admin.createTopics(List.of(new NewTopic(topic, 2, (short) 1)))
+                    .all().get(30, TimeUnit.SECONDS);
+        }
         Properties producerProps = new Properties();
         producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
         producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
@@ -55,7 +67,7 @@ class KafkaCdcSourceReaderIntegrationTest {
         Map<String, String> extraConfig = new HashMap<>();
         extraConfig.put("auto.offset.reset", "earliest");
         reader = new KafkaCdcSourceReader(
-                KAFKA.getBootstrapServers(), TOPIC, GROUP_ID, extraConfig);
+                KAFKA.getBootstrapServers(), topic, groupId, extraConfig);
     }
 
     @AfterEach
@@ -75,7 +87,7 @@ class KafkaCdcSourceReaderIntegrationTest {
 
         for (int i = 0; i < totalRecords; i++) {
             byte[] value = ("record-" + i).getBytes(StandardCharsets.UTF_8);
-            producer.send(new ProducerRecord<>(TOPIC, value));
+            producer.send(new ProducerRecord<>(topic, value));
         }
         producer.flush();
 
@@ -104,6 +116,60 @@ class KafkaCdcSourceReaderIntegrationTest {
         for (int i = 0; i < totalRecords; i++) {
             assertThat(values).contains("record-" + i);
         }
+    }
+
+    @Test
+    void restartCheckpointsOverrideKafkaOffsetsBeforeFirstAssignment() throws Exception {
+        for (int partition = 0; partition < 2; partition++) {
+            for (int offset = 0; offset < 5; offset++) {
+                producer.send(new ProducerRecord<>(topic, partition, null,
+                        (partition + ":" + offset).getBytes(StandardCharsets.UTF_8)))
+                        .get(30, TimeUnit.SECONDS);
+            }
+        }
+        List<SourceRecord> original = pollAtLeast(10, 10);
+        assertThat(original).hasSize(10);
+        reader.commitOffsets(extractMaxOffsets(original));
+        reader.close();
+        reader = new KafkaCdcSourceReader(KAFKA.getBootstrapServers(), topic, groupId,
+                Map.of("auto.offset.reset", "earliest"));
+
+        // This is the production startup order: JDBC recovery precedes the first poll.
+        reader.seekToOffsets(Map.of(new TopicPartitionOffset(topic, 0), 2L,
+                new TopicPartitionOffset(topic, 1), 4L));
+
+        assertThat(pollAtLeast(4, 10).stream().map(record -> record.partition() + ":" + record.offset()))
+                .containsExactlyInAnyOrder("0:2", "0:3", "0:4", "1:4");
+    }
+
+    @Test
+    void explicitSeekAlsoAppliesToAlreadyAssignedPartitions() throws Exception {
+        for (int offset = 0; offset < 5; offset++) {
+            producer.send(new ProducerRecord<>(topic, 0, null, new byte[] {(byte) offset}))
+                    .get(30, TimeUnit.SECONDS);
+        }
+        assertThat(pollAtLeast(2, 2)).hasSize(2);
+
+        reader.seekToOffsets(Map.of(new TopicPartitionOffset(topic, 0), 4L));
+
+        assertThat(pollAtLeast(1, 10)).extracting(SourceRecord::offset).containsExactly(4L);
+    }
+
+    @Test
+    void recoveryCannotSilentlyQueueOffsetsForAnotherTopic() {
+        assertThatThrownBy(() -> reader.seekToOffsets(Map.of(new TopicPartitionOffset("other", 0), 1L)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> reader.seekToOffsets(Map.of(new TopicPartitionOffset(topic, 0), -1L)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private List<SourceRecord> pollAtLeast(int count, int maxBatchSize) {
+        var records = new ArrayList<SourceRecord>();
+        long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (records.size() < count && System.nanoTime() < deadline) {
+            records.addAll(reader.pollBatch(maxBatchSize, Duration.ofSeconds(1)));
+        }
+        return records;
     }
 
     private Map<TopicPartitionOffset, Long> extractMaxOffsets(List<SourceRecord> batch) {

@@ -39,7 +39,19 @@ public final class CompilationPhase implements QueryExecutionPhase {
     /** Applies security policies (access control, column masking, row filtering) to a compiled plan. */
     @FunctionalInterface
     public interface SecurityPolicyEnforcer {
-        PlannedQuery applyPolicies(PlannedQuery plan, CoordinatorSessionContext session);
+        ProtectedPlan applyPolicies(PlannedQuery plan, CoordinatorSessionContext session);
+    }
+
+    /**
+     * One protected plan and whether policy expressions were injected.
+     *
+     * @param plan authorized and policy-protected plan
+     * @param policiesApplied true when a row filter or column mask was applied
+     */
+    public record ProtectedPlan(PlannedQuery plan, boolean policiesApplied) {
+        public ProtectedPlan {
+            checkNotNull(plan, "plan");
+        }
     }
 
     /** Extracts time-travel specs from SQL, returning stripped SQL and snapshot overrides. */
@@ -100,8 +112,10 @@ public final class CompilationPhase implements QueryExecutionPhase {
         PlannedQuery plannedQuery = planResult.toPlannedQuery();
 
         // Apply security policies to this authenticated query's plan.
-        plannedQuery = securityPolicyEnforcer.applyPolicies(plannedQuery, context.session());
-        plannedQuery = currentCompiler.optimizeProtectedQuery(plannedQuery);
+        ProtectedPlan protectedPlan = securityPolicyEnforcer.applyPolicies(
+                plannedQuery, context.session());
+        plannedQuery = currentCompiler.optimizeProtectedQuery(protectedPlan.plan(),
+                rewriteIsProven(protectedPlan, ttResult));
 
         context.stateMachine().bindLineageMetadata(lineageCapture.captureLineageInfo(
                 context.session().queryId(), context.originalSql(), plannedQuery));
@@ -115,5 +129,14 @@ public final class CompilationPhase implements QueryExecutionPhase {
     @Override
     public String name() {
         return "compilation";
+    }
+
+    /**
+     * A published snapshot may only replace source scans when the query is an
+     * unfiltered, unmasked, non-time-travelling read of the current generation.
+     */
+    private static boolean rewriteIsProven(ProtectedPlan protectedPlan,
+            TimeTravelResult timeTravel) {
+        return !protectedPlan.policiesApplied() && timeTravel.snapshotOverrides().isEmpty();
     }
 }

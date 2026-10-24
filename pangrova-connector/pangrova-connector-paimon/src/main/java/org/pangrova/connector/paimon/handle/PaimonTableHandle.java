@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SnapshotRange;
 
 /**
  * Immutable handle referencing a Paimon table by schema, name, and metadata snapshot.
@@ -31,7 +32,8 @@ public record PaimonTableHandle(
         List<String> primaryKeys,
         List<String> partitionKeys,
         Map<String, String> properties,
-        long pushedLimit) implements ConnectorTableHandle {
+        long pushedLimit,
+        Optional<SnapshotRange> incrementalRange) implements ConnectorTableHandle {
 
     /** No limit pushed down. */
     public static final long NO_LIMIT = 0L;
@@ -51,6 +53,7 @@ public record PaimonTableHandle(
         snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
         primaryKeys = primaryKeys == null ? List.of() : List.copyOf(primaryKeys);
         partitionKeys = partitionKeys == null ? List.of() : List.copyOf(partitionKeys);
+        incrementalRange = incrementalRange == null ? Optional.empty() : incrementalRange;
         if (properties == null) {
             properties = Map.of();
         } else {
@@ -82,7 +85,7 @@ public record PaimonTableHandle(
         return new PaimonTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.of(targetSnapshotId), rowTypeJson,
-                primaryKeys, partitionKeys, selectedProperties, pushedLimit);
+                primaryKeys, partitionKeys, selectedProperties, pushedLimit, Optional.empty());
     }
 
     @Override
@@ -102,7 +105,7 @@ public record PaimonTableHandle(
         return new PaimonTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.empty(), rowTypeJson,
-                primaryKeys, partitionKeys, selectedProperties, pushedLimit);
+                primaryKeys, partitionKeys, selectedProperties, pushedLimit, Optional.empty());
     }
 
     /**
@@ -115,7 +118,26 @@ public record PaimonTableHandle(
         return new PaimonTableHandle(
                 schemaName, tableName, tableLocation,
                 snapshotId, rowTypeJson,
-                primaryKeys, partitionKeys, properties, limit);
+                primaryKeys, partitionKeys, properties, limit, incrementalRange);
+    }
+
+    /**
+     * Creates a handle that reads only files appended inside the snapshot range.
+     *
+     * @param range inclusive append-only snapshot range
+     * @return a new handle with the incremental range bound
+     */
+    public PaimonTableHandle withIncrementalRange(SnapshotRange range) {
+        if (range == null) {
+            throw new IllegalArgumentException("range must not be null");
+        }
+        var selectedProperties = new java.util.LinkedHashMap<>(properties);
+        selectedProperties.remove(CURRENT_SCHEMA_PROPERTY);
+        selectedProperties.remove(SOURCE_IDENTITY_PROPERTY);
+        return new PaimonTableHandle(
+                schemaName, tableName, tableLocation,
+                Optional.empty(), rowTypeJson,
+                primaryKeys, partitionKeys, selectedProperties, pushedLimit, Optional.of(range));
     }
 
     /**

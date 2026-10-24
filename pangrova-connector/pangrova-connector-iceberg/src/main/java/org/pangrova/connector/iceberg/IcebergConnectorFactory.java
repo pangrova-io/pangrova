@@ -9,10 +9,11 @@ import org.apache.iceberg.rest.RESTCatalog;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Locale;
 
 /**
  * Factory for creating Iceberg connector instances with real Catalog.
- * Supports hadoop (default) and REST catalog types.
+ * Resolves the configured SDK catalog type without substituting another backend.
  * Delegates catalog construction to Iceberg CatalogUtil or RESTCatalog directly.
  */
 public class IcebergConnectorFactory implements ConnectorFactory {
@@ -57,11 +58,50 @@ public class IcebergConnectorFactory implements ConnectorFactory {
     private record CatalogAndFileIO(Catalog catalog, org.apache.iceberg.io.FileIO fileIO) {}
 
     private CatalogAndFileIO buildCatalog(String catalogName, Map<String, String> config) {
-        String catalogType = config.get(CATALOG_TYPE_KEY);
+        Map<String, String> normalized = normalizeCatalogProperties(config);
+        String catalogType = normalized.get("type");
         if (CATALOG_TYPE_REST.equalsIgnoreCase(catalogType)) {
-            return new CatalogAndFileIO(buildRestCatalog(catalogName, config), null);
+            return new CatalogAndFileIO(buildRestCatalog(catalogName, normalized), null);
         }
-        return buildHadoopCatalog(catalogName, config);
+        return buildSdkCatalog(catalogName, normalized);
+    }
+
+    private static Map<String, String> normalizeCatalogProperties(Map<String, String> config) {
+        Map<String, String> properties = new HashMap<>(config);
+        String type = catalogType(config.get("type"), "type");
+        String alias = catalogType(properties.remove(CATALOG_TYPE_KEY), CATALOG_TYPE_KEY);
+        if (type != null && alias != null && !type.equals(alias)) {
+            throw new IllegalArgumentException("Conflicting Iceberg catalog properties: type and catalog-type");
+        }
+        String selected = type != null ? type : alias;
+        if (properties.containsKey("catalog-impl")) {
+            if (selected != null) {
+                throw new IllegalArgumentException("Use either catalog-impl or a catalog type, not both");
+            }
+        } else {
+            selected = selected != null ? selected : "hadoop";
+            properties.put("type", selected);
+        }
+        if ("hadoop".equals(selected) || "jdbc".equals(selected)) {
+            requireProperty(properties, "warehouse", selected);
+        }
+        if ("jdbc".equals(selected) || "rest".equals(selected)) {
+            requireProperty(properties, "uri", selected);
+        }
+        return properties;
+    }
+
+    private static String catalogType(String value, String key) {
+        if (value == null) return null;
+        if (value.isBlank()) throw new IllegalArgumentException("Iceberg " + key + " must not be blank");
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static void requireProperty(Map<String, String> properties, String key, String type) {
+        String value = properties.get(key);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Iceberg " + type + " catalog requires '" + key + "'");
+        }
     }
 
     private Catalog buildRestCatalog(String catalogName, Map<String, String> config) {
@@ -94,45 +134,17 @@ public class IcebergConnectorFactory implements ConnectorFactory {
         }
     }
 
-    private CatalogAndFileIO buildHadoopCatalog(String catalogName, Map<String, String> config) {
+    private CatalogAndFileIO buildSdkCatalog(String catalogName, Map<String, String> config) {
         Map<String, String> catalogProps = new HashMap<>(config);
-        if (!catalogProps.containsKey("type") && !catalogProps.containsKey("catalog-impl")) {
-            catalogProps.put("type", "hadoop");
-        }
-        if (!catalogProps.containsKey("warehouse")) {
-            catalogProps.put("warehouse", System.getProperty("java.io.tmpdir") + "/iceberg-" + catalogName);
-        }
         org.apache.hadoop.conf.Configuration hadoopConf = new org.apache.hadoop.conf.Configuration();
-        hadoopConf.set("hadoop.security.authentication", "simple");
-        // Java 26 removed Subject.getSubject() which Hadoop's FileSystem cache uses
-        // via UGI.getCurrentUser(). Using RawLocalFileSystem bypasses the cache key
-        // path that triggers getSubject(). Also disable FileSystem cache entirely.
+        // Keep local storage isolated from Hadoop's process-wide filesystem cache.
+        // Authentication and the current login identity belong to the deployment.
         hadoopConf.set("fs.file.impl", org.apache.hadoop.fs.RawLocalFileSystem.class.getName());
         hadoopConf.setBoolean("fs.file.impl.disable.cache", true);
         config.forEach(hadoopConf::set);
-        ensureHadoopUgiInitialized(hadoopConf);
         Catalog catalog = CatalogUtil.buildIcebergCatalog(catalogName, catalogProps, hadoopConf);
         org.apache.iceberg.hadoop.HadoopFileIO fileIO = new org.apache.iceberg.hadoop.HadoopFileIO(hadoopConf);
         return new CatalogAndFileIO(catalog, fileIO);
     }
 
-    private static volatile boolean hadoopUgiInitialized = false;
-
-    private static synchronized void ensureHadoopUgiInitialized(org.apache.hadoop.conf.Configuration conf) {
-        if (hadoopUgiInitialized) {
-            return;
-        }
-        // Java 26 removed Subject.getSubject() which Hadoop UGI's getCurrentUser()
-        // calls unconditionally. We pre-set the loginUser so that getCurrentUser()
-        // finds the cached value, but the bytecode still calls Subject.getSubject()
-        // before checking loginUser. The only reliable fix is to also set the system
-        // property so that UGI's static initializer uses simple auth.
-        System.setProperty("HADOOP_USER_NAME", System.getProperty("user.name", "pangrova"));
-        org.apache.hadoop.security.UserGroupInformation.setConfiguration(conf);
-        org.apache.hadoop.security.UserGroupInformation ugi =
-                org.apache.hadoop.security.UserGroupInformation.createRemoteUser(
-                        System.getProperty("user.name", "pangrova"));
-        org.apache.hadoop.security.UserGroupInformation.setLoginUser(ugi);
-        hadoopUgiInitialized = true;
-    }
 }

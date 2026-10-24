@@ -68,13 +68,21 @@ public final class PlanningReadBindings {
         var handle = metadata.getTableHandle(session, new SchemaTableName(key.schema(), key.table()));
         if (handle == null) return Optional.empty();
         var snapshot = PlanningSnapshotSelectors.snapshot(session, key.catalog(), key.schema(), key.table());
+        var range = PlanningIncrementalSelectors.range(session, key.catalog(), key.schema(), key.table());
+        if (snapshot.isPresent() && range.isPresent()) {
+            throw new IllegalStateException("A source cannot bind both an exact snapshot and an incremental range");
+        }
         if (snapshot.isPresent()) handle = handle.withTimeTravelSnapshot(snapshot.getAsLong());
+        if (range.isPresent()) handle = handle.withIncrementalRange(range.orElseThrow());
         var binding = metadata.bindRead(session, handle);
         if (snapshot.isPresent() && (binding.snapshotId().isEmpty()
                 || binding.snapshotId().getAsLong() != snapshot.getAsLong())) {
             throw new IllegalStateException("Connector did not bind the explicit source snapshot");
         }
-        if (snapshot.isPresent()) binding.declaration().requireExactDeclaration();
+        if (range.isPresent() && !range.equals(binding.handle().incrementalRange())) {
+            throw new IllegalStateException("Connector did not preserve the incremental source range");
+        }
+        if (snapshot.isPresent() || range.isPresent()) binding.declaration().requireExactDeclaration();
         if (!binding.declaration().metadata().table().equals(new SchemaTableName(key.schema(), key.table()))) {
             throw new IllegalStateException("Connector read binding resolved another table");
         }

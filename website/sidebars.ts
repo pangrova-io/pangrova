@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'getting-started/project-positioning', label: 'Positioning & Customers'},
         {type: 'doc', id: 'getting-started/capability-status', label: 'Current Capability Status'},
+        {type: 'doc', id: 'getting-started/roadmap', label: 'Roadmap'},
         {type: 'doc', id: 'getting-started/quickstart', label: 'Quickstart'},
         {
           type: 'category',
@@ -325,6 +326,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'contributing/developer-guide', label: 'Developer Guide'},
         {type: 'doc', id: 'contributing/testing', label: 'Testing Framework'},
         {type: 'doc', id: 'contributing/documentation', label: 'Documentation Guide'},
+        {type: 'doc', id: 'contributing/repository-guide', label: 'Repository & Scripts'},
       ],
     },
   ],

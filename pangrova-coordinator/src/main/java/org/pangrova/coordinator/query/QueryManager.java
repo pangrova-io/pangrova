@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import java.util.stream.Collectors;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
+import org.pangrova.coordinator.query.lifecycle.ReaderPinLifecycle;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
@@ -74,19 +75,24 @@ public class QueryManager {
     private final QueryJournalLifecycle journalLifecycle;
     private final AsyncSubmitConfig asyncSubmitConfig;
     private final ExecutorService asyncExecutor;
+    private final LongSupplier nanoClock;
     private volatile java.util.function.Consumer<String> shuffleCleanupPending = ignored -> { };
+    private volatile ReaderPinLifecycle readerPinLifecycle = ReaderPinLifecycle.NOOP;
+    private volatile long nextReaderPinRenewal;
 
     public QueryManager(QueryManagerContext deps) {
         this(deps, System::nanoTime);
     }
 
     QueryManager(QueryManagerContext deps, LongSupplier nanoClock) {
+        this.nanoClock = java.util.Objects.requireNonNull(nanoClock, "nanoClock");
+        this.nextReaderPinRenewal = nanoClock.getAsLong();
         this.queryDispatcher = java.util.Objects.requireNonNull(deps.queryDispatcher(), "queryDispatcher");
         this.tracingProvider = deps.tracingProvider();
         this.tenantGuard = QueryAdmission.tenantGuard(deps, queries.values());
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
-                this::releasePhysicalQuery, java.util.Objects.requireNonNull(nanoClock, "nanoClock"));
+                this::releasePhysicalQuery, nanoClock);
         this.queryDispatcher.addExecutionDrainListener(terminalCleanup::onExecutionDrain);
         this.queryDispatcher.addQueryOperationExitListener(terminalCleanup::onOperationExit);
         this.cleanupScheduler = new QueryCleanupScheduler(queries,
@@ -121,6 +127,11 @@ public class QueryManager {
         shuffleCleanupPending = java.util.Objects.requireNonNull(recorder, "recorder");
         queries.forEach((queryId, sm) -> sm.setBeforeTerminalTransition(
                 () -> shuffleCleanupPending.accept(queryId)));
+    }
+
+    /** Installs the reader-pin lease lifecycle used by queries that scan materializations. */
+    public void setReaderPinLifecycle(ReaderPinLifecycle lifecycle) {
+        this.readerPinLifecycle = java.util.Objects.requireNonNull(lifecycle, "lifecycle");
     }
 
     private void incrementCounter(LongCounter counter) { if (counter != null) counter.add(1); }
@@ -491,6 +502,7 @@ public class QueryManager {
     private void emitTerminalEvents(QueryTerminalCleanup.Context context) { terminalEvents.emit(context); }
 
     private void releasePhysicalQuery(QueryTerminalCleanup.Context context) {
+        readerPinLifecycle.release(context.queryId());
         journalLifecycle.purge(context.queryId(), context.state());
         context.state().releaseAdmission();
         admission.releaseThrottle(context.queryId());
@@ -502,7 +514,35 @@ public class QueryManager {
         }
     }
 
-    void retryPendingTerminalCompletions() { terminalCleanup.retryPending(); }
+    void retryPendingTerminalCompletions() {
+        terminalCleanup.retryPending();
+        renewReaderPins();
+    }
+
+    private void renewReaderPins() {
+        ReaderPinLifecycle lifecycle = readerPinLifecycle;
+        if (lifecycle == ReaderPinLifecycle.NOOP) {
+            return;
+        }
+        long now = nanoClock.getAsLong();
+        if (now - nextReaderPinRenewal < 0) {
+            return;
+        }
+        nextReaderPinRenewal = now + lifecycle.renewIntervalNanos();
+        java.util.List<String> active = queries.entrySet().stream()
+                .filter(entry -> !entry.getValue().isTerminal())
+                .map(java.util.Map.Entry::getKey)
+                .toList();
+        if (active.isEmpty()) {
+            return;
+        }
+        try {
+            lifecycle.renew(active);
+        } catch (RuntimeException failure) {
+            LOG.warn("event=reader_pin_renewal_failed queries={} error={}",
+                    active.size(), failure.getMessage(), failure);
+        }
+    }
 
     public void onTaskFailed(String queryId, ErrorDetail error) {
         failQuery(queryId, error, "task_failed");

@@ -62,5 +62,20 @@ Thumbs.db
 
 # Env
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
+.secrets/
+secrets/
+
+# Local runtime state and release staging
+/logs/
+/native-output/
+/native-lib/
+/output/
+
+# Local agent configuration
+.claude/
+.qoder/
+.codex/
 *.local

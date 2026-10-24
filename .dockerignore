@@ -7,6 +7,14 @@
 **/.DS_Store
 **/.env
 **/.env.local
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/node_modules
+**/.docusaurus
+**/__pycache__
+**/.jqwik-database
+**/javac.*.args
 **/CMakeUserPresets.json
 .secrets
 secrets

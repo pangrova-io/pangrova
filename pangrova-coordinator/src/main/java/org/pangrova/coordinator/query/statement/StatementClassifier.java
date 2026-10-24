@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query.statement;
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.CreateContinuousQueryStatement;
 import org.pangrova.parser.ast.CreateDynamicTableStatement;
+import org.pangrova.parser.ast.CreateMaterializedViewStatement;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.InsertStatement;
 import org.pangrova.parser.ast.ShowSchemasStatement;
@@ -14,9 +15,17 @@ import org.pangrova.parser.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.ast.statement.DescribeDynamicTableStatement;
+import org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DropCatalogStatement;
 import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
+import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
+import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationDependenciesStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationGcHistoryStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationRefreshHistoryStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationsStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializedViewsStatement;
 import org.pangrova.parser.ast.statement.ShowTablesStatement;
 import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
@@ -91,7 +100,11 @@ public final class StatementClassifier {
                 || stmt instanceof ShowTablesStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.DescribeTableStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.ShowCatalogsStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
+                || stmt instanceof org.pangrova.parser.ast.statement.ShowSemanticViewsStatement
+                || stmt instanceof ShowMaterializationsStatement
+                || stmt instanceof ShowMaterializationRefreshHistoryStatement
+                || stmt instanceof ShowMaterializationDependenciesStatement
+                || stmt instanceof ShowMaterializationGcHistoryStatement;
     }
 
     public static boolean isMaintenance(Statement stmt) {
@@ -108,6 +121,16 @@ public final class StatementClassifier {
                 || stmt instanceof DropDynamicTableStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.ShowDynamicTablesStatement
                 || stmt instanceof DescribeDynamicTableStatement;
+    }
+
+    /** Returns whether a statement manages a materialized view. */
+    public static boolean isMaterializedView(Statement stmt) {
+        return stmt instanceof CreateMaterializedViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.AlterMaterializedViewStatement
+                || stmt instanceof RefreshMaterializedViewStatement
+                || stmt instanceof DropMaterializedViewStatement
+                || stmt instanceof ShowMaterializedViewsStatement
+                || stmt instanceof DescribeMaterializedViewStatement;
     }
 
     public static boolean isUnsupported(Statement stmt) {
@@ -146,13 +169,15 @@ public final class StatementClassifier {
 
     /** Returns true if the statement requires DDL audit logging. */
     public static boolean requiresDdlAudit(Statement stmt) {
-        return isDdl(stmt) || isIndex(stmt) || isClustering(stmt);
+        return isDdl(stmt) || isIndex(stmt) || isClustering(stmt)
+                || isMaterializedView(stmt);
     }
 
     /** Returns true if the statement must be routed to the leader coordinator. */
     public static boolean requiresLeaderRouting(Statement stmt) {
         return isDdl(stmt) || isIndex(stmt) || isClustering(stmt)
-                || isDynamicTable(stmt) || isStream(stmt) || isTenant(stmt);
+                || isDynamicTable(stmt) || isMaterializedView(stmt)
+                || isStream(stmt) || isTenant(stmt);
     }
 
     private static final Map<Class<? extends Statement>, Function<Statement, Identifier>> TABLE_NAME_EXTRACTORS =
@@ -182,7 +207,18 @@ public final class StatementClassifier {
                             s -> ((org.pangrova.parser.ast.statement.ReclusterTableStatement) s).tableName()),
                     Map.entry(CreateDynamicTableStatement.class, s -> ((CreateDynamicTableStatement) s).name()),
                     Map.entry(DropDynamicTableStatement.class, s -> ((DropDynamicTableStatement) s).name()),
-                    Map.entry(AlterDynamicTableStatement.class, s -> ((AlterDynamicTableStatement) s).name())
+                    Map.entry(AlterDynamicTableStatement.class, s -> ((AlterDynamicTableStatement) s).name()),
+                    Map.entry(CreateMaterializedViewStatement.class,
+                            s -> ((CreateMaterializedViewStatement) s).name()),
+                    Map.entry(org.pangrova.parser.ast.statement.AlterMaterializedViewStatement.class,
+                            s -> ((org.pangrova.parser.ast.statement.AlterMaterializedViewStatement) s)
+                                    .name()),
+                    Map.entry(RefreshMaterializedViewStatement.class,
+                            s -> ((RefreshMaterializedViewStatement) s).name()),
+                    Map.entry(DropMaterializedViewStatement.class,
+                            s -> ((DropMaterializedViewStatement) s).name()),
+                    Map.entry(DescribeMaterializedViewStatement.class,
+                            s -> ((DescribeMaterializedViewStatement) s).name())
             );
 
     /** Extracts the affected table identifier when the statement names one. */

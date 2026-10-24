@@ -129,4 +129,42 @@ public class SecurityPolicyApplier {
         PlannedQuery query = compiler.compileForPolicyApplication(sql).toPlannedQuery();
         return compiler.optimizeProtectedQuery(applyPoliciesObserved(query, session).plan());
     }
+
+    /**
+     * Compiles an {@code EXPLAIN} target with the same authorization and policy
+     * application as execution, and records whether transparent rewrite applied.
+     *
+     * <p>Rewrite stays disabled for time travel and for any query whose policy
+     * application observed a row filter or column mask, mirroring the execution
+     * path. The decision is diagnostic only and never changes the guards.
+     *
+     * @param sql inner statement SQL
+     * @param session authenticated session
+     * @param timeTravel whether the inner statement requested a historical snapshot
+     * @return optimized plan and rewrite decision
+     */
+    public ExplainCompilation compileForExplain(String sql, CoordinatorSessionContext session,
+            boolean timeTravel) {
+        SqlCompiler compiler = compilerHolder.compiler().forSession(
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+        PlannedQuery query = compiler.compileForPolicyApplication(sql).toPlannedQuery();
+        ObservedPlan observed = applyPoliciesObserved(query, session);
+        boolean allowRewrite = !timeTravel && observed.policies().isEmpty();
+        PlannedQuery optimized = compiler.optimizeProtectedQuery(observed.plan(), allowRewrite);
+        org.pangrova.planner.mv.MaterializedViewRewriteDecision decision = allowRewrite
+                ? compiler.lastMaterializedViewRewrite()
+                : org.pangrova.planner.mv.MaterializedViewRewriteDecision.skipped(
+                        timeTravel ? "time_travel" : "policies_applied");
+        return new ExplainCompilation(optimized, decision);
+    }
+
+    /** An EXPLAIN compilation and the rewrite decision that produced it. */
+    public record ExplainCompilation(PlannedQuery plan,
+            org.pangrova.planner.mv.MaterializedViewRewriteDecision rewrite) {
+        public ExplainCompilation {
+            if (plan == null || rewrite == null) {
+                throw new IllegalArgumentException("plan and rewrite decision must not be null");
+            }
+        }
+    }
 }

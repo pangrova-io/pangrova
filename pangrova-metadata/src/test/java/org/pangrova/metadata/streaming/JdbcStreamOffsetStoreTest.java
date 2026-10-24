@@ -5,6 +5,7 @@ import org.pangrova.spi.streaming.TopicPartitionOffset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.pangrova.testing.ContainerTestBase;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -15,7 +16,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Tag("integration")
-class JdbcStreamOffsetStoreTest {
+class JdbcStreamOffsetStoreTest extends ContainerTestBase {
 
     private DataSource dataSource;
     private JdbcStreamOffsetStore offsetStore;
@@ -122,7 +123,7 @@ class JdbcStreamOffsetStoreTest {
     private void insertParentStream(String streamName) {
         Instant now = Instant.now();
         StreamState state = new StreamState(
-                streamName, "tenant-test",
+                streamName, "tenant-test", "checkpoint-" + streamName,
                 StreamLifecycleState.RUNNING,
                 "catalog.schema.t",
                 Map.of("bootstrap.servers", "b:9092", "topic", "t"),
@@ -131,7 +132,7 @@ class JdbcStreamOffsetStoreTest {
                 0, 0, null,
                 0L, 0L, 0L, null,
                 now, now);
-        stateStore.saveState(state);
+        stateStore.createState(state);
     }
 
     private static void initSchema(DataSource ds) throws Exception {
@@ -143,6 +144,7 @@ class JdbcStreamOffsetStoreTest {
                     CREATE TABLE IF NOT EXISTS ingestion_stream_state (
                         stream_name       VARCHAR(255) NOT NULL PRIMARY KEY,
                         tenant_id         VARCHAR(255) NOT NULL,
+                        checkpoint_id     VARCHAR(255) NOT NULL UNIQUE,
                         lifecycle_state   VARCHAR(32)  NOT NULL,
                         target_table      VARCHAR(512) NOT NULL,
                         source_properties TEXT         NOT NULL,

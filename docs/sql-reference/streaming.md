@@ -14,7 +14,9 @@ Stream syntax and dynamic-table syntax have different maturity boundaries.
 | Stream DDL | Registered when the streaming bootstrap supplies its executor |
 | CDC ingestion | Bootstrap creates a Coordinator-local connector page-sink writer; distributed Native ingestion remains incomplete |
 | Continuous-query refresh | The default scheduler callback logs a tick; it does not execute a refresh |
-| Dynamic-table DDL and lifecycle | Create/alter/drop/show/describe handlers and the durable publication store are wired when metadata publication is configured; the planner supplies a rewriter for published definitions. Continuous-query materialization remains unsupported |
+| Dynamic-table DDL and lifecycle | Create/alter/drop/show/describe handlers are served by the unified materialization kernel when durable metadata publication is configured; refreshes execute Native CTAS and publish immutable generations. Continuous-query materialization remains unsupported |
+| Materialized-view DDL and lifecycle | The same kernel serves create/alter/refresh/drop/show/describe; published views are eligible for transparent query rewrite |
+| Materialization observability | `SHOW MATERIALIZATIONS`, refresh history, dependencies, and GC history project the durable kernel read model per tenant |
 
 Catalog publication and source offsets are not committed atomically. Do not infer
 exactly-once or effectively-once behavior, complete refresh, or failure recovery from
@@ -33,11 +35,11 @@ FROM KAFKA (
   'topic' = 'web.clickstream.events',
   'group.id' = 'pangrova-clickstream-consumer'
 )
-FORMAT 'json'
+FORMAT 'debezium-json'
 INTO prod.analytics.events
 WITH (
-  'checkpoint.interval' = '60000',
-  'max.batch.size' = '10000'
+  'batch_size' = '10000',
+  'max_consecutive_failures' = '10'
 );
 ```
 
@@ -59,10 +61,22 @@ ALTER STREAM clickstream_ingest RESUME;
 
 ```sql
 ALTER STREAM clickstream_ingest SET (
-  'max.batch.size' = '50000',
-  'checkpoint.interval' = '30000'
+  'batch_size' = '50000',
+  'max_consecutive_failures' = '5'
 );
 ```
+
+The current pipeline reads `batch_size` and `max_consecutive_failures` from
+stream properties. A RUNNING stream restarts with a new ownership epoch when
+properties change. Each source batch has its own durable checkpoint; the former
+`checkpoint.interval` example did not configure a timer. The bootstrap registers
+`debezium-json`, `canal-json`, and `maxwell-json` converters.
+
+DDL persists the requested state on the accepting coordinator. Only the elected
+maintenance coordinator starts pipelines; it reconciles changes accepted by other
+coordinators every five seconds. This interval is not a stop/publication guarantee
+for a catalog commit already in progress. Use the full target name in `INTO` so
+the stored catalog and schema identify the intended table.
 
 ### DROP STREAM
 
@@ -86,19 +100,54 @@ DESCRIBE STREAM clickstream_ingest;
 
 ## Dynamic Table
 
-**Status: materialization handlers are registered when durable metadata publication
-is configured; continuous-query materialization is not implemented.** The following
-SQL illustrates recognized syntax, not a qualified automatic-refresh service.
+**Status: Dynamic Table DDL and refresh are served by the unified materialization
+kernel when durable metadata publication is configured.** Every published
+generation is immutable; refresh reserves a durable attempt, executes through
+the Native execution path, and publishes through the kernel head. Names must be
+unquoted `catalog.schema.table` identifiers. `CREATE ... WAREHOUSE` and
+`CREATE ... WITH (...)` are rejected until a materialization policy exists, and
+continuous-query materialization is not implemented.
 
 ### CREATE DYNAMIC TABLE
 
-**With SNAPSHOT refresh mode:**
+`TARGET_LAG` is optional. Omitting it creates a manual object: the kernel
+persists a disabled schedule and only `REFRESH` (or
+`ALTER ... REFRESH`) advances the published head. A positive lag such as
+`'15 minutes'` creates a durable active schedule; `PT0S` is rejected because a
+zero lag would mean "always running", which the scheduler does not offer.
+
+`REFRESH_MODE` selects the refresh contract:
+
+| Mode | Kernel mode | Behavior |
+| --- | --- | --- |
+| omitted, `SNAPSHOT`, or `FULL` | `FULL` | Every refresh recomputes the full definition. Creation bootstraps a full generation. |
+| `AUTO` or `INCREMENTAL` | `INCREMENTAL` | Every refresh must apply a proven change set. The definition must be eligible and the source connector must prove a supported mode (currently append-only). Creation bootstraps the base full generation. |
+| `CDC` | — | Not implemented; the statement is rejected. |
+
+An incremental object never falls back to a full recomputation. If the
+definition or connector cannot prove an incremental change set, creation and
+refresh fail closed with `MATERIALIZATION_INCREMENTAL_UNSUPPORTED`; switch to
+`REFRESH_MODE = FULL` to recompute fully.
+
+`INCREMENTAL_STRATEGY` pins how an incremental object applies changes:
+
+| Value | Behavior |
+| --- | --- |
+| omitted or `AUTO` | The kernel selects the first registered strategy the planned definition supports. |
+| `APPEND_ONLY` | Pins append-only merge. The definition must be a single-source projection/filter whose connector can prove an append-only change set. |
+| `PARTITION_REPLACE`, `AFFECTED_KEY` | Parsed and mapped to kernel strategies, but rejected until the deployment registers them. |
+| `CDC` | Rejected. |
+
+`INCREMENTAL_STRATEGY` is only valid with `REFRESH_MODE = AUTO` or
+`INCREMENTAL`; a full-refresh object that carries a strategy is rejected at
+planning time. A pinned strategy is never silently replaced by another one.
+
+**With SNAPSHOT refresh mode (explicit full refresh):**
 
 ```sql
 CREATE DYNAMIC TABLE prod.analytics.daily_revenue_summary
 TARGET_LAG = '15 minutes'
 REFRESH_MODE = SNAPSHOT
-WAREHOUSE = 'compute_wh_medium'
 AS
 SELECT
   CAST(order_date AS DATE) AS report_date,
@@ -110,41 +159,50 @@ WHERE status = 'completed'
 GROUP BY CAST(order_date AS DATE);
 ```
 
-**With CDC refresh mode:**
+**With AUTO refresh mode (append-only incremental):**
+
+```sql
+CREATE DYNAMIC TABLE prod.analytics.completed_orders
+TARGET_LAG = '10 minutes'
+REFRESH_MODE = AUTO
+AS
+SELECT order_id, user_id, amount
+FROM prod.analytics.orders
+WHERE status = 'completed';
+```
+
+**With a pinned incremental strategy:**
+
+```sql
+CREATE DYNAMIC TABLE prod.analytics.completed_orders
+TARGET_LAG = '10 minutes'
+REFRESH_MODE = INCREMENTAL
+INCREMENTAL_STRATEGY = APPEND_ONLY
+AS
+SELECT order_id, user_id, amount
+FROM prod.analytics.orders
+WHERE status = 'completed';
+```
+
+`AUTO` currently proves append-only change sets for a single-source
+projection/filter definition. Joins, aggregates, unions, and connectors without
+an append-only proof are rejected rather than silently recomputed.
+
+**With CDC refresh mode (not implemented):**
 
 ```sql
 CREATE DYNAMIC TABLE prod.analytics.user_order_snapshot
 TARGET_LAG = '5 minutes'
 REFRESH_MODE = CDC
 AS
-SELECT
-  u.user_id,
-  u.name,
-  u.region,
-  COUNT(o.order_id) AS lifetime_orders,
-  SUM(o.amount) AS lifetime_spend
+SELECT u.user_id, u.name, COUNT(o.order_id) AS lifetime_orders
 FROM prod.analytics.users u
 LEFT JOIN prod.analytics.orders o ON u.user_id = o.user_id
-GROUP BY u.user_id, u.name, u.region;
+GROUP BY u.user_id, u.name;
 ```
 
-**With AUTO refresh mode:**
-
-```sql
-CREATE DYNAMIC TABLE prod.analytics.product_sales
-TARGET_LAG = '10 minutes'
-REFRESH_MODE = AUTO
-AS
-SELECT
-  p.product_id,
-  p.name,
-  p.category,
-  COUNT(o.order_id) AS units_sold,
-  SUM(o.amount) AS revenue
-FROM prod.analytics.products p
-JOIN prod.analytics.orders o ON p.product_id = o.product_id
-GROUP BY p.product_id, p.name, p.category;
-```
+This statement is rejected with an unsupported-operation error until CDC
+materialization is implemented.
 
 ### ALTER DYNAMIC TABLE
 
@@ -172,6 +230,33 @@ ALTER DYNAMIC TABLE prod.analytics.daily_revenue_summary REFRESH;
 ALTER DYNAMIC TABLE prod.analytics.daily_revenue_summary SET TARGET_LAG = '30 minutes';
 ```
 
+**SET REFRESH_MODE (rebuilds before committing the new mode):**
+
+```sql
+ALTER DYNAMIC TABLE prod.analytics.daily_revenue_summary SET REFRESH_MODE = INCREMENTAL;
+```
+
+Changing the mode first publishes a forced full generation under the existing
+definition, then commits the new mode and strategy. If the rebuild fails, the
+previous mode and published head remain in force; retrying with the same command
+id applies the pending configuration without recomputing data that already
+published. `SET REFRESH_MODE` requires an active object.
+
+**RENAME TO:**
+
+```sql
+ALTER DYNAMIC TABLE prod.analytics.daily_revenue_summary
+RENAME TO prod.analytics.daily_revenue_summary_v2;
+```
+
+A rename moves the logical identity only: the incarnation, definition
+revisions, published generations, dependencies, and durable schedule follow the
+new name, and the published head stays readable throughout. Historical events
+and command receipts keep the name they were recorded under. The rename is
+rejected when the target name already exists, when the object is not active or
+suspended, and while live materializations depend on it — their stored
+definitions still spell the old name, so redefine or drop them first.
+
 **REDEFINE AS (change underlying query):**
 
 ```sql
@@ -189,10 +274,13 @@ GROUP BY CAST(order_date AS DATE), status;
 
 ```sql
 DROP DYNAMIC TABLE prod.analytics.daily_revenue_summary;
-
--- With CASCADE to drop dependent objects
-DROP DYNAMIC TABLE prod.analytics.user_order_snapshot CASCADE;
 ```
+
+Without `CASCADE`, the statement fails while another live materialization
+consumes the target. `DROP ... CASCADE` drops every transitive dependent first,
+deepest dependent first, so no live definition ever references a dropped
+object. Physical generations are retained until reader pins and GC allow
+collection.
 
 ### SHOW DYNAMIC TABLES
 
@@ -205,3 +293,152 @@ SHOW DYNAMIC TABLES;
 ```sql
 DESCRIBE DYNAMIC TABLE prod.analytics.daily_revenue_summary;
 ```
+
+---
+
+## Materialized View
+
+**Status: Materialized View DDL, refresh, and transparent query rewrite are
+served by the unified materialization kernel.** A materialized view is a kernel
+object with the same durable guarantees as a dynamic table: reserved attempts,
+immutable published generations, reader pins, and fenced GC. The difference is
+the optimization contract, not the storage path: a published view is eligible
+for transparent rewrite by the planner (see
+[Query Optimization](../architecture/query-optimization.md)).
+
+Names must be unquoted `catalog.schema.table` identifiers.
+
+### CREATE MATERIALIZED VIEW
+
+```sql
+CREATE MATERIALIZED VIEW prod.analytics.daily_revenue_mv
+TARGET_LAG = '30 minutes'
+REFRESH_MODE = SNAPSHOT
+AS
+SELECT
+  CAST(order_date AS DATE) AS report_date,
+  COUNT(*) AS order_count,
+  SUM(amount) AS total_revenue
+FROM prod.analytics.orders
+WHERE status = 'completed'
+GROUP BY CAST(order_date AS DATE);
+```
+
+`CREATE` publishes the first generation. `TARGET_LAG`, `REFRESH_MODE`, and
+`INCREMENTAL_STRATEGY` follow the dynamic-table contract: omitting `TARGET_LAG`
+means manual refresh, `SNAPSHOT`/`FULL` recomputes the full definition,
+`AUTO`/`INCREMENTAL` requires a proven incremental change set and fails closed
+otherwise, and `CDC` is rejected.
+
+**Atomic replacement:**
+
+```sql
+CREATE OR REPLACE MATERIALIZED VIEW prod.analytics.daily_revenue_mv
+AS SELECT ...;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS prod.analytics.daily_revenue_mv
+AS SELECT ...;
+```
+
+`OR REPLACE` stores a new definition revision and immediately forces a full
+refresh. The previous published generation stays readable until the replacement
+publishes, so a failed replacement never exposes partial data; retrying the same
+command resumes the pending publication. Supplying `TARGET_LAG` also updates the
+schedule, while omitting it keeps the existing schedule. `IF NOT EXISTS` returns
+the existing published object unchanged. The two modifiers are mutually
+exclusive, and `OR REPLACE` requires an existing active or suspended object of
+the same kind.
+
+### ALTER MATERIALIZED VIEW
+
+```sql
+ALTER MATERIALIZED VIEW prod.analytics.daily_revenue_mv SUSPEND;
+ALTER MATERIALIZED VIEW prod.analytics.daily_revenue_mv RESUME;
+ALTER MATERIALIZED VIEW prod.analytics.daily_revenue_mv REFRESH;
+ALTER MATERIALIZED VIEW prod.analytics.daily_revenue_mv SET TARGET_LAG = '10 minutes';
+ALTER MATERIALIZED VIEW prod.analytics.daily_revenue_mv SET REFRESH_MODE = INCREMENTAL;
+ALTER MATERIALIZED VIEW prod.analytics.daily_revenue_mv
+  RENAME TO prod.analytics.daily_revenue_mv_v2;
+```
+
+`SET REFRESH_MODE` and `RENAME TO` follow the dynamic-table semantics: the mode
+change publishes a forced full generation before the new configuration is
+committed, and a rename preserves definitions, generations, and the schedule
+while rejecting live dependents.
+
+Apart from `CREATE OR REPLACE`, `ALTER` manages scheduling and refresh only; it
+never changes the stored definition. A definition change requires `CREATE OR
+REPLACE`, which records a new revision and publishes it atomically.
+
+### REFRESH MATERIALIZED VIEW
+
+```sql
+REFRESH MATERIALIZED VIEW prod.analytics.daily_revenue_mv;
+```
+
+Equivalent to `ALTER ... REFRESH`; both reserve a manual attempt.
+
+### DROP MATERIALIZED VIEW
+
+```sql
+DROP MATERIALIZED VIEW prod.analytics.daily_revenue_mv;
+DROP MATERIALIZED VIEW prod.analytics.daily_revenue_mv CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS prod.analytics.daily_revenue_mv;
+```
+
+`CASCADE` has the same dependency-aware semantics as for dynamic tables.
+`IF EXISTS` makes a missing target a successful no-op.
+
+### SHOW MATERIALIZED VIEWS
+
+```sql
+SHOW MATERIALIZED VIEWS;
+SHOW MATERIALIZED VIEWS LIKE 'prod.analytics.daily_%';
+```
+
+`LIKE` matches the full object name with SQL wildcards: `%` matches any
+sequence of characters and `_` matches exactly one character.
+
+### DESCRIBE MATERIALIZED VIEW
+
+```sql
+DESCRIBE MATERIALIZED VIEW prod.analytics.daily_revenue_mv;
+```
+
+---
+
+## Materialization Observability
+
+These read-only surfaces project the durable kernel state for both dynamic
+tables and materialized views. Every statement is tenant-scoped and served from
+metadata; no physical generation is opened and no definition is recompiled.
+
+```sql
+SHOW MATERIALIZATIONS;
+SHOW MATERIALIZATION REFRESH HISTORY;
+SHOW MATERIALIZATION REFRESH HISTORY FOR prod.analytics.daily_revenue_mv;
+SHOW MATERIALIZATION DEPENDENCIES;
+SHOW MATERIALIZATION DEPENDENCIES FOR prod.analytics.daily_revenue_mv;
+SHOW MATERIALIZATION GC HISTORY;
+SHOW MATERIALIZATION GC HISTORY FOR prod.analytics.daily_revenue_mv;
+```
+
+| Statement | Columns |
+| --- | --- |
+| `SHOW MATERIALIZATIONS` | `name`, `kind`, `state`, `revision`, `definition_revision`, `published_generation`, `definer`, `security_mode`, `refresh_mode`, `incremental_strategy`, `created_at`, `updated_at` |
+| `SHOW MATERIALIZATION REFRESH HISTORY` | `attempt_id`, `object`, `refresh_kind`, `trigger`, `state`, `error_code`, `definition_revision`, `requesting`, `definer`, `created_at`, `updated_at` |
+| `SHOW MATERIALIZATION DEPENDENCIES` | `downstream`, `downstream_definition_revision`, `upstream`, `kind` |
+| `SHOW MATERIALIZATION GC HISTORY` | `object`, `generation`, `decision`, `state`, `evidence`, `created_at`, `updated_at` |
+
+Refresh history and GC history return the most recent 1000 rows per tenant (or
+per scoped object).
+
+## Downstream Refresh
+
+Dependencies are recorded from each definition. When a refresh publishes a new
+generation, every dependent with an active, unleased schedule has its
+`next_due_at` advanced to the publication instant inside the same metadata
+transaction. The scheduler still claims that dependent under its own lease, so
+downstream execution never happens inside the upstream transaction and a slow
+dependent cannot extend the upstream commit. A manual dependent schedule is not
+advanced; refresh it explicitly.

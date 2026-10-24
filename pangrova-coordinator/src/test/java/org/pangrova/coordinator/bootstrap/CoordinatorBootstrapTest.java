@@ -43,14 +43,12 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
                 CoordinatorBootstrapConfig.withDefaults("coord-dynamic-publication", 0)));
         try {
             bootstrap.start();
-            var publications = bootstrap.getMetadataBootstrap().dynamicTablePublicationStore();
-            assertThat(publications).isNotNull();
-            publications.create(new org.pangrova.metadata.dynamictable.DynamicTableDefinition(
-                    "bootstrap-tenant", "lake.analytics.rollup", "SELECT 1 AS id", "lake", "analytics"),
-                    org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures.issuer(
-                            bootstrap.metadataDataSource()));
-            assertThat(publications.load("bootstrap-tenant", "lake.analytics.rollup"))
-                    .isPresent();
+            var repository = bootstrap.getMetadataBootstrap().materializationRepository();
+            var catalog = bootstrap.getMetadataBootstrap().materializationCatalog();
+            assertThat(repository).isNotNull();
+            assertThat(catalog).isNotNull();
+            assertThat(catalog.listPublished(
+                    new org.pangrova.materialization.domain.TenantId("bootstrap-tenant"))).isEmpty();
         } finally {
             bootstrap.shutdown();
         }

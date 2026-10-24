@@ -91,6 +91,8 @@ final class QueryBootstrap {
             embeddingModelRegistry;
     private org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher
             artifactBuildDispatcher;
+    private org.pangrova.coordinator.materialization.MaterializationMaintenance
+            materializationMaintenance;
     private org.pangrova.observability.metrics.CoordinatorMetrics coordinatorMetrics;
     private QueryDispatcher queryDispatcher;
     private org.pangrova.spi.coordination.QueryStateJournal stateJournal;
@@ -184,8 +186,10 @@ final class QueryBootstrap {
                 ? metadataBootstrap.catalogRegistry() : null;
         this.writeCommitTracker = catalog != null
                 ? new org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker() : null;
+        org.pangrova.materialization.usecase.ReaderPinLeases readerPinLeases =
+                createReaderPinLeases();
         DefaultModuleContext moduleContext = new QueryModuleLoader(
-                config, metadataBootstrap, moduleWiring, accessControl).load();
+                config, metadataBootstrap, moduleWiring, accessControl, readerPinLeases).load();
         fairScheduler = moduleContext.optional(WeightedFairScheduler.class);
         taskScheduler = moduleContext.require(TaskScheduler.class);
         queryResultCache = moduleContext.require(org.pangrova.planner.SqlCompiler.class).queryResultCache();
@@ -223,6 +227,11 @@ final class QueryBootstrap {
         }
         var queryManagerResult = runtimeWiring.buildQueryManager(queryDispatcher, stateJournal);
         queryManager = queryManagerResult.queryManager();
+        if (readerPinLeases != null) {
+            queryManager.setReaderPinLifecycle(
+                    new org.pangrova.coordinator.materialization.QueryReaderPinLifecycle(
+                            readerPinLeases));
+        }
         asyncSubmitExecutor = queryManagerResult.asyncExecutor();
         durableRecovery.installShuffleCleanup(queryManager, queryDispatcher);
         auditEmitter = queryManagerResult.auditEmitter();
@@ -291,6 +300,7 @@ final class QueryBootstrap {
         durableRecovery.close();
         if (queryManager != null) queryManager.stopPeriodicCleanup();
         CoordinatorResourceRelease.close(null,
+                () -> { if (materializationMaintenance != null) materializationMaintenance.close(); },
                 () -> { if (speculationScheduler != null) speculationScheduler.close(); },
                 () -> CoordinatorShutdownSequence.stopTimeoutEnforcer(queryTimeoutEnforcer),
                 () -> { if (splitAssignmentManager != null) splitAssignmentManager.stopLeaseReclamation(); });
@@ -349,6 +359,7 @@ final class QueryBootstrap {
         if (fencer != null) {
             taskStatusReceiver.setWriteCommitFencer(fencer);
         }
+        startMaterializationMaintenance(service);
         if (artifactBuildStore == null || artifactBuildDispatcher != null) {
             return;
         }
@@ -376,6 +387,31 @@ final class QueryBootstrap {
                 config.coordinatorId(), 32);
     }
 
+    private void startMaterializationMaintenance(
+            HighAvailabilityCoordinationService service) {
+        if (executionWiring == null || executionWiring.materializationKernels() == null
+                || metadataDataSource == null || queryManager == null) {
+            LOG.info("event=materialization_maintenance_unavailable coordinatorId={}",
+                    config.coordinatorId());
+            return;
+        }
+        var kernels = executionWiring.materializationKernels();
+        var store = new org.pangrova.coordinator.materialization.CoordinatorPhysicalGenerationStore(
+                kernels.catalogs());
+        var recovery = new org.pangrova.coordinator.materialization.NativeCommitRecovery(
+                metadataDataSource, store, kernels.catalogs());
+        materializationMaintenance =
+                new org.pangrova.coordinator.materialization.MaterializationMaintenance(
+                        kernels, service, config.coordinatorId(), queryManager,
+                        executionWiring.compiler(), executionWiring.resultService(),
+                        store, recovery, kernels.sourcePinning(), schedulerExecutor(),
+                        org.pangrova.common.concurrent.ManagedExecutorFactory
+                                .newSingleThreadExecutor("materialization-refresh"),
+                        org.pangrova.coordinator.materialization.MaterializationMaintenance
+                                .Settings.defaults(config.coordinatorId()));
+        materializationMaintenance.start();
+    }
+
     /** Starts the bounded DDL/SHOW/DML acknowledgement transport, never query rows. */
     private CoordinatorResultService startControlPlaneResultTransport() {
         var started = ControlPlaneResultTransportBootstrap.start(
@@ -392,6 +428,17 @@ final class QueryBootstrap {
                     "coordinator-health-scheduler");
         }
         return schedulerExecutor;
+    }
+
+    /** Reader pins need the durable metadata authority; in-memory mode has no generations to pin. */
+    private org.pangrova.materialization.usecase.ReaderPinLeases createReaderPinLeases() {
+        if (metadataBootstrap == null) {
+            return null;
+        }
+        var repository = metadataBootstrap.materializationRepository();
+        return repository == null ? null
+                : new org.pangrova.materialization.usecase.ReaderPinLeases(
+                        repository, java.time.Instant::now);
     }
 
     private void startTimeoutEnforcer() {

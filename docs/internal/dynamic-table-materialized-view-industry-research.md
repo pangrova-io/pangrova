@@ -2,7 +2,7 @@
 
 调研日期：2026-09-30。状态：研究与目标设计输入，非已实现能力说明。
 
-本文回答两个问题：动态表和物化视图为什么值得成为数据库的一等对象；成熟系统如何把它们实现为可解释、可恢复、可运营的能力。针对当前 Pangrova 工作树的复核、完整设计和实施任务见 [落地设计](dynamic-table-materialized-view-delivery-design.md) 与 [工程任务清单](dynamic-table-materialized-view-delivery-backlog.yaml)。
+本文回答两个问题：动态表和物化视图为什么值得成为数据库的一等对象；成熟系统如何把它们实现为可解释、可恢复、可运营的能力。调研中的采用决策已经落地为统一物化内核，当前实现以 [查询优化架构](../architecture/query-optimization.md) 和 [Dynamic Table 刷新语义](../architecture/dynamic-table-manual-full-refresh.md) 为准。
 
 结论是：**物化的价值是把可重复的派生计算变成可复用的数据产品；动态表进一步把依赖、刷新、新鲜度和恢复交给系统。Pangrova 应共享一个版本化物化内核，先完成正确的分布式全量刷新，再逐步增加增量维护和查询改写。** 产品名称不能替代一致性契约。
 
@@ -187,4 +187,4 @@ Flink 将 fault recovery 建立在一致 state checkpoint 与可重放输入上�
 6. 默认透明 rewrite 必须保持原查询 snapshot 语义。无法证明 source vector 等价时使用原计划；允许陈旧读取必须由产品/API 明确表达。
 7. 每个工作包同时列出 SPI、实现、装配、调用、持久化、验证和恢复，不允许只新增接口或只让测试 fixture 接通。
 
-完整工程设计、当前代码事实、提交协议和发布门槛从 [落地设计](dynamic-table-materialized-view-delivery-design.md) 开始执行。
+本文只保留外部资料与设计判断；当前代码事实、提交协议和发布门槛以 [查询优化架构](../architecture/query-optimization.md) 为准。

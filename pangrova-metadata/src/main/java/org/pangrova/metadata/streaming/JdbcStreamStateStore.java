@@ -27,8 +27,9 @@ import java.util.Optional;
  * JDBC-backed implementation of {@link StreamStateStore}.
  *
  * <p>Persists CDC ingestion stream state to the {@code ingestion_stream_state}
- * table created by migration V6. Uses PostgreSQL ON CONFLICT upsert for
- * save operations and compare-and-swap on epoch for HA fencing.</p>
+ * table created by migration V1. Uses insert-only creation and compares
+ * checkpoint identity, tenant and epoch
+ * on updates/deletion so a stale instance cannot mutate a replacement stream.</p>
  *
  * <p>Concurrency strategy: relies on database-level row locking for
  * atomicity. No in-process mutable state. Map fields (sourceProperties,
@@ -46,29 +47,21 @@ public final class JdbcStreamStateStore implements StreamStateStore {
     }
 
     @Override
-    public void saveState(StreamState state) {
+    public boolean createState(StreamState state) {
         String sql = "INSERT INTO ingestion_stream_state ("
-                + "stream_name, tenant_id, lifecycle_state, target_table, "
+                + "stream_name, tenant_id, checkpoint_id, lifecycle_state, target_table, "
                 + "source_properties, source_format, stream_properties, "
                 + "creator_identity, coordinator_id, epoch, schema_version, "
                 + "error_message, records_consumed, records_written, "
-                + "records_dead_lettered, last_offset_commit_time, "
-                + "created_at, updated_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-                + "ON CONFLICT (stream_name) DO UPDATE SET "
-                + "tenant_id=EXCLUDED.tenant_id, lifecycle_state=EXCLUDED.lifecycle_state, "
-                + "target_table=EXCLUDED.target_table, source_properties=EXCLUDED.source_properties, "
-                + "source_format=EXCLUDED.source_format, stream_properties=EXCLUDED.stream_properties, "
-                + "creator_identity=EXCLUDED.creator_identity, coordinator_id=EXCLUDED.coordinator_id, "
-                + "epoch=EXCLUDED.epoch, schema_version=EXCLUDED.schema_version, "
-                + "error_message=EXCLUDED.error_message, records_consumed=EXCLUDED.records_consumed, "
-                + "records_written=EXCLUDED.records_written, "
-                + "records_dead_lettered=EXCLUDED.records_dead_lettered, "
-                + "last_offset_commit_time=EXCLUDED.last_offset_commit_time, "
-                + "updated_at=EXCLUDED.updated_at";
-        executeUpdate(sql, ps -> bindState(ps, state));
-        LOG.info("action=stream_state_save streamName={} state={} tenantId={}",
-                state.streamName(), state.lifecycleState(), state.tenantId());
+                + "records_dead_lettered, last_offset_commit_time, created_at, updated_at) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                + "ON CONFLICT (stream_name) DO NOTHING";
+        return executeUpdateReturning(sql, ps -> bindState(ps, state)) == 1;
+    }
+
+    @Override
+    public void saveState(StreamState state) {
+        saveStateIfEpoch(state, state.epoch());
     }
 
     @Override
@@ -103,14 +96,15 @@ public final class JdbcStreamStateStore implements StreamStateStore {
     }
 
     @Override
-    public boolean delete(String streamName) {
-        String sql = "DELETE FROM ingestion_stream_state WHERE stream_name = ?";
-        int affected = executeUpdateReturning(sql, ps -> ps.setString(1, streamName));
-        if (affected > 0) {
-            LOG.info("action=stream_state_delete streamName={}", streamName);
-            return true;
-        }
-        return false;
+    public boolean delete(StreamState state) {
+        String sql = "DELETE FROM ingestion_stream_state WHERE stream_name = ? "
+                + "AND tenant_id = ? AND checkpoint_id = ? AND epoch = ?";
+        return executeUpdateReturning(sql, ps -> {
+            ps.setString(1, state.streamName());
+            ps.setString(2, state.tenantId());
+            ps.setString(3, state.checkpointId());
+            ps.setLong(4, state.epoch());
+        }) == 1;
     }
 
     @Override
@@ -123,7 +117,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
                 + "records_consumed = ?, records_written = ?, "
                 + "records_dead_lettered = ?, last_offset_commit_time = ?, "
                 + "updated_at = ? "
-                + "WHERE stream_name = ? AND epoch = ?";
+                + "WHERE stream_name = ? AND epoch = ? AND tenant_id = ? AND checkpoint_id = ?";
         int affected = executeUpdateReturning(sql,
                 ps -> bindStreamCasUpdate(ps, state, expectedEpoch));
         if (affected == 0) {
@@ -153,7 +147,9 @@ public final class JdbcStreamStateStore implements StreamStateStore {
         setNullableTimestamp(ps, i++, state.lastOffsetCommitTime());
         ps.setTimestamp(i++, Timestamp.from(state.updatedAt()));
         ps.setString(i++, state.streamName());
-        ps.setLong(i, expectedEpoch);
+        ps.setLong(i++, expectedEpoch);
+        ps.setString(i++, state.tenantId());
+        ps.setString(i, state.checkpointId());
     }
 
     // ── Row mapping ─────────────────────────────────────────────────
@@ -163,6 +159,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
         return new StreamState(
                 rs.getString("stream_name"),
                 rs.getString("tenant_id"),
+                rs.getString("checkpoint_id"),
                 StreamLifecycleState.valueOf(rs.getString("lifecycle_state")),
                 rs.getString("target_table"),
                 deserializeMap(rs.getString("source_properties")),
@@ -193,6 +190,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
         int i = 1;
         ps.setString(i++, s.streamName());
         ps.setString(i++, s.tenantId());
+        ps.setString(i++, s.checkpointId());
         ps.setString(i++, s.lifecycleState().name());
         ps.setString(i++, s.targetTable());
         ps.setString(i++, serializeMap(s.sourceProperties()));
@@ -322,16 +320,6 @@ public final class JdbcStreamStateStore implements StreamStateStore {
             }
         } catch (SQLException e) {
             throw new MetastoreException("Query failed: " + sql, e);
-        }
-    }
-
-    private void executeUpdate(String sql, JdbcSupport.SqlConsumer binder) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            binder.accept(ps);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new MetastoreException("Update failed: " + sql, e);
         }
     }
 

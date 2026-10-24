@@ -283,7 +283,7 @@ success, abort and cancellation have distinct terminal outcomes. A slow
 consumer must propagate pressure through the Native handoff, and retained
 pages must remain charged until the last reader or linger cleanup releases
 them. The current queue has a known byte-accounting gap, tracked in
-[ai-native-roadmap.md](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-roadmap.md); count-only capacity
+[ai-native-roadmap.md](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md); count-only capacity
 is not proof of bounded memory.
 
 ### 5.3 Canonical Protocol
@@ -319,7 +319,7 @@ cancellation or failure aborts it. The queue takes ownership independent of
 the producer's Velox task pool so Flight readers may finish after producer
 teardown. Queue and Flight retention must both be byte-accounted and bounded;
 the current producer-queue gap is tracked in the
-[AI Native audit](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+[AI Native audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
 
 The result reader records a Flight stream failure against the exact registered
 Native executor before releasing its output buffer. Both Arrow error statuses
@@ -386,7 +386,7 @@ memory-arbitration boundary. Native Flight demux/spill and producer-queue
 retention have distinct lifetimes; a task's pool usage alone is not a complete
 shuffle-memory accounting figure. The exact resource gap and acceptance
 criteria are in [resource-management.md](./resource-management.md) and the
-[AI Native audit](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+[AI Native audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
 
 The Velox allocator retains a strong reference to its registered
 `AsyncDataCache`. Native shutdown joins task and I/O owners, clears the global
@@ -577,7 +577,7 @@ their physical row and locator.
 
 The authoritative Native/JNI build order, mandatory Lance FFI dependency,
 Release packaging, full CTest, ASan and Java/E2E validation gates are in
-[the repository build pipeline](https://github.com/pangrova-project/pangrova/blob/main/.pangrova/rules/build-pipeline.md).
+[the repository build pipeline](https://github.com/pangrova/pangrova/blob/main/.pangrova/rules/build-pipeline.md).
 Native resources use the packager's canonical OS/architecture path, including
 `META-INF/native/osx/aarch64/libpangrova_native.dylib`; Maven copies that staged
 resource rather than independently mapping the raw CMake output into test

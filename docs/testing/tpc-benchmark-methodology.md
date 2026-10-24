@@ -3,7 +3,7 @@
 This harness measures engineering workloads. All executable templates and SQL
 adaptations are explicit; current official TPC certification is a separate goal.
 For verified findings and outstanding evidence, see
-[the audit](../internal/tpc-benchmark-audit.md).
+[the audit](https://github.com/pangrova/pangrova/blob/main/docs/internal/tpc-benchmark-audit.md).
 
 ## Prerequisites and controlled inputs
 

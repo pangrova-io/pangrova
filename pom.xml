@@ -17,6 +17,7 @@
         <module>pangrova-common</module>
         <module>pangrova-config</module>
         <module>pangrova-spi</module>
+        <module>pangrova-materialization</module>
         <module>pangrova-shuffle</module>
         <module>pangrova-parser</module>
         <module>pangrova-planner</module>
@@ -431,6 +432,11 @@
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-materialization</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

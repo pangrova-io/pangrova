@@ -414,7 +414,7 @@ public final class CoordinatorBootstrap {
                     metadataDataSource,
                     streamingContext.watermarkTracker(),
                     streamingContext.scheduler(),
-                    metadataBootstrap.catalogRegistry());
+                    metadataBootstrap.catalogRegistry(), config.coordinatorId());
             LOG.info("event=phase_started phase=streaming_bootstrap");
         } catch (Exception e) {
             LOG.warn("event=phase_failed phase=streaming_bootstrap error={}", e.getMessage(), e);

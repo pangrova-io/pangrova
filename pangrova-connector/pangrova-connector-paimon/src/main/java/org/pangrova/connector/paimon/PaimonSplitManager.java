@@ -98,6 +98,11 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                         .toList());
             }
             PaimonTableHandle paimonTable = (PaimonTableHandle) table;
+            if (paimonTable.incrementalRange().isPresent()) {
+                var range = paimonTable.incrementalRange().orElseThrow();
+                return getActiveIncrementalSplits(paimonTable,
+                        range.fromInclusive(), range.toInclusive(), constraint, authority);
+            }
             return getActiveSplits(paimonTable, constraint, authority);
         }
     }
@@ -153,6 +158,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             long fromSnapshotId, long toSnapshotId, Constraint constraint,
             ConnectorQueryAuthority authority) {
         Table freshTable = loadFreshTable(paimonTable);
+        FileStoreTable selectedTable = PaimonReadBindings.requireSelectedTable(freshTable, paimonTable);
+        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         String tableName = paimonTable.tableName();
         LOG.debug("event=incremental_splits_start table={}.{} from_snapshot={} to_snapshot={}",
                 paimonTable.schemaName(), tableName, fromSnapshotId, toSnapshotId);

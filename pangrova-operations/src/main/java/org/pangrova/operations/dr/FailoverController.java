@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory;
  * but no production {@link StandbyOperations} implementation exists. The failover
  * pipeline is untested against real infrastructure.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova-project/pangrova/issues/F-OPS-002-failover")
+@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-failover")
 public final class FailoverController {
 
     private static final Logger LOG = LoggerFactory.getLogger(FailoverController.class);

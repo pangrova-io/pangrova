@@ -28,10 +28,14 @@ class PangrovaErrorCodeTest {
                 .isEqualTo("AI-3017");
         assertThat(PangrovaErrorCode.AI_EMBEDDING_MODEL_DROP_UNAVAILABLE.getCode())
                 .isEqualTo("AI-0007");
+        assertThat(PangrovaErrorCode.MATERIALIZATION_OBJECT_NOT_FOUND.getCode())
+                .isEqualTo("MATERIALIZATION-0001");
+        assertThat(PangrovaErrorCode.MATERIALIZATION_REQUEST_REJECTED.getCode())
+                .isEqualTo("MATERIALIZATION-0016");
     }
 
     @Test
     void enumHasExpectedSize() {
-        assertThat(PangrovaErrorCode.values()).hasSize(164);
+        assertThat(PangrovaErrorCode.values()).hasSize(180);
     }
 }

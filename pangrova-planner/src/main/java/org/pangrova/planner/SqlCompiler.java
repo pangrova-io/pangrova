@@ -156,11 +156,45 @@ public class SqlCompiler {
     }
 
     /**
+     * Continues compilation after policies were applied, optionally allowing
+     * materialized view substitution when the caller proved the query is unprotected.
+     *
+     * @param query policy-applied plan
+     * @param allowMaterializationRewrite whether transparent rewrite is safe
+     * @return optimized plan
+     */
+    public PlannedQuery optimizeProtectedQuery(PlannedQuery query,
+            boolean allowMaterializationRewrite) {
+        return planningPlanner().optimizeProtectedQuery(query, allowMaterializationRewrite);
+    }
+
+    /**
+     * Returns the diagnostic decision of the most recent materialized-view rewrite.
+     *
+     * @return rewrite decision; disabled before any attempt or without a catalog
+     */
+    public org.pangrova.planner.mv.MaterializedViewRewriteDecision
+            lastMaterializedViewRewrite() {
+        return planningPlanner().lastMaterializedViewRewrite();
+    }
+
+    /**
      * Compile SQL text into a {@link PlannedQuery} — a Calcite-free opaque wrapper
      * suitable for use by coordinator code without any Calcite imports.
      */
     public PlannedQuery compileToPlannedQuery(String sql) {
         return planningPlanner().plan(sql).toPlannedQuery();
+    }
+
+    /**
+     * Compile a materialization definition without recursively rewriting it
+     * through another published materialization.
+     *
+     * @param sql definition SQL
+     * @return planned definition
+     */
+    public PlannedQuery compileDefinitionQuery(String sql) {
+        return planningPlanner().planDefinition(sql).toPlannedQuery();
     }
 
     /**

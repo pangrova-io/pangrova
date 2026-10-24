@@ -6,7 +6,6 @@ import org.apache.calcite.jdbc.CalciteSchema;
 import org.junit.jupiter.api.Test;
 import org.pangrova.planner.cache.QueryResultCache;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.planner.mv.MaterializedViewRegistry;
 import org.pangrova.planner.optimization.MaterializedViewRewritePass;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
@@ -28,7 +27,7 @@ class PlannerServiceOwnershipTest {
     void contextAndCompilerBorrowTheSameLiveServicesNotIndependentSnapshots() throws Exception {
         var statistics = new StatisticsCollector();
         var filters = new RuntimeFilterRegistry();
-        var dynamic = new DynamicTableRewriter(new MaterializedViewRegistry());
+        var dynamic = new DynamicTableRewriter(parts -> java.util.Optional.empty());
         try (var cache = new QueryResultCache(null)) {
             var context = new PlannerContext(statistics, null, cache, null,
                     filters, dynamic, null, null, null);
@@ -57,41 +56,54 @@ class PlannerServiceOwnershipTest {
         var filter = RuntimeFilter.minMax("id", 1, 7);
         pass.getRuntimeFilterRegistry().register("query:stage", filter);
         assertThat(filters.getFilter("query:stage")).contains(filter);
-        var definitions = new MaterializedViewRegistry();
-        definitions.register(new org.pangrova.planner.mv.MaterializedViewDefinition(
-                "logical", "SELECT id FROM source", org.pangrova.parser.ast.RefreshStrategy.INCREMENTAL,
-                true, java.util.Optional.of(Instant.EPOCH), Instant.EPOCH,
-                java.util.Set.of(), java.util.Set.of(), java.util.Set.of()));
-        var dynamic = new DynamicTableRewriter(definitions);
+        var publications = new MutablePublishedResolver();
+        var dynamic = new DynamicTableRewriter(publications);
         var rewrite = new DynamicTableSqlRewriter(new PangrovaParserFactory(), dynamic);
-        assertThat(rewrite.getDynamicTableRewriter()).isSameAs(dynamic);
-        dynamic.registerTargetOverride("logical", "physical");
-        assertThat(rewrite.rewrite("SELECT id FROM logical")).containsIgnoringCase("physical");
-        dynamic.removeTargetOverride("logical");
-        assertThat(rewrite.rewrite("SELECT id FROM logical")).containsIgnoringCase("logical");
+        publications.physical = new QualifiedTableName("lake", "analytics", "__pg_mat_one");
+        assertThat(rewrite.rewrite("SELECT id FROM logical")).contains("__pg_mat_one");
+        publications.physical = new QualifiedTableName("lake", "analytics", "__pg_mat_two");
+        assertThat(rewrite.rewrite("SELECT id FROM logical")).contains("__pg_mat_two");
     }
 
     @Test
     void dynamicTableRewriteChangesOnlyTheParsedTableReference() {
-        var definitions = new MaterializedViewRegistry();
-        definitions.register(new org.pangrova.planner.mv.MaterializedViewDefinition(
-                "logical", "SELECT id FROM source", org.pangrova.parser.ast.RefreshStrategy.INCREMENTAL,
-                true, java.util.Optional.of(Instant.EPOCH), Instant.EPOCH,
-                java.util.Set.of(), java.util.Set.of(), java.util.Set.of()));
-        var dynamic = new DynamicTableRewriter(definitions);
-        dynamic.registerTargetOverride("logical", "physical");
-        var rewrite = new DynamicTableSqlRewriter(new PangrovaParserFactory(), dynamic);
+        var publications = new MutablePublishedResolver();
+        publications.physical = new QualifiedTableName("iceberg_catalog", "default", "physical");
+        var rewrite = new DynamicTableSqlRewriter(new PangrovaParserFactory(),
+                new DynamicTableRewriter(publications));
 
         assertThat(rewrite.rewrite("SELECT 'logical' AS label FROM logical"))
-                .isEqualTo("SELECT 'logical' AS label FROM physical");
+                .isEqualTo("SELECT 'logical' AS label FROM iceberg_catalog.default.physical");
         assertThat(rewrite.rewrite("SELECT logical FROM logical"))
-                .isEqualTo("SELECT logical FROM physical");
+                .isEqualTo("SELECT logical FROM iceberg_catalog.default.physical");
         assertThat(rewrite.rewrite("SELECT 1 /* logical */ FROM logical"))
-                .isEqualTo("SELECT 1 /* logical */ FROM physical");
+                .isEqualTo("SELECT 1 /* logical */ FROM iceberg_catalog.default.physical");
         assertThat(rewrite.rewrite("SELECT * FROM iceberg_catalog.default.logical WHERE id = 1"))
                 .isEqualTo("SELECT * FROM iceberg_catalog.default.physical WHERE id = 1");
-        dynamic.registerTargetOverride("logical", "paimon_catalog.default.source_table");
-        assertThat(rewrite.rewrite("SELECT * FROM paimon_catalog.default.logical"))
-                .isEqualTo("SELECT * FROM paimon_catalog.default.source_table");
+    }
+
+    private static final class MutablePublishedResolver
+            implements DynamicTableRewriter.PublishedTargetResolver {
+        private static final QualifiedTableName LOGICAL =
+                new QualifiedTableName("iceberg_catalog", "default", "logical");
+        private QualifiedTableName physical;
+
+        @Override
+        public java.util.Optional<QualifiedTableName> canonicalLogical(List<String> nameParts) {
+            return isLogical(nameParts) ? java.util.Optional.of(LOGICAL) : java.util.Optional.empty();
+        }
+
+        @Override
+        public java.util.Optional<DynamicTableRewriter.PublishedTarget> resolve(
+                List<String> nameParts) {
+            return isLogical(nameParts)
+                    ? java.util.Optional.of(new DynamicTableRewriter.PublishedTarget(LOGICAL, physical))
+                    : java.util.Optional.empty();
+        }
+
+        private static boolean isLogical(List<String> nameParts) {
+            return !nameParts.isEmpty()
+                    && nameParts.get(nameParts.size() - 1).equalsIgnoreCase("logical");
+        }
     }
 }

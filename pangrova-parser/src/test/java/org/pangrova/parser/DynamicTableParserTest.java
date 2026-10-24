@@ -49,6 +49,24 @@ class DynamicTableParserTest {
             assertThat(dt.name().parts()).containsExactly("cat", "sch", "my_dt");
         }
 
+        /** Omitting TARGET_LAG is the explicit manual-refresh form. */
+        @Test
+        void omitsTargetLagForManualRefresh() {
+            var dt = (CreateDynamicTableStatement) parse(
+                    "CREATE DYNAMIC TABLE manual_dt AS SELECT * FROM source");
+
+            assertThat(dt.targetLag()).isZero();
+            assertThat(dt.refreshMode()).isEmpty();
+        }
+
+        @Test
+        void rejectsZeroTargetLag() {
+            assertThatThrownBy(() -> parse(
+                    "CREATE DYNAMIC TABLE dt1 TARGET_LAG = 'PT0S' AS SELECT * FROM t"))
+                    .isInstanceOf(ParseException.class)
+                    .hasMessageContaining("TARGET_LAG must be a positive duration");
+        }
+
         /** R1 AC2: REFRESH_MODE = CDC. */
         @Test
         void parsesRefreshModeCdc() {
@@ -65,12 +83,29 @@ class DynamicTableParserTest {
             assertThat(dt.refreshMode()).contains(RefreshMode.SNAPSHOT);
         }
 
-        /** R1 AC4: REFRESH_MODE = AUTO. */
+        /** R1 AC2: REFRESH_MODE = AUTO. */
         @Test
         void parsesRefreshModeAuto() {
             var dt = (CreateDynamicTableStatement) parse(
                     "CREATE DYNAMIC TABLE dt1 TARGET_LAG = 'PT5M' REFRESH_MODE = AUTO AS SELECT * FROM t");
             assertThat(dt.refreshMode()).contains(RefreshMode.AUTO);
+        }
+
+        /** REFRESH_MODE = INCREMENTAL with a pinned strategy. */
+        @Test
+        void parsesIncrementalStrategy() {
+            var dt = (CreateDynamicTableStatement) parse(
+                    "CREATE DYNAMIC TABLE dt1 TARGET_LAG = 'PT5M' REFRESH_MODE = INCREMENTAL "
+                            + "INCREMENTAL_STRATEGY = APPEND_ONLY AS SELECT * FROM t");
+            assertThat(dt.refreshMode()).contains(RefreshMode.INCREMENTAL);
+            assertThat(dt.incrementalStrategy()).contains(IncrementalStrategy.APPEND_ONLY);
+        }
+
+        @Test
+        void parsesAutomaticIncrementalStrategy() {
+            var dt = (CreateDynamicTableStatement) parse(
+                    "CREATE DYNAMIC TABLE dt1 INCREMENTAL_STRATEGY = AUTO AS SELECT * FROM t");
+            assertThat(dt.incrementalStrategy()).contains(IncrementalStrategy.AUTO);
         }
 
         /** R1 AC3: optional WAREHOUSE clause. */
@@ -177,6 +212,26 @@ class DynamicTableParserTest {
                     .hasMessageContaining("Invalid TARGET_LAG duration");
         }
 
+        @Test
+        void parsesSetRefreshMode() {
+            var stmt = (AlterDynamicTableStatement) parse(
+                    "ALTER DYNAMIC TABLE my_dt SET REFRESH_MODE = INCREMENTAL");
+            assertThat(stmt.action())
+                    .isInstanceOfSatisfying(AlterDynamicTableAction.SetRefreshMode.class,
+                            action -> assertThat(action.mode())
+                                    .isEqualTo(RefreshMode.INCREMENTAL));
+        }
+
+        @Test
+        void parsesRename() {
+            var stmt = (AlterDynamicTableStatement) parse(
+                    "ALTER DYNAMIC TABLE my_dt RENAME TO cat.sch.dt2");
+            assertThat(stmt.action())
+                    .isInstanceOfSatisfying(AlterDynamicTableAction.Rename.class,
+                            action -> assertThat(action.newName().parts())
+                                    .containsExactly("cat", "sch", "dt2"));
+        }
+
         /** R1 AC7: ALTER DYNAMIC TABLE REDEFINE AS new_query. */
         @Test
         void parsesRedefine() {
@@ -262,12 +317,32 @@ class DynamicTableParserTest {
         }
 
         @Test
+        void printsManualCreateWithoutTargetLag() {
+            var stmt = parse("CREATE DYNAMIC TABLE manual_dt AS SELECT * FROM t");
+            String printed = printer.print(stmt);
+            assertThat(printed).doesNotContain("TARGET_LAG");
+            assertThat(parse(printed)).isEqualTo(stmt);
+        }
+
+        @Test
+        void printsIncrementalStrategy() {
+            var stmt = parse("CREATE DYNAMIC TABLE dt1 TARGET_LAG = 'PT5M' "
+                    + "REFRESH_MODE = INCREMENTAL INCREMENTAL_STRATEGY = APPEND_ONLY "
+                    + "AS SELECT * FROM t");
+            String printed = printer.print(stmt);
+            assertThat(printed).contains("INCREMENTAL_STRATEGY = APPEND_ONLY");
+            assertThat(parse(printed)).isEqualTo(stmt);
+        }
+
+        @Test
         void printsAlterDynamicTable() {
             for (String sql : new String[]{
                     "ALTER DYNAMIC TABLE dt1 SUSPEND",
                     "ALTER DYNAMIC TABLE dt1 RESUME",
                     "ALTER DYNAMIC TABLE dt1 REFRESH",
                     "ALTER DYNAMIC TABLE dt1 SET TARGET_LAG = 'PT10M'",
+                    "ALTER DYNAMIC TABLE dt1 SET REFRESH_MODE = INCREMENTAL",
+                    "ALTER DYNAMIC TABLE dt1 RENAME TO cat.sch.dt2",
                     "ALTER DYNAMIC TABLE dt1 REDEFINE AS SELECT a FROM t"
             }) {
                 var stmt = parse(sql);

@@ -86,8 +86,11 @@ class DynamicTableDagE2ETest extends SqlE2ETestBase {
         assertThat(levelC).hasSize(1);
         assertThat(levelC.get(0).getRaw("value")).isEqualTo("root");
 
-        // Insert new data at source and verify cascade propagation
+        // Insert new data at source and refresh each level in dependency order
         sqlRunner.execute("INSERT INTO " + SOURCE_TABLE + " VALUES (2, 'cascade')");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_A + " REFRESH");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_B + " REFRESH");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_C + " REFRESH");
 
         List<TypedRow> levelCAfter = sqlRunner.execute("SELECT * FROM " + DT_C);
         assertThat(levelCAfter).hasSize(2);

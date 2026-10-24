@@ -4,8 +4,11 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.coordinator.index.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.spi.coordination.MaintenanceLeaderAware;
+import org.pangrova.spi.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
 
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -94,8 +97,58 @@ class MaintenanceLeadershipBootstrapTest {
         }
     }
 
+    @Test
+    void renewalFailureDemotesBeforeReturningAndSuccessfulRenewalReactivates() {
+        var lease = new FailingRenewalLease();
+        var listener = new RecordingListener();
+        try (var bootstrap = bootstrap(lease, "maintenance-a", listener)) {
+            bootstrap.poll();
+            lease.failRenewal = true;
+            assertThatThrownBy(bootstrap::poll).hasMessage("lease backend unavailable");
+            assertThat(bootstrap.isLeader()).isFalse();
+            assertThat(bootstrap.activeEpoch()).isZero();
+            assertThat(listener.lost).hasValue(1);
+            lease.failRenewal = false;
+            bootstrap.poll();
+            assertThat(bootstrap.isLeader()).isTrue();
+            assertThat(listener.elected).hasValue(2);
+        }
+    }
+
+    @Test
+    void failedActivationStopsPartiallyStartedSubsystems() {
+        var stopped = new AtomicInteger();
+        var listener = new MaintenanceLeaderAware() {
+            @Override public void onLeaderElected() {
+                throw new IllegalStateException("activation failed after starting a subsystem");
+            }
+            @Override public void onLeadershipLost() { stopped.incrementAndGet(); }
+        };
+        try (var bootstrap = bootstrap(new InMemoryDistributedLease(), "maintenance-a", listener)) {
+            assertThatThrownBy(bootstrap::poll).hasMessage("activation failed after starting a subsystem");
+            assertThat(bootstrap.isLeader()).isFalse();
+            assertThat(bootstrap.activeEpoch()).isZero();
+            assertThat(stopped).hasValue(1);
+        }
+    }
+
+    @Test
+    void aNewBackendEpochDemotesAndReactivatesTheLocalSubsystems() {
+        var lease = new InMemoryDistributedLease();
+        var listener = new RecordingListener();
+        try (var bootstrap = bootstrap(lease, "maintenance-a", listener)) {
+            bootstrap.poll();
+            long previous = bootstrap.activeEpoch();
+            assertThat(lease.release("maintenance-control", "maintenance-a", previous)).isTrue();
+            bootstrap.poll();
+            assertThat(bootstrap.activeEpoch()).isGreaterThan(previous);
+            assertThat(listener.lost).hasValue(1);
+            assertThat(listener.elected).hasValue(2);
+        }
+    }
+
     private static MaintenanceLeadershipBootstrap bootstrap(
-            InMemoryDistributedLease lease, String owner,
+            DistributedLease lease, String owner,
             MaintenanceLeaderAware listener) {
         return new MaintenanceLeadershipBootstrap(
                 new MaintenanceLeaderElection(lease, owner), listener,
@@ -115,5 +168,21 @@ class MaintenanceLeadershipBootstrapTest {
         public void onLeadershipLost() {
             lost.incrementAndGet();
         }
+    }
+
+    private static final class FailingRenewalLease implements DistributedLease {
+        private final InMemoryDistributedLease delegate = new InMemoryDistributedLease();
+        private boolean failRenewal;
+        @Override public Optional<LeaseEntry> tryAcquire(String key, String holder, Duration duration) {
+            return delegate.tryAcquire(key, holder, duration);
+        }
+        @Override public boolean tryRenew(String key, String holder, long epoch, Duration duration) {
+            if (failRenewal) throw new IllegalStateException("lease backend unavailable");
+            return delegate.tryRenew(key, holder, epoch, duration);
+        }
+        @Override public boolean release(String key, String holder, long epoch) {
+            return delegate.release(key, holder, epoch);
+        }
+        @Override public Optional<LeaseEntry> currentHolder(String key) { return delegate.currentHolder(key); }
     }
 }

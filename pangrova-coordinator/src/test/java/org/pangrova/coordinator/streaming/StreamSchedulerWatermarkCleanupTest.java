@@ -41,13 +41,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link StreamScheduler#stopAll()} must call
  * {@link WatermarkTracker#removeTable(String)} to prevent memory leaks.
  */
-class StreamSchedulerWatermarkCleanupTest {
+class StreamSchedulerWatermarkCleanupTest extends org.pangrova.testing.ContainerTestBase {
 
     private WatermarkTracker watermarkTracker;
     private StreamScheduler scheduler;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         watermarkTracker = new WatermarkTracker(new InMemoryWatermarkStore());
 
         StreamConfig config = StreamConfig.withDefaults();
@@ -60,6 +60,7 @@ class StreamSchedulerWatermarkCleanupTest {
         StreamSchedulerContext deps = new StreamSchedulerContext(
                 new InMemoryStreamStateStore(),
                 new InMemoryStreamOffsetStore(),
+                commitCoordinator(),
                 converterRegistry,
                 watermarkTracker,
                 maintenanceScheduler,
@@ -67,7 +68,7 @@ class StreamSchedulerWatermarkCleanupTest {
                 state -> new NoOpSourceReader(),
                 state -> new NoOpWriteSink());
 
-        scheduler = new StreamScheduler(deps, Executors.newFixedThreadPool(2));
+        scheduler = new StreamScheduler(deps, "coordinator-test", Executors.newFixedThreadPool(2));
     }
 
     @AfterEach
@@ -157,12 +158,14 @@ class StreamSchedulerWatermarkCleanupTest {
     }
 
     static class InMemoryStreamStateStore implements StreamStateStore {
+        @Override public boolean createState(StreamState state) { return true; }
+        @Override public void saveStateIfEpoch(StreamState state, long epoch) {}
         @Override public void saveState(StreamState state) {}
         @Override public Optional<StreamState> loadState(String name) { return Optional.empty(); }
         @Override public List<StreamState> listByTenant(String tenantId) { return List.of(); }
         @Override public List<StreamState> listByState(StreamLifecycleState s) { return List.of(); }
         @Override public List<StreamState> listAll() { return List.of(); }
-        @Override public boolean delete(String name) { return false; }
+        @Override public boolean delete(StreamState state) { return false; }
     }
 
     static class InMemoryStreamOffsetStore implements StreamOffsetStore {
@@ -209,4 +212,12 @@ class StreamSchedulerWatermarkCleanupTest {
             return new MaintenanceStatus(table, 0, 0, 0L, 0, 0, 0L, 0L, null, null, null);
         }
     }
+
+    private static org.pangrova.streaming.cdc.commit.CdcCommitCoordinator commitCoordinator() throws Exception {
+        var dataSource = org.pangrova.coordinator.testinfra.SharedPostgresContainer
+                .migratedDataSource("stream_scheduler");
+        return new org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator(
+                new org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore(dataSource));
+    }
+
 }

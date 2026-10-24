@@ -28,16 +28,27 @@ final class QueryModuleLoader {
     private final MetadataBootstrap metadataBootstrap;
     private final ModuleIntegrationBootstrap moduleWiring;
     private final AccessControl accessControl;
+    private final org.pangrova.materialization.usecase.ReaderPinLeases readerPins;
 
     QueryModuleLoader(
             CoordinatorBootstrapConfig config,
             MetadataBootstrap metadataBootstrap,
             ModuleIntegrationBootstrap moduleWiring,
             AccessControl accessControl) {
+        this(config, metadataBootstrap, moduleWiring, accessControl, null);
+    }
+
+    QueryModuleLoader(
+            CoordinatorBootstrapConfig config,
+            MetadataBootstrap metadataBootstrap,
+            ModuleIntegrationBootstrap moduleWiring,
+            AccessControl accessControl,
+            org.pangrova.materialization.usecase.ReaderPinLeases readerPins) {
         this.config = config;
         this.metadataBootstrap = metadataBootstrap;
         this.moduleWiring = moduleWiring;
         this.accessControl = accessControl;
+        this.readerPins = readerPins;
     }
 
     DefaultModuleContext load() {
@@ -72,7 +83,7 @@ final class QueryModuleLoader {
 
     private void seedBindings(DefaultModuleContext context) {
         var registry = new org.pangrova.planner.runtimefilter.RuntimeFilterRegistry();
-        SqlCompiler compiler = new PlannerWiring(config, metadataBootstrap)
+        SqlCompiler compiler = new PlannerWiring(config, metadataBootstrap, readerPins, accessControl)
                 .buildSqlCompiler(registry);
         context.bind(SqlCompiler.class, compiler);
         context.bind(org.pangrova.planner.runtimefilter.RuntimeFilterRegistry.class, registry);

@@ -40,7 +40,8 @@ final class PaimonReadBindings {
         var bound = new PaimonTableHandle(selector.schemaName(), selector.tableName(), table.location().toString(),
                 snapshot == null ? Optional.empty() : Optional.of(snapshot.id()),
                 org.apache.paimon.utils.JsonSerdeUtil.toFlatJson(schema.rowType()),
-                table.primaryKeys(), table.partitionKeys(), properties, selector.pushedLimit());
+                table.primaryKeys(), table.partitionKeys(), properties, selector.pushedLimit(),
+                selector.incrementalRange());
         var statistics = PaimonTableStatisticsReader.build(table, snapshot, schema.rowType());
         validateSelected(table, bound);
         return new ConnectorReadBinding(bound, declaration, statistics,

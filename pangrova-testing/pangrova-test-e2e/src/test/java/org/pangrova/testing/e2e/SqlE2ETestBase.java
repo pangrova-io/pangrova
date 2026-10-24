@@ -228,15 +228,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static ScheduledExecutorService controlEpochObserver;
     private static volatile ExecutorService asyncQueryExecutor;
 
-    // Shared MaterializedViewManager — used by both DT DDL executor and planner rewriter
-    private static volatile org.pangrova.planner.mv.MaterializedViewManager sharedMvManager;
-
-    // Shared DynamicTableRewriter — used by both planner and refresh executor for target overrides
-    private static volatile org.pangrova.planner.mv.DynamicTableRewriter sharedDtRewriter;
-
-    // Configurable CDC lifecycle manager — subclasses set via setCdcAvailable() in @BeforeAll
-    protected static volatile boolean cdcAvailableFlag = false;
-
     private static volatile boolean infrastructureInitialized;
     private static volatile Throwable infrastructureStartupFailure;
     private static Thread infrastructureShutdownHook;
@@ -275,10 +266,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static volatile QueryDispatcher sharedQueryDispatcher;
     private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
             sharedStatementDispatcher;
-    private static volatile org.pangrova.coordinator.dynamictable.DynamicTableDdlExecutor
-            sharedTestDynamicTableDdlExecutor;
-    private static volatile org.pangrova.planner.mv.DynamicTableRewriter
-            originalTestDynamicTableRewriter;
+    private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
+            materializationDispatcher;
+    private static volatile org.pangrova.metadata.materialization.JdbcMaterializationRepository
+            materializationRepository;
+    private static volatile org.pangrova.metadata.materialization.JdbcMaterializationCatalog
+            materializationCatalog;
     private static volatile org.pangrova.spi.security.AccessControl featureAccessControl;
     private static volatile boolean durableStorageProfileScenario;
     private static volatile org.pangrova.spi.security.AccessControl currentAccessControl;
@@ -638,7 +631,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         registeredClasses.clear();
         lastRegisteredCatalogs.clear();
         defaultSchemaPath = List.of("");
-        cdcAvailableFlag = false;
         drainNativeTasksBetweenClasses();
     }
 
@@ -1082,8 +1074,20 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * POST /v1/query/submit → fetch results via transport → poll terminal state.
      */
     private static List<TypedRow> executeViaRealPipeline(String sql) {
+        return executeWithBoundSession(sql, Map.of());
+    }
+
+    /**
+     * Executes SQL through the HTTP pipeline with client-bound session defaults.
+     *
+     * <p>Transparent materialized-view rewrite is scoped to the session's default
+     * catalog and schema, so tests that exercise rewrite must bind both the same
+     * way a client does.
+     */
+    protected static List<TypedRow> executeWithBoundSession(String sql,
+            Map<String, String> sessionProperties) {
         try {
-            return consumeSubmittedQuery(submitQueryViaHttp(sql));
+            return consumeSubmittedQuery(submitQueryViaHttp(sql, sessionProperties));
         } catch (TimeoutException e) {
             throw new RuntimeException("Query polling timed out after " + POLL_TIMEOUT_MS + "ms", e);
         } catch (RuntimeException e) {
@@ -1151,8 +1155,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     protected static SubmitQueryResponse submitQueryViaHttp(String sql) throws Exception {
+        return submitQueryViaHttp(sql, Map.of());
+    }
+
+    protected static SubmitQueryResponse submitQueryViaHttp(String sql,
+            Map<String, String> sessionProperties) throws Exception {
         String url = "http://localhost:" + coordinatorHttpServer.getPort() + "/v1/query/submit";
-        SubmitQueryRequest request = new SubmitQueryRequest(sql, Map.of());
+        SubmitQueryRequest request = new SubmitQueryRequest(sql, sessionProperties);
         byte[] body = MAPPER.writeValueAsBytes(request);
 
         HttpRequest httpReq = authenticatedHttpRequest(URI.create(url))
@@ -1844,6 +1853,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             throw new IllegalStateException("E2E Coordinator did not acquire its durable control lease");
         }
         e2eCoordinationService = coordination;
+        registerDurableMaterializationTasks();
         java.util.Objects.requireNonNull(sharedTaskStatusReceiver, "E2E task receiver is not initialized")
                 .setWriteCommitFencer(E2E_WRITE_COMMIT_FENCER);
         sharedQueryDispatcher.setOwnershipTracking(coordination, E2E_COORDINATOR_ID);
@@ -2074,8 +2084,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // -----------------------------------------------------------------------
 
     private static QueryDispatcher buildQueryDispatcher() {
-        // StatementDispatcher must be built BEFORE SqlCompiler so that sharedMvManager
-        // is initialized when buildSqlCompiler() creates the DynamicTableRewriter.
         // Match production DML routing: compile the parsed statement once and
         // preserve its write mode, partition binding, and execution ownership.
         var queryDispatcherRef = new java.util.concurrent.atomic.AtomicReference<QueryDispatcher>();
@@ -2120,6 +2128,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 dmlDispatch, queryDispatcherRef, taskTracker, resultSvc,
                 embeddingRegistry, workerManager);
         sharedStatementDispatcher = statementDispatcher;
+        registerDurableMaterializationTasks();
         var indexAwareSplitFetcher = registerIndexHandlers(statementDispatcher);
         SqlCompiler compiler = buildSqlCompiler();
         statementDispatcher.updateCompiler(compiler);
@@ -2345,8 +2354,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         sharedDdlExecutor = ddlExecutor;
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
-        var dtExecutor = buildDynamicTableDdlExecutor();
-        sharedTestDynamicTableDdlExecutor = dtExecutor;
 
         // 2-Factory architecture: MetadataExecutionFactory + PlanExecutionFactory
         var tasks = new java.util.HashMap<Class<? extends org.pangrova.parser.ast.Statement>,
@@ -2448,10 +2455,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             org.pangrova.coordinator.ai.embedding.EmbeddingModelTaskRegistration.register(
                     metadataFactory, embeddingRegistry, embeddingWorkers);
         }
-        if (dtExecutor != null) {
-            registerTestDynamicTableTasks(metadataFactory, dtExecutor);
-        }
-
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
                         dmlDispatch, null,
@@ -2469,204 +2472,70 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
     }
 
-    /** Installs the same durable handlers used by production bootstrap for one E2E class. */
-    protected static synchronized org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore
-            installDurableDynamicTableRuntime() {
-        if (originalTestDynamicTableRewriter != null) {
-            throw new IllegalStateException("Durable Dynamic Table runtime is already installed");
-        }
-        var publications = new org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore(
-                java.util.Objects.requireNonNull(stateStoreDataSource));
-        originalTestDynamicTableRewriter = sharedDtRewriter;
-        sharedDtRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(
-                new org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver(
-                        publications, E2E_TENANT_ID, "iceberg_catalog", "default"));
-        var factory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(
-                new java.util.HashMap<>());
-        org.pangrova.coordinator.dynamictable.DynamicTableTaskRegistration.register(
-                factory, publications, java.util.Objects.requireNonNull(sharedDdlExecutor),
-                (sm, session, stmt) -> java.util.Objects.requireNonNull(sharedQueryDispatcher)
-                        .executeDmlStatement(sm, stmt, session),
-                execution -> requireE2ECoordination().requireExecutionAnchor(execution),
-                () -> requireE2ECoordination().getCurrentEpoch());
-        java.util.Objects.requireNonNull(sharedStatementDispatcher).registerFactory(factory);
-        return publications;
-    }
-
-    /** Reopens the persisted publication authority as a coordinator restart would. */
-    protected static org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore
-            reopenDynamicTablePublicationStore() {
-        return new org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore(
-                java.util.Objects.requireNonNull(stateStoreDataSource));
-    }
-
-    /** Restores the pre-existing test handlers so other E2E classes keep their own fixtures. */
-    protected static synchronized void restoreTestDynamicTableRuntime() {
-        if (originalTestDynamicTableRewriter == null) {
+    /**
+     * Registers the production materialization DDL handlers on the active dispatcher.
+     * Idempotent per dispatcher instance; the durable authority is the only DT/MV runtime.
+     */
+    private static synchronized void registerDurableMaterializationTasks() {
+        var dispatcher = sharedStatementDispatcher;
+        if (dispatcher == null || e2eCoordinationService == null
+                || materializationDispatcher == dispatcher) {
             return;
         }
+        var repository = materializationRepository();
+        var catalog = materializationCatalog();
         var factory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(
                 new java.util.HashMap<>());
-        registerTestDynamicTableTasks(factory,
-                java.util.Objects.requireNonNull(sharedTestDynamicTableDdlExecutor));
-        java.util.Objects.requireNonNull(sharedStatementDispatcher).registerFactory(factory);
-        sharedDtRewriter = originalTestDynamicTableRewriter;
-        originalTestDynamicTableRewriter = null;
+        org.pangrova.coordinator.materialization.MaterializationDdlRegistration.register(
+                factory, repository, catalog,
+                metadataBootstrap.catalogRegistry(), e2eCoordinationService,
+                java.util.Objects.requireNonNull(sharedDdlExecutor),
+                (sm, session, stmt) -> java.util.Objects.requireNonNull(sharedQueryDispatcher)
+                        .executeDmlStatement(sm, stmt, session),
+                stateStoreDataSource, currentAccessControl);
+        dispatcher.registerFactory(factory);
+        materializationDispatcher = dispatcher;
     }
 
-    private static void registerTestDynamicTableTasks(
-            org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
-            org.pangrova.coordinator.dynamictable.DynamicTableDdlExecutor executor) {
-        factory.registerTask(org.pangrova.parser.ast.CreateDynamicTableStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.CreateDynamicTableTask(executor));
-        factory.registerTask(org.pangrova.parser.ast.CreateContinuousQueryStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.stream.CreateContinuousQueryTask(executor));
-        factory.registerTask(org.pangrova.parser.ast.statement.AlterDynamicTableStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.AlterDynamicTableTask(executor));
-        factory.registerTask(org.pangrova.parser.ast.statement.DropDynamicTableStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.DropDynamicTableTask(executor));
-        factory.registerTask(org.pangrova.parser.ast.statement.ShowDynamicTablesStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ShowDynamicTablesTask(executor));
-        factory.registerTask(org.pangrova.parser.ast.statement.DescribeDynamicTableStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.DescribeDynamicTableTask(executor));
+    /** Returns the durable authority used by the E2E materialization runtime. */
+    protected static DurableDynamicTableAuthority installDurableDynamicTableRuntime() {
+        registerDurableMaterializationTasks();
+        return new DurableDynamicTableAuthority(materializationRepository(), materializationCatalog());
     }
 
-    private static org.pangrova.coordinator.dynamictable.DynamicTableDdlExecutor buildDynamicTableDdlExecutor() {
-        var stateStore = new org.pangrova.metadata.dynamictable.InMemoryDynamicTableStateStore();
-        var historyStore = new org.pangrova.metadata.dynamictable.InMemoryRefreshHistoryStore();
-        sharedMvManager = new org.pangrova.planner.mv.MaterializedViewManager();
-        // Force DynamicTableRewriter recreation so it binds to the new MvManager instance.
-        // Without this, a stale rewriter from a previous rebuildQueryPipeline() cycle
-        // would reference the old MvManager that has no MV definitions registered.
-        sharedDtRewriter = null;
-        var dagManager = new org.pangrova.coordinator.dynamictable.DynamicTableDagManager();
-        var feasibilityChecker = new org.pangrova.coordinator.dynamictable.eval.IncrementalFeasibilityChecker();
-        var cdcLifecycleManager = new ConfigurableCdcLifecycleManager();
-        var config = org.pangrova.coordinator.dynamictable.DynamicTableConfig.defaults();
-        org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshExecutor refreshExecutor =
-                SqlE2ETestBase::executeRefresh;
-        var schedulerDeps = new org.pangrova.coordinator.dynamictable.schedule.RefreshSchedulerContext(
-                refreshExecutor, stateStore, config);
-        var scheduler = new org.pangrova.coordinator.dynamictable.schedule.RefreshScheduler(schedulerDeps);
-        var deps = new org.pangrova.coordinator.dynamictable.DynamicTableDdlContext(
-                stateStore, historyStore, sharedMvManager, scheduler,
-                dagManager, feasibilityChecker, cdcLifecycleManager,
-                refreshExecutor, config);
-        return new org.pangrova.coordinator.dynamictable.DynamicTableDdlExecutor(deps);
+    private static org.pangrova.metadata.materialization.JdbcMaterializationRepository
+            materializationRepository() {
+        var repository = materializationRepository;
+        if (repository == null) {
+            repository = new org.pangrova.metadata.materialization.JdbcMaterializationRepository(
+                    java.util.Objects.requireNonNull(stateStoreDataSource));
+            materializationRepository = repository;
+        }
+        return repository;
     }
 
-    /**
-     * RefreshExecutor: registers a target override in the shared DynamicTableRewriter.
-     *
-     * <p>For simple {@code SELECT * FROM table} queries, the override points directly
-     * to the source table (zero-lag pass-through). For complex queries (GROUP BY,
-     * JOIN, DISTINCT, etc.), the override wraps the defining query as a subquery
-     * so aggregation/transformation is applied on every read.</p>
-     */
-    private static org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshResult executeRefresh(
-            org.pangrova.metadata.dynamictable.DynamicTableState state,
-            org.pangrova.metadata.dynamictable.TriggerType trigger) {
-        String dtName = state.dtName();
-        if (sharedMvManager == null) {
-            LOG.warn("event=dt_refresh_skip reason=no_mv_manager dtName={}", dtName);
-            return org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshResult.noOp();
+    private static org.pangrova.metadata.materialization.JdbcMaterializationCatalog
+            materializationCatalog() {
+        var catalog = materializationCatalog;
+        if (catalog == null) {
+            catalog = new org.pangrova.metadata.materialization.JdbcMaterializationCatalog(
+                    java.util.Objects.requireNonNull(stateStoreDataSource));
+            materializationCatalog = catalog;
         }
-        var mvDef = sharedMvManager.getDefinition(dtName);
-        if (mvDef.isEmpty()) {
-            LOG.warn("event=dt_refresh_skip reason=no_mv_definition dtName={}", dtName);
-            return org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshResult.noOp();
-        }
-        try {
-            String definingQuery = mvDef.get().query();
-            if (isSimpleSelectStar(definingQuery)) {
-                String sourceTable = extractSourceTableFromQuery(definingQuery);
-                registerSourceTableOverride(dtName, sourceTable);
-            } else {
-                // Complex query (GROUP BY, JOIN, etc.) — wrap as inline subquery
-                // so the transformation is applied on every read.
-                String subquery = "(" + definingQuery + ") AS " + dtName;
-                registerSourceTableOverride(dtName, subquery);
-            }
-            enableQueryRewrite(dtName);
-            LOG.info("event=dt_refresh_complete dtName={}", dtName);
-            return new org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshResult(
-                    org.pangrova.metadata.dynamictable.RefreshStatus.SUCCESS, 0, 0,
-                    String.valueOf(System.currentTimeMillis()), 0);
-        } catch (Exception e) {
-            LOG.error("event=dt_refresh_failed dtName={} error={}", dtName, e.getMessage());
-            return org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshResult.failure(0);
-        }
+        return catalog;
     }
 
-    /**
-     * Detects whether a defining query is a simple {@code SELECT * FROM table}
-     * that can use pass-through resolution (no GROUP BY, JOIN, DISTINCT, etc.).
-     */
-    private static boolean isSimpleSelectStar(String definingQuery) {
-        try {
-            var parser = new org.pangrova.planner.parse.PangrovaParserFactory();
-            var ast = parser.parseToAst(definingQuery);
-            if (!(ast instanceof org.pangrova.parser.ast.Query query)) {
-                return false;
-            }
-            boolean allStar = query.selectItems().stream()
-                    .allMatch(item -> item instanceof org.pangrova.parser.ast.AllColumns);
-            return allStar
-                    && !query.distinct()
-                    && query.groupBy().isEmpty()
-                    && query.having().isEmpty()
-                    && query.joins().isEmpty()
-                    && query.where().isEmpty();
-        } catch (Exception e) {
-            return false;
-        }
+    /** Reopens the persisted materialization authority as a coordinator restart would. */
+    protected static org.pangrova.metadata.materialization.JdbcMaterializationCatalog
+            reopenDynamicTablePublicationCatalog() {
+        return new org.pangrova.metadata.materialization.JdbcMaterializationCatalog(
+                java.util.Objects.requireNonNull(stateStoreDataSource));
     }
 
-    /**
-     * Extracts the source table name from a defining query (e.g. "SELECT * FROM catalog.schema.table").
-     * Parses the SQL to AST and returns the last table reference's simple name.
-     */
-    private static String extractSourceTableFromQuery(String definingQuery) {
-        try {
-            var parser = new org.pangrova.planner.parse.PangrovaParserFactory();
-            var ast = parser.parseToAst(definingQuery);
-            if (ast instanceof org.pangrova.parser.ast.Query query && !query.from().isEmpty()) {
-                var tableRef = query.from().get(0);
-                List<String> parts = tableRef.name().parts();
-                return String.join(".", parts);
-            }
-        } catch (Exception e) {
-            LOG.warn("event=dt_source_extract_failed query={} error={}", definingQuery, e.getMessage());
-        }
-        // Fallback: strip "SELECT * FROM " prefix and return the full table reference
-        String stripped = definingQuery.replaceFirst("(?i)SELECT\\s+.*\\s+FROM\\s+", "").trim();
-        return stripped.replaceAll("[\\s;].*", "");
-    }
-
-    /**
-     * Registers a target override in the shared DynamicTableRewriter so that
-     * queries against the DT resolve to the source table directly.
-     * Uses the simple (unqualified) name as key because DynamicTableSqlRewriter
-     * looks up overrides by simple name extracted from the SQL AST.
-     */
-    private static void registerSourceTableOverride(String dtName, String sourceTable) {
-        if (sharedDtRewriter != null) {
-            String simpleName = dtName.contains(".")
-                    ? dtName.substring(dtName.lastIndexOf('.') + 1)
-                    : dtName;
-            sharedDtRewriter.registerTargetOverride(simpleName, sourceTable);
-        }
-    }
-
-    /**
-     * Flips enableQueryRewrite=true on the MV definition so DynamicTableRewriter
-     * can resolve SELECT queries against this DT.
-     */
-    private static void enableQueryRewrite(String dtName) {
-        var mvDef = sharedMvManager.getDefinition(dtName);
-        if (mvDef.isPresent()) {
-            sharedMvManager.register(mvDef.get().withEnableQueryRewrite(true));
-        }
+    /** Durable authority pair wired into the E2E Dynamic Table runtime. */
+    protected record DurableDynamicTableAuthority(
+            org.pangrova.metadata.materialization.JdbcMaterializationRepository repository,
+            org.pangrova.metadata.materialization.JdbcMaterializationCatalog catalog) {
     }
 
     /**
@@ -2682,18 +2551,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
     }
 
-    /**
-     * Hook for subclasses to indicate CDC availability.
-     * Override to return true in CDC test classes.
-     */
-    protected static boolean cdcAvailable() {
-        return cdcAvailableFlag;
-    }
-
     protected static SqlCompiler buildSqlCompiler() {
-        if (sharedMvManager != null && sharedDtRewriter == null) {
-            sharedDtRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(sharedMvManager);
-        }
         List<String> schemaPath = List.copyOf(defaultSchemaPath);
         PangrovaPlanner template = new PangrovaPlanner(
                 CalciteSchema.createRootSchema(false, false), schemaPath);
@@ -2705,13 +2563,28 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 .withSessionPlanner(session -> {
                     var bindings = new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
                             metadataBootstrap.catalogRegistry(), session);
+                    var durableRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(
+                            new org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver(
+                                    materializationCatalog(),
+                                    session.getProperties().getOrDefault("tenant_id", E2E_TENANT_ID),
+                                    session.getCatalog().orElse(null),
+                                    session.getSchema().orElse(null)));
+                    var materializationCatalog = materializationCatalog();
+                    var mvCatalog = materializationCatalog == null ? null
+                            : org.pangrova.coordinator.materialization
+                                    .KernelMaterializedViewRewriteCatalog.create(
+                                            materializationCatalog,
+                                            session.getProperties().getOrDefault(
+                                                    "tenant_id", E2E_TENANT_ID),
+                                            session, currentAccessControl,
+                                            java.time.Instant.now()).orElse(null);
                     var deps = new org.pangrova.planner.PlannerContext(
                             new org.pangrova.planner.stats.StatisticsCollector(
                                     new org.pangrova.coordinator.metadata.read.CatalogStatisticsProvider(
                                             bindings)),
-                            null, null,
+                            mvCatalog, null,
                             org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig.DEFAULT,
-                            null, sharedDtRewriter, null,
+                            null, durableRewriter, null,
                             org.pangrova.planner.cost.CboConfig.DEFAULT,
                             org.pangrova.planner.cost.CostModelConfig.SSD_DEFAULT);
                     return new PangrovaPlanner(metadataBootstrap.buildCalciteSchema(session, bindings), schemaPath, deps);
@@ -2784,6 +2657,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         sharedDatasetControlClient = null;
         shutdownMetadata();
         metadataBootstrap = initializeMetadata();
+        materializationRepository = null;
+        materializationCatalog = null;
+        materializationDispatcher = null;
         lastRegisteredCatalogs.clear();
         rebuildQueryPipeline();
         initCoordinatorReadiness();
@@ -3038,22 +2914,4 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         @Override public int activeCatalogCount() { return 0; }
     }
 
-    /**
-     * Configurable CDC lifecycle manager for test environment.
-     * Returns cdcAvailableFlag for isAvailable() — subclasses set the flag
-     * to enable CDC mode DT creation in their @BeforeAll.
-     */
-    private static final class ConfigurableCdcLifecycleManager
-            implements org.pangrova.spi.streaming.CdcLifecycleManager {
-        @Override public boolean isAvailable(String tableName) { return cdcAvailableFlag; }
-        @Override public String resolveOffsetFromSnapshot(String tableName, String snapshotCheckpoint) {
-            return "offset-0";
-        }
-        @Override public CdcRegistrationResult register(String consumerId, String tenantId,
-                                                        int maxConcurrentWrites, long maxPendingBytes) {
-            return new CdcRegistrationResult("noop", maxConcurrentWrites, maxPendingBytes, 5000, 30000);
-        }
-        @Override public void heartbeat(String streamId) { }
-        @Override public void expireStaleStreams() { }
-    }
 }

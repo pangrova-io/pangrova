@@ -2,7 +2,9 @@ package org.pangrova.parser.ast.statement;
 
 import java.time.Duration;
 
+import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Query;
+import org.pangrova.parser.ast.RefreshMode;
 
 /**
  * Actions for {@code ALTER DYNAMIC TABLE} statements.
@@ -20,6 +22,12 @@ public sealed interface AlterDynamicTableAction {
 
     /** Update the target lag duration. */
     record SetTargetLag(Duration newLag) implements AlterDynamicTableAction {}
+
+    /** Change the refresh mode; the kernel follows with a full publication. */
+    record SetRefreshMode(RefreshMode mode) implements AlterDynamicTableAction {}
+
+    /** Rename the logical object. */
+    record Rename(Identifier newName) implements AlterDynamicTableAction {}
 
     /** Redefine the Dynamic Table with a new query. */
     record Redefine(Query newQuery) implements AlterDynamicTableAction {}

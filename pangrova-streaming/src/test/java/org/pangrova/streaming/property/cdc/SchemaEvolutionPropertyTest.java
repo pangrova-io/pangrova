@@ -1,5 +1,6 @@
 package org.pangrova.streaming.property.cdc;
 
+import org.pangrova.streaming.cdc.commit.SourceId;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.common.concurrent.BackoffStrategy;
@@ -50,7 +51,8 @@ class SchemaEvolutionPropertyTest {
 
         SchemaVersionTrackingWriteSink writeSink = new SchemaVersionTrackingWriteSink();
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         // Use a late-binding reference so the reader can stop the loop
         CdcPipelineLoop[] loopRef = new CdcPipelineLoop[1];
@@ -94,7 +96,8 @@ class SchemaEvolutionPropertyTest {
 
         SchemaVersionTrackingWriteSink writeSink = new SchemaVersionTrackingWriteSink();
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop[] loopRef = new CdcPipelineLoop[1];
         StoppingMultiVersionSourceReader reader = new StoppingMultiVersionSourceReader(versions, loopRef);

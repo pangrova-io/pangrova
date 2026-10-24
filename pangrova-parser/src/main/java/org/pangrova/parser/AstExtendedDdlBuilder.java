@@ -50,7 +50,9 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
             PangrovaSqlParser.CreateDynamicTableContext ctx) {
         Identifier name = parent.visitQualifiedName(ctx.qualifiedName());
         Query query = parent.visitQuery(ctx.query());
-        Duration targetLag = parseIso8601Duration(ctx.STRING_LITERAL(0));
+        Duration targetLag = ctx.TARGET_LAG() != null
+                ? parsePositiveTargetLag(ctx.STRING_LITERAL(0))
+                : Duration.ZERO;
         Optional<RefreshMode> refreshMode = ctx.dtRefreshMode() != null
                 ? Optional.of(visitDtRefreshMode(ctx.dtRefreshMode()))
                 : Optional.empty();
@@ -61,7 +63,8 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
         Map<String, String> properties = ctx.stringPropertyList() != null
                 ? visitDtProperties(ctx.stringPropertyList())
                 : Map.of();
-        return new CreateDynamicTableStatement(name, query, targetLag, refreshMode, warehouse, properties);
+        return new CreateDynamicTableStatement(name, query, targetLag, refreshMode, warehouse,
+                properties, incrementalStrategy(ctx.incrementalStrategy()));
     }
 
     @Override
@@ -89,10 +92,26 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override
     public AlterDynamicTableStatement visitAlterDtSetTargetLag(
             PangrovaSqlParser.AlterDtSetTargetLagContext ctx) {
-        Duration newLag = parseIso8601Duration(ctx.STRING_LITERAL());
+        Duration newLag = parsePositiveTargetLag(ctx.STRING_LITERAL());
         return new AlterDynamicTableStatement(
                 parent.visitQualifiedName(ctx.qualifiedName()),
                 new AlterDynamicTableAction.SetTargetLag(newLag));
+    }
+
+    @Override
+    public AlterDynamicTableStatement visitAlterDtSetRefreshMode(
+            PangrovaSqlParser.AlterDtSetRefreshModeContext ctx) {
+        return new AlterDynamicTableStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                new AlterDynamicTableAction.SetRefreshMode(visitDtRefreshMode(ctx.dtRefreshMode())));
+    }
+
+    @Override
+    public AlterDynamicTableStatement visitAlterDtRename(
+            PangrovaSqlParser.AlterDtRenameContext ctx) {
+        return new AlterDynamicTableStatement(
+                parent.visitQualifiedName(ctx.qualifiedName(0)),
+                new AlterDynamicTableAction.Rename(parent.visitQualifiedName(ctx.qualifiedName(1))));
     }
 
     @Override
@@ -132,6 +151,131 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
             PangrovaSqlParser.DescribeDynamicTableContext ctx) {
         return new DescribeDynamicTableStatement(
                 parent.visitQualifiedName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public CreateMaterializedViewStatement visitCreateMaterializedView(
+            PangrovaSqlParser.CreateMaterializedViewContext ctx) {
+        Identifier name = parent.visitQualifiedName(ctx.qualifiedName());
+        Query query = parent.visitQuery(ctx.query());
+        Duration targetLag = ctx.TARGET_LAG() != null
+                ? parsePositiveTargetLag(ctx.STRING_LITERAL())
+                : Duration.ZERO;
+        Optional<RefreshMode> refreshMode = ctx.dtRefreshMode() != null
+                ? Optional.of(visitDtRefreshMode(ctx.dtRefreshMode()))
+                : Optional.empty();
+        return new CreateMaterializedViewStatement(name, query, targetLag, refreshMode,
+                ctx.REPLACE() != null, ctx.EXISTS() != null,
+                incrementalStrategy(ctx.incrementalStrategy()));
+    }
+
+    @Override
+    public AlterMaterializedViewStatement visitAlterMvSuspend(
+            PangrovaSqlParser.AlterMvSuspendContext ctx) {
+        return new AlterMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                new AlterMaterializedViewAction.Suspend());
+    }
+
+    @Override
+    public AlterMaterializedViewStatement visitAlterMvResume(
+            PangrovaSqlParser.AlterMvResumeContext ctx) {
+        return new AlterMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                new AlterMaterializedViewAction.Resume());
+    }
+
+    @Override
+    public AlterMaterializedViewStatement visitAlterMvRefresh(
+            PangrovaSqlParser.AlterMvRefreshContext ctx) {
+        return new AlterMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                new AlterMaterializedViewAction.Refresh());
+    }
+
+    @Override
+    public AlterMaterializedViewStatement visitAlterMvSetTargetLag(
+            PangrovaSqlParser.AlterMvSetTargetLagContext ctx) {
+        return new AlterMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                new AlterMaterializedViewAction.SetTargetLag(
+                        parsePositiveTargetLag(ctx.STRING_LITERAL())));
+    }
+
+    @Override
+    public AlterMaterializedViewStatement visitAlterMvSetRefreshMode(
+            PangrovaSqlParser.AlterMvSetRefreshModeContext ctx) {
+        return new AlterMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                new AlterMaterializedViewAction.SetRefreshMode(
+                        visitDtRefreshMode(ctx.dtRefreshMode())));
+    }
+
+    @Override
+    public AlterMaterializedViewStatement visitAlterMvRename(
+            PangrovaSqlParser.AlterMvRenameContext ctx) {
+        return new AlterMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName(0)),
+                new AlterMaterializedViewAction.Rename(
+                        parent.visitQualifiedName(ctx.qualifiedName(1))));
+    }
+
+    @Override
+    public RefreshMaterializedViewStatement visitRefreshMaterializedView(
+            PangrovaSqlParser.RefreshMaterializedViewContext ctx) {
+        return new RefreshMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public DropMaterializedViewStatement visitDropMaterializedView(
+            PangrovaSqlParser.DropMaterializedViewContext ctx) {
+        return new DropMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()),
+                ctx.CASCADE() != null,
+                ctx.EXISTS() != null);
+    }
+
+    @Override
+    public ShowMaterializedViewsStatement visitShowMaterializedViews(
+            PangrovaSqlParser.ShowMaterializedViewsContext ctx) {
+        return new ShowMaterializedViewsStatement(ctx.STRING_LITERAL() == null ? null
+                : AstDdlDmlBuilder.stripQuotes(ctx.STRING_LITERAL().getText()));
+    }
+
+    @Override
+    public DescribeMaterializedViewStatement visitDescribeMaterializedView(
+            PangrovaSqlParser.DescribeMaterializedViewContext ctx) {
+        return new DescribeMaterializedViewStatement(
+                parent.visitQualifiedName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public ShowMaterializationsStatement visitShowMaterializations(
+            PangrovaSqlParser.ShowMaterializationsContext ctx) {
+        return new ShowMaterializationsStatement();
+    }
+
+    @Override
+    public ShowMaterializationRefreshHistoryStatement visitShowMaterializationRefreshHistory(
+            PangrovaSqlParser.ShowMaterializationRefreshHistoryContext ctx) {
+        return new ShowMaterializationRefreshHistoryStatement(optionalName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public ShowMaterializationDependenciesStatement visitShowMaterializationDependencies(
+            PangrovaSqlParser.ShowMaterializationDependenciesContext ctx) {
+        return new ShowMaterializationDependenciesStatement(optionalName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public ShowMaterializationGcHistoryStatement visitShowMaterializationGcHistory(
+            PangrovaSqlParser.ShowMaterializationGcHistoryContext ctx) {
+        return new ShowMaterializationGcHistoryStatement(optionalName(ctx.qualifiedName()));
+    }
+
+    private Optional<Identifier> optionalName(PangrovaSqlParser.QualifiedNameContext ctx) {
+        return Optional.ofNullable(ctx).map(parent::visitQualifiedName);
     }
 
     @Override
@@ -425,6 +569,17 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
         return Map.copyOf(props);
     }
 
+    private Duration parsePositiveTargetLag(org.antlr.v4.runtime.tree.TerminalNode node) {
+        Duration parsed = parseIso8601Duration(node);
+        if (parsed.isZero() || parsed.isNegative()) {
+            throw new ParseException(
+                    org.pangrova.common.exception.PangrovaErrorCode.PARSER_SYNTAX_ERROR,
+                    "TARGET_LAG must be a positive duration; omit TARGET_LAG for manual refresh",
+                    node.getSymbol().getLine(), node.getSymbol().getCharPositionInLine());
+        }
+        return parsed;
+    }
+
     private Duration parseIso8601Duration(org.antlr.v4.runtime.tree.TerminalNode node) {
         String raw = AstDdlDmlBuilder.stripQuotes(node.getText());
         try {
@@ -442,9 +597,30 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     private RefreshMode visitDtRefreshMode(PangrovaSqlParser.DtRefreshModeContext ctx) {
         if (ctx instanceof PangrovaSqlParser.SnapshotRefreshModeContext) return RefreshMode.SNAPSHOT;
+        if (ctx instanceof PangrovaSqlParser.FullRefreshModeContext) return RefreshMode.FULL;
         if (ctx instanceof PangrovaSqlParser.CdcRefreshModeContext) return RefreshMode.CDC;
         if (ctx instanceof PangrovaSqlParser.AutoRefreshModeContext) return RefreshMode.AUTO;
+        if (ctx instanceof PangrovaSqlParser.IncrementalRefreshModeContext) {
+            return RefreshMode.INCREMENTAL;
+        }
         throw new IllegalArgumentException("Unknown refresh mode: " + ctx.getText());
+    }
+
+    private static Optional<org.pangrova.parser.ast.IncrementalStrategy> incrementalStrategy(
+            PangrovaSqlParser.IncrementalStrategyContext ctx) {
+        if (ctx == null) {
+            return Optional.empty();
+        }
+        return Optional.of(switch (ctx.getText().toUpperCase(java.util.Locale.ROOT)) {
+            case "AUTO" -> org.pangrova.parser.ast.IncrementalStrategy.AUTO;
+            case "APPEND_ONLY" -> org.pangrova.parser.ast.IncrementalStrategy.APPEND_ONLY;
+            case "PARTITION_REPLACE" ->
+                    org.pangrova.parser.ast.IncrementalStrategy.PARTITION_REPLACE;
+            case "AFFECTED_KEY" -> org.pangrova.parser.ast.IncrementalStrategy.AFFECTED_KEY;
+            case "CDC" -> org.pangrova.parser.ast.IncrementalStrategy.CDC;
+            default -> throw new IllegalArgumentException(
+                    "Unknown incremental strategy: " + ctx.getText());
+        });
     }
 
     private Map<String, String> visitStreamPropertyMap(

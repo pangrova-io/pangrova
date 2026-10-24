@@ -12,7 +12,7 @@ A contract or operator does not prove that every SQL shape or lifecycle is wired
 qualified. Read [Current Capability Status](../getting-started/capability-status.md)
 for default wiring gaps, supported boundaries, and evidence limits.
 Current implementation evidence and open admission gates are tracked
-in [AI Native roadmap](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
+in [AI Native roadmap](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-roadmap.md).
 
 ## Architectural Boundary
 

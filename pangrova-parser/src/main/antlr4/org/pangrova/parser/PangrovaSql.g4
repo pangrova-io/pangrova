@@ -53,6 +53,16 @@ statement
     | dropDynamicTable               #dropDynamicTableStatement
     | showDynamicTables              #showDynamicTablesStatement
     | describeDynamicTable           #describeDynamicTableStatement
+    | createMaterializedView         #createMaterializedViewStatement
+    | alterMaterializedView          #alterMaterializedViewStatement
+    | refreshMaterializedView        #refreshMaterializedViewStatement
+    | dropMaterializedView           #dropMaterializedViewStatement
+    | showMaterializedViews          #showMaterializedViewsStatement
+    | describeMaterializedView       #describeMaterializedViewStatement
+    | showMaterializations           #showMaterializationsStatement
+    | showMaterializationRefreshHistory #showMaterializationRefreshHistoryStatement
+    | showMaterializationDependencies #showMaterializationDependenciesStatement
+    | showMaterializationGcHistory   #showMaterializationGcHistoryStatement
     | createIndex                    #createIndexStatement
     | dropIndex                      #dropIndexStatement
     | showIndexes                    #showIndexesStatement
@@ -609,8 +619,9 @@ showPartitions
 
 createDynamicTable
     : CREATE DYNAMIC TABLE qualifiedName
-      TARGET_LAG EQ STRING_LITERAL
+      (TARGET_LAG EQ STRING_LITERAL)?
       (REFRESH_MODE EQ dtRefreshMode)?
+      (INCREMENTAL_STRATEGY EQ incrementalStrategy)?
       (WAREHOUSE EQ STRING_LITERAL)?
       AS query
       (WITH LPAREN stringPropertyList RPAREN)?
@@ -618,8 +629,18 @@ createDynamicTable
 
 dtRefreshMode
     : SNAPSHOT       #snapshotRefreshMode
+    | FULL           #fullRefreshMode
     | CDC            #cdcRefreshMode
     | AUTO           #autoRefreshMode
+    | INCREMENTAL    #incrementalRefreshMode
+    ;
+
+incrementalStrategy
+    : AUTO                 #autoIncrementalStrategy
+    | APPEND_ONLY          #appendOnlyIncrementalStrategy
+    | PARTITION_REPLACE    #partitionReplaceIncrementalStrategy
+    | AFFECTED_KEY         #affectedKeyIncrementalStrategy
+    | CDC                  #cdcIncrementalStrategy
     ;
 
 alterDynamicTable
@@ -627,6 +648,8 @@ alterDynamicTable
     | ALTER DYNAMIC TABLE qualifiedName RESUME                                  #alterDtResume
     | ALTER DYNAMIC TABLE qualifiedName REFRESH                                 #alterDtRefresh
     | ALTER DYNAMIC TABLE qualifiedName SET TARGET_LAG EQ STRING_LITERAL        #alterDtSetTargetLag
+    | ALTER DYNAMIC TABLE qualifiedName SET REFRESH_MODE EQ dtRefreshMode       #alterDtSetRefreshMode
+    | ALTER DYNAMIC TABLE qualifiedName RENAME TO qualifiedName                 #alterDtRename
     | ALTER DYNAMIC TABLE qualifiedName REDEFINE AS query                       #alterDtRedefine
     | ALTER DYNAMIC TABLE qualifiedName BACKFILL EMBEDDING columnName=identifier #alterDtBackfillEmbedding
     ;
@@ -639,8 +662,61 @@ showDynamicTables
     : SHOW DYNAMIC TABLES
     ;
 
+// --- Materialized View DDL ---
+
+createMaterializedView
+    : CREATE (OR REPLACE)? MATERIALIZED VIEW (IF NOT EXISTS)? qualifiedName
+      (TARGET_LAG EQ STRING_LITERAL)?
+      (REFRESH_MODE EQ dtRefreshMode)?
+      (INCREMENTAL_STRATEGY EQ incrementalStrategy)?
+      AS query
+    ;
+
+alterMaterializedView
+    : ALTER MATERIALIZED VIEW qualifiedName SUSPEND                              #alterMvSuspend
+    | ALTER MATERIALIZED VIEW qualifiedName RESUME                               #alterMvResume
+    | ALTER MATERIALIZED VIEW qualifiedName REFRESH                              #alterMvRefresh
+    | ALTER MATERIALIZED VIEW qualifiedName SET TARGET_LAG EQ STRING_LITERAL     #alterMvSetTargetLag
+    | ALTER MATERIALIZED VIEW qualifiedName SET REFRESH_MODE EQ dtRefreshMode    #alterMvSetRefreshMode
+    | ALTER MATERIALIZED VIEW qualifiedName RENAME TO qualifiedName              #alterMvRename
+    ;
+
+refreshMaterializedView
+    : REFRESH MATERIALIZED VIEW qualifiedName
+    ;
+
+dropMaterializedView
+    : DROP MATERIALIZED VIEW (IF EXISTS)? qualifiedName (CASCADE)?
+    ;
+
+showMaterializedViews
+    : SHOW MATERIALIZED VIEWS (LIKE STRING_LITERAL)?
+    ;
+
+describeMaterializedView
+    : DESCRIBE MATERIALIZED VIEW qualifiedName
+    ;
+
 describeDynamicTable
     : DESCRIBE DYNAMIC TABLE qualifiedName
+    ;
+
+// --- Materialization observability ---
+
+showMaterializations
+    : SHOW MATERIALIZATIONS
+    ;
+
+showMaterializationRefreshHistory
+    : SHOW MATERIALIZATION REFRESH HISTORY (FOR qualifiedName)?
+    ;
+
+showMaterializationDependencies
+    : SHOW MATERIALIZATION DEPENDENCIES (FOR qualifiedName)?
+    ;
+
+showMaterializationGcHistory
+    : SHOW MATERIALIZATION GC HISTORY (FOR qualifiedName)?
     ;
 
 // --- Index DDL ---
@@ -1060,6 +1136,15 @@ INTEGER     : I N T E G E R;
 // Custom extension keywords
 REFRESH     : R E F R E S H;
 MATERIALIZED: M A T E R I A L I Z E D;
+MATERIALIZATION : M A T E R I A L I Z A T I O N;
+MATERIALIZATIONS : M A T E R I A L I Z A T I O N S;
+INCREMENTAL_STRATEGY : I N C R E M E N T A L '_' S T R A T E G Y;
+APPEND_ONLY : A P P E N D '_' O N L Y;
+PARTITION_REPLACE : P A R T I T I O N '_' R E P L A C E;
+AFFECTED_KEY : A F F E C T E D '_' K E Y;
+HISTORY     : H I S T O R Y;
+DEPENDENCIES : D E P E N D E N C I E S;
+GC          : G C;
 VIEW        : V I E W;
 SEMANTIC    : S E M A N T I C;
 FEATURE     : F E A T U R E;
@@ -1434,6 +1519,8 @@ fragment LETTER : [a-zA-Z];
 // Non-reserved keywords (can be used as identifiers)
 nonReservedKeyword
     : REFRESH | MATERIALIZED | MATERIALIZE | VIEW | SEMANTIC | FEATURE
+    | MATERIALIZATION | MATERIALIZATIONS | HISTORY | DEPENDENCIES | GC
+    | INCREMENTAL_STRATEGY | APPEND_ONLY | PARTITION_REPLACE | AFFECTED_KEY
     | PUBLISH | EXPECTING | EPOCH
     | INCREMENTAL | COMPACT | OPTIMIZE | VACUUM
     | CATALOG | CATALOGS | DESCRIBE | PROPERTIES | CALL

@@ -18,7 +18,7 @@ The YAML below is a reference format; automatic startup registration is planned.
 Use the SQL registration path below to create the runtime catalog.
 
 ```yaml
-# config/catalog/my-iceberg.yml
+# etc/catalog/my-iceberg.yml
 connector: iceberg
 
 properties:

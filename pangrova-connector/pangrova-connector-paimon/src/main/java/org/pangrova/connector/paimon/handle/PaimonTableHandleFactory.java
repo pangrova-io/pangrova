@@ -78,7 +78,8 @@ public final class PaimonTableHandleFactory {
                 primaryKeys,
                 partitionKeys,
                 properties,
-                PaimonTableHandle.NO_LIMIT);
+                PaimonTableHandle.NO_LIMIT,
+                Optional.empty());
     }
 
     /**

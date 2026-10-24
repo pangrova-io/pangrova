@@ -476,7 +476,11 @@ final class QueryPipelineExecutor {
         var phases = new ArrayList<QueryExecutionPhase>();
         phases.add(new StatementDispatchPhase(statementDispatcher, this::resolveMetadataListing));
         phases.add(new CompilationPhase(
-                (plan, sess) -> securityPolicyApplier.applyPolicies(plan, sess),
+                (plan, sess) -> {
+                    var observed = securityPolicyApplier.applyPoliciesObserved(plan, sess);
+                    return new CompilationPhase.ProtectedPlan(observed.plan(),
+                            !observed.policies().isEmpty());
+                },
                 this::extractTimeTravelFromSql,
                 lineageCapture,
                 ignored -> securityPolicyApplier.getCompiler()));

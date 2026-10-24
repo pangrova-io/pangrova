@@ -65,7 +65,7 @@ public final class AccessControlEnforcer {
         for (List<String> qualifiedName : tableReferences) {
             QualifiedTableName ref = QualifiedTableName.resolve(qualifiedName);
             QualifiedTableName logical = physicalToLogical.get(ref);
-            if (isReservedDynamicTableGeneration(ref.table()) && logical == null) {
+            if (isReservedDynamicTableGeneration(ref) && logical == null) {
                 throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
             }
             QualifiedTableName authorized = logical == null ? ref : logical;
@@ -73,7 +73,7 @@ public final class AccessControlEnforcer {
         }
         for (DmlWriteTarget target : dmlWriteTargets) {
             QualifiedTableName ref = QualifiedTableName.resolve(target.qualifiedTableName());
-            rejectReservedGeneration(ref.table());
+            rejectReservedGeneration(ref);
             enforceWritePrivilege(identity, ref, target.operation());
         }
     }
@@ -92,7 +92,7 @@ public final class AccessControlEnforcer {
     public void checkColumnAccess(String catalog, String schema, String table,
                                    java.util.Set<String> columns, UserIdentity identity) {
         rejectAnonymous(identity);
-        rejectReservedGeneration(table);
+        rejectReservedGeneration(new QualifiedTableName(catalog, schema, table));
         String baseTable = authorizedReadTable(table);
         if (!baseTable.equals(table)) {
             accessControl.checkCanReadTableMetadata(identity, catalog, schema, baseTable);
@@ -119,7 +119,14 @@ public final class AccessControlEnforcer {
 
     /** Reserved physical names cannot be directly selected or created by users. */
     public static boolean isReservedDynamicTableGeneration(String table) {
-        return table.toLowerCase(Locale.ROOT).startsWith("__pg_dt_");
+        return org.pangrova.materialization.domain.InternalNamespace.isReservedTable(table);
+    }
+
+    /** The internal schema and every generation table in it are inaccessible without a rewrite pin. */
+    public static boolean isReservedDynamicTableGeneration(QualifiedTableName table) {
+        return table != null
+                && (org.pangrova.materialization.domain.InternalNamespace.isReservedSchema(table.schema())
+                        || isReservedDynamicTableGeneration(table.table()));
     }
 
     private void enforceWritePrivilege(UserIdentity identity, QualifiedTableName ref,
@@ -203,7 +210,7 @@ public final class AccessControlEnforcer {
      */
     public void checkSelectFromTable(UserIdentity identity, String catalog, String schema, String table) {
         rejectAnonymous(identity);
-        rejectReservedGeneration(table);
+        rejectReservedGeneration(new QualifiedTableName(catalog, schema, table));
         checkRead(identity, catalog, schema, table);
     }
 
@@ -216,7 +223,7 @@ public final class AccessControlEnforcer {
         }
     }
 
-    private static void rejectReservedGeneration(String table) {
+    private static void rejectReservedGeneration(QualifiedTableName table) {
         if (isReservedDynamicTableGeneration(table)) {
             throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
         }

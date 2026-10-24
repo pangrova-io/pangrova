@@ -1,5 +1,6 @@
 package org.pangrova.streaming.cdc;
 
+import org.pangrova.streaming.cdc.commit.SourceId;
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.spi.connector.data.write.model.WriteResult;
 import org.pangrova.spi.streaming.CdcEnvelope;
@@ -26,6 +27,9 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
@@ -44,7 +48,8 @@ class CdcPipelineLoopTest {
 
     private CdcPipelineConfig defaultConfig() {
         return new CdcPipelineConfig(
-            STREAM_NAME, TARGET_TABLE, 100,
+            STREAM_NAME, new SourceId(STREAM_NAME), TARGET_TABLE,
+            100,
             Duration.ofMillis(50), 10, 3, 5, Duration.ofSeconds(5));
     }
 
@@ -252,7 +257,8 @@ class CdcPipelineLoopTest {
         CdcPipelineListener listener = e -> failedCalled.set(true);
 
         CdcPipelineConfig cfg = new CdcPipelineConfig(
-            STREAM_NAME, TARGET_TABLE, 100,
+            STREAM_NAME, new SourceId(STREAM_NAME), TARGET_TABLE,
+            100,
             Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(
@@ -327,7 +333,8 @@ class CdcPipelineLoopTest {
         CdcQuotaEnforcer quota = new CdcQuotaEnforcer(10, 1_000_000);
 
         CdcPipelineConfig cfg = new CdcPipelineConfig(
-            STREAM_NAME, TARGET_TABLE, 100,
+            STREAM_NAME, new SourceId(STREAM_NAME), TARGET_TABLE,
+            100,
             Duration.ofMillis(10), 5, 1, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(
@@ -448,7 +455,8 @@ class CdcPipelineLoopTest {
         AtomicBoolean failedCalled = new AtomicBoolean(false);
 
         CdcPipelineConfig cfg = new CdcPipelineConfig(
-            STREAM_NAME, TARGET_TABLE, 100,
+            STREAM_NAME, new SourceId(STREAM_NAME), TARGET_TABLE,
+            100,
             Duration.ofMillis(10), 5, 5, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoopContext deps = new CdcPipelineLoopContext(
@@ -469,5 +477,66 @@ class CdcPipelineLoopTest {
             "should not call onFailed since success resets counter");
         assertTrue(writeAttempts.get() >= 3,
             "should have attempted at least 3 writes");
+    }
+
+    @Test
+    void stoppingCompletedPipelineDoesNotInterruptTheNextExecutorTask() throws Exception {
+        var reader = new FakeSourceReader() {
+            @Override public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
+                throw new IllegalStateException("source failed");
+            }
+        };
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var executor = Executors.newSingleThreadExecutor();
+        try (var maintenance = new FakeMaintenanceScheduler()) {
+            var config = new CdcPipelineConfig(STREAM_NAME, new SourceId(STREAM_NAME), TARGET_TABLE,
+                    100, Duration.ofMillis(50), 10, 1, 5, Duration.ofSeconds(5));
+            var loop = new CdcPipelineLoop(config, buildDeps(reader, new FakeWriteSink(),
+                    new CdcQuotaEnforcer(10, 1_000_000), maintenance, failure -> { }));
+            executor.submit(loop).get(10, TimeUnit.SECONDS);
+            var nextTask = executor.submit(() -> {
+                entered.countDown();
+                try {
+                    assertTrue(release.await(10, TimeUnit.SECONDS));
+                    return Thread.currentThread().isInterrupted();
+                } catch (InterruptedException interrupted) {
+                    return true;
+                }
+            });
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            loop.stop();
+            release.countDown();
+            assertFalse(nextTask.get(10, TimeUnit.SECONDS), "completed pipeline must release its thread reference");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void cancelledBeforeRunStillClosesSinkWhenReaderCloseFails() {
+        var readerCloses = new AtomicInteger();
+        var sinkCloses = new AtomicInteger();
+        var reader = new FakeSourceReader() {
+            @Override public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
+                throw new AssertionError("cancelled pipeline must not poll");
+            }
+            @Override public void close() {
+                readerCloses.incrementAndGet();
+                throw new IllegalStateException("reader close failed");
+            }
+        };
+        var sink = new FakeWriteSink() {
+            @Override public void close() { sinkCloses.incrementAndGet(); }
+        };
+        try (var maintenance = new FakeMaintenanceScheduler()) {
+            var loop = new CdcPipelineLoop(defaultConfig(), buildDeps(reader, sink,
+                    new CdcQuotaEnforcer(10, 1_000_000), maintenance, failure -> { }));
+            loop.stop();
+            loop.run();
+            assertEquals(1, readerCloses.get());
+            assertEquals(1, sinkCloses.get());
+        }
     }
 }

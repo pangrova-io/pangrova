@@ -6,8 +6,11 @@ import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.CreateDynamicTableStatement;
+import org.pangrova.parser.ast.CreateMaterializedViewStatement;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
+import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
+import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
@@ -60,6 +63,7 @@ public final class PermissionChecker {
             case DML -> checkDml(stmt, user, accessControl, parts.catalog(), parts.schema(), parts.table());
             case DDL -> checkDdl(stmt, user, accessControl, parts);
             case DYNAMIC_TABLE -> checkDynamicTable(stmt, user, accessControl, parts);
+            case MATERIALIZED_VIEW -> checkMaterializedView(stmt, user, accessControl, parts);
             case INDEX, CLUSTERING ->
                     accessControl.checkCanAlterTable(user, parts.catalog(), parts.schema(), parts.table());
             default -> { /* Non-table operations have their own authority boundary. */ }
@@ -67,12 +71,12 @@ public final class PermissionChecker {
     }
 
     private static void checkReservedDynamicTableGeneration(Statement stmt, QualifiedTableName parts) {
-        if (parts != null && AccessControlEnforcer.isReservedDynamicTableGeneration(parts.table())) {
+        if (parts != null && AccessControlEnforcer.isReservedDynamicTableGeneration(parts)) {
             throw new AccessDeniedException("Dynamic Table physical generation names are reserved");
         }
         if (stmt instanceof AlterTableStatement.RenameTable rename && parts != null) {
             var target = TableResolver.resolveRenameTarget(rename.newName().parts(), parts);
-            if (AccessControlEnforcer.isReservedDynamicTableGeneration(target.table())) {
+            if (AccessControlEnforcer.isReservedDynamicTableGeneration(target)) {
                 throw new AccessDeniedException("Dynamic Table physical generation names are reserved");
             }
         }
@@ -85,6 +89,18 @@ public final class PermissionChecker {
         } else if (stmt instanceof DropDynamicTableStatement) {
             accessControl.checkCanDropTable(user, table.catalog(), table.schema(), table.table());
         } else {
+            accessControl.checkCanAlterTable(user, table.catalog(), table.schema(), table.table());
+        }
+    }
+
+    private static void checkMaterializedView(Statement stmt, UserIdentity user,
+            AccessControl accessControl, QualifiedTableName table) {
+        if (stmt instanceof CreateMaterializedViewStatement) {
+            accessControl.checkCanCreateTable(user, table.catalog(), table.schema(), table.table());
+        } else if (stmt instanceof DropMaterializedViewStatement) {
+            accessControl.checkCanDropTable(user, table.catalog(), table.schema(), table.table());
+        } else if (stmt instanceof RefreshMaterializedViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.AlterMaterializedViewStatement) {
             accessControl.checkCanAlterTable(user, table.catalog(), table.schema(), table.table());
         }
     }

@@ -5,6 +5,7 @@ import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.pangrova.testing.ContainerTestBase;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -18,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Tag("integration")
-class JdbcStreamStateStoreTest {
+class JdbcStreamStateStoreTest extends ContainerTestBase {
 
     private DataSource dataSource;
     private JdbcStreamStateStore store;
@@ -33,7 +34,7 @@ class JdbcStreamStateStoreTest {
     @Test
     void saveAndLoadRoundTrip() {
         StreamState state = newState("stream-1", "tenant-a");
-        store.saveState(state);
+        store.createState(state);
 
         Optional<StreamState> loaded = store.loadState("stream-1");
         assertThat(loaded).isPresent();
@@ -61,9 +62,9 @@ class JdbcStreamStateStoreTest {
     }
 
     @Test
-    void saveStateUpsertOverwrites() {
+    void saveStateUpdatesTheSameIncarnation() {
         StreamState original = newState("stream-u", "tenant-a");
-        store.saveState(original);
+        store.createState(original);
 
         StreamState updated = original.withLifecycleState(StreamLifecycleState.RUNNING);
         store.saveState(updated);
@@ -74,9 +75,9 @@ class JdbcStreamStateStoreTest {
 
     @Test
     void listByTenantFiltersCorrectly() {
-        store.saveState(newState("s-a1", "tenant-a"));
-        store.saveState(newState("s-a2", "tenant-a"));
-        store.saveState(newState("s-b1", "tenant-b"));
+        store.createState(newState("s-a1", "tenant-a"));
+        store.createState(newState("s-a2", "tenant-a"));
+        store.createState(newState("s-b1", "tenant-b"));
 
         List<StreamState> tenantA = store.listByTenant("tenant-a");
         assertThat(tenantA).hasSize(2);
@@ -89,9 +90,9 @@ class JdbcStreamStateStoreTest {
 
     @Test
     void listByStateFiltersCorrectly() {
-        store.saveState(newState("s-run", "t").withLifecycleState(StreamLifecycleState.RUNNING));
-        store.saveState(newState("s-sus", "t").withLifecycleState(StreamLifecycleState.SUSPENDED));
-        store.saveState(newState("s-run2", "t").withLifecycleState(StreamLifecycleState.RUNNING));
+        store.createState(newState("s-run", "t").withLifecycleState(StreamLifecycleState.RUNNING));
+        store.createState(newState("s-sus", "t").withLifecycleState(StreamLifecycleState.SUSPENDED));
+        store.createState(newState("s-run2", "t").withLifecycleState(StreamLifecycleState.RUNNING));
 
         List<StreamState> running = store.listByState(StreamLifecycleState.RUNNING);
         assertThat(running).hasSize(2);
@@ -100,9 +101,9 @@ class JdbcStreamStateStoreTest {
 
     @Test
     void listAllReturnsEverything() {
-        store.saveState(newState("s1", "t1"));
-        store.saveState(newState("s2", "t2"));
-        store.saveState(newState("s3", "t1"));
+        store.createState(newState("s1", "t1"));
+        store.createState(newState("s2", "t2"));
+        store.createState(newState("s3", "t1"));
 
         List<StreamState> all = store.listAll();
         assertThat(all).hasSize(3);
@@ -110,23 +111,23 @@ class JdbcStreamStateStoreTest {
 
     @Test
     void deleteRemovesEntry() {
-        store.saveState(newState("s-del", "t"));
+        store.createState(newState("s-del", "t"));
         assertThat(store.loadState("s-del")).isPresent();
 
-        boolean deleted = store.delete("s-del");
+        boolean deleted = store.delete(store.loadState("s-del").orElseThrow());
         assertThat(deleted).isTrue();
         assertThat(store.loadState("s-del")).isEmpty();
     }
 
     @Test
     void deleteReturnsFalseForMissing() {
-        assertThat(store.delete("nonexistent")).isFalse();
+        assertThat(store.delete(newState("nonexistent", "t"))).isFalse();
     }
 
     @Test
     void saveStateIfEpochSucceedsWithMatchingEpoch() {
         StreamState original = newState("s-cas", "t");
-        store.saveState(original);
+        store.createState(original);
 
         StreamState updated = original.toBuilder()
                 .lifecycleState(StreamLifecycleState.RUNNING)
@@ -143,7 +144,7 @@ class JdbcStreamStateStoreTest {
     @Test
     void saveStateIfEpochThrowsOnStaleEpoch() {
         StreamState original = newState("s-stale", "t");
-        store.saveState(original);
+        store.createState(original);
 
         StreamState updated = original.toBuilder()
                 .lifecycleState(StreamLifecycleState.RUNNING)
@@ -168,7 +169,7 @@ class JdbcStreamStateStoreTest {
         StreamState state = newState("s-special", "t").toBuilder()
                 .sourceProperties(props)
                 .build();
-        store.saveState(state);
+        store.createState(state);
 
         StreamState got = store.loadState("s-special").orElseThrow();
         assertThat(got.sourceProperties()).isEqualTo(props);
@@ -179,7 +180,7 @@ class JdbcStreamStateStoreTest {
         StreamState state = newState("s-empty-props", "t").toBuilder()
                 .streamProperties(Map.of())
                 .build();
-        store.saveState(state);
+        store.createState(state);
 
         StreamState got = store.loadState("s-empty-props").orElseThrow();
         assertThat(got.streamProperties()).isEmpty();
@@ -204,7 +205,7 @@ class JdbcStreamStateStoreTest {
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .build();
-        store.saveState(state);
+        store.createState(state);
 
         StreamState got = store.loadState("s-nulls").orElseThrow();
         assertThat(got.creatorIdentity()).isNull();
@@ -215,10 +216,51 @@ class JdbcStreamStateStoreTest {
 
     // ── Helpers ──────────────────────────────────────────────────────
 
+    @Test
+    void deletedIncarnationCannotBeResurrectedOrOverwriteItsReplacement() {
+        var original = newState("recreated", "tenant-a");
+        assertThat(store.createState(original)).isTrue();
+        assertThat(store.delete(original)).isTrue();
+        assertThatThrownBy(() -> store.saveState(original.withError("late failure")))
+                .isInstanceOf(StaleEpochException.class);
+        assertThat(store.loadState(original.streamName())).isEmpty();
+
+        var replacement = newState("recreated", "tenant-b");
+        assertThat(replacement.checkpointId()).isNotEqualTo(original.checkpointId());
+        assertThat(store.createState(replacement)).isTrue();
+        assertThat(store.createState(original)).isFalse();
+        assertThatThrownBy(() -> store.saveState(original.withError("late failure")))
+                .isInstanceOf(StaleEpochException.class);
+        assertThatThrownBy(() -> store.saveStateIfEpoch(original, replacement.epoch()))
+                .isInstanceOf(StaleEpochException.class);
+        assertThat(store.delete(original)).isFalse();
+        var loaded = store.loadState(original.streamName()).orElseThrow();
+        assertThat(loaded.checkpointId()).isEqualTo(replacement.checkpointId());
+        assertThat(loaded.tenantId()).isEqualTo("tenant-b");
+        assertThat(loaded.errorMessage()).isNull();
+    }
+
+    @Test
+    void ordinaryUpdateAndDeleteCannotBypassTenantOrEpochFences() {
+        var original = newState("fenced", "tenant-a");
+        assertThat(store.createState(original)).isTrue();
+        var forged = original.toBuilder().tenantId("tenant-b").build();
+        assertThatThrownBy(() -> store.saveStateIfEpoch(forged, original.epoch()))
+                .isInstanceOf(StaleEpochException.class);
+        assertThat(store.delete(forged)).isFalse();
+        var reacquired = original.withReacquisition("another-coordinator");
+        store.saveStateIfEpoch(reacquired, original.epoch());
+        assertThat(reacquired.checkpointId()).isEqualTo(original.checkpointId());
+        assertThatThrownBy(() -> store.saveState(original.withError("old owner")))
+                .isInstanceOf(StaleEpochException.class);
+        assertThat(store.delete(original)).isFalse();
+        assertThat(store.loadState(original.streamName()).orElseThrow().epoch()).isEqualTo(reacquired.epoch());
+    }
+
     private static StreamState newState(String name, String tenantId) {
         Instant now = Instant.now();
         return new StreamState(
-                name, tenantId,
+                name, tenantId, "stream:" + java.util.UUID.randomUUID(),
                 StreamLifecycleState.CREATING,
                 "catalog.schema.orders",
                 Map.of("bootstrap.servers", "broker:9092", "topic", "orders-cdc"),
@@ -239,6 +281,7 @@ class JdbcStreamStateStoreTest {
                     CREATE TABLE IF NOT EXISTS ingestion_stream_state (
                         stream_name       VARCHAR(255) NOT NULL PRIMARY KEY,
                         tenant_id         VARCHAR(255) NOT NULL,
+                        checkpoint_id     VARCHAR(255) NOT NULL UNIQUE,
                         lifecycle_state   VARCHAR(32)  NOT NULL,
                         target_table      VARCHAR(512) NOT NULL,
                         source_properties TEXT         NOT NULL,

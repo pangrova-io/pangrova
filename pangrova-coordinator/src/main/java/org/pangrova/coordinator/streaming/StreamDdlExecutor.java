@@ -69,6 +69,7 @@ public final class StreamDdlExecutor {
         // Duplicate check
         Optional<StreamState> existing = stateStore().loadState(streamName);
         if (existing.isPresent()) {
+            verifyTenant(existing.get(), tenantId, "create");
             if (stmt.ifNotExists()) {
                 LOG.info("event=stream_create_skipped stream={} reason=already_exists", streamName);
                 return;
@@ -99,7 +100,7 @@ public final class StreamDdlExecutor {
                 .streamName(streamName)
                 .tenantId(tenantId)
                 .lifecycleState(StreamLifecycleState.CREATING)
-                .targetTable(extractName(stmt.targetTable()))
+                .targetTable(String.join(".", stmt.targetTable().parts()))
                 .sourceProperties(stmt.sourceProperties())
                 .sourceFormat(stmt.sourceFormat())
                 .streamProperties(stmt.withProperties() != null ? stmt.withProperties() : Map.of())
@@ -110,7 +111,15 @@ public final class StreamDdlExecutor {
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-        stateStore().saveState(creating);
+        if (!stateStore().createState(creating)) {
+            // Another CREATE may have won after the initial lookup. Never upsert over it.
+            loadOrThrow(streamName, tenantId);
+            if (stmt.ifNotExists()) {
+                return;
+            }
+            throw new StreamAlreadyExistsException(PangrovaErrorCode.STREAM_ALREADY_EXISTS,
+                    "Stream already exists: " + streamName);
+        }
         LOG.info("event=stream_state_persisted stream={} tenant={} state=CREATING", streamName, tenantId);
 
         // Register with scheduler and transition to RUNNING
@@ -156,9 +165,10 @@ public final class StreamDdlExecutor {
             throw new IllegalStateException(
                     "Cannot suspend stream " + streamName + ": current state is " + state.lifecycleState());
         }
+        StreamState suspended = state.withLifecycleState(StreamLifecycleState.SUSPENDED)
+                .toBuilder().epoch(Math.incrementExact(state.epoch())).build();
+        stateStore().saveStateIfEpoch(suspended, state.epoch());
         deps.scheduler().stop(streamName);
-        StreamState suspended = state.withLifecycleState(StreamLifecycleState.SUSPENDED);
-        stateStore().saveState(suspended);
         LOG.info("event=stream_suspended stream={}", streamName);
     }
 
@@ -170,23 +180,33 @@ public final class StreamDdlExecutor {
         }
         StreamState running = state.toBuilder()
                 .lifecycleState(StreamLifecycleState.RUNNING)
+                .epoch(Math.incrementExact(state.epoch()))
                 .errorMessage(null)
                 .updatedAt(Instant.now())
                 .build();
-        stateStore().saveState(running);
+        stateStore().saveStateIfEpoch(running, state.epoch());
         deps.scheduler().start(running);
         LOG.info("event=stream_resumed stream={}", streamName);
     }
 
     private void handleSetProperties(String streamName, StreamState state,
                                       AlterStreamAction.SetProperties sp) {
+        if (state.lifecycleState() == StreamLifecycleState.DROPPING
+                || state.lifecycleState() == StreamLifecycleState.DROPPED) {
+            throw new IllegalStateException("Cannot configure a dropping or dropped stream: " + streamName);
+        }
         Map<String, String> merged = new HashMap<>(state.streamProperties());
         merged.putAll(sp.properties());
         StreamState updated = state.toBuilder()
                 .streamProperties(merged)
+                .epoch(Math.incrementExact(state.epoch()))
                 .updatedAt(Instant.now())
                 .build();
-        stateStore().saveState(updated);
+        stateStore().saveStateIfEpoch(updated, state.epoch());
+        deps.scheduler().stop(streamName);
+        if (updated.lifecycleState() == StreamLifecycleState.RUNNING) {
+            deps.scheduler().start(updated);
+        }
         LOG.info("event=stream_properties_updated stream={} keys={}", streamName, sp.properties().keySet());
     }
 
@@ -219,16 +239,19 @@ public final class StreamDdlExecutor {
         verifyTenant(state, tenantId, "drop");
 
         // Transition to DROPPING
-        StreamState dropping = state.withLifecycleState(StreamLifecycleState.DROPPING);
-        stateStore().saveState(dropping);
+        StreamState dropping = state.withLifecycleState(StreamLifecycleState.DROPPING)
+                .toBuilder().epoch(Math.incrementExact(state.epoch())).build();
+        stateStore().saveStateIfEpoch(dropping, state.epoch());
         LOG.info("event=stream_dropping stream={}", streamName);
 
         // Stop pipeline
         deps.scheduler().stop(streamName);
 
-        // Clean up offsets and state
-        deps.offsetStore().deleteOffsets(streamName);
-        stateStore().delete(streamName);
+        // The guarded delete cascades to cached offsets in the same transaction.
+        // A separate name-only delete could erase a concurrently recreated stream's offsets.
+        if (!stateStore().delete(dropping)) {
+            throw new org.pangrova.common.exception.StaleEpochException(streamName, dropping.epoch());
+        }
 
         LOG.info("event=stream_dropped stream={} tenant={}", streamName, tenantId);
     }

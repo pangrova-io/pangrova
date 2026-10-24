@@ -14,8 +14,8 @@ import java.util.Objects;
  *
  * @param listener          callback for pipeline failure events
  * @param retryBackoff      exponential backoff for transient failures
- * @param commitCoordinator optional 2PC coordinator for exactly-once semantics;
- *                          when null, the pipeline falls back to at-least-once
+ * @param commitCoordinator optional durable checkpoint/publication coordinator;
+ *                          when null, the caller selects at-least-once delivery
  */
 public record CdcPipelineRuntimeHooks(
     CdcPipelineListener listener,

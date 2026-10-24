@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SnapshotRange;
 
 /**
  * Immutable handle referencing an Iceberg table by schema, name, and metadata snapshot.
@@ -146,5 +147,20 @@ public record IcebergTableHandle(
     @Override
     public ConnectorTableHandle withTimeTravelSnapshot(long targetSnapshotId) {
         return withSnapshotId(targetSnapshotId);
+    }
+
+    @Override
+    public ConnectorTableHandle withIncrementalRange(SnapshotRange range) {
+        if (range == null) {
+            throw new IllegalArgumentException("range must not be null");
+        }
+        return withIncrementalRead(range.fromInclusive(), range.toInclusive());
+    }
+
+    @Override
+    public Optional<SnapshotRange> incrementalRange() {
+        return READ_MODE_INCREMENTAL.equals(readMode)
+                ? Optional.of(new SnapshotRange(fromSnapshotId, toSnapshotId))
+                : Optional.empty();
     }
 }

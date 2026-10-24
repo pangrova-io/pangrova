@@ -92,6 +92,7 @@ class DynamicTableMultiTenantE2ETest extends SqlE2ETestBase {
 
         // Insert new data for Tenant B and verify refresh still works
         sqlRunner.execute("INSERT INTO " + SOURCE_B + " VALUES (2, 'tenant_b_new')");
+        sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_B + " REFRESH");
         List<TypedRow> rowsBAfter = sqlRunner.execute("SELECT * FROM " + DT_B);
         assertThat(rowsBAfter).hasSize(2);
     }

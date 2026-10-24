@@ -86,11 +86,6 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-spi:TaskStatus.TaskState",
             "pangrova-spi:StatusCode",
             "pangrova-planner:ValidationStatus",
-            "pangrova-metadata:RefreshStatus",
-            "pangrova-metadata:DynamicTableLifecycleState",
-            // Durable definition/head publication state, distinct from refresh-job lifecycle.
-            "pangrova-metadata:DynamicTablePublication.State",
-            "pangrova-metadata:MaterializedViewState",
             "pangrova-coordinator:SchedulerCancelResult.Status",
             "pangrova-security:AuthenticatorHealthStatus",
             "pangrova-worker:TaskCancelResult.Status",
@@ -112,7 +107,11 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
             "pangrova-metadata:SemanticViewValidationState",
             "pangrova-metadata:EvaluationRunState",
-            "pangrova-metadata:ArtifactBuildJobState"
+            "pangrova-metadata:ArtifactBuildJobState",
+            // Unified materialization kernel lifecycle enums.
+            "pangrova-materialization:GcLedgerEntry.GcState",
+            "pangrova-materialization:PinState",
+            "pangrova-materialization:ScheduleState"
     );
 
     private static final Pattern ENUM_STATE_PATTERN =

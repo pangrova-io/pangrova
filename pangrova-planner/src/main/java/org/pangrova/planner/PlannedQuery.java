@@ -14,7 +14,6 @@
 package org.pangrova.planner;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.planner.mv.DynamicTableResolution;
 import org.pangrova.planner.lineage.ColumnDerivation;
 import org.pangrova.planner.lineage.ColumnLineageExtractor;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
@@ -61,24 +60,15 @@ public final class PlannedQuery {
     private final RelNode plan;
     private final List<String> columnNames;
     private final List<RuntimeFilterDescriptor> runtimeFilterDescriptors;
-    private final List<DynamicTableResolution.MergeOnRead> mergeOnReadHints;
     private final Map<QualifiedTableName, QualifiedTableName> physicalToLogical;
 
     PlannedQuery(RelNode plan, List<String> columnNames,
                  List<RuntimeFilterDescriptor> runtimeFilterDescriptors,
-                 List<DynamicTableResolution.MergeOnRead> mergeOnReadHints,
                  Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         this.plan = plan;
         this.columnNames = List.copyOf(columnNames);
         this.runtimeFilterDescriptors = List.copyOf(runtimeFilterDescriptors);
-        this.mergeOnReadHints = List.copyOf(mergeOnReadHints);
         this.physicalToLogical = Map.copyOf(physicalToLogical);
-    }
-
-    PlannedQuery(RelNode plan, List<String> columnNames,
-                 List<RuntimeFilterDescriptor> runtimeFilterDescriptors,
-                 List<DynamicTableResolution.MergeOnRead> mergeOnReadHints) {
-        this(plan, columnNames, runtimeFilterDescriptors, mergeOnReadHints, Map.of());
     }
 
     /** Physical generation to logical Dynamic Table authority captured during this query's rewrite. */
@@ -164,10 +154,6 @@ public final class PlannedQuery {
         return List.copyOf(runtimeFilterDescriptors);
     }
 
-    public List<DynamicTableResolution.MergeOnRead> mergeOnReadHints() {
-        return List.copyOf(mergeOnReadHints);
-    }
-
     // ── Query classification predicates ──
 
     public boolean isConstant() {
@@ -224,6 +210,45 @@ public final class PlannedQuery {
      */
     public boolean isResultCacheSafe() {
         return isResultCacheSafe(plan);
+    }
+
+    /**
+     * Returns whether the plan reads exactly one table through projections and
+     * filters only.
+     *
+     * <p>This is the shape an append-only refresh can evaluate over a snapshot
+     * delta: replaying the definition over {@code (from, to]} and appending the
+     * rows is equivalent to a full recomputation only when no row can disappear
+     * (joins, aggregates, unions, limits, sorting, distinctness, or windows can
+     * all change without an append).
+     *
+     * @return true when the plan is a single-table projection/filter scan
+     */
+    public boolean isAppendOnlyScanCompatible() {
+        return scanCount(plan) == 1 && isProjectionFilterScan(plan);
+    }
+
+    private static boolean isProjectionFilterScan(RelNode node) {
+        if (node instanceof TableScan) {
+            return true;
+        }
+        if (node instanceof org.apache.calcite.rel.core.Project
+                || node instanceof org.apache.calcite.rel.core.Filter
+                || node instanceof org.apache.calcite.rel.core.Calc) {
+            return node.getInputs().size() == 1 && isProjectionFilterScan(node.getInput(0));
+        }
+        return false;
+    }
+
+    private static int scanCount(RelNode node) {
+        if (node instanceof TableScan) {
+            return 1;
+        }
+        int count = 0;
+        for (RelNode input : node.getInputs()) {
+            count += scanCount(input);
+        }
+        return count;
     }
 
     private static boolean isResultCacheSafe(RelNode node) {
@@ -417,13 +442,13 @@ public final class PlannedQuery {
     public PlannedQuery reoptimize(PangrovaPlanner planner) {
         RelNode reoptimized = planner.reoptimize(plan);
         return new PlannedQuery(reoptimized, columnNames,
-                runtimeFilterDescriptors, mergeOnReadHints, physicalToLogical);
+                runtimeFilterDescriptors, physicalToLogical);
     }
 
     /** Package-private: returns a copy with the plan replaced (used by security appliers). */
     PlannedQuery withPlan(RelNode newPlan) {
         return new PlannedQuery(newPlan, columnNames,
-                runtimeFilterDescriptors, mergeOnReadHints, physicalToLogical);
+                runtimeFilterDescriptors, physicalToLogical);
     }
 
     /**
@@ -431,6 +456,6 @@ public final class PlannedQuery {
      * Production code MUST use {@link SqlCompiler#compileToPlannedQuery} instead.
      */
     public static PlannedQuery forTesting(RelNode plan) {
-        return new PlannedQuery(plan, List.of(), List.of(), List.of());
+        return new PlannedQuery(plan, List.of(), List.of(), Map.of());
     }
 }

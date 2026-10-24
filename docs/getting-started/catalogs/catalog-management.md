@@ -30,17 +30,18 @@ DROP CATALOG prod_iceberg;
 
 ### Configuration Files (Automatic Startup Loading Planned)
 
-Keep reference YAML files in `config/catalog/`, one file per intended catalog. File creation alone does not register that catalog with the running Coordinator.
+In a source checkout, keep reference YAML files in `etc/catalog/` (or
+`$PANGROVA_CONF_DIR/catalog/` when overriding the configuration directory), one file per intended catalog. File creation alone does not register that catalog with the running Coordinator.
 
 ```bash
 # Copy from template
-cp config/catalog/iceberg-example.yml config/catalog/prod-iceberg.yml
+cp etc/catalog/iceberg-example.yml etc/catalog/prod-iceberg.yml
 
 # Edit the configuration
-vi config/catalog/prod-iceberg.yml
+vi etc/catalog/prod-iceberg.yml
 ```
 
-> **Note**: File-based catalog auto-registration at startup is 🔮 Planned. Currently, `config/catalog/` files serve as configuration references and are used by `bin/pangrova-catalog.sh list`.
+> **Note**: File-based catalog auto-registration at startup is 🔮 Planned. Currently, `etc/catalog/` files serve as configuration references and are used by `bin/pangrova-catalog.sh list`.
 
 ### Catalog Management Utility
 
@@ -82,4 +83,4 @@ Pangrova uses a Connector SPI for pluggable data source integration. Each connec
 | `getName()` | Returns the connector type name (e.g., `iceberg`, `paimon`) |
 | `create(catalogName, properties, context)` | Creates a connector instance with the given properties |
 
-The `properties` map in `config/catalog/*.yml` is passed directly to `ConnectorFactory.create()`. This means any property supported by the underlying Iceberg or Paimon library can be set in the YAML file.
+The `properties` map in `etc/catalog/*.yml` is passed directly to `ConnectorFactory.create()`. This means any property supported by the underlying Iceberg or Paimon library can be set in the YAML file.

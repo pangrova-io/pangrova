@@ -13,11 +13,8 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * {@link AssetType#MATERIALIZED_VIEW} asset: a SQL view whose result is
  * physically stored and refreshed.
  *
- * <p>This is the catalog-side projection of an MV — distinct from the
- * existing operational record {@code org.pangrova.metadata.mv.MaterializedViewMetadata}
- * which only carries lifecycle/refresh-state flags. Callers that need both
- * the catalog identity (for listing / governance) and the runtime state
- * should compose the two records.</p>
+ * <p>This is the catalog-side projection of an MV; runtime generations and
+ * publication state live in the unified materialization kernel.</p>
  *
  * @param catalog          containing catalog
  * @param schema           containing schema

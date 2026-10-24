@@ -5,6 +5,7 @@ import org.pangrova.metadata.streaming.StreamStateStore;
 import org.pangrova.spi.streaming.CdcSourceReader;
 import org.pangrova.spi.streaming.CdcWriteSink;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
+import org.pangrova.streaming.cdc.commit.CdcCommitCoordinator;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
 import org.pangrova.streaming.watermark.WatermarkTracker;
 
@@ -20,6 +21,7 @@ import java.util.function.Function;
  *
  * @param stateStore          persistent stream state store
  * @param offsetStore         persistent stream offset store
+ * @param commitCoordinator   durable source checkpoint and publication state
  * @param converterRegistry   CDC format converter registry
  * @param watermarkTracker    per-table watermark tracker
  * @param maintenanceScheduler compaction scheduling
@@ -30,6 +32,7 @@ import java.util.function.Function;
 public record StreamSchedulerContext(
         StreamStateStore stateStore,
         StreamOffsetStore offsetStore,
+        CdcCommitCoordinator commitCoordinator,
         CdcRecordConverterRegistry converterRegistry,
         WatermarkTracker watermarkTracker,
         MaintenanceScheduler maintenanceScheduler,
@@ -41,6 +44,7 @@ public record StreamSchedulerContext(
     public StreamSchedulerContext {
         Objects.requireNonNull(stateStore, "stateStore must not be null");
         Objects.requireNonNull(offsetStore, "offsetStore must not be null");
+        Objects.requireNonNull(commitCoordinator, "commitCoordinator must not be null");
         Objects.requireNonNull(converterRegistry, "converterRegistry must not be null");
         Objects.requireNonNull(watermarkTracker, "watermarkTracker must not be null");
         Objects.requireNonNull(maintenanceScheduler, "maintenanceScheduler must not be null");

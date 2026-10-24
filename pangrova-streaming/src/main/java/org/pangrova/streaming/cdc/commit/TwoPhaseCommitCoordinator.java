@@ -12,7 +12,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -52,37 +51,37 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
     }
 
     @Override
-    public PrepareToken prepare(SourceId source, OffsetRange range, String dedupKey) {
+    public PrepareToken prepare(SourceId source, CdcBatchCheckpoint checkpoint, String dedupKey) {
         Objects.requireNonNull(source, "source must not be null");
-        Objects.requireNonNull(range, "range must not be null");
+        Objects.requireNonNull(checkpoint, "checkpoint must not be null");
         Objects.requireNonNull(dedupKey, "dedupKey must not be null");
 
-        Optional<PrepareToken> existing = stateStore.findDuplicate(source, dedupKey);
+        Optional<PrepareToken> existing = stateStore.findDuplicate(source, checkpoint, dedupKey);
         if (existing.isPresent()) {
-            LOG.info("event=cdc_prepare_idempotent source={} partition={} offset=[{},{}]",
-                    source, range.partition(), range.startOffset(), range.endOffset());
+            LOG.info("event=cdc_prepare_idempotent source={} partitions={}",
+                    source, checkpoint.ranges().size());
             return existing.get();
         }
 
         PrepareToken token = new PrepareToken(
                 UUID.randomUUID(),
                 source,
-                range,
+                checkpoint,
                 Instant.now().plus(prepareDeadline));
 
         boolean inserted = stateStore.insert(token, CdcCommitState.PREPARED, dedupKey);
         if (!inserted) {
             // Race condition: another thread inserted between findDuplicate and insert.
             // Re-read to get the existing token.
-            return stateStore.findDuplicate(source, dedupKey)
+            return stateStore.findDuplicate(source, checkpoint, dedupKey)
                     .orElseThrow(() -> new PangrovaException(
                             PangrovaErrorCode.STREAMING_CDC_PARSE_ERROR,
                             "Failed to prepare CDC commit: concurrent insert detected but row not found"
-                                    + " source=" + source + " range=" + range));
+                                    + " source=" + source + " checkpoint=" + checkpoint));
         }
 
-        LOG.info("event=cdc_prepare_success id={} source={} partition={} offset=[{},{}]",
-                token.id(), source, range.partition(), range.startOffset(), range.endOffset());
+        LOG.info("event=cdc_prepare_success id={} source={} partitions={}",
+                token.id(), source, checkpoint.ranges().size());
         return token;
     }
 
@@ -117,9 +116,8 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                 throw new IllegalStateException(
                         "CDC commit state changed before completion; id=" + token.id());
             }
-            LOG.info("event=cdc_commit_success id={} source={} partition={} offset=[{},{}]",
-                    token.id(), token.source(), token.range().partition(),
-                    token.range().startOffset(), token.range().endOffset());
+            LOG.info("event=cdc_commit_success id={} source={} partitions={}",
+                    token.id(), token.source(), token.checkpoint().ranges().size());
         } catch (RuntimeException e) {
             LOG.error("event=cdc_commit_failed id={} error={}", token.id(), e.getMessage(), e);
             throw e;
@@ -243,23 +241,23 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
     }
 
     @Override
-    public boolean executeAtomicCommit(SourceId source, OffsetRange range, String dedupKey,
+    public boolean executeAtomicCommit(SourceId source, CdcBatchCheckpoint checkpoint, String dedupKey,
                                        List<CommitParticipant> participants) {
         Objects.requireNonNull(source, "source must not be null");
-        Objects.requireNonNull(range, "range must not be null");
+        Objects.requireNonNull(checkpoint, "checkpoint must not be null");
         Objects.requireNonNull(dedupKey, "dedupKey must not be null");
         if (participants == null || participants.isEmpty()) {
             throw new IllegalArgumentException("participants must not be null or empty");
         }
 
         // Phase 0: prepare the commit record (dedup check)
-        PrepareToken token = prepare(source, range, dedupKey);
+        PrepareToken token = prepare(source, checkpoint, dedupKey);
 
         // Dedup: if this offset range was already committed (crash-recovery replay), skip
         Optional<CdcCommitState> currentState = stateStore.findStateById(token.id());
         if (currentState.isPresent() && currentState.get() == CdcCommitState.COMMITTED) {
-            LOG.info("event=cdc_atomic_commit_dedup source={} partition={} offset=[{},{}]",
-                    source, range.partition(), range.startOffset(), range.endOffset());
+            LOG.info("event=cdc_atomic_commit_dedup source={} partitions={}",
+                    source, checkpoint.ranges().size());
             return false;
         }
         if (currentState.isPresent() && currentState.get() == CdcCommitState.COMMITTING) {
@@ -270,14 +268,14 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
         }
 
         // Phase 1: prepare all participants
-        List<CommitParticipant> prepared = prepareParticipants(participants, source, range, token);
+        List<CommitParticipant> prepared = prepareParticipants(participants, source, checkpoint, token);
 
         // Phase 2: claim publication, commit participants, then mark committed.
-        return commitParticipants(prepared, source, range, token);
+        return commitParticipants(prepared, source, checkpoint, token);
     }
 
     private List<CommitParticipant> prepareParticipants(List<CommitParticipant> participants,
-                                                        SourceId source, OffsetRange range,
+                                                        SourceId source, CdcBatchCheckpoint checkpoint,
                                                         PrepareToken token) {
         List<CommitParticipant> prepared = new ArrayList<>(participants.size());
         try {
@@ -296,13 +294,13 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                 stateStore.updateState(token.id(), CdcCommitState.ROLLED_BACK);
             }
             throw new RuntimeException("CDC atomic commit prepare failed for source=" + source
-                    + " range=" + range, e);
+                    + " range=" + checkpoint, e);
         }
         return prepared;
     }
 
     private boolean commitParticipants(List<CommitParticipant> prepared,
-                                       SourceId source, OffsetRange range,
+                                       SourceId source, CdcBatchCheckpoint checkpoint,
                                        PrepareToken token) {
         if (!stateStore.compareAndSetState(
                 token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING)) {
@@ -315,8 +313,8 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                 participant.commit();
             }
             commit(token);
-            LOG.info("event=cdc_atomic_commit_success source={} partition={} offset=[{},{}] participants={}",
-                    source, range.partition(), range.startOffset(), range.endOffset(),
+            LOG.info("event=cdc_atomic_commit_success source={} partitions={} participants={}",
+                    source, checkpoint.ranges().size(),
                     prepared.size());
             return true;
         } catch (Exception e) {
@@ -324,7 +322,7 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                     source, token.id(), e.getMessage(), e);
             throw new IllegalStateException(
                     "CDC commit outcome is ambiguous; durable connector reconciliation "
-                            + "required for source=" + source + " range=" + range, e);
+                            + "required for source=" + source + " range=" + checkpoint, e);
         }
     }
 
@@ -332,21 +330,7 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
     public Map<TopicPartitionOffset, Long> findLastCommittedOffsets(SourceId source) {
         Objects.requireNonNull(source, "source must not be null");
 
-        Map<Integer, Long> partitionOffsets = stateStore.findLastCommittedOffsets(source);
-        if (partitionOffsets.isEmpty()) {
-            LOG.info("event=cdc_no_committed_offsets source={}", source);
-            return Map.of();
-        }
-
-        // Convert partition number to TopicPartitionOffset using source id as topic
-        Map<TopicPartitionOffset, Long> result = new HashMap<>();
-        for (Map.Entry<Integer, Long> entry : partitionOffsets.entrySet()) {
-            result.put(new TopicPartitionOffset(source.value(), entry.getKey()),
-                    entry.getValue());
-        }
-
-        LOG.info("event=cdc_last_committed_offsets source={} partitions={}", source, result.size());
-        return Collections.unmodifiableMap(result);
+        return stateStore.findLastCommittedOffsets(source);
     }
 
     private void abortAll(List<CommitParticipant> prepared) {

@@ -180,7 +180,7 @@ columnar data and has serialization, framing and transport costs; TLS and networ
 transmission are not physically zero-copy. The architecture target is one typed
 Arrow data-plane contract, with necessary conversions measured rather than
 claimed absent. Existing private shuffle page payloads and row-shaped JVM AI/write
-upcalls remain tracked migration gaps in the [root-cause ledger](https://github.com/pangrova-project/pangrova/blob/main/docs/internal/ai-native-single-path-root-cause-design.md).
+upcalls remain tracked migration gaps in the [root-cause ledger](https://github.com/pangrova/pangrova/blob/main/docs/internal/ai-native-single-path-root-cause-design.md).
 
 ---
 

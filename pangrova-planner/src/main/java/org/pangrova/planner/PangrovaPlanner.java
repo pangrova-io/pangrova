@@ -9,7 +9,6 @@ import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlNode;
-import org.pangrova.planner.mv.DynamicTableResolution;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
@@ -102,8 +101,11 @@ public final class PangrovaPlanner {
                 ? new StatisticsBasedCostEstimator(deps.statisticsCollector())
                 : null;
         this.queryResultCache = deps.queryResultCache();
+        var mvCatalog = deps.materializedViewCatalog();
         this.materializedViewRewritePass = new MaterializedViewRewritePass(
-                deps.materializedViewRewriter(),
+                mvCatalog == null ? null : new org.pangrova.planner.mv.CalciteMaterializedViewRewriter(
+                        mvCatalog, this::compileMaterializationDefinition, this::resolveTable,
+                        java.time.Instant::now),
                 deps.dynamicPartitionPruningConfig(),
                 deps.runtimeFilterRegistry());
         DynamicTableSqlRewriter dynamicTableSqlRewriter = deps.dynamicTableRewriter() != null
@@ -129,22 +131,23 @@ public final class PangrovaPlanner {
     }
 
     /**
-     * Parse, validate, optimize, and constant-fold SQL into a RelNode plan.
-     * Constant expressions (no TableScan/TableModify/Exchange) are folded
-     * into LogicalValues by the registered Calcite reduction rules.
-     * Pre-parse: Dynamic Table names are rewritten to physical target tables.
-     * Post-optimization: MV rewrite is applied when MaterializedViewQueryRewriter is wired.
-     */
-    /**
      * Parse, validate, optimize, and constant-fold SQL into a PlanResult.
-     * Returns an immutable PlanResult containing the RelNode plan, pre-optimization
-     * column names, and runtime filter descriptors — eliminating the race condition
-     * from the previous volatile-field design.
+     *
+     * <p>Dynamic Table names are rewritten to published physical generations
+     * before parsing, and eligible materialized views may be substituted after
+     * optimization. Returns an immutable result containing the RelNode plan,
+     * pre-optimization column names, and runtime filter descriptors.</p>
      */
     public PlanResult plan(String sql) {
-        // Collect merge-on-read resolutions during SQL rewrite
-        List<DynamicTableResolution.MergeOnRead> mergeOnReadHints =
-                dynamicTablePlanningSupport.collectMergeOnReadHints(sql);
+        return plan(sql, true);
+    }
+
+    /** Plans a materialization definition without recursively rewriting it through another view. */
+    public PlanResult planDefinition(String sql) {
+        return plan(sql, false);
+    }
+
+    private PlanResult plan(String sql, boolean allowMaterializationRewrite) {
         var rewrite = dynamicTablePlanningSupport.rewriteIfWired(sql);
         String rewrittenSql = rewrite.sql();
         dynamicTablePlanningSupport.logCteMaterializationHints(rewrittenSql);
@@ -163,26 +166,25 @@ public final class PangrovaPlanner {
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
         if (containsMutation(relNode)) {
             verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of(), mergeOnReadHints,
+            return new PlanResult(relNode, preOptColumnNames, List.of(),
                     rewrite.physicalToLogical());
         }
         RelNode optimized = optimizationRunner.optimize(relNode);
         List<RuntimeFilterDescriptor> filterDescriptors =
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
-        RelNode materializedViewRewritten = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
+        RelNode materializedViewRewritten = allowMaterializationRewrite
+                ? materializedViewRewritePass.tryMaterializedViewRewrite(optimized) : optimized;
         recordConstantFold(materializedViewRewritten);
 
         // Verify metadata versions unchanged after compilation
         verifyMetadataVersions(pinnedVersions);
 
         return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors,
-                mergeOnReadHints, rewrite.physicalToLogical());
+                rewrite.physicalToLogical());
     }
 
     /** Binds SQL without deriving facts from expressions that security policies may replace. */
     public PlanResult planForPolicyApplication(String sql) {
-        List<DynamicTableResolution.MergeOnRead> mergeOnReadHints =
-                dynamicTablePlanningSupport.collectMergeOnReadHints(sql);
         var rewrite = dynamicTablePlanningSupport.rewriteIfWired(sql);
         String rewrittenSql = rewrite.sql();
         dynamicTablePlanningSupport.logCteMaterializationHints(rewrittenSql);
@@ -192,7 +194,7 @@ public final class PangrovaPlanner {
         Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
         verifyMetadataVersions(pinnedVersions);
         return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of(),
-                mergeOnReadHints, rewrite.physicalToLogical());
+                rewrite.physicalToLogical());
     }
 
     /** Binds an expanded Native metadata listing without optimizing before authorization. */
@@ -207,15 +209,59 @@ public final class PangrovaPlanner {
 
     /** Optimizes only after authorization and policies; mutations retain their physical target until COW. */
     PlannedQuery optimizeProtectedQuery(PlannedQuery query) {
+        return optimizeProtectedQuery(query, false);
+    }
+
+    /**
+     * Optimizes a query that has already passed authorization and policy application.
+     *
+     * <p>Materialized view substitution is allowed only when the caller proves the
+     * query carries no row filter, column mask, time travel, or explicit snapshot.
+     * Mutations never rewrite.
+     */
+    PlannedQuery optimizeProtectedQuery(PlannedQuery query,
+            boolean allowMaterializationRewrite) {
         if (containsMutation(query.plan())) {
             return query;
         }
         RelNode optimized = optimizationRunner.optimize(query.plan());
         List<RuntimeFilterDescriptor> descriptors = materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
-        // An MV substitution would introduce a different source that has not passed this query's authority.
+        if (allowMaterializationRewrite) {
+            optimized = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
+        }
         recordConstantFold(optimized);
         return new PlannedQuery(optimized, query.columnNames(), descriptors,
-                query.mergeOnReadHints(), query.physicalToLogicalDynamicTables());
+                query.physicalToLogicalDynamicTables());
+    }
+
+    /**
+     * Compiles a stored materialization definition in the query cluster without rewrite.
+     *
+     * <p>The definition runs through the same optimization pipeline as a query so
+     * equivalent shapes (for example SUM null-handling expansion) line up with
+     * the plan Calcite is asked to substitute. Recursive materialized-view
+     * substitution is never applied to a definition.
+     */
+    private RelNode compileMaterializationDefinition(
+            org.apache.calcite.plan.RelOptCluster cluster, String sql) {
+        String rewrittenSql = dynamicTablePlanningSupport.rewriteIfWired(sql).sql();
+        SqlValidator validator = buildValidator();
+        SqlNode validated = validate(validator, parse(rewrittenSql));
+        return optimizationRunner.optimize(convert(validator, cluster, validated));
+    }
+
+    /** Resolves a physical generation table through the query's catalog reader. */
+    private org.apache.calcite.plan.RelOptTable resolveTable(List<String> qualifiedName) {
+        return catalogReader.getTable(qualifiedName);
+    }
+
+    /**
+     * Returns the diagnostic decision of the most recent materialized-view rewrite.
+     *
+     * @return rewrite decision; disabled before any attempt or without a catalog
+     */
+    public org.pangrova.planner.mv.MaterializedViewRewriteDecision lastMaterializedViewRewrite() {
+        return materializedViewRewritePass.lastDecision();
     }
 
     /**

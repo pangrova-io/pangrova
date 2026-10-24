@@ -247,6 +247,14 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     /**
+     * Returns the durable epoch of the active control leader, including when this
+     * node is a standby. Metadata commits use this term, not the locally cached one.
+     */
+    public long getActiveLeaderEpoch() {
+        return leaseElection.currentLeaderEntry().map(LeaseEntry::epoch).orElse(0L);
+    }
+
+    /**
      * Checks that this node's cached cluster term is still the active durable
      * control term. This is used only at metadata commit boundaries; the query
      * data plane must not synchronously consult the coordination backend.

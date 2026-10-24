@@ -104,6 +104,16 @@ public final class TableNameExtractor {
         put(map, CreateContinuousQueryStatement.class, CreateContinuousQueryStatement::name);
         put(map, DropDynamicTableStatement.class, DropDynamicTableStatement::name);
         put(map, AlterDynamicTableStatement.class, AlterDynamicTableStatement::name);
+        put(map, org.pangrova.parser.ast.CreateMaterializedViewStatement.class,
+                org.pangrova.parser.ast.CreateMaterializedViewStatement::name);
+        put(map, org.pangrova.parser.ast.statement.AlterMaterializedViewStatement.class,
+                org.pangrova.parser.ast.statement.AlterMaterializedViewStatement::name);
+        put(map, org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement.class,
+                org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement::name);
+        put(map, org.pangrova.parser.ast.statement.DropMaterializedViewStatement.class,
+                org.pangrova.parser.ast.statement.DropMaterializedViewStatement::name);
+        put(map, org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement.class,
+                org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement::name);
         put(map, org.pangrova.parser.ast.statement.CreateBranchStatement.class,
                 s -> ((org.pangrova.parser.ast.statement.CreateBranchStatement) s).tableName());
         put(map, org.pangrova.parser.ast.statement.DropBranchStatement.class,

@@ -14,8 +14,15 @@ import java.util.Optional;
 public interface StreamStateStore {
 
     /**
-     * Save or update the state for a stream. Upsert semantics:
-     * if a state with the same streamName exists, it is replaced.
+     * Creates one stream without replacing an existing name or incarnation.
+     *
+     * @return false when the name is already occupied
+     */
+    boolean createState(StreamState state);
+
+    /**
+     * Updates an existing stream only while its tenant, checkpoint identity and
+     * epoch still match. A deleted stream must never be recreated by an update.
      *
      * @param state the stream state to persist
      */
@@ -53,27 +60,21 @@ public interface StreamStateStore {
     List<StreamState> listAll();
 
     /**
-     * Delete the state for a stream by name.
+     * Delete the matching tenant, incarnation and epoch, including its cached offsets.
      *
-     * @param streamName unique stream identifier
+     * @param state identity and epoch observed by the caller
      * @return true if the entry existed and was removed
      */
-    boolean delete(String streamName);
+    boolean delete(StreamState state);
 
     /**
-     * Conditionally update the state only if the stored epoch matches
+     * Conditionally update the same tenant and checkpoint identity only if the stored epoch matches
      * {@code expectedEpoch}. This provides optimistic concurrency control
      * for HA epoch fencing during coordinator failover.
-     *
-     * <p>Default implementation delegates to {@link #saveState} for backward
-     * compatibility. JDBC implementations should use
-     * {@code UPDATE ... WHERE epoch = ?} for true CAS semantics.</p>
      *
      * @param state         the new state to persist
      * @param expectedEpoch the epoch value expected in the current stored row
      * @throws StaleEpochException if the stored epoch does not match
      */
-    default void saveStateIfEpoch(StreamState state, long expectedEpoch) {
-        saveState(state);
-    }
+    void saveStateIfEpoch(StreamState state, long expectedEpoch);
 }

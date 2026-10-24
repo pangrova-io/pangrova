@@ -41,8 +41,9 @@ class DynamicTableReadAuthorizationTest extends ContainerTestBase {
             assertThat(policy.rowFilter().orElseThrow()).contains("region", "US");
             assertThat(policy.columnMasks()).containsEntry("department",
                     java.util.Optional.of("'hidden'"));
-            assertThat(protectedPlan.plan().tableReferences())
-                    .containsExactly(List.of("default", "default", fixture.dynamicPhysical().table()));
+            assertThat(protectedPlan.plan().tableReferences()).containsExactly(List.of(
+                    fixture.dynamicPhysical().catalog(), fixture.dynamicPhysical().schema(),
+                    fixture.dynamicPhysical().table()));
         }
     }
 

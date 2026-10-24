@@ -44,6 +44,17 @@ public sealed interface CatalogHandle
         throw new UnsupportedOperationException("Page sink not supported for this catalog");
     }
 
+    /**
+     * Returns the materialization source contract when the underlying connector
+     * can pin exact immutable source snapshots.
+     *
+     * @return source contract, or empty if this catalog cannot serve one
+     */
+    default java.util.Optional<org.pangrova.spi.materialization.SourceProvider>
+            getMaterializationSourceProvider() {
+        return java.util.Optional.empty();
+    }
+
     CatalogHealthStatus checkHealth();
 
     void shutdown();

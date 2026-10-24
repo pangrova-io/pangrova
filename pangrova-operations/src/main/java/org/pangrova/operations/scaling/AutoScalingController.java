@@ -31,7 +31,7 @@ import java.util.function.IntSupplier;
  * <p>Emergency scale-out has its own shorter cooldown (30 seconds) to allow rapid response
  * to resource pressure, independent of the normal scale-out cooldown (3 minutes).</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova-project/pangrova/issues/F-OPS-002-auto-scaling")
+@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-auto-scaling")
 @ThreadSafe
 public final class AutoScalingController {
 

@@ -48,7 +48,9 @@ public final class SessionContextConverter {
         Map<String, String> props = new HashMap<>(ctx.sessionProperties());
         props.put("user", user);
         props.keySet().removeIf(key -> key.startsWith(
-                org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors.PROPERTY_PREFIX));
+                org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors.PROPERTY_PREFIX)
+                || key.startsWith(
+                        org.pangrova.coordinator.metadata.read.PlanningIncrementalSelectors.PROPERTY_PREFIX));
         props.put("queryId", ctx.queryId());
         if (bindResolvedTable) {
             props.put("catalog", catalog.orElseThrow());
@@ -59,7 +61,16 @@ public final class SessionContextConverter {
         if (ctx.tenantId() != null && !ctx.tenantId().isBlank()) {
             props.put("tenant_id", ctx.tenantId());
         }
-        return new ConnectorSessionAdapter(user, catalog, schema, props, ctx.queryAuthority());
+        ConnectorSession session = new ConnectorSessionAdapter(user, catalog, schema, props,
+                ctx.queryAuthority());
+        ConnectorSession pinned = ctx.sourceSnapshots().isEmpty()
+                ? session
+                : org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors.bind(
+                        session, ctx.sourceSnapshots());
+        return ctx.sourceIncrementalRanges().isEmpty()
+                ? pinned
+                : org.pangrova.coordinator.metadata.read.PlanningIncrementalSelectors.bind(
+                        pinned, ctx.sourceIncrementalRanges());
     }
 
     /**

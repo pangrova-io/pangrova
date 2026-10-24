@@ -12,6 +12,7 @@ import org.pangrova.metadata.streaming.JdbcStreamStateStore;
 import org.pangrova.metadata.streaming.StreamLifecycleState;
 import org.pangrova.metadata.streaming.StreamState;
 import org.junit.jupiter.api.Tag;
+import org.pangrova.testing.ContainerTestBase;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -20,9 +21,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.pangrova.common.exception.StaleEpochException;
 
 @Tag("integration")
-class StreamStateStoreRoundTripPropertyTest {
+class StreamStateStoreRoundTripPropertyTest extends ContainerTestBase {
 
     private JdbcStreamStateStore store;
 
@@ -34,8 +37,8 @@ class StreamStateStoreRoundTripPropertyTest {
 
     @Property(tries = 10)
     void saveAndLoadPreservesAllFields(@ForAll("streamStates") StreamState original) {
-        store.delete(original.streamName());
-        store.saveState(original);
+        store.loadState(original.streamName()).ifPresent(store::delete);
+        assertThat(store.createState(original)).isTrue();
 
         Optional<StreamState> loaded = store.loadState(original.streamName());
         assertThat(loaded).isPresent();
@@ -43,6 +46,7 @@ class StreamStateStoreRoundTripPropertyTest {
         StreamState got = loaded.get();
         assertThat(got.streamName()).isEqualTo(original.streamName());
         assertThat(got.tenantId()).isEqualTo(original.tenantId());
+        assertThat(got.checkpointId()).isEqualTo(original.checkpointId());
         assertThat(got.lifecycleState()).isEqualTo(original.lifecycleState());
         assertThat(got.targetTable()).isEqualTo(original.targetTable());
         assertThat(got.sourceProperties()).isEqualTo(original.sourceProperties());
@@ -72,28 +76,21 @@ class StreamStateStoreRoundTripPropertyTest {
     }
 
     @Property(tries = 10)
-    void upsertOverwritePreservesLatestState(
+    void anotherIncarnationCannotReplaceAnOccupiedName(
             @ForAll("streamStates") StreamState first,
             @ForAll("streamStates") StreamState second) {
-        StreamState s1 = first;
-        StreamState s2 = second.toBuilder().streamName(first.streamName()).build();
-
-        store.saveState(s1);
-        store.saveState(s2);
-
-        Optional<StreamState> loaded = store.loadState(s1.streamName());
-        assertThat(loaded).isPresent();
-
-        StreamState got = loaded.get();
-        assertThat(got.tenantId()).isEqualTo(s2.tenantId());
-        assertThat(got.lifecycleState()).isEqualTo(s2.lifecycleState());
-        assertThat(got.targetTable()).isEqualTo(s2.targetTable());
-        assertThat(got.sourceProperties()).isEqualTo(s2.sourceProperties());
-        assertThat(got.sourceFormat()).isEqualTo(s2.sourceFormat());
-        assertThat(got.epoch()).isEqualTo(s2.epoch());
+        store.loadState(first.streamName()).ifPresent(store::delete);
+        assertThat(store.createState(first)).isTrue();
+        StreamState replacement = second.toBuilder().streamName(first.streamName())
+                .checkpointId(first.checkpointId() + "-replacement").build();
+        assertThat(store.createState(replacement)).isFalse();
+        assertThatThrownBy(() -> store.saveState(replacement)).isInstanceOf(StaleEpochException.class);
+        StreamState got = store.loadState(first.streamName()).orElseThrow();
+        assertThat(got.checkpointId()).isEqualTo(first.checkpointId());
+        assertThat(got.tenantId()).isEqualTo(first.tenantId());
+        assertThat(got.lifecycleState()).isEqualTo(first.lifecycleState());
+        assertThat(got.epoch()).isEqualTo(first.epoch());
     }
-
-    // ── Generators ──────────────────────────────────────────────────
 
     @Provide
     Arbitrary<StreamState> streamStates() {
@@ -140,7 +137,7 @@ class StreamStateStoreRoundTripPropertyTest {
 
         return Combinators.combine(identityGroup, metadataGroup, counterGroup)
                 .as((id, meta, ctr) -> new StreamState(
-                        id.streamName, id.tenantId, id.lifecycleState, id.targetTable,
+                        id.streamName, id.tenantId, "checkpoint-" + id.streamName, id.lifecycleState, id.targetTable,
                         id.sourceProperties, id.sourceFormat, id.streamProperties,
                         meta.creatorIdentity, meta.coordinatorId,
                         meta.epoch, meta.schemaVersion, meta.errorMessage,

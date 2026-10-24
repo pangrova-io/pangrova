@@ -1,5 +1,6 @@
 package org.pangrova.streaming.property.cdc;
 
+import org.pangrova.streaming.cdc.commit.SourceId;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.common.concurrent.BackoffStrategy;
@@ -45,7 +46,8 @@ class MaintenanceNotificationPropertyTest {
         SimpleWriteSink writeSink = new SimpleWriteSink();
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop[] loopRef = new CdcPipelineLoop[1];
         LimitedSourceReader reader = new LimitedSourceReader(batchCount, loopRef);
@@ -91,7 +93,8 @@ class MaintenanceNotificationPropertyTest {
         SimpleWriteSink writeSink = new SimpleWriteSink();
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop[] loopRef = new CdcPipelineLoop[1];
         LimitedSourceReader reader = new LimitedSourceReader(batchCount, loopRef);
@@ -139,7 +142,8 @@ class MaintenanceNotificationPropertyTest {
         FailingWriteSink writeSink = new FailingWriteSink();
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 1, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 1, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop[] loopRef = new CdcPipelineLoop[1];
         LimitedSourceReader reader = new LimitedSourceReader(batchCount, loopRef);

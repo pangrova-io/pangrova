@@ -47,7 +47,7 @@ class PermissionCheckerAuthorizationTest {
     @Test
     void dynamicTableLifecycleUsesCreateAlterAndDropPrivilegesOnQualifiedName() {
         var create = new SqlParser().parse("CREATE DYNAMIC TABLE secured.source_schema.rollup "
-                + "TARGET_LAG = 'PT0S' AS SELECT 1 AS id");
+                + "AS SELECT 1 AS id");
         var refresh = new SqlParser().parse("ALTER DYNAMIC TABLE secured.source_schema.rollup REFRESH");
         var drop = new SqlParser().parse("DROP DYNAMIC TABLE secured.source_schema.rollup");
         var createOnly = accessControl(grant(Privilege.CREATE_TABLE,

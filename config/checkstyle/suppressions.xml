@@ -375,7 +375,6 @@
          ==================================================================== -->
     <suppress files="[\\/]org[\\/]pangrova[\\/]connector[\\/]iceberg[\\/]fs[\\/]IcebergFileSystemAccessor\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]connector[\\/]paimon[\\/]fs[\\/]PaimonFileSystemAccessor\.java$" checks="MissingJavadocMethod"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]detect[\\/]CdcChangeDetector\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]detect[\\/]SchemaEvolutionException\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]quota[\\/]BoundedRefreshMemoryQuota\.java$" checks="MissingJavadocMethod"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]dynamictable[\\/]quota[\\/]RefreshMemoryQuotaExceededException\.java$" checks="MissingJavadocMethod"/>

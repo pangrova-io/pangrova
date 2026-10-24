@@ -380,18 +380,16 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     public boolean requiresPublication(WriteCommitEntry intent) {
         Objects.requireNonNull(intent, "intent");
         try (var connection = dataSource.getConnection(); var query = connection.prepareStatement(
-                "SELECT tenant_id,principal,owner_id,owner_incarnation,owner_token,candidate_table "
-                        + "FROM dynamic_table_refresh_attempts WHERE execution_id=?")) {
+                "SELECT tenant_id,requesting_principal,candidate_catalog,candidate_schema,candidate_table "
+                        + "FROM materialization.attempts WHERE execution_anchor=?")) {
             query.setString(1, intent.queryId());
             try (var rows = query.executeQuery()) {
                 if (!rows.next()) return false;
+                String candidate = rows.getString("candidate_catalog") + "."
+                        + rows.getString("candidate_schema") + "." + rows.getString("candidate_table");
                 if (!intent.tenantId().equals(rows.getString("tenant_id"))
-                        || !intent.principal().equals(rows.getString("principal"))
-                        || !Objects.equals(intent.ownerId(), rows.getString("owner_id"))
-                        || !Objects.equals(intent.ownerIncarnation(), rows.getString("owner_incarnation"))
-                        || intent.executionFencingToken() != rows.getLong("owner_token")
-                        || !(intent.catalogName() + "." + intent.tableName())
-                                .equals(rows.getString("candidate_table"))) {
+                        || !intent.principal().equals(rows.getString("requesting_principal"))
+                        || !(intent.catalogName() + "." + intent.tableName()).equals(candidate)) {
                     throw new IllegalStateException("Write intent differs from its durable publication consumer");
                 }
                 return true;

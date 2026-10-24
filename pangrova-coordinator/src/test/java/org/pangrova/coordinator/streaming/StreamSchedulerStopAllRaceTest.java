@@ -42,12 +42,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * from adding new pipelines between the stop loop and clear().
  * {@link StreamScheduler#resume()} clears the flag for re-election.
  */
-class StreamSchedulerStopAllRaceTest {
+class StreamSchedulerStopAllRaceTest extends org.pangrova.testing.ContainerTestBase {
 
     private StreamScheduler scheduler;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         StreamConfig config = StreamConfig.withDefaults();
         CdcRecordConverterRegistry converterRegistry =
                 new CdcRecordConverterRegistry(List.of(new NoOpConverter()));
@@ -57,6 +57,7 @@ class StreamSchedulerStopAllRaceTest {
         StreamSchedulerContext deps = new StreamSchedulerContext(
                 new NoOpStreamStateStore(),
                 new NoOpStreamOffsetStore(),
+                commitCoordinator(),
                 converterRegistry,
                 new WatermarkTracker(new InMemoryWatermarkStore()),
                 maintenanceScheduler,
@@ -64,7 +65,7 @@ class StreamSchedulerStopAllRaceTest {
                 state -> new NoOpSourceReader(),
                 state -> new NoOpWriteSink());
 
-        scheduler = new StreamScheduler(deps, Executors.newFixedThreadPool(2));
+        scheduler = new StreamScheduler(deps, "coordinator-test", Executors.newFixedThreadPool(2));
     }
 
     @AfterEach
@@ -139,12 +140,14 @@ class StreamSchedulerStopAllRaceTest {
     }
 
     static class NoOpStreamStateStore implements StreamStateStore {
+        @Override public boolean createState(StreamState state) { return true; }
+        @Override public void saveStateIfEpoch(StreamState state, long epoch) {}
         @Override public void saveState(StreamState s) {}
         @Override public Optional<StreamState> loadState(String n) { return Optional.empty(); }
         @Override public List<StreamState> listByTenant(String t) { return List.of(); }
         @Override public List<StreamState> listByState(StreamLifecycleState s) { return List.of(); }
         @Override public List<StreamState> listAll() { return List.of(); }
-        @Override public boolean delete(String n) { return false; }
+        @Override public boolean delete(StreamState state) { return false; }
     }
 
     static class NoOpStreamOffsetStore implements StreamOffsetStore {
@@ -186,4 +189,12 @@ class StreamSchedulerStopAllRaceTest {
             return new MaintenanceStatus(t, 0, 0, 0L, 0, 0, 0L, 0L, null, null, null);
         }
     }
+
+    private static org.pangrova.streaming.cdc.commit.CdcCommitCoordinator commitCoordinator() throws Exception {
+        var dataSource = org.pangrova.coordinator.testinfra.SharedPostgresContainer
+                .migratedDataSource("stream_scheduler");
+        return new org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator(
+                new org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore(dataSource));
+    }
+
 }

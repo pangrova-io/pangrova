@@ -9,6 +9,7 @@ import org.pangrova.spi.streaming.CdcWriteResult;
 import org.pangrova.spi.streaming.SourceRecord;
 import org.pangrova.spi.streaming.TopicPartitionOffset;
 import org.pangrova.streaming.cdc.commit.CdcCommitCoordinator;
+import org.pangrova.streaming.cdc.commit.CdcBatchCheckpoint;
 import org.pangrova.streaming.cdc.commit.SourceId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,64 +17,22 @@ import org.slf4j.LoggerFactory;
 import org.pangrova.streaming.watermark.WatermarkPropagator;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Core CDC pipeline loop: poll → convert → write → commitOffsets → updateWatermark.
  *
- * <h2>Delivery Guarantee: At-Least-Once</h2>
+ * <p>With a commit coordinator, each cycle persists its complete source checkpoint,
+ * publishes the target write, marks the checkpoint committed, and acknowledges the
+ * source. Recovery uses exact recorded topics and partitions. An ambiguous catalog
+ * publication blocks progress pending reconciliation; catalog and JDBC commits
+ * are not one transaction. Without a commit coordinator, the caller explicitly
+ * selects at-least-once write/acknowledgement behavior.</p>
  *
- * <p>This pipeline provides <strong>at-least-once</strong> delivery semantics, not exactly-once.
- * Each cycle writes converted CDC envelopes to the lake table via
- * {@link CdcPipelineLoopContext#writeSink()} and then commits source offsets via
- * {@link org.pangrova.spi.streaming.CdcSourceReader#commitOffsets(Map)}. The write-then-commit
- * ordering is intentional: it guarantees no data loss, at the cost of possible duplicates.</p>
- *
- * <h3>Crash Window (BUG-D08)</h3>
- *
- * <p>A crash or forced shutdown between {@code writeAndNotify} and {@code commitOffsets} creates
- * a duplicate-producing window:</p>
- * <ol>
- *   <li>{@code writeAndNotify(envelopes)} succeeds — data is durably written to the lake table.</li>
- *   <li>Process crashes (OOM, kill -9, coordinator failover, etc.).</li>
- *   <li>{@code commitOffsets} never executes — source offsets are not advanced.</li>
- *   <li>On restart, {@link org.pangrova.spi.streaming.CdcSourceReader} replays from the last
- *       committed offset, re-delivering the same records.</li>
- *   <li>The pipeline writes the same envelopes again — duplicates now exist in the lake table.</li>
- * </ol>
- *
- * <h3>Impact on Append-Only Tables</h3>
- *
- * <p>For append-only target tables (INSERT-only CDC streams), duplicates are <em>silent</em>:
- * no constraint violation, no error, no log entry. Downstream consumers (queries, aggregations,
- * materialized views) will observe inflated row counts and incorrect aggregation results.
- * Upsert-style tables with primary keys may naturally deduplicate via overwrite semantics,
- * but append-only tables have no such safety net.</p>
- *
- * <h3>Deduplication Recommendations</h3>
- *
- * <p>To achieve effectively-once semantics on top of at-least-once delivery:</p>
- * <ul>
- *   <li><strong>Dedup key:</strong> Use the composite key
- *       {@code (topic, partition, offset)} from {@link TopicPartitionOffset} as a deduplication
- *       identifier in the connector write path. Each source record carries a unique
- *       topic-partition-offset triple that is stable across replays.</li>
- *   <li><strong>Connector-level dedup:</strong> The {@link org.pangrova.spi.streaming.CdcWriteSink}
- *       implementation (or the underlying connector PageSink) can maintain a high-water-mark
- *       per partition and skip records whose offset is at or below the mark.</li>
- *   <li><strong>Query-time dedup:</strong> As a lighter alternative, downstream queries can
- *       deduplicate using {@code ROW_NUMBER() OVER (PARTITION BY dedup_key ORDER BY offset DESC)}
- *       or equivalent, at the cost of query-time overhead.</li>
- * </ul>
- *
- * <h3>Future Work: Exactly-Once via Idempotent Writes</h3>
- *
- * <p>A future enhancement could achieve exactly-once by co-locating offset commits with data
- * writes in a single atomic transaction (e.g., writing offsets into the lake table metadata
- * alongside the data files). This requires connector-level support for transactional offset
- * storage and is out of scope for the current implementation.</p>
+ * <p>The exact polled batch is retained across failures. A later batch must never
+ * advance source offsets past a failed write. Poison batches stop the pipeline
+ * after the configured retry limit instead of discarding records.</p>
  *
  * <h2>Runtime Behavior</h2>
  *
@@ -102,6 +61,7 @@ public final class CdcPipelineLoop implements Runnable {
     private final Map<TopicPartitionOffset, Long> initialOffsets;
     private volatile boolean running = true;
     private volatile Thread pipelineThread;
+    private final Object threadLifecycleLock = new Object();
     private int consecutiveFailures;
 
     /**
@@ -121,6 +81,10 @@ public final class CdcPipelineLoop implements Runnable {
      * Thread-confined to the pipeline thread.
      */
     private Map<TopicPartitionOffset, Long> currentCycleOffsets = Map.of();
+
+    // Retain the exact polled batch until publication and acknowledgement succeed.
+    // Polling again after a write failure can advance past uncommitted records.
+    private List<SourceRecord> pendingBatch = List.of();
 
     /**
      * Offsets that caused the previous failure. Compared against
@@ -151,21 +115,51 @@ public final class CdcPipelineLoop implements Runnable {
 
     @Override
     public void run() {
-        pipelineThread = Thread.currentThread();
+        synchronized (threadLifecycleLock) {
+            pipelineThread = Thread.currentThread();
+        }
         LOG.info("event=pipeline_started stream={} target={}",
                 config.streamName(), config.targetTable());
         try {
-            recoverInFlightTransactions();
-            restoreInitialOffsets();
+            if (!running || !restoreCheckpoint()) {
+                return;
+            }
             runPipelineLoop();
         } finally {
+            pendingBatch = List.of();
             // F-STREAM-04: close the source reader on the pipeline thread. CdcSourceReader
             // (e.g. KafkaConsumer) is not thread-safe, so it must be closed by the same thread
             // that polls it — stop() only signals + interrupts. Without this the Kafka consumer
             // connection leaks after the pipeline stops.
-            closeSourceReaderQuietly();
+            try {
+                closeSourceReaderQuietly();
+            } finally {
+                try {
+                    deps.writeSink().close();
+                } catch (Exception failure) {
+                    LOG.warn("event=cdc_write_sink_close_error stream={}", config.streamName(), failure);
+                } finally {
+                    synchronized (threadLifecycleLock) {
+                        pipelineThread = null;
+                        running = false;
+                    }
+                }
+            }
         }
         LOG.info("event=pipeline_stopped stream={}", config.streamName());
+    }
+
+    private boolean restoreCheckpoint() {
+        try {
+            recoverInFlightTransactions();
+            restoreInitialOffsets();
+            return true;
+        } catch (RuntimeException failure) {
+            running = false;
+            LOG.error("event=pipeline_recovery_failed stream={}", config.streamName(), failure);
+            deps.listener().onFailed(failure);
+            return false;
+        }
     }
 
     private void closeSourceReaderQuietly() {
@@ -187,31 +181,23 @@ public final class CdcPipelineLoop implements Runnable {
         if (coordinator == null) {
             return;
         }
-        SourceId source = new SourceId(config.streamName());
+        SourceId source = config.sourceId();
         coordinator.recover(source);
         LOG.info("event=pipeline_2pc_recovery_complete stream={}", config.streamName());
     }
 
     private void restoreInitialOffsets() {
-        if (!initialOffsets.isEmpty()) {
-            deps.sourceReader().seekToOffsets(initialOffsets);
-            LOG.info("event=pipeline_offset_restored stream={} partitions={}",
-                    config.streamName(), initialOffsets.size());
-            return;
-        }
-        // When no explicit initial offsets and a commit coordinator is available,
-        // restore from the JDBC state store. Ambiguous catalog publications
-        // must have been reconciled before this path is reached.
+        Map<TopicPartitionOffset, Long> offsets = new java.util.HashMap<>(initialOffsets);
+        // Durable publication checkpoints take precedence over cached startup offsets.
         CdcCommitCoordinator coordinator = deps.commitCoordinator();
         if (coordinator != null) {
-            SourceId source = new SourceId(config.streamName());
-            Map<TopicPartitionOffset, Long> jdbcOffsets =
-                    coordinator.findLastCommittedOffsets(source);
-            if (!jdbcOffsets.isEmpty()) {
-                deps.sourceReader().seekToOffsets(jdbcOffsets);
-                LOG.info("event=pipeline_offset_restored_from_jdbc stream={} partitions={}",
-                        config.streamName(), jdbcOffsets.size());
-            }
+            SourceId source = config.sourceId();
+            offsets.putAll(coordinator.findLastCommittedOffsets(source));
+        }
+        if (!offsets.isEmpty()) {
+            deps.sourceReader().seekToOffsets(Map.copyOf(offsets));
+            LOG.info("event=pipeline_offset_restored stream={} partitions={}",
+                    config.streamName(), offsets.size());
         }
     }
 
@@ -240,10 +226,12 @@ public final class CdcPipelineLoop implements Runnable {
      * are promptly unblocked rather than waiting for their full timeout.</p>
      */
     public void stop() {
-        running = false;
-        Thread t = pipelineThread;
-        if (t != null) {
-            t.interrupt();
+        synchronized (threadLifecycleLock) {
+            running = false;
+            Thread t = pipelineThread;
+            if (t != null) {
+                t.interrupt();
+            }
         }
     }
 
@@ -259,34 +247,33 @@ public final class CdcPipelineLoop implements Runnable {
         // set of offsets from a previous cycle.
         currentCycleOffsets = Map.of();
 
-        List<SourceRecord> batch = deps.sourceReader().pollBatch(
-            config.batchSize(), config.pollTimeout());
+        if (pendingBatch.isEmpty()) {
+            pendingBatch = List.copyOf(deps.sourceReader().pollBatch(
+                    config.batchSize(), config.pollTimeout()));
+        }
+        List<SourceRecord> batch = pendingBatch;
         if (batch.isEmpty()) {
             return;
         }
 
         // Capture offsets up-front so handleFailure can attribute a write
         // failure to the specific offsets that were in flight.
-        currentCycleOffsets = extractMaxOffsets(batch);
+        CdcBatchCheckpoint checkpoint = CdcBatchCheckpoint.fromRecords(batch);
+        currentCycleOffsets = checkpoint.nextOffsets();
 
         List<CdcEnvelope> envelopes = convertBatch(batch);
-        // F-STREAM-04: Propagate watermark INSIDE the 2PC path (atomically with
-        // offset commit) to prevent watermark regression on crash between 2PC and
-        // propagateWatermark. For non-2PC path, propagate after write.
-        if (!envelopes.isEmpty()) {
-            if (deps.commitCoordinator() != null) {
-                twoPhaseCommitter.commitWithTwoPhaseProtocol(envelopes, currentCycleOffsets);
-                // Watermark is now persisted as part of 2PC commit phase
-            } else {
-                writeAndNotify(envelopes);
-                deps.sourceReader().commitOffsets(currentCycleOffsets);
-                propagateWatermark(envelopes);
-            }
+        if (deps.commitCoordinator() != null) {
+            twoPhaseCommitter.commitWithTwoPhaseProtocol(envelopes, checkpoint);
+            propagateWatermark(envelopes);
         } else {
-            // No envelopes after conversion (all dead-lettered); still commit offsets
+            if (!envelopes.isEmpty()) {
+                writeAndNotify(envelopes);
+            }
             deps.sourceReader().commitOffsets(currentCycleOffsets);
+            propagateWatermark(envelopes);
         }
 
+        pendingBatch = List.of();
         consecutiveFailures = 0;
         retriesAtCurrentOffset = 0;
         lastFailedOffsets = Map.of();
@@ -361,15 +348,6 @@ public final class CdcPipelineLoop implements Runnable {
             return;
         }
         sleepQuietly(deps.retryBackoff().next());
-    }
-
-    private Map<TopicPartitionOffset, Long> extractMaxOffsets(List<SourceRecord> batch) {
-        Map<TopicPartitionOffset, Long> offsets = new HashMap<>();
-        for (SourceRecord record : batch) {
-            TopicPartitionOffset key = new TopicPartitionOffset(record.topic(), record.partition());
-            offsets.merge(key, record.offset() + 1, Math::max);
-        }
-        return offsets;
     }
 
     /**

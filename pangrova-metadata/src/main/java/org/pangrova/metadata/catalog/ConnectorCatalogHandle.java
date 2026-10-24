@@ -68,6 +68,12 @@ public final class ConnectorCatalogHandle implements CatalogHandle {
     }
 
     @Override
+    public java.util.Optional<org.pangrova.spi.materialization.SourceProvider>
+            getMaterializationSourceProvider() {
+        return connector.getMaterializationSourceProvider();
+    }
+
+    @Override
     public CatalogHealthStatus checkHealth() {
         return mapHealthCheckResult(connector.healthCheck());
     }

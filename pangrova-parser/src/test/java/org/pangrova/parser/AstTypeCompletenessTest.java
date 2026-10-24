@@ -167,9 +167,12 @@ class AstTypeCompletenessTest {
             case CREATE_CATALOG -> "cc";
             case CREATE_CONTINUOUS_QUERY -> "ccq";
             case CREATE_DYNAMIC_TABLE -> "cdt";
+            case CREATE_MATERIALIZED_VIEW -> "cmv";
+            case REFRESH_MATERIALIZED_VIEW -> "rmv";
             case SHOW_SCHEMAS -> "ss";
             case ALTER_CATALOG -> "ac";
             case ALTER_DYNAMIC_TABLE -> "adt";
+            case ALTER_MATERIALIZED_VIEW -> "amv";
             case ALTER_EMBEDDING_MODEL -> "aem";
             case ALTER_INDEX -> "ai";
             case ALTER_TABLE -> "at";
@@ -187,11 +190,13 @@ class AstTypeCompletenessTest {
             case CREATE_VIEW -> "cv";
             case DESCRIBE_CATALOG -> "dc";
             case DESCRIBE_DYNAMIC_TABLE -> "ddt";
+            case DESCRIBE_MATERIALIZED_VIEW -> "dmv";
             case DESCRIBE_TABLE -> "dt";
             case DROP_BRANCH -> "db";
             case DROP_CATALOG -> "dcat";
             case DROP_DYNAMIC_TABLE -> "ddtab";
             case DROP_EMBEDDING_MODEL -> "dem";
+            case DROP_MATERIALIZED_VIEW -> "dmvtab";
             case DROP_INDEX -> "di";
             case DROP_TABLE -> "dtab";
             case DROP_TAG -> "dtag";
@@ -211,6 +216,11 @@ class AstTypeCompletenessTest {
             case SHOW_CLUSTERING_STATUS -> "scs";
             case SHOW_DYNAMIC_TABLES -> "sdt";
             case SHOW_EMBEDDING_MODELS -> "sem";
+            case SHOW_MATERIALIZATIONS -> "smat";
+            case SHOW_MATERIALIZATION_DEPENDENCIES -> "smatdep";
+            case SHOW_MATERIALIZATION_GC_HISTORY -> "smatgc";
+            case SHOW_MATERIALIZATION_REFRESH_HISTORY -> "smatrf";
+            case SHOW_MATERIALIZED_VIEWS -> "smv";
             case SHOW_INDEXES -> "si";
             case SHOW_SEMANTIC_VIEWS -> "ssv";
             case SHOW_METADATA -> "sm";

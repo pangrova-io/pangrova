@@ -7,10 +7,10 @@ const config: Config = {
   tagline: 'The Distributed SQL Query Engine Built for Lakehouse',
   favicon: 'img/favicon.ico',
 
-  url: 'https://pangrova-project.github.io',
+  url: 'https://pangrova.github.io',
   baseUrl: '/pangrova/',
 
-  organizationName: 'pangrova-project',
+  organizationName: 'pangrova',
   projectName: 'pangrova',
 
   onBrokenLinks: 'throw',
@@ -54,7 +54,7 @@ const config: Config = {
         docs: {
           path: '../docs',
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/pangrova-project/pangrova/tree/main/',
+          editUrl: 'https://github.com/pangrova/pangrova/tree/main/',
           showLastUpdateTime: true,
           showLastUpdateAuthor: true,
           numberPrefixParser: false,
@@ -71,7 +71,7 @@ const config: Config = {
             title: 'Pangrova Blog',
             copyright: `Copyright ${new Date().getFullYear()} The Pangrova Authors`,
           },
-          editUrl: 'https://github.com/pangrova-project/pangrova/tree/main/website/',
+          editUrl: 'https://github.com/pangrova/pangrova/tree/main/website/',
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -97,7 +97,7 @@ const config: Config = {
         },
         {to: '/blog', label: 'Blog', position: 'left'},
         {
-          href: 'https://github.com/pangrova-project/pangrova',
+          href: 'https://github.com/pangrova/pangrova',
           label: 'GitHub',
           position: 'right',
         },
@@ -117,17 +117,17 @@ const config: Config = {
         {
           title: 'Community',
           items: [
-            {label: 'GitHub Discussions', href: 'https://github.com/pangrova-project/pangrova/discussions'},
-            {label: 'Contributing', href: 'https://github.com/pangrova-project/pangrova/blob/main/CONTRIBUTING.md'},
-            {label: 'Code of Conduct', href: 'https://github.com/pangrova-project/pangrova/blob/main/CODE_OF_CONDUCT.md'},
+            {label: 'GitHub Discussions', href: 'https://github.com/pangrova/pangrova/discussions'},
+            {label: 'Contributing', href: 'https://github.com/pangrova/pangrova/blob/main/CONTRIBUTING.md'},
+            {label: 'Code of Conduct', href: 'https://github.com/pangrova/pangrova/blob/main/CODE_OF_CONDUCT.md'},
           ],
         },
         {
           title: 'More',
           items: [
             {label: 'Blog', to: '/blog'},
-            {label: 'Changelog', href: 'https://github.com/pangrova-project/pangrova/blob/main/CHANGELOG.md'},
-            {label: 'Releases', href: 'https://github.com/pangrova-project/pangrova/releases'},
+            {label: 'Changelog', href: 'https://github.com/pangrova/pangrova/blob/main/CHANGELOG.md'},
+            {label: 'Releases', href: 'https://github.com/pangrova/pangrova/releases'},
           ],
         },
       ],

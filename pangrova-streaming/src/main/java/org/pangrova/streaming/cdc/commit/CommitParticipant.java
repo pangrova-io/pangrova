@@ -1,28 +1,10 @@
 package org.pangrova.streaming.cdc.commit;
 
 /**
- * Participant in the CDC two-phase commit protocol.
- *
- * <p>Each participant represents one side of the atomic commit: typically
- * the table connector (Iceberg/Paimon data write) and the offset store
- * (CDC source offset persistence). The {@link TwoPhaseCommitCoordinator}
- * orchestrates all participants through the prepare/commit/abort lifecycle.</p>
- *
- * <h2>Contract</h2>
- * <ul>
- *   <li>{@link #prepare()} — perform the participant's work and validate readiness
- *       to commit. Must be idempotent on success (duplicate prepare is a no-op).</li>
- *   <li>{@link #commit()} — finalize the prepared work. Called only after ALL
- *       participants have successfully prepared.</li>
- *   <li>{@link #abort()} — roll back any prepared work. Called when any participant
- *       fails during prepare or commit. Must be safe to call even if prepare was
- *       never called or already committed (best-effort cleanup).</li>
- * </ul>
- *
- * <h2>Failure Semantics</h2>
- * <p>If {@code prepare()} throws, the coordinator aborts all previously prepared
- * participants and rolls back the transaction. If {@code commit()} throws, the
- * coordinator attempts to abort all participants (best-effort) and rolls back.</p>
+ * Prepared target publication participating in a CDC commit attempt.
+ * External systems do not share an atomic transaction. A publication failure
+ * leaves COMMITTING for reconciliation; it must never trigger blind rollback.
+ * Source acknowledgement belongs after the durable COMMITTED transition.
  */
 public interface CommitParticipant {
 
@@ -35,8 +17,7 @@ public interface CommitParticipant {
      * Phase 1: prepare the participant's work for commit.
      *
      * <p>For a table write participant, this performs the actual data write
-     * (producing data files). For an offset participant, this validates that
-     * offsets are ready to be committed.</p>
+     * (producing unpublished data files).</p>
      *
      * <p><b>Recovery constraint:</b> any durable side effect produced here MUST be a
      * reclaimable orphan while the transaction is uncommitted (e.g. data files not
@@ -55,16 +36,16 @@ public interface CommitParticipant {
      * <p>Called only when all participants have successfully prepared.
      * For an offset participant, this commits the source offsets.</p>
      *
-     * @throws Exception if commit fails (triggers best-effort abort of all participants)
+     * @throws Exception if publication fails or has an ambiguous outcome
      */
     void commit() throws Exception;
 
     /**
-     * Abort any prepared or partially committed work.
+     * Abort only prepared work that has not entered publication.
      *
-     * <p>Must be idempotent and must not throw. Called on failure during
-     * prepare or commit phases. Implementations should log but swallow
-     * any errors during cleanup.</p>
+     * <p>Must be idempotent. Called on preparation failure or when a local
+     * attempt loses the publication claim. Never delete files whose publication
+     * outcome is ambiguous.</p>
      */
     void abort();
 }

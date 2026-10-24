@@ -3,6 +3,9 @@ package org.pangrova.streaming.cdc.commit;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.spi.streaming.TopicPartitionOffset;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,8 +30,8 @@ import javax.sql.DataSource;
  *
  * <p>Stores transaction state in the {@code cdc_commit_state} table, enabling
  * crash recovery and idempotent deduplication based on the source-scoped
- * full-batch key. The legacy representative range is not a complete
- * multi-topic/multi-partition offset checkpoint.</p>
+ * full-batch key. Every topic/partition range is stored in the same row and
+ * becomes visible to recovery only when its publication is COMMITTED.</p>
  *
  * <p>Thread-safe: each operation acquires its own connection from the pool.</p>
  */
@@ -37,10 +40,12 @@ public final class JdbcCdcCommitStateStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcCdcCommitStateStore.class);
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     private static final String SQL_INSERT = """
-            INSERT INTO cdc_commit_state (id, source_id, partition_num, start_offset, end_offset,
+            INSERT INTO cdc_commit_state (id, source_id, offset_ranges,
                 state, deadline, created_at, batch_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""";
+            VALUES (?, ?, CAST(? AS jsonb), ?, ?, ?, ?)""";
 
     private static final String SQL_UPDATE_STATE = """
             UPDATE cdc_commit_state SET state = ? WHERE id = ?""";
@@ -61,10 +66,12 @@ public final class JdbcCdcCommitStateStore {
             WHERE source_id = ? AND state IN ('PREPARED', 'COMMITTING', 'ROLLING_BACK')""";
 
     private static final String SQL_FIND_LAST_COMMITTED = """
-            SELECT partition_num, MAX(end_offset) AS max_end_offset
-            FROM cdc_commit_state
-            WHERE source_id = ? AND state = 'COMMITTED'
-            GROUP BY partition_num""";
+            SELECT r.value->>'topic' AS topic, (r.value->>'partition')::int AS partition_num,
+                   MAX((r.value->>'endOffset')::bigint) AS max_end_offset
+            FROM cdc_commit_state c
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(c.offset_ranges, '[null]'::jsonb)) r(value)
+            WHERE c.source_id = ? AND c.state = 'COMMITTED'
+            GROUP BY r.value->>'topic', r.value->>'partition'""";
 
     private final DataSource dataSource;
 
@@ -73,17 +80,16 @@ public final class JdbcCdcCommitStateStore {
     }
 
     /**
-     * Persists a single-range commit state row. Returns false if an active or
-     * committed record with the same source-scoped range key already exists.
+     * Persists a complete source checkpoint. Returns false if an active or
+     * committed record with the same source-scoped checkpoint key already exists.
      */
     public boolean insert(PrepareToken token, CdcCommitState state) {
-        return insert(token, state, dedupKeyForRange(token.range()));
+        return insert(token, state, token.checkpoint().fingerprint());
     }
 
     /**
-     * Persists a new commit state row keyed for deduplication by {@code batchKey} (A-EOS-01: a
-     * collision-free full-batch fingerprint). Returns false if a row with the same
-     * (source_id, batch_key) already exists (unique-index violation).
+     * Persists a new commit state row keyed by a stable source-scoped {@code batchKey}.
+     * Returns false if a row with the same (source_id, batch_key) already exists (unique-index violation).
      */
     public boolean insert(PrepareToken token, CdcCommitState state, String batchKey) {
         Objects.requireNonNull(token, "token must not be null");
@@ -93,13 +99,11 @@ public final class JdbcCdcCommitStateStore {
              PreparedStatement ps = conn.prepareStatement(SQL_INSERT)) {
             ps.setString(1, token.id().toString());
             ps.setString(2, token.source().value());
-            ps.setInt(3, token.range().partition());
-            ps.setLong(4, token.range().startOffset());
-            ps.setLong(5, token.range().endOffset());
-            ps.setString(6, state.name());
-            ps.setTimestamp(7, Timestamp.from(token.deadline()));
-            ps.setTimestamp(8, Timestamp.from(Instant.now()));
-            ps.setString(9, batchKey);
+            ps.setString(3, encodeCheckpoint(token.checkpoint()));
+            ps.setString(4, state.name());
+            ps.setTimestamp(5, Timestamp.from(token.deadline()));
+            ps.setTimestamp(6, Timestamp.from(Instant.now()));
+            ps.setString(7, batchKey);
             int rows = ps.executeUpdate();
             if (rows > 0) {
                 LOG.info("event=cdc_commit_state_inserted id={} source={} state={}",
@@ -115,14 +119,6 @@ public final class JdbcCdcCommitStateStore {
             throw new PangrovaException(PangrovaErrorCode.STREAMING_CDC_PARSE_ERROR,
                     "Failed to insert CDC commit state id=" + token.id(), e);
         }
-    }
-
-    /**
-     * A-EOS-01: the default dedup key for a single OffsetRange, preserving the pre-fingerprint
-     * (partition, start, end) identity for callers that do not supply a full-batch fingerprint.
-     */
-    static String dedupKeyForRange(OffsetRange range) {
-        return range.partition() + ":" + range.startOffset() + ":" + range.endOffset();
     }
 
     /**
@@ -165,22 +161,16 @@ public final class JdbcCdcCommitStateStore {
         }
     }
 
-    /**
-     * Finds an existing commit record by the deduplication key (source_id, batch_key) in a
-     * non-terminal or committed state. This overload derives the default (single-range) key.
-     */
-    public Optional<PrepareToken> findDuplicate(SourceId source, OffsetRange range) {
-        Objects.requireNonNull(range, "range must not be null");
-        return findDuplicate(source, dedupKeyForRange(range));
+    /** Finds an active batch and verifies that its immutable source checkpoint agrees. */
+    public Optional<PrepareToken> findDuplicate(SourceId source, CdcBatchCheckpoint checkpoint) {
+        return findDuplicate(source, checkpoint, checkpoint.fingerprint());
     }
 
-    /**
-     * Finds an existing commit record by the deduplication key (source_id, batch_key) in a
-     * non-terminal or committed state (A-EOS-01: batch_key is a collision-free full-batch
-     * fingerprint, replacing the former single-partition range key).
-     */
-    public Optional<PrepareToken> findDuplicate(SourceId source, String batchKey) {
+    /** Resolve an explicit batch identity without permitting its source ranges to change. */
+    public Optional<PrepareToken> findDuplicate(
+            SourceId source, CdcBatchCheckpoint checkpoint, String batchKey) {
         Objects.requireNonNull(source, "source must not be null");
+        Objects.requireNonNull(checkpoint, "checkpoint must not be null");
         Objects.requireNonNull(batchKey, "batchKey must not be null");
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(SQL_FIND_DUPLICATE)) {
@@ -188,7 +178,12 @@ public final class JdbcCdcCommitStateStore {
             ps.setString(2, batchKey);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(mapToken(rs));
+                    PrepareToken token = mapToken(rs);
+                    if (!token.checkpoint().equals(checkpoint)) {
+                        throw new IllegalStateException("CDC batch identity reused with a different checkpoint: "
+                                + token.id());
+                    }
+                    return Optional.of(token);
                 }
                 return Optional.empty();
             }
@@ -246,18 +241,26 @@ public final class JdbcCdcCommitStateStore {
      * <p>Used during pipeline startup to determine where to seek the source reader.
      * Returns partition → (endOffset + 1), i.e., the next offset to consume.</p>
      */
-    public Map<Integer, Long> findLastCommittedOffsets(SourceId source) {
+    public Map<TopicPartitionOffset, Long> findLastCommittedOffsets(SourceId source) {
         Objects.requireNonNull(source, "source must not be null");
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(SQL_FIND_LAST_COMMITTED)) {
             ps.setString(1, source.value());
             try (ResultSet rs = ps.executeQuery()) {
-                Map<Integer, Long> offsets = new HashMap<>();
+                Map<TopicPartitionOffset, Long> offsets = new HashMap<>();
                 while (rs.next()) {
-                    int partition = rs.getInt("partition_num");
-                    long maxEndOffset = rs.getLong("max_end_offset");
+                    String topic = rs.getString("topic");
+                    if (topic == null) {
+                        throw new IllegalStateException("CDC history lacks exact topic/partition checkpoints; "
+                                + "reconcile source=" + source + " before resuming");
+                    }
+                    Integer partition = rs.getObject("partition_num", Integer.class);
+                    Long maxEndOffset = rs.getObject("max_end_offset", Long.class);
+                    if (partition == null || maxEndOffset == null || maxEndOffset < 0) {
+                        throw new IllegalStateException("Incomplete durable CDC checkpoint for source=" + source);
+                    }
                     // Return endOffset + 1 = next offset to consume
-                    offsets.put(partition, maxEndOffset + 1);
+                    offsets.put(new TopicPartitionOffset(topic, partition), Math.addExact(maxEndOffset, 1));
                 }
                 return Collections.unmodifiableMap(offsets);
             }
@@ -271,10 +274,27 @@ public final class JdbcCdcCommitStateStore {
         return new PrepareToken(
                 UUID.fromString(rs.getString("id")),
                 new SourceId(rs.getString("source_id")),
-                new OffsetRange(
-                        rs.getInt("partition_num"),
-                        rs.getLong("start_offset"),
-                        rs.getLong("end_offset")),
+                decodeCheckpoint(rs.getString("offset_ranges")),
                 rs.getTimestamp("deadline").toInstant());
     }
+
+    private static String encodeCheckpoint(CdcBatchCheckpoint checkpoint) {
+        try {
+            return JSON.writeValueAsString(checkpoint.ranges());
+        } catch (JsonProcessingException failure) {
+            throw new IllegalArgumentException("Cannot encode CDC checkpoint", failure);
+        }
+    }
+
+    private static CdcBatchCheckpoint decodeCheckpoint(String encoded) {
+        if (encoded == null) {
+            throw new IllegalStateException("CDC intent lacks exact source ranges; reconcile before resuming");
+        }
+        try {
+            return new CdcBatchCheckpoint(List.of(JSON.readValue(encoded, OffsetRange[].class)));
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Invalid durable CDC checkpoint", failure);
+        }
+    }
+
 }

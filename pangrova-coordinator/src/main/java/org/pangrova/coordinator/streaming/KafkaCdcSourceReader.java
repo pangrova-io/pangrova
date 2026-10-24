@@ -6,6 +6,7 @@ import org.pangrova.spi.streaming.SourceRecord;
 import org.pangrova.spi.streaming.CdcSourceReader;
 import org.pangrova.spi.streaming.TopicPartitionOffset;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -18,6 +19,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,8 @@ public final class KafkaCdcSourceReader implements CdcSourceReader {
 
     private final KafkaConsumer<byte[], byte[]> consumer;
     private final String topic;
+    // Accessed only by the consumer's pipeline thread, including rebalance callbacks.
+    private final Map<TopicPartition, Long> pendingSeekOffsets = new HashMap<>();
 
     /**
      * @param bootstrapServers Kafka bootstrap servers
@@ -57,7 +61,17 @@ public final class KafkaCdcSourceReader implements CdcSourceReader {
 
         try {
             this.consumer = new KafkaConsumer<>(props);
-            this.consumer.subscribe(List.of(topic));
+            this.consumer.subscribe(List.of(topic), new ConsumerRebalanceListener() {
+                @Override
+                public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+                    // Publication and explicit source acknowledgement belong to the pipeline.
+                }
+
+                @Override
+                public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+                    applyPendingSeeks(partitions);
+                }
+            });
         } catch (Exception e) {
             throw new SourceUnavailableException(
                     PangrovaErrorCode.STREAM_SOURCE_UNAVAILABLE,
@@ -154,9 +168,27 @@ public final class KafkaCdcSourceReader implements CdcSourceReader {
 
     @Override
     public void seekToOffsets(Map<TopicPartitionOffset, Long> offsets) {
+        Map<TopicPartition, Long> requested = new HashMap<>();
         for (var entry : offsets.entrySet()) {
+            if (!topic.equals(entry.getKey().topic()) || entry.getValue() == null || entry.getValue() < 0) {
+                throw new IllegalArgumentException("Invalid recovery offset for subscribed topic=" + topic);
+            }
             TopicPartition tp = new TopicPartition(entry.getKey().topic(), entry.getKey().partition());
-            consumer.seek(tp, entry.getValue());
+            requested.put(tp, entry.getValue());
+        }
+        pendingSeekOffsets.putAll(requested);
+        // subscribe() assigns no partitions until poll(). The callback applies restart
+        // checkpoints before fetching records; already assigned partitions can seek now.
+        applyPendingSeeks(consumer.assignment());
+    }
+
+    private void applyPendingSeeks(Collection<TopicPartition> partitions) {
+        for (TopicPartition partition : partitions) {
+            Long offset = pendingSeekOffsets.get(partition);
+            if (offset != null) {
+                consumer.seek(partition, offset);
+                pendingSeekOffsets.remove(partition);
+            }
         }
     }
 

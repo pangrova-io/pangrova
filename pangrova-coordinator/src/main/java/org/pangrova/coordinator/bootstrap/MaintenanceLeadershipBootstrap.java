@@ -81,24 +81,30 @@ final class MaintenanceLeadershipBootstrap implements AutoCloseable {
             if (closed.get()) {
                 return;
             }
-            pollWhileOpen();
+            try {
+                pollWhileOpen();
+            } catch (RuntimeException failure) {
+                // A failed renewal cannot leave singleton background writers locally enabled.
+                try {
+                    demoteLocally();
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
+            }
         }
     }
 
     private void pollWhileOpen() {
         OptionalLong heldEpoch = election.acquireOrRenewEpoch();
         if (heldEpoch.isPresent()) {
+            if (leader.get() && activeEpoch.get() != heldEpoch.orElseThrow()) {
+                demoteLocally();
+            }
             activeEpoch.set(heldEpoch.orElseThrow());
             if (leader.compareAndSet(false, true)) {
-                try {
-                    listener.onLeaderElected();
-                    LOG.info("event=maintenance_leader_elected epoch={}",
-                            heldEpoch.orElseThrow());
-                } catch (RuntimeException failure) {
-                    leader.set(false);
-                    activeEpoch.set(0);
-                    throw failure;
-                }
+                listener.onLeaderElected();
+                LOG.info("event=maintenance_leader_elected epoch={}", heldEpoch.orElseThrow());
             }
             return;
         }

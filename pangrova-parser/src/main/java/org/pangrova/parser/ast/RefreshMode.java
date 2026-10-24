@@ -11,6 +11,8 @@ package org.pangrova.parser.ast;
  */
 public enum RefreshMode {
     SNAPSHOT,
+    FULL,
     CDC,
-    AUTO
+    AUTO,
+    INCREMENTAL
 }

@@ -8,9 +8,6 @@ import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.catalog.ConnectorHandleFactory;
 import org.pangrova.metadata.catalog.FederationHandleFactory;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
-import org.pangrova.metadata.mv.InMemoryMaterializedViewStore;
-import org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore;
-import org.pangrova.metadata.mv.MaterializedViewStore;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.service.DefaultMetadataService;
 import org.pangrova.metadata.service.MetadataService;
@@ -35,7 +32,6 @@ public final class MetadataBootstrap {
     private final TieredMetadataCache metadataCache;
     private final MetadataEventDispatcher eventDispatcher;
     private final MetadataSyncService syncService;
-    private final MaterializedViewStore materializedViewStore;
     private final DataSource dynamicTablePublicationDataSource;
 
     private MetadataBootstrap(
@@ -44,14 +40,12 @@ public final class MetadataBootstrap {
             TieredMetadataCache metadataCache,
             MetadataEventDispatcher eventDispatcher,
             MetadataSyncService syncService,
-            MaterializedViewStore materializedViewStore,
             DataSource dynamicTablePublicationDataSource) {
         this.catalogRegistry = catalogRegistry;
         this.metadataService = metadataService;
         this.metadataCache = metadataCache;
         this.eventDispatcher = eventDispatcher;
         this.syncService = syncService;
-        this.materializedViewStore = materializedViewStore;
         this.dynamicTablePublicationDataSource = dynamicTablePublicationDataSource;
     }
 
@@ -101,13 +95,12 @@ public final class MetadataBootstrap {
 
         MetadataSyncService syncService = new MetadataSyncService(store, cache, dispatcher);
 
-        MaterializedViewStore materializedViewStore = new InMemoryMaterializedViewStore();
 
         registry.initialize();
         LOG.info("event=metadata_subsystem_initialized");
 
         return new MetadataBootstrap(registry, service, cache, dispatcher, syncService,
-                materializedViewStore, publicationDataSource);
+                publicationDataSource);
     }
 
     /**
@@ -140,14 +133,20 @@ public final class MetadataBootstrap {
         return metadataCache;
     }
 
-    public MaterializedViewStore materializedViewStore() {
-        return materializedViewStore;
+    /** Returns the durable unified materialization authority when JDBC metadata is available. */
+    public org.pangrova.metadata.materialization.JdbcMaterializationRepository
+            materializationRepository() {
+        return dynamicTablePublicationDataSource == null ? null
+                : new org.pangrova.metadata.materialization.JdbcMaterializationRepository(
+                        dynamicTablePublicationDataSource);
     }
 
-    /** Returns the durable Dynamic Table publication authority, or null without JDBC metadata. */
-    public JdbcDynamicTablePublicationStore dynamicTablePublicationStore() {
+    /** Returns the published materialization read model when JDBC metadata is available. */
+    public org.pangrova.metadata.materialization.JdbcMaterializationCatalog
+            materializationCatalog() {
         return dynamicTablePublicationDataSource == null ? null
-                : new JdbcDynamicTablePublicationStore(dynamicTablePublicationDataSource);
+                : new org.pangrova.metadata.materialization.JdbcMaterializationCatalog(
+                        dynamicTablePublicationDataSource);
     }
 
     /**

@@ -40,7 +40,8 @@ import org.pangrova.security.store.PersistentRoleStore;
 import org.pangrova.security.store.PersistentRowPolicyStore;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
-import org.pangrova.metadata.dynamictable.JdbcDynamicTablePublicationStore;
+import org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures;
+import org.pangrova.materialization.domain.InternalNamespace;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 
 import javax.sql.DataSource;
@@ -113,13 +114,14 @@ final class SecuritySqlFixture implements AutoCloseable {
     }
 
     SqlCompiler dynamicTableCompiler() {
-        var publications = new JdbcDynamicTablePublicationStore(dataSource);
-        var attempt = org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures.create(dataSource,
-                "security-test-tenant", "default.default.rollup", "SELECT id FROM default.default.orders",
-                "default", "default");
+        var publications = DynamicTablePublicationFixtures.catalog();
+        var published = DynamicTablePublicationFixtures.create(publications, "security-test-tenant",
+                "default.default.rollup", "SELECT id FROM default.default.orders");
         dynamicPhysical = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
-                "default", "default", attempt.candidateTable().split("\\.")[2]);
-        catalog.createTable(TableIdentifier.of("default", dynamicPhysical.table()), ordersSchema());
+                "default", published.physicalTable().schema(), published.physicalTable().table());
+        catalog.createNamespace(Namespace.of(InternalNamespace.SCHEMA_NAME));
+        catalog.createTable(TableIdentifier.of(InternalNamespace.SCHEMA_NAME, dynamicPhysical.table()),
+                ordersSchema());
         var schema = metadata.buildCalciteSchema(SessionContextConverter.toConnectorSession(
                 session("schema_reader", Set.of())));
         var rewrite = new DynamicTableRewriter(new DurableDynamicTableResolver(publications,
@@ -134,8 +136,10 @@ final class SecuritySqlFixture implements AutoCloseable {
     }
 
     void grantTable(String role, Privilege privilege, String table) {
+        String schema = table.startsWith(InternalNamespace.CANDIDATE_PREFIX)
+                ? InternalNamespace.SCHEMA_NAME : "default";
         grants.addGrant(PrivilegeGrant.of(role, privilege,
-                "TABLE", "default", "default", table, null));
+                "TABLE", "default", schema, table, null));
     }
 
     void savePolicy(RowPolicy policy) {

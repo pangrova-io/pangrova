@@ -1,5 +1,6 @@
 package org.pangrova.streaming.property.cdc;
 
+import org.pangrova.streaming.cdc.commit.SourceId;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.common.concurrent.BackoffStrategy;
@@ -46,7 +47,8 @@ class WriteCommitOrderingPropertyTest {
         OrderTrackingWriteSink writeSink = new OrderTrackingWriteSink(callLog);
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(50), 10, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(50), 10, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink));
         reader.setLoop(loop);
@@ -89,7 +91,8 @@ class WriteCommitOrderingPropertyTest {
         FailingWriteSink writeSink = new FailingWriteSink(callLog);
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 10, 1, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 10, 1, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink));
 

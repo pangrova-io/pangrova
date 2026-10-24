@@ -1,11 +1,12 @@
 ---
 title: "Quickstart"
-description: "Build and run Pangrova in 5 minutes"
+description: "Build Pangrova from source and run a first query"
 ---
 
 # Quickstart
 
-This guide walks you through building Pangrova from source, launching a standalone instance, and running your first query in under 5 minutes.
+This guide walks you through building Pangrova from source, launching a standalone instance, and running your first query. A first native build also compiles external dependencies;
+its duration and resource needs depend on the platform and available caches.
 
 ---
 
@@ -13,31 +14,34 @@ This guide walks you through building Pangrova from source, launching a standalo
 
 | Requirement | Version |
 |-------------|---------|
-| JDK | 17 or later |
+| JDK | 17 for the supported build chain |
 | Maven | 3.9+ |
+| Gradle | 8.14.4 for the patched Iceberg SDK |
+| Python | 3.10+ for contract generation |
 | OS | Linux (x86_64/aarch64) or macOS (aarch64) |
 | Native toolchain | CMake, Ninja, and a C++20 compiler |
-| Disk | At least 2 GB free for build artifacts |
-| Memory | At least 4 GB |
+| Capacity | Allow space for native dependency sources, builds, Maven and Cargo caches; size JVM/native memory for your host |
 
 ## Build from Source
 
 ```bash
 git clone https://github.com/pangrova/pangrova.git
 cd pangrova
-./pangrova-worker-native/bin/setup-native-build-env.sh
+.pangrova/scripts/build-iceberg-sdk-candidate.sh
 ./pangrova-worker-native/bin/build-native.sh
 mvn clean package -DskipTests
 ```
 
 The build produces JAR files in each module's `target/` directory.
 
-Expected build time: ~3-5 minutes on a modern machine. If the build fails, check:
+The Iceberg script requires JDK 17 and Gradle 8.14.4 (`GRADLE_BIN` can select its executable)
+and publishes the pinned patched SDK to Maven Local. The native build runs prerequisite
+setup, builds Lance and packages JNI resources. If the build fails, check:
 
 | Symptom | Fix |
 |---------|-----|
 | `javac: invalid target release: 17` | Install JDK 17+ and set `JAVA_HOME` |
-| `Could not resolve dependencies` | Run `mvn dependency:resolve` first, check network/proxy |
+| `Could not resolve dependencies` | Build the pinned Iceberg SDK first, then check network/proxy and the failing dependency |
 | Native build failure | Check the native prerequisites in the [Developer Guide](../contributing/developer-guide.md); Workers require the packaged native library |
 
 ### Verify the Build

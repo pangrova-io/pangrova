@@ -29,9 +29,13 @@ The Pangrova streaming module is a **declarative incremental data transformation
 CDC-related components exist, but complete incremental transformation and automatic
 materialized-view refresh remain incomplete. The default continuous-query refresh
 callback only logs a tick, and continuous-query materialization returns unsupported.
-Stream task registration is conditional; dynamic-table DDL and refresh handlers are
-registered when durable metadata publication is configured. That registration does
-not establish automatic refresh scheduling, crash recovery, or exactly-once output.
+Stream task registration is conditional. Dynamic-table and materialized-view DDL,
+refresh, scheduling, recovery, and GC are served by the unified materialization
+kernel when durable metadata publication is configured: refreshes claim a durable
+lease, execute Native CTAS, and publish an immutable generation through CAS; a
+restart reconciles reserved attempts from the write-commit journal, and GC is
+fenced by reader pins. That lifecycle does not establish exactly-once CDC output or
+continuous-query materialization.
 
 **Reading scope:** the diagrams, SQL/API examples, SPI sketches, and connector writer
 sketches below describe design or component contracts unless explicitly identified
@@ -54,7 +58,7 @@ more focused scope: keeping lake tables fresh via incremental data ingestion.
 |---|---|
 | CDC Ingestion | Kafka source/parser and connector-sink components; current bootstrap writes on the Coordinator and has unresolved publication/offset semantics |
 | Incremental ETL | Component/design scope; arbitrary transformation execution is not established |
-| Materialized View Refresh | Target behavior; default refresh callback is log-only |
+| Materialized View Refresh | Served by the unified materialization kernel alongside dynamic tables: durable schedule, reserved attempts, Native execution, immutable publication |
 | Table Maintenance | Scheduler/provider components; distinct from standalone SQL maintenance, whose default provider is a no-op |
 | Watermark Tracking | Tracking components; does not establish a functioning refresh lifecycle |
 
@@ -303,6 +307,19 @@ unavailable. A `TableWriter` SPI or an illustrative Native CDC design does not c
 that instantiated path. The CDC sink is not covered by the relational distributed
 write journal. See [Distributed Write](distributed-writes.md) for the current
 publication and repair boundary.
+
+Schedulers start paused until maintenance leadership is acquired. A dedicated
+control loop reconciles persisted stream states every five seconds, and immediately
+after election, without running source initialization on the lease-renewal thread.
+It discovers remote CREATE/RESUME operations and stops local attempts superseded
+by remote SUSPEND/DROP or a newer epoch. Each start, lifecycle change, configuration
+change and terminal failure advances the stream epoch. Source and sink cleanup is
+owned by exactly one queued cancellation or running pipeline. A late callback cannot
+remove a replacement attempt. Maintenance renewal exceptions demote local background
+services; a changed backend epoch triggers demotion and activation again.
+
+These are local scheduling and metadata fences. They do not atomically fence an
+external catalog publication or establish Kafka-to-Worker recovery correctness.
 
 ### 2.5 CDC Write Semantics
 

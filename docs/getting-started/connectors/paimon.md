@@ -18,7 +18,7 @@ The YAML is a reference format; use SQL registration for the runtime catalog.
 Automatic startup registration remains planned.
 
 ```yaml
-# config/catalog/my-paimon.yml
+# etc/catalog/my-paimon.yml
 connector: paimon
 
 properties:

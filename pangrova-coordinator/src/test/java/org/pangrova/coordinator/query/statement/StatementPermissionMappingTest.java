@@ -2,13 +2,17 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.*;
+import org.pangrova.parser.ast.CreateMaterializedViewStatement;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.InsertStatement;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
+import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
+import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
 import org.pangrova.parser.ast.type.DataTypeSpec;
 import org.pangrova.parser.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
@@ -115,6 +119,45 @@ class StatementPermissionMappingTest {
                 .isInstanceOf(AuthorizationDeniedException.class);
     }
 
+    // ── CREATE MATERIALIZED VIEW → checkCanCreateTable ──
+
+    @Test
+    void createMaterializedView_requiresCreateTablePrivilege() {
+        StatementDispatcher allowed = dispatcherWithGrants(grant(Privilege.CREATE_TABLE));
+        assertThatCode(() -> executeDirect(allowed, createMvStmt()))
+                .doesNotThrowAnyException();
+
+        StatementDispatcher denied = dispatcherWithGrants(grant(Privilege.ALTER));
+        assertThatThrownBy(() -> executeDirect(denied, createMvStmt()))
+                .isInstanceOf(AuthorizationDeniedException.class);
+    }
+
+    // ── REFRESH MATERIALIZED VIEW → checkCanAlterTable ──
+
+    @Test
+    void refreshMaterializedView_requiresAlterPrivilege() {
+        StatementDispatcher allowed = dispatcherWithGrants(grant(Privilege.ALTER));
+        assertThatCode(() -> executeDirect(allowed, refreshMvStmt()))
+                .doesNotThrowAnyException();
+
+        StatementDispatcher denied = dispatcherWithGrants(grant(Privilege.SELECT));
+        assertThatThrownBy(() -> executeDirect(denied, refreshMvStmt()))
+                .isInstanceOf(AuthorizationDeniedException.class);
+    }
+
+    // ── DROP MATERIALIZED VIEW → checkCanDropTable ──
+
+    @Test
+    void dropMaterializedView_requiresDropPrivilege() {
+        StatementDispatcher allowed = dispatcherWithGrants(grant(Privilege.DROP));
+        assertThatCode(() -> executeDirect(allowed, dropMvStmt()))
+                .doesNotThrowAnyException();
+
+        StatementDispatcher denied = dispatcherWithGrants(grant(Privilege.ALTER));
+        assertThatThrownBy(() -> executeDirect(denied, dropMvStmt()))
+                .isInstanceOf(AuthorizationDeniedException.class);
+    }
+
     // ── No access control → no rejection ──
 
     @Test
@@ -151,6 +194,9 @@ class StatementPermissionMappingTest {
         tasks.put(DropTableStatement.class, noOp);
         tasks.put(CreateTableStatement.class, noOp);
         tasks.put(AlterTableStatement.DropColumn.class, noOp);
+        tasks.put(CreateMaterializedViewStatement.class, noOp);
+        tasks.put(RefreshMaterializedViewStatement.class, noOp);
+        tasks.put(DropMaterializedViewStatement.class, noOp);
         var factory = new MetadataExecutionFactory(tasks);
         var context = new StatementDispatcherContext(
                 null, null, List.of(factory), List.of(), accessControl);
@@ -188,5 +234,20 @@ class StatementPermissionMappingTest {
 
     private static AlterTableStatement alterTableStmt() {
         return new AlterTableStatement.DropColumn(TABLE, "col1");
+    }
+
+    private static CreateMaterializedViewStatement createMvStmt() {
+        return (CreateMaterializedViewStatement) new SqlParser().parse(
+                "CREATE MATERIALIZED VIEW cat.sch.tbl AS SELECT 1");
+    }
+
+    private static RefreshMaterializedViewStatement refreshMvStmt() {
+        return (RefreshMaterializedViewStatement) new SqlParser().parse(
+                "REFRESH MATERIALIZED VIEW cat.sch.tbl");
+    }
+
+    private static DropMaterializedViewStatement dropMvStmt() {
+        return (DropMaterializedViewStatement) new SqlParser().parse(
+                "DROP MATERIALIZED VIEW cat.sch.tbl");
     }
 }

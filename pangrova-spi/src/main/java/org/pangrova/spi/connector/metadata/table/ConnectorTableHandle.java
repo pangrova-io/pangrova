@@ -27,6 +27,30 @@ public interface ConnectorTableHandle {
     }
 
     /**
+     * Returns a new handle that reads only rows appended inside a snapshot range.
+     *
+     * <p>Only connectors that can serve an incremental change set implement this
+     * method. The default fails closed so a planner mistake can never silently
+     * turn an incremental refresh into a full scan.
+     *
+     * @param range inclusive append-only snapshot range
+     * @return a handle bound to the incremental range
+     */
+    default ConnectorTableHandle withIncrementalRange(SnapshotRange range) {
+        throw new UnsupportedOperationException(
+                getClass().getName() + " does not support incremental range reads");
+    }
+
+    /**
+     * Returns the incremental range bound to this handle.
+     *
+     * @return bound range, or empty for ordinary reads
+     */
+    default java.util.Optional<SnapshotRange> incrementalRange() {
+        return java.util.Optional.empty();
+    }
+
+    /**
      * Returns the partition key column names for this table.
      *
      * <p>Used by the coordinator's copy-on-write DELETE path to perform

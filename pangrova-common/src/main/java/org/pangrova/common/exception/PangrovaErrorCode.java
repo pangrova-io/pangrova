@@ -47,6 +47,34 @@ public enum PangrovaErrorCode {
     DYNAMIC_TABLE_RECOVERY_TIMEOUT("DYNATBL-0005", "Dynamic Table recovery timeout"),
     DYNAMIC_TABLE_EPOCH_STALE("DYNATBL-0006", "Dynamic Table epoch fencing rejected stale write"),
 
+    MATERIALIZATION_OBJECT_NOT_FOUND("MATERIALIZATION-0001", "Materialization object not found"),
+    MATERIALIZATION_INVALID_STATE_TRANSITION(
+            "MATERIALIZATION-0002", "Materialization state transition is not allowed"),
+    MATERIALIZATION_DEFINITION_INVALID("MATERIALIZATION-0003", "Materialization definition is invalid"),
+    MATERIALIZATION_FENCE_REJECTED("MATERIALIZATION-0004", "Materialization execution fence is stale"),
+    MATERIALIZATION_CONCURRENT_PUBLICATION(
+            "MATERIALIZATION-0005", "Materialization publication lost the head CAS"),
+    MATERIALIZATION_EVIDENCE_MISMATCH(
+            "MATERIALIZATION-0006", "Materialization commit evidence does not match the candidate"),
+    MATERIALIZATION_CAPABILITY_UNAVAILABLE(
+            "MATERIALIZATION-0007", "Required materialization capability is unavailable"),
+    MATERIALIZATION_INCREMENTAL_UNSUPPORTED(
+            "MATERIALIZATION-0008", "No compatible incremental strategy for the definition and sources"),
+    MATERIALIZATION_RESERVED_NAMESPACE(
+            "MATERIALIZATION-0009", "Access to the internal materialization namespace is forbidden"),
+    MATERIALIZATION_REWRITE_UNSAFE("MATERIALIZATION-0010", "Materialized view rewrite is not safe"),
+    MATERIALIZATION_POLICY_DRIFT(
+            "MATERIALIZATION-0011", "Source policy changed during materialization"),
+    MATERIALIZATION_REPOSITORY_FAILURE(
+            "MATERIALIZATION-0012", "Materialization repository operation failed"),
+    MATERIALIZATION_WRITE_CAPABILITY_INVALID(
+            "MATERIALIZATION-0013", "Materialization write capability is invalid or expired"),
+    MATERIALIZATION_LEASE_EXPIRED("MATERIALIZATION-0014", "Materialization schedule lease expired"),
+    MATERIALIZATION_DEPENDENCY_CONFLICT(
+            "MATERIALIZATION-0015", "Materialization dependency graph conflict"),
+    MATERIALIZATION_REQUEST_REJECTED(
+            "MATERIALIZATION-0016", "Materialization request was rejected"),
+
     STATS_COLLECTION_TIMEOUT("STATS-0001", "Statistics collection timeout"),
 
     NATIVE_JNI_EXCEPTION("NATIVE-0001", "C++ exception during JNI call"),

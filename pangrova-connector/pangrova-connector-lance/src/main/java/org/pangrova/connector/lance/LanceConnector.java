@@ -21,6 +21,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 @ThreadSafe
 public final class LanceConnector implements Connector {
     private final Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> authority;
+    private final Optional<org.pangrova.spi.materialization.SourceProvider> materializationSourceProvider;
     private final LanceMetadata metadata;
     private final LanceSplitManager splits;
     private final AtomicReference<CompletableFuture<LanceCatalogStore>> catalogStore = new AtomicReference<>();
@@ -29,8 +30,15 @@ public final class LanceConnector implements Connector {
             Optional<NativeDatasetControlPlane> controlPlane,
             Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> authority) {
         this.authority = java.util.Objects.requireNonNull(authority);
+        this.materializationSourceProvider = authority.map(sourceAuthority ->
+                new LanceMaterializationSourceProvider(catalog, sourceAuthority));
         metadata = new LanceMetadata(catalog, warehouse, this::store, controlPlane);
         splits = new LanceSplitManager(controlPlane, this::store, catalog, warehouse);
+    }
+
+    @Override
+    public Optional<org.pangrova.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
+        return materializationSourceProvider;
     }
 
     private LanceCatalogStore store() {

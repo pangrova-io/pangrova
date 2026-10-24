@@ -96,11 +96,12 @@ class DynamicTableSnapshotE2ETest extends SqlE2ETestBase {
             List<TypedRow> initial = sqlRunner.execute("SELECT * FROM " + DT_FULL);
             assertThat(initial).hasSize(1);
 
-            // Insert additional data and wait for incremental refresh
+            // Insert additional data and refresh
             sqlRunner.execute("INSERT INTO " + SOURCE_TABLE + " VALUES (2, 'Bob')");
             sqlRunner.execute("INSERT INTO " + SOURCE_TABLE + " VALUES (3, 'Charlie')");
+            sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH");
 
-            // After incremental refresh, target should contain all 3 rows
+            // After refresh, target should contain all 3 rows
             List<TypedRow> afterRefresh = sqlRunner.execute("SELECT * FROM " + DT_FULL);
             assertThat(afterRefresh).hasSize(3);
             assertThat(afterRefresh).extracting(r -> r.getRaw("name"))
@@ -121,46 +122,20 @@ class DynamicTableSnapshotE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT_FULL
                     + " TARGET_LAG = 'PT5M' AS SELECT * FROM " + SOURCE_TABLE);
 
-            // Suspend — no further refreshes should occur
+            // Suspend — refresh must be rejected while the materialization is suspended
             sqlRunner.execute("ALTER DYNAMIC TABLE " + DT_FULL + " SUSPEND");
-
-            // Insert data while suspended
             sqlRunner.execute("INSERT INTO " + SOURCE_TABLE + " VALUES (2, 'Bob')");
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH"))
+                    .isInstanceOf(Exception.class);
 
-            // Resume — refresh should pick up pending changes
+            // Resume re-enables refresh; an explicit refresh picks up pending changes
             sqlRunner.execute("ALTER DYNAMIC TABLE " + DT_FULL + " RESUME");
+            sqlRunner.executeDdl("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH");
 
-            // Poll until refresh completes — RESUME triggers async refresh
-            List<TypedRow> rows = pollUntilRowCount(DT_FULL, 2, 10, 500);
+            List<TypedRow> rows = sqlRunner.execute("SELECT * FROM " + DT_FULL);
             assertThat(rows).hasSize(2);
         }
-    }
-
-    /**
-     * Polls a table until it contains the expected number of rows,
-     * or the maximum number of attempts is reached.
-     *
-     * <p>F-E2E-04 fix: replaced ad-hoc Thread.sleep loop with Awaitility deterministic
-     * polling so the test surfaces the actual condition timing (CLAUDE.md C3 anti-busy-wait).
-     */
-    private static List<TypedRow> pollUntilRowCount(
-            String table, int expectedCount, int maxAttempts, long intervalMs) {
-        @SuppressWarnings("unchecked")
-        List<TypedRow>[] holder = new List[]{List.of()};
-        try {
-            org.awaitility.Awaitility.await("row-count >= " + expectedCount + " on " + table)
-                    .atMost(java.time.Duration.ofMillis(intervalMs * maxAttempts))
-                    .pollInterval(java.time.Duration.ofMillis(intervalMs))
-                    .pollDelay(java.time.Duration.ZERO)
-                    .ignoreExceptions()
-                    .until(() -> {
-                        holder[0] = sqlRunner.execute("SELECT * FROM " + table);
-                        return holder[0].size() >= expectedCount;
-                    });
-        } catch (org.awaitility.core.ConditionTimeoutException ignore) {
-            // fall through; caller asserts on returned snapshot
-        }
-        return holder[0];
     }
 
     // ── R2: DROP DYNAMIC TABLE cleanup ──────────────────────────────

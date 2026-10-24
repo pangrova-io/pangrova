@@ -71,6 +71,10 @@ final class QueryExecutionBootstrap {
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private WorkerManager workerManager;
     private org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory metadataFactory;
+    private SqlCompiler compiler;
+    private CoordinatorResultService resultService;
+    private org.pangrova.coordinator.materialization.MaterializationKernelFactory
+            materializationKernels;
 
     // This internal composition root binds the exact optional execution owners.
     @SuppressWarnings("checkstyle:ParameterNumber")
@@ -116,6 +120,7 @@ final class QueryExecutionBootstrap {
             SpeculativeStageHandler speculativeStageHandler,
             QueryStateJournal stateJournal) {
         this.workerManager = java.util.Objects.requireNonNull(wm, "workerManager must not be null");
+        this.resultService = java.util.Objects.requireNonNull(resultService, "resultService must not be null");
         SqlCompiler compiler = mc.require(SqlCompiler.class).withNativeCapabilities(() -> {
             var inventories = wm.getActiveWorkers().stream().map(
                     org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList();
@@ -125,6 +130,7 @@ final class QueryExecutionBootstrap {
             return org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(inventories);
         });
         mc.bind(SqlCompiler.class, compiler);
+        this.compiler = compiler;
         CircuitBreakerPolicy cb = circuitBreaker;
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
                 cb != null ? cb : CircuitBreakerPolicy.noOp(), tracingProvider,
@@ -258,7 +264,8 @@ final class QueryExecutionBootstrap {
         if (streamingBootstrap != null && streamingBootstrap.getDdlExecutor() != null) {
             registerStreamTasks(metadataFactory, streamingBootstrap.getDdlExecutor());
         }
-        if (metadataBootstrap.dynamicTablePublicationStore() != null) {
+        if (metadataBootstrap.materializationRepository() != null
+                && coordinationService != null && metadataDataSource != null) {
             registerDynamicTableTasks(metadataFactory, ddlExecutor, dmlDispatch);
         }
         registerBranchTasks(metadataFactory, catalog);
@@ -267,7 +274,14 @@ final class QueryExecutionBootstrap {
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
                         dmlDispatch, writeCallback,
-                        (sql, sess) -> securityApplier.compileAndApplyPolicies(sql, sess).toString(),
+                        (sql, sess) -> {
+                            boolean timeTravel = org.pangrova.parser.TimeTravelSqlClauses
+                                    .extract(sql).references().stream()
+                                    .anyMatch(ref -> ref.table().timeTravelSpec().isPresent());
+                            var explained = securityApplier.compileForExplain(sql, sess, timeTravel);
+                            return explained.plan().planExplanation() + System.lineSeparator()
+                                    + explained.rewrite().describe();
+                        },
                         catalog,
                         generatedValueMaterialization));
 
@@ -407,11 +421,31 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
             org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
             org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch) {
-        org.pangrova.coordinator.dynamictable.DynamicTableTaskRegistration.register(
-                factory, metadataBootstrap.dynamicTablePublicationStore(), ddlExecutor, dmlDispatch,
-                execution -> Objects.requireNonNull(coordinationService, "Dynamic Table execution authority")
-                        .requireExecutionAnchor(execution),
-                () -> Objects.requireNonNull(coordinationService, "Dynamic Table control term").getCurrentEpoch());
+        org.pangrova.coordinator.materialization.MaterializationKernelFactory kernels =
+                org.pangrova.coordinator.materialization.MaterializationDdlRegistration.register(
+                        factory,
+                        metadataBootstrap.materializationRepository(),
+                        metadataBootstrap.materializationCatalog(),
+                        metadataBootstrap.catalogRegistry(),
+                        Objects.requireNonNull(coordinationService,
+                                "Materialization execution authority"),
+                        ddlExecutor,
+                        dmlDispatch,
+                        metadataDataSource,
+                        accessControl);
+        this.materializationKernels = kernels;
+    }
+
+    org.pangrova.coordinator.materialization.MaterializationKernelFactory materializationKernels() {
+        return materializationKernels;
+    }
+
+    SqlCompiler compiler() {
+        return compiler;
+    }
+
+    CoordinatorResultService resultService() {
+        return resultService;
     }
 
     private static void registerBranchTasks(

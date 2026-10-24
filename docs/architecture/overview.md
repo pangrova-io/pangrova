@@ -134,7 +134,7 @@ unlimited scaling nor automatic transparent result recovery is established here.
 | Worker Java ↔ Native | Canonical v2 Protobuf; Arrow interoperability where applicable | Task bindings, lifecycle/status/reporting, typed data boundaries |
 
 The authoritative execution definitions are in
-[`pangrova-protocol/src/main/proto/pangrova/protocol/v2`](https://github.com/pangrova-project/pangrova/tree/main/pangrova-protocol/src/main/proto/pangrova/protocol/v2).
+[`pangrova-protocol/src/main/proto/pangrova/protocol/v2`](https://github.com/pangrova/pangrova/tree/main/pangrova-protocol/src/main/proto/pangrova/protocol/v2).
 The admitted execution epoch and complete descriptor hash must match. Do not
 substitute simplified documentation snippets for generated messages or invent a
 Java shuffle relay from the existence of JNI interoperability methods.
@@ -226,13 +226,13 @@ Never hand-edit generated protocol sources.
 ### 8.3 Code Structure
 
 The authoritative code and validation policy lives in
-[repository rules](https://github.com/pangrova-project/pangrova/tree/main/.pangrova/rules).
+[repository rules](https://github.com/pangrova/pangrova/tree/main/.pangrova/rules).
 The [Developer Guide](../contributing/developer-guide.md) provides practical entry points;
 this overview does not duplicate or override repository policy.
 
 ## 9. Dependency Management
 
-Use the [parent POM](https://github.com/pangrova-project/pangrova/blob/main/pom.xml)
+Use the [parent POM](https://github.com/pangrova/pangrova/blob/main/pom.xml)
 and module POMs for pinned Java versions/dependencies, and the Native build configuration
 for Velox and C++ dependencies. Baseline development uses JDK 17, Maven 3.9+, CMake,
 and a C++20 compiler. A Native library or matching packaged Native bundle is required

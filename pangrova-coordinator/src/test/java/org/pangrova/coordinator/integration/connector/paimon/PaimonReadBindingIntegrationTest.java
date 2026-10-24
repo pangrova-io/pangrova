@@ -125,7 +125,8 @@ class PaimonReadBindingIntegrationTest {
                         narrowedHandle.schemaName(), narrowedHandle.tableName(), narrowedHandle.tableLocation(),
                         narrowedHandle.snapshotId(), ((org.pangrova.connector.paimon.handle.PaimonTableHandle)
                                 currentSelector).rowTypeJson(), narrowedHandle.primaryKeys(),
-                        narrowedHandle.partitionKeys(), narrowedHandle.properties(), narrowedHandle.pushedLimit());
+                        narrowedHandle.partitionKeys(), narrowedHandle.properties(), narrowedHandle.pushedLimit(),
+                        narrowedHandle.incrementalRange());
                 assertThatThrownBy(() -> metadata.bindRead(actor, forged)).hasMessageContaining("first-access binding");
             } finally {
                 query.seal();

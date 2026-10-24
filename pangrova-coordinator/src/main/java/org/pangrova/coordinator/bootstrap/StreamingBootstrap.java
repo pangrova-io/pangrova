@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.coordinator.query.statement.TableResolver;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.coordinator.streaming.ConnectorPageSinkCdcWriter;
 import org.pangrova.coordinator.streaming.PageSinkStreamWriterContext;
 import org.pangrova.coordinator.streaming.KafkaCdcSourceReader;
@@ -21,6 +22,8 @@ import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.streaming.CdcWriteSink;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
+import org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore;
+import org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator;
 import org.pangrova.streaming.cdc.format.CanalJsonConverter;
 import org.pangrova.streaming.cdc.format.DebeziumJsonConverter;
 import org.pangrova.streaming.cdc.format.MaxwellJsonConverter;
@@ -33,6 +36,8 @@ import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Bootstraps the CDC ingestion stream subsystem: StreamDdlExecutor, StreamScheduler,
@@ -41,7 +46,7 @@ import java.util.Optional;
  * <p>Lifecycle mirrors {@link IndexingBootstrap}:</p>
  * <ul>
  *   <li>{@link #getDdlExecutor()} — provides the executor for handler construction</li>
- *   <li>{@link #onLeaderElected()} — resumes all RUNNING streams</li>
+ *   <li>{@link #onLeaderElected()} — activates reconciliation of persisted streams</li>
  *   <li>{@link #onLeadershipLost()} — stops all active pipelines</li>
  *   <li>{@link #close()} — shuts down the scheduler and thread pool</li>
  * </ul>
@@ -54,10 +59,14 @@ final class StreamingBootstrap implements AutoCloseable {
 
     private final StreamDdlExecutor ddlExecutor;
     private final StreamScheduler scheduler;
+    private final ScheduledExecutorService reconciliationExecutor;
 
-    private StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler) {
+    StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler) {
         this.ddlExecutor = ddlExecutor;
         this.scheduler = scheduler;
+        scheduler.stopAll();
+        reconciliationExecutor = ManagedExecutorFactory.newSingleThreadScheduledExecutor("stream-reconciliation");
+        reconciliationExecutor.scheduleWithFixedDelay(this::reconcileSafely, 5, 5, TimeUnit.SECONDS);
     }
 
     /**
@@ -71,12 +80,13 @@ final class StreamingBootstrap implements AutoCloseable {
      * @param watermarkTracker     shared watermark tracker from the streaming module
      * @param maintenanceScheduler shared maintenance scheduler from the streaming module
      * @param catalogRegistry      catalog registry for connector resolution (required for CDC writes)
+     * @param coordinatorId        durable owner identity of this coordinator process
      * @return initialized bootstrap
      */
     static StreamingBootstrap build(DataSource dataSource,
                                     WatermarkTracker watermarkTracker,
                                     MaintenanceScheduler maintenanceScheduler,
-                                    CatalogRegistry catalogRegistry) {
+                                    CatalogRegistry catalogRegistry, String coordinatorId) {
         StreamConfig config = StreamConfig.withDefaults();
         StreamStateStore stateStore = new JdbcStreamStateStore(dataSource);
         StreamOffsetStore offsetStore = new JdbcStreamOffsetStore(dataSource);
@@ -86,11 +96,12 @@ final class StreamingBootstrap implements AutoCloseable {
                 new MaxwellJsonConverter()));
 
         StreamSchedulerContext schedulerDeps = new StreamSchedulerContext(
-                stateStore, offsetStore, converterRegistry,
+                stateStore, offsetStore,
+                new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource)), converterRegistry,
                 watermarkTracker, maintenanceScheduler, config,
                 state -> createSourceReader(state),
                 state -> createWriteSink(state, catalogRegistry));
-        StreamScheduler scheduler = new StreamScheduler(schedulerDeps);
+        StreamScheduler scheduler = new StreamScheduler(schedulerDeps, coordinatorId);
 
         StreamDdlContext ddlDeps = new StreamDdlContext(
                 stateStore, offsetStore, scheduler, config);
@@ -101,11 +112,12 @@ final class StreamingBootstrap implements AutoCloseable {
     }
 
     /**
-     * Resumes all RUNNING streams from the state store.
-     * Called when this coordinator is elected as HA leader.
+     * Activates reconciliation without blocking maintenance-lease renewal on source initialization.
+     * The periodic pass also discovers DDL accepted by another coordinator.
      */
     void onLeaderElected() {
-        scheduler.resumeAll();
+        scheduler.resume();
+        reconciliationExecutor.execute(this::reconcileSafely);
         LOG.info("event=streaming_leader_elected");
     }
 
@@ -120,8 +132,17 @@ final class StreamingBootstrap implements AutoCloseable {
 
     @Override
     public void close() {
+        reconciliationExecutor.shutdownNow();
         scheduler.close();
         LOG.info("event=streaming_bootstrap_closed");
+    }
+
+    private void reconcileSafely() {
+        try {
+            scheduler.reconcile();
+        } catch (RuntimeException failure) {
+            LOG.error("event=stream_reconciliation_failed", failure);
+        }
     }
 
     StreamScheduler getScheduler() {
@@ -134,11 +155,11 @@ final class StreamingBootstrap implements AutoCloseable {
 
     // ── Factory methods ─────────────────────────────────────────────
 
-    private static org.pangrova.spi.streaming.CdcSourceReader createSourceReader(StreamState state) {
+    static org.pangrova.spi.streaming.CdcSourceReader createSourceReader(StreamState state) {
         Map<String, String> sourceProps = state.sourceProperties();
         String bootstrapServers = sourceProps.get("bootstrap.servers");
         String topic = sourceProps.get("topic");
-        String groupId = sourceProps.getOrDefault("group.id", "pangrova-cdc-" + state.streamName());
+        String groupId = sourceProps.getOrDefault("group.id", "pangrova-cdc-" + state.checkpointId());
         return new KafkaCdcSourceReader(bootstrapServers, topic, groupId, sourceProps);
     }
 

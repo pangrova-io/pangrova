@@ -77,7 +77,6 @@ find "$REPO_ROOT" -type f \
     -not -path '*/.git/*' \
     -not -name '.git' \
     -not -name 'hs_err_pid*.log' \
-    -not -name 'hs_err_pid*.log' \
     -not -path '*/.pangrova/scripts/check-environment-specific-info.sh' \
     -not -path '*/target/*' \
     -not -path '*/build/*' \

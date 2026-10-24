@@ -80,6 +80,20 @@ public interface Connector {
     }
 
     /**
+     * Returns the materialization source contract when this connector can pin
+     * exact immutable source snapshots.
+     *
+     * <p>Connectors that cannot prove snapshot identity must keep the default
+     * empty value; the kernel then rejects materializations that read them
+     * instead of planning against a movable current snapshot.
+     *
+     * @return source contract, or empty if the connector cannot serve one
+     */
+    default Optional<org.pangrova.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
+        return Optional.empty();
+    }
+
+    /**
      * Begins a new transaction with the specified isolation level.
      *
      * <p>The default implementation returns {@link ConnectorTransactionHandle#EMPTY}

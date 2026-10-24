@@ -18,6 +18,7 @@ public enum StatementCategory {
     SHOW,
     MAINTENANCE,
     DYNAMIC_TABLE,
+    MATERIALIZED_VIEW,
     INDEX,
     CLUSTERING,
     TENANT,
@@ -37,6 +38,7 @@ public enum StatementCategory {
         if (StatementClassifier.isShow(stmt)) return SHOW;
         if (StatementClassifier.isMaintenance(stmt)) return MAINTENANCE;
         if (StatementClassifier.isDynamicTable(stmt)) return DYNAMIC_TABLE;
+        if (StatementClassifier.isMaterializedView(stmt)) return MATERIALIZED_VIEW;
         if (StatementClassifier.isUnsupported(stmt)) return UNKNOWN;
         if (StatementClassifier.isIndex(stmt)) return INDEX;
         if (StatementClassifier.isClustering(stmt)) return CLUSTERING;

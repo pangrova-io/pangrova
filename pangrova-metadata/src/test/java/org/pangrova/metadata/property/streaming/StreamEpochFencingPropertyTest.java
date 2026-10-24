@@ -13,6 +13,7 @@ import org.pangrova.metadata.streaming.JdbcStreamStateStore;
 import org.pangrova.metadata.streaming.StreamLifecycleState;
 import org.pangrova.metadata.streaming.StreamState;
 import org.junit.jupiter.api.Tag;
+import org.pangrova.testing.ContainerTestBase;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -23,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Tag("integration")
-class StreamEpochFencingPropertyTest {
+class StreamEpochFencingPropertyTest extends ContainerTestBase {
 
     private JdbcStreamStateStore store;
 
@@ -38,7 +39,8 @@ class StreamEpochFencingPropertyTest {
             @ForAll("streamStates") StreamState original,
             @ForAll("lifecycleStates") StreamLifecycleState newLifecycle) {
 
-        store.saveState(original);
+        store.loadState(original.streamName()).ifPresent(store::delete);
+        assertThat(store.createState(original)).isTrue();
 
         StreamState updated = original.toBuilder()
                 .lifecycleState(newLifecycle)
@@ -59,7 +61,8 @@ class StreamEpochFencingPropertyTest {
             @ForAll("streamStates") StreamState original,
             @ForAll("staleEpochOffsets") long staleOffset) {
 
-        store.saveState(original);
+        store.loadState(original.streamName()).ifPresent(store::delete);
+        assertThat(store.createState(original)).isTrue();
 
         long staleEpoch = original.epoch() + staleOffset;
 
@@ -78,7 +81,8 @@ class StreamEpochFencingPropertyTest {
             @ForAll("streamStates") StreamState original,
             @ForAll("staleEpochOffsets") long staleOffset) {
 
-        store.saveState(original);
+        store.loadState(original.streamName()).ifPresent(store::delete);
+        assertThat(store.createState(original)).isTrue();
 
         long staleEpoch = original.epoch() + staleOffset;
 
@@ -167,7 +171,7 @@ class StreamEpochFencingPropertyTest {
 
         return Combinators.combine(identityGroup, metadataGroup, counterGroup)
                 .as((id, meta, ctr) -> new StreamState(
-                        id.streamName, id.tenantId, id.lifecycleState, id.targetTable,
+                        id.streamName, id.tenantId, "checkpoint-" + id.streamName, id.lifecycleState, id.targetTable,
                         id.sourceProperties, id.sourceFormat, id.streamProperties,
                         meta.creatorIdentity, meta.coordinatorId,
                         meta.epoch, meta.schemaVersion, meta.errorMessage,

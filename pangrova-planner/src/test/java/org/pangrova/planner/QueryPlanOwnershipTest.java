@@ -26,7 +26,7 @@ class QueryPlanOwnershipTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> query.runtimeFilterDescriptors().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> query.mergeOnReadHints().clear())
+        assertThatThrownBy(() -> query.physicalToLogicalDynamicTables().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 }

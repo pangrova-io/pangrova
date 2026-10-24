@@ -26,6 +26,10 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-materialization</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-security</artifactId>
         </dependency>
         <dependency>

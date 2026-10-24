@@ -2,6 +2,8 @@ package org.pangrova.parser;
 
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.CreateDynamicTableStatement;
+import org.pangrova.parser.ast.Identifier;
+import org.pangrova.parser.ast.CreateMaterializedViewStatement;
 import org.pangrova.parser.ast.InsertStatement;
 import org.pangrova.parser.ast.ShowSchemasStatement;
 import org.pangrova.parser.ast.Statement;
@@ -56,6 +58,30 @@ final class StatementPrinter {
                 Map.entry(DropDynamicTableStatement.class, s -> printDropDynamicTable((DropDynamicTableStatement) s)),
                 Map.entry(ShowDynamicTablesStatement.class, s -> "SHOW DYNAMIC TABLES"),
                 Map.entry(DescribeDynamicTableStatement.class, s -> "DESCRIBE DYNAMIC TABLE " + printer.printId(((DescribeDynamicTableStatement) s).name())),
+                // Materialized View
+                Map.entry(CreateMaterializedViewStatement.class,
+                        s -> printCreateMaterializedView((CreateMaterializedViewStatement) s)),
+                Map.entry(AlterMaterializedViewStatement.class,
+                        s -> printAlterMaterializedView((AlterMaterializedViewStatement) s)),
+                Map.entry(RefreshMaterializedViewStatement.class, s -> "REFRESH MATERIALIZED VIEW "
+                        + printer.printId(((RefreshMaterializedViewStatement) s).name())),
+                Map.entry(DropMaterializedViewStatement.class, s -> printDropMaterializedView(
+                        (DropMaterializedViewStatement) s)),
+                Map.entry(ShowMaterializedViewsStatement.class,
+                        s -> printShowMaterializedViews((ShowMaterializedViewsStatement) s)),
+                Map.entry(DescribeMaterializedViewStatement.class, s -> "DESCRIBE MATERIALIZED VIEW "
+                        + printer.printId(((DescribeMaterializedViewStatement) s).name())),
+                // Materialization observability
+                Map.entry(ShowMaterializationsStatement.class, s -> "SHOW MATERIALIZATIONS"),
+                Map.entry(ShowMaterializationRefreshHistoryStatement.class,
+                        s -> printScopedShow("SHOW MATERIALIZATION REFRESH HISTORY",
+                                ((ShowMaterializationRefreshHistoryStatement) s).object())),
+                Map.entry(ShowMaterializationDependenciesStatement.class,
+                        s -> printScopedShow("SHOW MATERIALIZATION DEPENDENCIES",
+                                ((ShowMaterializationDependenciesStatement) s).object())),
+                Map.entry(ShowMaterializationGcHistoryStatement.class,
+                        s -> printScopedShow("SHOW MATERIALIZATION GC HISTORY",
+                                ((ShowMaterializationGcHistoryStatement) s).object())),
                 // DDL
                 Map.entry(CreateTableStatement.class, s -> printCreateTable((CreateTableStatement) s)),
                 Map.entry(DropTableStatement.class, s -> printDropTable((DropTableStatement) s)),
@@ -137,8 +163,10 @@ final class StatementPrinter {
     private String printCreateDynamicTable(CreateDynamicTableStatement s) {
         var sb = new StringBuilder("CREATE DYNAMIC TABLE ");
         sb.append(printer.printId(s.name()));
-        sb.append(" TARGET_LAG = '").append(s.targetLag()).append("'");
+        appendTargetLag(sb, s.targetLag());
         s.refreshMode().ifPresent(rm -> sb.append(" REFRESH_MODE = ").append(rm.name()));
+        s.incrementalStrategy().ifPresent(strategy -> sb.append(" INCREMENTAL_STRATEGY = ")
+                .append(strategy.name()));
         s.warehouse().ifPresent(w -> sb.append(" WAREHOUSE = '")
                 .append(w.replace("'", "''")).append("'"));
         sb.append(" AS ").append(printer.printQuery(s.query()));
@@ -151,6 +179,73 @@ final class StatementPrinter {
             sb.append(")");
         }
         return sb.toString();
+    }
+
+    private String printCreateMaterializedView(CreateMaterializedViewStatement s) {
+        var sb = new StringBuilder("CREATE ");
+        if (s.orReplace()) sb.append("OR REPLACE ");
+        sb.append("MATERIALIZED VIEW ");
+        if (s.ifNotExists()) sb.append("IF NOT EXISTS ");
+        sb.append(printer.printId(s.name()));
+        appendTargetLag(sb, s.targetLag());
+        s.refreshMode().ifPresent(rm -> sb.append(" REFRESH_MODE = ").append(rm.name()));
+        s.incrementalStrategy().ifPresent(strategy -> sb.append(" INCREMENTAL_STRATEGY = ")
+                .append(strategy.name()));
+        sb.append(" AS ").append(printer.printQuery(s.query()));
+        return sb.toString();
+    }
+
+    private String printDropMaterializedView(DropMaterializedViewStatement s) {
+        var sb = new StringBuilder("DROP MATERIALIZED VIEW ");
+        if (s.ifExists()) sb.append("IF EXISTS ");
+        sb.append(printer.printId(s.name()));
+        if (s.cascade()) sb.append(" CASCADE");
+        return sb.toString();
+    }
+
+    private String printAlterMaterializedView(AlterMaterializedViewStatement s) {
+        return "ALTER MATERIALIZED VIEW " + printer.printId(s.name())
+                + " " + printMvAction(s.action());
+    }
+
+    private String printShowMaterializedViews(ShowMaterializedViewsStatement statement) {
+        if (statement.pattern() == null) {
+            return "SHOW MATERIALIZED VIEWS";
+        }
+        return "SHOW MATERIALIZED VIEWS LIKE '" + statement.pattern().replace("'", "''") + "'";
+    }
+
+    private String printScopedShow(String command, java.util.Optional<Identifier> object) {
+        return object.map(name -> command + " FOR " + printer.printId(name)).orElse(command);
+    }
+
+    private static final Map<Class<? extends AlterMaterializedViewAction>, String>
+            SIMPLE_MV_ACTIONS = Map.of(
+                    AlterMaterializedViewAction.Suspend.class, "SUSPEND",
+                    AlterMaterializedViewAction.Resume.class, "RESUME",
+                    AlterMaterializedViewAction.Refresh.class, "REFRESH");
+
+    private String printMvAction(AlterMaterializedViewAction action) {
+        String simple = SIMPLE_MV_ACTIONS.get(action.getClass());
+        if (simple != null) {
+            return simple;
+        }
+        if (action instanceof AlterMaterializedViewAction.SetTargetLag stl) {
+            return "SET TARGET_LAG = '" + stl.newLag() + "'";
+        }
+        if (action instanceof AlterMaterializedViewAction.SetRefreshMode mode) {
+            return "SET REFRESH_MODE = " + mode.mode().name();
+        }
+        if (action instanceof AlterMaterializedViewAction.Rename rename) {
+            return "RENAME TO " + printer.printId(rename.newName());
+        }
+        throw new IllegalArgumentException("Unknown alter action: " + action.getClass());
+    }
+
+    private static void appendTargetLag(StringBuilder sb, java.time.Duration targetLag) {
+        if (!targetLag.isZero()) {
+            sb.append(" TARGET_LAG = '").append(targetLag).append("'");
+        }
     }
 
     private String printAlterDynamicTable(AlterDynamicTableStatement s) {
@@ -173,6 +268,12 @@ final class StatementPrinter {
         }
         if (action instanceof AlterDynamicTableAction.SetTargetLag stl) {
             return "SET TARGET_LAG = '" + stl.newLag() + "'";
+        }
+        if (action instanceof AlterDynamicTableAction.SetRefreshMode mode) {
+            return "SET REFRESH_MODE = " + mode.mode().name();
+        }
+        if (action instanceof AlterDynamicTableAction.Rename rename) {
+            return "RENAME TO " + printer.printId(rename.newName());
         }
         if (action instanceof AlterDynamicTableAction.Redefine r) {
             return "REDEFINE AS " + printer.printQuery(r.newQuery());

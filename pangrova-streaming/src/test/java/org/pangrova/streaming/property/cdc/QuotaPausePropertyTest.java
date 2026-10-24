@@ -1,5 +1,6 @@
 package org.pangrova.streaming.property.cdc;
 
+import org.pangrova.streaming.cdc.commit.SourceId;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
@@ -51,7 +52,8 @@ class QuotaPausePropertyTest {
         CountingWriteSink writeSink = new CountingWriteSink();
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink, quota));
 
@@ -89,7 +91,8 @@ class QuotaPausePropertyTest {
         CountingWriteSink writeSink = new CountingWriteSink();
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink, quota));
 
@@ -118,7 +121,8 @@ class QuotaPausePropertyTest {
         CountingWriteSink writeSink = new CountingWriteSink();
 
         CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, 3, 5, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink, quota));
 

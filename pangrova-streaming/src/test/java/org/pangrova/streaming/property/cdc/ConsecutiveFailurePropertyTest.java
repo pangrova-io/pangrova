@@ -1,5 +1,6 @@
 package org.pangrova.streaming.property.cdc;
 
+import org.pangrova.streaming.cdc.commit.SourceId;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.common.concurrent.BackoffStrategy;
@@ -31,91 +32,72 @@ class ConsecutiveFailurePropertyTest {
     private static final String STREAM = "fail-stream";
     private static final String TABLE = "catalog.schema.orders";
 
-    /**
-     * Validates: Requirements 10.6
-     *
-     * When all writes fail and the count reaches maxConsecutiveFailures,
-     * onFailed() is called and the loop stops.
-     */
+    /** The first reached failure threshold stops the same pending batch. */
     @Property(tries = 10)
-    void consecutiveFailuresTriggersOnFailed(
-            @ForAll @IntRange(min = 1, max = 10) int maxFailures) {
-
-        AtomicBoolean failedCalled = new AtomicBoolean(false);
-        AlwaysFailingWriteSink writeSink = new AlwaysFailingWriteSink();
-        // Provide enough batches to exceed maxFailures
-        UnlimitedSourceReader reader = new UnlimitedSourceReader();
-
-        CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, maxFailures, 5, Duration.ofSeconds(5));
-
-        CdcPipelineLoop loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink, e -> failedCalled.set(true)));
-
-        Thread t = new Thread(loop);
-        t.start();
-        try { t.join(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        loop.stop();
-        try { t.join(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-
-        assertThat(failedCalled.get())
-                .as("onFailed must be called after %d consecutive failures", maxFailures)
-                .isTrue();
+    void firstFailureLimitStopsWithoutAdvancingSource(
+            @ForAll @IntRange(min = 1, max = 10) int maxFailures,
+            @ForAll @IntRange(min = 1, max = 10) int maxRetries) throws Exception {
+        var failed = new java.util.concurrent.CountDownLatch(1);
+        var writeSink = new AlwaysFailingWriteSink();
+        var reader = new LimitedSourceReader(2);
+        var config = new CdcPipelineConfig(
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, maxFailures, maxRetries, Duration.ofSeconds(5));
+        var loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink, e -> failed.countDown()));
+        Thread thread = new Thread(loop, "cdc-failure-limit-property");
+        thread.start();
+        try {
+            assertThat(failed.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            loop.stop();
+            thread.join(5000);
+        }
+        assertThat(thread.isAlive()).isFalse();
         assertThat(loop.isRunning()).isFalse();
+        assertThat(writeSink.attempts.get()).isEqualTo(Math.min(maxFailures, maxRetries));
+        assertThat(reader.idx.get()).isEqualTo(1);
+        assertThat(reader.commits.get()).isZero();
     }
 
-    /**
-     * Validates: Requirements 10.6
-     *
-     * A success after (maxFailures - 1) failures resets the counter,
-     * so onFailed() is NOT called.
-     */
+    /** Success resets both counters, allowing the next batch the same bounded retries. */
     @Property(tries = 10)
     void successResetsConsecutiveFailureCounter(
-            @ForAll @IntRange(min = 2, max = 8) int maxFailures) {
-
-        int failBeforeSuccess = maxFailures - 1;
-        AtomicBoolean failedCalled = new AtomicBoolean(false);
-        FailThenSucceedWriteSink writeSink = new FailThenSucceedWriteSink(failBeforeSuccess);
-        // Provide enough batches for failures + success + a few more
-        LimitedSourceReader reader = new LimitedSourceReader(failBeforeSuccess + 3);
-
-        CdcPipelineConfig config = new CdcPipelineConfig(
-                STREAM, TABLE, 100, Duration.ofMillis(10), 5, maxFailures, 5, Duration.ofSeconds(5));
-
-        CdcPipelineLoop loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink, e -> failedCalled.set(true)));
-
-        Thread t = new Thread(loop);
-        t.start();
-        try { t.join(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        loop.stop();
-        try { t.join(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-
-        assertThat(failedCalled.get())
-                .as("onFailed must NOT be called when success resets the counter")
-                .isFalse();
+            @ForAll @IntRange(min = 2, max = 8) int maxFailures,
+            @ForAll @IntRange(min = 2, max = 8) int maxRetries) throws Exception {
+        int failBeforeSuccess = Math.min(maxFailures, maxRetries) - 1;
+        var failedCalled = new AtomicBoolean();
+        var writeSink = new FailThenSucceedWriteSink(failBeforeSuccess);
+        var reader = new LimitedSourceReader(2);
+        var config = new CdcPipelineConfig(
+                STREAM, new SourceId(STREAM), TABLE,
+                100, Duration.ofMillis(10), 5, maxFailures, maxRetries, Duration.ofSeconds(5));
+        var loop = new CdcPipelineLoop(config, buildDeps(reader, writeSink, e -> failedCalled.set(true)));
+        Thread thread = new Thread(loop, "cdc-failure-reset-property");
+        thread.start();
+        try {
+            assertThat(reader.acknowledged.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            loop.stop();
+            thread.join(5000);
+        }
+        assertThat(thread.isAlive()).isFalse();
+        assertThat(failedCalled.get()).isFalse();
+        assertThat(writeSink.attempts.get()).isEqualTo(2 * (failBeforeSuccess + 1));
+        assertThat(reader.commits.get()).isEqualTo(2);
     }
 
     // --- Fakes ---
 
-    static class UnlimitedSourceReader implements CdcSourceReader {
-        private final AtomicInteger idx = new AtomicInteger(0);
-
-        @Override
-        public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
-            int i = idx.getAndIncrement();
-            return List.of(new SourceRecord("t", 0, i, new byte[]{1}, new byte[]{2}, System.currentTimeMillis()));
-        }
-
-        @Override public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {}
-        @Override public void seekToOffsets(Map<TopicPartitionOffset, Long> offsets) {}
-        @Override public void close() {}
-    }
-
     static class LimitedSourceReader implements CdcSourceReader {
         private final AtomicInteger idx = new AtomicInteger(0);
         private final int limit;
+        private final AtomicInteger commits = new AtomicInteger();
+        private final java.util.concurrent.CountDownLatch acknowledged;
 
-        LimitedSourceReader(int limit) { this.limit = limit; }
+        LimitedSourceReader(int limit) {
+            this.limit = limit;
+            acknowledged = new java.util.concurrent.CountDownLatch(limit);
+        }
 
         @Override
         public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
@@ -126,14 +108,19 @@ class ConsecutiveFailurePropertyTest {
             return List.of();
         }
 
-        @Override public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {}
+        @Override public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {
+            commits.incrementAndGet();
+            acknowledged.countDown();
+        }
         @Override public void seekToOffsets(Map<TopicPartitionOffset, Long> offsets) {}
         @Override public void close() {}
     }
 
     static class AlwaysFailingWriteSink implements CdcWriteSink {
+        private final AtomicInteger attempts = new AtomicInteger();
         @Override
         public CdcWriteResult writeBatch(List<CdcEnvelope> envelopes) {
+            attempts.incrementAndGet();
             throw new RuntimeException("Simulated persistent failure");
         }
         @Override public void close() {}
@@ -147,7 +134,7 @@ class ConsecutiveFailurePropertyTest {
 
         @Override
         public CdcWriteResult writeBatch(List<CdcEnvelope> envelopes) {
-            if (attempts.getAndIncrement() < failCount) {
+            if (attempts.getAndIncrement() % (failCount + 1) < failCount) {
                 throw new RuntimeException("Transient failure #" + attempts.get());
             }
             return new CdcWriteResult(envelopes.size(), envelopes.size() * 256L, 1, TABLE);

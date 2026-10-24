@@ -1,131 +1,106 @@
-# Dynamic Table manual full-refresh slice
+# Dynamic Table refresh
 
-This document describes the implemented foreground materialization slice. It is
-not the complete target architecture in
-[`dynamic-table-materialized-view-delivery-design.md`](../internal/dynamic-table-materialized-view-delivery-design.md).
+This document describes the implemented Dynamic Table refresh behavior. The
+shared kernel, object model, publication protocol, dependency graph, and query
+rewrite are documented in
+[Query optimization §2](query-optimization.md#2-materialized-view); this page
+only restates the Dynamic Table-specific SQL and scheduling surface.
 
-## Supported SQL and execution
+## Production path
 
-`CREATE DYNAMIC TABLE catalog.schema.name TARGET_LAG = 'PT0S' AS SELECT ...`
-creates a durable definition, builds a separate physical table through native
-CTAS, and publishes that table only after the worker write has finished.
-`ALTER DYNAMIC TABLE catalog.schema.name REFRESH` recomputes into a new physical
-table and atomically advances the published head. A query naming the logical
-Dynamic Table resolves to the published physical generation from JDBC metadata.
-The logical name is tenant scoped and always fully qualified at creation.
-The creating session's default catalog and schema are stored with the
-definition, so a later manual refresh resolves unqualified source references
-under the same defaults even when a different session triggers it.
+```
+CREATE / ALTER ... REFRESH
+  └─ KernelDynamicTableService
+        └─ MaterializationService (pangrova-materialization)
+              ├─ reserve a refresh attempt       (durable, idempotent command)
+              ├─ compile the stored definition   (query cluster, captured session defaults)
+              ├─ native CTAS into the generation  (__pangrova_materializations.__pg_mat_<32 hex>)
+              ├─ verify commit evidence           (snapshot id, fingerprint, manifest hash)
+              └─ CAS publish the new head         (object revision)
+```
 
-`PT0S` is a **Pangrova transitional convention meaning manual-only refresh**.
-It does not promise zero data lag. A positive `TARGET_LAG` is rejected until a
-durable scheduler with leader fencing, source-frontier accounting, and lag
-monitoring exists. `REFRESH_MODE = CDC`, `WAREHOUSE`, and `WITH` properties are
-also rejected by this slice. `AUTO` and `SNAPSHOT` currently select full
-recomputation. `SHOW` and `DESCRIBE` report `SNAPSHOT_FULL_MANUAL`.
+Every statement goes through the kernel; no DDL or refresh path writes a
+physical generation directly, and no coordinator process holds the published
+state in memory. Queries and `SHOW` / `DESCRIBE` read only the published head.
+Direct SQL access to the internal namespace is rejected at parse time.
 
-The physical generation is committed before its metadata head is published.
-V66 reserves an immutable refresh attempt before Native I/O, in the same JDBC
-transaction as a new definition or against an exact observed head. One execution
-owns one candidate; repeated reservations reconcile that candidate rather than
-running Native work again. The definition's SQL and binding defaults are immutable.
-The head update compares tenant, fully qualified name, incarnation and revision,
-and requires the actual live execution owner and Coordinator control term.
+## SQL surface
 
-A downstream publication consumer requires an exact catalog commit receipt.
-`WriteCommitJournal.requiresPublication` binds that requirement to the original
-tenant, principal, execution owner and candidate. `DistributedWritePublicationMetadata`
-lets physical-file connectors commit or reconcile their exact intent and return
-confirmed version/manifest evidence. Iceberg verifies its persisted commit marker
-in current snapshot ancestry and hashes the actual manifest-list bytes. A required
-empty INSERT commits a real marker-bearing empty snapshot; ordinary empty writes
-keep their existing semantics. Native Dataset connectors retain their existing
-transactional source-publication proof. An unsupported connector cannot satisfy a
-required publication by reporting generic task completion.
+```sql
+CREATE DYNAMIC TABLE iceberg.sales.orders_rollup
+TARGET_LAG = 'PT5M' REFRESH_MODE = SNAPSHOT AS
+SELECT product_category, SUM(amount) AS total_amount
+FROM iceberg.sales.orders
+GROUP BY product_category;
 
-A PostgreSQL trigger copies the exact confirmed receipt into an immutable compact
-ledger in the same transaction that marks the write COMMITTED. The ordinary redo
-journal can then retire before the logical head advances without losing evidence.
-Publishing the head also settles the attempt atomically, retaining its receipt
-across later refreshes, journal cleanup and logical DROP. Retrying that settled
-attempt returns its original receipt and never rewinds a newer head. A failed build does not advance the old head. Its isolated
-candidate is retained because a timed-out Native writer may still commit; only
-a fenced, task-drained garbage collector may remove it. A failed initial build
-also retains its `CREATING` definition: a timeout does not prove that the external
-commit failed. Automatic reconciliation of these rows is still outstanding.
-After a publication
-error, the candidate is also retained: the JDBC update may have committed even
-if its acknowledgement was lost.
-Published generations
-are retained after replacement or logical DROP so queries planned against an
-older generation keep a valid target. Restarted coordinators read the durable
-head, rather than rebuilding it from process-local registration.
-The query lifecycle now separates Native write completion from the outer DDL
-result: the query cannot report FINISHED until publication and its acknowledgement
-are buffered. A Native failure or cancellation still wakes the waiting DDL.
+-- Manual refresh: omit TARGET_LAG entirely.
+CREATE DYNAMIC TABLE iceberg.sales.orders_rollup_live
+AS SELECT * FROM iceberg.sales.orders;
 
-The planner retains a component-safe physical-to-logical identity map for each
-rewrite and pins a repeated logical reference to one generation within that
-rewrite. SELECT privilege, row filters, column masks, and table-level lineage
-use the logical Dynamic Table identity. Direct SQL access to `__pg_dt_*`
-generations is denied before rewrite, including SQL that joins a logical table
-to its physical generation. The prefix is reserved against user table DDL/DML,
-including rename targets. A Dynamic Table as the source of a relational write
-remains fail-closed until deferred worker authorization can carry the logical
-source identity and exact observed policies.
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup REFRESH;
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup SUSPEND;
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup RESUME;
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup SET TARGET_LAG = 'PT15M';
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup REDEFINE AS SELECT ...;
 
-## Scope and remaining acceptance work
+SHOW DYNAMIC TABLES;
+DESCRIBE DYNAMIC TABLE iceberg.sales.orders_rollup;
 
-This slice provides per-object atomic visibility of a completed full result.
-It does not yet provide source snapshot pinning, scheduled target-lag
-maintenance, incremental/CDC computation, pipeline-wide snapshot cuts,
-automatic recovery of interrupted `CREATING` rows, or safe garbage collection
-of retained physical generations. V66 now retains candidate identities before
-launch and confirmed commit/publication receipts, including after logical DROP.
-The replacement-owner API can reconcile the exact old committed candidate under
-a new live owner/control term. Production recovery scheduling and the full
-lost-ACK/process-failure matrix still need acceptance. A future recovery/GC owner
-must associate candidates with exact task-drain evidence and reader pins before
-removing unreachable physical tables. Physical generations currently
-share the catalog/schema namespace of the logical object; a dedicated internal
-namespace and scoped service write capability are still required for full
-ordinary-user CREATE/REFRESH support. A user granted SELECT on the source and
-CREATE_TABLE/ALTER/SELECT on the logical Dynamic Table cannot currently publish
-or refresh: the Native CTAS write receipt correctly demands INSERT on its
-random physical generation, which that user does not own. This is a deliberate
-fail-closed production acceptance blocker, not a permission grant to add on
-`__pg_dt_*`. The durable query-owned candidate attempt is now available, but a narrowly
-scoped internal write receipt and persisted definer/owner authority are still
-required before connector allocation. Query-operation ownership and database
-owner/control fences are enforced; cancel-versus-publication ordering still
-requires a dedicated end-to-end race test and a proven transactional boundary.
-This slice does not claim that this cancellation matrix is closed.
-The complete Dynamic Table feature must
-remain open until these items and a production-bootstrap SQL-to-native E2E test
-pass.
+DROP DYNAMIC TABLE iceberg.sales.orders_rollup CASCADE;
+```
 
-## Design checks against primary documentation
+- Omitting `TARGET_LAG` is the manual-refresh form: it creates a `DISABLED`
+  schedule and refresh happens only through `ALTER ... REFRESH`. An explicit
+  `TARGET_LAG = 'PT0S'` is rejected because a zero lag is ambiguous between
+  "always fresh" and "never scheduled".
+- A positive target lag creates an `ACTIVE` durable schedule. The
+  leader-elected coordinator claims due schedules with a fenced lease and
+  targets freshness from the last successful publication, with bounded
+  backoff and suspension after repeated failures.
+- `REFRESH_MODE = SNAPSHOT` selects full recomputation.
+- `REFRESH_MODE = AUTO` persists incremental mode. It never degrades to full
+  behind the user's back: creation or refresh fails closed unless a registered
+  incremental strategy applies to the definition. Only the append-only tier is
+  registered today; partition-replace, affected-key, and CDC tiers are not
+  available and are rejected rather than approximated.
+- `REFRESH_MODE = CDC`, `WAREHOUSE`, and `WITH` properties are rejected.
+- `SUSPEND` / `RESUME` change scheduling only; they do not alter the
+  definition or the published generation.
+- `DROP` is restrictive while a live materialization depends on the object.
+  `CASCADE` drops transitive dependents first, deepest dependent first, and is
+  refused without `CASCADE` when dependents exist.
 
-The publication boundary follows the same principle as [Apache Iceberg's
-optimistic concurrency model](https://iceberg.apache.org/spec/#optimistic-concurrency):
-readers use one current metadata pointer, and writers publish a replacement
-only if the expected version remains current. Pangrova's JDBC head CAS sits
-above the separate physical CTAS commit; it does not claim an atomic
-cross-system transaction. Iceberg also requires retaining data files used by
-valid snapshots, which motivates retaining old generations until reader pins
-and garbage-collection policy are implemented.
+## Refresh guarantees
 
-[Snowflake documents target lag as a staleness target, not a refresh interval](https://docs.snowflake.com/user-guide/dynamic-tables-target-lag),
-and uses a scheduler to pursue it. Its documented minimum positive target lag
-also makes `PT0S` clearly Pangrova-specific rather than an industry-standard
-zero-lag promise. [Databricks distinguishes manual refresh from scheduled
-refresh](https://docs.databricks.com/gcp/en/sql/mv-st/schedule-refreshes),
-which is why Pangrova rejects a positive target lag until the scheduler is
-implemented and verified.
+- The definition revision, its captured session defaults, and the definer
+  identity are immutable; a later refresh re-plans the stored definition under
+  the same authority.
+- An attempt belongs to one query execution. A retry with the same command
+  identity reconciles the reserved attempt instead of launching native work
+  again, and a settled attempt returns its original commit evidence.
+- A failed or cancelled build never advances the published head. The candidate
+  generation is retained because a timed-out native writer may still commit;
+  only a fenced, task-drained collector may remove it.
+- Publication requires a committed Iceberg snapshot. The CAS compares tenant,
+  fully qualified name, incarnation, and revision, so a stale attempt cannot
+  overwrite a newer head.
+- Reader pins are leased through the query lifecycle. Published generations
+  remain readable after replacement or logical drop until GC proves them
+  unpinned and task-drained.
+- A materialization definition never rewrites recursively through another
+  published materialization; dependency revisions form an acyclic graph
+  enforced at write time.
 
-The compact receipt follows PostgreSQL's [transactional trigger semantics](https://www.postgresql.org/docs/16/trigger-definition.html):
-the journal transition and its receipt capture commit or roll back together.
-[Row-lock waiting](https://www.postgresql.org/docs/16/explicit-locking.html) can consume
-a lease, so publication rechecks the database clock after locks and before commit.
-These database guarantees do not create a cross-catalog transaction or replace
-owner-role authorization, source pins, cancellation ordering, or reader-aware GC.
+## Operational notes
+
+`SHOW` and `DESCRIBE` report the published revision, refresh strategy, schedule
+state, target lag, and published generation. The maintenance tick is
+leader-gated and runs schedule claims, attempt reconciliation, source-pin
+sweeping, and GC in that order. Recovery and GC rely on durable attempt and
+commit evidence rather than process-local state, so a coordinator restart
+resumes from the published head.
+
+Validation that needs a real catalog and native workers runs through the
+Docker-based end-to-end suite in CI; unit and JDBC integration tests cover the
+kernel state machine, repository, dependency graph, migrations, and planner
+rewrite in isolation.

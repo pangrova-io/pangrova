@@ -15,6 +15,7 @@ import org.pangrova.streaming.cdc.commit.CdcCommitCoordinator;
 import org.pangrova.streaming.cdc.commit.CdcCommitState;
 import org.pangrova.streaming.cdc.commit.JdbcCdcCommitStateStore;
 import org.pangrova.streaming.cdc.commit.OffsetRange;
+import org.pangrova.streaming.cdc.commit.CdcBatchCheckpoint;
 import org.pangrova.streaming.cdc.commit.PrepareToken;
 import org.pangrova.streaming.cdc.commit.SourceId;
 import org.pangrova.streaming.cdc.commit.TwoPhaseCommitCoordinator;
@@ -26,12 +27,9 @@ import org.pangrova.streaming.maintenance.OrphanCleanupResult;
 import org.pangrova.streaming.maintenance.SnapshotExpirationResult;
 import org.pangrova.streaming.maintenance.TableMaintenanceSpi;
 import org.pangrova.streaming.watermark.WatermarkTracker;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.Connection;
 import java.sql.Statement;
@@ -51,31 +49,19 @@ import java.util.function.BiConsumer;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for CDC exactly-once delivery semantics via the 2PC coordinator wiring
+ * Tests for CDC checkpoint and replay behavior via the commit coordinator wiring
  * in {@link CdcPipelineLoop}.
  *
  * <p>Verifies:</p>
  * <ul>
- *   <li>Successful 2PC cycle: write + offset commit are coordinated atomically</li>
+ *   <li>Successful cycle: publication and durable checkpoint precede source acknowledgement</li>
  *   <li>Dedup on replay: re-polling the same offsets after a simulated crash skips the write</li>
  *   <li>Offset recovery from JDBC: pipeline seeks to last committed offsets on startup</li>
- *   <li>Write failure triggers abort + rollback (no offset committed)</li>
+ *   <li>Publication failure remains ambiguous and cannot advance source offsets</li>
  *   <li>At-least-once fallback when no coordinator is provided</li>
  * </ul>
  */
-class CdcPipelineExactlyOnceTest {
-
-    @SuppressWarnings("resource")
-    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("pangrova_test")
-            .withUsername("pangrova")
-            .withPassword("pangrova_test");
-
-    @BeforeAll
-    static void startContainer() { PG.start(); }
-
-    @AfterAll
-    static void stopContainer() { PG.stop(); }
+class CdcPipelineExactlyOnceTest extends org.pangrova.testing.ContainerTestBase {
 
     private static final String STREAM_NAME = "cdc-orders";
     private static final String TARGET_TABLE = "catalog.schema.orders";
@@ -86,11 +72,7 @@ class CdcPipelineExactlyOnceTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        org.postgresql.ds.PGSimpleDataSource ds = new org.postgresql.ds.PGSimpleDataSource();
-        ds.setUrl(PG.getJdbcUrl());
-        ds.setUser(PG.getUsername());
-        ds.setPassword(PG.getPassword());
-        dataSource = ds;
+        dataSource = org.pangrova.streaming.testinfra.CdcCheckpointDatabase.isolatedDataSource();
 
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
@@ -103,9 +85,7 @@ class CdcPipelineExactlyOnceTest {
                 CREATE TABLE IF NOT EXISTS cdc_commit_state (
                     id              VARCHAR(255)  NOT NULL PRIMARY KEY,
                     source_id       VARCHAR(255)  NOT NULL,
-                    partition_num   INT           NOT NULL,
-                    start_offset    BIGINT        NOT NULL,
-                    end_offset      BIGINT        NOT NULL,
+                    offset_ranges   JSONB         NOT NULL,
                     state           VARCHAR(32)   NOT NULL,
                     deadline        TIMESTAMP     NOT NULL,
                     created_at      TIMESTAMP     NOT NULL,
@@ -131,7 +111,8 @@ class CdcPipelineExactlyOnceTest {
 
     private CdcPipelineConfig defaultConfig() {
         return new CdcPipelineConfig(
-            STREAM_NAME, TARGET_TABLE, 100,
+            STREAM_NAME, new SourceId(STREAM_NAME), TARGET_TABLE,
+            100,
             Duration.ofMillis(50), 10, 3, 5, Duration.ofSeconds(5));
     }
 
@@ -283,10 +264,10 @@ class CdcPipelineExactlyOnceTest {
 
         // JDBC state store should have a COMMITTED record
         SourceId source = new SourceId(STREAM_NAME);
-        Map<Integer, Long> lastOffsets = stateStore.findLastCommittedOffsets(source);
+        Map<TopicPartitionOffset, Long> lastOffsets = stateStore.findLastCommittedOffsets(source);
         assertFalse(lastOffsets.isEmpty(), "JDBC should have committed offsets");
         // End offset for partition 0 should be 1 (offsets 0,1), next-to-consume = 2
-        assertEquals(2L, lastOffsets.get(0), "JDBC should store endOffset+1");
+        assertEquals(2L, lastOffsets.get(new TopicPartitionOffset("t", 0)), "JDBC should store endOffset+1");
     }
 
     @Test
@@ -340,7 +321,7 @@ class CdcPipelineExactlyOnceTest {
     void startupRestoresOffsetsFromJdbcStateStore() throws Exception {
         // Pre-populate JDBC with committed offsets
         SourceId source = new SourceId(STREAM_NAME);
-        OffsetRange range = new OffsetRange(0, 0, 49);
+        CdcBatchCheckpoint range = checkpoint(0, 0, 49);
         PrepareToken token = coordinator.prepare(source, range);
         assertTrue(stateStore.compareAndSetState(
                 token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING));
@@ -367,7 +348,7 @@ class CdcPipelineExactlyOnceTest {
             "pipeline should seek to JDBC-stored offsets on startup");
         Map<TopicPartitionOffset, Long> seeked = reader.seekedOffsets.get(0);
         // JDBC stores endOffset+1 = 50
-        assertEquals(50L, seeked.get(new TopicPartitionOffset(STREAM_NAME, 0)),
+        assertEquals(50L, seeked.get(new TopicPartitionOffset("orders", 0)),
             "should seek to endOffset+1 from JDBC");
     }
 
@@ -384,7 +365,8 @@ class CdcPipelineExactlyOnceTest {
         AtomicBoolean failedCalled = new AtomicBoolean(false);
 
         CdcPipelineConfig cfg = new CdcPipelineConfig(
-            STREAM_NAME, TARGET_TABLE, 100,
+            STREAM_NAME, new SourceId(STREAM_NAME), TARGET_TABLE,
+            100,
             Duration.ofMillis(10), 5, 3, 3, Duration.ofSeconds(5));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(
@@ -401,7 +383,7 @@ class CdcPipelineExactlyOnceTest {
 
         // JDBC should NOT have any COMMITTED records
         SourceId source = new SourceId(STREAM_NAME);
-        Map<Integer, Long> lastOffsets = stateStore.findLastCommittedOffsets(source);
+        Map<TopicPartitionOffset, Long> lastOffsets = stateStore.findLastCommittedOffsets(source);
         assertTrue(lastOffsets.isEmpty(),
             "JDBC should not have committed records after write failure");
     }
@@ -438,4 +420,142 @@ class CdcPipelineExactlyOnceTest {
         assertEquals(1, writeSink.writeCount.get(), "should write one batch");
         assertFalse(reader.committedOffsets.isEmpty(), "should commit offsets");
     }
+
+    @Test
+    void acknowledgementFailureRetriesSameBatchAfterDurableCheckpointWithoutRepublishing() throws Exception {
+        var acknowledged = new java.util.concurrent.CountDownLatch(1);
+        var attempts = new AtomicInteger();
+        var batch = List.of(record("orders", 0, 10), record("orders", 1, 20), record("payments", 0, 30));
+        var expected = CdcBatchCheckpoint.fromRecords(batch).nextOffsets();
+        var reader = new FakeSourceReader() {
+            @Override
+            public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {
+                assertEquals(expected, coordinator.findLastCommittedOffsets(new SourceId(STREAM_NAME)),
+                        "all offsets must already be durable before source acknowledgement");
+                if (attempts.incrementAndGet() == 1) {
+                    throw new IllegalStateException("source acknowledgement interrupted");
+                }
+                super.commitOffsets(offsets);
+                acknowledged.countDown();
+            }
+        };
+        reader.addBatch(batch);
+        var sink = new FakeWriteSink();
+        var loop = new CdcPipelineLoop(defaultConfig(), buildDeps(reader, sink, e -> {}, coordinator));
+        Thread thread = new Thread(loop, "cdc-checkpoint-ack-test");
+        thread.start();
+        try {
+            assertTrue(acknowledged.await(10, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            loop.stop();
+            thread.join(5000);
+        }
+        assertFalse(thread.isAlive());
+        assertEquals(1, sink.writeCount.get(), "acknowledgement retry must not republish rows");
+        assertEquals(2, attempts.get());
+        assertEquals(expected, new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource))
+                .findLastCommittedOffsets(new SourceId(STREAM_NAME)));
+    }
+
+    @Test
+    void failedWriteCannotBeSkippedByPollingTheNextBatch() throws Exception {
+        var acknowledged = new java.util.concurrent.CountDownLatch(2);
+        var reader = new FakeSourceReader() {
+            @Override
+            public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {
+                super.commitOffsets(offsets);
+                acknowledged.countDown();
+            }
+        };
+        reader.addBatch(List.of(record("orders", 0, 10)));
+        reader.addBatch(List.of(record("orders", 0, 11)));
+        var attempts = new AtomicInteger();
+        var sink = new FakeWriteSink() {
+            @Override
+            public CdcWriteSink.StagedWrite stage(List<CdcEnvelope> envelopes) {
+                if (attempts.incrementAndGet() == 1) {
+                    throw new IllegalStateException("transient staging failure");
+                }
+                return super.stage(envelopes);
+            }
+        };
+        var loop = new CdcPipelineLoop(defaultConfig(), buildDeps(reader, sink, e -> {}, coordinator));
+        Thread thread = new Thread(loop, "cdc-checkpoint-retry-test");
+        thread.start();
+        try {
+            assertTrue(acknowledged.await(10, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            loop.stop();
+            thread.join(5000);
+        }
+        assertFalse(thread.isAlive());
+        assertEquals(3, attempts.get());
+        assertEquals(2, sink.writeCount.get());
+        assertEquals(List.of(Map.of(new TopicPartitionOffset("orders", 0), 11L),
+                Map.of(new TopicPartitionOffset("orders", 0), 12L)), reader.committedOffsets);
+    }
+
+    @Test
+    void startupUsesExactDurableTopicsInsteadOfStaleInitialOffsets() throws Exception {
+        var checkpoint = new CdcBatchCheckpoint(List.of(new OffsetRange("orders", 0, 10, 19),
+                new OffsetRange("payments", 0, 20, 29)));
+        var token = coordinator.prepare(new SourceId(STREAM_NAME), checkpoint);
+        assertTrue(stateStore.compareAndSetState(token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING));
+        coordinator.commit(token);
+        var restored = new java.util.concurrent.CountDownLatch(1);
+        var reader = new FakeSourceReader() {
+            @Override
+            public void seekToOffsets(Map<TopicPartitionOffset, Long> offsets) {
+                super.seekToOffsets(offsets);
+                restored.countDown();
+            }
+        };
+        var loop = new CdcPipelineLoop(defaultConfig(), buildDeps(reader, new FakeWriteSink(), e -> {}, coordinator),
+                Map.of(new TopicPartitionOffset("orders", 0), 999L));
+        Thread thread = new Thread(loop, "cdc-checkpoint-restore-test");
+        thread.start();
+        try {
+            assertTrue(restored.await(10, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            loop.stop();
+            thread.join(5000);
+        }
+        assertFalse(thread.isAlive());
+        assertEquals(List.of(checkpoint.nextOffsets()), reader.seekedOffsets);
+    }
+
+    @Test
+    void ambiguousRecoveryReportsFailureBeforePollingAndClosesTheReader() {
+        var token = coordinator.prepare(new SourceId(STREAM_NAME), checkpoint(0, 10, 19));
+        assertTrue(stateStore.compareAndSetState(token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING));
+        var polled = new AtomicBoolean();
+        var closed = new AtomicBoolean();
+        var failure = new java.util.concurrent.atomic.AtomicReference<Exception>();
+        var reader = new FakeSourceReader() {
+            @Override
+            public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
+                polled.set(true);
+                return List.of();
+            }
+
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
+        var loop = new CdcPipelineLoop(defaultConfig(), buildDeps(reader, new FakeWriteSink(),
+                failure::set, coordinator));
+        loop.run();
+        assertFalse(loop.isRunning());
+        assertFalse(polled.get());
+        assertTrue(closed.get());
+        assertNotNull(failure.get());
+        assertTrue(failure.get().getMessage().contains("ambiguous"));
+        assertTrue(coordinator.findLastCommittedOffsets(new SourceId(STREAM_NAME)).isEmpty());
+    }
+
+    private static CdcBatchCheckpoint checkpoint(int partition, long start, long end) {
+        return new CdcBatchCheckpoint(List.of(new OffsetRange("orders", partition, start, end)));
+    }
+
 }

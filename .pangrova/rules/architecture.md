@@ -10,6 +10,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-common` | Shared utilities and base types |
 | `pangrova-config` | Configuration management |
 | `pangrova-spi` | SPI extension interfaces |
+| `pangrova-materialization` | Unified Dynamic Table / Materialized View domain kernel: definitions, generations, attempts, publication protocol, scheduling, and extension ports |
 | `pangrova-shuffle/pangrova-shuffle-core` | Shuffle contract and engine-side exchange orchestration |
 | `pangrova-shuffle/pangrova-shuffle-service` | Deployable remote shuffle transport and durable spool service |
 | `pangrova-parser` | SQL parsing (Calcite dialect extensions) |
@@ -110,11 +111,12 @@ pangrova-worker (Java)
 |--------|---------------------|
 | `common` | (none) |
 | `spi` | common |
+| `materialization` | spi, common |
 | `protocol` | spi, common |
 | `config` | common |
 | `parser` | spi, common |
 | `planner` | parser, spi, common, security, shuffle |
-| `metadata` | spi, common, governance, security |
+| `metadata` | spi, common, governance, security, materialization |
 | `indexing` | spi, common |
 | `observability` | spi, common |
 | `governance` | spi, common, security |
@@ -125,7 +127,7 @@ pangrova-worker (Java)
 | `resource` | spi, common |
 | `shuffle` | spi, common |
 | `worker` | spi, protocol, common, resilience, resource, observability, operations, shuffle, native-bundle |
-| `coordinator` | spi, protocol, common, metadata, planner, parser, security, observability, resilience, resource, operations, governance, streaming, indexing, worker, shuffle, client-rest, connector-* |
+| `coordinator` | spi, protocol, common, metadata, planner, parser, security, observability, resilience, resource, operations, governance, streaming, indexing, worker, shuffle, client-rest, connector-*, materialization |
 | `connector-*` | spi, common, protocol only |
 | `client-*` | protocol, common |
 | `worker-native` | protocol only (JNI/Protobuf) |
@@ -135,7 +137,14 @@ pangrova-worker (Java)
 ### Dependency Red Lines
 
 - `spi` and `protocol`: MUST NOT depend on any implementation module.
-- `connector-*`: only `spi`, `common`, `protocol` — NO worker/coordinator imports.
+- `materialization`: only `spi`, `common` — NO Calcite, JDBC, protobuf, planner,
+  metadata, coordinator, connector, worker, or runtime imports. Within the module,
+  `domain` MUST NOT depend on `port` or `extension`, and `port`/`extension` MUST
+  NOT depend on each other. ArchUnit enforces these rules in
+  `MaterializationArchitectureTest`.
+- `connector-*`: only `spi`, `common`, `protocol` — NO worker/coordinator/materialization imports.
+- `planner`: NO `materialization`, `metadata`, or `coordinator` imports; it receives
+  materialization DTOs through coordinator-owned bridges only.
 - `observability`, `governance`, `security`, `resilience`: NO business execution module imports.
 - `operations`, `resource`, `config`: NO coordinator/worker internal imports.
 - `coordinator` → `worker`: compile-scope restricted to `org.pangrova.worker.transport.*` only.

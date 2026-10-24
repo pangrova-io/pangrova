@@ -93,7 +93,7 @@ function HeroSection() {
           <Link
             className="button button--outline button--lg"
             style={{color: 'white', borderColor: 'white', marginLeft: '1rem'}}
-            href="https://github.com/pangrova-project/pangrova">
+            href="https://github.com/pangrova/pangrova">
             GitHub ★
           </Link>
         </div>
@@ -200,7 +200,7 @@ function QuickStartSection() {
           The build below skips tests and does not qualify a release.
         </p>
         <CodeBlock language="bash">
-{`git clone https://github.com/pangrova-project/pangrova.git
+{`git clone https://github.com/pangrova/pangrova.git
 cd pangrova
 ./pangrova-worker-native/bin/setup-native-build-env.sh
 ./pangrova-worker-native/bin/build-native.sh

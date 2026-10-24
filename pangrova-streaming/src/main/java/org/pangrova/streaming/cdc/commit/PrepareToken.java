@@ -15,15 +15,15 @@ import java.util.UUID;
  *
  * @param id       unique transaction identifier
  * @param source   the CDC source this transaction belongs to
- * @param range    the offset range being committed
+ * @param checkpoint every exact source range being committed
  * @param deadline absolute time after which this prepared transaction expires
  */
-public record PrepareToken(UUID id, SourceId source, OffsetRange range, Instant deadline) {
+public record PrepareToken(UUID id, SourceId source, CdcBatchCheckpoint checkpoint, Instant deadline) {
 
     public PrepareToken {
         Objects.requireNonNull(id, "id must not be null");
         Objects.requireNonNull(source, "source must not be null");
-        Objects.requireNonNull(range, "range must not be null");
+        Objects.requireNonNull(checkpoint, "checkpoint must not be null");
         Objects.requireNonNull(deadline, "deadline must not be null");
     }
 }

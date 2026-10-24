@@ -30,6 +30,7 @@ public class PaimonConnector implements Connector {
     private final PaimonSplitManager splitManager;
     private final PaimonPageSourceProvider pageSourceProvider;
     private final PaimonPageSinkProvider pageSinkProvider;
+    private final PaimonMaterializationSourceProvider materializationSourceProvider;
     private final PaimonSplitRegistry splitRegistry;
     private final AtomicBoolean shutdownInProgress = new AtomicBoolean();
     private volatile boolean catalogClosed;
@@ -42,11 +43,17 @@ public class PaimonConnector implements Connector {
         this.splitManager = new PaimonSplitManager(catalog, splitRegistry);
         this.pageSourceProvider = new PaimonPageSourceProvider(splitRegistry);
         this.pageSinkProvider = new PaimonPageSinkProvider(catalog, tempDir);
+        this.materializationSourceProvider = new PaimonMaterializationSourceProvider(catalogName, catalog);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return metadata;
+    }
+
+    @Override
+    public Optional<org.pangrova.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
+        return Optional.of(materializationSourceProvider);
     }
 
     /** Immutable lifecycle counters only; this observation never issues an SDK read or admission authority. */

@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.pangrova.parser.ast.statement.AlterCatalogStatement;
 import org.pangrova.parser.ast.statement.AlterDynamicTableStatement;
 import org.pangrova.parser.ast.statement.AlterEmbeddingModelStatement;
+import org.pangrova.parser.ast.statement.AlterMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.AlterIndexStatement;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.statement.BackfillColumnStatement;
@@ -21,11 +22,13 @@ import org.pangrova.parser.ast.statement.CreateTagStatement;
 import org.pangrova.parser.ast.statement.CreateViewStatement;
 import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
 import org.pangrova.parser.ast.statement.DescribeDynamicTableStatement;
+import org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DescribeTableStatement;
 import org.pangrova.parser.ast.statement.DropBranchStatement;
 import org.pangrova.parser.ast.statement.DropCatalogStatement;
 import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
 import org.pangrova.parser.ast.statement.DropEmbeddingModelStatement;
+import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DropIndexStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
 import org.pangrova.parser.ast.statement.DropTagStatement;
@@ -45,6 +48,12 @@ import org.pangrova.parser.ast.statement.ShowCatalogsStatement;
 import org.pangrova.parser.ast.statement.ShowClusteringStatusStatement;
 import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
 import org.pangrova.parser.ast.statement.ShowEmbeddingModelsStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationDependenciesStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationGcHistoryStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationRefreshHistoryStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationsStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializedViewsStatement;
+import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.ShowIndexesStatement;
 import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
 import org.pangrova.parser.ast.statement.ShowMetadataStatement;
@@ -116,9 +125,13 @@ final class StatementTypeRegistry {
             Map.entry(CreateCatalogStatement.class, StatementType.CREATE_CATALOG),
             Map.entry(CreateContinuousQueryStatement.class, StatementType.CREATE_CONTINUOUS_QUERY),
             Map.entry(CreateDynamicTableStatement.class, StatementType.CREATE_DYNAMIC_TABLE),
+            Map.entry(CreateMaterializedViewStatement.class, StatementType.CREATE_MATERIALIZED_VIEW),
+            Map.entry(RefreshMaterializedViewStatement.class, StatementType.REFRESH_MATERIALIZED_VIEW),
             Map.entry(ShowSchemasStatement.class, StatementType.SHOW_SCHEMAS),
             Map.entry(AlterCatalogStatement.class, StatementType.ALTER_CATALOG),
             Map.entry(AlterDynamicTableStatement.class, StatementType.ALTER_DYNAMIC_TABLE),
+            Map.entry(AlterMaterializedViewStatement.class,
+                    StatementType.ALTER_MATERIALIZED_VIEW),
             Map.entry(AlterEmbeddingModelStatement.class, StatementType.ALTER_EMBEDDING_MODEL),
             Map.entry(AlterIndexStatement.class, StatementType.ALTER_INDEX),
             Map.entry(BackfillColumnStatement.class, StatementType.BACKFILL_COLUMN),
@@ -137,11 +150,13 @@ final class StatementTypeRegistry {
             Map.entry(CreateViewStatement.class, StatementType.CREATE_VIEW),
             Map.entry(DescribeCatalogStatement.class, StatementType.DESCRIBE_CATALOG),
             Map.entry(DescribeDynamicTableStatement.class, StatementType.DESCRIBE_DYNAMIC_TABLE),
+            Map.entry(DescribeMaterializedViewStatement.class, StatementType.DESCRIBE_MATERIALIZED_VIEW),
             Map.entry(DescribeTableStatement.class, StatementType.DESCRIBE_TABLE),
             Map.entry(DropBranchStatement.class, StatementType.DROP_BRANCH),
             Map.entry(DropCatalogStatement.class, StatementType.DROP_CATALOG),
             Map.entry(DropDynamicTableStatement.class, StatementType.DROP_DYNAMIC_TABLE),
             Map.entry(DropEmbeddingModelStatement.class, StatementType.DROP_EMBEDDING_MODEL),
+            Map.entry(DropMaterializedViewStatement.class, StatementType.DROP_MATERIALIZED_VIEW),
             Map.entry(DropIndexStatement.class, StatementType.DROP_INDEX),
             Map.entry(DropTableStatement.class, StatementType.DROP_TABLE),
             Map.entry(DropTagStatement.class, StatementType.DROP_TAG),
@@ -161,6 +176,14 @@ final class StatementTypeRegistry {
             Map.entry(ShowClusteringStatusStatement.class, StatementType.SHOW_CLUSTERING_STATUS),
             Map.entry(ShowDynamicTablesStatement.class, StatementType.SHOW_DYNAMIC_TABLES),
             Map.entry(ShowEmbeddingModelsStatement.class, StatementType.SHOW_EMBEDDING_MODELS),
+            Map.entry(ShowMaterializationsStatement.class, StatementType.SHOW_MATERIALIZATIONS),
+            Map.entry(ShowMaterializationDependenciesStatement.class,
+                    StatementType.SHOW_MATERIALIZATION_DEPENDENCIES),
+            Map.entry(ShowMaterializationGcHistoryStatement.class,
+                    StatementType.SHOW_MATERIALIZATION_GC_HISTORY),
+            Map.entry(ShowMaterializationRefreshHistoryStatement.class,
+                    StatementType.SHOW_MATERIALIZATION_REFRESH_HISTORY),
+            Map.entry(ShowMaterializedViewsStatement.class, StatementType.SHOW_MATERIALIZED_VIEWS),
             Map.entry(ShowIndexesStatement.class, StatementType.SHOW_INDEXES),
             Map.entry(ShowSemanticViewsStatement.class, StatementType.SHOW_SEMANTIC_VIEWS),
             Map.entry(ShowTablesStatement.class, StatementType.SHOW_TABLES),

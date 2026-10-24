@@ -2,12 +2,9 @@ package org.pangrova.streaming.cdc.commit;
 
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.spi.streaming.TopicPartitionOffset;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.Connection;
 import java.sql.Statement;
@@ -31,19 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Uses PostgreSQL TestContainer for unit testing.</p>
  */
-class TwoPhaseCommitCoordinatorTest {
-
-    @SuppressWarnings("resource")
-    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("pangrova_test")
-            .withUsername("pangrova")
-            .withPassword("pangrova_test");
-
-    @BeforeAll
-    static void startContainer() { PG.start(); }
-
-    @AfterAll
-    static void stopContainer() { PG.stop(); }
+class TwoPhaseCommitCoordinatorTest extends org.pangrova.testing.ContainerTestBase {
 
     private javax.sql.DataSource dataSource;
     private JdbcCdcCommitStateStore stateStore;
@@ -51,11 +36,7 @@ class TwoPhaseCommitCoordinatorTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        org.postgresql.ds.PGSimpleDataSource ds = new org.postgresql.ds.PGSimpleDataSource();
-        ds.setUrl(PG.getJdbcUrl());
-        ds.setUser(PG.getUsername());
-        ds.setPassword(PG.getPassword());
-        dataSource = ds;
+        dataSource = org.pangrova.streaming.testinfra.CdcCheckpointDatabase.isolatedDataSource();
 
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
@@ -68,9 +49,7 @@ class TwoPhaseCommitCoordinatorTest {
                 CREATE TABLE IF NOT EXISTS cdc_commit_state (
                     id              VARCHAR(255)  NOT NULL PRIMARY KEY,
                     source_id       VARCHAR(255)  NOT NULL,
-                    partition_num   INT           NOT NULL,
-                    start_offset    BIGINT        NOT NULL,
-                    end_offset      BIGINT        NOT NULL,
+                    offset_ranges   JSONB         NOT NULL,
                     state           VARCHAR(32)   NOT NULL,
                     deadline        TIMESTAMP     NOT NULL,
                     created_at      TIMESTAMP     NOT NULL,
@@ -97,20 +76,20 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void prepareCreatesTokenWithCorrectFields() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 100, 199);
+        CdcBatchCheckpoint range = checkpoint(0, 100, 199);
 
         PrepareToken token = coordinator.prepare(source, range);
 
         assertNotNull(token.id());
         assertEquals(source, token.source());
-        assertEquals(range, token.range());
+        assertEquals(range, token.checkpoint());
         assertTrue(token.deadline().isAfter(Instant.now()));
     }
 
     @Test
     void commitTransitionsToCommittedState() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 0, 49);
+        CdcBatchCheckpoint range = checkpoint(0, 0, 49);
 
         PrepareToken token = coordinator.prepare(source, range);
         claimAndCommit(token);
@@ -123,7 +102,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void commitCannotAcknowledgeUnpublishedPrepare() {
         PrepareToken token = coordinator.prepare(
-                new SourceId("kafka-orders"), new OffsetRange(0, 0, 49));
+                new SourceId("kafka-orders"), checkpoint(0, 0, 49));
 
         assertThrows(IllegalStateException.class, () -> coordinator.commit(token));
         assertEquals(CdcCommitState.PREPARED,
@@ -133,7 +112,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void rollbackTransitionsToRolledBackState() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(1, 200, 299);
+        CdcBatchCheckpoint range = checkpoint(1, 200, 299);
 
         PrepareToken token = coordinator.prepare(source, range);
         coordinator.rollback(token);
@@ -145,7 +124,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void commitIsIdempotent() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 50, 99);
+        CdcBatchCheckpoint range = checkpoint(0, 50, 99);
 
         PrepareToken token = coordinator.prepare(source, range);
         claimAndCommit(token);
@@ -159,7 +138,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void rollbackIsIdempotent() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 300, 399);
+        CdcBatchCheckpoint range = checkpoint(0, 300, 399);
 
         PrepareToken token = coordinator.prepare(source, range);
         coordinator.rollback(token);
@@ -173,7 +152,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void rolledBackPrepareCanRetryTheSameSourceBatchKey() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 300, 399);
+        CdcBatchCheckpoint range = checkpoint(0, 300, 399);
         PrepareToken first = coordinator.prepare(source, range, "stable-source-batch");
         coordinator.rollback(first);
 
@@ -189,7 +168,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void prepareDeduplicatesSameOffsetRange() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 100, 199);
+        CdcBatchCheckpoint range = checkpoint(0, 100, 199);
 
         PrepareToken first = coordinator.prepare(source, range);
         PrepareToken second = coordinator.prepare(source, range);
@@ -200,8 +179,8 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void prepareDifferentPartitionsAreIndependent() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range0 = new OffsetRange(0, 100, 199);
-        OffsetRange range1 = new OffsetRange(1, 100, 199);
+        CdcBatchCheckpoint range0 = checkpoint(0, 100, 199);
+        CdcBatchCheckpoint range1 = checkpoint(1, 100, 199);
 
         PrepareToken token0 = coordinator.prepare(source, range0);
         PrepareToken token1 = coordinator.prepare(source, range1);
@@ -212,7 +191,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void commitAfterRollbackThrows() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 400, 499);
+        CdcBatchCheckpoint range = checkpoint(0, 400, 499);
 
         PrepareToken token = coordinator.prepare(source, range);
         coordinator.rollback(token);
@@ -223,7 +202,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void rollbackAfterCommitThrows() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 500, 599);
+        CdcBatchCheckpoint range = checkpoint(0, 500, 599);
 
         PrepareToken token = coordinator.prepare(source, range);
         claimAndCommit(token);
@@ -244,7 +223,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void participantRollbackClaimsStateBeforeAbortingStagedFiles() {
         PrepareToken token = coordinator.prepare(
-                new SourceId("kafka-orders"), new OffsetRange(0, 600, 699));
+                new SourceId("kafka-orders"), checkpoint(0, 600, 699));
         AtomicBoolean aborted = new AtomicBoolean();
         AtomicBoolean competingPublicationClaimed = new AtomicBoolean();
         CommitParticipant staged = new CommitParticipant() {
@@ -273,7 +252,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void recoverRollsBackExpiredPreparedTransactions() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 600, 699);
+        CdcBatchCheckpoint range = checkpoint(0, 600, 699);
 
         // Create a token with an already-expired deadline
         PrepareToken expiredToken = new PrepareToken(
@@ -290,7 +269,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void recoverQuarantinesAmbiguousCommittingTransactions() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 700, 799);
+        CdcBatchCheckpoint range = checkpoint(0, 700, 799);
 
         // Simulate a transaction stuck in COMMITTING state
         PrepareToken token = new PrepareToken(
@@ -317,7 +296,7 @@ class TwoPhaseCommitCoordinatorTest {
         PrepareToken unknownToken = new PrepareToken(
                 UUID.randomUUID(),
                 new SourceId("unknown"),
-                new OffsetRange(0, 0, 0),
+                checkpoint(0, 0, 0),
                 Instant.now().plusSeconds(300));
 
         assertThrows(PangrovaException.class, () -> coordinator.commit(unknownToken));
@@ -328,7 +307,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void executeAtomicCommitSucceedsWithTwoParticipants() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 0, 99);
+        CdcBatchCheckpoint range = checkpoint(0, 0, 99);
 
         AtomicBoolean writePrepared = new AtomicBoolean(false);
         AtomicBoolean writeCommitted = new AtomicBoolean(false);
@@ -366,7 +345,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void executeAtomicCommitSkipsDuplicateRange() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 100, 199);
+        CdcBatchCheckpoint range = checkpoint(0, 100, 199);
 
         AtomicInteger writeCount = new AtomicInteger(0);
 
@@ -397,7 +376,7 @@ class TwoPhaseCommitCoordinatorTest {
         // be deduped via the shared persistent commit record in Postgres — the write participant
         // runs EXACTLY ONCE across the two coordinators (not once per coordinator).
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 500, 599);
+        CdcBatchCheckpoint range = checkpoint(0, 500, 599);
         String dedupKey = "failover-batch-fingerprint";
         AtomicInteger writeCount = new AtomicInteger(0);
 
@@ -434,7 +413,7 @@ class TwoPhaseCommitCoordinatorTest {
         // the abandoned (expired) prepare is rolled back so the source safely replays with no
         // partial-commit leak.
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(2, 0, 42);
+        CdcBatchCheckpoint range = checkpoint(2, 0, 42);
         String dedupKey = "abandoned-prepare";
 
         // Coordinator A prepares with a 1ms deadline, then "crashes" (never commits).
@@ -463,7 +442,7 @@ class TwoPhaseCommitCoordinatorTest {
         // batch was silently skipped and its other-partition data lost. With a full-batch
         // fingerprint dedup key, both commit.
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange sharedRange = new OffsetRange(0, 0, 99);
+        CdcBatchCheckpoint sharedRange = checkpoint(0, 0, 99);
 
         AtomicInteger writeCount = new AtomicInteger(0);
         List<CommitParticipant> participants = List.of(
@@ -486,9 +465,7 @@ class TwoPhaseCommitCoordinatorTest {
     }
 
     @Test
-    void executeAtomicCommitSameBatchKeyIsDeduped() {
-        // A-EOS-01: a crash-recovery replay of the SAME batch (same fingerprint) is deduped exactly
-        // once, regardless of the representative range recorded for offset restore.
+    void executeAtomicCommitRejectsReusedKeyWithDifferentSourceRanges() {
         SourceId source = new SourceId("kafka-orders");
         AtomicInteger writeCount = new AtomicInteger(0);
         List<CommitParticipant> participants = List.of(
@@ -501,19 +478,21 @@ class TwoPhaseCommitCoordinatorTest {
         );
 
         boolean first = coordinator.executeAtomicCommit(
-                source, new OffsetRange(0, 0, 99), "fingerprint-batch-A", participants);
+                source, checkpoint(0, 0, 99), "fingerprint-batch-A", participants);
+        assertThrows(IllegalStateException.class, () -> coordinator.executeAtomicCommit(
+                source, checkpoint(0, 0, 49), "fingerprint-batch-A", participants));
         boolean replay = coordinator.executeAtomicCommit(
-                source, new OffsetRange(0, 0, 49), "fingerprint-batch-A", participants);
+                source, checkpoint(0, 0, 99), "fingerprint-batch-A", participants);
 
         assertTrue(first, "first commit should execute");
-        assertFalse(replay, "same fingerprint (replay) must be deduped even with a different range");
+        assertFalse(replay, "only an identical source checkpoint may be deduplicated");
         assertEquals(1, writeCount.get(), "replay must not write again");
     }
 
     @Test
     void executeAtomicCommitAbortsAllOnPrepareFailure() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 200, 299);
+        CdcBatchCheckpoint range = checkpoint(0, 200, 299);
 
         AtomicBoolean firstAborted = new AtomicBoolean(false);
         AtomicBoolean secondAborted = new AtomicBoolean(false);
@@ -553,7 +532,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void executeAtomicCommitLeavesAmbiguousPublicationForReconciliation() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 300, 399);
+        CdcBatchCheckpoint range = checkpoint(0, 300, 399);
 
         AtomicBoolean firstAborted = new AtomicBoolean(false);
         AtomicBoolean secondAborted = new AtomicBoolean(false);
@@ -595,7 +574,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void compareAndSetClaimAllowsOnlyOneCoordinatorToStartPublication() throws Exception {
         SourceId source = new SourceId("kafka-orders");
-        PrepareToken token = coordinator.prepare(source, new OffsetRange(0, 800, 899));
+        PrepareToken token = coordinator.prepare(source, checkpoint(0, 800, 899));
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         var workers = Executors.newFixedThreadPool(2);
@@ -627,7 +606,7 @@ class TwoPhaseCommitCoordinatorTest {
     @Test
     void executeAtomicCommitRejectsEmptyParticipants() {
         SourceId source = new SourceId("kafka-orders");
-        OffsetRange range = new OffsetRange(0, 400, 499);
+        CdcBatchCheckpoint range = checkpoint(0, 400, 499);
 
         assertThrows(IllegalArgumentException.class,
             () -> coordinator.executeAtomicCommit(source, range, List.of()));
@@ -642,21 +621,21 @@ class TwoPhaseCommitCoordinatorTest {
         SourceId source = new SourceId("kafka-orders");
 
         // Commit two ranges on partition 0
-        PrepareToken token1 = coordinator.prepare(source, new OffsetRange(0, 0, 49));
+        PrepareToken token1 = coordinator.prepare(source, checkpoint(0, 0, 49));
         claimAndCommit(token1);
-        PrepareToken token2 = coordinator.prepare(source, new OffsetRange(0, 50, 99));
+        PrepareToken token2 = coordinator.prepare(source, checkpoint(0, 50, 99));
         claimAndCommit(token2);
 
         // Commit one range on partition 1
-        PrepareToken token3 = coordinator.prepare(source, new OffsetRange(1, 0, 24));
+        PrepareToken token3 = coordinator.prepare(source, checkpoint(1, 0, 24));
         claimAndCommit(token3);
 
         Map<TopicPartitionOffset, Long> offsets = coordinator.findLastCommittedOffsets(source);
 
         assertEquals(2, offsets.size(), "should have 2 partitions");
-        assertEquals(100L, offsets.get(new TopicPartitionOffset("kafka-orders", 0)),
+        assertEquals(100L, offsets.get(new TopicPartitionOffset("orders", 0)),
             "partition 0 should have endOffset+1=100");
-        assertEquals(25L, offsets.get(new TopicPartitionOffset("kafka-orders", 1)),
+        assertEquals(25L, offsets.get(new TopicPartitionOffset("orders", 1)),
             "partition 1 should have endOffset+1=25");
     }
 
@@ -674,10 +653,10 @@ class TwoPhaseCommitCoordinatorTest {
         SourceId source = new SourceId("kafka-orders");
 
         // Prepare but don't commit
-        coordinator.prepare(source, new OffsetRange(0, 0, 49));
+        coordinator.prepare(source, checkpoint(0, 0, 49));
 
         // Prepare and rollback
-        PrepareToken rolled = coordinator.prepare(source, new OffsetRange(1, 0, 24));
+        PrepareToken rolled = coordinator.prepare(source, checkpoint(1, 0, 24));
         coordinator.rollback(rolled);
 
         Map<TopicPartitionOffset, Long> offsets = coordinator.findLastCommittedOffsets(source);
@@ -691,4 +670,57 @@ class TwoPhaseCommitCoordinatorTest {
                 token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING));
         coordinator.commit(token);
     }
+
+    @Test
+    void freshCoordinatorRestoresEveryExactTopicPartitionOnlyAfterCommit() {
+        var source = new SourceId("stream-name-is-not-a-topic");
+        var checkpoint = new CdcBatchCheckpoint(List.of(
+                new OffsetRange("orders", 0, 10, 19),
+                new OffsetRange("orders", 1, 20, 29),
+                new OffsetRange("payments", 0, 40, 49)));
+        var token = coordinator.prepare(source, checkpoint);
+        var restarted = new TwoPhaseCommitCoordinator(new JdbcCdcCommitStateStore(dataSource));
+        assertEquals(checkpoint, restarted.prepare(source, checkpoint).checkpoint());
+        assertTrue(restarted.findLastCommittedOffsets(source).isEmpty());
+        assertTrue(stateStore.compareAndSetState(
+                token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING));
+        assertTrue(restarted.findLastCommittedOffsets(source).isEmpty());
+        restarted.commit(token);
+        assertEquals(checkpoint.nextOffsets(), restarted.findLastCommittedOffsets(source));
+        assertTrue(restarted.findLastCommittedOffsets(new SourceId("other-stream")).isEmpty());
+    }
+
+    @Test
+    void legacyHistoryCannotInventTopicsOrSilentlyDisappearFromRecovery() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            // V73 preserves pre-upgrade rows with unknown complete checkpoints.
+            statement.execute("ALTER TABLE cdc_commit_state ALTER COLUMN offset_ranges DROP NOT NULL");
+            statement.executeUpdate("""
+                    INSERT INTO cdc_commit_state (id,source_id,state,deadline,created_at,batch_key)
+                    VALUES ('old','legacy-stream','COMMITTED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'old')
+                    """);
+            var failure = assertThrows(IllegalStateException.class,
+                    () -> coordinator.findLastCommittedOffsets(new SourceId("legacy-stream")));
+            assertTrue(failure.getMessage().contains("reconcile"));
+            statement.executeUpdate("UPDATE cdc_commit_state SET state='ROLLED_BACK' WHERE id='old'");
+            assertTrue(coordinator.findLastCommittedOffsets(new SourceId("legacy-stream")).isEmpty());
+        }
+    }
+
+    @Test
+    void malformedCheckpointCannotRestoreAMissingPartitionAsZero() throws Exception {
+        var source = new SourceId("corrupt-checkpoint");
+        var token = coordinator.prepare(source, checkpoint(0, 0, 5));
+        claimAndCommit(token);
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("UPDATE cdc_commit_state SET offset_ranges="
+                    + "'[{\"topic\":\"orders\",\"endOffset\":5}]'::jsonb");
+        }
+        assertThrows(IllegalStateException.class, () -> coordinator.findLastCommittedOffsets(source));
+    }
+
+    private static CdcBatchCheckpoint checkpoint(int partition, long start, long end) {
+        return new CdcBatchCheckpoint(List.of(new OffsetRange("orders", partition, start, end)));
+    }
+
 }

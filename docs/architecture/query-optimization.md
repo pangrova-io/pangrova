@@ -70,157 +70,168 @@ sidebar_label: "Query Optimization"
 
 ### 2.2 Materialized View Management
 
-```java
-/**
- * Materialized view manager
- */
-public class MaterializedViewManager {
+Materialized views and Dynamic Tables share one durable materialization
+kernel. There is no in-memory view manager, no separate metadata store, and no
+merge-on-read path.
 
-    private final Catalog catalog;
-    private final QueryExecutor executor;
-    private final MVRefreshScheduler scheduler;
-
-    /**
-     * Create a materialized view
-     */
-    public void createMaterializedView(CreateMVStatement stmt) {
-        // 1. Parse and validate the query
-        RelNode queryPlan = parseAndValidate(stmt.getQuery());
-
-        // 2. Check whether incremental refresh is supported
-        boolean supportsIncremental = canIncrementalRefresh(queryPlan);
-
-        // 3. Create materialized view metadata
-        MaterializedView mv = MaterializedView.builder()
-            .name(stmt.getName())
-            .query(stmt.getQuery())
-            .queryPlan(queryPlan)
-            .refreshStrategy(stmt.getRefreshStrategy())
-            .supportsIncremental(supportsIncremental)
-            .build();
-
-        // 4. Initial build
-        buildInitial(mv);
-
-        // 5. Register to the Catalog
-        catalog.registerMaterializedView(mv);
-
-        // 6. Register refresh scheduling
-        if (stmt.getRefreshStrategy() == RefreshStrategy.ON_SCHEDULE) {
-            scheduler.schedule(mv, stmt.getRefreshInterval());
-        }
-        //
-        if (stmt.getRefreshStrategy() == RefreshStrategy.ON_COMMIT) {
-            // Register commit listener on all base tables; triggers async incremental
-            // refresh after each base table commit. Uses Iceberg CommitListener /
-            // Paimon commit callback / 10 §2.10 MaintenanceScheduler.onWriteComplete().
-            // For multi-base-table MVs, refresh triggers on ANY base table commit
-            // (eventual consistency — not all-or-nothing).
-            // Refresh is ASYNC (non-blocking) to avoid increasing write latency;
-            // short inconsistency window bounded by refresh execution time.
-            commitListenerRegistry.register(mv.getBaseTables(), mv);
-        }
-    }
-
-    /**
-     * Incremental refresh
-     */
-    public void incrementalRefresh(MaterializedView mv) {
-        long lastRefreshSnapshot = mv.getLastRefreshSnapshot();
-        List<DataChange> changes = getChanges(mv.getBaseTables(), lastRefreshSnapshot);
-
-        if (changes.isEmpty()) {
-            return;
-        }
-
-        RecordBatch delta = computeDelta(mv, changes);
-        mergeToMV(mv, delta);
-        mv.setLastRefreshSnapshot(getCurrentSnapshot());
-    }
-
-    //
-    // --- Incremental Refresh Algorithm ---
-    //
-    // DataChange: reuses ChangeType enum from streaming.md §3.3 ChangelogRecord
-    //   { changeType: INSERT|UPDATE_BEFORE|UPDATE_AFTER|DELETE, record: RecordBatch }
-    //
-    // getChanges() delegates to:
-    //   - Iceberg: IncrementalScanPlanner (10 §3.1) — snapshot diff between lastRefreshSnapshot and current
-    //   - Paimon:  ChangelogReader (10 §3.3) — changelog between commit IDs
-    //
-    // canIncrementalRefresh(queryPlan) returns true when:
-    //   - Query pattern is SELECT ... FROM ... [WHERE ...] GROUP BY ...
-    //   - All aggregate functions are incrementally computable:
-    //     SUM (delta = sum(new) - sum(old)), COUNT (delta = count(new) - count(old)),
-    //     MIN/MAX (recompute only if old min/max was deleted)
-    //   - No DISTINCT, window functions, HAVING with non-aggregate predicates, or subqueries
-    //   - All base tables support change tracking (Iceberg snapshots or Paimon changelog)
-    //
-    // computeDelta(mv, changes):
-    //   Groups changes by MV GROUP BY keys, applies incremental aggregate formulas,
-    //   and produces a delta RecordBatch to merge into the MV storage.
-    //   Unsupported aggregates (e.g., MEDIAN) trigger automatic fallback to full refresh.
-}
 ```
+DDL (StatementDispatcher)
+  └─ MaterializationDdlRegistration
+        ├─ KernelDynamicTableService        (DYNAMIC_TABLE)
+        └─ KernelMaterializedViewService    (MATERIALIZED_VIEW)
+              └─ MaterializationService (pangrova-materialization)
+                    ├─ repository: objects, definitions, attempts, generations
+                    ├─ catalog:    published head read model
+                    ├─ planner:    AST -> planned definition in the query cluster
+                    ├─ execution:  native CTAS into __pg_mat_<32 hex>
+                    └─ publication: commit evidence + CAS head swap
+```
+
+Lifecycle:
+
+| Command | Durable effect |
+|---|---|
+| `CREATE MATERIALIZED VIEW ... AS SELECT` | Persist the object, definition revision and schedule, plan once under the definer identity, execute native CTAS, commit evidence, publish revision 1. Optional `TARGET_LAG` / `REFRESH_MODE` select scheduling and refresh strategy |
+| `REFRESH MATERIALIZED VIEW` | Re-plan the stored definition against current catalog state, build a new candidate generation, verify the commit evidence, CAS-publish the new head |
+| `ALTER MATERIALIZED VIEW ... REFRESH / SUSPEND / RESUME / SET TARGET_LAG` | Manual refresh, schedule suspension/resumption, or durable target-lag change without touching the definition or published head |
+| `SHOW` / `DESCRIBE` | Read only the published head; never scan an in-flight candidate |
+| `DROP` | Mark the object dropped; physical generations stay until GC proves them unpinned. A plain drop fails while a live materialization consumes the object; `CASCADE` drops transitive dependents first, deepest dependent first |
+
+Guarantees:
+
+- Every published head is backed by a committed Iceberg snapshot whose
+  fingerprint and manifest hash are recorded as `CommitEvidence`.
+- Publishing is a CAS on the object revision; a stale attempt cannot overwrite
+  a newer head.
+- Physical generations live in `<catalog>.__pangrova_materializations` as
+  `__pg_mat_<32 hex>`; direct SQL access is rejected at parse time.
+- The definition is compiled in the query cluster, with the session properties
+  captured at create time, and never recursively rewrites through another
+  materialization.
+- Definition revisions record their upstream materialization edges. The graph
+  is acyclic (enforced when a revision is recorded), a plain `DROP` is rejected
+  while live dependents exist, and `DROP ... CASCADE` drops transitively
+  dependent objects before their upstream. Database triggers reject both a
+  dropped upstream and a dependency insert racing a drop.
+- Materialized views use the same kernel capabilities as Dynamic Tables:
+  omitting `TARGET_LAG` creates a `DISABLED` (manual) schedule, a positive lag
+  creates an `ACTIVE` durable schedule, and `REFRESH_MODE = AUTO` persists
+  incremental refresh with the same fail-closed strategy rules. `PT0S` is
+  rejected as an ambiguous target lag.
 
 ### 2.3 Query Rewrite
 
-```java
-/**
- * Materialized view query rewriter
- */
-public class MVQueryRewriter {
+Transparent rewrite runs after optimization, on the plan that has already passed
+authorization and policy application. Candidates are published
+`MATERIALIZED_VIEW` generations of the authenticated tenant, read through the
+unified materialization kernel; there is no separate in-memory view registry.
 
-    /**
-     * Attempt to rewrite the query using a materialized view
-     */
-    public RelNode rewrite(RelNode originalPlan) {
-        List<MaterializedView> candidates = findCandidateMVs(originalPlan);
-
-        if (candidates.isEmpty()) {
-            return originalPlan;
-        }
-
-        MaterializedView bestMV = selectBestMV(candidates, originalPlan);
-
-        if (bestMV == null || !checkFreshness(bestMV)) {
-            return originalPlan;
-        }
-
-        return doRewrite(originalPlan, bestMV);
-    }
-}
 ```
+CompilationPhase
+  ├─ compileForPolicyApplication      (no optimization facts)
+  ├─ AccessControl + column masks + row filters
+  │     └─ observed policies → rewrite disabled when non-empty
+  ├─ time-travel extraction
+  │     └─ snapshot overrides → rewrite disabled
+  └─ optimizeProtectedQuery(plan, allowRewrite)
+        └─ MaterializedViewRewritePass
+              ├─ candidates: published, same catalog+schema, sources intersect
+              ├─ per-candidate guards
+              │     ├─ generation age <= pangrova.mv_rewrite_max_staleness
+              │     ├─ requester holds unfiltered SELECT on the view
+              │     └─ deterministic SPJG definition (no outer join,
+              │        DISTINCT, grouping sets, window, sort, set op)
+              ├─ compile definition in the query cluster (no recursive rewrite)
+              ├─ RelOptMaterializations.useMaterializedViews
+              └─ post-check: output shape unchanged and scans restricted to
+                    original sources plus the exact published generation
+```
+
+Any failed guard, unplannable definition, or unexpected substitution returns
+the original plan; a rewrite never falls back to an approximate result. The
+rewritten plan scans the physical generation table stored under
+`<catalog>.__pangrova_materializations.__pg_mat_<32 hex>`, and the reader pin
+for that generation is leased through the same path as Dynamic Table reads.
+
+Session properties:
+
+| Property | Default | Effect |
+|---|---|---|
+| `pangrova.mv_rewrite` | `on` | `off`/`false`/`0` disables transparent rewrite for the session |
+| `pangrova.mv_rewrite_max_staleness` | `30m` | Plain seconds or ISO-8601 duration; invalid or non-positive values disable rewrite |
+
+`EXPLAIN` reports the physical generation scan when a rewrite applies, and a
+trailing `materialized_view_rewrite: skipped reason=<reason>` line when it does
+not; the reasons distinguish `no_published_candidate`, `stale`,
+`definition_unplannable`, `ineligible`, `physical_table_unresolved`,
+`no_equivalent_substitution`, `post_check_failed`, `policies_applied`,
+`time_travel`, and `rewrite_disabled`. The definition planner used to build the
+MV never rewrites through another materialization, so a chain of views cannot
+recurse.
 
 ### 2.4 Materialized View SQL
 
 ```sql
--- Create a materialized view
-CREATE MATERIALIZED VIEW sales_daily_summary AS
+-- Create a materialized view (initial generation is built and published).
+-- TARGET_LAG and REFRESH_MODE are optional; omitting TARGET_LAG means manual refresh.
+CREATE MATERIALIZED VIEW iceberg.sales.sales_daily_summary AS
 SELECT
     date_trunc('day', order_time) AS order_date,
     product_category,
     SUM(amount) AS total_amount,
     COUNT(*) AS order_count
 FROM iceberg.sales.orders
-GROUP BY 1, 2
-REFRESH EVERY 1 HOUR
-ENABLE QUERY REWRITE;
+GROUP BY 1, 2;
 
--- Manual refresh
-REFRESH MATERIALIZED VIEW sales_daily_summary;
+-- A positive target lag schedules automatic refreshes; AUTO persists incremental mode.
+CREATE MATERIALIZED VIEW iceberg.sales.sales_hourly_summary
+TARGET_LAG = 'PT10M' REFRESH_MODE = AUTO AS
+SELECT date_trunc('hour', order_time) AS order_hour, SUM(amount) AS total_amount
+FROM iceberg.sales.orders
+GROUP BY 1;
 
--- Incremental refresh
-REFRESH MATERIALIZED VIEW sales_daily_summary INCREMENTAL;
+-- Recompute and publish a new generation
+REFRESH MATERIALIZED VIEW iceberg.sales.sales_daily_summary;
 
--- View materialized view status
+-- Lifecycle and scheduling changes
+ALTER MATERIALIZED VIEW iceberg.sales.sales_daily_summary REFRESH;
+ALTER MATERIALIZED VIEW iceberg.sales.sales_daily_summary SUSPEND;
+ALTER MATERIALIZED VIEW iceberg.sales.sales_daily_summary RESUME;
+ALTER MATERIALIZED VIEW iceberg.sales.sales_daily_summary SET TARGET_LAG = 'PT30M';
+
+-- Inspect the published head and its definition revision
 SHOW MATERIALIZED VIEWS;
+DESCRIBE MATERIALIZED VIEW iceberg.sales.sales_daily_summary;
 
--- Drop a materialized view
-DROP MATERIALIZED VIEW sales_daily_summary;
+-- Remove the object; physical generations stay until GC proves them unpinned.
+-- A plain drop fails when a live materialization still consumes this view;
+-- CASCADE drops transitive dependents first, deepest dependent first.
+DROP MATERIALIZED VIEW iceberg.sales.sales_daily_summary;
+DROP MATERIALIZED VIEW iceberg.sales.sales_daily_summary CASCADE;
+
+-- Dynamic Table with full snapshot refresh on creation and manual refresh
+CREATE DYNAMIC TABLE iceberg.sales.orders_rollup
+TARGET_LAG = 'PT5M' REFRESH_MODE = SNAPSHOT AS
+SELECT product_category, SUM(amount) AS total_amount
+FROM iceberg.sales.orders
+GROUP BY product_category;
+
+-- Manual-only Dynamic Table: omit TARGET_LAG; 'PT0S' is rejected as ambiguous.
+CREATE DYNAMIC TABLE iceberg.sales.orders_rollup_live
+AS SELECT * FROM iceberg.sales.orders;
+
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup REFRESH;
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup SUSPEND;
+ALTER DYNAMIC TABLE iceberg.sales.orders_rollup RESUME;
+
+-- Drop the table and every transitive dependent, dependents first.
+-- A plain DROP fails while a live materialization still depends on the table.
+DROP DYNAMIC TABLE iceberg.sales.orders_rollup CASCADE;
 ```
 
 ---
+
+
 
 ## 3. Query Result Cache
 

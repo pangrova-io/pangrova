@@ -43,7 +43,8 @@ class RegressionSelectionTest {
         assertThat(workflow).contains("-Dpangrova.e2e.excludedGroups=none -Dtest=\"$suite\" test");
         for (var owner : List.of("WorkerBootstrapE2ETest",
                 "NativeExchangeTransportExternalIntegrationTest",
-                "WorkerShuffleChannelAdmissionIntegrationTest")) {
+                "WorkerShuffleChannelAdmissionIntegrationTest",
+                "CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes")) {
             assertThat(workflow).contains(owner);
         }
     }
@@ -68,7 +69,10 @@ class RegressionSelectionTest {
         }
         var worker = read(ROOT.resolve("pangrova-worker/pom.xml"));
         assertThat(value(worker, CONFIGURATION + "/excludes/exclude")).isEqualTo("none");
-        assertThat(value(worker, CONFIGURATION + "/rerunFailingTestsCount")).isEqualTo("0");
+        var profileRetries = value(worker, CONFIGURATION + "/rerunFailingTestsCount");
+        var inheritedRetries = value(worker, "/project/build/plugins/plugin[artifactId='maven-surefire-plugin']"
+                + "/configuration/rerunFailingTestsCount");
+        assertThat(profileRetries.isEmpty() ? inheritedRetries : profileRetries).isEqualTo("0");
     }
 
     @Test
@@ -84,7 +88,9 @@ class RegressionSelectionTest {
     @Test
     void sanitizerCiUsesTheSamePresetEnvironmentAsLocalValidation() throws Exception {
         var workflow = Files.readString(ROOT.resolve(".github/workflows/ci.yml"));
-        assertThat(workflow).contains("run: ctest --preset ${{ matrix.sanitizer.preset }} --timeout 300")
+        assertThat(normalizeCommands(workflow)).contains(
+                "python3 bin/run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }} "
+                        + "-- --preset ${{ matrix.sanitizer.preset }} --timeout 300")
                 .doesNotContain("detect_leaks=1:halt_on_error=1:suppressions=sanitizer-suppressions/asan.supp");
     }
 
@@ -95,10 +101,10 @@ class RegressionSelectionTest {
         var end = workflow.indexOf("  tpch-performance:", start);
         assertThat(start).isGreaterThanOrEqualTo(0);
         assertThat(end).isGreaterThan(start);
-        var production = workflow.substring(start, end);
-        assertThat(production).contains("needs: [native-build, native-sanitizers]")
+        var production = normalizeCommands(workflow.substring(start, end));
+        assertThat(production).contains("needs: [change-scope, native-build, native-sanitizers]")
                 .contains("docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova")
-                .contains("IMAGE=\"$PANGROVA_E2E_IMAGE\" docker buildx bake")
+                .contains("IMAGE=\"$PANGROVA_E2E_IMAGE\" SOURCE_COMMIT=\"$GITHUB_SHA\" docker buildx bake")
                 .contains("image_id=$(docker image inspect --format '{{.Id}}' \"$PANGROVA_E2E_IMAGE\")")
                 .contains("\"PANGROVA_E2E_IMAGE_ID=$image_id\" >> \"$GITHUB_ENV\"")
                 .contains("stage-production-regression-native.sh \"$PANGROVA_E2E_IMAGE_ID\"")
@@ -122,6 +128,10 @@ class RegressionSelectionTest {
         factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
         factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
         return factory.newDocumentBuilder().parse(file.toFile()).getDocumentElement();
+    }
+
+    private static String normalizeCommands(String workflow) {
+        return workflow.replaceAll("\\\\\\r?\\n\\s*", " ").replaceAll("\\s+", " ");
     }
 
     private static String value(Element project, String expression) throws Exception {

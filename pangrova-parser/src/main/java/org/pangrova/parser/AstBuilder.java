@@ -10,15 +10,24 @@ import org.pangrova.parser.ast.expression.RerankClause.RerankStrategy;
 import org.pangrova.parser.ast.expression.RerankClause.RrfStrategy;
 import org.pangrova.parser.ast.statement.AlterCatalogStatement;
 import org.pangrova.parser.ast.statement.AlterDynamicTableStatement;
+import org.pangrova.parser.ast.statement.AlterMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
 import org.pangrova.parser.ast.statement.DescribeDynamicTableStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationDependenciesStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationGcHistoryStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationRefreshHistoryStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializationsStatement;
+import org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DescribeTableStatement;
 import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
 import org.pangrova.parser.ast.statement.DropCatalogStatement;
+import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
+import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
+import org.pangrova.parser.ast.statement.ShowMaterializedViewsStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
 import org.pangrova.parser.ast.statement.ShowCatalogsStatement;
@@ -196,6 +205,16 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Statement visitDropDynamicTableStatement(PangrovaSqlParser.DropDynamicTableStatementContext ctx) { return (DropDynamicTableStatement) extDdl.visitDropDynamicTable(ctx.dropDynamicTable()); }
     @Override public Statement visitShowDynamicTablesStatement(PangrovaSqlParser.ShowDynamicTablesStatementContext ctx) { return (ShowDynamicTablesStatement) extDdl.visitShowDynamicTables(ctx.showDynamicTables()); }
     @Override public Statement visitDescribeDynamicTableStatement(PangrovaSqlParser.DescribeDynamicTableStatementContext ctx) { return (DescribeDynamicTableStatement) extDdl.visitDescribeDynamicTable(ctx.describeDynamicTable()); }
+    @Override public Statement visitCreateMaterializedViewStatement(PangrovaSqlParser.CreateMaterializedViewStatementContext ctx) { return (CreateMaterializedViewStatement) extDdl.visitCreateMaterializedView(ctx.createMaterializedView()); }
+    @Override public Statement visitAlterMaterializedViewStatement(PangrovaSqlParser.AlterMaterializedViewStatementContext ctx) { return (AlterMaterializedViewStatement) extDdl.visit(ctx.alterMaterializedView()); }
+    @Override public Statement visitRefreshMaterializedViewStatement(PangrovaSqlParser.RefreshMaterializedViewStatementContext ctx) { return (RefreshMaterializedViewStatement) extDdl.visitRefreshMaterializedView(ctx.refreshMaterializedView()); }
+    @Override public Statement visitDropMaterializedViewStatement(PangrovaSqlParser.DropMaterializedViewStatementContext ctx) { return (DropMaterializedViewStatement) extDdl.visitDropMaterializedView(ctx.dropMaterializedView()); }
+    @Override public Statement visitShowMaterializedViewsStatement(PangrovaSqlParser.ShowMaterializedViewsStatementContext ctx) { return (ShowMaterializedViewsStatement) extDdl.visitShowMaterializedViews(ctx.showMaterializedViews()); }
+    @Override public Statement visitShowMaterializationsStatement(PangrovaSqlParser.ShowMaterializationsStatementContext ctx) { return (ShowMaterializationsStatement) extDdl.visitShowMaterializations(ctx.showMaterializations()); }
+    @Override public Statement visitShowMaterializationRefreshHistoryStatement(PangrovaSqlParser.ShowMaterializationRefreshHistoryStatementContext ctx) { return (ShowMaterializationRefreshHistoryStatement) extDdl.visitShowMaterializationRefreshHistory(ctx.showMaterializationRefreshHistory()); }
+    @Override public Statement visitShowMaterializationDependenciesStatement(PangrovaSqlParser.ShowMaterializationDependenciesStatementContext ctx) { return (ShowMaterializationDependenciesStatement) extDdl.visitShowMaterializationDependencies(ctx.showMaterializationDependencies()); }
+    @Override public Statement visitShowMaterializationGcHistoryStatement(PangrovaSqlParser.ShowMaterializationGcHistoryStatementContext ctx) { return (ShowMaterializationGcHistoryStatement) extDdl.visitShowMaterializationGcHistory(ctx.showMaterializationGcHistory()); }
+    @Override public Statement visitDescribeMaterializedViewStatement(PangrovaSqlParser.DescribeMaterializedViewStatementContext ctx) { return (DescribeMaterializedViewStatement) extDdl.visitDescribeMaterializedView(ctx.describeMaterializedView()); }
     @Override public Statement visitCreateTableStatement(PangrovaSqlParser.CreateTableStatementContext ctx) { return withLocation((Statement) ddlDml.visit(ctx.createTable()), ctx); }
     @Override public Statement visitDropTableStatement(PangrovaSqlParser.DropTableStatementContext ctx) { return withLocation((DropTableStatement) ddlDml.visitDropTable(ctx.dropTable()), ctx); }
     @Override public Statement visitInsertIntoStatement(PangrovaSqlParser.InsertIntoStatementContext ctx) { return withLocation((InsertStatement) dml.visitInsertInto(ctx.insertInto()), ctx); }

@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * defensive copy) but no production {@link ReplicationTarget} implementation exists.
  * Not wired into any coordinator lifecycle.</p>
  */
-@Experimental(trackingIssue = "https://github.com/pangrova-project/pangrova/issues/F-OPS-002-metadata-replication")
+@Experimental(trackingIssue = "https://github.com/pangrova/pangrova/issues/F-OPS-002-metadata-replication")
 public final class MetadataReplicationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(MetadataReplicationService.class);

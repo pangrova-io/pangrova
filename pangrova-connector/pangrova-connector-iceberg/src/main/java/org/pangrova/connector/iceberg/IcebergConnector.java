@@ -37,6 +37,7 @@ public class IcebergConnector implements Connector {
     private final IcebergSplitManager splitManager;
     private final IcebergPageSourceProvider pageSourceProvider;
     private final IcebergPageSinkProvider pageSinkProvider;
+    private final IcebergMaterializationSourceProvider materializationSourceProvider;
     private final ScheduledExecutorService pinEvictionScheduler;
     private final AtomicBoolean shutdownInProgress = new AtomicBoolean();
     private volatile boolean catalogClosed;
@@ -69,6 +70,7 @@ public class IcebergConnector implements Connector {
         this.splitManager = new IcebergSplitManager(catalogName, catalog, new IcebergExpressionToSubstrait(), metadata);
         this.pageSourceProvider = new IcebergPageSourceProvider(catalog);
         this.pageSinkProvider = new IcebergPageSinkProvider(catalog);
+        this.materializationSourceProvider = new IcebergMaterializationSourceProvider(catalogName, catalog);
         this.pinEvictionScheduler = ManagedExecutorFactory
                 .newSingleThreadScheduledExecutor("iceberg-pin-eviction");
         metadata.startPinEviction(pinEvictionScheduler);
@@ -78,6 +80,11 @@ public class IcebergConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return metadata;
+    }
+
+    @Override
+    public Optional<org.pangrova.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
+        return Optional.of(materializationSourceProvider);
     }
 
     @Override

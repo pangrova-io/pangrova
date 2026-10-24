@@ -1,5 +1,7 @@
 package org.pangrova.streaming.cdc;
 
+import org.pangrova.streaming.cdc.commit.SourceId;
+
 import java.time.Duration;
 import java.util.Objects;
 
@@ -7,6 +9,7 @@ import java.util.Objects;
  * Immutable configuration for a single CDC pipeline loop.
  *
  * @param streamName              unique stream identifier
+ * @param sourceId                durable identity of this stream creation
  * @param targetTable             fully qualified target table name
  * @param batchSize               maximum records per poll batch
  * @param pollTimeout             maximum wait time for poll
@@ -17,6 +20,7 @@ import java.util.Objects;
  */
 public record CdcPipelineConfig(
     String streamName,
+    SourceId sourceId,
     String targetTable,
     int batchSize,
     Duration pollTimeout,
@@ -28,6 +32,7 @@ public record CdcPipelineConfig(
 
     public CdcPipelineConfig {
         Objects.requireNonNull(streamName, "streamName must not be null");
+        Objects.requireNonNull(sourceId, "sourceId must not be null");
         Objects.requireNonNull(targetTable, "targetTable must not be null");
         if (batchSize <= 0) {
             throw new IllegalArgumentException("batchSize must be positive, got: " + batchSize);

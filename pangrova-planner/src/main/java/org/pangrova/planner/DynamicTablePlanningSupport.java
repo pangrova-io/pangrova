@@ -1,7 +1,5 @@
 package org.pangrova.planner;
 
-import org.pangrova.planner.mv.DynamicTableResolution;
-import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.slf4j.Logger;
@@ -11,8 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Pre-parse planning support for Dynamic Tables: SQL rewriting, merge-on-read
- * hint collection, and advisory CTE materialization analysis.
+ * Pre-parse planning support for Dynamic Tables: SQL rewriting and advisory
+ * CTE materialization analysis.
  */
 final class DynamicTablePlanningSupport {
 
@@ -35,39 +33,6 @@ final class DynamicTablePlanningSupport {
             return new DynamicTableSqlRewriter.RewriteWithAuthority(sql, java.util.Map.of());
         }
         return dynamicTableSqlRewriter.rewriteWithAuthority(sql);
-    }
-
-    /**
-     * Collects merge-on-read hints by resolving DT references in the SQL.
-     *
-     * <p>When a DT has pending deltas (lastRefreshSnapshot &lt; currentSnapshot),
-     * the resolution is {@link DynamicTableResolution.MergeOnRead}. These hints
-     * are passed to the coordinator's split manager so it can generate incremental
-     * splits for the delta leg of the UNION ALL plan.</p>
-     *
-     * @param sql the original SQL before DT rewrite
-     * @return list of merge-on-read hints, empty if no DTs need merge-on-read
-     */
-    List<DynamicTableResolution.MergeOnRead> collectMergeOnReadHints(String sql) {
-        if (dynamicTableSqlRewriter == null) {
-            return List.of();
-        }
-        DynamicTableRewriter rewriter = dynamicTableSqlRewriter.getDynamicTableRewriter();
-        if (rewriter == null) {
-            return List.of();
-        }
-        if (!rewriter.usesRegistry()) {
-            return List.of(); // durable full-refresh publications have no delta leg
-        }
-        List<String> tableNames = dynamicTableSqlRewriter.extractTableNames(sql);
-        List<DynamicTableResolution.MergeOnRead> hints = new ArrayList<>();
-        for (String tableName : tableNames) {
-            DynamicTableResolution resolution = rewriter.resolve(tableName);
-            if (resolution instanceof DynamicTableResolution.MergeOnRead mor) {
-                hints.add(mor);
-            }
-        }
-        return hints;
     }
 
     /**

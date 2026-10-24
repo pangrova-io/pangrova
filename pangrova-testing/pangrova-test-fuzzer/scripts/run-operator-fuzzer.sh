@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Run the Pangrova operator fuzzer locally or in CI.
-# Generates random expression and plan trees, executes against DuckDB
-# as reference engine, and compares results.
+# Run the reference SQL generator self-test locally.
+# Generates expression and plan trees and executes DuckDB only.
+# This does not validate Pangrova engine execution or differential correctness.
 #
 # Usage:
 #   ./run-operator-fuzzer.sh                    # defaults: 10000 iterations, operator mode
@@ -17,7 +17,7 @@ FUZZER_DIR="${SCRIPT_DIR}/../src/main/cpp"
 BUILD_DIR="${FUZZER_DIR}/build"
 RUNNER="${BUILD_DIR}/pangrova_fuzzer_runner"
 
-# Default configuration (matches nightly CI)
+# Default configuration (matches the manual workflow)
 ITERATIONS="${FUZZER_ITERATIONS:-10000}"
 MODE="${FUZZER_MODE:-operator}"
 SEED="${FUZZER_SEED:-0}"

@@ -7,6 +7,8 @@ description: "Structure, naming, accuracy, and validation rules for Pangrova doc
 
 Pangrova documentation is organized by reader task. Published guides, architecture references,
 internal roadmap material, runtime configuration, and deployment assets have separate homes.
+“Internal” excludes content from the website only; tracked files remain public when
+the repository is made public. Do not store confidential material there.
 
 ## Directory ownership
 
@@ -75,8 +77,9 @@ Run the closest documentation checks after every structural change:
 
 ```bash
 cd website
-npm run typecheck
-npm run build
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run build
 
 cd ..
 .pangrova/scripts/check-doc-class-refs.sh

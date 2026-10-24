@@ -3,6 +3,7 @@ package org.pangrova.metadata.streaming;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Immutable state record for a CDC ingestion stream.
@@ -13,6 +14,7 @@ import java.util.Objects;
  *
  * @param streamName          unique stream name (primary key)
  * @param tenantId            owning tenant identifier
+ * @param checkpointId        immutable identity for this creation's checkpoints and default consumer group
  * @param lifecycleState      current lifecycle state
  * @param targetTable         fully qualified target lakehouse table reference
  * @param sourceProperties    Kafka source properties (bootstrap.servers, topic, group.id, etc.)
@@ -33,6 +35,7 @@ import java.util.Objects;
 public record StreamState(
         String streamName,
         String tenantId,
+        String checkpointId,
         StreamLifecycleState lifecycleState,
         String targetTable,
         Map<String, String> sourceProperties,
@@ -54,6 +57,9 @@ public record StreamState(
     public StreamState {
         Objects.requireNonNull(streamName, "streamName must not be null");
         Objects.requireNonNull(tenantId, "tenantId must not be null");
+        if (checkpointId == null || checkpointId.isBlank()) {
+            throw new IllegalArgumentException("checkpointId must not be blank");
+        }
         Objects.requireNonNull(lifecycleState, "lifecycleState must not be null");
         Objects.requireNonNull(targetTable, "targetTable must not be null");
         Objects.requireNonNull(sourceProperties, "sourceProperties must not be null");
@@ -90,7 +96,7 @@ public record StreamState(
     /** Create a builder pre-populated with all fields from this state. */
     public Builder toBuilder() {
         return new Builder()
-                .streamName(streamName).tenantId(tenantId)
+                .streamName(streamName).tenantId(tenantId).checkpointId(checkpointId)
                 .lifecycleState(lifecycleState).targetTable(targetTable)
                 .sourceProperties(sourceProperties).sourceFormat(sourceFormat)
                 .streamProperties(streamProperties).creatorIdentity(creatorIdentity)
@@ -109,11 +115,12 @@ public record StreamState(
 
     /**
      * Mutable builder for {@link StreamState}.
-     * Reduces the 18-param constructor duplication across mutation sites.
+     * Reduces the 19-param constructor duplication across mutation sites.
      */
     public static final class Builder {
         private String streamName;
         private String tenantId;
+        private String checkpointId = "stream:" + UUID.randomUUID();
         private StreamLifecycleState lifecycleState;
         private String targetTable;
         private Map<String, String> sourceProperties;
@@ -139,6 +146,11 @@ public record StreamState(
         }
         public Builder tenantId(String v) {
             this.tenantId = v;
+            return this;
+        }
+        /** Restores the immutable checkpoint identity of an existing stream. */
+        public Builder checkpointId(String v) {
+            this.checkpointId = v;
             return this;
         }
         public Builder lifecycleState(StreamLifecycleState v) {
@@ -209,7 +221,7 @@ public record StreamState(
         /** Builds an immutable {@link StreamState} from the current builder values. */
         public StreamState build() {
             return new StreamState(
-                    streamName, tenantId, lifecycleState, targetTable,
+                    streamName, tenantId, checkpointId, lifecycleState, targetTable,
                     sourceProperties, sourceFormat, streamProperties,
                     creatorIdentity, coordinatorId, epoch, schemaVersion,
                     errorMessage, recordsConsumed, recordsWritten,
