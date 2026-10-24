@@ -27,7 +27,7 @@ final class IcebergOrphanFileRemover {
     private IcebergOrphanFileRemover() {}
 
     /** Aggregated outcome of an orphan-file sweep. */
-    record SweepResult(long scannedCount, long deletedCount, long deletedBytes,
+    record SweepResult(long scannedCount, long orphanCount, long deletedCount, long deletedBytes,
                        List<String> deletedOrphanPaths) {}
 
     /**
@@ -41,7 +41,17 @@ final class IcebergOrphanFileRemover {
      */
     static SweepResult sweep(Table table, SupportsPrefixOperations prefixIO,
                              long olderThanMs, String tableName) {
+        return sweep(table, prefixIO, olderThanMs, tableName, false);
+    }
+
+    /**
+     * Scans the table location and, unless {@code dryRun}, deletes unreachable files older than
+     * the cutoff. A dry run reports the exact candidates without deleting anything.
+     */
+    static SweepResult sweep(Table table, SupportsPrefixOperations prefixIO,
+                             long olderThanMs, String tableName, boolean dryRun) {
         Set<String> reachable = collectReachableFiles(table);
+        long orphanCount = 0;
         long deletedCount = 0;
         long deletedBytes = 0;
         long scannedCount = 0;
@@ -55,6 +65,10 @@ final class IcebergOrphanFileRemover {
             if (reachable.contains(location) || reachable.contains(canonicalize(location))) {
                 continue;
             }
+            orphanCount++;
+            if (dryRun) {
+                continue;
+            }
             try {
                 prefixIO.deleteFile(location);
                 deletedCount++;
@@ -65,7 +79,8 @@ final class IcebergOrphanFileRemover {
                         tableName, location, e.getMessage());
             }
         }
-        return new SweepResult(scannedCount, deletedCount, deletedBytes, deletedOrphanPaths);
+        return new SweepResult(scannedCount, orphanCount, deletedCount, deletedBytes,
+                deletedOrphanPaths);
     }
 
     /**

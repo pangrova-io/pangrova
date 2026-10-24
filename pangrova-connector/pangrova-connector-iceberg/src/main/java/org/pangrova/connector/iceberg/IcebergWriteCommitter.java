@@ -86,6 +86,7 @@ final class IcebergWriteCommitter {
         commitExecutor.executeIdempotently(table, context, () -> {
             var append = IcebergDeclarationCommit.bind(catalog, table, handle).newAppend();
             IcebergDistributedCommitMarker.apply(append, context);
+            IdempotentCommitController.apply(append, context);
             IcebergSnapshotDeclarations.apply(append, handle);
             append.commit();
         });
@@ -158,7 +159,9 @@ final class IcebergWriteCommitter {
 
     /**
      * Deletes rows matching the filter via Iceberg's row-filter delete, committed
-     * with the same timeout and retry protection as distributed writes.
+     * with the same timeout and retry protection as distributed writes. This path
+     * carries no durable commit context, so a timed-out commit whose snapshot
+     * advanced is reported as unknown rather than assumed successful.
      */
     void deleteByFilter(
             Table icebergTable, IcebergTableHandle handle,
@@ -184,7 +187,7 @@ final class IcebergWriteCommitter {
                 filter, fencedTable.schema());
         String tableId = handle.schemaName() + "." + handle.tableName();
         try {
-            commitExecutor.execute(() ->
+            commitExecutor.execute(icebergTable, null, () ->
                     commitExecutor.retry(() -> {
                         var delete = fencedTable.newDelete().deleteFromRowFilter(icebergExpr);
                         IcebergSnapshotDeclarations.apply(delete, declaration);
@@ -219,19 +222,19 @@ final class IcebergWriteCommitter {
         String tableId = handle.schemaName() + "." + handle.tableName();
         switch (collected.operation()) {
             case "APPEND" ->
-                    commitExecutor.execute(() ->
+                    commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicAppend(
                                     icebergTable, handle, collected.dataFiles(), tenantId, context), tableId);
             case "OVERWRITE" ->
-                    commitExecutor.execute(() ->
+                    commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicOverwrite(
                                     icebergTable, handle, collected.dataFiles(), tenantId, context), tableId);
             case "DELETE" ->
-                    commitExecutor.execute(() ->
+                    commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicDelete(
                                     icebergTable, handle, collected.deleteFiles(), tenantId, context), tableId);
             case "MERGE" ->
-                    commitExecutor.execute(() ->
+                    commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicMerge(icebergTable, handle,
                                     collected.dataFiles(), collected.deleteFiles(), tenantId, context), tableId);
             default -> throw new IllegalStateException(
@@ -293,6 +296,7 @@ final class IcebergWriteCommitter {
                 append.appendFile(df);
             }
             IcebergDistributedCommitMarker.apply(append, context);
+            IdempotentCommitController.apply(append, context);
             IcebergSnapshotDeclarations.apply(append, handle);
             append.commit();
         });
@@ -312,6 +316,7 @@ final class IcebergWriteCommitter {
             var overwrite = IcebergOverwriteCommit.build(
                     IcebergDeclarationCommit.bind(catalog, icebergTable, handle), handle, dataFiles);
             IcebergDistributedCommitMarker.apply(overwrite, context);
+            IdempotentCommitController.apply(overwrite, context);
             IcebergSnapshotDeclarations.apply(overwrite, handle);
             overwrite.commit();
         });
@@ -345,6 +350,7 @@ final class IcebergWriteCommitter {
                 rowDelta.addDeletes(df);
             }
             IcebergDistributedCommitMarker.apply(rowDelta, context);
+            IdempotentCommitController.apply(rowDelta, context);
             IcebergSnapshotDeclarations.apply(rowDelta, handle);
             rowDelta.commit();
         });
@@ -386,6 +392,7 @@ final class IcebergWriteCommitter {
                 rowDelta.addDeletes(df);
             }
             IcebergDistributedCommitMarker.apply(rowDelta, context);
+            IdempotentCommitController.apply(rowDelta, context);
             IcebergSnapshotDeclarations.apply(rowDelta, handle);
             rowDelta.commit();
         });

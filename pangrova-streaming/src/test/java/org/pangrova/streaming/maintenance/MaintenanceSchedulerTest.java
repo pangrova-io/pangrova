@@ -208,6 +208,47 @@ class MaintenanceSchedulerTest {
     }
 
     @Test
+    void scheduledDueTriggersThePolicyCycle() throws Exception {
+        spi.scheduledDue = true;
+
+        scheduler.scanAllTablesWithPriority(List.of("table_due"));
+        scheduler.processTaskQueue();
+
+        assertThat(spi.scheduledCycle.await(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void scheduledNotDueDoesNotEnqueueWithoutThresholdPressure() {
+        spi.scheduledDue = false;
+
+        scheduler.scanAllTablesWithPriority(List.of("table_idle"));
+
+        assertThat(scheduler.queueSize()).isZero();
+    }
+
+    @Test
+    void periodicScanStartStopIsRepeatableAcrossLeaderFlaps() {
+        MaintenanceConfig longScan = new MaintenanceConfig(
+            Duration.ofMillis(1), Duration.ofHours(6), Duration.ofHours(12),
+            Duration.ofHours(1), Duration.ofHours(24),
+            5, 10, Duration.ofDays(3), Duration.ofDays(7), 100,
+            2, 2, 4, Duration.ofSeconds(5));
+        MaintenanceScheduler leaderGated = new MaintenanceScheduler(spi, longScan);
+        try {
+            leaderGated.startPeriodicScan(List::of);
+            assertThat(leaderGated.isPeriodicScanRunning()).isTrue();
+
+            leaderGated.stopPeriodicScan();
+            assertThat(leaderGated.isPeriodicScanRunning()).isFalse();
+
+            leaderGated.startPeriodicScan(List::of);
+            assertThat(leaderGated.isPeriodicScanRunning()).isTrue();
+        } finally {
+            leaderGated.close();
+        }
+    }
+
+    @Test
     void onWriteCompleteSkipsDuplicateWhenInFlight() {
         // Arrange: block compaction so the task stays in-flight
         spi.blockCompaction();
@@ -234,7 +275,9 @@ class MaintenanceSchedulerTest {
     private static class StubTableMaintenanceSpi implements TableMaintenanceSpi {
 
         private final ConcurrentHashMap<String, MaintenanceStatus> statuses = new ConcurrentHashMap<>();
+        private final CountDownLatch scheduledCycle = new CountDownLatch(1);
         private volatile CountDownLatch compactionGate;
+        private volatile boolean scheduledDue;
 
         void blockCompaction() {
             compactionGate = new CountDownLatch(1);
@@ -285,6 +328,20 @@ class MaintenanceSchedulerTest {
             return statuses.getOrDefault(tableName, new MaintenanceStatus(
                 tableName, 0, 10, 500L, 3, 0, 0L, 0,
                 null, null, null));
+        }
+
+        @Override
+        public boolean isScheduledMaintenanceDue(String tableName) {
+            return scheduledDue;
+        }
+
+        @Override
+        public CompletableFuture<Void> runScheduledMaintenanceAsync(String tableName) {
+            if (!scheduledDue) {
+                return compactAsync(tableName).thenApply(ignored -> null);
+            }
+            scheduledCycle.countDown();
+            return CompletableFuture.completedFuture(null);
         }
     }
 }

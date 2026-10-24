@@ -14,6 +14,7 @@ import org.apache.iceberg.io.SupportsPrefixOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -31,13 +32,15 @@ import java.util.Set;
  * <ul>
  *   <li>{@code compact(table_name)} — rewrites data files with associated delete
  *       files, materializing deletion vectors / position deletes into clean data.</li>
- *   <li>{@code expire_snapshots(table_name, [retain_last], [older_than_millis])}
+ *   <li>{@code expire_snapshots(table_name, [retain_last], [older_than_millis], [dry_run])}
  *       — uses {@link Table#expireSnapshots()} to atomically expire snapshots and
- *       clean orphaned data/manifest files.</li>
- *   <li>{@code remove_orphan_files(table_name, [older_than_millis])} — walks the
+ *       clean orphaned data/manifest files. {@code retain_last} defaults to a safe window
+ *       instead of the current snapshot only.</li>
+ *   <li>{@code remove_orphan_files(table_name, [older_than_millis], [dry_run])} — walks the
  *       table location via {@link SupportsPrefixOperations#listPrefix(String)} and
- *       deletes files that are not reachable from any snapshot/manifest. Requires
- *       a {@link FileIO} that implements {@link SupportsPrefixOperations}.</li>
+ *       deletes files that are not reachable from any snapshot/manifest. The cutoff must be
+ *       at least 24 hours old. Requires a {@link FileIO} that implements
+ *       {@link SupportsPrefixOperations}.</li>
  *   <li>{@code rewrite_manifests(table_name)} — uses {@link Table#rewriteManifests()}
  *       to compact small manifests into larger ones for better planning performance.</li>
  *   <li>{@code rollback_to_snapshot(table_name, snapshot_id)} — uses
@@ -53,11 +56,18 @@ public final class IcebergMaintenanceProcedures {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergMaintenanceProcedures.class);
 
-    /** Default retain-last value for expire_snapshots when not provided by the caller. */
-    private static final int DEFAULT_RETAIN_LAST = 1;
+    /**
+     * Default retain-last value for expire_snapshots when not provided by the caller.
+     * Keeping only the current snapshot removes the lineage used by commit recovery and
+     * external-writer reconciliation, so the default retains a safe window.
+     */
+    private static final int DEFAULT_RETAIN_LAST = 10;
 
     /** Default older-than horizon for remove_orphan_files (3 days). */
     private static final long DEFAULT_ORPHAN_AGE_MS = 3L * 24L * 60L * 60L * 1000L;
+
+    /** Orphan deletion never uses a cutoff younger than this, so in-flight writes stay safe. */
+    private static final long MIN_ORPHAN_AGE_MS = 24L * 60L * 60L * 1000L;
 
     private final Catalog catalog;
     private final CacheEvictionListener evictionListener;
@@ -143,13 +153,32 @@ public final class IcebergMaintenanceProcedures {
 
     private List<TypedRow> executeExpireSnapshots(Map<String, String> args) {
         String tableName = requireTableName(args);
-        Table table = loadTable(tableName);
         int retainLast = parseIntArg(args, "arg1", DEFAULT_RETAIN_LAST);
+        if (retainLast < 1) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "expire_snapshots retain_last must be at least 1, got: " + retainLast);
+        }
         Long olderThanMs = parseLongArgOrNull(args, "arg2");
+        boolean dryRun = parseBooleanArg(args, "arg3");
         long startMs = System.currentTimeMillis();
-        LOG.info("event=procedure_expire_snapshots_start table={} retainLast={} olderThanMs={}",
-                tableName, retainLast, olderThanMs);
+        LOG.info("event=procedure_expire_snapshots_start table={} retainLast={} olderThanMs={} dryRun={}",
+                tableName, retainLast, olderThanMs, dryRun);
 
+        if (dryRun) {
+            int wouldExpire = estimateExpiredSnapshots(loadTable(tableName), retainLast, olderThanMs);
+            LOG.info("event=procedure_expire_snapshots_dry_run table={} wouldExpire={} retainLast={}",
+                    tableName, wouldExpire, retainLast);
+            return List.of(TypedRow.builder()
+                    .putString("result", "expire_snapshots dry run")
+                    .putString("table", tableName)
+                    .putLong("expired_snapshots", wouldExpire)
+                    .putLong("retain_last", retainLast)
+                    .putString("dry_run", "true")
+                    .putLong("duration_ms", System.currentTimeMillis() - startMs)
+                    .build());
+        }
+
+        Table table = loadTable(tableName);
         Set<Long> snapshotsBefore = collectSnapshotIds(table);
         Set<String> deletedFiles = new HashSet<>();
         try {
@@ -185,6 +214,7 @@ public final class IcebergMaintenanceProcedures {
                 .putLong("expired_snapshots", expiredCount)
                 .putLong("deleted_file_count", deletedFiles.size())
                 .putLong("retain_last", retainLast)
+                .putString("dry_run", "false")
                 .putLong("duration_ms", durationMs)
                 .build());
     }
@@ -193,12 +223,19 @@ public final class IcebergMaintenanceProcedures {
 
     private List<TypedRow> executeRemoveOrphanFiles(Map<String, String> args) {
         String tableName = requireTableName(args);
+        long now = System.currentTimeMillis();
+        long olderThanMs = parseLongArg(args, "arg1", now - DEFAULT_ORPHAN_AGE_MS);
+        if (olderThanMs > now - MIN_ORPHAN_AGE_MS) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "remove_orphan_files older_than_ms must be at least "
+                            + Duration.ofMillis(MIN_ORPHAN_AGE_MS).toHours()
+                            + " hours old so in-flight writes are never treated as orphans");
+        }
+        boolean dryRun = parseBooleanArg(args, "arg2");
         Table table = loadTable(tableName);
-        long olderThanMs = parseLongArg(args, "arg1",
-                System.currentTimeMillis() - DEFAULT_ORPHAN_AGE_MS);
         long startMs = System.currentTimeMillis();
-        LOG.info("event=procedure_remove_orphan_files_start table={} olderThanMs={}",
-                tableName, olderThanMs);
+        LOG.info("event=procedure_remove_orphan_files_start table={} olderThanMs={} dryRun={}",
+                tableName, olderThanMs, dryRun);
 
         FileIO io = table.io();
         if (!(io instanceof SupportsPrefixOperations prefixIO)) {
@@ -209,7 +246,7 @@ public final class IcebergMaintenanceProcedures {
 
         IcebergOrphanFileRemover.SweepResult sweep;
         try {
-            sweep = IcebergOrphanFileRemover.sweep(table, prefixIO, olderThanMs, tableName);
+            sweep = IcebergOrphanFileRemover.sweep(table, prefixIO, olderThanMs, tableName, dryRun);
         } catch (Exception e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "remove_orphan_files failed for table: " + tableName
@@ -222,17 +259,20 @@ public final class IcebergMaintenanceProcedures {
         }
 
         long durationMs = System.currentTimeMillis() - startMs;
-        LOG.info("event=procedure_remove_orphan_files_done table={} scanned={} "
-                        + "deleted={} bytes={} durationMs={}",
-                tableName, sweep.scannedCount(), sweep.deletedCount(),
-                sweep.deletedBytes(), durationMs);
+        LOG.info("event=procedure_remove_orphan_files_done table={} scanned={} orphans={} "
+                        + "deleted={} bytes={} dryRun={} durationMs={}",
+                tableName, sweep.scannedCount(), sweep.orphanCount(), sweep.deletedCount(),
+                sweep.deletedBytes(), dryRun, durationMs);
         return List.of(TypedRow.builder()
-                .putString("result", "remove_orphan_files succeeded")
+                .putString("result", dryRun
+                        ? "remove_orphan_files dry run" : "remove_orphan_files succeeded")
                 .putString("table", tableName)
                 .putLong("scanned_file_count", sweep.scannedCount())
+                .putLong("orphan_file_count", sweep.orphanCount())
                 .putLong("deleted_file_count", sweep.deletedCount())
                 .putLong("deleted_bytes", sweep.deletedBytes())
                 .putLong("older_than_ms", olderThanMs)
+                .putString("dry_run", String.valueOf(dryRun))
                 .putLong("duration_ms", durationMs)
                 .build());
     }
@@ -424,6 +464,41 @@ public final class IcebergMaintenanceProcedures {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Invalid long argument '" + key + "': " + raw, e);
         }
+    }
+
+    private static boolean parseBooleanArg(Map<String, String> args, String key) {
+        String raw = args.get(key);
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        if (!"true".equalsIgnoreCase(raw) && !"false".equalsIgnoreCase(raw)) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Invalid boolean argument '" + key + "': " + raw);
+        }
+        return Boolean.parseBoolean(raw);
+    }
+
+    /**
+     * Estimates how many snapshots expire_snapshots would remove without committing anything.
+     * Expiry keeps at least {@code retainLast} recent snapshots and, when a horizon is given,
+     * only removes snapshots older than it.
+     */
+    private static int estimateExpiredSnapshots(Table table, int retainLast, Long olderThanMs) {
+        java.util.List<Snapshot> ordered = new java.util.ArrayList<>();
+        table.snapshots().forEach(ordered::add);
+        ordered.sort(java.util.Comparator.comparingLong(Snapshot::timestampMillis)
+                .thenComparingLong(Snapshot::sequenceNumber));
+        int older = Math.max(0, ordered.size() - Math.min(retainLast, ordered.size()));
+        if (olderThanMs == null) {
+            return older;
+        }
+        int candidates = 0;
+        for (int index = 0; index < older; index++) {
+            if (ordered.get(index).timestampMillis() < olderThanMs) {
+                candidates++;
+            }
+        }
+        return candidates;
     }
 
     private static long requireLongArg(Map<String, String> args, String key, String description) {

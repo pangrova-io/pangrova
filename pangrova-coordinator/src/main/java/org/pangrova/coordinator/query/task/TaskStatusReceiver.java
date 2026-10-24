@@ -66,6 +66,16 @@ public final class TaskStatusReceiver {
     }
 
     /**
+     * Installs the governance quality gate evaluated before a distributed write
+     * commit. Optional — when unset, writes are committed without a pre-commit
+     * quality check.
+     */
+    public void setWriteQualityGate(
+            org.pangrova.governance.quality.gate.WriteQualityGate gate) {
+        writes.setWriteQualityGate(gate);
+    }
+
+    /**
      * Process a task status report from a Worker.
      * Rejects reports from unregistered Workers and stale (out-of-order) reports;
      * otherwise updates task tracker and triggers query-level transitions.

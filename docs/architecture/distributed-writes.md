@@ -142,8 +142,21 @@ redo record and an externally visible idempotency marker.
 | Worker crash before commit fragment report | Staged files only | FAILED | Unreferenced files are eligible for delayed orphan cleanup |
 | Coordinator crash before catalog commit | Durable PENDING intent | Unknown | New owner replays the exact intent under its execution fence |
 | Coordinator crash after catalog commit | Snapshot may be published; journal remains PENDING | Unknown | Recovery finds the fingerprint in Iceberg or Paimon snapshot history, skips physical append and retries index-event publication |
-| Catalog commit timeout | Outcome ambiguous | PENDING | Staged files and redo record are retained; recovery proves the result |
+| Catalog commit timeout | Outcome verified before failure: commit-marker proof, definite failure, or UNKNOWN | PENDING unless proven committed | Staged files and redo record are retained; recovery proves the result |
 | Concurrent table change | Depends on write mode/base snapshot validation | PENDING | Iceberg OCC retry preserves the original base and the same fingerprint |
+
+A timed-out catalog commit is resolved in three states, never by an immediate retry:
+
+- `SUCCEEDED` — the in-flight commit finished inside the grace window, or the catalog shows the
+  commit fingerprint marker in the current snapshot ancestry. The write completes normally.
+  Snapshot lineage alone is never sufficient: a concurrent writer's snapshot descends from the
+  same base, so a commit without a durable marker context cannot be attributed to us.
+- `FAILED` — the snapshot is unchanged after the grace period. The commit definitely did not land;
+  the caller may retry under the normal policy.
+- `UNKNOWN` — the snapshot advanced without the commit marker, or verification itself failed. The
+  write fails closed with `CommitStateUnknownException`; the durable PENDING intent is retained
+  and only recovery/reconciliation may resolve it. Automatic retries are forbidden because they
+  could duplicate an already-published commit.
 
 ### Two-Phase Write Commit Protocol
 
@@ -234,6 +247,10 @@ state. It reconstructs the connector session with the persisted tenant and decod
 Worker-dispatched output handle only after checking catalog incarnation, revision, provider,
 configuration fingerprint, codec identity, payload checksum, table, mode and base snapshot.
 The first commit performs the same binding validation. Missing or changed identity fails closed.
+On Paimon the journaled output binding is authoritative: replay decodes that handle and refuses a
+caller handle for a different schema/table. The live table is then fenced against the journaled
+`uuid`, `location` and schema fingerprint, so a drop/recreate of the same `schema.table` fails
+instead of appending to the replacement table.
 
 For Iceberg, every published snapshot carries the fingerprint, execution ID, tenant and base
 snapshot in its summary. Before every initial/retry/recovery publication, Pangrova refreshes the
@@ -254,8 +271,9 @@ to retention monitoring. The current marker/lineage check must not be treated as
 If the marker is retained but outside the current snapshot ancestry, reconciliation fails closed;
 an orphaned snapshot does not prove that its write remains published. The Iceberg output handle
 also binds the table UUID, so a stale write or Worker sink cannot target a dropped-and-recreated
-table with the same name. The connector handle codec is version 2; pending version-1 intents
-must be reconciled before deployment because their payloads do not carry a table UUID.
+table with the same name. The connector handle codec is version 5 and rejects older payloads;
+pending intents written with an earlier codec must be reconciled before deployment because
+their payloads do not carry a table UUID or overwrite scope.
 
 Catalog commit and journal ACK are not atomically fenced by a shared transaction. In particular,
 an old timed-out commit can overlap a recovery attempt after both have checked for the same
@@ -308,6 +326,12 @@ a canonical acknowledged Native lease-renewal contract rather than a widened tim
 
 An ambiguous exception never authorizes deletion of staged files. The PENDING record and files are
 retained until recovery proves publication or an operator reconciles a quarantined intent.
+
+A quarantined intent is recorded in `write_commit_quarantine` by `query_id` and the exact commit
+fingerprint, so the decision survives the coordinator that made it. Later recovery passes skip a
+matching fingerprint instead of re-attempting the commit, and a different intent that reuses a query
+id is not skipped by an older decision. If the quarantine decision cannot be persisted, the intent
+stays eligible and the next pass retries it; recovery still reports the intent as quarantined.
 
 The coordinator-local CDC sink is not covered by the distributed write journal. Its staged token
 allows file deletion only before any catalog publication attempt. Once publication starts, an
@@ -385,7 +409,31 @@ before upgrading rather than inventing tenant or snapshot identity.
 coordinator builds one snapshot update, attaches the durable fingerprint marker and commits one
 atomic metadata swap. APPEND, OVERWRITE, DELETE and MERGE share the same recovery identity.
 
+An Iceberg OVERWRITE must declare its scope in the output handle: `WHOLE_TABLE` replaces every
+row and validates that the commit still starts from the bound base snapshot, `STATIC_PARTITION`
+replaces only partitions captured at allocation, and `DYNAMIC_PARTITION` is rejected until the
+planner can supply the exact affected partitions. An OVERWRITE handle without a scope is
+rejected, and recovery refuses to reconstruct an OVERWRITE handle from a bare write mode, so a
+missing or altered scope cannot silently widen a scoped write into a whole-table replace. The
+declared scope is part of the serialized handle and the durable binding.
+
 **MOR Tables (Paimon)**: Workers call `tableWrite.prepareCommit()` to get `List<CommitMessage>` (native two-phase support). Coordinator collects all fragments and triggers single compaction commit.
+
+Paimon writes are bound to a table identity of `uuid + location + schema fingerprint`. The
+identity is captured when the handle is planned, persisted in the output handle and journaled
+write binding, and rechecked when a page sink is created, when the distributed commit runs, and
+when a replay decodes the journaled binding. Paimon's `uuid()` can be synthesized from the table
+name and the earliest schema, so location and schema fingerprint are part of the identity rather
+than optional corroboration. A mismatch fails the write; it never re-targets the current table.
+
+Commit retries are limited to explicit conflict signatures (`conflict`, `Cannot commit snapshot`,
+preparing/committing snapshot failures). Catalog, permission, argument, unsupported-operation and
+unclassified exceptions are not retried; recovery re-checks the fingerprint marker instead. A
+three-argument `abortDistributedWrite()` deletes only the staged files named by the fragments, only
+under the table location, and only while no snapshot advanced past the stored base snapshot. If
+another writer advanced the table, abort leaves the files for orphan maintenance. Paimon has no
+irrevocable format-level barrier, so a durable four-argument abort remains unsupported and is
+quarantined for reconciliation rather than guessed.
 
 ---
 
@@ -401,6 +449,7 @@ atomic metadata swap. APPEND, OVERWRITE, DELETE and MERGE share the same recover
 | Duplicate commit on ambiguous recovery | The same fingerprint is written to and searched across retained Iceberg or Paimon snapshot lineage; index-event replay is idempotent only for the identical journaled event |
 | Tenant drift during recovery | Tenant is persisted in the redo record and rebuilt into the connector session |
 | Catalog or base snapshot drift during recovery | The exact Worker-dispatched binding and original base are persisted; first commit and replay refuse a changed catalog and never substitute the live snapshot |
+| Drop/recreate of the target table between planning and commit | Paimon fences `uuid + location + schema fingerprint` at sink creation, commit and replay; a replacement table is rejected instead of written |
 | Cleanup after ambiguous publication | Staged files are retained until external publication is proven |
 
 ---

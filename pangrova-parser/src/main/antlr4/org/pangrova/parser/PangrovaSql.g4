@@ -16,11 +16,13 @@ statement
     | compactTable                   #compactTableStatement
     | optimizeTable                  #optimizeTableStatement
     | vacuumTable                    #vacuumTableStatement
+    | analyzeTable                   #analyzeTableStatement
     | createCatalog                  #createCatalogStatement
     | dropCatalog                    #dropCatalogStatement
     | showCatalogs                   #showCatalogsStatement
     | showSchemas                    #showSchemasStatement
     | showTables                     #showTablesStatement
+    | showTableControls              #showTableControlsStatement
     | showViews                      #showViewsStatement
     | showSemanticViews              #showSemanticViewsStatement
     | showSnapshots                  #showSnapshotsStatement
@@ -467,6 +469,12 @@ vacuumTable
     : VACUUM qualifiedName
     ;
 
+// Collects connector statistics and persists them against the controlled table's
+// current version token. COMPUTE STATISTICS is accepted as the explicit spelling.
+analyzeTable
+    : ANALYZE TABLE qualifiedName (COMPUTE STATISTICS)?
+    ;
+
 // --- Catalog DDL ---
 
 createCatalog
@@ -488,6 +496,12 @@ showSchemas
 
 showTables
     : SHOW TABLES ((FROM | IN) qualifiedName)?
+    ;
+
+// Ownership, identity, and version state of LINKED/MANAGED tables. With a
+// catalog or schema scope the live catalog list is merged in as OBSERVED.
+showTableControls
+    : SHOW TABLE CONTROLS ((FROM | IN) qualifiedName)?
     ;
 
 describeCatalog
@@ -526,6 +540,8 @@ alterTable
     | ALTER TABLE qualifiedName DROP BRANCH (IF EXISTS)? branchName=identifier  #alterTableDropBranch
     | ALTER TABLE qualifiedName CREATE TAG tagName=identifier                    #alterTableCreateTag
     | ALTER TABLE qualifiedName DROP TAG (IF EXISTS)? tagName=identifier        #alterTableDropTag
+    | ALTER TABLE qualifiedName ADOPT (WITH LPAREN propertyList RPAREN)?          #alterTableAdopt
+    | ALTER TABLE qualifiedName UNLINK                                           #alterTableUnlink
     | ALTER TABLE qualifiedName ALTER COLUMN? columnName=identifier
             SET TAG tagKey=identifier EQ tagValue=STRING_LITERAL                 #alterTableSetColumnTag
     | ALTER TABLE qualifiedName ALTER COLUMN? columnName=identifier
@@ -1158,6 +1174,9 @@ INCREMENTAL : I N C R E M E N T A L;
 COMPACT     : C O M P A C T;
 OPTIMIZE    : O P T I M I Z E;
 VACUUM      : V A C U U M;
+ANALYZE     : A N A L Y Z E;
+COMPUTE     : C O M P U T E;
+STATISTICS  : S T A T I S T I C S;
 
 // Catalog DDL keywords
 CREATE      : C R E A T E;
@@ -1381,6 +1400,7 @@ TO          : T O;
 SCHEMAS     : S C H E M A S;
 SCHEMA      : S C H E M A;
 TABLES      : T A B L E S;
+CONTROLS    : C O N T R O L S;
 DATA        : D A T A;
 DEFAULT     : D E F A U L T;
 TYPE        : T Y P E;
@@ -1400,6 +1420,8 @@ BRANCH      : B R A N C H;
 BRANCHES    : B R A N C H E S;
 TAG         : T A G;
 TAGS        : T A G S;
+ADOPT       : A D O P T;
+UNLINK      : U N L I N K;
 MAIN        : M A I N;
 USE         : U S E;
 UNSET       : U N S E T;
@@ -1525,7 +1547,7 @@ nonReservedKeyword
     | INCREMENTAL_STRATEGY | APPEND_ONLY | PARTITION_REPLACE | AFFECTED_KEY
     | UNKNOWN
     | PUBLISH | EXPECTING | EPOCH
-    | INCREMENTAL | COMPACT | OPTIMIZE | VACUUM
+    | INCREMENTAL | COMPACT | OPTIMIZE | VACUUM | ANALYZE | COMPUTE | STATISTICS
     | CATALOG | CATALOGS | DESCRIBE | PROPERTIES | CALL
     | SYSTEM_TIME | SYSTEM_VERSION | VERSION | SET | WITH | SHOW | LIMIT
     | TABLE | IF | EXISTS | INTO | VALUES | INSERT | PARTITIONED | COMMENT
@@ -1535,7 +1557,7 @@ nonReservedKeyword
     | DECIMAL | NUMERIC | FLOAT | TINYINT | SMALLINT | VECTOR | ARRAY | MAP | STRUCT
     | PRIMARY | KEY | ENFORCED
     | DELETE | UPDATE | MERGE | USING | MATCHED | THEN | IS
-    | OVERWRITE | ADD | COLUMN | RENAME | TO | SCHEMAS | SCHEMA | TABLES
+    | OVERWRITE | ADD | COLUMN | RENAME | TO | SCHEMAS | SCHEMA | TABLES | CONTROLS
     | DATA | TYPE | LIKE | BETWEEN | CASE | ELSE | END | DEFAULT
     | ROWS | UNBOUNDED | PRECEDING | FOLLOWING | CURRENT | ROW_KW
     | INTERSECT | EXCEPT

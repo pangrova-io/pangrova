@@ -2,8 +2,9 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.governance.GovernanceDeps;
 import org.pangrova.governance.GovernanceContext;
+import org.pangrova.governance.audit.JdbcGovernanceAuditTrail;
+import org.pangrova.governance.classification.ColumnTagService;
 import org.pangrova.governance.classification.InMemoryAuditConfigStore;
-import org.pangrova.governance.classification.InMemoryColumnMaskStore;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.governance.lineage.LineageBackendConfiguration;
@@ -55,9 +56,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     private StreamingContext streamingModule;
     private CdcRegistrationHandler cdcRegistrationHandler;
     private MaintenanceScheduler maintenanceScheduler;
+    private org.pangrova.streaming.maintenance.MaintenanceTableSource maintenanceTableSource;
 
     // Governance
     private GovernanceContext governanceModule;
+    private org.pangrova.governance.quality.gate.WriteQualityGate writeQualityGate;
     private LineageEventEmitter lineageEmitter;
 
     // Resilience
@@ -83,6 +86,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     // Metadata sync (leader-gated periodic sync for federation catalogs)
     private org.pangrova.metadata.sync.MetadataSyncService metadataSyncService;
+    private org.pangrova.metadata.sync.TableVersionObserver versionObserver;
     private org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry;
     private ScheduledExecutorService metadataSyncScheduler;
     private volatile ScheduledFuture<?> metadataSyncTask;
@@ -99,6 +103,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     @Override
     public void onLeaderElected() {
         maintenanceLeader = true;
+        startMaintenanceSchedule();
         if (indexingBootstrap != null) {
             indexingBootstrap.onLeaderElected();
         }
@@ -116,6 +121,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     @Override
     public void onLeadershipLost() {
         maintenanceLeader = false;
+        stopMaintenanceSchedule();
         if (indexingBootstrap != null) {
             indexingBootstrap.onLeadershipLost();
         }
@@ -140,6 +146,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.catalogRegistry = catalog;
     }
 
+    /** Observes LINKED/MANAGED versions on the same leader-gated cadence as sync. */
+    void setVersionObserver(org.pangrova.metadata.sync.TableVersionObserver observer) {
+        this.versionObserver = observer;
+    }
+
     void setInvalidationPoller(org.pangrova.metadata.cache.JdbcInvalidationPoller poller) {
         this.invalidationPoller = poller;
     }
@@ -149,7 +160,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     private void startMetadataSyncSchedule() {
-        if (metadataSyncService == null || catalogRegistry == null) {
+        if (catalogRegistry == null
+                || (metadataSyncService == null && versionObserver == null)) {
             return;
         }
         if (metadataSyncScheduler == null) {
@@ -182,18 +194,34 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             LOG.warn("event=periodic_catalog_reconcile_failed error={}", e.getMessage());
         }
 
-        for (String catalogName : catalogRegistry.listCatalogNames()) {
-            try {
-                org.pangrova.metadata.catalog.CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-                if (!(handle instanceof org.pangrova.metadata.catalog.FederationCatalogHandle fedHandle)) {
-                    continue;
+        if (metadataSyncService != null) {
+            for (String catalogName : catalogRegistry.listCatalogNames()) {
+                try {
+                    org.pangrova.metadata.catalog.CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
+                    if (!(handle instanceof org.pangrova.metadata.catalog.FederationCatalogHandle fedHandle)) {
+                        continue;
+                    }
+                    org.pangrova.metadata.adapter.FederatedCatalog adapter =
+                            fedHandle.getFederatedCatalog();
+                    metadataSyncService.syncWithRetry(catalogName, adapter);
+                } catch (Exception e) {
+                    LOG.warn("event=metadata_sync_catalog_failed catalog={} error={}",
+                            catalogName, e.getMessage());
                 }
-                org.pangrova.metadata.adapter.FederatedCatalog adapter =
-                        fedHandle.getFederatedCatalog();
-                metadataSyncService.syncWithRetry(catalogName, adapter);
-            } catch (Exception e) {
-                LOG.warn("event=metadata_sync_catalog_failed catalog={} error={}",
-                        catalogName, e.getMessage());
+            }
+        }
+        if (versionObserver != null) {
+            for (org.pangrova.metadata.sync.TableVersionObservationReport report
+                    : versionObserver.observeAll()) {
+                if (report.versionChanges() > 0 || report.identityChanges() > 0
+                        || report.missing() > 0 || report.hasFailures()) {
+                    LOG.info("event=table_version_observed catalog={} checked={} "
+                                    + "versionChanges={} identityChanges={} missing={} "
+                                    + "unsupported={} errors={}",
+                            report.catalogName(), report.checked(), report.versionChanges(),
+                            report.identityChanges(), report.missing(), report.unsupported(),
+                            report.errors().size());
+                }
             }
         }
     }
@@ -241,11 +269,17 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     void startStreaming(CoordinatorBootstrapConfig config, DataSource dataSource) {
+        startStreaming(config, dataSource, catalogRegistry);
+    }
+
+    void startStreaming(CoordinatorBootstrapConfig config, DataSource dataSource,
+                        org.pangrova.metadata.catalog.CatalogRegistry catalogs) {
         if (!config.streamingEnabled()) {
             LOG.info("Phase skipped: streaming not enabled");
             return;
         }
-        MaintenanceScheduler scheduler = buildMaintenanceScheduler();
+        this.catalogRegistry = catalogs;
+        MaintenanceScheduler scheduler = buildMaintenanceScheduler(catalogs, dataSource, config);
         this.maintenanceScheduler = scheduler;
         WatermarkStore watermarkStore = dataSource != null
                 ? new JdbcWatermarkStore(dataSource) : new InMemoryWatermarkStore();
@@ -253,9 +287,24 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         streamingModule = new StreamingContext(scheduler, tracker);
         CdcRegistrationStore cdcStore = createCdcRegistrationStore(dataSource);
         cdcRegistrationHandler = new CdcRegistrationHandler(cdcStore);
-        scheduler.startPeriodicScan(java.util.Collections::emptyList);
-        LOG.info("Phase: streaming — initialized (watermarkStore={} cdcRegistrationStore={} periodicScanStarted=true)",
-                watermarkStore.getClass().getSimpleName(), cdcStore.getClass().getSimpleName());
+        LOG.info("Phase: streaming — initialized (watermarkStore={} cdcRegistrationStore={} "
+                        + "maintenanceSource={} periodicScanLeaderGated=true)",
+                watermarkStore.getClass().getSimpleName(), cdcStore.getClass().getSimpleName(),
+                maintenanceTableSource.getClass().getSimpleName());
+    }
+
+    private void startMaintenanceSchedule() {
+        if (maintenanceScheduler == null || maintenanceTableSource == null) {
+            return;
+        }
+        maintenanceScheduler.startPeriodicScan(maintenanceTableSource);
+        LOG.info("event=table_maintenance_schedule_started");
+    }
+
+    private void stopMaintenanceSchedule() {
+        if (maintenanceScheduler != null) {
+            maintenanceScheduler.stopPeriodicScan();
+        }
     }
 
     private static CdcRegistrationStore createCdcRegistrationStore(DataSource dataSource) {
@@ -283,16 +332,40 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         channelRegistry.register(new LogAlertChannel());
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
+        org.pangrova.governance.quality.rule.QualityRuleExecutor qualityExecutor =
+                new DefaultQualityRuleExecutor();
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
-                ruleStore, new DefaultQualityRuleExecutor(), alerter);
-        CronScheduler cronScheduler = new CronScheduler(handler, this::isMaintenanceLeader, null);
+                ruleStore, qualityExecutor, alerter);
+        CronScheduler cronScheduler = new CronScheduler(handler, this::isMaintenanceLeader,
+                new JdbcGovernanceAuditTrail(dataSource));
+        var columnMaskStore =
+                new org.pangrova.security.store.PersistentColumnMaskStore(dataSource);
+        columnMaskStore.initSchema();
+        ColumnTagService columnTagService = new ColumnTagService();
         TagBasedSecurityPolicy securityPolicy = new TagBasedSecurityPolicy(
-                new InMemoryColumnMaskStore(), new InMemoryAuditConfigStore());
+                columnMaskStore, new InMemoryAuditConfigStore());
         governanceModule = new GovernanceContext(new GovernanceDeps(
-                lineageEmitter, handler, securityPolicy, cronScheduler, ruleStore));
+                lineageEmitter, handler, securityPolicy, cronScheduler, ruleStore, columnTagService));
         governanceModule.initialize();
-        LOG.info("Phase: governance — initialized (ruleStore={} leaderGatedCron=true)",
-                ruleStore.getClass().getSimpleName());
+        writeQualityGate = writeQualityGateEnabled()
+                ? new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(
+                        ruleStore, qualityExecutor)
+                : null;
+        LOG.info("Phase: governance — initialized (ruleStore={} columnMaskStore={} "
+                        + "durableAudit=true leaderGatedCron=true writeQualityGate={})",
+                ruleStore.getClass().getSimpleName(),
+                columnMaskStore.getClass().getSimpleName(),
+                writeQualityGate != null);
+    }
+
+    /** Pre-commit quality gate; null when governance is disabled or the gate is turned off. */
+    org.pangrova.governance.quality.gate.WriteQualityGate getWriteQualityGate() {
+        return writeQualityGate;
+    }
+
+    private static boolean writeQualityGateEnabled() {
+        return Boolean.parseBoolean(System.getProperty(
+                "pangrova.governance.write-quality-gate.enabled", "true"));
     }
 
     void startResilience(CoordinatorBootstrapConfig config) {
@@ -345,6 +418,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     MaintenanceScheduler getMaintenanceScheduler() { return maintenanceScheduler; }
     StreamingContext getStreamingContext() { return streamingModule; }
     LineageEventEmitter getLineageEmitter() { return lineageEmitter; }
+
+    /** Shared tag event source; null when governance is disabled. */
+    ColumnTagService getColumnTagService() {
+        return governanceModule != null ? governanceModule.columnTagService() : null;
+    }
     CircuitBreakerPolicy getCircuitBreakerPolicy() { return resilienceRegistry; }
     ResilienceRegistry getResilienceRegistry() { return resilienceRegistry; }
     TenantResolver getTenantResolver() { return tenantResolver; }
@@ -471,7 +549,10 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     private void closeStreaming() { closeModule(streamingModule, "streaming"); }
 
-    private void closeGovernance() { closeModule(governanceModule, "governance"); }
+    private void closeGovernance() {
+        closeModule(governanceModule, "governance");
+        writeQualityGate = null;
+    }
 
     private void closeResilience() {
         if (resilienceRegistry == null) return;
@@ -492,7 +573,32 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         LOG.info("event=module_closed module=operations");
     }
 
-    private static MaintenanceScheduler buildMaintenanceScheduler() {
-        return AbsentTableMaintenance.createDefaultScheduler();
+    private MaintenanceScheduler buildMaintenanceScheduler(
+            org.pangrova.metadata.catalog.CatalogRegistry catalogs, DataSource dataSource,
+            CoordinatorBootstrapConfig config) {
+        if (catalogs == null) {
+            // Metadata-less mode has no ownership records. Keep the scheduler idle
+            // rather than maintaining tables nobody has proved Pangrova may touch.
+            this.maintenanceTableSource = java.util.List::of;
+            return AbsentTableMaintenance.createDefaultScheduler();
+        }
+        org.pangrova.metadata.control.TableControlMaintenanceService policies =
+                new org.pangrova.metadata.control.TableControlMaintenanceService(
+                        dataSource != null
+                                ? new org.pangrova.metadata.control
+                                        .JdbcTableControlMaintenanceStore(dataSource)
+                                : new org.pangrova.metadata.control
+                                        .InMemoryTableControlMaintenanceStore());
+        org.pangrova.streaming.maintenance.MaintenanceConfig maintenanceConfig =
+                org.pangrova.streaming.maintenance.MaintenanceConfig.defaults();
+        var executor = new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(
+                catalogs, policies, distributedLease, config.coordinatorId());
+        this.maintenanceTableSource =
+                new org.pangrova.coordinator.maintenance.ControlledTableSource(
+                        catalogs.tableControl(), policies);
+        return new MaintenanceScheduler(
+                new org.pangrova.coordinator.maintenance.ControlledTableMaintenanceSpi(
+                        catalogs, policies, executor, maintenanceConfig),
+                maintenanceConfig);
     }
 }

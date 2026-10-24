@@ -42,19 +42,30 @@ final class AbsentTableMaintenance implements TableMaintenanceSpi {
 
     @Override
     public CompletableFuture<CompactionResult> compactAsync(String tableName) {
-        return CompletableFuture.completedFuture(null);
+        return unsupported("compact", tableName);
     }
 
     @Override
     public CompletableFuture<OrphanCleanupResult> cleanOrphansAsync(
             String tableName, Duration olderThan) {
-        return CompletableFuture.completedFuture(null);
+        return unsupported("remove_orphan_files", tableName);
     }
 
     @Override
     public CompletableFuture<SnapshotExpirationResult> expireSnapshotsAsync(
             String tableName, Duration olderThan) {
-        return CompletableFuture.completedFuture(null);
+        return unsupported("expire_snapshots", tableName);
+    }
+
+    /**
+     * Fails the operation instead of reporting a successful no-op. A scheduler
+     * without a connector-backed maintenance implementation must surface that
+     * absence rather than advance its bookkeeping as if work had run.
+     */
+    private static <T> CompletableFuture<T> unsupported(String operation, String tableName) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException(
+                "No table maintenance implementation is configured; cannot run " + operation
+                        + " on " + tableName));
     }
 
     @Override

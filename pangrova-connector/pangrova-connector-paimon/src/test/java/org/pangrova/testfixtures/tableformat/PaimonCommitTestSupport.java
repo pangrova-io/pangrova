@@ -1,6 +1,11 @@
 package org.pangrova.testfixtures.tableformat;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.connector.paimon.PaimonMetadata;
+import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
+import org.pangrova.protocol.v2.ConnectorWriteBinding;
+import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
+import org.pangrova.protocol.v2.WriteOutputBinding;
 
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
@@ -12,8 +17,6 @@ import java.util.UUID;
 
 /** Builds the same immutable commit identity used by the Coordinator. */
 public final class PaimonCommitTestSupport {
-
-    private static final byte[] WRITE_BINDING = {42};
 
     private PaimonCommitTestSupport() {}
 
@@ -30,6 +33,7 @@ public final class PaimonCommitTestSupport {
         String tenantId = session.getProperties().get("tenant_id");
         long baseSnapshotId = handle.writeBaseSnapshotId().orElse(-1L);
         String table = handle.targetTable().orElseThrow().toString();
+        byte[] writeBinding = writeBinding(handle);
         String fingerprint = WriteCommitFingerprint.compute(
                 new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
                         executionId,
@@ -38,7 +42,7 @@ public final class PaimonCommitTestSupport {
                         table,
                         handle.writeMode(),
                         baseSnapshotId,
-                        WRITE_BINDING,
+                        writeBinding,
                         session.getUser(),
                         PaimonWriteReceiptFixtures.receipt(), null),
                 fragments);
@@ -46,9 +50,24 @@ public final class PaimonCommitTestSupport {
                 executionId,
                 tenantId,
                 baseSnapshotId,
-                WRITE_BINDING,
+                writeBinding,
                 fingerprint,
                 session.getUser(),
                 PaimonWriteReceiptFixtures.receipt(), null);
+    }
+
+    /** Mirrors the coordinator's durable connector output binding for a Paimon handle. */
+    private static byte[] writeBinding(ConnectorOutputTableHandle handle) {
+        var codec = new PaimonOutputHandleCodec();
+        byte[] payload = codec.serialize(handle);
+        var serialized = SerializedConnectorOutputHandle.newBuilder()
+                .setTypeUrl(codec.typeUrl())
+                .setCodecVersion(codec.codecVersion())
+                .setPayload(ByteString.copyFrom(payload))
+                .addAllWriteColumnNames(codec.writeColumnNames(handle))
+                .build();
+        return WriteOutputBinding.newBuilder()
+                .setConnector(ConnectorWriteBinding.newBuilder().setOutputHandle(serialized))
+                .build().toByteArray();
     }
 }

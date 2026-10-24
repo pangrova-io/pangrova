@@ -78,16 +78,23 @@ the reactor's upstream modules may contain neither named suite.
 
 ## Iceberg static overwrite scope
 
-The sole Iceberg output-handle codec is version 3. Its exact serialized handle
-contains the static partition map, table UUID, captured schema/spec and base
-snapshot; the existing durable binding/fingerprint protects those bytes during
-recovery. There is no old-version decoder or forwarding constructor.
+The sole Iceberg output-handle codec is version 5. Its exact serialized handle
+contains the overwrite scope, the static partition map, table UUID, captured
+schema/spec and base snapshot; the existing durable binding/fingerprint protects
+those bytes during recovery. There is no old-version decoder or forwarding
+constructor.
 
-Static overwrite supports typed identity-partition source columns, including
+Every OVERWRITE handle carries an explicit scope. `WHOLE_TABLE` replaces the
+whole table and validates the bound base snapshot, `STATIC_PARTITION` clears
+only the captured partitions, and `DYNAMIC_PARTITION` is rejected until the
+planner supplies the affected partitions. An OVERWRITE without a scope is
+rejected at construction, and reconstructing an OVERWRITE from a bare write
+mode is refused so recovery must use the journaled output handle. Static
+overwrite supports typed identity-partition source columns, including
 partial partition specifications. The SDK row-filter overwrite clears all
 matching partitions even if the new result is empty or contains fewer partition
-values; added files must satisfy the captured filter. Unscoped overwrite
-replaces the whole table from the Native plan's complete replacement content, so
+values; added files must satisfy the captured filter. A whole-table overwrite
+replaces the table from the Native plan's complete replacement content, so
 a partition that loses all of its rows is emptied rather than left behind, and
 an unscoped empty overwrite clears the whole table. Unknown/non-partition columns, transform-only partition columns,
 unrepresented null/binary values and invalid typed literals reject before

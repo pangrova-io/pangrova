@@ -122,6 +122,8 @@ public final class TableNameExtractor {
                 s -> ((org.pangrova.parser.ast.statement.CreateTagStatement) s).tableName());
         put(map, org.pangrova.parser.ast.statement.DropTagStatement.class,
                 s -> ((org.pangrova.parser.ast.statement.DropTagStatement) s).tableName());
+        put(map, org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement.class,
+                org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement::tableName);
         return Map.copyOf(map);
     }
 

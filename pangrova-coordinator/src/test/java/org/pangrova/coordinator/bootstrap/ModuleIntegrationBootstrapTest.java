@@ -59,6 +59,25 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
         }
     }
 
+    @Test
+    void maintenanceScheduleOnlyRunsWhileLeader() {
+        try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
+            wiring.startStreaming(buildAllModulesEnabled(), null);
+            var scheduler = wiring.getMaintenanceScheduler();
+            assertThat(scheduler).isNotNull();
+            assertThat(scheduler.isPeriodicScanRunning()).isFalse();
+
+            wiring.onLeaderElected();
+            try {
+                assertThat(scheduler.isPeriodicScanRunning()).isTrue();
+            } finally {
+                wiring.onLeadershipLost();
+            }
+
+            assertThat(scheduler.isPeriodicScanRunning()).isFalse();
+        }
+    }
+
     // -- 2. Governance module wiring --
 
     @Test
@@ -67,6 +86,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
             wiring.startGovernance(buildAllModulesEnabled(),
                     org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring"));
             assertThat(wiring.getLineageEmitter()).isNotNull();
+            assertThat(wiring.getWriteQualityGate()).isNotNull();
         }
     }
 
@@ -75,6 +95,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             wiring.startGovernance(CoordinatorBootstrapConfig.withDefaults("coord-test", 0), null);
             assertThat(wiring.getLineageEmitter()).isNull();
+            assertThat(wiring.getWriteQualityGate()).isNull();
         }
     }
 

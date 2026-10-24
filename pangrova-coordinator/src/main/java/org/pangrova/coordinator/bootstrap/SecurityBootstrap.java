@@ -119,9 +119,13 @@ final class SecurityBootstrap {
         // A missing or unavailable authority prevents the process from serving secured traffic.
         roles.listRoles();
         grants.listGrants();
+        PersistentColumnMaskStore maskStore = new PersistentColumnMaskStore(dataSource);
+        // The read path queries column_mask; security-only deployments never ran the
+        // governance bootstrap that used to create it.
+        maskStore.initSchema();
         return new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(dataSource)));
+                new ColumnMaskingProcessor(maskStore));
     }
 
     AuthenticationManager authenticationManager() {

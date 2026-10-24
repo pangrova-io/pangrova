@@ -2,6 +2,7 @@ package org.pangrova.parser;
 
 import org.pangrova.parser.ast.*;
 import org.pangrova.parser.ast.statement.*;
+import org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
 import org.pangrova.parser.ast.statement.maintenance.CallStatement;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
@@ -44,6 +45,11 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override
     public VacuumStatement visitVacuumTable(PangrovaSqlParser.VacuumTableContext ctx) {
         return new VacuumStatement(parent.visitQualifiedName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public AnalyzeStatement visitAnalyzeTable(PangrovaSqlParser.AnalyzeTableContext ctx) {
+        return new AnalyzeStatement(parent.visitQualifiedName(ctx.qualifiedName()));
     }
 
     @Override
@@ -155,6 +161,17 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
             return new ShowTablesStatement(parts);
         }
         return new ShowTablesStatement(List.of("default"));
+    }
+
+    @Override
+    public ShowTableControlsStatement visitShowTableControls(
+            PangrovaSqlParser.ShowTableControlsContext ctx) {
+        if (ctx.qualifiedName() == null) {
+            return new ShowTableControlsStatement(List.of());
+        }
+        List<String> parts = ctx.qualifiedName().identifier().stream()
+                .map(AstDdlDmlBuilder::extractIdentifierText).toList();
+        return new ShowTableControlsStatement(parts);
     }
 
     @Override
@@ -485,6 +502,34 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
             props.put(key, value);
         }
         return props;
+    }
+
+    /** Parses a property list whose values are consumed as text by the caller. */
+    Map<String, String> propertyTextMap(PangrovaSqlParser.PropertyListContext ctx) {
+        Map<String, String> props = new LinkedHashMap<>();
+        for (PangrovaSqlParser.PropertyContext prop : ctx.property()) {
+            String key = extractPropertyKey(prop);
+            Literal value = (Literal) parent.visit(prop.literal());
+            props.put(key, literalText(value));
+        }
+        return props;
+    }
+
+    private static String literalText(Literal literal) {
+        LiteralValue value = literal.value();
+        if (value instanceof LiteralValue.StringValue stringValue) {
+            return stringValue.value();
+        }
+        if (value instanceof LiteralValue.IntegerValue integerValue) {
+            return String.valueOf(integerValue.value());
+        }
+        if (value instanceof LiteralValue.DecimalValue decimalValue) {
+            return decimalValue.value().toPlainString();
+        }
+        if (value instanceof LiteralValue.BooleanValue booleanValue) {
+            return String.valueOf(booleanValue.value());
+        }
+        return value.toString();
     }
 
     private String extractPropertyKey(PangrovaSqlParser.PropertyContext prop) {

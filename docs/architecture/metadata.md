@@ -1613,6 +1613,102 @@ Serialization example:
 }
 ```
 
+### 4.7 Table Control Plane (Ownership and Admission)
+
+Catalog visibility is not ownership. The control plane adds the management state that a
+connector cannot answer: who owns a table, which format identity it has, and whether
+Pangrova may write, drop, or maintain it.
+
+| Mode | Source | Persisted | Query | Governance | Maintenance | DML / DROP |
+|---|---|---|---|---|---|---|
+| `OBSERVED` | visible in the catalog, no control record | no | yes | observe only | no | no |
+| `LINKED` | explicit adoption of an external table | yes | yes | yes | only policy-authorized non-destructive operations | no |
+| `MANAGED` | created or written by Pangrova | yes | yes | yes | yes | yes |
+
+- `table_control_registry` stores only `LINKED` / `MANAGED`; `OBSERVED` is computed on every
+  resolve and never written. A connector remains the authority for schemas, snapshots, and
+  statistics.
+- A control record carries a stable `table_id`, the format UUID (`format_table_uuid`), the
+  last observed `version_token`, and a `metadata_revision` that increments on every mutation.
+  Drop/recreate under the same name therefore produces a different identity; stale handles
+  and write intents cannot silently target the new table.
+- `CREATE TABLE` registers `MANAGED` in the same DDL path. If the physical table was created
+  but registration failed, the record is stored as `ORPHANED_MANAGED` and the DDL fails.
+  `DROP TABLE` retires the live record (`DROPPED`); `ALTER TABLE ... RENAME` moves it.
+- Ownership is checked before the connector is touched: `DdlExecutor` for DROP/ALTER,
+  `DefaultMetadataService` for the REST/metadata path, and `QuerySchedulingEngine` for
+  distributed DML. Connectors are never asked to infer writability from catalog type.
+- Capabilities are a separate, fail-closed contract. A connector returns `TableCapabilities`
+  from `getTableCapabilities`; the default (`TableCapabilities.UNSUPPORTED`) declares nothing,
+  and undeclared always means unsupported. Ownership admits a write; capabilities then decide
+  whether the format can execute it. `INSERT` requires `supportsWrite`, and
+  `UPDATE`/`DELETE`/`MERGE` additionally require `supportsDelete`. A missing capability fails
+  before connector allocation with `CONNECTOR_UNSUPPORTED_OPERATION`. Iceberg keeps
+  `supportsEqualityDeleteRead=false` and fails closed on equality delete files until the read
+  path is verified against a reference engine; maintenance operations and system tables are
+  likewise declared per format rather than inferred.
+- `ALTER TABLE ... ADOPT` creates a `LINKED` record from the connector's live identity and
+  version. It fails closed when the connector cannot report a format UUID, when the table is
+  already `MANAGED`, or when an existing record's identity no longer matches (drop/recreate).
+  Re-adopting the same identity is idempotent. ADOPT never changes the physical table.
+- `ALTER TABLE ... UNLINK` retires a `LINKED` record only; the physical table stays and returns
+  to `OBSERVED`. It rejects `OBSERVED` (nothing to unlink) and `MANAGED` (use `DROP TABLE`).
+- Resolution caches a controlled entry only while its `metadata_revision` and version token
+  still match the registry; `OBSERVED` entries use the short-lived local cache.
+- `TableVersionObserver` reconciles every live `LINKED`/`MANAGED` record with the connector on
+  the leader's metadata-sync cadence. A new `version_token` advances `metadata_revision`,
+  appends `table_control_version_observation`, writes `invalidation_log`, and emits
+  `ExternalCommitObservedEvent`. An observation is not a Pangrova write commit and never enters
+  the write commit journal.
+- A changed `format_table_uuid` or location transitions the record to `QUARANTINED`; writes and
+  maintenance stay blocked until an operator confirms the replacement. A table the catalog no
+  longer resolves becomes `STALE`. An unreachable catalog aborts the pass instead: discovery
+  failure is never treated as proof of deletion.
+- `OBSERVED` tables are never persisted or observed in the background. Resolution captures the
+  live version token and its cache entry expires after 30 seconds (or the configured resolution
+  TTL if shorter), so a drop/recreate is picked up without writing control state.
+- `SHOW TABLE CONTROLS [FROM|IN catalog[.schema[.table]]]` reads the control plane:
+  - without a scope it lists persisted `LINKED`/`MANAGED` records across all catalogs;
+  - with a catalog/schema scope it merges the live catalog listing in as `OBSERVED` rows;
+  - with a single-table scope it additionally resolves that table's live `format_table_uuid`
+    and `version_token`.
+  Control records missing from the live listing stay visible so `STALE`/`QUARANTINED` state is
+  never hidden. This statement never writes control state. Rows also carry the collected
+  statistics summary (`stats_version`, `stats_row_count`, `stats_data_size`,
+  `stats_computed_at`), with `-1` meaning none are available.
+- `ANALYZE TABLE` collects connector statistics only for an `ACTIVE` `LINKED`/`MANAGED` record and
+  persists them in `table_control_statistics`, keyed by `table_id` and bound to the version
+  token observed during collection. The collection aborts if the version changes mid-run, if the
+  connector reports no version token, or if it reports no usable statistics; nothing is stored
+  under a fabricated zero. The planner (`CatalogStatisticsProvider`) prefers a persisted row only
+  while its token still matches the control record and otherwise reads live connector
+  statistics. `UNLINK` and `DROP TABLE` purge the row with the other table-scoped state, so a
+  reused name cannot inherit old cardinalities.
+- `TableControlPolicyBinder` stores governance artifacts (column tag, column mask, row filter,
+  quality rule, lineage) in `table_control_governance_binding`, keyed by `table_id` and the
+  artifact reference. Binding requires an `ACTIVE` `LINKED`/`MANAGED` record: an `OBSERVED`
+  table has no stable identity, and a `QUARANTINED`/`STALE` record may describe a replaced
+  table. `requireCurrentBinding` re-resolves the live record and rejects a binding
+  left over from a dropped/recreated table even though the name matches; callers that
+  resolve a binding by name use it instead of trusting the name. Query-time tag and
+  mask enforcement is name-keyed, so a recreated table can only inherit over-masking
+  (never a policy bypass), and every control-plane operation on it fails until the
+  record is `ACTIVE` again.
+  `UNLINK` and `DROP TABLE` purge every binding for the retired `table_id`, so a new table
+  created under the same name starts without inherited governance.
+
+Staged rollout (system properties):
+
+| Property | Default | Effect |
+|---|---|---|
+| `pangrova.table-control.enabled` | `true` | Write control records in shadow mode |
+| `pangrova.table-control.external-readonly` | `false` | Enforce rejection of DML/DROP on `OBSERVED`/`LINKED` |
+| `pangrova.table-control.legacy-write-allowlist` | empty | Comma-separated `catalog.schema.table` names lazily registered as `MANAGED` during migration |
+
+Enforcement must use `JdbcTableControlStore` (wired whenever the metadata datasource exists)
+so every coordinator reaches the same ownership decision. The in-memory store is limited to
+tests and metadata-less modes.
+
 
 ---
 

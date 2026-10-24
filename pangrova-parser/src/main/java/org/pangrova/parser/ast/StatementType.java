@@ -93,6 +93,7 @@ public enum StatementType {
     COMPACT,
     OPTIMIZE,
     VACUUM,
+    ANALYZE,
 
     // Stream statements (org.pangrova.parser.ast.statement.stream)
     ALTER_STREAM,

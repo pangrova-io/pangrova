@@ -17,6 +17,8 @@ import org.pangrova.spi.connector.metadata.table.SnapshotRange;
  * <p>Metadata snapshot fields:
  * <ul>
  *   <li>{@code tableLocation} - Base location URI of the table</li>
+ *   <li>{@code tableUuid} - SDK table identity used to fence drop/recreate</li>
+ *   <li>{@code schemaFingerprint} - Canonical schema identity captured with the handle</li>
  *   <li>{@code snapshotId} - Optional snapshot ID for time-travel queries</li>
  *   <li>{@code rowTypeJson} - JSON serialization of the Paimon RowType schema</li>
  *   <li>{@code primaryKeys} - List of primary key column names (empty for append-only tables)</li>
@@ -27,6 +29,8 @@ public record PaimonTableHandle(
         String schemaName,
         String tableName,
         String tableLocation,
+        String tableUuid,
+        String schemaFingerprint,
         Optional<Long> snapshotId,
         String rowTypeJson,
         List<String> primaryKeys,
@@ -37,6 +41,18 @@ public record PaimonTableHandle(
 
     /** No limit pushed down. */
     public static final long NO_LIMIT = 0L;
+
+    /** Format capabilities this adapter can prove. */
+    public static final org.pangrova.spi.connector.metadata.table.TableCapabilities CAPABILITIES =
+            new org.pangrova.spi.connector.metadata.table.TableCapabilities(
+                    true, true, true, true, true, true,
+                    java.util.Set.of("files", "branches", "snapshots", "tags", "options",
+                            "schemas"),
+                    java.util.Set.of("COMPACT", "OPTIMIZE", "VACUUM", "EXPIRE_SNAPSHOTS",
+                            "REMOVE_ORPHAN_FILES"),
+                    org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
+                            .FORMAT_IDENTITY_AND_BASE_VERSION);
+
     /** Evidence captured from the selected SDK source, never a query-wide mutable pin. */
     public static final String SOURCE_IDENTITY_PROPERTY = "pangrova.read.source_identity";
     /** Ordinary reads retain their captured current schema while selecting a data snapshot. */
@@ -49,6 +65,8 @@ public record PaimonTableHandle(
         requireNonBlank(schemaName, "schemaName");
         requireNonBlank(tableName, "tableName");
         requireNonBlank(tableLocation, "tableLocation");
+        requireNonBlank(tableUuid, "tableUuid");
+        requireNonBlank(schemaFingerprint, "schemaFingerprint");
         requireNonBlank(rowTypeJson, "rowTypeJson");
         snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
         primaryKeys = primaryKeys == null ? List.of() : List.copyOf(primaryKeys);
@@ -72,6 +90,17 @@ public record PaimonTableHandle(
         }
     }
 
+    @Override
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities() {
+        return CAPABILITIES;
+    }
+
+    @Override
+    public Optional<org.pangrova.spi.connector.metadata.table.TableIdentity> tableIdentity() {
+        return Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
+                "PAIMON", tableUuid, tableLocation, schemaFingerprint));
+    }
+
     /**
      * Creates a handle with a specific snapshot ID for time-travel queries.
      *
@@ -83,7 +112,7 @@ public record PaimonTableHandle(
         selectedProperties.remove(CURRENT_SCHEMA_PROPERTY);
         selectedProperties.remove(SOURCE_IDENTITY_PROPERTY);
         return new PaimonTableHandle(
-                schemaName, tableName, tableLocation,
+                schemaName, tableName, tableLocation, tableUuid, schemaFingerprint,
                 Optional.of(targetSnapshotId), rowTypeJson,
                 primaryKeys, partitionKeys, selectedProperties, pushedLimit, Optional.empty());
     }
@@ -103,7 +132,7 @@ public record PaimonTableHandle(
         selectedProperties.remove(CURRENT_SCHEMA_PROPERTY);
         selectedProperties.remove(SOURCE_IDENTITY_PROPERTY);
         return new PaimonTableHandle(
-                schemaName, tableName, tableLocation,
+                schemaName, tableName, tableLocation, tableUuid, schemaFingerprint,
                 Optional.empty(), rowTypeJson,
                 primaryKeys, partitionKeys, selectedProperties, pushedLimit, Optional.empty());
     }
@@ -116,7 +145,7 @@ public record PaimonTableHandle(
      */
     public PaimonTableHandle withLimit(long limit) {
         return new PaimonTableHandle(
-                schemaName, tableName, tableLocation,
+                schemaName, tableName, tableLocation, tableUuid, schemaFingerprint,
                 snapshotId, rowTypeJson,
                 primaryKeys, partitionKeys, properties, limit, incrementalRange);
     }
@@ -135,7 +164,7 @@ public record PaimonTableHandle(
         selectedProperties.remove(CURRENT_SCHEMA_PROPERTY);
         selectedProperties.remove(SOURCE_IDENTITY_PROPERTY);
         return new PaimonTableHandle(
-                schemaName, tableName, tableLocation,
+                schemaName, tableName, tableLocation, tableUuid, schemaFingerprint,
                 Optional.empty(), rowTypeJson,
                 primaryKeys, partitionKeys, selectedProperties, pushedLimit, Optional.of(range));
     }

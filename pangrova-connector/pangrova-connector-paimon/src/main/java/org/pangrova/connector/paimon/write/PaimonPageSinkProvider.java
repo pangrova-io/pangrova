@@ -3,6 +3,7 @@ package org.pangrova.connector.paimon.write;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
 import org.pangrova.spi.connector.data.ConnectorPageSink;
@@ -40,7 +41,7 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
+        Table freshTable = loadFreshTable(handle);
         return new PaimonPageSink(freshTable, handle.schemaName(),
                 handle.tableName(), tempDir);
     }
@@ -51,7 +52,7 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
+        Table freshTable = loadFreshTable(handle);
         return new PaimonOverwritePageSink(freshTable, handle.schemaName(),
                 handle.tableName(), tempDir, handle.overwritePartition());
     }
@@ -62,22 +63,25 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
             ConnectorSession session,
             ConnectorOutputTableHandle outputTableHandle) {
         PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputTableHandle;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
+        Table freshTable = loadFreshTable(handle);
         return new PaimonDeletePageSink(freshTable, handle.schemaName(),
                 handle.tableName(), tempDir);
     }
 
     /**
-     * Loads a fresh table from the catalog.
-     * Ensures write operations use the latest table metadata.
+     * Loads a fresh table from the catalog and fences a drop/recreate or schema change that
+     * happened after the write was planned.
      */
-    private Table loadFreshTable(String schemaName, String tableName) {
-        Identifier id = Identifier.create(schemaName, tableName);
+    private Table loadFreshTable(PaimonOutputTableHandle handle) {
+        Identifier id = Identifier.create(handle.schemaName(), handle.tableName());
+        Table fresh;
         try {
-            return catalog.getTable(id);
+            fresh = catalog.getTable(id);
         } catch (Catalog.TableNotExistException e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found for write: " + id, e);
         }
+        return PaimonTableIdentity.requireSame(fresh, handle.tableUuid(), handle.tableLocation(),
+                handle.schemaFingerprint(), "Paimon write");
     }
 }

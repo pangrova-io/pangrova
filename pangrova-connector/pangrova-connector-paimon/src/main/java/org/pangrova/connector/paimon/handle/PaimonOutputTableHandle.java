@@ -19,6 +19,8 @@ import java.util.OptionalLong;
  * <p>Metadata snapshot fields:
  * <ul>
  *   <li>{@code tableLocation} - Base location URI of the table</li>
+ *   <li>{@code tableUuid} - SDK table identity used to fence drop/recreate</li>
+ *   <li>{@code schemaFingerprint} - Canonical schema identity captured at planning</li>
  *   <li>{@code rowTypeJson} - JSON serialization of the Paimon RowType schema</li>
  *   <li>{@code primaryKeys} - List of primary key column names</li>
  *   <li>{@code partitionKeys} - List of partition key column names</li>
@@ -28,6 +30,8 @@ public record PaimonOutputTableHandle(
         String schemaName,
         String tableName,
         String tableLocation,
+        String tableUuid,
+        String schemaFingerprint,
         String rowTypeJson,
         Layout layout,
         WriteSemantics write) implements ConnectorOutputTableHandle {
@@ -39,6 +43,8 @@ public record PaimonOutputTableHandle(
         requireNonBlank(schemaName, "schemaName");
         requireNonBlank(tableName, "tableName");
         requireNonBlank(tableLocation, "tableLocation");
+        requireNonBlank(tableUuid, "tableUuid");
+        requireNonBlank(schemaFingerprint, "schemaFingerprint");
         requireNonBlank(rowTypeJson, "rowTypeJson");
         java.util.Objects.requireNonNull(layout, "layout");
         java.util.Objects.requireNonNull(write, "write");
@@ -111,13 +117,16 @@ public record PaimonOutputTableHandle(
         if (write.physicalAllocation().isPresent()) {
             throw new IllegalStateException("Physical output is already allocated");
         }
-        return new PaimonOutputTableHandle(schemaName, tableName, tableLocation, rowTypeJson, layout,
+        return new PaimonOutputTableHandle(schemaName, tableName, tableLocation, tableUuid,
+                schemaFingerprint, rowTypeJson, layout,
                 new WriteSemantics(overwritePartition(), mode(), baseSnapshotId(), Optional.of(allocation)));
     }
 
+    /** Rebinds the handle to the base snapshot confirmed by the commit recovery path. */
     public PaimonOutputTableHandle withBaseSnapshotId(long originalBaseSnapshotId) {
-        return new PaimonOutputTableHandle(schemaName, tableName, tableLocation,
-                rowTypeJson, layout, new WriteSemantics(overwritePartition(), mode(),
+        return new PaimonOutputTableHandle(schemaName, tableName, tableLocation, tableUuid,
+                schemaFingerprint, rowTypeJson, layout,
+                new WriteSemantics(overwritePartition(), mode(),
                         originalBaseSnapshotId, write.physicalAllocation()));
     }
 

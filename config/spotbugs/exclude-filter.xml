@@ -1203,8 +1203,32 @@
     </Match>
     <Match>
         <Class name="org.pangrova.governance.GovernanceDeps"/>
+        <Method name="columnTagService" params="" returns="org.pangrova.governance.classification.ColumnTagService"/>
+        <Field name="columnTagService" type="org.pangrova.governance.classification.ColumnTagService"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.governance.GovernanceDeps"/>
         <Method name="&lt;init&gt;" params="org.pangrova.governance.lineage.LineageEventEmitter,org.pangrova.governance.quality.rule.GovernanceStatementHandler,org.pangrova.governance.classification.TagBasedSecurityPolicy,org.pangrova.governance.quality.schedule.CronScheduler,org.pangrova.governance.quality.rule.QualityRuleStore" returns="void"/>
         <Field name="securityPolicy" type="org.pangrova.governance.classification.TagBasedSecurityPolicy"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.governance.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.lineage.LineageEventEmitter,org.pangrova.governance.quality.rule.GovernanceStatementHandler,org.pangrova.governance.classification.TagBasedSecurityPolicy,org.pangrova.governance.quality.schedule.CronScheduler,org.pangrova.governance.quality.rule.QualityRuleStore,org.pangrova.governance.classification.ColumnTagService" returns="void"/>
+        <Field name="columnTagService" type="org.pangrova.governance.classification.ColumnTagService"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.governance.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.lineage.LineageEventEmitter,org.pangrova.governance.quality.rule.GovernanceStatementHandler,org.pangrova.governance.classification.TagBasedSecurityPolicy,org.pangrova.governance.quality.schedule.CronScheduler,org.pangrova.governance.quality.rule.QualityRuleStore,org.pangrova.governance.classification.ColumnTagService" returns="void"/>
+        <Field name="securityPolicy" type="org.pangrova.governance.classification.TagBasedSecurityPolicy"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.governance.GovernanceDeps"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.governance.lineage.LineageEventEmitter,org.pangrova.governance.quality.rule.GovernanceStatementHandler,org.pangrova.governance.classification.TagBasedSecurityPolicy,org.pangrova.governance.quality.schedule.CronScheduler,org.pangrova.governance.quality.rule.QualityRuleStore,org.pangrova.governance.classification.ColumnTagService" returns="void"/>
+        <Field name="lineageEmitter" type="org.pangrova.governance.lineage.LineageEventEmitter"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
@@ -1316,6 +1340,40 @@
         <Class name="org.pangrova.metadata.store.JdbcMetadataStore"/>
         <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
         <Field name="dataSource" type="javax.sql.DataSource"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <!-- Table-control and materialization stores borrow the assembly-owned connection
+         source; replacing it would detach them from the real owner. Only the exact
+         constructor assignment is classified; queries and payloads remain checked. -->
+    <Match>
+        <Class name="~org\.pangrova\.metadata\.control\.JdbcTableControl.*Store"/>
+        <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
+        <Field name="dataSource" type="javax.sql.DataSource"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.materialization.JdbcMaterializationCatalog"/>
+        <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
+        <Field name="dataSource" type="javax.sql.DataSource"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.materialization.JdbcMaterializationRepository"/>
+        <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
+        <Field name="dataSource" type="javax.sql.DataSource"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <!-- CatalogRegistry exposes assembly-owned services by identity so callers share the
+         same authority instance; copying them would split state. -->
+    <Match>
+        <Class name="org.pangrova.metadata.catalog.CatalogRegistry"/>
+        <Method name="tableControl" returns="org.pangrova.metadata.control.TableControlService"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.sync.TableVersionObserver"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.catalog.CatalogRegistry,org.pangrova.metadata.event.MetadataEventDispatcher,java.time.Clock" returns="void"/>
+        <Field name="~(catalogRegistry|eventDispatcher)"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
@@ -2338,6 +2396,31 @@
         <Class name="org.pangrova.coordinator.metadata.MetadataBootstrap" />
         <Field name="metadataService" type="org.pangrova.metadata.service.MetadataService" />
         <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+    <!--
+        Bootstrap and kernel-factory accessors return assembly-owned collaborators by
+        identity so callers share the same registry, datasource and stores. Copying
+        or wrapping them would detach callers from the live instance.
+    -->
+    <Match>
+        <Class name="org.pangrova.coordinator.bootstrap.CoordinatorBootstrap" />
+        <Field name="metadataBootstrap" type="org.pangrova.coordinator.metadata.MetadataBootstrap" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.materialization.MaterializationKernelFactory" />
+        <Field name="~(repository|metadataDataSource|catalogs)" />
+        <Bug pattern="EI_EXPOSE_REP" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.materialization.NativeCommitPublicationVerifier" />
+        <Field name="dataSource" type="javax.sql.DataSource" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.materialization.NativeCtasExecutionEngine" />
+        <Field name="~(catalogs|metadataDataSource)" />
+        <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
     <Match>
         <Class name="org.pangrova.coordinator.metadata.PluginConnectorHandleFactory" />

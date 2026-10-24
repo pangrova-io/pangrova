@@ -123,6 +123,7 @@ class PaimonReadBindingIntegrationTest {
                 assertThat(metadata.bindRead(actor, narrowedHandle).sourceIdentity()).isEqualTo(original.sourceIdentity());
                 var forged = new org.pangrova.connector.paimon.handle.PaimonTableHandle(
                         narrowedHandle.schemaName(), narrowedHandle.tableName(), narrowedHandle.tableLocation(),
+                        narrowedHandle.tableUuid(), narrowedHandle.schemaFingerprint(),
                         narrowedHandle.snapshotId(), ((org.pangrova.connector.paimon.handle.PaimonTableHandle)
                                 currentSelector).rowTypeJson(), narrowedHandle.primaryKeys(),
                         narrowedHandle.partitionKeys(), narrowedHandle.properties(), narrowedHandle.pushedLimit(),

@@ -37,7 +37,10 @@ final class PaimonReadBindings {
         var properties = new LinkedHashMap<>(schema.options());
         properties.put(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY, identity);
         if (selector.snapshotId().isEmpty()) properties.put(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY, "true");
-        var bound = new PaimonTableHandle(selector.schemaName(), selector.tableName(), table.location().toString(),
+        var bound = new PaimonTableHandle(selector.schemaName(), selector.tableName(),
+                table.location().toString(), table.uuid(),
+                org.pangrova.connector.paimon.handle.PaimonTableIdentity
+                        .schemaFingerprint(table.schema()),
                 snapshot == null ? Optional.empty() : Optional.of(snapshot.id()),
                 org.apache.paimon.utils.JsonSerdeUtil.toFlatJson(schema.rowType()),
                 table.primaryKeys(), table.partitionKeys(), properties, selector.pushedLimit(),
@@ -69,8 +72,9 @@ final class PaimonReadBindings {
 
     static FileStoreTable requireSelectedTable(org.apache.paimon.table.Table table, PaimonTableHandle handle) {
         if (!(table instanceof FileStoreTable fileStore)
-                || !fileStore.location().toString().equals(handle.tableLocation())) {
-            throw new IllegalStateException("Selected native table location changed");
+                || !fileStore.location().toString().equals(handle.tableLocation())
+                || !fileStore.uuid().equals(handle.tableUuid())) {
+            throw new IllegalStateException("Selected native table identity changed");
         }
         if ("true".equals(handle.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))) {
             var options = new LinkedHashMap<>(handle.properties());
@@ -89,8 +93,9 @@ final class PaimonReadBindings {
     }
 
     static Snapshot selectedSnapshot(FileStoreTable table, PaimonTableHandle handle) {
-        if (!table.location().toString().equals(handle.tableLocation())) {
-            throw new IllegalStateException("Selected table location changed");
+        if (!table.location().toString().equals(handle.tableLocation())
+                || !table.uuid().equals(handle.tableUuid())) {
+            throw new IllegalStateException("Selected table identity changed");
         }
         if (handle.snapshotId().isEmpty()) return table.snapshotManager().latestSnapshot();
         long version = handle.snapshotId().orElseThrow();

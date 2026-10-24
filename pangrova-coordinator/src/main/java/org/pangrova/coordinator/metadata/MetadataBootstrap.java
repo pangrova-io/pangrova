@@ -32,6 +32,7 @@ public final class MetadataBootstrap {
     private final TieredMetadataCache metadataCache;
     private final MetadataEventDispatcher eventDispatcher;
     private final MetadataSyncService syncService;
+    private final org.pangrova.metadata.sync.TableVersionObserver versionObserver;
     private final DataSource dynamicTablePublicationDataSource;
 
     private MetadataBootstrap(
@@ -40,12 +41,14 @@ public final class MetadataBootstrap {
             TieredMetadataCache metadataCache,
             MetadataEventDispatcher eventDispatcher,
             MetadataSyncService syncService,
+            org.pangrova.metadata.sync.TableVersionObserver versionObserver,
             DataSource dynamicTablePublicationDataSource) {
         this.catalogRegistry = catalogRegistry;
         this.metadataService = metadataService;
         this.metadataCache = metadataCache;
         this.eventDispatcher = eventDispatcher;
         this.syncService = syncService;
+        this.versionObserver = versionObserver;
         this.dynamicTablePublicationDataSource = dynamicTablePublicationDataSource;
     }
 
@@ -94,13 +97,14 @@ public final class MetadataBootstrap {
                 registry, cache, dispatcher, validator);
 
         MetadataSyncService syncService = new MetadataSyncService(store, cache, dispatcher);
-
+        org.pangrova.metadata.sync.TableVersionObserver versionObserver =
+                new org.pangrova.metadata.sync.TableVersionObserver(registry, dispatcher);
 
         registry.initialize();
         LOG.info("event=metadata_subsystem_initialized");
 
         return new MetadataBootstrap(registry, service, cache, dispatcher, syncService,
-                publicationDataSource);
+                versionObserver, publicationDataSource);
     }
 
     /**
@@ -117,6 +121,11 @@ public final class MetadataBootstrap {
         return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session, readBindings);
     }
 
+    /** Subscribes to metadata lifecycle events such as observed external commits. */
+    public void addMetadataListener(org.pangrova.metadata.event.MetadataEventListener listener) {
+        eventDispatcher.addListener(listener);
+    }
+
     public CatalogRegistry catalogRegistry() {
         return catalogRegistry;
     }
@@ -127,6 +136,11 @@ public final class MetadataBootstrap {
 
     public MetadataSyncService syncService() {
         return syncService;
+    }
+
+    /** Version observation for LINKED/MANAGED tables, driven by the leader scheduler. */
+    public org.pangrova.metadata.sync.TableVersionObserver versionObserver() {
+        return versionObserver;
     }
 
     public org.pangrova.metadata.cache.TieredMetadataCache metadataCache() {

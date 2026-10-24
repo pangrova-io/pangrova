@@ -1,5 +1,7 @@
 package org.pangrova.metadata.materialization;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -371,7 +373,9 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
         }
         JdbcMaterializationRows.requireCapability(attempt, candidate, capability);
         String sourceVectorHash = attempt.sourceVector().canonicalHash();
-        if (!sourceVectorHash.equals(candidate.sourceVector().canonicalHash())) {
+        if (!MessageDigest.isEqual(
+                sourceVectorHash.getBytes(StandardCharsets.UTF_8),
+                candidate.sourceVector().canonicalHash().getBytes(StandardCharsets.UTF_8))) {
             throw MaterializationException.evidenceMismatch(
                     "attempt and candidate carry different source vectors");
         }

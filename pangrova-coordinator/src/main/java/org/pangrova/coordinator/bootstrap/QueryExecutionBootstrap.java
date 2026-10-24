@@ -67,6 +67,7 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.feature.FeatureViewStatementService> featureViewServiceFactory;
     private final org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
             embeddingModelRegistry;
+    private final org.pangrova.security.audit.AuditEventEmitter auditEmitter;
 
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private WorkerManager workerManager;
@@ -92,7 +93,8 @@ final class QueryExecutionBootstrap {
                          org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
                                  embeddingModelRegistry,
                          org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver,
-                         javax.sql.DataSource metadataDataSource) {
+                         javax.sql.DataSource metadataDataSource,
+                         org.pangrova.security.audit.AuditEventEmitter auditEmitter) {
         this.config = config;
         this.tracingProvider = tracingProvider;
         this.accessControl = accessControl;
@@ -111,6 +113,7 @@ final class QueryExecutionBootstrap {
         this.semanticViewStore = semanticViewStore;
         this.featureViewServiceFactory = featureViewServiceFactory;
         this.embeddingModelRegistry = embeddingModelRegistry;
+        this.auditEmitter = auditEmitter;
     }
 
     QueryDispatcher buildQueryDispatcher(
@@ -233,8 +236,43 @@ final class QueryExecutionBootstrap {
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(
                 catalog, null,
                 org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
+        ddlExecutor.setMetadataService(metadataBootstrap.metadataService());
+        if (metadataDataSource != null
+                && (config.securityEnabled() || config.governanceEnabled())) {
+            ddlExecutor.setColumnMaskStore(
+                    new org.pangrova.security.store.PersistentColumnMaskStore(metadataDataSource));
+        }
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
-        var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
+        var maintenancePolicyService =
+                new org.pangrova.metadata.control.TableControlMaintenanceService(
+                        metadataDataSource != null
+                                ? new org.pangrova.metadata.control
+                                        .JdbcTableControlMaintenanceStore(metadataDataSource)
+                                : new org.pangrova.metadata.control
+                                        .InMemoryTableControlMaintenanceStore());
+        var controlledMaintenance =
+                new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(
+                        catalog, maintenancePolicyService,
+                        moduleWiring != null ? moduleWiring.getDistributedLease() : null,
+                        config.coordinatorId());
+        var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
+                controlledMaintenance);
+        ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
+        ddlExecutor.setPolicyBinder(new org.pangrova.metadata.control.TableControlPolicyBinder(
+                catalog.tableControl(),
+                metadataDataSource != null
+                        ? new org.pangrova.metadata.control
+                                .JdbcTableControlGovernanceBindingStore(metadataDataSource)
+                        : new org.pangrova.metadata.control
+                                .InMemoryTableControlGovernanceBindingStore()));
+
+        if (auditEmitter != null) {
+            var tableControlAudit =
+                    new org.pangrova.coordinator.query.audit.TableControlAuditEmitter(auditEmitter);
+            ddlExecutor.setTableControlAudit(tableControlAudit);
+            controlledMaintenance.setTableControlAudit(tableControlAudit);
+            metadataBootstrap.addMetadataListener(tableControlAudit);
+        }
 
         var securityApplier = new org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier(
                 compilerSnapshot, deps.accessControlEnforcer(),
@@ -352,6 +390,8 @@ final class QueryExecutionBootstrap {
         tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.DropTag.class, alterTableTask);
         tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.SetColumnTag.class, alterTableTask);
         tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.UnsetColumnTag.class, alterTableTask);
+        tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.Adopt.class, alterTableTask);
+        tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.Unlink.class, alterTableTask);
         tasks.put(org.pangrova.parser.ast.statement.CreateSchemaStatement.class, createSchemaTask);
         tasks.put(org.pangrova.parser.ast.CreateCatalogStatement.class, createCatalogTask);
         tasks.put(org.pangrova.parser.ast.statement.DropCatalogStatement.class, dropCatalogTask);
@@ -370,6 +410,9 @@ final class QueryExecutionBootstrap {
                         showDescribeExecutor));
         tasks.put(org.pangrova.parser.ast.statement.ShowTablesStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.ShowTablesTask(showDescribeExecutor));
+        tasks.put(org.pangrova.parser.ast.statement.ShowTableControlsStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.ShowTableControlsTask(
+                        showDescribeExecutor));
         tasks.put(org.pangrova.parser.ast.statement.DescribeTableStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.DescribeTableTask(showDescribeExecutor));
         tasks.put(org.pangrova.parser.ast.statement.ShowCatalogsStatement.class,
@@ -381,6 +424,10 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.VacuumTask(maintenanceExecutor));
         tasks.put(org.pangrova.parser.ast.statement.maintenance.OptimizeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.OptimizeTask(maintenanceExecutor));
+        tasks.put(org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.AnalyzeTask(
+                        new org.pangrova.coordinator.query.statement.AnalyzeExecutor(
+                                catalogRegistry)));
         // CALL procedure
         tasks.put(org.pangrova.parser.ast.statement.maintenance.CallStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(catalogRegistry));

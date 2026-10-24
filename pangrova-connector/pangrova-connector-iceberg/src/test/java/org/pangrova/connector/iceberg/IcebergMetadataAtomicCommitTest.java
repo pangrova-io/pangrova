@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.write.IcebergPageSinkProvider;
 import org.pangrova.spi.connector.ConnectorSession;
@@ -483,7 +484,8 @@ class IcebergMetadataAtomicCommitTest {
         assertThatThrownBy(() -> new IcebergOutputTableHandle(
                 NAMESPACE, "orders", "00000000-0000-0000-0000-000000000001",
                 "file:///warehouse/orders", "{}", "{}",
-                2, IcebergOutputTableHandle.NO_SNAPSHOT, null, Map.of(), Map.of()))
+                2, IcebergOutputTableHandle.NO_SNAPSHOT, null, IcebergOverwriteScope.NONE,
+                Map.of(), Map.of()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unsupported Iceberg write mode");
     }

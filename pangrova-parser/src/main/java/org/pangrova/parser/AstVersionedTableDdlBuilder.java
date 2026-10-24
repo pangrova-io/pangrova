@@ -67,6 +67,20 @@ final class AstVersionedTableDdlBuilder {
         return new AlterTableStatement.DropTag(tableName, tagName, ctx.EXISTS() != null);
     }
 
+    AlterTableStatement visitAlterTableAdopt(
+            PangrovaSqlParser.AlterTableAdoptContext ctx) {
+        Identifier tableName = parent.visitQualifiedName(ctx.qualifiedName());
+        java.util.Map<String, String> properties = ctx.propertyList() == null
+                ? java.util.Map.of()
+                : parent.propertyTextMap(ctx.propertyList());
+        return new AlterTableStatement.Adopt(tableName, properties);
+    }
+
+    AlterTableStatement visitAlterTableUnlink(
+            PangrovaSqlParser.AlterTableUnlinkContext ctx) {
+        return new AlterTableStatement.Unlink(parent.visitQualifiedName(ctx.qualifiedName()));
+    }
+
     AlterTableStatement visitAlterTableSetColumnTag(
             PangrovaSqlParser.AlterTableSetColumnTagContext ctx) {
         Identifier tableName = parent.visitQualifiedName(ctx.qualifiedName());

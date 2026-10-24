@@ -30,6 +30,9 @@ public class GovernanceWiring implements AutoCloseable {
     public LineageEventEmitter lineageEmitter() { return context.lineageEmitter(); }
     public GovernanceStatementHandler statementHandler() { return context.statementHandler(); }
     public TagBasedSecurityPolicy securityPolicy() { return context.securityPolicy(); }
+    public org.pangrova.governance.classification.ColumnTagService columnTagService() {
+        return context.columnTagService();
+    }
     public CronScheduler cronScheduler() { return context.cronScheduler(); }
     public GovernanceContext context() { return context; }
 

@@ -3,11 +3,14 @@ package org.pangrova.coordinator.query.statement;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.statement.dml.DmlExpressionEvaluator;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.catalog.CatalogState;
 import org.pangrova.metadata.catalog.CatalogType;
+import org.pangrova.metadata.model.QualifiedTableRef;
+import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
@@ -41,13 +44,16 @@ public final class DdlExecutor {
     private static final Logger LOG = LoggerFactory.getLogger(DdlExecutor.class);
 
     private final CatalogRegistry catalogRegistry;
+    private final TableControlDdlOperations tableControlOperations;
     private volatile org.pangrova.metadata.index.IndexSchemaEvolutionHandler schemaEvolutionHandler;
     private volatile Runnable schemaInvalidator;
 
+    /** Creates the executor with optional index invalidation hooks. */
     public DdlExecutor(CatalogRegistry catalogRegistry,
                 org.pangrova.metadata.index.IndexSchemaEvolutionHandler schemaEvolutionHandler,
                 Runnable schemaInvalidator) {
         this.catalogRegistry = catalogRegistry;
+        this.tableControlOperations = new TableControlDdlOperations(catalogRegistry);
         this.schemaEvolutionHandler = schemaEvolutionHandler;
         this.schemaInvalidator = schemaInvalidator;
     }
@@ -74,6 +80,37 @@ public final class DdlExecutor {
         this.schemaInvalidator = invalidator;
     }
 
+    /** Enables {@code ADOPT WITH (...)} maintenance policy properties. */
+    public void setMaintenancePolicyService(
+            org.pangrova.metadata.control.TableControlMaintenanceService service) {
+        tableControlOperations.setMaintenancePolicyService(service);
+    }
+
+    /** Records ADOPT/UNLINK in the durable audit trail. */
+    public void setTableControlAudit(
+            org.pangrova.coordinator.query.audit.TableControlAuditEmitter audit) {
+        tableControlOperations.setAudit(audit);
+    }
+
+    /** Purges table_id-scoped governance bindings when the control record retires. */
+    public void setPolicyBinder(org.pangrova.metadata.control.TableControlPolicyBinder binder) {
+        tableControlOperations.setPolicyBinder(binder);
+    }
+
+    /** Owns durable column-tag persistence and governance notification. */
+    public void setMetadataService(MetadataService metadataService) {
+        tableControlOperations.setMetadataService(metadataService);
+    }
+
+    /**
+     * Name-keyed column masks enforced by the read path. Without it, a rename
+     * would silently stop masking the moved table and a drop would leave its
+     * masks behind for the next table that reuses the name.
+     */
+    public void setColumnMaskStore(org.pangrova.spi.security.ColumnMaskStore store) {
+        tableControlOperations.setColumnMaskStore(store);
+    }
+
     private void invalidateSchemaCache() {
         Runnable inv = schemaInvalidator;
         if (inv != null) {
@@ -93,7 +130,27 @@ public final class DdlExecutor {
             return List.of();
         }
         createTableInternal(metadata, session, ref, stmt);
+        registerCreatedTable(metadata, session, ref, context);
         return List.of();
+    }
+
+    private void registerCreatedTable(ConnectorMetadata metadata, ConnectorSession session,
+            QualifiedTableName ref, CoordinatorSessionContext context) {
+        var tableControl = catalogRegistry.tableControl();
+        if (!tableControl.enabled()) {
+            return;
+        }
+        String owner = context.userIdentity() == null ? "" : context.userIdentity().principal();
+        try {
+            tableControl.registerCreatedFromConnector(metadata, session,
+                    ref.catalog(), ref.schema(), ref.table(), owner);
+        } catch (RuntimeException failure) {
+            tableControl.registerOrphanedManaged(ref.catalog(), ref.schema(), ref.table(),
+                    owner, java.util.Optional.empty());
+            throw new PangrovaException(PangrovaErrorCode.METADATA_METASTORE_ERROR,
+                    "Table was created but its control record could not be registered: " + ref,
+                    failure);
+        }
     }
 
     private void createTableInternal(ConnectorMetadata metadata, ConnectorSession session,
@@ -158,7 +215,14 @@ public final class DdlExecutor {
         ConnectorTableHandle handle = TableResolver.resolveTableHandle(metadata, session, ref, stmt.ifExists());
         if (handle == null) return List.of();
 
+        var tableControl = catalogRegistry.tableControl();
+        tableControl.requireDroppable(ref.catalog(), ref.schema(), ref.table(), "DROP TABLE");
+        var record = tableControl.find(ref.catalog(), ref.schema(), ref.table());
+        List<String> columns = tableColumns(metadata, session, handle);
         metadata.dropTable(session, handle);
+        tableControl.markDropped(ref.catalog(), ref.schema(), ref.table());
+        record.ifPresent(target -> tableControlOperations.purgeTableState(target, context));
+        tableControlOperations.purgeColumnMasks(ref, columns);
         invalidateSchemaCache();
         fireDropTableEvent(context.tenantId(), ref);
         LOG.info("event=table_dropped table={}", ref);
@@ -168,22 +232,169 @@ public final class DdlExecutor {
     /** Alters a table using the resolved catalog and session. */
     public List<TypedRow> executeAlterTable(
             AlterTableStatement stmt, CoordinatorSessionContext context) {
-        if (stmt instanceof AlterTableStatement.SetColumnTag
-                || stmt instanceof AlterTableStatement.UnsetColumnTag) {
-            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
-                    "ALTER TABLE column tags are not supported until durable tag storage and "
-                            + "policy enforcement are wired");
+        if (stmt instanceof AlterTableStatement.Adopt adopt) {
+            return tableControlOperations.adopt(adopt, context);
+        }
+        if (stmt instanceof AlterTableStatement.Unlink unlink) {
+            return tableControlOperations.unlink(unlink, context);
+        }
+        if (stmt instanceof AlterTableStatement.SetColumnTag setTag) {
+            return executeSetColumnTag(setTag, context);
+        }
+        if (stmt instanceof AlterTableStatement.UnsetColumnTag unsetTag) {
+            return executeUnsetColumnTag(unsetTag, context);
         }
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
+        var tableControl = catalogRegistry.tableControl();
+        tableControl.requireManagedForDdl(ref.catalog(), ref.schema(), ref.table(), "ALTER TABLE");
         ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
         validateGeneratedColumnEvolution(metadata, session, handle, stmt);
-        applyAlterOperation(metadata, session, handle, stmt);
+        var renameTarget = resolveRenameTarget(stmt, ref);
+        List<String> columns = renameTarget == null ? List.of() : tableColumns(metadata, session, handle);
+        // Move ownership before the physical rename so a target that already has a
+        // live control record is rejected while the catalog is still untouched.
+        boolean controlMoved = false;
+        if (renameTarget != null) {
+            tableControl.rename(ref.catalog(), ref.schema(), ref.table(),
+                    renameTarget.schema(), renameTarget.table());
+            controlMoved = true;
+        }
+        try {
+            applyAlterOperation(metadata, session, handle, stmt);
+        } catch (RuntimeException failure) {
+            revertControlRenameOnFailure(tableControl, metadata, session, ref, renameTarget,
+                    controlMoved, failure);
+            throw failure;
+        }
+        if (renameTarget != null) {
+            tableControlOperations.moveNameScopedGovernance(ref, renameTarget, columns, context);
+        }
         invalidateSchemaCache();
         fireSchemaChangeEvent(context.tenantId(), ref, stmt);
         LOG.info("event=table_altered table={} operation={}", ref, stmt.getClass().getSimpleName());
         return List.of();
+    }
+
+    private static void revertControlRenameOnFailure(
+            org.pangrova.metadata.control.TableControlService tableControl,
+            ConnectorMetadata metadata, ConnectorSession session, QualifiedTableName ref,
+            QualifiedTableName renameTarget, boolean controlMoved, RuntimeException failure) {
+        if (!controlMoved || renameTarget == null) {
+            return;
+        }
+        if (!sourceStillResolves(metadata, session, ref, renameTarget)) {
+            return;
+        }
+        try {
+            tableControl.rename(ref.catalog(), renameTarget.schema(), renameTarget.table(),
+                    ref.schema(), ref.table());
+        } catch (RuntimeException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+        }
+    }
+
+    /**
+     * A failed physical rename leaves the source resolvable. When it does not, the
+     * move may have committed before the error, so ownership stays with the new
+     * name; reverting it would point the control record at a table that no longer
+     * exists.
+     */
+    private static boolean sourceStillResolves(ConnectorMetadata metadata,
+            ConnectorSession session, QualifiedTableName ref, QualifiedTableName target) {
+        try {
+            if (metadata.getTableHandle(session,
+                    new SchemaTableName(ref.schema(), ref.table())) != null) {
+                return true;
+            }
+            return metadata.getTableHandle(session,
+                    new SchemaTableName(target.schema(), target.table())) == null;
+        } catch (RuntimeException unverifiable) {
+            return false;
+        }
+    }
+
+    /**
+     * Assigns a governance tag. The tag is durably stored, the governance
+     * binding is recorded against the stable table_id, and listeners rebuild
+     * derived policy (auto-masks) from the emitted tag event.
+     */
+    private List<TypedRow> executeSetColumnTag(
+            AlterTableStatement.SetColumnTag stmt, CoordinatorSessionContext context) {
+        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        MetadataService service = requireTagMetadataService();
+        requireColumn(ref, stmt.columnName(), context);
+        tableControlOperations.requireBindable(ref);
+        tableControlOperations.bindColumnTag(
+                ref, stmt.columnName(), stmt.tagKey(), stmt.tagValue(), context);
+        try {
+            service.setTag(SessionContextConverter.toMetadataSessionContext(context),
+                    new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
+                    stmt.columnName(), stmt.tagKey(), stmt.tagValue());
+        } catch (RuntimeException failure) {
+            // The tag is the source of truth; a binding without it would be
+            // dangling policy. Withdraw the binding before reporting the failure.
+            try {
+                tableControlOperations.unbindColumnTag(ref, stmt.columnName(), stmt.tagKey());
+            } catch (RuntimeException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+            throw failure;
+        }
+        invalidateSchemaCache();
+        LOG.info("event=column_tag_set table={} column={} tagKey={}",
+                ref, stmt.columnName(), stmt.tagKey());
+        return List.of();
+    }
+
+    /** Removes a governance tag and the derived policy it produced. */
+    private List<TypedRow> executeUnsetColumnTag(
+            AlterTableStatement.UnsetColumnTag stmt, CoordinatorSessionContext context) {
+        QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        MetadataService service = requireTagMetadataService();
+        requireColumn(ref, stmt.columnName(), context);
+        tableControlOperations.requireBindable(ref);
+        tableControlOperations.unbindColumnTag(ref, stmt.columnName(), stmt.tagKey());
+        service.unsetTag(SessionContextConverter.toMetadataSessionContext(context),
+                new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
+                stmt.columnName(), stmt.tagKey());
+        invalidateSchemaCache();
+        LOG.info("event=column_tag_unset table={} column={} tagKey={}",
+                ref, stmt.columnName(), stmt.tagKey());
+        return List.of();
+    }
+
+    private MetadataService requireTagMetadataService() {
+        MetadataService service = tableControlOperations.metadataService();
+        if (service == null) {
+            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
+                    "ALTER TABLE column tags require the metadata service");
+        }
+        return service;
+    }
+
+    private void requireColumn(QualifiedTableName ref, String columnName,
+            CoordinatorSessionContext context) {
+        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
+        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
+        ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
+        boolean exists = metadata.getTableMetadata(session, handle).columns().stream()
+                .anyMatch(column -> column.equalsIgnoreCase(columnName));
+        if (!exists) {
+            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Column not found: " + ref + "." + columnName);
+        }
+    }
+
+    private static List<String> tableColumns(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle handle) {
+        try {
+            return metadata.getTableMetadata(session, handle).columns();
+        } catch (RuntimeException unavailable) {
+            LOG.warn("event=table_columns_unavailable error={}", unavailable.toString());
+            return List.of();
+        }
     }
 
     /**
@@ -265,6 +476,14 @@ public final class DdlExecutor {
             AlterTableStatement.DropTag.class,
             (m, s, h, st) -> m.dropTag(s, h, ((AlterTableStatement.DropTag) st).tagName())
     );
+
+    private static QualifiedTableName resolveRenameTarget(
+            AlterTableStatement stmt, QualifiedTableName ref) {
+        if (!(stmt instanceof AlterTableStatement.RenameTable rename)) {
+            return null;
+        }
+        return TableResolver.resolveRenameTarget(rename.newName().parts(), ref);
+    }
 
     private static void applyAlterOperation(
             ConnectorMetadata metadata, ConnectorSession session,

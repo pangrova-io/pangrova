@@ -142,7 +142,7 @@ public final class IcebergTableHandleFactory {
                 metadata.currentSnapshot() != null
                         ? metadata.currentSnapshot().snapshotId()
                         : IcebergOutputTableHandle.NO_SNAPSHOT,
-                IcebergOutputTableHandle.MODE_INSERT, java.util.Map.of(),
+                IcebergOutputTableHandle.MODE_INSERT, IcebergOverwriteScope.NONE, java.util.Map.of(),
                 IcebergDeclarationProperties.capture(metadata.properties()));
     }
 

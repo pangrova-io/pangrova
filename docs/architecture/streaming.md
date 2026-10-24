@@ -671,6 +671,25 @@ The three trigger mechanisms are ranked by priority from high to low. When multi
 - **Interval > Scan**: If an interval trigger already fired for a table within the current scan cycle, the scan trigger skips that table.
 - **Deduplication**: Each table maintains an `inFlightTask` flag. If a maintenance task is already running or queued for a table, new triggers for the same table are dropped.
 
+### Automatic Cycles for Controlled Tables
+
+Production scheduling is registry-driven. `ControlledTableSource` lists only
+ACTIVE LINKED/MANAGED records whose policy enables an operation; OBSERVED tables
+are absent because they have no persisted record. `ControlledTableMaintenanceSpi`
+reports due-ness from the last terminal run per operation and executes
+`COMPACT`, `EXPIRE_SNAPSHOTS`, and `REMOVE_ORPHAN_FILES` through the same
+ownership/policy/lease/version checks as a manual statement.
+
+The periodic scan is leader-gated: `ModuleIntegrationBootstrap` starts it in
+`onLeaderElected()` and stops it in `onLeadershipLost()`. Non-leader coordinators
+therefore never run the policy cycle. A write-triggered task remains a
+compaction of the data just written; only `SCHEDULED_SCAN` tasks run the full
+retention cycle. Every automatic run persists `mode = AUTOMATIC` and actor
+`system:maintenance`; an active external writer aborts the run as `SKIPPED`, and
+other failures surface to the scheduler instead of being reported as success.
+Format-specific `expire_snapshots` arguments are selected from the control
+record's format.
+
 ### Concurrency Control and Backpressure
 
 | Parameter | Default | Description |

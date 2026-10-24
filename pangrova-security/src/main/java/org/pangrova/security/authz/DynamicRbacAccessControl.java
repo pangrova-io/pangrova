@@ -1,7 +1,5 @@
 package org.pangrova.security.authz;
 
-import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
@@ -24,13 +22,13 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     private final GrantStore grantStore;
     private final RoleStore roleStore;
-    private final RowLevelSecurityFilter rlsFilter;
-    private final ColumnMaskingProcessor maskProcessor;
+    private final RowFilterSource rlsFilter;
+    private final ColumnMaskSource maskProcessor;
 
     /** Creates the sole RBAC path with a mandatory role authority. */
     public DynamicRbacAccessControl(GrantStore grantStore, RoleStore roleStore,
-                                    RowLevelSecurityFilter rlsFilter,
-                                    ColumnMaskingProcessor maskProcessor) {
+                                    RowFilterSource rlsFilter,
+                                    ColumnMaskSource maskProcessor) {
         this.grantStore = Objects.requireNonNull(grantStore, "grantStore");
         this.roleStore = Objects.requireNonNull(roleStore, "roleStore");
         this.rlsFilter = Objects.requireNonNull(rlsFilter, "rlsFilter");

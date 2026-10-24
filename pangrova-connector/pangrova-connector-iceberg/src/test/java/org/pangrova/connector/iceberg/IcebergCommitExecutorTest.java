@@ -1,11 +1,14 @@
 package org.pangrova.connector.iceberg;
 
+import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
 
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,6 +50,121 @@ class IcebergCommitExecutorTest {
         } finally {
             release.countDown();
             pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void commitFinishingWithinGraceAfterTimeoutIsNotReportedAsFailure() {
+        ExecutorService pool = Executors.newCachedThreadPool();
+        try {
+            AtomicBoolean verified = new AtomicBoolean();
+            IcebergCommitExecutor commits = new IcebergCommitExecutor(10, pool, 2_000,
+                    (table, snapshotId, context, tableId) -> {
+                        verified.set(true);
+                        return new CommitStatusVerifier.VerificationResult(
+                                CommitStatusVerifier.CommitOutcome.FAILED, "unexpected");
+                    });
+
+            Throwable failure = catchThrowable(() -> commits.execute(null, null, () -> {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "lake.orders"));
+
+            assertThat(failure).isNull();
+            assertThat(verified)
+                    .as("A commit that completes inside the grace window needs no verification")
+                    .isFalse();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void timedOutCommitWithProvenSuccessReturnsNormally() throws Exception {
+        ExecutorService pool = Executors.newCachedThreadPool();
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean commitRan = new AtomicBoolean();
+        try {
+            IcebergCommitExecutor commits = new IcebergCommitExecutor(10, pool, 10,
+                    (table, snapshotId, context, tableId) -> {
+                        assertThat(tableId).isEqualTo("lake.orders");
+                        assertThat(snapshotId).isEqualTo(-1L);
+                        return new CommitStatusVerifier.VerificationResult(
+                                CommitStatusVerifier.CommitOutcome.SUCCEEDED, "commit marker");
+                    });
+
+            Throwable failure = catchThrowable(() -> commits.execute(null, null, () -> {
+                commitRan.set(true);
+                awaitUninterruptibly(release);
+            }, "lake.orders"));
+
+            assertThat(failure).isNull();
+            assertThat(commitRan).isTrue();
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void timedOutCommitWithUnprovableOutcomeFailsClosedAndIsNotRetryable() {
+        ExecutorService pool = Executors.newCachedThreadPool();
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            IcebergCommitExecutor commits = new IcebergCommitExecutor(10, pool, 10,
+                    (table, snapshotId, context, tableId) ->
+                            new CommitStatusVerifier.VerificationResult(
+                                    CommitStatusVerifier.CommitOutcome.UNKNOWN,
+                                    "snapshot advanced without marker"));
+
+            Throwable failure = catchThrowable(() -> commits.execute(null, null,
+                    () -> awaitUninterruptibly(release), "lake.orders"));
+
+            assertThat(failure)
+                    .isInstanceOf(CommitStateUnknownException.class)
+                    .hasMessageContaining("unknown")
+                    .hasMessageContaining("snapshot advanced without marker");
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void timedOutCommitProvenFailedReportsTimeout() {
+        ExecutorService pool = Executors.newCachedThreadPool();
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            IcebergCommitExecutor commits = new IcebergCommitExecutor(10, pool, 10,
+                    (table, snapshotId, context, tableId) ->
+                            new CommitStatusVerifier.VerificationResult(
+                                    CommitStatusVerifier.CommitOutcome.FAILED,
+                                    "snapshot unchanged"));
+
+            Throwable failure = catchThrowable(() -> commits.execute(null, null,
+                    () -> awaitUninterruptibly(release), "lake.orders"));
+
+            assertThat(failure)
+                    .isInstanceOf(CommitTimeoutException.class)
+                    .hasMessageContaining("lake.orders");
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    private static void awaitUninterruptibly(CountDownLatch latch) {
+        while (true) {
+            try {
+                latch.await();
+                return;
+            } catch (InterruptedException ignored) {
+                // A timed-out commit is cancelled with an interrupt; the test action keeps
+                // running until the executor has finished verifying the outcome.
+            }
         }
     }
 }

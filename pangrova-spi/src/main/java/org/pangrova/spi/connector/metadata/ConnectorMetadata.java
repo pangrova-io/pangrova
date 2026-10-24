@@ -23,7 +23,7 @@ import org.pangrova.spi.connector.data.type.PangrovaType;
 public interface ConnectorMetadata
         extends ConnectorWriteMetadata, ConnectorIndexMetadata,
         ConnectorSchemaMetadata, ConnectorQueryLifecycle, ConnectorSnapshotMetadata,
-        ConnectorPushdownMetadata {
+        ConnectorPushdownMetadata, ConnectorTableControlMetadata {
 
     /**
      * Returns a table handle for the specified table, or {@code null} if the

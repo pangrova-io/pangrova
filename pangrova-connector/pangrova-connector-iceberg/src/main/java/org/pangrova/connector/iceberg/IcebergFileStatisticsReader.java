@@ -3,6 +3,7 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.spi.index.statistics.FileColumnStatistics;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
@@ -46,7 +47,9 @@ import java.util.Set;
  *       v3 deletion-vector Puffin blobs). This makes cardinalities returned to L0
  *       pruning consistent with what {@code IcebergPageSourceProvider} actually
  *       emits for the file at scan time, addressing G-INDEX-07's deletion-vector
- *       awareness gap.</li>
+ *       awareness gap. When the live count cannot be proven — equality deletes,
+ *       or a delete file that cannot be read — it is reported as
+ *       {@link #UNKNOWN_ROW_COUNT} instead of an over-count.</li>
  * </ul>
  *
  * <p>This reader replaces the connector-side data path of the legacy JDBC stats
@@ -81,10 +84,21 @@ final class IcebergFileStatisticsReader {
     }
 
     /**
+     * Sentinel for a live row count that cannot be derived (equality deletes or
+     * unreadable delete files). Consumers must treat it as "unknown", never as
+     * a small row count.
+     */
+    static final long UNKNOWN_ROW_COUNT = -1L;
+
+    /**
      * Returns {@code dataFile.recordCount()} minus the count of unique deleted
-     * positions covered by all delete files attached to {@code task}. Returns
-     * the original record count if no delete files exist or if reading deletes
-     * fails (best-effort — failures must not break planning).
+     * positions covered by all delete files attached to {@code task}.
+     *
+     * <p>Returns {@link #UNKNOWN_ROW_COUNT} when the live count cannot be
+     * proven: equality deletes reference key values rather than positions, and
+     * a delete-read failure means the position set is incomplete. Returning the
+     * raw record count in those cases would over-report live rows and mislead
+     * pruning.
      */
     static long liveRowCount(Table table, FileScanTask task) {
         long total = task.file().recordCount();
@@ -92,23 +106,38 @@ final class IcebergFileStatisticsReader {
         if (deletes == null || deletes.isEmpty()) {
             return total;
         }
+        if (hasEqualityDelete(deletes)) {
+            LOG.debug("event=live_row_count_unknown reason=equality_delete file={}",
+                    task.file().path());
+            return UNKNOWN_ROW_COUNT;
+        }
         try {
             Set<Long> deleted = collectDeletedPositions(table, task);
             long live = total - deleted.size();
             return Math.max(live, 0L);
         } catch (RuntimeException e) {
-            LOG.debug("event=dv_aware_count_failed file={} error={}",
+            LOG.debug("event=live_row_count_unknown reason=delete_read_failed file={} error={}",
                     task.file().path(), e.getMessage());
-            return total;
+            return UNKNOWN_ROW_COUNT;
         }
+    }
+
+    private static boolean hasEqualityDelete(List<DeleteFile> deletes) {
+        for (DeleteFile deleteFile : deletes) {
+            if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
      * Aggregates unique deleted row positions across all delete files associated
      * with the given scan task, including v3 Puffin deletion vectors and v2
-     * positional delete Parquet files. Equality deletes are not counted as the
-     * row count cost depends on the data — at planning time we conservatively
-     * leave the row count unchanged for equality-only deletes.
+     * positional delete Parquet files.
+     *
+     * <p>Callers must screen equality deletes first: they reference values, not
+     * positions, so they cannot be represented in this position set.
      */
     private static Set<Long> collectDeletedPositions(Table table, FileScanTask task) {
         Set<Long> positions = new HashSet<>();
@@ -116,11 +145,13 @@ final class IcebergFileStatisticsReader {
         for (DeleteFile deleteFile : task.deletes()) {
             if (deleteFile.format() == FileFormat.PUFFIN) {
                 readDvPositions(table, deleteFile, positions);
-            } else if (deleteFile.content() == org.apache.iceberg.FileContent.POSITION_DELETES) {
+            } else if (deleteFile.content() == FileContent.POSITION_DELETES) {
                 readPositionDeletePositions(table, deleteFile, dataFilePath, positions);
+            } else {
+                throw new IllegalStateException(
+                        "Unsupported delete content " + deleteFile.content()
+                                + " for row-count statistics: " + deleteFile.path());
             }
-            // EQUALITY_DELETES are skipped: they reference values, not positions,
-            // so we cannot compute an exact deleted count without reading the data.
         }
         return positions;
     }

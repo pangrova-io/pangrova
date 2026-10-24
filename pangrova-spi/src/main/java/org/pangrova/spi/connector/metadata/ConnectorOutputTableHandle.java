@@ -62,4 +62,15 @@ public interface ConnectorOutputTableHandle {
     default Optional<NativePhysicalWriteAllocation> nativePhysicalWriteAllocation() {
         return Optional.empty();
     }
+
+    /**
+     * Format identity captured when this write began.
+     *
+     * <p>Commit and recovery must compare this captured evidence with the live
+     * table; an empty value means the write cannot be fenced against a
+     * drop/recreate and must not be treated as matching.</p>
+     */
+    default Optional<org.pangrova.spi.connector.metadata.table.TableIdentity> tableIdentity() {
+        return Optional.empty();
+    }
 }

@@ -1,6 +1,7 @@
 package org.pangrova.security.mask;
 
 import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.authz.ColumnMaskSource;
 import org.pangrova.security.authz.DeferredSubjectContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +14,7 @@ import java.util.Set;
  * Evaluates column masking policies for a given user, table, and column.
  * Returns the first applicable mask expression with {column} replaced.
  */
-public class ColumnMaskingProcessor {
+public class ColumnMaskingProcessor implements ColumnMaskSource {
 
     private static final Logger LOG = LoggerFactory.getLogger(ColumnMaskingProcessor.class);
 

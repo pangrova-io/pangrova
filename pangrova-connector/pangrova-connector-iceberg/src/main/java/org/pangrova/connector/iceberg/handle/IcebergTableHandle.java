@@ -45,6 +45,21 @@ public record IcebergTableHandle(
 
     /** No limit pushed down. */
     public static final long NO_LIMIT = 0L;
+
+    /**
+     * Format capabilities this adapter can prove. Equality-delete reads stay
+     * disabled until the read path applies them and cross-engine comparison passes.
+     */
+    public static final org.pangrova.spi.connector.metadata.table.TableCapabilities CAPABILITIES =
+            new org.pangrova.spi.connector.metadata.table.TableCapabilities(
+                    true, true, false, true, true, true,
+                    java.util.Set.of("partitions", "entries", "files", "manifests",
+                            "snapshots", "history", "refs"),
+                    java.util.Set.of("COMPACT", "OPTIMIZE", "VACUUM", "EXPIRE_SNAPSHOTS",
+                            "REWRITE_MANIFESTS", "REMOVE_ORPHAN_FILES"),
+                    org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
+                            .FORMAT_IDENTITY_AND_BASE_VERSION);
+
     /** Connector-owned evidence for an immutable selected read, not a caller's time-travel hint. */
     public static final String SOURCE_IDENTITY_PROPERTY = "pangrova.read.source_identity";
 
@@ -73,6 +88,11 @@ public record IcebergTableHandle(
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
+    }
+
+    @Override
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities() {
+        return CAPABILITIES;
     }
 
     /**

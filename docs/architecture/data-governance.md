@@ -411,6 +411,28 @@ issues distinct values across concurrent sessions. Sequence gaps are valid;
 result IDs are identities, not execution counts. Data-plane quality evaluation
 and its complete SQL/CDC chain remain in the acceptance inventory.
 
+**Write-time gate.** When governance is enabled, the coordinator installs a
+`RuleBasedWriteQualityGate` on the distributed write path
+(`pangrova.governance.write-quality-gate.enabled`, default `true`). Before a
+write records its durable commit intent and calls the connector, the gate
+evaluates every enabled rule for the target table:
+
+- An `ERROR`-severity failure fails the query with error code
+  `GOVERNANCE-0002`; the catalog is never asked to commit, and no durable write
+  intent is recorded.
+- `WARNING` and `INFO` failures are recorded but do not block.
+- A gate that cannot evaluate its rules (store unavailable, no recoverable
+  target table) also blocks: the write is never admitted on missing evidence.
+- Every rule result is appended to `quality_check_results`, giving a durable
+  record of the decision.
+
+The gate uses the coordinator's configured `QualityRuleExecutor`. The bootstrap
+currently wires `DefaultQualityRuleExecutor`, which validates rule definitions;
+evaluating rule expressions against table data requires supplying
+`SqlQualityRuleExecutor` with a `GovernanceQueryRunner`. Because the check runs
+before the catalog commit, it observes the table's committed state, not the
+staged rows of the in-flight write.
+
 ### 4.4 Quality Alerting
 
 ```java
@@ -497,11 +519,9 @@ interface AlertChannelRegistry {
 
 ### 5.2 Tag Management SQL
 
-The following SQL describes the target design, not completed production wiring.
-Column `SET TAG` / `UNSET TAG` is parsed but currently rejected before mutation:
-durable tag storage and the query enforcement policy authority are not yet wired
-as one fail-closed chain. A metadata API or an in-memory tag event does not prove
-this SQL path is implemented.
+Column-level `SET TAG` / `UNSET TAG` is wired end to end. Tags are durable, bound
+to the table's stable `table_id`, and derived policies are written to the same
+store that query enforcement reads.
 
 ```sql
 -- Create a tag
@@ -509,14 +529,13 @@ CREATE TAG sensitivity_level WITH VALUES ('PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 
 CREATE TAG pii_type WITH VALUES ('PII_NAME', 'PII_EMAIL', 'PII_PHONE', 'PII_SSN', 'PII_ADDRESS');
 CREATE TAG data_domain WITH VALUES ('FINANCE', 'HR', 'SALES', 'MARKETING', 'OPERATIONS');
 
--- Tag a table
-ALTER TABLE iceberg.hr.employees SET TAG sensitivity_level = 'CONFIDENTIAL';
-ALTER TABLE iceberg.hr.employees SET TAG data_domain = 'HR';
-
 -- Tag a column
 ALTER TABLE iceberg.hr.employees ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL';
 ALTER TABLE iceberg.hr.employees ALTER COLUMN ssn SET TAG pii_type = 'PII_SSN';
 ALTER TABLE iceberg.hr.employees ALTER COLUMN salary SET TAG sensitivity_level = 'RESTRICTED';
+
+-- Remove a tag
+ALTER TABLE iceberg.hr.employees ALTER COLUMN email UNSET TAG pii_type;
 
 -- Query tags
 SHOW TAGS ON TABLE iceberg.hr.employees;
@@ -539,26 +558,40 @@ CALL system.auto_classify(
 );
 ```
 
+Rules enforced by the DDL path:
+
+- The table must be `LINKED` or `MANAGED`. Tagging an `OBSERVED` table fails with
+  `AccessDeniedException`; run `ALTER TABLE ... ADOPT` first.
+- The column must exist; unknown columns are rejected before any write.
+- Table-level `SET TAG` and `CREATE TAG` are not implemented yet; only the
+  column-level statements above are accepted.
+- `UNLINK` and `DROP TABLE` clear that table's durable tags, its `table_id`-scoped
+  bindings, and the auto-masks derived from them.
+
 ### 5.3 Tag and Security Policy Integration
 
-**Target event-driven mechanism (not production-wired)**: Tag changes must trigger
-durable, idempotent updates to the same policy authority used by query enforcement.
-The current governance bootstrap's in-memory mask store is not that authority;
-the flow below is a design requirement, not an implemented guarantee.
+The chain is implemented. A tag change is persisted first, then replayed through
+a single shared `ColumnTagService`, so `TagBasedSecurityPolicy` updates the same
+`PersistentColumnMaskStore` that column-masking reads during query execution.
 
 ```
 Tag Change Event Flow:
-  1. ALTER TABLE ... SET TAG pii_type = 'PII_EMAIL'
-     → MetadataService.alterTable() publishes TagChangedEvent
+  1. ALTER TABLE ... ALTER COLUMN ... SET TAG pii_type = 'PII_EMAIL'
+     → DdlExecutor records the binding against the stable table_id
+     → MetadataService.setTag() persists the tag and publishes TagChangedEvent
   2. TagBasedSecurityPolicy subscribes to TagChangedEvent
      → Check whether the new tag matches automatic policy rules
-     → If matched, call ColumnMaskStore.createMask() to create a masking rule
-  3. ColumnMaskStore.createMask() publishes a ColumnMaskChanged event
-     (see security.md §5.4 SecurityPolicyChangeEvent)
-  4. Query Result Cache subscribes to ColumnMaskChanged
-     → Invalidate cache entries for affected tables
-     (see query-optimization.md §3.3 Cache Invalidation Triggers)
+     → If matched, upsert a masking rule into PersistentColumnMaskStore
+  3. Query enforcement (ColumnMaskingProcessor) reads the mask store live,
+     so the new mask applies to subsequent statements without a cache flush
+  4. On coordinator restart, persisted column tags are replayed through the
+     same ColumnTagService, rebuilding auto-masks missing from the store
 ```
+
+The mask store keys a mask by `(catalog, schema, table, column, mask_name)` and
+upserts on conflict, so re-assigning the same tag updates the expression in
+place instead of failing. `UNSET TAG` removes the mask through the same event
+path.
 
 **Event definition**:
 

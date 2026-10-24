@@ -1,12 +1,15 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergColumnHandle;
+import org.pangrova.connector.iceberg.handle.IcebergDeleteFile;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.read.IcebergPageSource;
 import org.pangrova.connector.iceberg.read.IcebergParquetReader;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.spi.connector.data.ConnectorPageSource;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
 import org.pangrova.spi.connector.metadata.ConnectorSplit;
@@ -63,46 +66,53 @@ public class IcebergPageSourceProvider implements ConnectorPageSourceProvider {
         LOG.debug("Opening page source for {} with {} columns, {} delete files",
                 icebergSplit.filePath(), projected.size(), icebergSplit.deleteFiles().size());
 
+        // Resolve deletes before opening the data file so unsupported delete
+        // semantics fail closed without leaking a reader.
+        java.util.Set<Long> deletedPositions = icebergSplit.deleteFiles().isEmpty()
+                ? java.util.Set.of()
+                : collectDeletedPositions(icebergSplit, sdkTable);
+
         CloseableIterable<Record> records = IcebergParquetReader.open(
                 sdkTable, icebergSplit.filePath(), projected);
 
-        if (!icebergSplit.deleteFiles().isEmpty()) {
-            records = applyDeleteFileMerge(records, icebergSplit, sdkTable);
+        if (!deletedPositions.isEmpty()) {
+            records = CloseableIterable.filter(
+                    records, new DeletePositionFilter(deletedPositions));
         }
 
         return new IcebergPageSource(records, projected);
     }
 
     /**
-     * Applies delete file merge (position deletes and deletion vectors) to filter
-     * out deleted rows from the data file records.
-     */
-    private CloseableIterable<Record> applyDeleteFileMerge(
-            CloseableIterable<Record> records,
-            IcebergSplit split,
-            Table sdkTable) {
-        java.util.Set<Long> deletedPositions = collectDeletedPositions(split, sdkTable);
-        if (deletedPositions.isEmpty()) {
-            return records;
-        }
-        return org.apache.iceberg.io.CloseableIterable.filter(
-                records, new DeletePositionFilter(deletedPositions));
-    }
-
-    /**
      * Collects all deleted row positions from position delete files and deletion vectors.
+     *
+     * @throws ConnectorException if the split carries an equality delete or a
+     *         delete type this provider cannot interpret. Silently ignoring a
+     *         delete would return rows that were deleted upstream.
      */
     private java.util.Set<Long> collectDeletedPositions(IcebergSplit split, Table sdkTable) {
         java.util.Set<Long> positions = new java.util.HashSet<>();
-        for (var deleteFile : split.deleteFiles()) {
+        for (IcebergDeleteFile deleteFile : split.deleteFiles()) {
             switch (deleteFile.deleteType()) {
                 case "POSITION" -> readPositionDeletes(deleteFile, split, sdkTable, positions);
                 case "DELETION_VECTOR" -> readDeletionVector(deleteFile, sdkTable, positions);
-                default -> LOG.debug("event=skip_unsupported_delete_type type={}",
-                        deleteFile.deleteType());
+                case "EQUALITY" -> throw unsupportedDelete(
+                        split, deleteFile, "equality deletes are not supported");
+                default -> throw unsupportedDelete(
+                        split, deleteFile, "unknown delete type");
             }
         }
         return positions;
+    }
+
+    private static ConnectorException unsupportedDelete(
+            IcebergSplit split, IcebergDeleteFile deleteFile, String reason) {
+        return new ConnectorException(
+                PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                "Cannot read Iceberg table " + split.tableName()
+                        + " at snapshot " + split.snapshotId() + ": " + reason
+                        + " (delete file " + deleteFile.filePath()
+                        + ", data file " + split.filePath() + ")");
     }
 
     private void readPositionDeletes(

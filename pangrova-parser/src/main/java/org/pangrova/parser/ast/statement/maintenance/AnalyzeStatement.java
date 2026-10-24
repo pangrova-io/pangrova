@@ -1,0 +1,11 @@
+package org.pangrova.parser.ast.statement.maintenance;
+
+import org.pangrova.parser.ast.Identifier;
+import org.pangrova.parser.ast.Statement;
+
+/**
+ * Represents {@code ANALYZE TABLE [COMPUTE STATISTICS]}: collects connector statistics
+ * and persists them against the controlled table's current version token.
+ */
+public record AnalyzeStatement(Identifier tableName) implements Statement {
+}

@@ -24,7 +24,6 @@ import org.pangrova.materialization.domain.TriggerKind;
 import org.pangrova.materialization.port.PublishedMaterialization;
 import org.pangrova.materialization.usecase.CreateMaterialization;
 import org.pangrova.materialization.usecase.DropMaterialization;
-import org.pangrova.materialization.usecase.MaterializationOutcome;
 import org.pangrova.materialization.usecase.MaterializationService;
 import org.pangrova.materialization.usecase.RefreshMaterialization;
 import org.pangrova.materialization.usecase.RedefineMaterialization;
@@ -77,7 +76,7 @@ public final class KernelDynamicTableService {
         MaterializationId object = object(statement.name(), context);
         RefreshMode refreshMode = refreshMode(statement);
         Principal principal = MaterializationKernelFactory.principal(context);
-        MaterializationOutcome outcome = kernels.service(context).create(new CreateMaterialization(
+        kernels.service(context).create(new CreateMaterialization(
                 object,
                 MaterializationKind.DYNAMIC_TABLE,
                 new AstPrinter().print(statement.query()),

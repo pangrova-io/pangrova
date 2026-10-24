@@ -2,6 +2,7 @@ package org.pangrova.security.rowfilter;
 
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.security.authz.DeferredSubjectContext;
+import org.pangrova.security.authz.RowFilterSource;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -22,7 +23,7 @@ import java.util.stream.Collectors;
  * indexed parameters in a {@link ParameterizedFilter} and validated against
  * a strict whitelist pattern at render time, preventing SQL injection.
  */
-public class RowLevelSecurityFilter {
+public class RowLevelSecurityFilter implements RowFilterSource {
 
     private static final Pattern USER_ATTR_PATTERN = Pattern.compile("user_attribute\\('([^']*)'\\)");
 

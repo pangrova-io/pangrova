@@ -1,6 +1,6 @@
 ---
 title: "Maintenance"
-description: "COMPACT, OPTIMIZE, VACUUM, clustering, and stored procedures"
+description: "COMPACT, OPTIMIZE, VACUUM, ANALYZE, clustering, and stored procedures"
 ---
 
 # Maintenance
@@ -11,23 +11,65 @@ Maintenance syntax and catalog procedures have different execution paths.
 
 | Surface | Default behavior |
 |---|---|
-| `COMPACT` / `OPTIMIZE` / `VACUUM` | Registered, but the default bootstrap constructs `MaintenanceExecutor(null)`, selecting a no-op provider |
+| `COMPACT` / `OPTIMIZE` / `VACUUM` | Registered and executed through `ControlledTableMaintenance`: ACTIVE LINKED/MANAGED records only, policy-checked, under a distributed lease |
+| Automatic scan | Maintenance leader only; scans ACTIVE LINKED/MANAGED records, runs due policy operations, records `AUTOMATIC` history |
+| `ANALYZE` | Collects connector statistics for ACTIVE LINKED/MANAGED tables and persists them against the stable table ID and observed version |
 | Catalog-qualified `CALL` | Wired to the selected connector's procedure implementation |
 | Clustering / `RECLUSTER` | Parser and task/executor components exist; no default production task registration found |
 
 **A successful standalone maintenance response does not prove that maintenance ran.**
-The no-op provider reports zero work. Use the appropriate connector procedure below
-and verify the resulting table state. Procedure availability and semantics depend on
-the connector, authenticated context, and storage configuration.
+Every statement either executes a policy-authorized connector operation or fails
+explicitly. OBSERVED tables are rejected before the connector is touched, LINKED
+tables run only operations enabled by their policy, and OBSERVED/LINKED tables
+cannot be written or dropped through Pangrova. Procedure availability and
+semantics depend on the connector, authenticated context, and storage configuration.
 
 See [Current Capability Status](../getting-started/capability-status.md).
+
+## Automatic Maintenance
+
+The maintenance leader runs a periodic scan over **controlled tables only**. The
+scan asks the table control registry for ACTIVE LINKED/MANAGED records and
+includes a table only when its policy enables at least one operation. OBSERVED
+tables have no control record, so they are never scanned and never maintained.
+
+For each due table the leader runs every policy-authorized operation that is due,
+in this order:
+
+1. `COMPACT` — compaction / small-file rewrite
+2. `EXPIRE_SNAPSHOTS` — retention window from the policy
+3. `REMOVE_ORPHAN_FILES` — orphan cutoff from the policy
+
+Due-ness is measured from the last terminal run (success, failure, or skip) for
+that operation, so a failed destructive operation is not retried on every scan.
+MANAGED tables inherit the ownership defaults (all three operations); LINKED
+tables run only what ADOPT explicitly authorized.
+
+Automatic runs use the same `ControlledTableMaintenance` path as a manual
+statement: distributed lease keyed by `table_id`, identity fence, double version
+observation for LINKED tables, and a durable `table_control_maintenance_run`
+entry. That entry carries `mode = AUTOMATIC` and actor `system:maintenance`.
+When an external writer is detected between observations the run is recorded as
+`SKIPPED` and re-evaluated on the next cycle; other failures propagate to the
+scheduler and are logged without being masked as success.
+
+`expire_snapshots` arguments are format-specific. Iceberg receives the retain
+count plus a time horizon computed from `snapshot_retention`; Paimon receives the
+retain window it validates. A format with no defined argument mapping fails
+instead of sending one connector's semantics to another.
+
+The scan starts when maintenance leadership is acquired and stops when
+leadership is lost. A coordinator that is not the maintenance leader never runs
+automatic maintenance.
 
 
 ## Table Maintenance
 
 ### COMPACT TABLE
 
-Recognized syntax. With an injected provider it delegates to `compactAsync`; the default provider performs no work.
+Runs compaction through the connector after ownership, policy, identity, and
+version checks. For LINKED tables the version is observed twice; an external
+writer that commits in between aborts the run.
 
 ```sql
 COMPACT prod.analytics.events;
@@ -35,7 +77,9 @@ COMPACT prod.analytics.events;
 
 ### OPTIMIZE TABLE
 
-Recognized syntax. It delegates to the same `compactAsync` operation as `COMPACT`; sorting and z-ordering are not established by this handler. The default provider performs no work.
+Registered as `MaintenanceOperation.OPTIMIZE` under the same ownership, policy,
+lease, and version checks as `COMPACT`. Sorting and z-ordering are not established
+by this handler.
 
 ```sql
 OPTIMIZE prod.analytics.orders;
@@ -43,11 +87,33 @@ OPTIMIZE prod.analytics.orders;
 
 ### VACUUM TABLE
 
-Recognized syntax. It delegates only to orphan cleanup with a 24-hour cutoff; it does not expire snapshots. The default provider performs no work. Use explicit connector procedures for snapshot expiration or orphan removal.
+Runs orphan-file cleanup using the policy's orphan-file age. It does not expire
+snapshots; use an explicitly authorized connector procedure for snapshot expiration.
 
 ```sql
 VACUUM prod.analytics.events;
 ```
+
+### ANALYZE TABLE
+
+Collects connector statistics and stores them against the controlled table's
+stable ID and the version token observed during collection. The planner uses the
+stored row only while the control record still carries that token; after a
+Pangrova or external commit, live connector statistics are used instead.
+
+`ANALYZE` requires an ACTIVE LINKED or MANAGED control record. OBSERVED tables are
+rejected: without a stable identity, collected statistics could not be tied to the
+table they describe.
+
+```sql
+ANALYZE TABLE prod.analytics.events;
+ANALYZE TABLE prod.analytics.events COMPUTE STATISTICS;
+```
+
+The statement returns one summary row: `table`, `stats_version`, `version_token`,
+`row_count`, `data_size`, and `source`. If the connector cannot report a version
+token, or reports no usable statistics, the statement fails instead of storing a
+value that would be immediately stale or fabricated as zero.
 
 ---
 
@@ -123,8 +189,8 @@ CALL prod_iceberg.warmup_table('analytics.events');
 | Procedure | Arguments | Description |
 |-----------|-----------|-------------|
 | `compact` | `table_name` | Rewrite data files and apply deletes |
-| `expire_snapshots` | `table_name [, retain_last] [, older_than_millis]` | Expire old snapshots |
-| `remove_orphan_files` | `table_name [, older_than_millis]` | Remove unreferenced files from the table location |
+| `expire_snapshots` | `table_name [, retain_last] [, older_than_millis] [, dry_run]` | Expire old snapshots; `retain_last` defaults to 10 |
+| `remove_orphan_files` | `table_name [, older_than_millis] [, dry_run]` | Remove unreferenced files; the cutoff must be at least 24 hours old |
 | `rewrite_manifests` | `table_name` | Compact small manifests |
 | `rollback_to_snapshot` | `table_name, snapshot_id` | Rollback to a snapshot |
 | `set_current_snapshot` | `table_name, snapshot_id` | Fast-forward or set a branch to a snapshot |
@@ -132,15 +198,18 @@ CALL prod_iceberg.warmup_table('analytics.events');
 
 **Paimon procedures:**
 
-| Procedure | Description |
-|-----------|-------------|
-| `compact` | Compact table files |
-| `expire_snapshots` | Expire old snapshots |
-| `create_tag` / `delete_tag` | Manage snapshot tags |
-| `rollback_to` | Rollback to a snapshot or tag |
-| `create_branch` / `delete_branch` / `merge_branch` | Manage branches |
-| `repair` | Repair table metadata |
-| `rewrite_file_index` | Rewrite file indexes |
-| `remove_orphan_files` | Remove unreferenced files |
-| `reset_consumer` | Reset a consumer ID |
-| `rescale_bucket` | Rescale bucket count |
+| Procedure | Arguments | Description |
+|-----------|-----------|-------------|
+| `compact` | `table_name` | Compact table files |
+| `expire_snapshots` | `table_name [, retain_max] [, retain_min] [, dry_run]` | Expire old snapshots; defaults keep 30 snapshots with a floor of 10 |
+| `create_tag` / `delete_tag` | `table_name, tag_name, ...` | Manage snapshot tags |
+| `rollback_to` | `table_name, tag_name` | Rollback to a tag |
+| `create_branch` / `delete_branch` | `table_name, branch_name` | Manage branches |
+| `remove_orphan_files` | `table_name [, older_than_ms] [, dry_run]` | Remove unreferenced files; the cutoff must be at least 24 hours old |
+
+Destructive procedures are conservative by default and accept `dry_run = true`
+to report what would be removed without committing anything. Procedures that
+are not implemented for a connector fail with an unsupported-operation error
+instead of reporting a no-op success; `merge_branch`, `repair`,
+`rewrite_file_index`, `reset_consumer`, and `rescale_bucket` are currently
+unsupported on Paimon.

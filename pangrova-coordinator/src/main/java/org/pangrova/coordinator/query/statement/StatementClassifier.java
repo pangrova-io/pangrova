@@ -98,6 +98,7 @@ public final class StatementClassifier {
     public static boolean isShow(Statement stmt) {
         return stmt instanceof ShowSchemasStatement
                 || stmt instanceof ShowTablesStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.ShowTableControlsStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.DescribeTableStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.ShowCatalogsStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.ShowSemanticViewsStatement
@@ -107,10 +108,12 @@ public final class StatementClassifier {
                 || stmt instanceof ShowMaterializationGcHistoryStatement;
     }
 
+    /** Returns whether a statement is a scheduled maintenance operation. */
     public static boolean isMaintenance(Statement stmt) {
         return stmt instanceof CompactStatement
                 || stmt instanceof OptimizeStatement
-                || stmt instanceof VacuumStatement;
+                || stmt instanceof VacuumStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
     }
 
     /** Returns whether a statement manages a dynamic table or continuous query. */

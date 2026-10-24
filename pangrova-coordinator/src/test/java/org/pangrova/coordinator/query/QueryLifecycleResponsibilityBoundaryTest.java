@@ -100,10 +100,12 @@ class QueryLifecycleResponsibilityBoundaryTest {
         assertThat(publicMethods).as("TaskStatusReceiver public API")
                 // setWriteCommitFencer is the A-FENCE-01 late-wiring seam: the leadership
                 // fence is built after HA bootstrap, mirroring the QueryManager
-                // setClusterAdmissionController pattern. It configures, never drives,
-                // the callback flow — so the callback-only boundary still holds.
+                // setClusterAdmissionController pattern. setWriteQualityGate is the same
+                // kind of seam for the governance quality gate, which depends on module
+                // wiring. Both configure, never drive, the callback flow — so the
+                // callback-only boundary still holds.
                 .containsExactlyInAnyOrder("onTaskStatus", "clearTaskSequence",
-                        "setWriteCommitFencer");
+                        "setWriteCommitFencer", "setWriteQualityGate");
     }
 
     // ── QueryTimeoutEnforcer boundary: timeout enforcement only ──

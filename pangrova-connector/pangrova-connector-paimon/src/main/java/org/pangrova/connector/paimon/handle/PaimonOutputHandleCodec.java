@@ -20,7 +20,7 @@ import java.util.TreeMap;
 public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec {
 
     public static final String TYPE_URL = "pangrova.io/connector/paimon/output-handle";
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
     private static final int MAX_STRING_BYTES = 16 * 1024 * 1024;
     private static final int MAX_ENTRIES = 100_000;
     private static final int MAX_ALLOCATION_BYTES = 32 * 1024 * 1024;
@@ -42,6 +42,8 @@ public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec
             writeString(out, paimon.schemaName());
             writeString(out, paimon.tableName());
             writeString(out, paimon.tableLocation());
+            writeString(out, paimon.tableUuid());
+            writeString(out, paimon.schemaFingerprint());
             writeString(out, paimon.rowTypeJson());
             writeList(out, paimon.primaryKeys());
             writeList(out, paimon.partitionKeys());
@@ -73,7 +75,8 @@ public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec
         try {
             DataInputStream in = new DataInputStream(new ByteArrayInputStream(payload));
             PaimonOutputTableHandle handle = new PaimonOutputTableHandle(
-                    readString(in), readString(in), readString(in), readString(in),
+                    readString(in), readString(in), readString(in), readString(in), readString(in),
+                    readString(in),
                     new PaimonOutputTableHandle.Layout(readList(in), readList(in)),
                     new PaimonOutputTableHandle.WriteSemantics(
                             readMap(in), readString(in), in.readLong(), Optional.empty()));

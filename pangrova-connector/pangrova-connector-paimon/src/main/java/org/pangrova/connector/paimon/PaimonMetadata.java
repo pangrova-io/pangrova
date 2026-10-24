@@ -24,7 +24,10 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.Table;
@@ -92,6 +95,53 @@ public class PaimonMetadata implements ConnectorMetadata {
         return schemaName
                 .map(this::listTablesInSchema)
                 .orElseGet(this::listAllTables);
+    }
+
+    @Override
+    public Optional<TableIdentity> getTableIdentity(
+            ConnectorSession session, ConnectorTableHandle table) {
+        if (!(table instanceof PaimonTableHandle handle)) {
+            return Optional.empty();
+        }
+        FileStoreTable fileStore = loadFileStore(handle);
+        return Optional.of(new TableIdentity(
+                "PAIMON", fileStore.uuid(), fileStore.location().toString(),
+                PaimonMaterializationSourceProvider.schemaFingerprint(fileStore.schema())));
+    }
+
+    @Override
+    public Optional<TableVersionToken> observeVersion(
+            ConnectorSession session, ConnectorTableHandle table) {
+        if (!(table instanceof PaimonTableHandle handle)) {
+            return Optional.empty();
+        }
+        FileStoreTable fileStore = loadFileStore(handle);
+        Snapshot latest = fileStore.snapshotManager().latestSnapshot();
+        return Optional.of(TableVersionToken.of(
+                "PAIMON",
+                fileStore.uuid(),
+                latest == null ? "EMPTY" : Long.toString(latest.id()),
+                Long.toString(fileStore.schema().id()),
+                org.pangrova.common.util.DigestUtils.sha256Hex(
+                        fileStore.location().toString())));
+    }
+
+    @Override
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
+            ConnectorSession session, ConnectorTableHandle table) {
+        return table instanceof PaimonTableHandle
+                ? PaimonTableHandle.CAPABILITIES
+                : org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
+    }
+
+    private FileStoreTable loadFileStore(PaimonTableHandle handle) {
+        Table fresh = loadFreshTable(handle.schemaName(), handle.tableName());
+        if (!(fresh instanceof FileStoreTable fileStore)) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                    "Table control identity requires a Paimon FileStoreTable: "
+                            + handle.schemaName() + "." + handle.tableName());
+        }
+        return fileStore;
     }
 
     @Override
@@ -308,6 +358,20 @@ public class PaimonMetadata implements ConnectorMetadata {
                                        java.util.List<byte[]> fragments,
                                        DistributedWriteCommitContext context) {
         writes.finish(session, (PaimonOutputTableHandle) outputHandle, fragments, context);
+    }
+
+    /**
+     * Discards the exact data files staged by a distributed write that will never be published.
+     * Paimon has no format-level abort barrier, so this only unlinks unpublished files; the
+     * durable four-argument abort remains unsupported and is quarantined by reconciliation.
+     */
+    @Override
+    public void abortDistributedWrite(ConnectorSession session,
+                                      ConnectorOutputTableHandle outputHandle,
+                                      java.util.List<byte[]> fragments) {
+        PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputHandle;
+        PaimonDistributedWriteFinisher.abort(
+                loadFreshTable(handle.schemaName(), handle.tableName()), handle, fragments);
     }
 
     @Override

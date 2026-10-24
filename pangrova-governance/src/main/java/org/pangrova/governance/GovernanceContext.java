@@ -31,7 +31,8 @@ public class GovernanceContext implements AutoCloseable {
         this.securityPolicy = deps.securityPolicy();
         this.cronScheduler = deps.cronScheduler();
         this.ruleStore = deps.ruleStore();
-        this.columnTagService = new ColumnTagService();
+        this.columnTagService = deps.columnTagService() != null
+                ? deps.columnTagService() : new ColumnTagService();
     }
 
     /**

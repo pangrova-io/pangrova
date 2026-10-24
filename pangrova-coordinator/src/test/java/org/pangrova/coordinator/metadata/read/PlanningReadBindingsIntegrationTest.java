@@ -152,6 +152,52 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void persistedAnalyzeStatisticsWinOnlyWhileTheyDescribeTheCurrentVersion() throws Exception {
+        try (var fixture = new ReadBindingSdkFixture(warehouse)) {
+            ReadBindingSdkFixture.write(fixture.create("analyzed"), 3);
+            var owner = new PlanningReadBindings(
+                    fixture.bootstrap.catalogRegistry(), fixture.session);
+
+            var controlStore = new org.pangrova.metadata.control.InMemoryTableControlStore();
+            var control = new org.pangrova.metadata.control.TableControlService(controlStore,
+                    new org.pangrova.metadata.control.TableControlSettings(
+                            true, true, java.util.Set.of()));
+            var statisticsService =
+                    new org.pangrova.metadata.control.TableControlStatisticsService(control,
+                            new org.pangrova.metadata.control
+                                    .InMemoryTableControlStatisticsStore());
+            var record = org.pangrova.metadata.control.TableControlRecord.builder()
+                    .tableId(java.util.UUID.randomUUID())
+                    .name("bound", "db", "analyzed")
+                    .format("PAIMON")
+                    .formatTableUuid("uuid-analyzed")
+                    .ownershipMode(org.pangrova.metadata.control.OwnershipMode.MANAGED)
+                    .state(org.pangrova.metadata.control.TableControlState.ACTIVE)
+                    .provenance(org.pangrova.metadata.control.TableControlProvenance.CREATED)
+                    .metadataRevision(1)
+                    .version("PAIMON:uuid-analyzed:1", java.time.Instant.now())
+                    .createdAt(java.time.Instant.now())
+                    .updatedAt(java.time.Instant.now())
+                    .build();
+            controlStore.save(record);
+            statisticsService.record("bound", "db", "analyzed",
+                    new org.pangrova.spi.connector.metadata.table.TableStatistics(999, 123_456),
+                    "ANALYZE");
+
+            var name = new QualifiedTableName("bound", "db", "analyzed");
+            assertThat(new CatalogStatisticsProvider(owner, statisticsService)
+                    .getTableStatistics(name).rowCount()).isEqualTo(999);
+
+            controlStore.save(record.toBuilder()
+                    .version("PAIMON:uuid-analyzed:2", java.time.Instant.now())
+                    .metadataRevision(2)
+                    .build());
+            assertThat(new CatalogStatisticsProvider(owner, statisticsService)
+                    .getTableStatistics(name).rowCount()).isEqualTo(3);
+        }
+    }
+
+    @Test
     void currentCaseInsensitivePlannerRetainsActualCaseInHistoricalSourceIdentity() throws Exception {
         try (var fixture = new ReadBindingSdkFixture(warehouse)) {
             var table = fixture.create("CamelRows");

@@ -78,10 +78,29 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
     public void abortUncommittedFiles(ConnectorSession session, ConnectorOutputTableHandle output,
             List<NativePhysicalFileAllocation> allocations, DistributedWriteCommitContext context) {
         requireSession(session);
-        requireHandle(output);
-        // Absence of a snapshot marker is not an atomic promise that a concurrent publisher cannot
-        // commit. No delete is authorized until the durable journal provides an abort disposition.
-        throw new UnsupportedOperationException("Physical file cleanup requires a durable non-publication disposition");
+        var handle = requireHandle(output);
+        validateCommitContext(session, handle, context);
+        var allocation = handle.nativePhysicalWriteAllocation().orElseThrow();
+        var table = load(handle);
+        // Callers reach this only after the durable journal records a non-publication
+        // disposition. The format marker must still be absent before any object is removed.
+        if (table.snapshotManager().latestSnapshotOfUser(context.commitFingerprint()).isPresent()) {
+            throw new IllegalStateException("Physical output is already published; refusing cleanup");
+        }
+        var permitted = allocation.files().stream()
+                .map(NativePhysicalFileAllocation::location).toList();
+        String prefix = table.location().toString() + "/";
+        for (var candidate : allocations) {
+            if (!permitted.contains(candidate.location())
+                    || !candidate.location().opaqueLocation().startsWith(prefix)) {
+                throw new IllegalArgumentException(
+                        "Physical cleanup target differs from the exact bound allocation");
+            }
+        }
+        for (var candidate : allocations) {
+            table.fileIO().deleteQuietly(
+                    new org.apache.paimon.fs.Path(candidate.location().opaqueLocation()));
+        }
     }
 
     private void validateCommitContext(ConnectorSession session, PaimonOutputTableHandle handle,
@@ -181,13 +200,9 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
     private FileStoreTable load(PaimonOutputTableHandle handle) {
         try {
             var table = catalog.getTable(Identifier.create(handle.schemaName(), handle.tableName()));
-            if (!(table instanceof FileStoreTable fileStore)) {
-                throw new IllegalArgumentException("Physical output requires a real SDK FileStoreTable");
-            }
-            if (!fileStore.location().toString().equals(handle.tableLocation())) {
-                throw new IllegalArgumentException("Physical target differs from the SDK table location");
-            }
-            return fileStore;
+            return org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
+                    table, handle.tableUuid(), handle.tableLocation(), handle.schemaFingerprint(),
+                    "Physical output");
         } catch (Catalog.TableNotExistException failure) {
             throw new IllegalStateException("Physical output table no longer exists", failure);
         }

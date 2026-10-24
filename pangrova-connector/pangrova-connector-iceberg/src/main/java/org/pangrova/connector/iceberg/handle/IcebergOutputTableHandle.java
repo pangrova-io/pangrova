@@ -16,6 +16,10 @@ import java.util.TreeMap;
  *
  * <p>The {@code schemaJson} field contains the JSON serialization of the write schema,
  * which can be parsed back using {@link IcebergTableHandleFactory#parseSchema}.
+ *
+ * <p>{@code overwriteScope} is mandatory for {@code OVERWRITE} mode: a commit refuses to widen
+ * a static-partition replacement into a whole-table replacement, and refuses an overwrite that
+ * never declared what it replaces.</p>
  */
 public record IcebergOutputTableHandle(
         String schemaName,
@@ -27,6 +31,7 @@ public record IcebergOutputTableHandle(
         int formatVersion,
         long baseSnapshotId,
         String writeMode,
+        IcebergOverwriteScope overwriteScope,
         Map<String, String> staticPartitions,
         Map<String, String> declarationProperties) implements ConnectorOutputTableHandle {
 
@@ -53,9 +58,30 @@ public record IcebergOutputTableHandle(
                 && !MODE_DELETE.equals(writeMode)) {
             throw new IllegalArgumentException("Unsupported Iceberg write mode: " + writeMode);
         }
+        overwriteScope = overwriteScope == null ? IcebergOverwriteScope.NONE : overwriteScope;
+        if (!MODE_OVERWRITE.equals(writeMode)) {
+            if (overwriteScope != IcebergOverwriteScope.NONE) {
+                throw new IllegalArgumentException(
+                        "Iceberg overwrite scope requires OVERWRITE mode: " + overwriteScope);
+            }
+        } else if (overwriteScope == IcebergOverwriteScope.NONE) {
+            throw new IllegalArgumentException(
+                    "Iceberg OVERWRITE requires an explicit overwrite scope");
+        } else if (overwriteScope == IcebergOverwriteScope.DYNAMIC_PARTITION) {
+            throw new UnsupportedOperationException(
+                    "Iceberg dynamic partition overwrite requires planner-provided affected partitions");
+        }
         staticPartitions = Map.copyOf(new TreeMap<>(staticPartitions));
         if (!staticPartitions.isEmpty() && !MODE_OVERWRITE.equals(writeMode)) {
             throw new IllegalArgumentException("Static partitions require Iceberg OVERWRITE mode");
+        }
+        if (overwriteScope == IcebergOverwriteScope.STATIC_PARTITION && staticPartitions.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Iceberg STATIC_PARTITION overwrite requires at least one static partition");
+        }
+        if (overwriteScope == IcebergOverwriteScope.WHOLE_TABLE && !staticPartitions.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Iceberg WHOLE_TABLE overwrite must not carry static partitions");
         }
         staticPartitions.forEach((key, value) -> requireNonBlank(key, "static partition column"));
         declarationProperties = IcebergDeclarationProperties.requireCanonical(declarationProperties);

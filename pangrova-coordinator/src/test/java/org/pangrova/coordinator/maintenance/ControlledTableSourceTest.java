@@ -1,0 +1,90 @@
+package org.pangrova.coordinator.maintenance;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.pangrova.metadata.control.InMemoryTableControlMaintenanceStore;
+import org.pangrova.metadata.control.InMemoryTableControlStore;
+import org.pangrova.metadata.control.TableControlMaintenanceService;
+import org.pangrova.metadata.control.TableControlRecord;
+import org.pangrova.metadata.control.TableControlService;
+import org.pangrova.metadata.control.TableControlSettings;
+import org.pangrova.metadata.control.TableControlState;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class ControlledTableSourceTest {
+
+    private InMemoryTableControlStore store;
+    private TableControlService control;
+    private TableControlMaintenanceService policies;
+    private ControlledTableSource source;
+
+    @BeforeEach
+    void setUp() {
+        store = new InMemoryTableControlStore();
+        control = new TableControlService(store,
+                new TableControlSettings(true, true, Set.of()));
+        policies = new TableControlMaintenanceService(
+                new InMemoryTableControlMaintenanceStore());
+        source = new ControlledTableSource(control, policies);
+    }
+
+    @Test
+    void managedTableUsesOwnershipDefaults() {
+        control.registerCreated("cat", "s", "managed", "alice",
+                Optional.of(identity("managed")), Optional.of(version()));
+
+        assertThat(source.listManagedTables()).containsExactly("cat.s.managed");
+    }
+
+    @Test
+    void linkedTableIsExcludedUntilItsPolicyEnablesAnOperation() {
+        TableControlRecord record = adopt("linked");
+        assertThat(source.listManagedTables()).isEmpty();
+
+        policies.applyAdoptionProperties(record,
+                Map.of("maintenance_operations", "COMPACT"), "alice");
+
+        assertThat(source.listManagedTables()).containsExactly("cat.s.linked");
+    }
+
+    @Test
+    void nonActiveRecordsAreExcluded() {
+        TableControlRecord record = adopt("stale");
+        policies.applyAdoptionProperties(record,
+                Map.of("maintenance_operations", "COMPACT"), "alice");
+        store.save(record.toBuilder().state(TableControlState.STALE).build());
+
+        assertThat(source.listManagedTables()).isEmpty();
+    }
+
+    @Test
+    void disabledControlPlaneNeverSuppliesTables() {
+        TableControlService disabled = new TableControlService(store,
+                new TableControlSettings(false, false, Set.of()));
+        disabled.registerCreated("cat", "s", "managed", "alice",
+                Optional.of(identity("managed")), Optional.of(version()));
+
+        assertThat(new ControlledTableSource(disabled, policies).listManagedTables())
+                .isEmpty();
+    }
+
+    private TableControlRecord adopt(String table) {
+        return control.adopt("cat", "s", table, "alice",
+                Optional.of(identity(table)), Optional.of(version()));
+    }
+
+    private static TableIdentity identity(String table) {
+        return new TableIdentity("ICEBERG", "uuid-" + table, "s3://bucket/" + table, "schema");
+    }
+
+    private static TableVersionToken version() {
+        return TableVersionToken.of("ICEBERG", "uuid", "v1");
+    }
+}

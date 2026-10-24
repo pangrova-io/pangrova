@@ -59,7 +59,7 @@ class WriteCommitRecoveryServiceTest {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
 
-        var report = recover(new WriteCommitRecoveryService(journal,
+        var report = recover(service(journal,
                 e -> WriteCommitReconciler.RecoveryOutcome.COMMITTED), "q1");
 
         assertThat(report.pending()).isEqualTo(1);
@@ -72,7 +72,7 @@ class WriteCommitRecoveryServiceTest {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
 
-        var report = recover(new WriteCommitRecoveryService(journal,
+        var report = recover(service(journal,
                 e -> WriteCommitReconciler.RecoveryOutcome.ABORTED), "q1");
 
         assertThat(report.aborted()).isEqualTo(1);
@@ -86,15 +86,99 @@ class WriteCommitRecoveryServiceTest {
     void quarantinedOutcomeRetainsEntryForManualReconciliation() {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
+        var quarantine = new InMemoryWriteCommitQuarantineStore();
 
         var report = recover(new WriteCommitRecoveryService(journal,
-                e -> WriteCommitReconciler.RecoveryOutcome.QUARANTINED), "q1");
+                e -> WriteCommitReconciler.RecoveryOutcome.QUARANTINED, quarantine), "q1");
 
         assertThat(report.quarantined()).isEqualTo(1);
         // Intent retained (still PENDING) for forensics / manual action.
         assertThat(journal.getEntry("q1")).isPresent();
         assertThat(journal.getEntry("q1").get().state())
                 .isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(quarantine.find("q1")).get()
+                .satisfies(entry -> {
+                    assertThat(entry.commitFingerprint())
+                            .isEqualTo(journal.getEntry("q1").orElseThrow().commitFingerprint());
+                    assertThat(entry.catalogName()).isEqualTo("iceberg");
+                    assertThat(entry.tableName()).isEqualTo("analytics.events");
+                    assertThat(entry.reason()).isNotBlank();
+                    assertThat(entry.quarantinedAt()).isNotNull();
+                });
+    }
+
+    @Test
+    void quarantinedIntentIsNotReconciledAgain() {
+        var journal = new InMemoryWriteCommitJournal();
+        journal.recordIntent(pending("q1"));
+        var quarantine = new InMemoryWriteCommitQuarantineStore();
+        var first = new AtomicInteger();
+
+        recover(new WriteCommitRecoveryService(journal, entry -> {
+            first.incrementAndGet();
+            return WriteCommitReconciler.RecoveryOutcome.QUARANTINED;
+        }, quarantine), "q1");
+        assertThat(first.get()).isEqualTo(1);
+
+        var retried = new AtomicInteger();
+        var second = recover(new WriteCommitRecoveryService(journal, entry -> {
+            retried.incrementAndGet();
+            return WriteCommitReconciler.RecoveryOutcome.COMMITTED;
+        }, quarantine), "q1");
+
+        // Manual reconciliation is required: the second pass must not touch the intent.
+        assertThat(retried.get()).isZero();
+        assertThat(second.quarantined()).isEqualTo(1);
+        assertThat(second.committed()).isZero();
+        assertThat(journal.getEntry("q1")).get()
+                .extracting(WriteCommitEntry::state)
+                .isEqualTo(WriteCommitEntry.State.PENDING);
+    }
+
+    @Test
+    void differentFingerprintIsNotSkippedByAnOlderQuarantine() {
+        var journal = new InMemoryWriteCommitJournal();
+        journal.recordIntent(pending("q1"));
+        var quarantine = new InMemoryWriteCommitQuarantineStore();
+        quarantine.record(new QuarantinedWriteCommit("q1", "b".repeat(64), "iceberg",
+                "analytics.events", "older decision", java.time.Instant.now()));
+        var reconciled = new AtomicInteger();
+
+        var report = recover(new WriteCommitRecoveryService(journal, entry -> {
+            reconciled.incrementAndGet();
+            return WriteCommitReconciler.RecoveryOutcome.COMMITTED;
+        }, quarantine), "q1");
+
+        assertThat(reconciled.get()).isEqualTo(1);
+        assertThat(report.committed()).isEqualTo(1);
+    }
+
+    @Test
+    void quarantinePersistenceFailureDoesNotAbortTheRecoveryPass() {
+        var journal = new InMemoryWriteCommitJournal();
+        journal.recordIntent(pending("q1"));
+        var quarantine = new WriteCommitQuarantineStore() {
+            @Override
+            public boolean exists(String queryId, String commitFingerprint) {
+                return false;
+            }
+
+            @Override
+            public void record(QuarantinedWriteCommit entry) {
+                throw new IllegalStateException("quarantine store unavailable");
+            }
+
+            @Override
+            public java.util.Optional<QuarantinedWriteCommit> find(String queryId) {
+                return java.util.Optional.empty();
+            }
+        };
+
+        var report = recover(new WriteCommitRecoveryService(journal,
+                e -> WriteCommitReconciler.RecoveryOutcome.QUARANTINED, quarantine), "q1");
+
+        assertThat(report.quarantined()).isEqualTo(1);
+        assertThat(journal.getEntry("q1")).isPresent();
     }
 
     @Test
@@ -102,7 +186,7 @@ class WriteCommitRecoveryServiceTest {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
 
-        var report = recover(new WriteCommitRecoveryService(journal, e -> {
+        var report = recover(service(journal, e -> {
             throw new RuntimeException("catalog unreachable");
         }), "q1");
 
@@ -117,7 +201,7 @@ class WriteCommitRecoveryServiceTest {
         journal.markCommitted("q1");   // already terminal
         var reconcileCount = new AtomicInteger();
 
-        var report = recover(new WriteCommitRecoveryService(journal, e -> {
+        var report = recover(service(journal, e -> {
             reconcileCount.incrementAndGet();
             return WriteCommitReconciler.RecoveryOutcome.COMMITTED;
         }), "q1");
@@ -131,7 +215,7 @@ class WriteCommitRecoveryServiceTest {
     @Test
     void mixedOutcomesAreTalliedAndEmptyJournalIsNoOp() {
         var empty = new InMemoryWriteCommitJournal();
-        assertThat(recover(new WriteCommitRecoveryService(empty,
+        assertThat(recover(service(empty,
                 e -> WriteCommitReconciler.RecoveryOutcome.COMMITTED)).pending()).isZero();
 
         var journal = new InMemoryWriteCommitJournal();
@@ -139,7 +223,7 @@ class WriteCommitRecoveryServiceTest {
         journal.recordIntent(pending("abort-me"));
         journal.recordIntent(pending("hold-me"));
 
-        var report = recover(new WriteCommitRecoveryService(journal, e -> switch (e.queryId()) {
+        var report = recover(service(journal, e -> switch (e.queryId()) {
             case "commit-me" -> WriteCommitReconciler.RecoveryOutcome.COMMITTED;
             case "abort-me" -> WriteCommitReconciler.RecoveryOutcome.ABORTED;
             default -> WriteCommitReconciler.RecoveryOutcome.QUARANTINED;
@@ -162,7 +246,7 @@ class WriteCommitRecoveryServiceTest {
         journal.recordIntent(pending("live-peer"));
         var reconciled = new java.util.ArrayList<String>();
 
-        recover(new WriteCommitRecoveryService(journal, entry -> {
+        recover(service(journal, entry -> {
             reconciled.add(entry.queryId());
             return WriteCommitReconciler.RecoveryOutcome.COMMITTED;
         }), "claimed");
@@ -177,7 +261,7 @@ class WriteCommitRecoveryServiceTest {
         journal.recordIntent(pending("q1"));
         var fenceChecks = new AtomicInteger();
 
-        var service = new WriteCommitRecoveryService(journal,
+        var service = service(journal,
                 entry -> WriteCommitReconciler.RecoveryOutcome.COMMITTED);
 
         assertThatThrownBy(() -> service.recover(
@@ -188,6 +272,13 @@ class WriteCommitRecoveryServiceTest {
         assertThat(journal.getEntry("q1")).get()
                 .extracting(WriteCommitEntry::state)
                 .isEqualTo(WriteCommitEntry.State.PENDING);
+    }
+
+    private static WriteCommitRecoveryService service(
+            org.pangrova.spi.coordination.WriteCommitJournal journal,
+            WriteCommitReconciler reconciler) {
+        return new WriteCommitRecoveryService(journal, reconciler,
+                new InMemoryWriteCommitQuarantineStore());
     }
 
     private static WriteCommitRecoveryService.RecoveryReport recover(

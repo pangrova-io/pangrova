@@ -153,6 +153,68 @@ ALTER TABLE prod.analytics.events SET PARTITION SPEC (
 );
 ```
 
+**ADOPT (take ownership of an external table):**
+
+```sql
+ALTER TABLE prod.analytics.external_orders ADOPT;
+```
+
+ADOPT records the table as `LINKED`: it becomes governable and eligible for
+restricted maintenance while remaining read-only for DML. The connector must
+report a stable format identity (for example an Iceberg table UUID); ADOPT by
+name only is rejected, as is a table that is already `MANAGED` or whose format
+identity changed after a drop/recreate. Re-adopting an unchanged table is
+idempotent. ADOPT does not modify or move the physical table.
+
+A LINKED table starts with **no** maintenance operations enabled. Authorize
+restricted maintenance at adoption time:
+
+```sql
+ALTER TABLE prod.analytics.external_orders ADOPT WITH (
+  maintenance_operations = 'COMPACT,REMOVE_ORPHAN_FILES',
+  retain_last = '10',
+  orphan_file_age_hours = '72',
+  snapshot_retention_hours = '168'
+);
+```
+
+Supported properties are `maintenance_operations`, `retain_last`,
+`orphan_file_age_hours`, `snapshot_retention_hours`, and
+`active_writer_guard`. Unknown properties or operation names are rejected
+before any control record is written. The active-writer guard cannot be
+disabled for LINKED tables: maintenance aborts if an external writer commits
+between the two version observations. ADOPT, UNLINK, every maintenance run,
+and every external commit observed on a controlled table are written to the
+durable audit trail with the table's stable `table_id`.
+
+**UNLINK (release an adopted table):**
+
+```sql
+ALTER TABLE prod.analytics.external_orders UNLINK;
+```
+
+UNLINK removes the `LINKED` control record and its governance bindings; the
+physical table and its data are untouched, and the table returns to `OBSERVED`
+(read-only for Pangrova). `MANAGED` tables must be removed with `DROP TABLE`
+instead. Both statements require `pangrova.table-control.enabled`.
+
+**SET / UNSET COLUMN TAG:**
+
+```sql
+ALTER TABLE prod.analytics.customers ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL';
+ALTER TABLE prod.analytics.customers ALTER COLUMN email UNSET TAG pii_type;
+```
+
+The tag is persisted in the metadata tag store and bound to the table's stable
+`table_id`. `TagBasedSecurityPolicy` reacts to the emitted tag event and upserts
+(or removes) the derived column mask in the persistent mask store that query
+execution reads, so the mask applies to subsequent statements.
+
+The table must be `LINKED` or `MANAGED`; tagging an `OBSERVED` table fails and
+requires `ADOPT` first. The column must exist. Tag changes are replayed on
+coordinator restart, and `UNLINK`/`DROP TABLE` clears the table's tags, bindings,
+and derived masks. Table-level `SET TAG` and `CREATE TAG` are not implemented.
+
 ### SHOW TABLES
 
 ```sql

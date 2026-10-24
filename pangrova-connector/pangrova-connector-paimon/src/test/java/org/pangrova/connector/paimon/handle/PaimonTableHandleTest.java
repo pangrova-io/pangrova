@@ -19,6 +19,7 @@ class PaimonTableHandleTest {
 
         PaimonTableHandle handle = new PaimonTableHandle(
                 "default", "orders", "file:/warehouse/default.db/orders",
+                "table-uuid", "schema-fingerprint",
                 Optional.empty(), "[]", List.of(), List.of(), options,
                 PaimonTableHandle.NO_LIMIT, Optional.empty());
         options.put("bucket", "2");

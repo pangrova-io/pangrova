@@ -2,6 +2,7 @@ package org.pangrova.metadata.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Expiry;
 import org.pangrova.governance.classification.ColumnTagService;
 import org.pangrova.metadata.cache.MetadataCache;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
@@ -26,6 +27,7 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 import org.pangrova.spi.execution.QueryLifecycleListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +63,10 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     // and provide a 10K-entry ceiling so memory cannot grow unbounded.
     private static final long DEFAULT_RESOLUTION_CACHE_MAX_SIZE = 10_000;
     private static final Duration DEFAULT_RESOLUTION_CACHE_TTL = Duration.ofMinutes(5);
+    // OBSERVED tables have no persisted version to compare against, so a cached
+    // resolution can only be bounded by time. A controlled entry is revalidated
+    // against the registry on every hit instead.
+    private static final Duration OBSERVED_RESOLUTION_CACHE_TTL = Duration.ofSeconds(30);
 
     private final CatalogRegistry catalogRegistry;
     private final MetadataCache cache;
@@ -100,9 +106,32 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         this.cache = cache;
         this.eventDispatcher = eventDispatcher;
         this.schemaValidator = schemaValidator;
+        long controlledTtlNanos = Math.max(0L, resolutionCacheTtl.toNanos());
+        long observedTtlNanos = Math.min(
+                controlledTtlNanos, OBSERVED_RESOLUTION_CACHE_TTL.toNanos());
         this.resolvedTableCache = Caffeine.newBuilder()
                 .maximumSize(resolutionCacheMaxSize)
-                .expireAfterWrite(resolutionCacheTtl)
+                .expireAfter(new Expiry<MetadataResolutionCacheKey, ResolvedTable>() {
+                    @Override
+                    public long expireAfterCreate(MetadataResolutionCacheKey key,
+                            ResolvedTable table, long currentTime) {
+                        return table.ownershipMode()
+                                == org.pangrova.metadata.control.OwnershipMode.OBSERVED
+                                ? observedTtlNanos : controlledTtlNanos;
+                    }
+
+                    @Override
+                    public long expireAfterUpdate(MetadataResolutionCacheKey key,
+                            ResolvedTable table, long currentTime, long currentDuration) {
+                        return currentDuration;
+                    }
+
+                    @Override
+                    public long expireAfterRead(MetadataResolutionCacheKey key,
+                            ResolvedTable table, long currentTime, long currentDuration) {
+                        return currentDuration;
+                    }
+                })
                 .recordStats()
                 .build();
     }
@@ -110,10 +139,20 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     /**
      * Injects a {@link ColumnTagService} so {@link #setTag} and {@link #unsetTag}
      * emit {@code TagChangedEvent} to downstream governance listeners.
-     * Tag persistence remains local to this service (in-memory store).
+     * Tag persistence is owned by the installed {@link org.pangrova.metadata.tag.ColumnTagStore}.
      */
     public void setColumnTagService(ColumnTagService columnTagService) {
         tagOperations.setColumnTagService(columnTagService);
+    }
+
+    /**
+     * Re-emits every persisted tag after wiring the governance tag service, so
+     * derived policy (for example auto-masks) is rebuilt after a restart.
+     *
+     * @return the number of tag entries replayed
+     */
+    public int replayColumnTags() {
+        return tagOperations.replayAll();
     }
 
     /**
@@ -142,6 +181,17 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     public Map<String, String> listTags(MetadataSessionContext session,
                                         QualifiedTableRef tableRef, String columnName) {
         return tagOperations.listTags(tableRef, columnName);
+    }
+
+    @Override
+    public int clearTableTags(MetadataSessionContext session, QualifiedTableRef tableRef) {
+        return tagOperations.clearTable(tableRef);
+    }
+
+    @Override
+    public int renameTableTags(MetadataSessionContext session, QualifiedTableRef from,
+            QualifiedTableRef to) {
+        return tagOperations.renameTable(from, to);
     }
 
     @Override
@@ -183,16 +233,36 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     public ResolvedTable resolveTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
         MetadataResolutionCacheKey cacheKey = MetadataResolutionCacheKey.of(session, tableRef);
         ResolvedTable cached = resolvedTableCache.getIfPresent(cacheKey);
-        if (cached != null) {
+        if (cached != null && isCacheEntryCurrent(tableRef, cached)) {
             LOG.debug("event=resolve_cache_hit catalog={} schema={} table={}",
                     tableRef.catalog(), tableRef.schema(), tableRef.table());
             return cached;
+        }
+        if (cached != null) {
+            resolvedTableCache.invalidate(cacheKey);
         }
         LOG.debug("event=resolve_cache_miss catalog={} schema={} table={}",
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
         ResolvedTable resolved = resolveFromCatalog(session, tableRef);
         resolvedTableCache.put(cacheKey, resolved);
         return resolved;
+    }
+
+    /**
+     * OBSERVED reads have no persisted version to compare against and are safe to
+     * serve from the short-lived cache. A controlled entry is reused only while
+     * both its control revision and observed version still match the authority.
+     */
+    private boolean isCacheEntryCurrent(QualifiedTableRef tableRef, ResolvedTable cached) {
+        if (cached.ownershipMode() == org.pangrova.metadata.control.OwnershipMode.OBSERVED) {
+            return true;
+        }
+        var record = catalogRegistry.tableControl()
+                .find(tableRef.catalog(), tableRef.schema(), tableRef.table());
+        return record.isPresent()
+                && record.get().metadataRevision() == cached.controlRevision()
+                && java.util.Objects.equals(
+                        record.get().versionToken(), cached.versionToken().orElse(null));
     }
 
     @Override
@@ -206,6 +276,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         ConnectorTableMetadata connTableMeta = new ConnectorTableMetadata(
                 schemaTable, columnNames, metadata.properties());
         connMetadata.createTable(connSession, connTableMeta);
+        registerCreatedTable(connMetadata, connSession, tableRef, session.user());
         invalidateTableCaches(tableRef);
         eventDispatcher.dispatch(new MetadataEvent.TableCreatedEvent(tableRef, metadata));
         LOG.info("event=table_created catalog={} schema={} table={}",
@@ -214,6 +285,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
 
     @Override
     public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
+        catalogRegistry.tableControl().requireManagedForDdl(
+                tableRef.catalog(), tableRef.schema(), tableRef.table(), "DROP TABLE");
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
         ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
                 session, tableRef.catalog(), tableRef.schema());
@@ -226,6 +299,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
                     "Table not found: " + tableRef);
         }
         connMetadata.dropTable(connSession, tableHandle);
+        catalogRegistry.tableControl().markDropped(
+                tableRef.catalog(), tableRef.schema(), tableRef.table());
         invalidateTableCaches(tableRef);
         eventDispatcher.dispatch(new MetadataEvent.TableDroppedEvent(tableRef));
         LOG.info("event=table_dropped catalog={} schema={} table={}",
@@ -235,6 +310,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     @Override
     public void alterTable(MetadataSessionContext session, QualifiedTableRef tableRef, List<SchemaChange> changes) {
         synchronized (alterTableLock) {
+            catalogRegistry.tableControl().requireManagedForDdl(
+                    tableRef.catalog(), tableRef.schema(), tableRef.table(), "ALTER TABLE");
             TableMetadata current = resolveTableMetadata(session, tableRef);
             validateSchemaChanges(current, changes);
             applySchemaChangesToConnector(session, tableRef, changes);
@@ -242,6 +319,24 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
             resolveTableMetadata(session, tableRef);
             invalidateTableCaches(tableRef);
             eventDispatcher.dispatch(new MetadataEvent.TableAlteredEvent(tableRef, changes));
+        }
+    }
+
+    private void registerCreatedTable(ConnectorMetadata metadata, ConnectorSession connSession,
+            QualifiedTableRef tableRef, String owner) {
+        var tableControl = catalogRegistry.tableControl();
+        if (!tableControl.enabled()) {
+            return;
+        }
+        try {
+            tableControl.registerCreatedFromConnector(metadata, connSession,
+                    tableRef.catalog(), tableRef.schema(), tableRef.table(), owner);
+        } catch (RuntimeException failure) {
+            tableControl.registerOrphanedManaged(tableRef.catalog(), tableRef.schema(),
+                    tableRef.table(), owner, java.util.Optional.empty());
+            throw new MetadataException(PangrovaErrorCode.METADATA_METASTORE_ERROR,
+                    "Table was created but its control record could not be registered: " + tableRef,
+                    failure);
         }
     }
 
@@ -394,7 +489,20 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         }
         ConnectorTableMetadata tableMeta = connMetadata.getTableMetadata(connSession, tableHandle);
         TableStatistics stats = connMetadata.getTableStatistics(connSession, tableHandle);
-        return new ResolvedTable(tableRef, tableHandle, tableMeta, stats);
+        var control = catalogRegistry.tableControl()
+                .describe(tableRef.catalog(), tableRef.schema(), tableRef.table());
+        // A controlled table's version is the registry's value: that is what
+        // admission and cache revalidation compare against. An OBSERVED table has
+        // no persisted version, so capture the live one for diagnostics while the
+        // short TTL keeps the cached resolution honest.
+        java.util.Optional<String> versionToken = control.versionToken();
+        if (control.ownershipMode() == org.pangrova.metadata.control.OwnershipMode.OBSERVED) {
+            versionToken = connMetadata.observeVersion(connSession, tableHandle)
+                    .map(TableVersionToken::token);
+        }
+        return new ResolvedTable(tableRef, tableHandle, tableMeta, stats,
+                control.ownershipMode(), control.tableId(), versionToken,
+                control.metadataRevision());
     }
 
     private TableMetadata resolveTableMetadata(MetadataSessionContext session, QualifiedTableRef tableRef) {

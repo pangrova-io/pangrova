@@ -13,7 +13,6 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.SnapshotManager;
 import org.pangrova.spi.materialization.ChangeProof;
 import org.pangrova.spi.materialization.ChangeSetMode;
@@ -304,19 +303,8 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
         }
     }
 
-    private static String schemaFingerprint(TableSchema schema) {
-        StringBuilder canonical = new StringBuilder("paimon-schema:").append(schema.id());
-        for (DataField field : schema.fields()) {
-            canonical.append('|').append(field.id()).append(':').append(field.name())
-                    .append(':').append(field.type().asSQLString());
-        }
-        for (String primaryKey : schema.primaryKeys()) {
-            canonical.append("|pk:").append(primaryKey);
-        }
-        for (String partition : schema.partitionKeys()) {
-            canonical.append("|p:").append(partition);
-        }
-        return sha256(canonical.toString());
+    static String schemaFingerprint(TableSchema schema) {
+        return org.pangrova.connector.paimon.handle.PaimonTableIdentity.schemaFingerprint(schema);
     }
 
     private static Long taggedSnapshot(FileStoreTable table, String tag) {

@@ -80,7 +80,11 @@ public final class PersistentColumnMaskStore extends PersistentStoreSupport
     public void saveColumnMask(ColumnMask mask) {
         String sql = "INSERT INTO column_mask (mask_name, catalog_name, schema_name, table_name, "
                 + "column_name, mask_expression, apply_to_roles, exempt_roles, enabled) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT (catalog_name, schema_name, table_name, column_name, mask_name) "
+                + "DO UPDATE SET mask_expression = EXCLUDED.mask_expression, "
+                + "apply_to_roles = EXCLUDED.apply_to_roles, "
+                + "exempt_roles = EXCLUDED.exempt_roles, enabled = EXCLUDED.enabled";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, mask.maskName());

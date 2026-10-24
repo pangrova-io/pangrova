@@ -33,6 +33,25 @@ class PersistentColumnMaskStoreTest extends ContainerTestBase {
                 .satisfies(mask -> assertThat(mask.columnName()).isEqualTo("secret"));
     }
 
+    @Test
+    void savingTheSameMaskNameReplacesTheExpressionInPlace() throws java.sql.SQLException {
+        var dataSource = SharedSecurityPostgres.isolatedDataSource();
+        var store = new PersistentColumnMaskStore(dataSource);
+        store.initSchema();
+        store.saveColumnMask(mask("auto_pii_email", "cat", "sch", "orders", "email", true));
+        var original = store.getColumnMasks("cat", "sch", "orders", "email").get(0);
+
+        store.saveColumnMask(new ColumnMask(0, "auto_pii_email", "cat", "sch", "orders",
+                "email", "mask_phone", List.of(), List.of(), true));
+
+        assertThat(store.getColumnMasks("cat", "sch", "orders", "email")).singleElement()
+                .satisfies(mask -> {
+                    assertThat(mask.maskId()).isEqualTo(original.maskId());
+                    assertThat(mask.maskExpression()).isEqualTo("mask_phone");
+                });
+        assertThat(store.getTableMasks("cat", "sch", "orders")).hasSize(1);
+    }
+
     private static ColumnMask mask(String name, String catalog, String schema, String table, String column,
             boolean enabled) {
         return new ColumnMask(0, name, catalog, schema, table, column, "NULL", List.of(), List.of(), enabled);

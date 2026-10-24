@@ -77,6 +77,8 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-worker:RemoteShuffleProducerStream.State",
             "pangrova-operations:DdlJob.DdlJobState",
             "pangrova-metadata:CatalogState",
+            "pangrova-metadata:TableControlState",  // LINKED/MANAGED control-plane lifecycle
+            "pangrova-metadata:MaintenanceRunState",  // control-plane maintenance run lifecycle
             "pangrova-streaming:CdcStreamState",
             "pangrova-streaming:WatermarkState",
             "pangrova-security:TenantStatus",

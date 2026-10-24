@@ -2,6 +2,7 @@ package org.pangrova.governance;
 
 import java.util.Objects;
 
+import org.pangrova.governance.classification.ColumnTagService;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
@@ -10,20 +11,30 @@ import org.pangrova.governance.quality.schedule.CronScheduler;
 
 /**
  * Groups GovernanceContext dependencies into a single parameter object.
- * Keeps the constructor within the ≤4 param governance limit.
  *
  * @param lineageEmitter   lineage event emitter (required)
  * @param statementHandler governance statement handler (required)
  * @param securityPolicy   tag-based security policy (nullable)
  * @param cronScheduler    quality rule scheduler (required)
  * @param ruleStore        quality rule store (required)
+ * @param columnTagService shared tag event source (nullable; a private instance is created)
  */
 public record GovernanceDeps(
         LineageEventEmitter lineageEmitter,
         GovernanceStatementHandler statementHandler,
         TagBasedSecurityPolicy securityPolicy,
         CronScheduler cronScheduler,
-        QualityRuleStore ruleStore) {
+        QualityRuleStore ruleStore,
+        ColumnTagService columnTagService) {
+
+    /** Keeps existing callers that do not share a tag service. */
+    public GovernanceDeps(LineageEventEmitter lineageEmitter,
+            GovernanceStatementHandler statementHandler,
+            TagBasedSecurityPolicy securityPolicy,
+            CronScheduler cronScheduler,
+            QualityRuleStore ruleStore) {
+        this(lineageEmitter, statementHandler, securityPolicy, cronScheduler, ruleStore, null);
+    }
 
     public GovernanceDeps {
         Objects.requireNonNull(lineageEmitter, "lineageEmitter must not be null");

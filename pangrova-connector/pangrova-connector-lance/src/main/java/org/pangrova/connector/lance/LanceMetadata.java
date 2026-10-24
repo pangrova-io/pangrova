@@ -63,6 +63,30 @@ public final class LanceMetadata implements ConnectorMetadata {
         String tenant = LanceSessionIdentity.tenant(session);
         return store.get().load(catalog, tenant, tableName);
     }
+
+    @Override
+    public java.util.Optional<org.pangrova.spi.connector.metadata.table.TableIdentity> getTableIdentity(
+            ConnectorSession session, ConnectorTableHandle table) {
+        var live = requireTable(session, table);
+        return java.util.Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
+                "LANCE", live.tableId(), live.datasetUri(), LanceTableHandle.hex(live.schemaFence())));
+    }
+
+    @Override
+    public java.util.Optional<org.pangrova.spi.connector.metadata.table.TableVersionToken> observeVersion(
+            ConnectorSession session, ConnectorTableHandle table) {
+        var live = requireTable(session, table);
+        return java.util.Optional.of(org.pangrova.spi.connector.metadata.table.TableVersionToken.of(
+                "LANCE", live.tableId(), Long.toString(live.version()), Long.toString(live.revision())));
+    }
+
+    @Override
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
+            ConnectorSession session, ConnectorTableHandle table) {
+        return table instanceof LanceTableHandle
+                ? LanceTableHandle.CAPABILITIES
+                : org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
+    }
     @Override public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
         var pinned = snapshots.resolve(session, requireTable(session, table));
         return new ConnectorTableMetadata(pinned.table(), pinned.columns().stream().map(LanceColumn::name).toList(),

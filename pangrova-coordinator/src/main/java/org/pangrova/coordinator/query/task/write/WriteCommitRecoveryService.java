@@ -5,6 +5,7 @@ import org.pangrova.spi.coordination.WriteCommitJournal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiPredicate;
@@ -23,17 +24,29 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <p>The pass is idempotent: entries already {@code COMMITTED} are excluded by
  * the scoped replay and additionally re-checked here, so running recovery more
  * than once produces at most one catalog commit per intent.</p>
+ *
+ * <p>An intent whose outcome cannot be proven is quarantined instead of retried:
+ * the decision is persisted by fingerprint, so later passes skip it until an
+ * operator reconciles it. Retrying an ambiguous commit could double-commit or
+ * erase the evidence needed to decide.</p>
  */
 public final class WriteCommitRecoveryService {
 
     private static final Logger LOG = LoggerFactory.getLogger(WriteCommitRecoveryService.class);
 
+    private static final int MAX_REASON_LENGTH = 1000;
+    private static final String QUARANTINE_REASON_AMBIGUOUS =
+            "reconciler could not prove the commit outcome";
+
     private final WriteCommitJournal journal;
     private final WriteCommitReconciler reconciler;
+    private final WriteCommitQuarantineStore quarantine;
 
-    public WriteCommitRecoveryService(WriteCommitJournal journal, WriteCommitReconciler reconciler) {
+    public WriteCommitRecoveryService(WriteCommitJournal journal, WriteCommitReconciler reconciler,
+            WriteCommitQuarantineStore quarantine) {
         this.journal = checkNotNull(journal, "journal must not be null");
         this.reconciler = checkNotNull(reconciler, "reconciler must not be null");
+        this.quarantine = checkNotNull(quarantine, "quarantine must not be null");
     }
 
     /**
@@ -70,34 +83,38 @@ public final class WriteCommitRecoveryService {
         for (WriteCommitEntry entry : pending) {
             Long claimedToken = claimedExecutionTokens.get(entry.queryId());
             requireCurrentFence(entry.queryId(), claimedToken, durableFence);
+            if (quarantine.exists(entry.queryId(), entry.commitFingerprint())) {
+                counters.quarantined++;
+                LOG.warn("event=write_commit_recovery_skipped_quarantined queryId={} table={}",
+                        entry.queryId(), entry.tableName());
+                continue;
+            }
             if (!journal.isCommitted(entry.queryId())) {
-                applyOutcome(entry, claimedToken, durableFence, reconcile(entry), counters);
+                reconcileAndApply(entry, claimedToken, durableFence, counters);
             }
         }
         return counters;
     }
 
-    private WriteCommitReconciler.RecoveryOutcome reconcile(WriteCommitEntry entry) {
+    private void reconcileAndApply(
+            WriteCommitEntry entry,
+            long claimedToken,
+            BiPredicate<String, Long> durableFence,
+            RecoveryCounters counters) {
+        WriteCommitReconciler.RecoveryOutcome outcome;
         try {
-            return reconciler.reconcile(entry);
+            outcome = reconciler.reconcile(entry);
         } catch (RuntimeException e) {
             LOG.error("event=write_recovery_alarm severity=CRITICAL "
                     + "message=\"reconciler failed; quarantining intent\" queryId={} table={} error={}",
                     entry.queryId(), entry.tableName(), e.getMessage(), e);
-            return WriteCommitReconciler.RecoveryOutcome.QUARANTINED;
+            quarantine(entry, "reconciler failed: " + e, counters);
+            return;
         }
-    }
-
-    private void applyOutcome(
-            WriteCommitEntry entry,
-            long claimedToken,
-            BiPredicate<String, Long> durableFence,
-            WriteCommitReconciler.RecoveryOutcome outcome,
-            RecoveryCounters counters) {
         switch (outcome) {
             case COMMITTED -> markRecoveredCommitted(entry, claimedToken, durableFence, counters);
             case ABORTED -> markRecoveredAborted(entry, claimedToken, durableFence, counters);
-            case QUARANTINED -> quarantine(entry, counters);
+            case QUARANTINED -> quarantine(entry, QUARANTINE_REASON_AMBIGUOUS, counters);
             default -> throw new IllegalStateException("Unhandled recovery outcome: " + outcome);
         }
     }
@@ -125,12 +142,30 @@ public final class WriteCommitRecoveryService {
                 entry.queryId(), entry.tableName());
     }
 
-    private static void quarantine(WriteCommitEntry entry, RecoveryCounters counters) {
+    private void quarantine(
+            WriteCommitEntry entry, String reason, RecoveryCounters counters) {
         counters.quarantined++;
+        try {
+            quarantine.record(new QuarantinedWriteCommit(
+                    entry.queryId(), entry.commitFingerprint(), entry.catalogName(),
+                    entry.tableName(), sanitize(reason), Instant.now()));
+        } catch (RuntimeException e) {
+            LOG.error("event=write_commit_quarantine_persist_failed severity=CRITICAL "
+                    + "message=\"quarantine decision is not durable; the next recovery pass "
+                    + "will re-attempt this intent\" queryId={} table={} error={}",
+                    entry.queryId(), entry.tableName(), e.getMessage(), e);
+        }
         LOG.error("event=write_recovery_alarm severity=CRITICAL "
                 + "message=\"write-commit intent quarantined for manual reconciliation\" "
-                + "queryId={} catalog={} table={} fragments={}",
-                entry.queryId(), entry.catalogName(), entry.tableName(), entry.fragments().size());
+                + "queryId={} catalog={} table={} fragments={} reason={}",
+                entry.queryId(), entry.catalogName(), entry.tableName(),
+                entry.fragments().size(), reason);
+    }
+
+    private static String sanitize(String reason) {
+        String value = reason == null || reason.isBlank() ? QUARANTINE_REASON_AMBIGUOUS : reason;
+        return value.length() <= MAX_REASON_LENGTH
+                ? value : value.substring(0, MAX_REASON_LENGTH);
     }
 
     private static void requireCurrentFence(
@@ -143,7 +178,7 @@ public final class WriteCommitRecoveryService {
         }
     }
 
-    /** Summary of a recovery pass. */
+    /** Summary of a recovery pass; quarantined includes intents skipped from earlier passes. */
     public record RecoveryReport(int pending, int committed, int aborted, int quarantined) {
     }
 

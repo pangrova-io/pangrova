@@ -16,7 +16,7 @@ import java.util.TreeMap;
 public final class IcebergOutputHandleCodec implements ConnectorOutputHandleCodec {
 
     public static final String TYPE_URL = "pangrova.io/connector/iceberg/output-handle";
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
     private static final int MAX_STRING_BYTES = 16 * 1024 * 1024;
     private static final int MAX_PARTITIONS = 4096;
 
@@ -47,6 +47,7 @@ public final class IcebergOutputHandleCodec implements ConnectorOutputHandleCode
             out.writeInt(iceberg.formatVersion());
             out.writeLong(iceberg.baseSnapshotId());
             writeString(out, iceberg.writeMode());
+            writeString(out, iceberg.overwriteScope().name());
             writePartitions(out, iceberg.staticPartitions());
             writePartitions(out, iceberg.declarationProperties());
             out.flush();
@@ -64,7 +65,7 @@ public final class IcebergOutputHandleCodec implements ConnectorOutputHandleCode
             IcebergOutputTableHandle handle = new IcebergOutputTableHandle(
                     readString(in), readString(in), readString(in), readString(in),
                     readString(in), readString(in), in.readInt(), in.readLong(), readString(in),
-                    readPartitions(in), readPartitions(in));
+                    readOverwriteScope(in), readPartitions(in), readPartitions(in));
             if (in.available() != 0) {
                 throw new IllegalArgumentException("Trailing bytes in Iceberg output handle");
             }
@@ -87,6 +88,16 @@ public final class IcebergOutputHandleCodec implements ConnectorOutputHandleCode
     private static void requireVersion(int version) {
         if (version != VERSION) {
             throw new IllegalArgumentException("Unsupported Iceberg output handle version: " + version);
+        }
+    }
+
+    private static IcebergOverwriteScope readOverwriteScope(DataInputStream in) throws IOException {
+        String name = readString(in);
+        try {
+            return IcebergOverwriteScope.valueOf(name);
+        } catch (IllegalArgumentException invalid) {
+            throw new IllegalArgumentException(
+                    "Unknown Iceberg overwrite scope: " + name, invalid);
         }
     }
 

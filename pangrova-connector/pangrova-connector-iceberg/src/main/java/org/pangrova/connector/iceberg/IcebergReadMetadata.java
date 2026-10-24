@@ -1,6 +1,8 @@
 package org.pangrova.connector.iceberg;
 
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -22,7 +24,9 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -104,6 +108,51 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName) {
         return catalogTables.listTables(schemaName);
+    }
+
+    @Override
+    public Optional<TableIdentity> getTableIdentity(
+            ConnectorSession session, ConnectorTableHandle table) {
+        if (!(table instanceof IcebergTableHandle handle)) {
+            return Optional.empty();
+        }
+        var metadata = currentMetadata(catalogTables.resolveTable(handle));
+        return Optional.of(new TableIdentity(
+                "ICEBERG", metadata.uuid(), metadata.location(),
+                schemaFingerprint(SchemaParser.toJson(metadata.schema()))));
+    }
+
+    @Override
+    public Optional<TableVersionToken> observeVersion(
+            ConnectorSession session, ConnectorTableHandle table) {
+        if (!(table instanceof IcebergTableHandle handle)) {
+            return Optional.empty();
+        }
+        var metadata = currentMetadata(catalogTables.resolveTable(handle));
+        Snapshot current = metadata.currentSnapshot();
+        return Optional.of(TableVersionToken.of(
+                "ICEBERG",
+                metadata.uuid(),
+                current == null ? "EMPTY" : Long.toString(current.snapshotId()),
+                current == null ? "0" : Long.toString(current.sequenceNumber()),
+                Integer.toString(metadata.schema().schemaId()),
+                Integer.toString(metadata.spec().specId())));
+    }
+
+    @Override
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
+            ConnectorSession session, ConnectorTableHandle table) {
+        return table instanceof IcebergTableHandle
+                ? IcebergTableHandle.CAPABILITIES
+                : org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
+    }
+
+    private static org.apache.iceberg.TableMetadata currentMetadata(Table table) {
+        return ((HasTableOperations) table).operations().current();
+    }
+
+    private static String schemaFingerprint(String schemaJson) {
+        return org.pangrova.common.util.DigestUtils.sha256Hex(schemaJson);
     }
 
     @Override

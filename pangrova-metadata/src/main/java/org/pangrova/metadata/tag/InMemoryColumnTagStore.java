@@ -53,4 +53,11 @@ public final class InMemoryColumnTagStore implements ColumnTagStore {
         ConcurrentHashMap<String, String> forKey = tags.get(storeKey);
         return forKey == null ? Map.of() : Map.copyOf(forKey);
     }
+
+    @Override
+    public Map<String, Map<String, String>> listAll() {
+        Map<String, Map<String, String>> snapshot = new java.util.LinkedHashMap<>();
+        tags.forEach((key, value) -> snapshot.put(key, Map.copyOf(value)));
+        return Map.copyOf(snapshot);
+    }
 }

@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
 
 /** Commit-shape selection for partitioned overwrites and copy-on-write deletes. */
 class IcebergOverwriteCommitTest {
@@ -78,14 +80,53 @@ class IcebergOverwriteCommitTest {
                 .isInstanceOf(OverwriteFiles.class);
     }
 
+    @Test
+    void overwriteWithoutDeclaredScopeIsRejected() {
+        assertThatThrownBy(() -> handle(IcebergOutputTableHandle.MODE_OVERWRITE,
+                IcebergOverwriteScope.NONE, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("explicit overwrite scope");
+    }
+
+    @Test
+    void dynamicPartitionOverwriteFailsClosedWithoutAffectedPartitions() {
+        assertThatThrownBy(() -> handle(IcebergOutputTableHandle.MODE_OVERWRITE,
+                IcebergOverwriteScope.DYNAMIC_PARTITION, Map.of("region", "eu")))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("affected partitions");
+    }
+
+    @Test
+    void staticPartitionScopeRequiresPartitionsAndWholeTableScopeRejectsThem() {
+        assertThatThrownBy(() -> handle(IcebergOutputTableHandle.MODE_OVERWRITE,
+                IcebergOverwriteScope.STATIC_PARTITION, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least one static partition");
+        assertThatThrownBy(() -> handle(IcebergOutputTableHandle.MODE_OVERWRITE,
+                IcebergOverwriteScope.WHOLE_TABLE, Map.of("region", "eu")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must not carry static partitions");
+        assertThat(IcebergOverwriteCommit.build(table, handle(IcebergOutputTableHandle.MODE_OVERWRITE,
+                IcebergOverwriteScope.STATIC_PARTITION, Map.of("region", "eu")), List.of()))
+                .isInstanceOf(OverwriteFiles.class);
+    }
+
     private IcebergOutputTableHandle handle(String writeMode) {
+        var scope = IcebergOutputTableHandle.MODE_OVERWRITE.equals(writeMode)
+                ? IcebergOverwriteScope.WHOLE_TABLE : IcebergOverwriteScope.NONE;
+        return handle(writeMode, scope, Map.of());
+    }
+
+    private IcebergOutputTableHandle handle(String writeMode, IcebergOverwriteScope scope,
+            Map<String, String> staticPartitions) {
         var metadata = ((HasTableOperations) table).operations().refresh();
         long snapshotId = metadata.currentSnapshot() == null
                 ? IcebergOutputTableHandle.NO_SNAPSHOT : metadata.currentSnapshot().snapshotId();
         return new IcebergOutputTableHandle(NAMESPACE, TABLE_NAME, metadata.uuid(),
                 metadata.location(), SchemaParser.toJson(metadata.schema()),
                 PartitionSpecParser.toJson(metadata.spec()), metadata.formatVersion(), snapshotId,
-                writeMode, Map.of(), IcebergDeclarationProperties.capture(metadata.properties()));
+                writeMode, scope, staticPartitions,
+                IcebergDeclarationProperties.capture(metadata.properties()));
     }
 
     private DataFile dataFile(String region) {

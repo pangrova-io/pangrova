@@ -26,6 +26,13 @@ public enum AuditEventType {
     TABLE_CREATED,
     TABLE_DROPPED,
     TABLE_ALTERED,
+    TABLE_ADOPTED,
+    TABLE_UNLINKED,
+    TABLE_QUARANTINED,
+
+    // Table control plane
+    TABLE_MAINTENANCE,
+    EXTERNAL_COMMIT_OBSERVED,
 
     // DDL - Catalog
     CATALOG_CREATED,

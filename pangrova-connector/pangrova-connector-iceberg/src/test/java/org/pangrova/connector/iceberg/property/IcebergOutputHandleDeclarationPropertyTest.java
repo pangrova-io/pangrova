@@ -13,6 +13,7 @@ import org.apache.iceberg.types.Types;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
 
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -65,6 +66,7 @@ class IcebergOutputHandleDeclarationPropertyTest {
     private IcebergOutputTableHandle handle(Map<String, String> properties) {
         return new IcebergOutputTableHandle("db", "events", "00000000-0000-0000-0000-000000000001",
                 "file:///warehouse/events", SchemaParser.toJson(SCHEMA),
-                PartitionSpecParser.toJson(PartitionSpec.unpartitioned()), 2, -1, "INSERT", Map.of(), properties);
+                PartitionSpecParser.toJson(PartitionSpec.unpartitioned()), 2, -1, "INSERT",
+                IcebergOverwriteScope.NONE, Map.of(), properties);
     }
 }

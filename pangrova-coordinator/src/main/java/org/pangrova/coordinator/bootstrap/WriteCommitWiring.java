@@ -5,7 +5,10 @@ import javax.sql.DataSource;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryWriteCommitJournal;
 import org.pangrova.coordinator.query.task.DefaultWriteCommitReconciler;
+import org.pangrova.coordinator.query.task.write.InMemoryWriteCommitQuarantineStore;
+import org.pangrova.coordinator.query.task.write.JdbcWriteCommitQuarantineStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
+import org.pangrova.coordinator.query.task.write.WriteCommitQuarantineStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.metadata.catalog.CatalogRegistry;
@@ -34,11 +37,23 @@ final class WriteCommitWiring {
                 : InMemoryWriteCommitJournal.INSTANCE;
     }
 
+    /**
+     * Quarantine decisions must outlive the coordinator that made them: a peer that
+     * takes over recovery must see them too. Only datasource-less deployments fall
+     * back to the process-local store.
+     */
+    static WriteCommitQuarantineStore createQuarantineStore(DataSource metadataDataSource) {
+        return metadataDataSource != null
+                ? new JdbcWriteCommitQuarantineStore(metadataDataSource)
+                : new InMemoryWriteCommitQuarantineStore();
+    }
+
     static WriteCommitRecoveryService createRecoveryService(
-            WriteCommitJournal journal, CatalogRegistry catalog) {
+            WriteCommitJournal journal, CatalogRegistry catalog,
+            WriteCommitQuarantineStore quarantineStore) {
         WriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(journal,
                 catalogName -> resolveCatalog(catalog, catalogName));
-        return new WriteCommitRecoveryService(journal, reconciler);
+        return new WriteCommitRecoveryService(journal, reconciler, quarantineStore);
     }
 
     /**

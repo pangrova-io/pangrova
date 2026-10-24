@@ -5,6 +5,10 @@ import org.pangrova.metadata.event.MetadataEvent;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.exception.catalog.CatalogNotFoundException;
 import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
+import org.pangrova.metadata.control.InMemoryTableControlStatisticsStore;
+import org.pangrova.metadata.control.InMemoryTableControlStore;
+import org.pangrova.metadata.control.TableControlService;
+import org.pangrova.metadata.control.TableControlStatisticsService;
 import org.pangrova.metadata.exception.catalog.CatalogSuspendedException;
 import org.pangrova.metadata.store.MetadataStore;
 import org.slf4j.Logger;
@@ -51,6 +55,10 @@ public class CatalogRegistry {
     private final ConnectorHandleFactory connectorHandleFactory;
     private final FederationHandleFactory federationHandleFactory;
     private final MetadataEventDispatcher eventDispatcher;
+    // Ownership and write admission share this authority with DDL and resolution.
+    private volatile TableControlService tableControl;
+    // ANALYZE results bound to a controlled table's stable ID and version token.
+    private volatile TableControlStatisticsService tableStatistics;
 
     /**
      * Creates a CatalogRegistry with all dependencies injected.
@@ -70,6 +78,11 @@ public class CatalogRegistry {
         this.federationHandleFactory = federationHandleFactory;
         this.eventDispatcher = eventDispatcher;
         this.healthMonitor = new CatalogHealthMonitor(catalogs);
+        this.tableControl = new TableControlService(
+                new InMemoryTableControlStore(),
+                org.pangrova.metadata.control.TableControlSettings.fromSystemProperties());
+        this.tableStatistics = new TableControlStatisticsService(
+                this.tableControl, new InMemoryTableControlStatisticsStore());
     }
 
     /**
@@ -152,6 +165,32 @@ public class CatalogRegistry {
 
     public List<String> listCatalogNames() {
         return List.copyOf(catalogs.keySet());
+    }
+
+    /** Ownership and write-admission authority for tables in every catalog. */
+    public TableControlService tableControl() {
+        return tableControl;
+    }
+
+    /** Statistics collected for controlled tables, keyed by stable table ID. */
+    public TableControlStatisticsService tableStatistics() {
+        return tableStatistics;
+    }
+
+    /**
+     * Replaces the control authority, typically with a JDBC-backed store at bootstrap.
+     * The statistics service is rebuilt because it reads ownership through this
+     * authority; bootstrap replaces it again with the durable store when available.
+     */
+    public void setTableControlService(TableControlService service) {
+        this.tableControl = java.util.Objects.requireNonNull(service, "service");
+        this.tableStatistics = new TableControlStatisticsService(
+                service, new InMemoryTableControlStatisticsStore());
+    }
+
+    /** Replaces the statistics authority, typically with a JDBC-backed store. */
+    public void setTableStatisticsService(TableControlStatisticsService service) {
+        this.tableStatistics = java.util.Objects.requireNonNull(service, "service");
     }
 
     /** Historical deployments are read from the durable store, not the live handle cache. */

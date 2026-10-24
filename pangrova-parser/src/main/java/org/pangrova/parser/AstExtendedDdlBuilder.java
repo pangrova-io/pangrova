@@ -315,6 +315,18 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
     }
 
     @Override
+    public AlterTableStatement visitAlterTableAdopt(
+            PangrovaSqlParser.AlterTableAdoptContext ctx) {
+        return versionedTableDdl.visitAlterTableAdopt(ctx);
+    }
+
+    @Override
+    public AlterTableStatement visitAlterTableUnlink(
+            PangrovaSqlParser.AlterTableUnlinkContext ctx) {
+        return versionedTableDdl.visitAlterTableUnlink(ctx);
+    }
+
+    @Override
     public CreateIndexStatement visitCreateIndex(PangrovaSqlParser.CreateIndexContext ctx) {
         String indexName = AstDdlDmlBuilder.extractIdentifierText(ctx.indexName);
         Identifier tableName = parent.visitQualifiedName(ctx.qualifiedName());
@@ -611,16 +623,19 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
         if (ctx == null) {
             return Optional.empty();
         }
-        return Optional.of(switch (ctx.getText().toUpperCase(java.util.Locale.ROOT)) {
+        return Optional.of(strategyOf(ctx.getText()));
+    }
+
+    private static org.pangrova.parser.ast.IncrementalStrategy strategyOf(String text) {
+        return switch (text.toUpperCase(java.util.Locale.ROOT)) {
             case "AUTO" -> org.pangrova.parser.ast.IncrementalStrategy.AUTO;
             case "APPEND_ONLY" -> org.pangrova.parser.ast.IncrementalStrategy.APPEND_ONLY;
             case "PARTITION_REPLACE" ->
                     org.pangrova.parser.ast.IncrementalStrategy.PARTITION_REPLACE;
             case "AFFECTED_KEY" -> org.pangrova.parser.ast.IncrementalStrategy.AFFECTED_KEY;
             case "CDC" -> org.pangrova.parser.ast.IncrementalStrategy.CDC;
-            default -> throw new IllegalArgumentException(
-                    "Unknown incremental strategy: " + ctx.getText());
-        });
+            default -> throw new IllegalArgumentException("Unknown incremental strategy: " + text);
+        };
     }
 
     private Map<String, String> visitStreamPropertyMap(

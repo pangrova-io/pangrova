@@ -24,7 +24,7 @@ public final class CompactTask implements MetadataTask<CompactStatement> {
 
     @Override
     public StatementResult execute(CompactStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeCompact(statement);
+        List<TypedRow> rows = executor.executeCompact(statement, context.session());
         String mutatedTable = TableNameExtractor.extract(statement);
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.MAINTENANCE);
     }

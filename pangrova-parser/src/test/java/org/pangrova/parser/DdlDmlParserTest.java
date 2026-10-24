@@ -99,6 +99,39 @@ class DdlDmlParserTest {
                     "ALTER TABLE t1 RENAME COLUMN old_name TO new_name");
             assertThat(stmt).isInstanceOf(AlterTableStatement.class);
         }
+
+        @Test
+        void alterTableAdopt() {
+            Statement stmt = parser.parse("ALTER TABLE catalog1.schema1.t1 ADOPT");
+
+            assertThat(stmt).isInstanceOfSatisfying(AlterTableStatement.Adopt.class,
+                    adopt -> assertThat(adopt.tableName().parts())
+                            .containsExactly("catalog1", "schema1", "t1"));
+        }
+
+        @Test
+        void alterTableAdoptWithMaintenancePolicy() {
+            Statement stmt = parser.parse("ALTER TABLE catalog1.schema1.t1 ADOPT "
+                    + "WITH (maintenance_operations='COMPACT,EXPIRE_SNAPSHOTS', retain_last=5)");
+
+            assertThat(stmt).isInstanceOfSatisfying(AlterTableStatement.Adopt.class,
+                    adopt -> {
+                        assertThat(adopt.tableName().parts())
+                                .containsExactly("catalog1", "schema1", "t1");
+                        assertThat(adopt.properties())
+                                .containsEntry("maintenance_operations", "COMPACT,EXPIRE_SNAPSHOTS")
+                                .containsEntry("retain_last", "5");
+                    });
+        }
+
+        @Test
+        void alterTableUnlink() {
+            Statement stmt = parser.parse("ALTER TABLE catalog1.schema1.t1 UNLINK");
+
+            assertThat(stmt).isInstanceOfSatisfying(AlterTableStatement.Unlink.class,
+                    unlink -> assertThat(unlink.tableName().parts())
+                            .containsExactly("catalog1", "schema1", "t1"));
+        }
     }
 
     // ── INSERT ──
@@ -200,6 +233,27 @@ class DdlDmlParserTest {
         }
 
         @Test
+        void showTableControlsWithoutScope() {
+            Statement stmt = parser.parse("SHOW TABLE CONTROLS");
+            assertThat(stmt).isInstanceOf(ShowTableControlsStatement.class);
+            assertThat(((ShowTableControlsStatement) stmt).scope()).isEmpty();
+        }
+
+        @Test
+        void showTableControlsWithCatalogSchemaScope() {
+            Statement stmt = parser.parse("SHOW TABLE CONTROLS FROM cat.db");
+            assertThat(((ShowTableControlsStatement) stmt).scope())
+                    .containsExactly("cat", "db");
+        }
+
+        @Test
+        void showTableControlsWithSingleTableScope() {
+            Statement stmt = parser.parse("SHOW TABLE CONTROLS IN cat.db.orders");
+            assertThat(((ShowTableControlsStatement) stmt).scope())
+                    .containsExactly("cat", "db", "orders");
+        }
+
+        @Test
         void describeTable() {
             Statement stmt = parser.parse("DESCRIBE t1");
             assertThat(stmt).isInstanceOf(DescribeTableStatement.class);
@@ -280,6 +334,20 @@ class DdlDmlParserTest {
         void vacuumTable() {
             Statement stmt = parser.parse("VACUUM catalog1.schema1.t1");
             assertThat(stmt).isInstanceOf(VacuumStatement.class);
+        }
+
+        @Test
+        void analyzeTable() {
+            Statement stmt = parser.parse("ANALYZE TABLE catalog1.schema1.t1");
+            assertThat(stmt)
+                    .isInstanceOf(org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement.class);
+        }
+
+        @Test
+        void analyzeTableComputeStatistics() {
+            var stmt = (org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement)
+                    parser.parse("ANALYZE TABLE catalog1.schema1.t1 COMPUTE STATISTICS");
+            assertThat(stmt.tableName().parts()).containsExactly("catalog1", "schema1", "t1");
         }
     }
 

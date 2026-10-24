@@ -9,6 +9,15 @@ import java.util.Map;
 public record LanceTableHandle(String catalog, String tenantId, SchemaTableName table,
         String tableId, String datasetUri, List<LanceColumn> columns, Map<String, String> properties,
         byte[] schemaFence, long version, long revision, long rowCount) implements ConnectorTableHandle {
+
+    /** Format capabilities this adapter can prove; Lance has no row-level delete path here. */
+    public static final org.pangrova.spi.connector.metadata.table.TableCapabilities CAPABILITIES =
+            new org.pangrova.spi.connector.metadata.table.TableCapabilities(
+                    true, false, false, true, true, false,
+                    java.util.Set.of(), java.util.Set.of(),
+                    org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
+                            .FORMAT_IDENTITY_AND_BASE_VERSION);
+
     public LanceTableHandle {
         columns = List.copyOf(columns);
         properties = Map.copyOf(properties);
@@ -43,5 +52,20 @@ public record LanceTableHandle(String catalog, String tenantId, SchemaTableName 
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Lance table identity must not be blank");
         }
+    }
+
+    @Override
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities() {
+        return CAPABILITIES;
+    }
+
+    @Override
+    public java.util.Optional<org.pangrova.spi.connector.metadata.table.TableIdentity> tableIdentity() {
+        return java.util.Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
+                "LANCE", tableId, datasetUri, hex(schemaFence)));
+    }
+
+    static String hex(byte[] bytes) {
+        return java.util.HexFormat.of().formatHex(bytes);
     }
 }

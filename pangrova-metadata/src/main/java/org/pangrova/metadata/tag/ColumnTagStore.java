@@ -45,4 +45,10 @@ public interface ColumnTagStore {
      * (empty if none).
      */
     Map<String, String> list(String storeKey);
+
+    /**
+     * Returns an immutable snapshot of every stored key and its tags.
+     * Used at startup to replay durable tags into governance listeners.
+     */
+    Map<String, Map<String, String>> listAll();
 }

@@ -2,13 +2,16 @@ package org.pangrova.metadata.event;
 
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.CatalogState;
+import org.pangrova.metadata.control.OwnershipMode;
 import org.pangrova.metadata.model.TableMetadata;
 import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.sync.MetadataChange;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Sealed interface for all metadata lifecycle events.
@@ -21,7 +24,8 @@ public sealed interface MetadataEvent permits
         MetadataEvent.TableDroppedEvent,
         MetadataEvent.TableAlteredEvent,
         MetadataEvent.MetadataSyncedEvent,
-        MetadataEvent.SchemaEvolutionEvent {
+        MetadataEvent.SchemaEvolutionEvent,
+        MetadataEvent.ExternalCommitObservedEvent {
 
     record CatalogCreatedEvent(CatalogDescriptor descriptor) implements MetadataEvent {}
 
@@ -42,6 +46,19 @@ public sealed interface MetadataEvent permits
     }
 
     record MetadataSyncedEvent(String catalogName, MetadataChange change) implements MetadataEvent {}
+
+    /**
+     * A controlled table's version changed between observations. The writer may be
+     * an external engine; this event records that Pangrova saw the change and must
+     * not be treated as one of Pangrova's own commits.
+     */
+    record ExternalCommitObservedEvent(
+            QualifiedTableRef tableRef,
+            UUID tableId,
+            OwnershipMode ownershipMode,
+            String previousVersionToken,
+            String versionToken,
+            Instant observedAt) implements MetadataEvent {}
 
     /**
      * Dispatched when an ALTER-type schema evolution is detected during metadata sync.

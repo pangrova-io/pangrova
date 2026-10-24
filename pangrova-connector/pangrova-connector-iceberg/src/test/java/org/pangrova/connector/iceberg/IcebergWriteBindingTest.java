@@ -8,6 +8,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.pangrova.spi.coordination.WriteCommitFingerprint;
@@ -57,7 +58,8 @@ class IcebergWriteBindingTest {
                 Types.ListType.ofRequired(2, Types.FloatType.get())));
         return new IcebergOutputTableHandle("db", "events", "00000000-0000-0000-0000-000000000001",
                 "file:///warehouse/events", SchemaParser.toJson(schema),
-                PartitionSpecParser.toJson(PartitionSpec.unpartitioned()), 2, -1, "INSERT", Map.of(),
+                PartitionSpecParser.toJson(PartitionSpec.unpartitioned()), 2, -1, "INSERT",
+                IcebergOverwriteScope.NONE, Map.of(),
                 IcebergDeclarationProperties.capture(Map.of("pangrova.vector.dimension.embedding", "" + dimension)));
     }
 

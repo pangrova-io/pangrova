@@ -145,15 +145,48 @@ class IcebergMaintenanceProceduresTest {
         table.refresh();
         assertThat(countSnapshots(table)).isEqualTo(2);
 
-        // Don't provide retain_last (arg1) — defaults to 1, but expireOlderThan must be
-        // present for any snapshot to actually expire under Iceberg semantics; here we
-        // pass a future timestamp explicitly.
+        // The default retains a recovery-safe window, so two snapshots are never expired.
         List<TypedRow> result = procedures.execute("expire_snapshots",
                 Map.of("arg0", NAMESPACE + ".expire_default",
                         "arg2", String.valueOf(System.currentTimeMillis() + 60_000)));
         TypedRow row = result.get(0);
         assertThat(row.getString("result")).isEqualTo("expire_snapshots succeeded");
-        assertThat(row.getLong("retain_last")).isEqualTo(1L);
+        assertThat(row.getLong("retain_last")).isEqualTo(10L);
+        assertThat(row.getLong("expired_snapshots")).isZero();
+        Table refreshed = catalog.loadTable(TableIdentifier.of(NAMESPACE, "expire_default"));
+        assertThat(countSnapshots(refreshed)).isEqualTo(2);
+    }
+
+    @Test
+    void expireSnapshots_dryRunReportsCandidatesWithoutCommitting() {
+        initCatalog();
+        Table table = createTable("expire_dry");
+        writeDataFile(table, 5);
+        writeDataFile(table, 5);
+        writeDataFile(table, 5);
+        table.refresh();
+        assertThat(countSnapshots(table)).isEqualTo(3);
+
+        List<TypedRow> result = procedures.execute("expire_snapshots",
+                Map.of("arg0", NAMESPACE + ".expire_dry",
+                        "arg1", "1",
+                        "arg2", String.valueOf(System.currentTimeMillis() + 60_000),
+                        "arg3", "true"));
+        TypedRow row = result.get(0);
+        assertThat(row.getString("result")).isEqualTo("expire_snapshots dry run");
+        assertThat(row.getString("dry_run")).isEqualTo("true");
+        assertThat(row.getLong("expired_snapshots")).isEqualTo(2L);
+        Table refreshed = catalog.loadTable(TableIdentifier.of(NAMESPACE, "expire_dry"));
+        assertThat(countSnapshots(refreshed)).isEqualTo(3);
+    }
+
+    @Test
+    void expireSnapshots_rejectsNonPositiveRetainLastBeforeTouchingTheCatalog() {
+        IcebergMaintenanceProcedures p = proceduresWithoutCatalog();
+        assertThatThrownBy(() -> p.execute("expire_snapshots",
+                Map.of("arg0", NAMESPACE + ".x", "arg1", "0")))
+                .isInstanceOf(ConnectorException.class)
+                .hasMessageContaining("retain_last must be at least 1");
     }
 
     // -- remove_orphan_files ---------------------------------------------------
@@ -177,7 +210,7 @@ class IcebergMaintenanceProceduresTest {
 
         List<TypedRow> result = procedures.execute("remove_orphan_files",
                 Map.of("arg0", NAMESPACE + ".orphan_test",
-                        "arg1", String.valueOf(System.currentTimeMillis())));
+                        "arg1", String.valueOf(System.currentTimeMillis() - 25L * 3_600_000L)));
         TypedRow row = result.get(0);
         assertThat(row.getString("result")).isEqualTo("remove_orphan_files succeeded");
         assertThat(row.getLong("scanned_file_count")).isGreaterThan(0L);
@@ -197,8 +230,8 @@ class IcebergMaintenanceProceduresTest {
         Files.createDirectories(orphanDir);
         Path orphan = orphanDir.resolve("recent-orphan-" + UUID.randomUUID() + ".parquet");
         Files.writeString(orphan, "junk");
-        // mtime = now, cutoff = now-10s, so orphan is "too new" to delete
-        long olderThanMs = System.currentTimeMillis() - 10_000L;
+        // mtime = now, cutoff = now-25h, so orphan is "too new" to delete
+        long olderThanMs = System.currentTimeMillis() - 25L * 3_600_000L;
 
         List<TypedRow> result = procedures.execute("remove_orphan_files",
                 Map.of("arg0", NAMESPACE + ".orphan_recent",
@@ -206,6 +239,40 @@ class IcebergMaintenanceProceduresTest {
         TypedRow row = result.get(0);
         assertThat(row.getString("result")).isEqualTo("remove_orphan_files succeeded");
         assertThat(Files.exists(orphan)).isTrue(); // recent: not deleted
+    }
+
+    @Test
+    void removeOrphanFiles_rejectsCutoffYoungerThanTheSafetyMinimum() {
+        IcebergMaintenanceProcedures p = proceduresWithoutCatalog();
+        assertThatThrownBy(() -> p.execute("remove_orphan_files",
+                Map.of("arg0", NAMESPACE + ".orphan_too_new",
+                        "arg1", String.valueOf(System.currentTimeMillis()))))
+                .isInstanceOf(ConnectorException.class)
+                .hasMessageContaining("at least 24 hours old");
+    }
+
+    @Test
+    void removeOrphanFiles_dryRunReportsOrphansWithoutDeleting() throws Exception {
+        initCatalog();
+        Table table = createTable("orphan_dry");
+        writeDataFile(table, 5);
+
+        Path orphanDir = Path.of(table.location().replaceFirst("^file:", ""), "data");
+        Files.createDirectories(orphanDir);
+        Path orphan = orphanDir.resolve("dry-orphan-" + UUID.randomUUID() + ".parquet");
+        Files.writeString(orphan, "garbage");
+        Files.setLastModifiedTime(orphan,
+                java.nio.file.attribute.FileTime.fromMillis(0L));
+
+        List<TypedRow> result = procedures.execute("remove_orphan_files",
+                Map.of("arg0", NAMESPACE + ".orphan_dry",
+                        "arg1", String.valueOf(System.currentTimeMillis() - 25L * 3_600_000L),
+                        "arg2", "true"));
+        TypedRow row = result.get(0);
+        assertThat(row.getString("result")).isEqualTo("remove_orphan_files dry run");
+        assertThat(row.getLong("orphan_file_count")).isGreaterThanOrEqualTo(1L);
+        assertThat(row.getLong("deleted_file_count")).isZero();
+        assertThat(Files.exists(orphan)).isTrue();
     }
 
     // -- rewrite_manifests -----------------------------------------------------

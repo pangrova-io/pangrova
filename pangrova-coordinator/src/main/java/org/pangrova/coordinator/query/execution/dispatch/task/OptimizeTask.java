@@ -24,7 +24,7 @@ public final class OptimizeTask implements MetadataTask<OptimizeStatement> {
 
     @Override
     public StatementResult execute(OptimizeStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeOptimize(statement);
+        List<TypedRow> rows = executor.executeOptimize(statement, context.session());
         String mutatedTable = TableNameExtractor.extract(statement);
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.MAINTENANCE);
     }

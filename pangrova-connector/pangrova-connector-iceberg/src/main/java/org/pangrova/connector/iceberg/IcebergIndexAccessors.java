@@ -163,11 +163,13 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
                 if (!targetPaths.contains(filePath)) {
                     continue;
                 }
-                List<FileColumnStatistics> colStats = extractColumnStatistics(dataFile, schema);
+                long liveRowCount = IcebergFileStatisticsReader.liveRowCount(table, task);
+                List<FileColumnStatistics> colStats =
+                        extractColumnStatistics(dataFile, schema, liveRowCount);
                 result.add(new DataFileStatistics(
                         filePath,
                         String.valueOf(snapshot.snapshotId()),
-                        dataFile.recordCount(),
+                        liveRowCount,
                         dataFile.fileSizeInBytes(),
                         colStats));
             }
@@ -176,7 +178,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
     }
 
     private static List<FileColumnStatistics> extractColumnStatistics(
-            DataFile dataFile, Schema schema) {
+            DataFile dataFile, Schema schema, long liveRowCount) {
         Map<Integer, ByteBuffer> lowerBounds = dataFile.lowerBounds();
         Map<Integer, ByteBuffer> upperBounds = dataFile.upperBounds();
         Map<Integer, Long> nullCounts = dataFile.nullValueCounts();
@@ -188,7 +190,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
 
         for (Types.NestedField field : schema.columns()) {
             FileColumnStatistics columnStats = buildColumnStatistics(
-                    field, lowerBounds, upperBounds, nullCounts, dataFile.recordCount());
+                    field, lowerBounds, upperBounds, nullCounts, liveRowCount);
             if (columnStats != null) {
                 stats.add(columnStats);
             }
@@ -201,7 +203,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
             Map<Integer, ByteBuffer> lowerBounds,
             Map<Integer, ByteBuffer> upperBounds,
             Map<Integer, Long> nullCounts,
-            long recordCount) {
+            long liveRowCount) {
         int fieldId = field.fieldId();
         ByteBuffer lowerBuf = lowerBounds.get(fieldId);
         ByteBuffer upperBuf = upperBounds.get(fieldId);
@@ -217,7 +219,7 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
                 ? nullCounts.get(fieldId) : 0L;
         return new FileColumnStatistics(
                 field.name(), minVal, maxVal, nullCount,
-                recordCount, 0L, 0L);
+                liveRowCount, 0L, 0L);
     }
 
     private static Comparable<?> convertBound(Type type, ByteBuffer buffer) {

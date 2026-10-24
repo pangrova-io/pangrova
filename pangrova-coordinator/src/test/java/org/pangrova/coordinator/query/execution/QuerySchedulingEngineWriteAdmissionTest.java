@@ -59,6 +59,104 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void observedTableIsRejectedBeforeSdkAllocationWhenOwnershipIsEnforced() throws Exception {
+        try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
+            fixture.enforceOwnership();
+            fixture.installOrdinaryAuthority();
+
+            assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
+                    session("observed-write"), fixture.context()))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("OBSERVED");
+
+            assertNoAllocation(fixture, "observed-write");
+            assertThat(fixture.observations).isEmpty();
+        }
+    }
+
+    @Test
+    void undeclaredWriteCapabilityIsRejectedBeforeSdkAllocation() throws Exception {
+        try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
+            fixture.installOrdinaryAuthority();
+            fixture.metadata.capabilities =
+                    org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
+
+            assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
+                    session("undeclared-write"), fixture.context()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasRootCauseInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                    .hasRootCauseMessage("CountingMetadata does not support writes on "
+                            + "catalog.schema.documents (no write capability declared)");
+
+            assertNoAllocation(fixture, "undeclared-write");
+            assertThat(fixture.observations).isEmpty();
+        }
+    }
+
+    @Test
+    void undeclaredDeleteCapabilityIsRejectedBeforeSdkAllocation() throws Exception {
+        try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
+            fixture.installOrdinaryAuthority();
+            fixture.metadata.capabilities =
+                    new org.pangrova.spi.connector.metadata.table.TableCapabilities(
+                            true, false, false, true, true, true, Set.of(), Set.of(),
+                            org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
+                                    .FORMAT_IDENTITY);
+            var context = new DmlWriteContext(
+                    new QualifiedTableName("catalog", "schema", "documents"), "DELETE", List.of(),
+                    Optional.of(new WritePolicyObservation(
+                            List.of(), Set.of(Privilege.DELETE), fixture.declaration())));
+
+            assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
+                    session("undeclared-delete"), context))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasRootCauseInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                    .hasRootCauseMessage("CountingMetadata does not support DELETE on "
+                            + "catalog.schema.documents (no delete capability declared)");
+
+            assertNoAllocation(fixture, "undeclared-delete");
+        }
+    }
+
+    @Test
+    void aRecreatedTableIsQuarantinedBeforeSdkAllocation() throws Exception {
+        try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
+            fixture.enforceOwnership();
+            fixture.installOrdinaryAuthority();
+            fixture.registry.tableControl().registerCreated(
+                    "catalog", "schema", "documents", "alice",
+                    Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
+                            "ICEBERG", "stale-uuid", "s3://stale", "schema")),
+                    Optional.empty());
+
+            assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
+                    session("recreated-write"), fixture.context()))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("no longer matches");
+
+            assertNoAllocation(fixture, "recreated-write");
+            assertThat(fixture.registry.tableControl().find("catalog", "schema", "documents")).get()
+                    .extracting(org.pangrova.metadata.control.TableControlRecord::state)
+                    .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+        }
+    }
+
+    @Test
+    void managedTableStillAllocatesWhenOwnershipIsEnforced() throws Exception {
+        try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
+            fixture.enforceOwnership();
+            fixture.installOrdinaryAuthority();
+            fixture.registry.tableControl().registerCreated(
+                    "catalog", "schema", "documents", "alice", Optional.empty(), Optional.empty());
+
+            fixture.engine.ensureWriteContextRegistered(session("managed-write"), fixture.context());
+
+            assertThat(fixture.metadata.inserts).isEqualTo(1);
+            assertThat(fixture.tracker.hasWriteContext("managed-write")).isTrue();
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void currentPostgresRevocationBlocksOrdinaryAndGeneratedAllocation(boolean generated) throws Exception {

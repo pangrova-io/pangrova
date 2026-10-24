@@ -6,6 +6,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
+import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,10 +119,12 @@ final class TaskQueryCompletion {
                         queryId, e.getMessage(), e);
                 writes.cleanupWriteStateAfterCommitFailure(queryId);
                 clearQuerySequences(queryId);
-                queryManager.onTaskFailed(queryId,
-                        new org.pangrova.protocol.rest.error.ErrorDetail(
-                                "WRITE_COMMIT_FAILED", e.getClass().getSimpleName(),
-                                "Distributed write commit failed: " + e.getMessage()));
+                ErrorDetail error = e instanceof org.pangrova.common.exception.PangrovaException pangrova
+                        ? new ErrorDetail(pangrova.getErrorCode().getCode(),
+                                e.getClass().getSimpleName(), e.getMessage())
+                        : new ErrorDetail("WRITE_COMMIT_FAILED", e.getClass().getSimpleName(),
+                                "Distributed write commit failed: " + e.getMessage());
+                queryManager.onTaskFailed(queryId, error);
                 return;
             }
             clearQuerySequences(queryId);

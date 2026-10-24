@@ -198,8 +198,10 @@ final class QueryBootstrap {
                     metadataDataSource);
         }
         embeddingModelRegistry = runtimeWiring.createEmbeddingModelRegistry();
+        auditEmitter = runtimeWiring.createAuditEmitter();
         wireExecutionContext(moduleContext, catalog, readerPinLeases);
-        var queryManagerResult = runtimeWiring.buildQueryManager(queryDispatcher, stateJournal);
+        var queryManagerResult = runtimeWiring.buildQueryManager(
+                queryDispatcher, stateJournal, auditEmitter);
         queryManager = queryManagerResult.queryManager();
         if (readerPinLeases != null) {
             queryManager.setReaderPinLifecycle(
@@ -208,7 +210,6 @@ final class QueryBootstrap {
         }
         asyncSubmitExecutor = queryManagerResult.asyncExecutor();
         durableRecovery.installShuffleCleanup(queryManager, queryDispatcher);
-        auditEmitter = queryManagerResult.auditEmitter();
         taskStatusReceiver = buildTaskStatusReceiver();
         taskTracker.setTaskFailureCallback((queryId, taskId) -> {
             var request = taskTracker.getTaskRequest(taskId);
@@ -264,7 +265,7 @@ final class QueryBootstrap {
                 metadataBootstrap, moduleWiring, streamingBootstrap, coordinationService,
                 writeCommitTracker, generatedValueMaterialization, semanticViewStore,
                 featureViewService, embeddingModelRegistry,
-                durableRecovery::resolveShuffleOwner, metadataDataSource);
+                durableRecovery::resolveShuffleOwner, metadataDataSource, auditEmitter);
         queryDispatcher = executionWiring.buildQueryDispatcher(workerManager, taskTracker,
                 moduleContext, resolveCircuitBreaker(), controlPlaneResultService,
                 splitAssignmentManager, speculativeStageHandler, stateJournal);
@@ -506,9 +507,13 @@ final class QueryBootstrap {
         DAGDispatchEngine engine = queryDispatcher.dagEngine();
         writeCommitJournal = WriteCommitWiring.createJournal(metadataDataSource);
         writeCommitRecoveryService = WriteCommitWiring.createRecoveryService(
-                writeCommitJournal, catalog);
+                writeCommitJournal, catalog,
+                WriteCommitWiring.createQuarantineStore(metadataDataSource));
         TaskStatusReceiver receiver = createTaskStatusReceiver(
                 catalog, engine, writeCommitJournal);
+        if (moduleWiring != null && moduleWiring.getWriteQualityGate() != null) {
+            receiver.setWriteQualityGate(moduleWiring.getWriteQualityGate());
+        }
         org.pangrova.coordinator.query.task.write.WriteCommitFencer fencer =
                 WriteCommitWiring.createFencer(coordinationService);
         if (fencer != null) {

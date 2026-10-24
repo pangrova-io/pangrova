@@ -620,19 +620,23 @@ compiler retains sources despite stale cost statistics.
 
 ### 6.2 Manual Collection
 
+Pangrova implements `ANALYZE TABLE` for tables with an ACTIVE LINKED or MANAGED
+control record. The collected statistics are persisted against the stable
+`table_id` and the version token observed during collection; the planner uses them
+only while the control record still carries that token. OBSERVED tables have no
+stable identity and are rejected.
+
 ```sql
 -- Full statistics collection
 ANALYZE TABLE iceberg.sales.orders;
 
--- Column-level statistics
-ANALYZE TABLE iceberg.sales.orders COMPUTE STATISTICS FOR COLUMNS order_id, amount, order_time;
-
--- Partition-level statistics (only new partitions)
-ANALYZE TABLE iceberg.sales.orders FOR PARTITIONS (order_date > '2025-01-01');
-
--- Show current statistics
-SHOW STATS FOR iceberg.sales.orders;
+-- Same behavior; COMPUTE STATISTICS is accepted for compatibility
+ANALYZE TABLE iceberg.sales.orders COMPUTE STATISTICS;
 ```
+
+Column-subset and partition-scoped collection are not implemented. Use
+`SHOW MATERIALIZATIONS`/connector system tables to inspect stored state; there is
+no `SHOW STATS` statement.
 
 ### 6.3 Auto-on-Write Collection
 

@@ -4,8 +4,13 @@ import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
 import java.util.List;
+import java.util.Optional;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryWriteCommitJournal;
+import org.pangrova.governance.quality.gate.WriteQualityGate;
+import org.pangrova.governance.quality.gate.WriteValidationResult;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
@@ -13,6 +18,7 @@ import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.spi.coordination.WriteCommitJournal;
@@ -29,6 +35,7 @@ final class NativeTaskWriteCompletion {
     private final NativeWriteCommitTracker writeCommitTracker;
     private final WriteCommitJournal writeCommitJournal;
     private volatile WriteCommitFencer writeCommitFencer;
+    private volatile WriteQualityGate writeQualityGate;
 
     NativeTaskWriteCompletion(TaskStatusReceiverContext deps) {
         catalogRegistry = deps.catalogRegistry();
@@ -39,6 +46,9 @@ final class NativeTaskWriteCompletion {
 
     void setFencer(WriteCommitFencer fencer) { writeCommitFencer = fencer; }
     WriteCommitFencer fencer() { return writeCommitFencer; }
+
+    /** Installs the governance pre-commit gate; absent means writes are not gated. */
+    void setWriteQualityGate(WriteQualityGate gate) { writeQualityGate = gate; }
 
     void collectWriteCommitMetadata(String queryId, TaskStatusReport report) {
         if (writeCommitTracker == null) {
@@ -108,6 +118,8 @@ final class NativeTaskWriteCompletion {
             return true;
         }
 
+        enforceWriteQuality(writeState, queryId);
+
         // Retain a replayable exact intent before touching the external catalog.
         List<byte[]> fragments = writeState.fragments();
         WriteCommitEntry intent = createWriteCommitIntent(queryId, writeState, fragments, anchor);
@@ -152,6 +164,44 @@ final class NativeTaskWriteCompletion {
         }
         return copyMetadata.confirmCopyFilePublication(
                 writeState.session(), boundHandle, intent.commitContext());
+    }
+
+    /**
+     * Evaluates the target table's enabled quality rules before the catalog commit.
+     *
+     * <p>An ERROR-severity failure blocks the write before any durable intent is
+     * recorded, so the catalog is never asked to publish data that governance
+     * rejects. A gate that cannot evaluate its rules is treated as a failure:
+     * a write is never admitted on missing evidence.</p>
+     */
+    private void enforceWriteQuality(
+            NativeWriteCommitTracker.WriteCommitState writeState, String queryId) {
+        WriteQualityGate gate = writeQualityGate;
+        if (gate == null) {
+            return;
+        }
+        Optional<SchemaTableName> target = writeState.outputHandle().targetTable();
+        if (target.isEmpty()) {
+            throw new PangrovaException(PangrovaErrorCode.GOVERNANCE_QUALITY_CHECK_FAILED,
+                    "Write quality gate requires a recoverable target table for query " + queryId);
+        }
+        SchemaTableName table = target.get();
+        WriteValidationResult result;
+        try {
+            result = gate.validate(writeState.catalogName(), table.schema(), table.table());
+        } catch (RuntimeException failure) {
+            throw new PangrovaException(PangrovaErrorCode.GOVERNANCE_QUALITY_CHECK_FAILED,
+                    "Write quality gate could not evaluate rules for "
+                            + writeState.catalogName() + "." + table + ": " + failure.getMessage(),
+                    failure);
+        }
+        if (!result.allowed()) {
+            LOG.warn("event=distributed_write_quality_blocked queryId={} table={}.{} "
+                            + "reason={}", queryId, writeState.catalogName(), table,
+                    result.blockReason());
+            throw new PangrovaException(PangrovaErrorCode.GOVERNANCE_QUALITY_CHECK_FAILED,
+                    result.blockReason());
+        }
     }
 
     private void retireCommittedWrite(String queryId) {

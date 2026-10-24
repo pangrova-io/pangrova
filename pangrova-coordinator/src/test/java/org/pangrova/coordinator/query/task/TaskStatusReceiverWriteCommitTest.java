@@ -336,6 +336,70 @@ class TaskStatusReceiverWriteCommitTest {
     }
 
     @Test
+    void qualityGateBlocksWriteBeforeCatalogCommit() {
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID, CATALOG_NAME, new TestOutputTableHandle(), new TestConnectorSession(),
+                binding(), org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", Map.of()), null);
+        receiver.setWriteQualityGate((catalog, schema, table) ->
+                org.pangrova.governance.quality.gate.WriteValidationResult.blocked(
+                        List.of(), "Write blocked by quality rules: 'not_null' failed"));
+
+        registerRunningQuery();
+        registerTwoTasks();
+        receiver.onTaskStatus(finishedWithWriteResult("t-1", new byte[]{1}));
+        receiver.onTaskStatus(finishedWithWriteResult("t-2", new byte[]{2}));
+
+        assertThat(recordingMetadata.finishCalls)
+                .as("a quality failure must prevent the catalog commit")
+                .isEmpty();
+        assertThat(writeCommitJournal.getEntry(QUERY_ID))
+                .as("no durable write intent is recorded for a rejected write")
+                .isEmpty();
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.FAILED);
+    }
+
+    @Test
+    void qualityGateSeesTheExactTargetAndAllowsCommit() {
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID, CATALOG_NAME, new TestOutputTableHandle(), new TestConnectorSession(),
+                binding(), org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", Map.of()), null);
+        AtomicReference<String> observed = new AtomicReference<>();
+        receiver.setWriteQualityGate((catalog, schema, table) -> {
+            observed.set(catalog + "." + schema + "." + table);
+            return org.pangrova.governance.quality.gate.WriteValidationResult.allowed(List.of());
+        });
+
+        registerRunningQuery();
+        registerTwoTasks();
+        receiver.onTaskStatus(finishedWithWriteResult("t-1", new byte[]{1}));
+        receiver.onTaskStatus(finishedWithWriteResult("t-2", new byte[]{2}));
+
+        assertThat(observed.get()).isEqualTo(CATALOG_NAME + ".default.events");
+        assertThat(recordingMetadata.finishCalls).hasSize(1);
+    }
+
+    @Test
+    void qualityGateEvaluationFailureFailsClosed() {
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID, CATALOG_NAME, new TestOutputTableHandle(), new TestConnectorSession(),
+                binding(), org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", Map.of()), null);
+        receiver.setWriteQualityGate((catalog, schema, table) -> {
+            throw new IllegalStateException("rule store unavailable");
+        });
+
+        registerRunningQuery();
+        registerTwoTasks();
+        receiver.onTaskStatus(finishedWithWriteResult("t-1", new byte[]{1}));
+        receiver.onTaskStatus(finishedWithWriteResult("t-2", new byte[]{2}));
+
+        assertThat(recordingMetadata.finishCalls).isEmpty();
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.FAILED);
+    }
+
+    @Test
     void writeResultNull_finishDistributedWriteNotCalled() {
         // No write context registered — simulates a pure read/compute query
         registerTwoTasks();

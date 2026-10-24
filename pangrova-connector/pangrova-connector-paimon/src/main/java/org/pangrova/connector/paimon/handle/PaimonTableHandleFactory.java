@@ -64,6 +64,9 @@ public final class PaimonTableHandleFactory {
             Table table,
             Optional<Long> snapshotId) {
         String tableLocation = extractLocation(table);
+        String tableUuid = extractUuid(table);
+        String schemaFingerprint = PaimonTableIdentity.schemaFingerprint(
+                requireFileStore(table).schema());
         Map<String, String> properties = table.options();
         String rowTypeJson = JsonSerdeUtil.toFlatJson(table.rowType());
         List<String> primaryKeys = table.primaryKeys();
@@ -73,6 +76,8 @@ public final class PaimonTableHandleFactory {
                 schemaName,
                 tableName,
                 tableLocation,
+                tableUuid,
+                schemaFingerprint,
                 snapshotId,
                 rowTypeJson,
                 primaryKeys,
@@ -132,6 +137,9 @@ public final class PaimonTableHandleFactory {
             String mode) {
         requireWriteDeclarationSupported(table.options());
         String tableLocation = extractLocation(table);
+        String tableUuid = extractUuid(table);
+        String schemaFingerprint = PaimonTableIdentity.schemaFingerprint(
+                requireFileStore(table).schema());
         String rowTypeJson = JsonSerdeUtil.toFlatJson(table.rowType());
         List<String> primaryKeys = table.primaryKeys();
         List<String> partitionKeys = table.partitionKeys();
@@ -142,6 +150,8 @@ public final class PaimonTableHandleFactory {
                 schemaName,
                 tableName,
                 tableLocation,
+                tableUuid,
+                schemaFingerprint,
                 rowTypeJson,
                 new PaimonOutputTableHandle.Layout(primaryKeys, partitionKeys),
                 new PaimonOutputTableHandle.WriteSemantics(overwritePartition, mode,
@@ -195,10 +205,23 @@ public final class PaimonTableHandleFactory {
      * Falls back to table name if location is not available.
      */
     private static String extractLocation(Table table) {
-        if (!(table instanceof FileStoreTable fileStoreTable)) {
-            throw new IllegalArgumentException("Paimon table handle requires a physical FileStoreTable location");
+        return requireFileStore(table).location().toString();
+    }
+
+    private static String extractUuid(Table table) {
+        String uuid = requireFileStore(table).uuid();
+        if (uuid == null || uuid.isBlank()) {
+            throw new IllegalArgumentException("Paimon table handle requires a stable SDK table UUID");
         }
-        return fileStoreTable.location().toString();
+        return uuid;
+    }
+
+    private static FileStoreTable requireFileStore(Table table) {
+        if (!(table instanceof FileStoreTable fileStoreTable)) {
+            throw new IllegalArgumentException(
+                    "Paimon table handle requires a physical FileStoreTable location");
+        }
+        return fileStoreTable;
     }
 
     /**

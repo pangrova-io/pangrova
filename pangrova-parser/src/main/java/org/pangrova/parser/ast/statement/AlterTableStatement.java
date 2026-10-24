@@ -115,6 +115,23 @@ public sealed interface AlterTableStatement extends Statement {
         }
     }
 
+    /** Represents ALTER TABLE ... ADOPT, adopting an externally written table as LINKED. */
+    record Adopt(Identifier tableName, java.util.Map<String, String> properties)
+            implements AlterTableStatement {
+
+        public Adopt {
+            properties = properties == null ? java.util.Map.of() : java.util.Map.copyOf(properties);
+        }
+
+        /** Adopt without policy properties. */
+        public Adopt(Identifier tableName) {
+            this(tableName, java.util.Map.of());
+        }
+    }
+
+    /** Represents ALTER TABLE ... UNLINK, removing control state without dropping the table. */
+    record Unlink(Identifier tableName) implements AlterTableStatement {}
+
     /** Represents ALTER TABLE ... ALTER COLUMN col SET TAG key = 'value'. */
     record SetColumnTag(Identifier tableName, String columnName,
                         String tagKey, String tagValue) implements AlterTableStatement {}

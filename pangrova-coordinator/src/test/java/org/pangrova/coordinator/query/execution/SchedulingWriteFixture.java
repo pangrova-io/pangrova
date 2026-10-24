@@ -76,6 +76,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
     final NativeWriteCommitTracker tracker = new NativeWriteCommitTracker();
     final CountingMetadata metadata;
     final QuerySchedulingEngine engine;
+    final CatalogRegistry registry;
     final List<GeneratedWriteAuthoritySupplier.WriteAuthorityRequest> observations =
             new java.util.concurrent.CopyOnWriteArrayList<>();
     private final HadoopCatalog catalog;
@@ -101,9 +102,16 @@ final class SchedulingWriteFixture implements AutoCloseable {
                 Map.of("warehouse", warehouse.toString()), "", Set.of("tenant-1"));
         var handle = new ConnectorCatalogHandle(descriptor, new MetadataConnector(metadata));
         catalogHandle = handle;
+        registry = new SingleCatalogRegistry(handle);
         engine = new QuerySchedulingEngine(new QuerySchedulingEngine.SchedulingDependencies(
-                null, null, null, null, new SingleCatalogRegistry(handle), null, null, 0));
+                null, null, null, null, registry, null, null, 0));
         engine.setWriteCommitTracker(tracker);
+    }
+
+    void enforceOwnership() {
+        registry.setTableControlService(new org.pangrova.metadata.control.TableControlService(
+                new org.pangrova.metadata.control.InMemoryTableControlStore(),
+                new org.pangrova.metadata.control.TableControlSettings(true, true, Set.of())));
     }
 
     void installOrdinaryAuthority() {
@@ -213,8 +221,16 @@ final class SchedulingWriteFixture implements AutoCloseable {
         Map<String, String> partition = Map.of();
         boolean failOverwrite;
         Runnable beforeInsert = () -> { };
+        org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities =
+                org.pangrova.connector.iceberg.handle.IcebergTableHandle.CAPABILITIES;
 
         CountingMetadata(HadoopCatalog catalog) { super(catalog, "catalog"); }
+
+        @Override
+        public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
+                ConnectorSession session, ConnectorTableHandle table) {
+            return capabilities;
+        }
 
         @Override
         public ConnectorOutputTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle table) {

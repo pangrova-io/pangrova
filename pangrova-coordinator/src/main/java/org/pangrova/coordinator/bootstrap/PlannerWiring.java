@@ -78,7 +78,8 @@ final class PlannerWiring {
                 metadataBootstrap.catalogRegistry(), session);
         var rootSchema = metadataBootstrap.buildCalciteSchema(session, readBindings);
         var stats = new StatisticsCollector(
-                new CatalogStatisticsProvider(readBindings));
+                new CatalogStatisticsProvider(readBindings,
+                        metadataBootstrap.catalogRegistry().tableStatistics()));
         var mvCatalog = buildMaterializedViewRewriteCatalog(session);
         var path = session.getCatalog().map(catalog -> session.getSchema()
                 .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));

@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import javax.sql.DataSource;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,6 +70,30 @@ class AuditWriterFactoryTest {
     void compositeConfigFallsBackToLogWithoutDataSource() {
         AuditEventWriter writer = AuditWriterFactory.create(AuditWriterConfig.COMPOSITE, null);
         assertThat(writer).isInstanceOf(LoggingAuditEventWriter.class);
+    }
+
+    @Test
+    void tableControlEventTypeIsDurableAndQueryable() {
+        JdbcAuditEventWriter writer = (JdbcAuditEventWriter)
+                AuditWriterFactory.create(AuditWriterConfig.JDBC, pgDataSource());
+        String eventId = UUID.randomUUID().toString();
+        writer.write(new AuditEvent(
+                eventId, AuditEventType.EXTERNAL_COMMIT_OBSERVED, Instant.now(), "system",
+                null, null, null, null, null, "cat", "db",
+                List.of(new AccessedObject("TABLE", "cat", "db", "orders", List.of(),
+                        "COMMIT_OBSERVED")),
+                true, null, 0, 0, 0,
+                Map.of("table_id", "6b1d9f02-52b4-4f1c-9a6e-2f0dc8f31c44",
+                        "writer_kind", "EXTERNAL")));
+
+        assertThat(writer.query(AuditEventQuery.byType(
+                AuditEventType.EXTERNAL_COMMIT_OBSERVED)))
+                .anySatisfy(event -> {
+                    assertThat(event.eventId()).isEqualTo(eventId);
+                    assertThat(event.properties()).containsEntry("writer_kind", "EXTERNAL");
+                    assertThat(event.accessedObjects()).singleElement()
+                            .satisfies(object -> assertThat(object.table()).isEqualTo("orders"));
+                });
     }
 
     @Test

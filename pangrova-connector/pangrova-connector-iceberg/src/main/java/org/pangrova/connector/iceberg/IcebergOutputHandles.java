@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOverwriteScope;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
@@ -34,17 +35,23 @@ final class IcebergOutputHandles {
                 icebergTable, IcebergOutputTableHandle.MODE_INSERT);
     }
 
-    /** Builds an output handle for an OVERWRITE distributed write. */
+    /** Builds an output handle for an OVERWRITE distributed write that replaces the whole table. */
     static ConnectorOutputTableHandle forOverwrite(IcebergTableHandle handle, Table icebergTable) {
-        return build(handle.schemaName(), handle.tableName(),
-                icebergTable, IcebergOutputTableHandle.MODE_OVERWRITE);
+        return build(handle.schemaName(), handle.tableName(), icebergTable,
+                IcebergOutputTableHandle.MODE_OVERWRITE, IcebergOverwriteScope.WHOLE_TABLE,
+                Map.of(), null);
     }
 
     static ConnectorOutputTableHandle forOverwrite(
             IcebergTableHandle handle, Table table, Map<String, String> staticPartitions) {
+        if (staticPartitions.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Static partition overwrite requires at least one partition");
+        }
         IcebergStaticOverwriteScope.filter(table.schema(), table.spec(), staticPartitions);
         return build(handle.schemaName(), handle.tableName(), table,
-                IcebergOutputTableHandle.MODE_OVERWRITE, staticPartitions, null);
+                IcebergOutputTableHandle.MODE_OVERWRITE, IcebergOverwriteScope.STATIC_PARTITION,
+                staticPartitions, null);
     }
 
     /** Builds an output handle for a DELETE distributed write. */
@@ -79,6 +86,13 @@ final class IcebergOutputHandles {
             SchemaTableName tableName,
             String writeMode,
             long baseSnapshotId) {
+        if (IcebergOutputTableHandle.MODE_OVERWRITE.equals(writeMode)) {
+            // An overwrite's replacement scope cannot be derived from live metadata. Rebuilding it
+            // here would silently widen a static-partition replacement, so recovery must decode
+            // the journaled output handle instead.
+            throw new UnsupportedOperationException(
+                    "Iceberg OVERWRITE recovery requires the journaled output handle");
+        }
         TableIdentifier tableId = TableIdentifier.of(tableName.schema(), tableName.table());
         Table icebergTable = catalog.loadTable(tableId);
         return reconstruct(icebergTable, tableName, writeMode, baseSnapshotId);
@@ -90,16 +104,19 @@ final class IcebergOutputHandles {
             String writeMode,
             long baseSnapshotId) {
         return build(tableName.schema(), tableName.table(), icebergTable,
-                normalizeReconstructMode(writeMode), Map.of(), baseSnapshotId);
+                normalizeReconstructMode(writeMode), IcebergOverwriteScope.NONE,
+                Map.of(), baseSnapshotId);
     }
 
     private static IcebergOutputTableHandle build(String schemaName, String tableName,
                                                   Table icebergTable, String writeMode) {
-        return build(schemaName, tableName, icebergTable, writeMode, Map.of(), null);
+        return build(schemaName, tableName, icebergTable, writeMode,
+                IcebergOverwriteScope.NONE, Map.of(), null);
     }
 
     private static IcebergOutputTableHandle build(String schemaName, String tableName,
-            Table table, String writeMode, Map<String, String> staticPartitions, Long originalSnapshotId) {
+            Table table, String writeMode, IcebergOverwriteScope overwriteScope,
+            Map<String, String> staticPartitions, Long originalSnapshotId) {
         if (!(table instanceof HasTableOperations sdkTable)) {
             throw new IllegalStateException("Iceberg write allocation requires SDK TableOperations");
         }
@@ -111,7 +128,8 @@ final class IcebergOutputHandles {
                 schemaName, tableName, metadata.uuid(), metadata.location(),
                 SchemaParser.toJson(metadata.schema()), PartitionSpecParser.toJson(metadata.spec()),
                 metadata.formatVersion(), originalSnapshotId == null ? snapshotId : originalSnapshotId,
-                writeMode, staticPartitions, IcebergDeclarationProperties.capture(metadata.properties()));
+                writeMode, overwriteScope, staticPartitions,
+                IcebergDeclarationProperties.capture(metadata.properties()));
     }
 
     private static long currentSnapshotId(Table icebergTable) {

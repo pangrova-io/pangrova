@@ -185,6 +185,7 @@ final class QuerySchedulingEngine {
         try {
             var allocationIntent = new WriteAllocationIntent(dmlCtx.writeMode(),
                     staticPartitionBindings(dmlCtx.partitionSpec()));
+            var tableControl = deps.catalogRegistry().tableControl();
             var catalogHandle = deps.catalogRegistry().getCatalog(catalog);
             if (catalogHandle == null) {
                 throw new IllegalStateException(
@@ -197,6 +198,12 @@ final class QuerySchedulingEngine {
                     catalog, schema, table);
             var tableHandle = org.pangrova.coordinator.query.statement.TableResolver
                     .requireTableHandle(metadata, connectorSession, qualifiedName);
+            tableControl.requireManagedForWrite(catalog, schema, table, dmlCtx.writeMode(),
+                    tableControl.enforcing()
+                            ? resolveTableIdentity(metadata, connectorSession, tableHandle)
+                            : java.util.Optional.empty());
+            requireWriteCapability(metadata, connectorSession, tableHandle, dmlCtx.writeMode(),
+                    qualifiedName);
             var deferredAuthority = resolveGeneratedWriteAuthority(
                     qualifiedName, metadata, tableHandle, connectorSession, dmlCtx.writeMode(), observation,
                     session.internalMaterializationExecution());
@@ -242,6 +249,18 @@ final class QuerySchedulingEngine {
         }
     }
 
+    private static java.util.Optional<org.pangrova.spi.connector.metadata.table.TableIdentity>
+            resolveTableIdentity(ConnectorMetadata metadata, ConnectorSession session,
+                    ConnectorTableHandle handle) {
+        try {
+            return metadata.getTableIdentity(session, handle);
+        } catch (RuntimeException unavailable) {
+            // The control record carries the identity that admission must fence
+            // against; an unavailable observation is treated as no evidence.
+            return java.util.Optional.empty();
+        }
+    }
+
     private void requireWritePrerequisites(CoordinatorSessionContext session) {
         if (session.tenantId() == null || session.tenantId().isBlank()) {
             throw new IllegalArgumentException("Distributed write requires a resolved tenant identity");
@@ -282,6 +301,29 @@ final class QuerySchedulingEngine {
                         observation.reads(), observation.writePrivileges(), observation.declaration(),
                         internalMaterializationExecution),
                 definitions, generatedWriteAuthoritySupplier);
+    }
+
+    /**
+     * Rejects a write the connector has not declared. Undeclared capabilities are
+     * unsupported, so a connector cannot enter the write path by omission.
+     */
+    private static void requireWriteCapability(ConnectorMetadata metadata,
+            ConnectorSession session, ConnectorTableHandle table, String writeMode,
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName target) {
+        var capabilities = metadata.getTableCapabilities(session, table);
+        String mode = writeMode == null ? "" : writeMode.toUpperCase(java.util.Locale.ROOT);
+        boolean requiresDelete = mode.equals("DELETE") || mode.equals("UPDATE")
+                || mode.equals("MERGE");
+        if (requiresDelete && !capabilities.supportsDelete()) {
+            throw new PangrovaException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                    metadata.getClass().getSimpleName() + " does not support "
+                            + mode + " on " + target + " (no delete capability declared)");
+        }
+        if (!capabilities.supportsWrite()) {
+            throw new PangrovaException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                    metadata.getClass().getSimpleName() + " does not support writes on "
+                            + target + " (no write capability declared)");
+        }
     }
 
     private static ConnectorOutputTableHandle beginWrite(

@@ -31,6 +31,7 @@ import org.pangrova.parser.ast.statement.ShowMaterializedViewsStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
 import org.pangrova.parser.ast.statement.ShowCatalogsStatement;
+import org.pangrova.parser.ast.statement.ShowTableControlsStatement;
 import org.pangrova.parser.ast.statement.ShowTablesStatement;
 import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
@@ -95,6 +96,11 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     CommonTokenStream tokenStream() {
         return tokenStream;
+    }
+
+    /** Parses a property list whose values are consumed as text, not literals. */
+    java.util.Map<String, String> propertyTextMap(PangrovaSqlParser.PropertyListContext ctx) {
+        return ddlDml.propertyTextMap(ctx);
     }
 
     /**
@@ -194,6 +200,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Statement visitCompactTableStatement(PangrovaSqlParser.CompactTableStatementContext ctx) { return (CompactStatement) ddlDml.visitCompactTable(ctx.compactTable()); }
     @Override public Statement visitOptimizeTableStatement(PangrovaSqlParser.OptimizeTableStatementContext ctx) { return (OptimizeStatement) ddlDml.visitOptimizeTable(ctx.optimizeTable()); }
     @Override public Statement visitVacuumTableStatement(PangrovaSqlParser.VacuumTableStatementContext ctx) { return (VacuumStatement) ddlDml.visitVacuumTable(ctx.vacuumTable()); }
+    @Override public Statement visitAnalyzeTableStatement(PangrovaSqlParser.AnalyzeTableStatementContext ctx) { return (org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement) ddlDml.visitAnalyzeTable(ctx.analyzeTable()); }
     @Override public Statement visitCreateCatalogStatement(PangrovaSqlParser.CreateCatalogStatementContext ctx) { return (CreateCatalogStatement) ddlDml.visitCreateCatalog(ctx.createCatalog()); }
     @Override public Statement visitDropCatalogStatement(PangrovaSqlParser.DropCatalogStatementContext ctx) { return (DropCatalogStatement) ddlDml.visitDropCatalog(ctx.dropCatalog()); }
     @Override public Statement visitShowCatalogsStatement(PangrovaSqlParser.ShowCatalogsStatementContext ctx) { return (ShowCatalogsStatement) ddlDml.visitShowCatalogs(ctx.showCatalogs()); }
@@ -223,6 +230,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Statement visitCopyIntoStatement(PangrovaSqlParser.CopyIntoStatementContext ctx) { return withLocation((InsertSelectStatement) dml.visitCopyInto(ctx.copyInto()), ctx); }
     @Override public Statement visitShowSchemasStatement(PangrovaSqlParser.ShowSchemasStatementContext ctx) { return (ShowSchemasStatement) ddlDml.visitShowSchemas(ctx.showSchemas()); }
     @Override public Statement visitShowTablesStatement(PangrovaSqlParser.ShowTablesStatementContext ctx) { return (ShowTablesStatement) ddlDml.visitShowTables(ctx.showTables()); }
+    @Override public Statement visitShowTableControlsStatement(PangrovaSqlParser.ShowTableControlsStatementContext ctx) { return (ShowTableControlsStatement) ddlDml.visitShowTableControls(ctx.showTableControls()); }
     @Override public Statement visitShowViewsStatement(PangrovaSqlParser.ShowViewsStatementContext ctx) { return (ShowViewsStatement) ddlDml.visitShowViews(ctx.showViews()); }
     @Override public Statement visitShowSemanticViewsStatement(PangrovaSqlParser.ShowSemanticViewsStatementContext ctx) { return semanticView.visitShowSemanticViews(ctx.showSemanticViews()); }
     @Override public Statement visitShowSnapshotsStatement(PangrovaSqlParser.ShowSnapshotsStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowSnapshots(ctx.showSnapshots()); }
@@ -236,6 +244,8 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
                 || a instanceof PangrovaSqlParser.AlterTableDropBranchContext
                 || a instanceof PangrovaSqlParser.AlterTableCreateTagContext
                 || a instanceof PangrovaSqlParser.AlterTableDropTagContext
+                || a instanceof PangrovaSqlParser.AlterTableAdoptContext
+                || a instanceof PangrovaSqlParser.AlterTableUnlinkContext
                 || a instanceof PangrovaSqlParser.AlterTableSetColumnTagContext
                 || a instanceof PangrovaSqlParser.AlterTableUnsetColumnTagContext) {
             return (Statement) extDdl.visit(a);

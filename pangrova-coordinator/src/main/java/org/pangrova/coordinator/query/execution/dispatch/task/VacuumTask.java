@@ -24,7 +24,7 @@ public final class VacuumTask implements MetadataTask<VacuumStatement> {
 
     @Override
     public StatementResult execute(VacuumStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeVacuum(statement);
+        List<TypedRow> rows = executor.executeVacuum(statement, context.session());
         String mutatedTable = TableNameExtractor.extract(statement);
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.MAINTENANCE);
     }

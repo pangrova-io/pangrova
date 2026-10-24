@@ -66,6 +66,7 @@ import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
+import org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
 import org.pangrova.parser.ast.statement.maintenance.CallStatement;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
@@ -199,6 +200,7 @@ final class StatementTypeRegistry {
             Map.entry(CompactStatement.class, StatementType.COMPACT),
             Map.entry(OptimizeStatement.class, StatementType.OPTIMIZE),
             Map.entry(VacuumStatement.class, StatementType.VACUUM),
+            Map.entry(AnalyzeStatement.class, StatementType.ANALYZE),
             Map.entry(AlterStreamStatement.class, StatementType.ALTER_STREAM),
             Map.entry(CreateStreamStatement.class, StatementType.CREATE_STREAM),
             Map.entry(DescribeStreamStatement.class, StatementType.DESCRIBE_STREAM),

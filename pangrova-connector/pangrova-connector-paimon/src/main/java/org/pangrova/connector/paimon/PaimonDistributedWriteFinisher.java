@@ -44,12 +44,13 @@ final class PaimonDistributedWriteFinisher {
     private PaimonDistributedWriteFinisher() {}
 
     /**
-     * Determines if an exception from Paimon commit is retryable based on SDK
-     * exception types rather than fragile string matching.
+     * Determines if an SDK commit failure is a transient OCC conflict that may be replayed with
+     * the same commit user.
      *
-     * <p>Retryable: RuntimeException from commit path (OCC conflict, snapshot
-     * version mismatch). Non-retryable: catalog-level permanent failures like
-     * TableNotExistException, DatabaseNotExistException, or security exceptions.
+     * <p>Paimon reports conflicts as generic {@link RuntimeException}s, so an explicit conflict
+     * signature is required. Permanent catalog errors, programming errors, and unclassified
+     * failures are never retried: a failed attempt whose outcome cannot be proven is left to the
+     * journal reconciler, which first checks the commit fingerprint marker.
      */
     private static boolean isRetryableCommitException(Exception e) {
         if (e instanceof Catalog.TableNotExistException
@@ -58,13 +59,18 @@ final class PaimonDistributedWriteFinisher {
                 || e instanceof Catalog.DatabaseNoPermissionException) {
             return false;
         }
-        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
+        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException
+                || e instanceof UnsupportedOperationException || e instanceof SecurityException) {
             return false;
         }
-        // Paimon commit conflicts surface as RuntimeException from
-        // FileStoreCommitImpl with conflict-related messages. Any RuntimeException
-        // from the commit path that is not a permanent failure is retryable.
-        return e instanceof RuntimeException;
+        if (!(e instanceof RuntimeException) || e.getMessage() == null) {
+            return false;
+        }
+        String message = e.getMessage().toLowerCase(java.util.Locale.ROOT);
+        return message.contains("conflict")
+                || message.contains("cannot commit snapshot")
+                || message.contains("exception occurs when preparing snapshot")
+                || message.contains("exception occurs when committing snapshot");
     }
 
     /** Callback used to notify commit listeners after a successful commit. */
@@ -100,6 +106,62 @@ final class PaimonDistributedWriteFinisher {
         }
         notifyAfterCommit(freshTable, handle, allMessages, eventType,
                 context.commitFingerprint(), notifier);
+    }
+
+    /**
+     * Deletes data files staged by a distributed write that was never published.
+     *
+     * <p>The files referenced by the fragments are not yet part of any snapshot. If the table
+     * advanced past the write's base snapshot, another writer may have committed concurrently, so
+     * deletion is skipped and the files are left for orphan maintenance instead of risking a
+     * committed file.
+     */
+    static void abort(Table freshTable, PaimonOutputTableHandle handle, List<byte[]> fragments) {
+        FileStoreTable fileStore = org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
+                freshTable, handle.tableUuid(), handle.tableLocation(), handle.schemaFingerprint(),
+                "Paimon distributed write abort");
+        if (fragments == null || fragments.isEmpty()
+                || fragments.stream().allMatch(fragment -> fragment == null || fragment.length == 0)) {
+            return;
+        }
+        DeserializedFragments parsed = deserialize(fragments, handle);
+        Long latest = fileStore.snapshotManager().latestSnapshotId();
+        if (latest != null && (handle.baseSnapshotId() < 0 || latest > handle.baseSnapshotId())) {
+            LOG.warn("event=paimon_distributed_write_abort_skipped schema={} table={} "
+                            + "reason=snapshot_advanced baseSnapshot={} latestSnapshot={}",
+                    handle.schemaName(), handle.tableName(), handle.baseSnapshotId(), latest);
+            return;
+        }
+        int deleted = 0;
+        String tablePrefix = fileStore.location().toString();
+        for (CommitMessage message : parsed.messages()) {
+            if (!(message instanceof CommitMessageImpl impl)) {
+                continue;
+            }
+            var increment = impl.newFilesIncrement();
+            var pathFactory = fileStore.store().pathFactory()
+                    .createDataFilePathFactory(impl.partition(), impl.bucket());
+            for (DataFileMeta file : concat(increment.newFiles(), increment.changelogFiles())) {
+                var path = pathFactory.toPath(file);
+                if (!path.toString().startsWith(tablePrefix + "/")) {
+                    throw invalidFragment("Paimon staged file is outside the target table location");
+                }
+                fileStore.fileIO().deleteQuietly(path);
+                deleted++;
+            }
+        }
+        LOG.info("event=paimon_distributed_write_aborted schema={} table={} deletedFiles={}",
+                handle.schemaName(), handle.tableName(), deleted);
+    }
+
+    private static List<DataFileMeta> concat(List<DataFileMeta> first, List<DataFileMeta> second) {
+        if (second.isEmpty()) {
+            return first;
+        }
+        List<DataFileMeta> merged = new ArrayList<>(first.size() + second.size());
+        merged.addAll(first);
+        merged.addAll(second);
+        return merged;
     }
 
     private static DeserializedFragments deserialize(
@@ -182,10 +244,9 @@ final class PaimonDistributedWriteFinisher {
     private static boolean commitMessages(Table freshTable, PaimonOutputTableHandle handle,
                                           List<CommitMessage> allMessages, CommitEventType eventType,
                                           DistributedWriteCommitContext context) {
-        if (!(freshTable instanceof FileStoreTable fileStore)) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Paimon distributed recovery requires a FileStoreTable");
-        }
+        FileStoreTable fileStore = org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
+                freshTable, handle.tableUuid(), handle.tableLocation(), handle.schemaFingerprint(),
+                "Paimon distributed write");
         var snapshots = fileStore.snapshotManager();
         String commitUser = context.commitFingerprint();
         if (snapshots.latestSnapshotOfUser(commitUser).isPresent()) {

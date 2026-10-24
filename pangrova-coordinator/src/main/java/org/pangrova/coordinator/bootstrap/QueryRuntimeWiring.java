@@ -12,7 +12,8 @@ import org.pangrova.metadata.coordination.JdbcWorkerRegistry;
 import org.pangrova.observability.audit.LogAuditStore;
 import org.pangrova.observability.audit.QueryAuditService;
 import org.pangrova.security.audit.AuditEventEmitter;
-import org.pangrova.security.audit.LoggingAuditEventWriter;
+import org.pangrova.security.audit.AuditWriterConfig;
+import org.pangrova.security.audit.AuditWriterFactory;
 import org.pangrova.spi.coordination.QueryStateJournal;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.spi.coordination.WorkerRegistry;
@@ -65,9 +66,18 @@ final class QueryRuntimeWiring {
         return registry;
     }
 
-    QueryManagerResult buildQueryManager(
-            QueryDispatcher queryDispatcher, QueryStateJournal stateJournal) {
-        var auditEmitter = new AuditEventEmitter(new LoggingAuditEventWriter());
+    /**
+     * Audit events are durable when the metadata DataSource is available and
+     * always mirrored to the log; without a DataSource the factory falls back
+     * to log-only rather than silently disabling auditing.
+     */
+    AuditEventEmitter createAuditEmitter() {
+        return new AuditEventEmitter(AuditWriterFactory.create(
+                AuditWriterConfig.COMPOSITE, dependencies.metadataDataSource()));
+    }
+
+    QueryManagerResult buildQueryManager(QueryDispatcher queryDispatcher,
+            QueryStateJournal stateJournal, AuditEventEmitter auditEmitter) {
         AsyncSubmitConfig asyncConfig = AsyncSubmitConfig.defaultEnabled();
         ExecutorService asyncExecutor = ManagedExecutorFactory.newBoundedThreadPool(
                 "async-query-submit", 4, 128);

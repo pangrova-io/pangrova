@@ -240,6 +240,7 @@ class AstTypeCompletenessTest {
             case COMPACT -> "cmp";
             case OPTIMIZE -> "opt";
             case VACUUM -> "vac";
+            case ANALYZE -> "ana";
             case ALTER_STREAM -> "as";
             case CREATE_STREAM -> "cstr";
             case DESCRIBE_STREAM -> "ds";

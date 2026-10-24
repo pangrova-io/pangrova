@@ -62,6 +62,7 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
     // Governance
     private GovernanceWiring governanceModule;
     private LineageEventEmitter lineageEmitter;
+    private org.pangrova.governance.quality.gate.WriteQualityGate writeQualityGate;
 
     // Resilience
     private CircuitBreaker circuitBreaker;
@@ -87,6 +88,7 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
 
     // Metadata sync (leader-gated periodic sync for federation catalogs)
     private org.pangrova.metadata.sync.MetadataSyncService metadataSyncService;
+    private org.pangrova.metadata.sync.TableVersionObserver versionObserver;
     private org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry;
     private ScheduledExecutorService metadataSyncScheduler;
     private volatile ScheduledFuture<?> metadataSyncTask;
@@ -151,6 +153,11 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
         this.catalogRegistry = syncCatalogRegistry;
     }
 
+    /** Observes LINKED/MANAGED versions on the same leader-gated cadence as sync. */
+    void setVersionObserver(org.pangrova.metadata.sync.TableVersionObserver observer) {
+        this.versionObserver = observer;
+    }
+
     void setInvalidationPoller(org.pangrova.metadata.cache.JdbcInvalidationPoller poller) {
         this.invalidationPoller = poller;
     }
@@ -160,7 +167,8 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
     }
 
     private void startMetadataSyncSchedule() {
-        if (metadataSyncService == null || catalogRegistry == null) {
+        if (catalogRegistry == null
+                || (metadataSyncService == null && versionObserver == null)) {
             return;
         }
         if (metadataSyncScheduler == null) {
@@ -182,18 +190,34 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
     }
 
     private void runMetadataSync() {
-        for (String catalogName : catalogRegistry.listCatalogNames()) {
-            try {
-                org.pangrova.metadata.catalog.CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-                if (!(handle instanceof org.pangrova.metadata.catalog.FederationCatalogHandle fedHandle)) {
-                    continue;
+        if (metadataSyncService != null) {
+            for (String catalogName : catalogRegistry.listCatalogNames()) {
+                try {
+                    org.pangrova.metadata.catalog.CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
+                    if (!(handle instanceof org.pangrova.metadata.catalog.FederationCatalogHandle fedHandle)) {
+                        continue;
+                    }
+                    org.pangrova.metadata.adapter.FederatedCatalog adapter =
+                            fedHandle.getFederatedCatalog();
+                    metadataSyncService.syncWithRetry(catalogName, adapter);
+                } catch (Exception e) {
+                    LOG.warn("event=metadata_sync_catalog_failed catalog={} error={}",
+                            catalogName, e.getMessage());
                 }
-                org.pangrova.metadata.adapter.FederatedCatalog adapter =
-                        fedHandle.getFederatedCatalog();
-                metadataSyncService.syncWithRetry(catalogName, adapter);
-            } catch (Exception e) {
-                LOG.warn("event=metadata_sync_catalog_failed catalog={} error={}",
-                        catalogName, e.getMessage());
+            }
+        }
+        if (versionObserver != null) {
+            for (org.pangrova.metadata.sync.TableVersionObservationReport report
+                    : versionObserver.observeAll()) {
+                if (report.versionChanges() > 0 || report.identityChanges() > 0
+                        || report.missing() > 0 || report.hasFailures()) {
+                    LOG.info("event=table_version_observed catalog={} checked={} "
+                                    + "versionChanges={} identityChanges={} missing={} "
+                                    + "unsupported={} errors={}",
+                            report.catalogName(), report.checked(), report.versionChanges(),
+                            report.identityChanges(), report.missing(), report.unsupported(),
+                            report.errors().size());
+                }
             }
         }
     }
@@ -287,14 +311,35 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         channelRegistry.register(new LogAlertChannel());
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
+        org.pangrova.governance.quality.rule.QualityRuleExecutor qualityExecutor =
+                new DefaultQualityRuleExecutor();
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
-                ruleStore, new DefaultQualityRuleExecutor(), alerter);
-        CronScheduler cronScheduler = new CronScheduler(handler);
+                ruleStore, qualityExecutor, alerter);
+        CronScheduler cronScheduler = new CronScheduler(handler, () -> true,
+                new org.pangrova.governance.audit.JdbcGovernanceAuditTrail(dataSource));
+        var columnMaskStore =
+                new org.pangrova.security.store.PersistentColumnMaskStore(dataSource);
+        columnMaskStore.initSchema();
+        var columnTagService = new org.pangrova.governance.classification.ColumnTagService();
+        var securityPolicy = new org.pangrova.governance.classification.TagBasedSecurityPolicy(
+                columnMaskStore,
+                new org.pangrova.governance.classification.InMemoryAuditConfigStore());
         governanceModule = new GovernanceWiring(new GovernanceContext(
                 new org.pangrova.governance.GovernanceDeps(
-                        lineageEmitter, handler, null, cronScheduler, ruleStore)));
+                        lineageEmitter, handler, securityPolicy, cronScheduler, ruleStore,
+                        columnTagService)));
         governanceModule.initialize();
+        writeQualityGate = Boolean.parseBoolean(System.getProperty(
+                "pangrova.governance.write-quality-gate.enabled", "true"))
+                ? new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(
+                        ruleStore, qualityExecutor)
+                : null;
         LOG.info("Phase: governance — initialized");
+    }
+
+    /** Pre-commit quality gate; null when governance is disabled or the gate is turned off. */
+    org.pangrova.governance.quality.gate.WriteQualityGate getWriteQualityGate() {
+        return writeQualityGate;
     }
 
     // Late-binding suppliers for DegradationManager (set after WorkerManager is available)

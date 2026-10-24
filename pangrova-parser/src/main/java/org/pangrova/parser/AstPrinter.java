@@ -26,6 +26,7 @@ import org.pangrova.parser.ast.expression.SubqueryExpression;
 import org.pangrova.parser.ast.expression.BetweenExpression;
 import org.pangrova.parser.ast.expression.UnaryMinusExpression;
 import org.pangrova.parser.ast.expression.WindowedFunctionCall;
+import org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
@@ -58,6 +59,8 @@ public final class AstPrinter {
         map.put(CompactStatement.class, s -> "COMPACT " + printId(((CompactStatement) s).tableName()));
         map.put(OptimizeStatement.class, s -> "OPTIMIZE " + printId(((OptimizeStatement) s).tableName()));
         map.put(VacuumStatement.class, s -> "VACUUM " + printId(((VacuumStatement) s).tableName()));
+        map.put(AnalyzeStatement.class, s -> "ANALYZE TABLE "
+                + printId(((AnalyzeStatement) s).tableName()));
         map.put(SetQuery.class, s -> printSetQuery((SetQuery) s));
         map.put(CteQuery.class, s -> printCteQuery((CteQuery) s));
         // DDL, DML, Dynamic Table, Show/Describe delegated to StatementPrinter

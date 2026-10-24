@@ -58,6 +58,8 @@ public final class JdbcColumnTagStore implements ColumnTagStore {
             "DELETE FROM column_tags WHERE store_key = ? AND tag_key = ?";
     private static final String SELECT_ALL =
             "SELECT tag_key, tag_value FROM column_tags WHERE store_key = ?";
+    private static final String SELECT_EVERY_TAG =
+            "SELECT store_key, tag_key, tag_value FROM column_tags ORDER BY store_key, tag_key";
     private static final String LOCK_TAG =
             "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))";
 
@@ -137,6 +139,24 @@ public final class JdbcColumnTagStore implements ColumnTagStore {
             throw new IllegalStateException("Failed to list column tags for: " + storeKey, e);
         }
         return Map.copyOf(result);
+    }
+
+    @Override
+    public Map<String, Map<String, String>> listAll() {
+        Map<String, Map<String, String>> result = new LinkedHashMap<>();
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(SELECT_EVERY_TAG);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                result.computeIfAbsent(rs.getString(1), key -> new LinkedHashMap<>())
+                        .put(rs.getString(2), rs.getString(3));
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to list persisted column tags", e);
+        }
+        Map<String, Map<String, String>> immutable = new LinkedHashMap<>();
+        result.forEach((key, value) -> immutable.put(key, Map.copyOf(value)));
+        return Map.copyOf(immutable);
     }
 
     private static String selectOne(Connection conn, String storeKey, String tagKey)

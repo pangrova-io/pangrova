@@ -257,6 +257,17 @@ public final class CoordinatorBootstrap {
             var federationFactory = new PluginFederationHandleFactory(cl, secretResolver);
             metadataBootstrap = MetadataBootstrap.initialize(
                     store, connectorHandleFactory, federationFactory, metadataDataSource);
+            // Control records (ownership/identity/version) are durable in the metadata
+            // schema; the in-memory default only serves tests and metadata-less modes.
+            metadataBootstrap.catalogRegistry().setTableControlService(
+                    new org.pangrova.metadata.control.TableControlService(
+                            new org.pangrova.metadata.control.JdbcTableControlStore(metadataDataSource),
+                            org.pangrova.metadata.control.TableControlSettings.fromSystemProperties()));
+            metadataBootstrap.catalogRegistry().setTableStatisticsService(
+                    new org.pangrova.metadata.control.TableControlStatisticsService(
+                            metadataBootstrap.catalogRegistry().tableControl(),
+                            new org.pangrova.metadata.control
+                                    .JdbcTableControlStatisticsStore(metadataDataSource)));
             // P2-3: persist column governance tags across restarts now that a metadata
             // datasource is configured (the service defaults to in-memory otherwise).
             if (metadataBootstrap.metadataService()
@@ -297,6 +308,17 @@ public final class CoordinatorBootstrap {
             moduleWiring.setDistributedLease(distributedLease);
         }
         moduleWiring.startGovernance(config, metadataDataSource);
+        // Share the governance tag event source with metadata DDL so SET/UNSET
+        // COLUMN TAG activates masking, and replay durable tags after a restart.
+        if (metadataBootstrap != null && metadataBootstrap.metadataService()
+                instanceof org.pangrova.metadata.service.DefaultMetadataService taggedService) {
+            org.pangrova.governance.classification.ColumnTagService tagService =
+                    moduleWiring.getColumnTagService();
+            if (tagService != null) {
+                taggedService.setColumnTagService(tagService);
+                taggedService.replayColumnTags();
+            }
+        }
         moduleWiring.startResilience(config);
         moduleWiring.startTenant(config, metadataDataSource);
         moduleWiring.startOperations(config);
@@ -306,6 +328,7 @@ public final class CoordinatorBootstrap {
             moduleWiring.setMetadataSyncDeps(
                     metadataBootstrap.syncService(),
                     metadataBootstrap.catalogRegistry());
+            moduleWiring.setVersionObserver(metadataBootstrap.versionObserver());
         }
         // Wire invalidation poller for leader-gated TTL cleanup (Task 1.9)
         if (metadataDataSource != null && metadataBootstrap != null) {
@@ -320,7 +343,8 @@ public final class CoordinatorBootstrap {
 
     private void startRoleIndexing() {
         if (config.role().isMaintenance()) {
-            moduleWiring.startStreaming(config, metadataDataSource);
+            moduleWiring.startStreaming(config, metadataDataSource,
+                    metadataBootstrap != null ? metadataBootstrap.catalogRegistry() : null);
             startMaintenanceIndexing();
         } else if (config.role().isQuery() && config.indexingEnabled() && metadataBootstrap != null) {
             startIndexQuery();

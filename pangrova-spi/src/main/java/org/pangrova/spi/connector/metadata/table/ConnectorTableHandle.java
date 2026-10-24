@@ -62,4 +62,20 @@ public interface ConnectorTableHandle {
     default java.util.List<String> partitionKeys() {
         return java.util.List.of();
     }
+
+    /**
+     * Returns the format identity captured when this handle was created.
+     *
+     * <p>Advisory only: a write or maintenance operation must re-check the live
+     * identity through the metadata SPI before acting, because the name may have
+     * been dropped and recreated since planning.</p>
+     */
+    default java.util.Optional<TableIdentity> tableIdentity() {
+        return java.util.Optional.empty();
+    }
+
+    /** Returns capabilities declared by the handle; undeclared means unsupported. */
+    default TableCapabilities capabilities() {
+        return TableCapabilities.UNSUPPORTED;
+    }
 }

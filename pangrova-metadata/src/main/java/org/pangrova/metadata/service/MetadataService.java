@@ -120,4 +120,27 @@ public interface MetadataService {
         return Map.of();
     }
 
+    /**
+     * Removes every governance tag previously assigned to a table. Called when
+     * the control record retires, so name-keyed policy cannot outlive it.
+     *
+     * @return the number of tag entries removed
+     */
+    default int clearTableTags(MetadataSessionContext session, QualifiedTableRef tableRef) {
+        return 0;
+    }
+
+    /**
+     * Moves every governance tag from one table name to another so name-keyed
+     * policy follows an {@code ALTER TABLE ... RENAME}. Derived policy (for
+     * example tag-based masks) is re-emitted at the new name and withdrawn from
+     * the old one.
+     *
+     * @return the number of tag entries moved
+     */
+    default int renameTableTags(MetadataSessionContext session, QualifiedTableRef from,
+                                QualifiedTableRef to) {
+        return 0;
+    }
+
 }

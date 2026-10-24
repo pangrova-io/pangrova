@@ -153,6 +153,7 @@ public class MaintenanceScheduler implements AutoCloseable {
             return;
         }
         long intervalMs = config.compactionScanInterval().toMillis();
+        stopPeriodicScan();
         periodicScanFuture = scanScheduler.scheduleAtFixedRate(() -> {
             try {
                 Collection<String> tables = tableSource.listManagedTables();
@@ -174,6 +175,12 @@ public class MaintenanceScheduler implements AutoCloseable {
             future.cancel(false);
             periodicScanFuture = null;
         }
+    }
+
+    /** True while the leader-gated periodic scan is scheduled. */
+    public boolean isPeriodicScanRunning() {
+        ScheduledFuture<?> future = periodicScanFuture;
+        return future != null && !future.isCancelled() && !future.isDone();
     }
 
     @Override
@@ -209,6 +216,9 @@ public class MaintenanceScheduler implements AutoCloseable {
             return TriggerPriority.THRESHOLD;
         }
         if (hasSmallFilesReady(tableName, status)) {
+            return TriggerPriority.SCHEDULED_SCAN;
+        }
+        if (maintenance.isScheduledMaintenanceDue(tableName)) {
             return TriggerPriority.SCHEDULED_SCAN;
         }
         return null;
@@ -251,20 +261,37 @@ public class MaintenanceScheduler implements AutoCloseable {
                 tableMaintenanceLocks.computeIfAbsent(task.tableName(),
                         k -> new java.util.concurrent.locks.ReentrantLock());
         tableLock.lock();
-        CompletableFuture<CompactionResult> original = null;
+        // The future returned by the SPI must be cancelled on timeout; a derived
+        // future does not propagate cancellation upstream, so track it separately.
+        CompletableFuture<?> issued = null;
         try {
-            original = maintenance.compactAsync(task.tableName());
-            original
+            // A write-triggered task is a compaction of the data just written. Only
+            // the periodic scan visits the full retention policy, so expiry and
+            // orphan cleanup cannot be triggered by a single write on a node that
+            // does not hold maintenance leadership.
+            CompletableFuture<Void> awaited;
+            if (task.priority() == TriggerPriority.SCHEDULED_SCAN) {
+                awaited = maintenance.runScheduledMaintenanceAsync(task.tableName());
+                issued = awaited;
+            } else {
+                CompletableFuture<CompactionResult> compaction =
+                        maintenance.compactAsync(task.tableName());
+                issued = compaction;
+                awaited = compaction.thenApply(ignored -> null);
+            }
+            awaited
                 .orTimeout(config.taskTimeout().toMillis(), TimeUnit.MILLISECONDS)
                 .join();
             synchronized (lock) {
                 lastMaintenanceTime.put(task.tableName(), Instant.now());
             }
+            LOG.info("event=maintenance_cycle_completed table={} priority={}",
+                    task.tableName(), task.priority());
         } catch (Exception e) {
-            // On timeout (or any failure), cancel the original future so the underlying
-            // operation is interrupted rather than left running indefinitely.
-            if (original != null) {
-                original.cancel(true);
+            // On timeout (or any failure), cancel the future issued by the SPI so the
+            // underlying operation is interrupted rather than left running indefinitely.
+            if (issued != null) {
+                issued.cancel(true);
             }
             LOG.warn("event=maintenance_failed table={} error={}", task.tableName(), e.getMessage(), e);
         } finally {
