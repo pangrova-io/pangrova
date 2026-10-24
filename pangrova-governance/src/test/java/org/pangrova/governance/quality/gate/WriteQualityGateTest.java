@@ -1,5 +1,6 @@
 package org.pangrova.governance.quality.gate;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.QualityCheckResult;
 import org.pangrova.governance.quality.alert.Severity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
@@ -102,7 +103,8 @@ class WriteQualityGateTest {
         DataQualityRule disabled = new DataQualityRule(
                 1, "disabled_rule", "catalog", "schema", "test_table",
                 "col > 0", Severity.ERROR, "msg", false, null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
         ruleStore.saveRule(disabled);
 
         RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(
@@ -173,6 +175,7 @@ class WriteQualityGateTest {
     private static DataQualityRule rule(long id, String name, String expression, Severity severity) {
         return new DataQualityRule(id, name, "catalog", "schema", "test_table",
                 expression, severity, "msg", true, null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 }

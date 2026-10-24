@@ -38,7 +38,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
  * <p><strong>Leader election:</strong> When running in a multi-coordinator deployment,
  * a {@link BooleanSupplier} leader check is evaluated before each scheduled execution.
  * Only the leader coordinator actually runs the quality check; non-leader nodes skip
- * with a DEBUG log. This ensures exactly-once execution per interval across the cluster.</p>
+ * with a DEBUG log. This gates admission; durable occurrence fencing is required for exactly-once execution.</p>
  *
  * <p>Concurrency strategy: {@link ConcurrentHashMap} for scheduled task registry;
  * {@link ScheduledExecutorService} for periodic execution. The underlying executor
@@ -153,8 +153,14 @@ public class CronScheduler implements AutoCloseable {
             return;
         }
         try {
-            handler.handleRunCheck(rule.catalogName(), rule.schemaName(), rule.tableName());
-            recordExecution(rule, "SUCCESS", null);
+            var result = handler.handleRunRule(rule.ruleId());
+            if (result.isEmpty()) {
+                recordExecution(rule, "SKIPPED", "Rule no longer exists or is disabled");
+            } else if (result.orElseThrow().passed()) {
+                recordExecution(rule, "SUCCESS", null);
+            } else {
+                recordExecution(rule, "FAILED", result.orElseThrow().errorMessage());
+            }
         } catch (Exception e) {
             LOG.warn("action=scheduled_check_failed, ruleName={}, error={}",
                 rule.ruleName(), e.getMessage());

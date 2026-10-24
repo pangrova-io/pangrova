@@ -1,5 +1,6 @@
 package org.pangrova.governance;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.classification.AuditConfigStore;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageBackend;
@@ -99,7 +100,8 @@ class GovernanceWiringInitializeTest {
     private static DataQualityRule rule(long id, String name, boolean enabled, String schedule) {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 "expression", Severity.WARNING, "msg", enabled, schedule,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 
     // --- In-memory implementations for real testing (no mocks) ---

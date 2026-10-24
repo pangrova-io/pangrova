@@ -1,5 +1,6 @@
 package org.pangrova.metadata.governance;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
 import org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor;
 
@@ -161,7 +162,8 @@ class JdbcQualityRuleStoreIntegrationTest extends ContainerTestBase {
     private static DataQualityRule rule(long id, String name, boolean enabled,
                                         Instant createdAt, Instant updatedAt) {
         return new DataQualityRule(id, name, "catalog", "schema", "orders", "amount > 0",
-                Severity.ERROR, "bad rows", enabled, null, createdAt, updatedAt);
+                Severity.ERROR, "bad rows", enabled, null, createdAt, updatedAt,
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 
     private static QualityCheckResult result(long id) {

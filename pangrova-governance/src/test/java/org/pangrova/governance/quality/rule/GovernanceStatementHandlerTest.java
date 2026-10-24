@@ -72,7 +72,8 @@ class GovernanceStatementHandlerTest {
         DataQualityRule disabled = new DataQualityRule(
                 2, "disabled_rule", "catalog", "schema", "table",
                 "col > 0", Severity.WARNING, "msg", false, null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
         ruleStore.saveRule(enabled);
         ruleStore.saveRule(disabled);
 
@@ -123,7 +124,8 @@ class GovernanceStatementHandlerTest {
     private static DataQualityRule rule(long id, String name, String expression) {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 expression, Severity.WARNING, "msg", true, null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 
     /** Executor that always returns a failed result. */

@@ -16,9 +16,13 @@ public interface GovernanceQueryRunner {
      * <p>The implementation is responsible for running the SQL against the
      * target table and collecting pass/fail metrics with failing row samples.</p>
      *
-     * @param sql the SQL statement to execute (a SELECT counting violations)
+     * @param identity persisted subject; reauthorize its current privileges, tenant, row filters and masks
+     * @param request exact target, predicate and result shape; never an executable SQL statement
      * @return aggregated result with row counts and failing samples
      * @throws GovernanceQueryException if the query fails
      */
-    QualityQueryResult execute(String sql);
+    QualityQueryResult execute(QualityReadRequest request, QualityExecutionIdentity identity);
+
+    /** The producer declares the expected result shape; aliases alone cannot distinguish sample columns. */
+    enum QueryType { COUNTS, SAMPLES }
 }

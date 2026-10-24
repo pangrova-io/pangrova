@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -48,6 +49,11 @@ public class GovernanceStatementHandler {
             .filter(DataQualityRule::enabled)
             .map(this::executeAndAlert)
             .toList();
+    }
+
+    /** Re-read the current rule so scheduled callbacks never execute a stale definition or a sibling rule. */
+    public Optional<QualityCheckResult> handleRunRule(long ruleId) {
+        return ruleStore.getRule(ruleId).filter(DataQualityRule::enabled).map(this::executeAndAlert);
     }
 
     private QualityCheckResult executeAndAlert(DataQualityRule rule) {

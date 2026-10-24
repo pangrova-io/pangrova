@@ -41,11 +41,17 @@ public class GovernanceContext implements AutoCloseable {
      * Called during bootstrap to activate governance capabilities.
      */
     public void initialize() {
+        initialize(true);
+    }
+
+    /** Query coordinators may own durable scheduling separately from lineage and classification. */
+    public void initialize(boolean scheduleQualityRules) {
         if (securityPolicy != null) {
             columnTagService.addListener(securityPolicy);
             LOG.info("action=tag_listener_registered listener=TagBasedSecurityPolicy");
         }
-        var rules = ruleStore.getAllEnabledRules();
+        var rules = scheduleQualityRules ? ruleStore.getAllEnabledRules() : java.util.List.<
+                org.pangrova.governance.quality.rule.DataQualityRule>of();
         rules.forEach(cronScheduler::scheduleRule);
         LOG.info("action=governance_initialized rulesScheduled={}", rules.size());
     }

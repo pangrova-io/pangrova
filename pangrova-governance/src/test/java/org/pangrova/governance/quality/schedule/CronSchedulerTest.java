@@ -1,5 +1,6 @@
 package org.pangrova.governance.quality.schedule;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.QualityCheckResult;
 import org.pangrova.governance.quality.alert.AlertChannelRegistry;
 import org.pangrova.governance.quality.alert.DataQualityAlerter;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -94,7 +96,7 @@ class CronSchedulerTest {
     }
 
     @Test
-    void twoCoordinatorsExactlyOnceExecution() {
+    void onlyCurrentLeaderAdmitsExecution() {
         var leaderCounter = new AtomicInteger(0);
         var followerCounter = new AtomicInteger(0);
         GovernanceStatementHandler leaderHandler = countingHandler(leaderCounter);
@@ -110,7 +112,7 @@ class CronSchedulerTest {
             assertThat(leaderCounter.get()).isEqualTo(1);
             assertThat(followerCounter.get()).isZero();
             assertThat(leaderCounter.get() + followerCounter.get())
-                    .as("with 2 coordinators, quality check runs exactly once per interval")
+                    .as("the current leader admits the check while the follower skips it")
                     .isEqualTo(1);
         }
     }
@@ -194,7 +196,7 @@ class CronSchedulerTest {
                 new InMemoryQualityRuleStore(), new DefaultQualityRuleExecutor(),
                 new DataQualityAlerter(new AlertChannelRegistry())) {
             @Override
-            public List<QualityCheckResult> handleRunCheck(String c, String s, String t) {
+            public Optional<QualityCheckResult> handleRunRule(long ruleId) {
                 throw new RuntimeException("simulated failure");
             }
         };
@@ -202,6 +204,51 @@ class CronSchedulerTest {
         scheduler = new CronScheduler(throwingHandler, () -> true);
         assertThatCode(() -> scheduler.runCheck(rule(1, "failing_rule")))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void scheduledCheckRunsOnlyItsCurrentRuleAndAuditsFailedEvaluation() {
+        var store = new InMemoryQualityRuleStore();
+        DataQualityRule scheduled = rule(1, "scheduled");
+        store.saveRule(scheduled);
+        store.saveRule(rule(2, "sibling"));
+        var observed = new java.util.ArrayList<DataQualityRule>();
+        var handler = new GovernanceStatementHandler(store, current -> {
+            observed.add(current);
+            return new QualityCheckResult(0, current.ruleId(), current.ruleName(), current.tableName(),
+                    current.severity(), Instant.now(), false, 5, 2, 1, "2 violations");
+        }, new DataQualityAlerter(new AlertChannelRegistry()));
+        var audit = new org.pangrova.governance.audit.InMemoryGovernanceAuditTrail();
+        scheduler = new CronScheduler(handler, () -> true, audit);
+        store.saveRule(rule(1, "changed_after_scheduling"));
+
+        scheduler.runCheck(scheduled);
+
+        assertThat(observed).extracting(DataQualityRule::ruleName).containsExactly("changed_after_scheduling");
+        assertThat(store.getRecentResults()).hasSize(1);
+        assertThat(audit.getEntriesForResource("catalog.schema.table")).singleElement()
+                .satisfies(entry -> assertThat(entry.afterState()).containsEntry("outcome", "FAILED"));
+    }
+
+    @Test
+    void disabledAndDeletedRulesDoNotExecuteStaleCallbacks() {
+        var store = new InMemoryQualityRuleStore();
+        var executions = new AtomicInteger();
+        var handler = new GovernanceStatementHandler(store, current -> {
+            executions.incrementAndGet();
+            throw new AssertionError("Disabled or deleted rule reached executor");
+        }, new DataQualityAlerter(new AlertChannelRegistry()));
+        var audit = new org.pangrova.governance.audit.InMemoryGovernanceAuditTrail();
+        scheduler = new CronScheduler(handler, () -> true, audit);
+        DataQualityRule scheduled = rule(1, "scheduled");
+        store.saveRule(new DataQualityRule(1, "disabled", "catalog", "schema", "table",
+                "true", Severity.WARNING, "msg", false, "0 * * * *", Instant.now(), Instant.now(), null));
+        scheduler.runCheck(scheduled);
+        scheduler.runCheck(rule(2, "deleted"));
+        assertThat(executions).hasValue(0);
+        assertThat(store.getRecentResults()).isEmpty();
+        assertThat(audit.getEntriesForResource("catalog.schema.table")).hasSize(2)
+                .allSatisfy(entry -> assertThat(entry.afterState()).containsEntry("outcome", "SKIPPED"));
     }
 
     // --- Helpers ---
@@ -212,11 +259,9 @@ class CronSchedulerTest {
         var alerter = new DataQualityAlerter(new AlertChannelRegistry());
         return new GovernanceStatementHandler(ruleStore, new DefaultQualityRuleExecutor(), alerter) {
             @Override
-            public List<QualityCheckResult> handleRunCheck(String catalogName,
-                                                           String schemaName,
-                                                           String tableName) {
+            public Optional<QualityCheckResult> handleRunRule(long ruleId) {
                 counter.incrementAndGet();
-                return super.handleRunCheck(catalogName, schemaName, tableName);
+                return super.handleRunRule(ruleId);
             }
         };
     }
@@ -230,6 +275,7 @@ class CronSchedulerTest {
     private static DataQualityRule rule(long id, String name) {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 "expression", Severity.WARNING, "msg", true, "0 * * * *",
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 }

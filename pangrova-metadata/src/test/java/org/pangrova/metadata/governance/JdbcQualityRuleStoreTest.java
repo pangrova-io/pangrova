@@ -1,5 +1,6 @@
 package org.pangrova.metadata.governance;
 
+import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -56,7 +57,8 @@ class JdbcQualityRuleStoreTest {
 
         DataQualityRule updated = new DataQualityRule(2L, "range_check_v2", "cat", "sch",
                 "items", "price > 0 AND price < 10000", Severity.ERROR, "updated msg",
-                false, "120", Instant.now(), Instant.now());
+                false, "120", Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
         store.saveRule(updated);
 
         DataQualityRule loaded = store.getRule(2L).orElseThrow();
@@ -123,7 +125,8 @@ class JdbcQualityRuleStoreTest {
                 50L, "completeness_check", "production", "analytics", "fact_sales",
                 "COUNT(*) WHERE amount IS NULL = 0", Severity.ERROR,
                 "Sales amount must not be null", true, "*/5 * * * *",
-                created, updated);
+                created, updated,
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
         store.saveRule(rule);
 
         DataQualityRule loaded = store.getRule(50L).orElseThrow();
@@ -148,6 +151,7 @@ class JdbcQualityRuleStoreTest {
                                               Severity severity, boolean enabled) {
         return new DataQualityRule(id, name, catalog, schema, table, expression,
                 severity, "test message", enabled, "60",
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
     }
 }

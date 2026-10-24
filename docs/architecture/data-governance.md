@@ -12,6 +12,30 @@ sidebar_label: "Data Governance"
 
 > **Summary.** Data lineage, data-quality rules, and data classification.
 
+## Quality read contract and execution identity
+
+Enabled rules require a persisted principal and tenant. V74 preserves old rules but
+disables definitions without an execution subject; an authorized administrative
+operation must assign that subject before re-enabling them. The store persists
+replacement identities across restarts. An identity is not an authorization grant:
+the execution adapter must recheck current privileges and policies.
+
+`QualityReadRequest` carries catalog, schema, table, predicate and COUNTS/SAMPLES
+separately. Governance does not build executable SQL. Coordinator's `QualityReadSql`
+uses Pangrova's production grammar and constructs an SQL AST from the parsed
+expression and exact identifier components. It rejects added statements, outer
+query clauses and unbound parameters, preserves read subqueries, and treats keywords
+inside literals as data. Sample SQL uses the engine's LIMIT syntax. A FALSE or NULL
+predicate is a violation; result shape is explicit rather than inferred from
+sample column names. PostgreSQL oracle tests are not Native pipeline acceptance.
+
+Legacy cron callbacks reload their own rule by ID, skip disabled or deleted rules,
+and record failed evaluations as FAILED. A leader Boolean gates admission but
+does not guarantee exactly-once execution across coordinator replacement.
+`GovernanceContext.initialize(false)` permits a process host to supply a separate
+durable scheduler. These primitives do not establish production SQL/REST rule
+management, durable execution wiring or candidate-write validation.
+
 ## 1. Data Governance Architecture Overview
 
 ```

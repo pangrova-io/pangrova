@@ -19,5 +19,12 @@ public record DataQualityRule(
     boolean enabled,
     String schedule,
     Instant createdAt,
-    Instant updatedAt
-) {}
+    Instant updatedAt,
+    QualityExecutionIdentity executionIdentity
+) {
+    public DataQualityRule {
+        if (enabled && executionIdentity == null) {
+            throw new IllegalArgumentException("Enabled quality rules require an execution identity");
+        }
+    }
+}

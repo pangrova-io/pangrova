@@ -76,8 +76,11 @@ class QualityAuthorityMigrationIntegrationTest {
         assertThat(count("cdc_quality_results")).isEqualTo(1);
         assertThat(count("quality_rules")).isEqualTo(1);
         assertThat(count("quality_check_results")).isZero();
-        assertThat(new JdbcQualityRuleStore(dataSource).getRule(1).orElseThrow().checkExpression())
-                .isEqualTo("amount >= 0");
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT check_expression FROM quality_rules WHERE rule_id=1")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString(1)).isEqualTo("amount >= 0");
+        }
     }
 
     @Test
