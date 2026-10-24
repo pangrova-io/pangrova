@@ -434,7 +434,8 @@ class WriteCommitJournalIdempotencyTest {
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0,
                 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
                 null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     private static QueryManager buildQueryManager(WorkerManager wm,

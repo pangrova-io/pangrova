@@ -45,6 +45,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             Allocation allocation = lockWritableAllocation(connection,
                     batch.identity().shuffleId(), batch.producerAttempt().getExecutionOwner());
             requireAttempt(allocation, batch.producerAttempt(), batch.identity());
+            requireAttemptFence(connection, batch);
             String reservationId = UUID.randomUUID().toString();
             try (PreparedStatement statement = connection.prepareStatement(
                     "INSERT INTO shuffle_write_intent "
@@ -144,6 +145,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             requireAttempt(allocation, command.attempt(), null);
             Winner winner = findWinner(connection, command.shuffleId(),
                     command.attempt().getPartitionId());
+            requireAttemptFence(connection, command.shuffleId(), command.attempt());
             PostgresCommitVerifier.verify(connection, command);
             if (winner != null && winner.matches(command.attempt())) {
                 return commitResult(command);
@@ -240,6 +242,8 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             Allocation allocation,
             TaskAttemptId attempt,
             BatchIdentity identity) {
+        org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(
+                attempt.getWorkerExecutionIdentity());
         requireOwner(allocation, attempt.getExecutionOwner());
         if (!matchesAllocation(allocation, attempt)
                 || (identity != null && !matchesBatchIdentity(allocation, attempt, identity))) {
@@ -270,28 +274,38 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
 
     private static void requireAttemptFence(Connection connection, StoredBatch batch)
             throws SQLException {
-        TaskAttemptId attempt = batch.producerAttempt();
+        requireAttemptFence(connection, batch.identity().shuffleId(), batch.producerAttempt());
+    }
+
+    private static void requireAttemptFence(Connection connection, String shuffleId, TaskAttemptId attempt)
+            throws SQLException {
         String insert = "INSERT INTO shuffle_attempt_fence "
                 + "(shuffle_id, producer_partition_id, producer_attempt_id, "
-                + "producer_fencing_token, task_id, control_epoch) VALUES (?, ?, ?, ?, ?, ?) "
+                + "producer_fencing_token, task_id, control_epoch, canonical_attempt) VALUES (?, ?, ?, ?, ?, ?, ?) "
                 + "ON CONFLICT DO NOTHING";
         try (PreparedStatement statement = connection.prepareStatement(insert)) {
-            setAttemptKey(statement, 1, batch.identity());
+            statement.setString(1, shuffleId);
+            statement.setInt(2, attempt.getPartitionId());
+            statement.setInt(3, attempt.getAttemptId());
             statement.setLong(4, attempt.getFencingToken());
             statement.setString(5, attempt.getTaskId());
             statement.setLong(6, attempt.getControlEpoch());
+            statement.setBytes(7, attempt.toByteArray());
             statement.executeUpdate();
         }
-        String select = "SELECT producer_fencing_token, task_id, control_epoch "
+        String select = "SELECT producer_fencing_token, task_id, control_epoch, canonical_attempt "
                 + "FROM shuffle_attempt_fence WHERE shuffle_id = ? "
                 + "AND producer_partition_id = ? AND producer_attempt_id = ? FOR UPDATE";
         try (PreparedStatement statement = connection.prepareStatement(select)) {
-            setAttemptKey(statement, 1, batch.identity());
+            statement.setString(1, shuffleId);
+            statement.setInt(2, attempt.getPartitionId());
+            statement.setInt(3, attempt.getAttemptId());
             try (ResultSet rows = statement.executeQuery()) {
                 rows.next();
                 if (rows.getLong(1) != attempt.getFencingToken()
                         || !rows.getString(2).equals(attempt.getTaskId())
-                        || rows.getLong(3) != attempt.getControlEpoch()) {
+                        || rows.getLong(3) != attempt.getControlEpoch()
+                        || !java.util.Arrays.equals(rows.getBytes(4), attempt.toByteArray())) {
                     throw new SecurityException("producer attempt identity conflicts with fence");
                 }
             }
@@ -369,7 +383,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
 
     private static Winner findWinner(Connection connection, String shuffleId, int partition)
             throws SQLException {
-        String sql = "SELECT producer_attempt_id, producer_fencing_token, task_id, control_epoch "
+        String sql = "SELECT producer_attempt_id, producer_fencing_token, task_id, control_epoch, canonical_attempt "
                 + "FROM shuffle_producer_commit WHERE shuffle_id = ? "
                 + "AND producer_partition_id = ? FOR UPDATE";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -378,7 +392,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             try (ResultSet rows = statement.executeQuery()) {
                 return rows.next()
                         ? new Winner(rows.getInt(1), rows.getLong(2),
-                                rows.getString(3), rows.getLong(4)) : null;
+                                rows.getString(3), rows.getLong(4), rows.getBytes(5)) : null;
             }
         }
     }
@@ -394,12 +408,12 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             throws SQLException {
         String sql = "INSERT INTO shuffle_producer_commit "
                 + "(shuffle_id, producer_partition_id, producer_attempt_id, "
-                + "producer_fencing_token, task_id, control_epoch) VALUES (?, ?, ?, ?, ?, ?) "
+                + "producer_fencing_token, task_id, control_epoch, canonical_attempt) VALUES (?, ?, ?, ?, ?, ?, ?) "
                 + "ON CONFLICT (shuffle_id, producer_partition_id) DO UPDATE SET "
                 + "producer_attempt_id = EXCLUDED.producer_attempt_id, "
                 + "producer_fencing_token = EXCLUDED.producer_fencing_token, "
                 + "task_id = EXCLUDED.task_id, control_epoch = EXCLUDED.control_epoch, "
-                + "committed_at = CURRENT_TIMESTAMP";
+                + "canonical_attempt = EXCLUDED.canonical_attempt, committed_at = CURRENT_TIMESTAMP";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             TaskAttemptId attempt = command.attempt();
             statement.setString(1, command.shuffleId());
@@ -408,6 +422,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             statement.setLong(4, attempt.getFencingToken());
             statement.setString(5, attempt.getTaskId());
             statement.setLong(6, attempt.getControlEpoch());
+            statement.setBytes(7, attempt.toByteArray());
             statement.executeUpdate();
         }
     }
@@ -445,12 +460,13 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
         statement.setLong(5, identity.batchSequence());
     }
 
-    private record Winner(int attemptId, long fencingToken, String taskId, long controlEpoch) {
+    private record Winner(int attemptId, long fencingToken, String taskId, long controlEpoch, byte[] canonicalAttempt) {
         private boolean matches(TaskAttemptId attempt) {
             return attemptId == attempt.getAttemptId()
                     && fencingToken == attempt.getFencingToken()
                     && taskId.equals(attempt.getTaskId())
-                    && controlEpoch == attempt.getControlEpoch();
+                    && controlEpoch == attempt.getControlEpoch()
+                    && java.util.Arrays.equals(canonicalAttempt, attempt.toByteArray());
         }
     }
 }

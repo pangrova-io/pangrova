@@ -64,3 +64,6 @@ Thumbs.db
 .env
 .env.local
 *.local
+
+# Persistent local Worker incarnation authority (retain across restarts, never commit)
+/data/worker-admission/

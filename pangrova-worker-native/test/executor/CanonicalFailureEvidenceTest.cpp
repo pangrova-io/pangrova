@@ -1,5 +1,6 @@
 // Protocol/state boundary tests use the real lifecycle, ingress, executor and
 // serializer. They do not claim a distributed SQL or JNI execution proof.
+#include "CanonicalTestAttempt.h"
 #include <gtest/gtest.h>
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
@@ -39,6 +40,7 @@ TEST(CanonicalFailureEvidenceTest, ActualSerializerRetainsAcceptedFailureFields)
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "failure-evidence-task";
   config.query_id = "failure-evidence-query";
+  pangrova::test::bindTestAttempt(config);
   TaskExecutor executor(config);
   const auto failure = corruption();
   executor.recordExecutionError(failure);
@@ -59,6 +61,7 @@ TEST(CanonicalFailureEvidenceTest, ProviderUnknownOutcomeRemainsTerminalAndNonRe
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "model-unknown-task";
   config.query_id = "model-unknown-query";
+  pangrova::test::bindTestAttempt(config);
   TaskExecutor executor(config);
   protocol::v2::ExecutionError uncertain;
   uncertain.set_error_class(protocol::v2::ERROR_CLASS_PROVIDER_OUTCOME_UNCERTAIN);

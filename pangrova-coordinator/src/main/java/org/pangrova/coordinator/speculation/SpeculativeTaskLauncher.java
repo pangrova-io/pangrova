@@ -234,8 +234,9 @@ public class SpeculativeTaskLauncher {
         }
 
         try {
-            var request = taskDispatcher.bindSourceInput(
-                    taskDispatcher.bindControlIdentity(cloneWithNewTaskId(originalRequest, speculativeId)));
+            var targeted = taskDispatcher.bindWorkerIdentity(
+                    cloneWithNewTaskId(originalRequest, speculativeId), targetWorker);
+            var request = taskDispatcher.bindSourceInput(taskDispatcher.bindControlIdentity(targeted));
             registerAndDispatchCopy(queryId, originalTaskId, request, targetWorker);
             return true;
         } catch (RuntimeException | Error e) {
@@ -318,6 +319,7 @@ public class SpeculativeTaskLauncher {
         return SubmitTaskRequest.from(canonical.toBuilder().clearCopySourceStagingCommandSha256()
                 .setAttempt(canonical.getAttempt().toBuilder()
                         .setTaskId(newTaskId)
+                        .clearWorkerExecutionIdentity()
                         .setPlanEpoch(next.planEpoch())
                         .setAttemptId(next.attemptId())
                         .setFencingToken(next.fencingToken()))

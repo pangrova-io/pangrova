@@ -34,11 +34,12 @@ class RemoteTaskDispatcherAsyncTest {
     private static final TracingProvider TRACING = new NoOpTracingProvider();
 
     private WorkerHttpServer workerServer;
+    private TaskManager taskManager;
     private RemoteTaskDispatcher dispatcher;
 
     @BeforeEach
     void setUp() throws Exception {
-        TaskManager taskManager = TaskManager.forHttpWiringOnly();
+        taskManager = TaskManager.forHttpWiringOnly();
         var config = new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0);
         workerServer = new WorkerHttpServer(config, taskManager, TestExchangeTransport.INSTANCE);
         workerServer.start();
@@ -49,6 +50,12 @@ class RemoteTaskDispatcherAsyncTest {
     void tearDown() throws Exception {
         if (workerServer != null) {
             workerServer.stop();
+        }
+        if (taskManager != null) {
+            taskManager.close();
+        }
+        if (dispatcher != null) {
+            dispatcher.close();
         }
     }
 
@@ -117,14 +124,15 @@ class RemoteTaskDispatcherAsyncTest {
                         .build());
     }
 
-    private static WorkerInfo activeWorker(int httpPort) {
+    private WorkerInfo activeWorker(int httpPort) {
         return new WorkerInfo(
                 "w-1", "localhost", httpPort, 0, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.1, 0, 4L * 1024 * 1024 * 1024,
                 Instant.now(), 0.9, null, 2,
                 null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                taskManager.workerExecutionIdentity());
     }
 
     private static WorkerInfo unreachableWorker() {
@@ -134,7 +142,8 @@ class RemoteTaskDispatcherAsyncTest {
                 0.1, 0, 4L * 1024 * 1024 * 1024,
                 Instant.now(), 0.9, null, 2,
                 null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("w-bad"));
     }
 
     private static CircuitBreaker forceOpenBreaker() {

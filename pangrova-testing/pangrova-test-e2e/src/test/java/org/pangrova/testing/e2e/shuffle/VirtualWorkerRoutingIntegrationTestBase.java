@@ -273,7 +273,8 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                 0.0, 0, WORKER_MEMORY_BYTES,
                 Instant.now(), 1.0, null, 2,
                 null, List.of(), null,
-                java.util.Objects.requireNonNull(workerManager.getWorker(WORKER_ID)).capabilityInventory());
+                java.util.Objects.requireNonNull(workerManager.getWorker(WORKER_ID)).capabilityInventory(),
+                workerManager.getWorker(WORKER_ID).workerExecutionIdentity());
         routingWorkerManager.registerWorker(info);
     }
 

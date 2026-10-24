@@ -223,6 +223,9 @@ public final class RemoteShuffleClient implements Closeable {
                         .setOwnerId(owner.ownerId())
                         .setOwnerIncarnation(owner.ownerIncarnation())
                         .setFencingToken(owner.fencingToken()))
+                .setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId(taskAttempt.workerAdmissionDomainId())
+                        .setIncarnationId(taskAttempt.workerIncarnationId()))
                 .build();
     }
 

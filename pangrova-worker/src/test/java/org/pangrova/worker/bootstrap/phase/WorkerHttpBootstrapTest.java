@@ -33,7 +33,7 @@ class WorkerHttpBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, httpHost, null, null, null, advertisedHost,
                 null,
-                null, null);
+                null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 
     @Test

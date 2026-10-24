@@ -51,8 +51,8 @@ class TaskStatusReportEnrichmentTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "enrichment-rows")) {
             var request =
-                    ActualNativeTaskFixture.planTaskRequest(
-                            true, ActualNativeTaskPlans.values(5, 2));
+                    runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
+                            true, ActualNativeTaskPlans.values(5, 2)));
             var info = tasks.submit(request);
             assertThat(tasks.consume(info).rows()).isEqualTo(10);
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);

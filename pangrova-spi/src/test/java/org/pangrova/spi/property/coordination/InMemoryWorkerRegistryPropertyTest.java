@@ -63,7 +63,8 @@ class InMemoryWorkerRegistryPropertyTest {
                 2, id.rackId(), id.dataLocality(),
                 m.memoryPressure(), m.cpuUtilization(), m.runningTaskCount(),
                 m.availableMemoryBytes(), m.lastHeartbeatMs(), m.registeredAtMs(),
-                0, null, "dGVzdA=="));
+                0, null, "dGVzdA==",
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1"));
     }
 
     @Provide
@@ -160,7 +161,8 @@ class InMemoryWorkerRegistryPropertyTest {
                 template.memoryPressure(), template.cpuUtilization(),
                 template.runningTaskCount(), template.availableMemoryBytes(),
                 now, template.registeredAtMs(), template.resultServerPort(),
-                template.cacheSummary(), template.capabilityInventory());
+                template.cacheSummary(), template.capabilityInventory(),
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
 
         var stale = new WorkerSnapshot(
                 "stale-" + template.workerId(), template.host(),
@@ -171,7 +173,8 @@ class InMemoryWorkerRegistryPropertyTest {
                 template.runningTaskCount(), template.availableMemoryBytes(),
                 now - thresholdMs - 10_000, template.registeredAtMs(),
                 template.resultServerPort(), template.cacheSummary(),
-                template.capabilityInventory());
+                template.capabilityInventory(),
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
 
         registry.register(fresh);
         registry.register(stale);

@@ -38,7 +38,8 @@ class WorkerSnapshotResultPortPropertyTest {
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.2, 1,
                 2L * 1024 * 1024 * 1024, Instant.now(), 1.0,
                 "default", 2, null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-rt"));
         wm.registerWorker(original);
 
         WorkerManager recovered = new WorkerManager(20_000, 60_000, registry);

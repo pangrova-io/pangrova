@@ -134,7 +134,7 @@ public final class PangrovaWorkerMain {
                 config.getString(WorkerOptions.WORKER_ADVERTISED_HOST),
                 config.getString(WorkerOptions.SHUFFLE_ADVERTISED_HOST),
                 loadNativeFunctionConfig(config),
-                loadTransportSecurityConfig(config));
+                loadTransportSecurityConfig(config), config.getString(WorkerOptions.ADMISSION_STATE_DIRECTORY));
     }
 
     private static WorkerBootstrapConfig.TransportSecurityConfig loadTransportSecurityConfig(

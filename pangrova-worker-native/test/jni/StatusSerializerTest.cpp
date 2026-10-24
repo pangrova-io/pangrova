@@ -4,6 +4,7 @@
 // Tests for StatusSerializer: validates serialization of native TaskStats
 // to proto wire format, including per-operator metrics extraction.
 
+#include "CanonicalTestAttempt.h"
 #include <gtest/gtest.h>
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
@@ -294,6 +295,25 @@ TEST_F(StatusSerializerTest, AllMetricsNonNegative) {
   }
 }
 
+TEST_F(StatusSerializerTest, TaskReportPreservesExactAdmittedWorkerIncarnation) {
+  executor::TaskExecutorConfig config;
+  config.function_registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  config.task_id = "incarnation-task";
+  config.query_id = "incarnation-query";
+  pangrova::test::bindTestAttempt(config);
+  protocol::v2::ExecutionCallbackContext context;
+  ASSERT_TRUE(context.ParseFromString(config.callback_context));
+  auto* worker = context.mutable_attempt()->mutable_worker_execution_identity();
+  worker->set_admission_domain_id("00000000-0000-0000-0000-000000000001");
+  worker->set_incarnation_id("00000000-0000-0000-0000-000000000002");
+  config.callback_context = context.SerializeAsString();
+  executor::TaskExecutor executor(config);
+  const auto bytes = serializeTaskStatus(executor);
+  protocol::v2::TaskReport status;
+  ASSERT_TRUE(status.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+  EXPECT_EQ(status.attempt().SerializeAsString(), context.attempt().SerializeAsString());
+}
+
 TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
   executor::TaskExecutorConfig config;
   config.function_registry =
@@ -309,6 +329,7 @@ TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
   config.owner_id = "coordinator-a";
   config.owner_incarnation = "process-a";
   config.owner_fencing_token = 19;
+  pangrova::test::bindTestAttempt(config);
   executor::TaskExecutor executor(config);
 
   protocol::v2::ArtifactWorkReport report;
@@ -383,6 +404,7 @@ TEST_F(StatusSerializerTest, FailedTaskReportsPinnedSourceCoverage) {
     split.data_object_id = "object-" + std::to_string(index);
     config.splits.push_back(std::move(split));
   }
+  pangrova::test::bindTestAttempt(config);
   executor::TaskExecutor executor(config);
   executor.notifyTaskFailed("source read failed");
 
@@ -424,6 +446,7 @@ TEST_F(StatusSerializerTest, FailedTaskReportsBoundLargeSplitCoverage) {
     split.source_snapshot = "snapshot-42";
     config.splits.push_back(std::move(split));
   }
+  pangrova::test::bindTestAttempt(config);
   executor::TaskExecutor executor(config);
   executor.notifyTaskFailed("source read failed");
 
@@ -447,6 +470,7 @@ TEST_F(StatusSerializerTest, FailedTaskRetainsTaskOwnedColumnarCopyObservation) 
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "copy-observation-owner";
   config.query_id = "copy-observation-query";
+  pangrova::test::bindTestAttempt(config);
   executor::TaskExecutor executor(config);
   executor.metricsCollector().observeColumnarConversionCopiedBytes(40);
   executor.metricsCollector().observeColumnarConversionCopiedBytes(40);

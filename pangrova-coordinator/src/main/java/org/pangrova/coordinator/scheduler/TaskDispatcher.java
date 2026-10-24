@@ -14,6 +14,20 @@ import org.pangrova.protocol.rest.task.SubmitTaskRequest;
  */
 public interface TaskDispatcher {
 
+    /** Binds the selected physical Worker before task intent or frozen COPY authority is persisted. */
+    default SubmitTaskRequest bindWorkerIdentity(SubmitTaskRequest request, WorkerInfo worker) {
+        var expected = worker.workerExecutionIdentity().toProto();
+        var attempt = request.taskRequest().getAttempt();
+        if (attempt.hasWorkerExecutionIdentity()) {
+            if (!attempt.getWorkerExecutionIdentity().equals(expected)) {
+                throw new IllegalStateException("Task target differs from the registered Worker incarnation");
+            }
+            return request;
+        }
+        return request.withBoundTask(request.taskRequest().toBuilder()
+                .setAttempt(attempt.toBuilder().setWorkerExecutionIdentity(expected)).build());
+    }
+
     /**
      * Binds coordinator-owned control identity before a request is registered
      * and sent. Implementations that do not add transport identity return the

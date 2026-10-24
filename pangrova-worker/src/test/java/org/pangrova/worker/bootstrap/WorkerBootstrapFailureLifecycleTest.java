@@ -72,6 +72,6 @@ class WorkerBootstrapFailureLifecycleTest {
                 source.cdcEnabled(), source.registrationRetryConfig(), source.httpHost(),
                 source.internalAuthSecret(), source.shuffleMode(), source.cacheConfig(),
                 source.advertisedHost(), source.shuffleAdvertisedHost(),
-                functions, source.transportSecurityConfig());
+                functions, source.transportSecurityConfig(), org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 }

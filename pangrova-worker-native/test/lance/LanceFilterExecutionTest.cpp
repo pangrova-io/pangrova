@@ -1,5 +1,6 @@
 // Native component oracle: real Lance write/commit -> canonical FilterRel ->
 // production connector -> real Velox Task. This is not JNI or SQL E2E evidence.
+#include "CanonicalTestAttempt.h"
 #include "LanceDatasetTestFixture.h"
 #include "../CanonicalTestPlan.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
@@ -176,6 +177,7 @@ class LanceFilterExecutionTest : public LanceDatasetTestFixture {
     config.resource_limit.max_threads = 1;
     config.session_properties["velox.max_drivers"] = "1";
     config.queue_poll_timeout = std::chrono::milliseconds(10);
+    pangrova::test::bindTestAttempt(config);
     return config;
   }
 

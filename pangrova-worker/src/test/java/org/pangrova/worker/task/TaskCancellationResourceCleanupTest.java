@@ -26,7 +26,7 @@ class TaskCancellationResourceCleanupTest {
     void cancelledTaskReleasesExecutorHandle() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-cancel")) {
-            var info = tasks.submit(largeRequest());
+            var info = tasks.submit(runtime.bindWorker(largeRequest()));
             long handle = info.executorHandle();
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
             tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
@@ -64,7 +64,7 @@ class TaskCancellationResourceCleanupTest {
     void fullLifecycleCancelReleasesAllResources() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-cancel-full")) {
-            var info = tasks.submit(largeRequest());
+            var info = tasks.submit(runtime.bindWorker(largeRequest()));
             long handle = info.executorHandle();
             assertThat(info.allocatedBufferMemory()).isPositive();
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
@@ -110,7 +110,7 @@ class TaskCancellationResourceCleanupTest {
     void failedNativeJoinKeepsBudgetAndRetriesAfterActualRpcDrains() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-cancel-rpc")) {
-            var request = largeRequest();
+            var request = runtime.bindWorker(largeRequest());
             var info = tasks.submit(request);
             long handle = info.executorHandle();
             try (var reader = new ActualPausedNativeResultReader(runtime, request)) {

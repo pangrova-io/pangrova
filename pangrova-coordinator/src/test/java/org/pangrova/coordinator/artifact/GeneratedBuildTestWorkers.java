@@ -72,7 +72,8 @@ final class GeneratedBuildTestWorkers {
                 "worker-1", "127.0.0.1", 8080, 8081, 8082,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0, 0,
                 Long.MAX_VALUE, Instant.now(), 1, "default", 2,
-                "rack-a", List.of(), null, inventory.build());
+                "rack-a", List.of(), null, inventory.build(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker-1"));
     }
 
     static final class InventoryWorkerSelector implements WorkerSelector {

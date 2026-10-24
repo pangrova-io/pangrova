@@ -67,7 +67,7 @@ final class CopyNativeInputAssertions {
             var context = new org.pangrova.worker.task.TaskManagerContext(reports::add, nativeRuntime.executor(),
                     new org.pangrova.worker.task.memory.MemoryRefs(resources, nativeRuntime.nodePool(), null),
                     nativeRuntime.transports(), java.util.concurrent.Executors.newSingleThreadExecutor());
-            manager = new org.pangrova.worker.task.TaskManager(context, "actual-copy-worker", 0.0);
+            manager = new org.pangrova.worker.task.TaskManager(context, "actual-copy-worker", 0.0, nativeRuntime.admissionIncarnation());
             manager.setQuotaEnforcer(quota);
             manager.configureSourcePreparations(inputs);
         }

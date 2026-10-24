@@ -72,6 +72,24 @@ class CanonicalTaskReportValidatorTest {
     }
 
     @Test
+    void rejectsAReportFromAnotherPhysicalWorkerIncarnation() {
+        var physical = new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity(
+                "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
+        var task = request("COMPUTE", List.of()).taskRequest().toBuilder();
+        task.getAttemptBuilder().setWorkerExecutionIdentity(physical.toProto());
+        var expected = SubmitTaskRequest.from(task.build());
+        var status = TaskReport.newBuilder()
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setAttempt(task.getAttempt().toBuilder().setWorkerExecutionIdentity(
+                        physical.toProto().toBuilder()
+                                .setIncarnationId("00000000-0000-0000-0000-0000000000e2")))
+                .setState(TaskState.TASK_STATE_FINISHED).setCoverage(completeCoverage()).build();
+
+        assertThatThrownBy(() -> validator.validate(report(expected, status), expected))
+                .hasMessageContaining("Worker incarnation differs");
+    }
+
+    @Test
     void rejectsTerminalReportWithoutExplicitOrigin() {
         SubmitTaskRequest request = request("COMPUTE", List.of());
         TaskReport status = TaskReport.newBuilder()

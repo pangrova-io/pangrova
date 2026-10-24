@@ -42,6 +42,17 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     public static final long TASK_MEMORY_BYTES = 64L * 1024 * 1024;
     public static final long TOTAL_MEMORY_BYTES = 1024L * 1024 * 1024;
 
+    private final org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation;
+
+    public org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation() { return admissionIncarnation; }
+
+    public TaskRequest bindWorker(TaskRequest request) {
+        var identity = admissionIncarnation.identity();
+        return request.toBuilder().setAttempt(request.getAttempt().toBuilder().setWorkerExecutionIdentity(
+                org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId(identity.ownershipDomainId()).setIncarnationId(identity.incarnationId()))).build();
+    }
+
     private final MemoryArbitrator arbitrator = new MemoryArbitrator(TOTAL_MEMORY_BYTES, 0);
     private final NodeMemoryPool nodePool = new RootMemoryPool("jni-fixture-root", TOTAL_MEMORY_BYTES)
             .createNodePool("jni-fixture-node", TOTAL_MEMORY_BYTES);
@@ -58,10 +69,15 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
 
     /** Uses the production registration lifecycle for the supplied real deployment. */
     public ActualNativeTaskFixture(NativeFunctionConfig functionConfig) {
+        this(functionConfig, java.nio.file.Path.of(TestShuffleServiceConfig.admissionDirectory()));
+    }
+
+    public ActualNativeTaskFixture(NativeFunctionConfig functionConfig, java.nio.file.Path admissionDirectory) {
         java.util.Objects.requireNonNull(functionConfig, "functionConfig");
         if (NativeRuntime.isInitialized()) {
             throw new IllegalStateException("A different fixture still owns the Native runtime");
         }
+        admissionIncarnation = org.pangrova.common.lifecycle.ProcessIncarnationStore.open(admissionDirectory);
         var config = TestShuffleServiceConfig.config(WorkerBootstrapConfig.withDefaults("actual-jni-fixture"));
         var endpoints = initializeRuntime(config, functionConfig);
         executor = endpoints.executor();
@@ -126,7 +142,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
 
     /** Uses the authoritative generated Substrait payload, not a synthetic plan decoder. */
     public TaskRequest valuesRequest(boolean resultOutput) {
-        return valuesTaskRequest(resultOutput);
+        return bindWorker(valuesTaskRequest(resultOutput));
     }
 
     /** Builds real generated values bytes without acquiring a process-wide runtime. */
@@ -212,6 +228,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
                 || arbitrator.getUsedMemory() != 0) {
             throw new IllegalStateException("Actual Native shutdown retained memory reservations");
         }
+        admissionIncarnation.closeAfterDrain(() -> {});
     }
 
     /** Quiesces actual server/readers before a test closes the shared executor. */

@@ -81,7 +81,7 @@ class TaskManagerDependencyDrainTest {
         var resources = new ResourceManager(runtime.arbitrator(), new ThreadBudgetTracker(8, 4, 2), new SpillManager());
         return new TaskManager(new TaskManagerContext(new RecordingTaskStatusReporter(), runtime.executor(),
                 new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
-                "actual-native-owner-drain", 0.0);
+                "actual-native-owner-drain", 0.0, runtime.admissionIncarnation());
     }
 
     private static void assertActualNativeControl(ActualNativeTaskFixture runtime) throws Exception {

@@ -16,6 +16,11 @@ final class TaskAdmissionControl {
     Optional<TaskReport> seal(TaskAdmissionSealRequest request) {
         CanonicalTaskAdmissionSeals.validate(request, request.getAttempt().getTaskId());
         var attempt = request.getAttempt();
+        if (owner.retiredWorkerExecutionIdentity(attempt)) {
+            owner.verifyExistingCleanupControlEpoch(attempt.getControlEpoch());
+            return Optional.of(CanonicalTaskAdmissionSeals.retiredIncarnation(request));
+        }
+        owner.verifyWorkerExecutionIdentity(attempt);
         boolean known = owner.taskAdmissions.knownIdentity(request);
         if (known) owner.verifyExistingCleanupControlEpoch(attempt.getControlEpoch());
         else {

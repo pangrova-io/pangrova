@@ -98,7 +98,8 @@ public final class WorkerHeartbeatBootstrap {
                         org.pangrova.protocol.task.CanonicalTaskRequests.PROTOCOL_MAJOR,
                         null, null, null,
                         refs.nativeCapabilityInventory(),
-                        refs.httpServer() != null ? refs.httpServer().getCopyTaskTlsPort() : 0);
+                        refs.httpServer() != null ? refs.httpServer().getCopyTaskTlsPort() : 0,
+                        refs.taskManager().workerExecutionIdentity());
         long coordinatorEpoch;
         try {
             coordinatorEpoch = attemptRegistration(client, request, config);

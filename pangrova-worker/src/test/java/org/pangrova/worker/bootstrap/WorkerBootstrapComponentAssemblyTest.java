@@ -113,7 +113,7 @@ class WorkerBootstrapComponentAssemblyTest {
                 false, null, rc, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         bootstrap = configuredBootstrap(config);
         bootstrap.start();
 
@@ -162,7 +162,7 @@ class WorkerBootstrapComponentAssemblyTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, null, 0, false, null, null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         bootstrap = configuredBootstrap(config);
         bootstrap.start();
         Object heartbeatSender = getRefField(bootstrap, "heartbeatSender");
@@ -235,7 +235,7 @@ class WorkerBootstrapComponentAssemblyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 
     private static Object getField(Object target, String fieldName) throws Exception {

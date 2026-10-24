@@ -4,9 +4,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
 import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
 import org.pangrova.shuffle.exchange.ExchangeEndpoint;
 import org.pangrova.shuffle.exchange.ExchangeInput;
 import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
@@ -100,12 +98,8 @@ class NativeExchangeTransportTest {
     }
 
     static ExchangeTaskAttempt attempt(TaskRequest request) {
-        var value = request.getAttempt();
-        var owner = value.getExecutionOwner();
-        return new ExchangeTaskAttempt(value.getQueryOrJobId(), value.getStageId(), value.getPartitionId(),
-                value.getTaskId(), value.getControlEpoch(),
-                new ExchangeAttemptFence(value.getPlanEpoch(), value.getAttemptId(), value.getFencingToken()),
-                new ShuffleExecutionOwner(owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken()));
+        return org.pangrova.worker.exchange.source.ExchangeSourceConverter
+                .toExchangeTaskAttempt(request.getAttempt());
     }
 
     private static ExchangeEndpoint endpoint(TaskRequest request, org.pangrova.shuffle.ShuffleServerHandle server) {

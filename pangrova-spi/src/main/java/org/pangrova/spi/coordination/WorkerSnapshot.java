@@ -27,7 +27,9 @@ public record WorkerSnapshot(
         int resultServerPort,
         CacheCatalogSummary cacheSummary,
         String capabilityInventory,
-        int copyTaskTlsPort
+        int copyTaskTlsPort,
+        String admissionDomainId,
+        String incarnationId
 ) {
     private static final int MAX_TCP_PORT = 65535;
 
@@ -37,14 +39,16 @@ public record WorkerSnapshot(
                           String memoryPressure, double cpuUtilization, int runningTaskCount,
                           long availableMemoryBytes, long lastHeartbeatMs, long registeredAtMs,
                           int resultServerPort, CacheCatalogSummary cacheSummary,
-                          String capabilityInventory) {
+                          String capabilityInventory, String admissionDomainId, String incarnationId) {
         this(workerId, host, httpPort, transportPort, protocolVersion, rackId, dataLocality,
                 memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes,
                 lastHeartbeatMs, registeredAtMs, resultServerPort, cacheSummary,
-                capabilityInventory, 0);
+                capabilityInventory, 0, admissionDomainId, incarnationId);
     }
 
     public WorkerSnapshot {
+        requireIdentity(admissionDomainId);
+        requireIdentity(incarnationId);
         Objects.requireNonNull(workerId, "workerId must not be null");
         Objects.requireNonNull(host, "host must not be null");
         Objects.requireNonNull(memoryPressure, "memoryPressure must not be null");
@@ -68,6 +72,12 @@ public record WorkerSnapshot(
         if (decodedInventory.length == 0) {
             throw new IllegalArgumentException(
                     "capabilityInventory must encode a non-empty inventory");
+        }
+    }
+
+    private static void requireIdentity(String value) {
+        if (value == null || !java.util.UUID.fromString(value).toString().equals(value)) {
+            throw new IllegalArgumentException("Worker execution identity requires canonical UUIDs");
         }
     }
 }

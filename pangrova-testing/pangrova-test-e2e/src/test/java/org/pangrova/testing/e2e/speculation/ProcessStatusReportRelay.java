@@ -117,7 +117,7 @@ final class ProcessStatusReportRelay implements AutoCloseable {
         var forwarded = new WorkerRegistrationRequest(actual.workerId(), actual.httpHost(), port,
                 actual.transportPort(), actual.resultServerPort(), actual.protocolVersion(),
                 actual.rackId(), actual.dataLocality(), actual.shuffleMode(),
-                actual.capabilityInventory(), actual.copyTaskTlsPort());
+                actual.capabilityInventory(), actual.copyTaskTlsPort(), actual.workerExecutionIdentity());
         return JsonMapperFactory.shared().writeValueAsBytes(forwarded);
     }
 

@@ -30,7 +30,7 @@ class TaskManagerExecutionPropertyTest {
     void executionLoopCompletion(@ForAll("batchCounts") int batches) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
-            var request = ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 3));
+            var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 3)));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             var received = tasks.consume(info);
@@ -48,8 +48,8 @@ class TaskManagerExecutionPropertyTest {
     void errorPropagation(@ForAll("errorBatchIndices") int successfulSources) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
-            var request = ActualNativeTaskFixture.planTaskRequest(false,
-                    ActualNativeTaskPlans.failingCast(successfulSources));
+            var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(false,
+                    ActualNativeTaskPlans.failingCast(successfulSources)));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FAILED);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
@@ -68,7 +68,7 @@ class TaskManagerExecutionPropertyTest {
     void statusReportingOnStateChange(@ForAll("batchCounts") int batches) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
-            var request = ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 1));
+            var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 1)));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(tasks.consume(info).rows()).isEqualTo(batches);
@@ -90,8 +90,8 @@ class TaskManagerExecutionPropertyTest {
     void statusReportingOnError(@ForAll("errorBatchIndices") int successfulSources) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
-            var request = ActualNativeTaskFixture.planTaskRequest(false,
-                    ActualNativeTaskPlans.failingCast(successfulSources));
+            var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(false,
+                    ActualNativeTaskPlans.failingCast(successfulSources)));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FAILED);
             var reports = tasks.reports().reports();

@@ -43,8 +43,8 @@ class TaskManagerStructuredLoggingTest {
                 var tasks = new ActualTaskManagerFixture(runtime, "failure-log")) {
             var info =
                     tasks.submit(
-                            ActualNativeTaskFixture.planTaskRequest(
-                                    false, ActualNativeTaskPlans.failingCast()));
+                            runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
+                                    false, ActualNativeTaskPlans.failingCast())));
             tasks.awaitState(info, TaskManager.TaskState.FAILED);
             assertThat(tasks.manager().getTaskState(info.taskId()))
                     .hasValue(TaskManager.TaskState.FAILED);

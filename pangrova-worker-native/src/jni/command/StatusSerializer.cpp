@@ -9,6 +9,7 @@
 // exec::TaskStats via VeloxTaskRunner, replacing the legacy OperatorStats path.
 
 #include "jni/command/StatusSerializer.h"
+#include "jni/command/TaskAttemptIdentity.h"
 
 #include <algorithm>
 #include <map>
@@ -63,19 +64,7 @@ std::vector<uint8_t> serializeTaskStatus(
     executor::TaskExecutor& executor) {
   pangrova::protocol::v2::TaskReport status;
   const auto lifecycle = executor.lifecycleSnapshot();
-  auto* attempt = status.mutable_attempt();
-  attempt->set_query_or_job_id(executor.queryId());
-  attempt->set_stage_id(executor.stageId());
-  attempt->set_partition_id(executor.partitionId());
-  attempt->set_plan_epoch(executor.planEpoch());
-  attempt->set_attempt_id(executor.attemptId());
-  attempt->set_fencing_token(executor.fencingToken());
-  attempt->set_task_id(executor.taskId());
-  attempt->set_control_epoch(executor.controlEpoch());
-  auto* owner = attempt->mutable_execution_owner();
-  owner->set_owner_id(executor.ownerId());
-  owner->set_owner_incarnation(executor.ownerIncarnation());
-  owner->set_fencing_token(executor.ownerFencingToken());
+  *status.mutable_attempt() = admittedTaskAttempt(executor);
   status.set_state(toProtoState(lifecycle.state));
   status.set_report_origin(
       pangrova::protocol::v2::TASK_REPORT_ORIGIN_NATIVE);

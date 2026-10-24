@@ -2,6 +2,7 @@ package org.pangrova.coordinator.scheduler;
 
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
@@ -38,6 +39,11 @@ class RemoteTaskDispatcherCopyTlsTest {
     private RemoteTaskDispatcher dispatcher;
     private TaskManager manager;
 
+    @BeforeEach
+    void setUp() {
+        manager = TaskManager.forHttpWiringOnly();
+    }
+
     @AfterEach
     void close() throws Exception {
         if (dispatcher != null) dispatcher.close();
@@ -48,7 +54,6 @@ class RemoteTaskDispatcherCopyTlsTest {
     @Test
     void routesPrivateTaskToRegisteredMutualTlsPortForBothDispatchPaths() throws Exception {
         var certs = certificates();
-        manager = TaskManager.forHttpWiringOnly();
         manager.observeControlEpoch(1);
         worker = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(
                 0, "localhost", 0, "test-secret", "grpc",
@@ -92,14 +97,15 @@ class RemoteTaskDispatcherCopyTlsTest {
                 .hasMessageContaining("frozen source admission is not wired");
     }
 
-    private static WorkerInfo workerInfo(int httpPort, int tlsPort) {
+    private WorkerInfo workerInfo(int httpPort, int tlsPort) {
         return new WorkerInfo("worker-1", "localhost", httpPort, 0, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0,
                 1024L * 1024 * 1024, Instant.now(), 0.0, null, 2,
-                null, List.of(), null, TestWorkerInfoBuilder.canonicalInventory(), tlsPort);
+                null, List.of(), null, TestWorkerInfoBuilder.canonicalInventory(), tlsPort,
+                manager.workerExecutionIdentity());
     }
 
-    private static SubmitTaskRequest copyTask() {
+    private SubmitTaskRequest copyTask() {
         var scope = new CopySourceReadHttp.Scope("tenant", "test-user", "incoming",
                 "f92e704f-2443-4d3a-a496-cd6507dd97db", 1,
                 "s3://incoming/file.parquet", "s3://managed/copy", "a".repeat(64),
@@ -114,7 +120,9 @@ class RemoteTaskDispatcherCopyTlsTest {
                         .setGrantId("task-42:grant").setCpuSlots(1)
                         .setNativeMemoryBytes(64L * 1024 * 1024))
                 .build();
-        return SubmitTaskRequest.from(canonical,
+        var bound = canonical.toBuilder();
+        bound.getAttemptBuilder().setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto());
+        return SubmitTaskRequest.from(bound.build(),
                 new CopySourceReadHttp.RedeemRequest("n".repeat(43), scope));
     }
 

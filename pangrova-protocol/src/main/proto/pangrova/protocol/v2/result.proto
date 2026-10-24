@@ -276,6 +276,8 @@ enum ExecutionDrainState {
   EXECUTION_DRAIN_STATE_UNSPECIFIED = 0;
   EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED = 1;
   EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER = 2;
+  // The exact target incarnation physically exited or joined every execution owner.
+  EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED = 3;
 }
 
 message TaskReport {

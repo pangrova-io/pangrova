@@ -126,7 +126,7 @@ class NativeCacheMemoryBudgetTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED));
@@ -155,7 +155,7 @@ class NativeCacheMemoryBudgetTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED));
@@ -178,7 +178,7 @@ class NativeCacheMemoryBudgetTest {
                 defaults.nativeFunctionConfig(),
                 new WorkerBootstrapConfig.TransportSecurityConfig(
                         true, "/secrets/worker.crt", "/secrets/worker.key",
-                        "/secrets/ca.crt", "worker-1.internal"));
+                        "/secrets/ca.crt", "worker-1.internal"), org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
 
         RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(

@@ -236,6 +236,7 @@
                             <includes>
                                 <include>org/pangrova/testing/nativefixture/**</include>
                                 <include>org/pangrova/worker/transport/TransportServerAllocatorFixture.class</include>
+                                <include>org/pangrova/worker/task/WorkerIncarnationControlFixture.class</include>
                             </includes>
                             <archive>
                                 <manifestEntries>

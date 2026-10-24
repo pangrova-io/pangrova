@@ -48,7 +48,7 @@ class TaskMemoryPropagationTest {
              var tasks = new ActualTaskManagerFixture(runtime, "memory-accounting")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             long nodeBaseline = runtime.nodePool().getUsedBytes();
-            var info = tasks.submit(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
+            var info = tasks.submit(runtime.bindWorker(request(memoryBytes, ActualNativeTaskPlans.values(1, 1))));
             tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(runtime.arbitrator().queryAllocationsSnapshot()).containsEntry("buffer:" + info.taskId(),
                     info.request().taskRequest().getResourceGrant().getShuffleBufferBytes());
@@ -66,7 +66,7 @@ class TaskMemoryPropagationTest {
     void statsCollectionIncludesMemory(@ForAll("executableMemoryLimits") long memoryBytes) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-stats")) {
-            var info = tasks.submit(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
+            var info = tasks.submit(runtime.bindWorker(request(memoryBytes, ActualNativeTaskPlans.values(1, 1))));
             tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             tasks.consume(info);
             awaitActualTerminal(tasks, info);
@@ -85,7 +85,7 @@ class TaskMemoryPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-cap-failure")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            var request = request(1024L * 1024, ActualNativeTaskPlans.values(1, 1));
+            var request = runtime.bindWorker(request(1024L * 1024, ActualNativeTaskPlans.values(1, 1)));
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThatThrownBy(() -> ActualNativeResultReader.read(runtime, request))
@@ -109,7 +109,7 @@ class TaskMemoryPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "zero-memory")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            assertThatThrownBy(() -> tasks.submit(request(0, ActualNativeTaskPlans.values(batchCount, 1))))
+            assertThatThrownBy(() -> tasks.submit(runtime.bindWorker(request(0, ActualNativeTaskPlans.values(batchCount, 1)))))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("resource grant is incomplete");
             assertThat(tasks.manager().tasks).isEmpty();
             assertThat(tasks.reports().reports()).isEmpty();

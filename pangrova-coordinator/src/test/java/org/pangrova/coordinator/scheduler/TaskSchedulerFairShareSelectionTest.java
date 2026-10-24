@@ -131,6 +131,7 @@ class TaskSchedulerFairShareSelectionTest {
                 cpuUtilization, 0, 8L * 1024 * 1024 * 1024,
                 Instant.now(), performanceScore, resourcePoolId, 2,
                 null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
     }
 }

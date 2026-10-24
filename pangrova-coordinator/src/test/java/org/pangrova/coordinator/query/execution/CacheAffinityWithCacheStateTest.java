@@ -119,6 +119,7 @@ class CacheAffinityWithCacheStateTest {
                 0.0, 0, 1_000_000_000L,
                 Instant.now(), 1.0, "default", 2,
                 null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 }

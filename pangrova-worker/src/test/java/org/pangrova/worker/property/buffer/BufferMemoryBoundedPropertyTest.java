@@ -29,7 +29,7 @@ class BufferMemoryBoundedPropertyTest {
     void bufferMemoryNeverExceedsBudget(@ForAll("taskCounts") int taskCount) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "concurrent-buffer-bound")) {
-            var infos = submitConcurrentTasks(tasks, taskCount, 3);
+            var infos = submitConcurrentTasks(runtime, tasks, taskCount, 3);
             for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             long heldGrants = runtime.arbitrator().queryAllocationsSnapshot().entrySet().stream()
                     .filter(entry -> entry.getKey().startsWith("buffer:"))
@@ -49,7 +49,7 @@ class BufferMemoryBoundedPropertyTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "concurrent-buffer-release")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            var infos = submitConcurrentTasks(tasks, taskCount, 2);
+            var infos = submitConcurrentTasks(runtime, tasks, taskCount, 2);
             for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             for (var info : infos) {
                 assertThat(info.allocatedBufferMemory()).isEqualTo(BUFFER_BYTES);
@@ -63,11 +63,11 @@ class BufferMemoryBoundedPropertyTest {
         }
     }
 
-    private static List<TaskInfo> submitConcurrentTasks(ActualTaskManagerFixture tasks, int count, int batches) {
+    private static List<TaskInfo> submitConcurrentTasks(ActualNativeTaskFixture runtime, ActualTaskManagerFixture tasks, int count, int batches) {
         var infos = new ArrayList<TaskInfo>();
         for (int index = 0; index < count; index++) {
-            infos.add(tasks.submit(ActualNativeTaskFixture.planTaskRequest(true,
-                    ActualNativeTaskPlans.values(batches, 2))));
+            infos.add(tasks.submit(runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true,
+                    ActualNativeTaskPlans.values(batches, 2)))));
         }
         return List.copyOf(infos);
     }

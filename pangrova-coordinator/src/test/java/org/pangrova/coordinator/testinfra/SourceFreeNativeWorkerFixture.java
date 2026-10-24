@@ -74,6 +74,9 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
             new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicReference<Throwable> reportFailure = new AtomicReference<>();
     private final WorkerComponentRefs nativeRefs = new WorkerComponentRefs();
+    private Path admissionDirectory;
+    private final java.util.List<org.pangrova.common.lifecycle.ProcessIncarnationStore> admissionIncarnations =
+            new java.util.ArrayList<>();
     private ShuffleServiceMemoryLease serviceLease;
     private NativeTaskExecutor executor;
     private NativeResultTransport results;
@@ -93,6 +96,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
             owned = true;
         }
         try {
+            admissionDirectory = directory.resolve("worker-admission");
             initialize(directory);
         } catch (Exception | Error failure) {
             try { close(); } catch (Exception cleanup) { failure.addSuppressed(cleanup); }
@@ -136,7 +140,10 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         var exchange = new NativeExchangeTransport(executor);
         var context = new TaskManagerContext(this::report, executor, memory,
                 new TransportRefs(new NativeShuffleTransport(executor, LOOPBACK_HOST, ""), results, exchange), monitors);
-        var tasks = new TaskManager(context, id, 0.0);
+        var admissionIncarnation = org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
+                admissionDirectory.resolve(java.net.URLEncoder.encode(id, java.nio.charset.StandardCharsets.UTF_8)));
+        admissionIncarnations.add(admissionIncarnation);
+        var tasks = new TaskManager(context, id, 0.0, admissionIncarnation);
         tasks.requireControlEpochHandshake();
         tasks.observeControlEpoch(1L);
         var http = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, LOOPBACK_HOST, results.boundPort()),
@@ -176,7 +183,8 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         var advertisement = NativeCapabilityAdvertisement.load(NativeFunctionConfig.DISABLED);
         return new WorkerInfo(worker.workerId(), LOOPBACK_HOST, worker.httpServer().getPort(), results.boundPort(), results.boundPort(),
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0, MEMORY_BYTES,
-                Instant.now(), 1.0, null, 2, null, List.of(), null, advertisement.inventory());
+                Instant.now(), 1.0, null, 2, null, List.of(), null, advertisement.inventory(),
+                worker.taskManager().workerExecutionIdentity());
     }
 
     public QueryManager connectAsync(QueryDispatcher dispatcher, CoordinatorTaskTracker tracker, WorkerManager workers) {
@@ -301,6 +309,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
             failures.stream().skip(1).forEach(first::addSuppressed);
             throw first;
         }
+        for (var incarnation : admissionIncarnations) incarnation.closeAfterDrain(() -> {});
     }
 
     private void drainOwnedLifecycle() throws Exception {

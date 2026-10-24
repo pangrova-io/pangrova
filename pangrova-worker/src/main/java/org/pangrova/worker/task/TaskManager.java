@@ -45,6 +45,29 @@ public class TaskManager implements AutoCloseable {
     /** Bounded exact admissions survive task-resource cleanup until their deadlines. */
     final TaskAdmissionRegistry taskAdmissions = new TaskAdmissionRegistry(
             MAX_TRACKED_TASKS, java.time.Clock.systemUTC());
+    private final org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation;
+
+    public org.pangrova.protocol.rest.worker.WorkerExecutionIdentity workerExecutionIdentity() {
+        var identity = admissionIncarnation.identity();
+        return new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity(
+                identity.ownershipDomainId(), identity.incarnationId());
+    }
+
+    void verifyWorkerExecutionIdentity(org.pangrova.protocol.v2.TaskAttemptId attempt) {
+        if (!attempt.hasWorkerExecutionIdentity()
+                || !attempt.getWorkerExecutionIdentity().equals(workerExecutionIdentity().toProto())) {
+            throw new TaskAdmissionException(TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+                    "Task target does not match this Worker execution incarnation");
+        }
+    }
+
+    boolean retiredWorkerExecutionIdentity(org.pangrova.protocol.v2.TaskAttemptId attempt) {
+        if (!attempt.hasWorkerExecutionIdentity()) return false;
+        var identity = org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(
+                attempt.getWorkerExecutionIdentity());
+        return admissionIncarnation.isRetired(new org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity(
+                identity.admissionDomainId(), identity.incarnationId()));
+    }
 
     /** Resolves the admitted local execution/result ID, or null if not admitted. */
     public String resolveWorkerTaskId(String coordinatorTaskId) {
@@ -109,7 +132,10 @@ public class TaskManager implements AutoCloseable {
      * @param workerId           identifier of this worker node for status reporting
      * @param minAllocationRatio minimum allocated/requested ratio (0.0–1.0); task rejected if below
      */
-    public TaskManager(TaskManagerContext deps, String workerId, double minAllocationRatio) {
+    public TaskManager(TaskManagerContext deps, String workerId, double minAllocationRatio,
+                       org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation) {
+        this.admissionIncarnation = checkNotNull(admissionIncarnation, "admissionIncarnation");
+        admissionIncarnation.claimAuthority("worker-task-admission");
         checkNotNull(deps, "deps must not be null");
         checkNotNull(workerId, "workerId must not be null");
         this.deps = deps;
@@ -138,7 +164,12 @@ public class TaskManager implements AutoCloseable {
      * and HTTP routing are needed, without native engine execution.
      */
     public static TaskManager forHttpWiringOnly() {
-        return new TaskManager("http-wiring-worker");
+        try {
+            return new TaskManager(org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
+                    java.nio.file.Files.createTempDirectory("pangrova-http-wiring-admission-")));
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
     }
 
     /**
@@ -165,13 +196,15 @@ public class TaskManager implements AutoCloseable {
                 taskAdmissions::sealAndAwaitAdmissions,
                 () -> TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
                         java.util.List.copyOf(tasks.values())));
+        if (deps == null) admissionIncarnation.closeAfterDrain(() -> {});
     }
 
     /**
      * Internal constructor for state-machine-only mode (no execution pipeline).
      */
-    private TaskManager(String workerId) {
-        checkNotNull(workerId, "workerId must not be null");
+    TaskManager(org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation) {
+        this.admissionIncarnation = checkNotNull(admissionIncarnation, "admissionIncarnation");
+        admissionIncarnation.claimAuthority("worker-task-admission");
         this.deps = null;
         this.lifecycleManager = null;
         this.statusCollector = null;

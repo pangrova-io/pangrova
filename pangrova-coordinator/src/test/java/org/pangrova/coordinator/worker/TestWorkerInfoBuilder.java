@@ -17,6 +17,15 @@ public final class TestWorkerInfoBuilder {
 
     private TestWorkerInfoBuilder() {}
 
+    /** Explicit stable ownership identities for metadata-only test Workers. */
+    public static org.pangrova.protocol.rest.worker.WorkerExecutionIdentity executionIdentity(String workerId) {
+        return new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity(
+                java.util.UUID.nameUUIDFromBytes(("admission:" + workerId)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString(),
+                java.util.UUID.nameUUIDFromBytes(("incarnation:" + workerId)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString());
+    }
+
     /**
      * Creates an ACTIVE worker with default metrics and no resource pool.
      */
@@ -24,7 +33,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -35,7 +45,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 state, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -48,7 +59,8 @@ public final class TestWorkerInfoBuilder {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 cpuUtilization, runningTaskCount, availableMemoryBytes,
                 Instant.now(), performanceScore, null, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -60,7 +72,8 @@ public final class TestWorkerInfoBuilder {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.5, 0, 1024L * 1024 * 1024,
                 lastHeartbeat, 1.0, null, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -72,7 +85,8 @@ public final class TestWorkerInfoBuilder {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, runningTaskCount, 1024L * 1024 * 1024,
                 Instant.now(), 1.0, null, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -84,7 +98,8 @@ public final class TestWorkerInfoBuilder {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024,
                 Instant.now(), 1.0, null, 2,
-                rackId, dataLocality, null, canonicalInventory());
+                rackId, dataLocality, null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -96,7 +111,8 @@ public final class TestWorkerInfoBuilder {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024,
                 Instant.now(), 1.0, null, 2,
-                rackId, List.of(), null, canonicalInventory());
+                rackId, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -107,7 +123,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, pressure,
                 0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /**
@@ -119,7 +136,8 @@ public final class TestWorkerInfoBuilder {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024,
                 Instant.now(), 1.0, null, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(workerId));
     }
 
     /** Returns the complete unmodified actual catalogue for scheduling contract tests. */

@@ -137,6 +137,21 @@ class ExchangeSpiContractTest {
         manager.close();
     }
 
+    @org.junit.jupiter.api.Test
+    void exchangeAttemptRejectsMissingOrNonCanonicalWorkerIncarnation() {
+        var original = context("query", 0).taskAttempt();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new ExchangeTaskAttempt(
+                original.queryId(), original.stageId(), original.taskPartitionId(), original.taskId(),
+                original.controlEpoch(), original.fence(), original.executionOwner(),
+                original.workerAdmissionDomainId(), "1-1-1-1-1"))
+                .isInstanceOf(IllegalArgumentException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new ExchangeTaskAttempt(
+                original.queryId(), original.stageId(), original.taskPartitionId(), original.taskId(),
+                original.controlEpoch(), original.fence(), original.executionOwner(),
+                null, original.workerIncarnationId()))
+                .isInstanceOf(NullPointerException.class);
+    }
+
     // ---- helpers ----
 
     private static NativePage testArrowPage(String content) {
@@ -148,7 +163,9 @@ class ExchangeSpiContractTest {
                 new ExchangeTaskAttempt(
                         queryId, 0, 0, "task-0", 1L,
                         new ExchangeAttemptFence(1L, 0, 1L),
-                        new ShuffleExecutionOwner("owner", "incarnation", 1L)),
+                        new ShuffleExecutionOwner("owner", "incarnation", 1L),
+                        "00000000-0000-0000-0000-000000000001",
+                        "00000000-0000-0000-0000-000000000002"),
                 partitionId,
                 Long.MAX_VALUE);
     }

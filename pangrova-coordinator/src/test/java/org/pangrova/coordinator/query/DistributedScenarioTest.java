@@ -371,6 +371,7 @@ class DistributedScenarioTest {
                 actual.resultServerPort(), actual.healthState(), actual.memoryPressure(), 1.0 - score,
                 actual.runningTaskCount(), ROUTING_MEMORY_BYTES, heartbeat, score, actual.resourcePoolId(),
                 actual.protocolVersion(), actual.rackId(), actual.dataLocality(), actual.cacheSummary(),
-                actual.capabilityInventory());
+                actual.capabilityInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(actual.workerId()));
     }
 }

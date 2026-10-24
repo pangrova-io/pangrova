@@ -95,6 +95,6 @@ class WorkerResultPortIntegrationTest {
                 defaults.resourceConfig(), defaults.resultRetentionSeconds(), defaults.cdcEnabled(),
                 defaults.registrationRetryConfig(), defaults.httpHost(), defaults.internalAuthSecret(), defaults.shuffleMode(),
                 defaults.cacheConfig(), "127.0.0.1", null,
-                defaults.nativeFunctionConfig(), defaults.transportSecurityConfig());
+                defaults.nativeFunctionConfig(), defaults.transportSecurityConfig(), org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
     }
 }

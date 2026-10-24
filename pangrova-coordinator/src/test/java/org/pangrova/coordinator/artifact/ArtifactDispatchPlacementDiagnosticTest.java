@@ -27,7 +27,8 @@ class ArtifactDispatchPlacementDiagnosticTest {
                 "worker", "localhost", 8080, 9090, 9191,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0,
                 GIB, Instant.now(), 1.0, null, 2,
-                null, List.of(), null, inventory);
+                null, List.of(), null, inventory,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("worker"));
         OperatorBinding binding = OperatorBinding.newBuilder()
                 .setPlanNodeId("hnsw-build")
                 .setCapability(ref)

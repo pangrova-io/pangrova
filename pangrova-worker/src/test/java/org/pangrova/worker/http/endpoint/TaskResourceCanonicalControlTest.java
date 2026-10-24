@@ -26,7 +26,7 @@ class TaskResourceCanonicalControlTest {
                 var resource = resource(fixture.manager(), runtime)) {
             var manager = fixture.manager();
             String canonical = "canonical-task";
-            var original = request(canonical);
+            var original = request(runtime, canonical);
             var owner = fixture.preparePending(original.taskRequest());
             try (Response submitted = resource.submitTask(original)) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
@@ -70,7 +70,7 @@ class TaskResourceCanonicalControlTest {
                 var fixture = new ActualTaskManagerFixture(runtime, "control-http");
                 var resource = resource(fixture.manager(), runtime)) {
             var manager = fixture.manager();
-            var original = request("canonical-task");
+            var original = request(runtime, "canonical-task");
             var owner = fixture.preparePending(original.taskRequest());
             try (Response submitted = resource.submitTask(original)) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
@@ -94,26 +94,27 @@ class TaskResourceCanonicalControlTest {
 
     @Test
     void exactAbsentAdmissionIsClosedAndLateSubmissionIsRejected() throws Exception {
-        var original = request("absent");
         try (var runtime = new ActualNativeTaskFixture();
                 var fixture = new ActualTaskManagerFixture(runtime, "control-http");
-                var resource = resource(fixture.manager(), runtime);
-                Response cancelled = resource.cancelTask("absent", seal(original))) {
-            var manager = fixture.manager();
-            assertThat(cancelled.getStatus()).isEqualTo(200);
-            var receipt =
-                    org.pangrova.protocol.v2.TaskReport.parseFrom((byte[]) cancelled.getEntity());
-            assertThat(receipt.getAttempt().getTaskId()).isEqualTo("absent");
-            assertThat(receipt.getExecutionDrainState())
-                    .isEqualTo(
-                            org.pangrova.protocol.v2.ExecutionDrainState
-                                    .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
-            assertThat(manager.resolveWorkerTaskId("absent")).isNull();
-            try (Response late = resource.submitTask(original)) {
-                assertThat(late.getStatus()).isEqualTo(409);
+                var resource = resource(fixture.manager(), runtime)) {
+            var original = request(runtime, "absent");
+            try (Response cancelled = resource.cancelTask("absent", seal(original))) {
+                var manager = fixture.manager();
+                assertThat(cancelled.getStatus()).isEqualTo(200);
+                var receipt =
+                        org.pangrova.protocol.v2.TaskReport.parseFrom((byte[]) cancelled.getEntity());
+                assertThat(receipt.getAttempt().getTaskId()).isEqualTo("absent");
+                assertThat(receipt.getExecutionDrainState())
+                        .isEqualTo(
+                                org.pangrova.protocol.v2.ExecutionDrainState
+                                        .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
+                assertThat(manager.resolveWorkerTaskId("absent")).isNull();
+                try (Response late = resource.submitTask(original)) {
+                    assertThat(late.getStatus()).isEqualTo(409);
+                }
+                assertThat(runtime.nodePool().getUsedBytes()).isZero();
+                assertThat(runtime.arbitrator().getUsedMemory()).isZero();
             }
-            assertThat(runtime.nodePool().getUsedBytes()).isZero();
-            assertThat(runtime.arbitrator().getUsedMemory()).isZero();
         }
     }
 
@@ -169,8 +170,8 @@ class TaskResourceCanonicalControlTest {
                 .toByteArray();
     }
 
-    private static SubmitTaskRequest request(String taskId) {
-        var canonical = ActualNativeTaskFixture.valuesTaskRequest(false).toBuilder();
+    private static SubmitTaskRequest request(ActualNativeTaskFixture runtime, String taskId) {
+        var canonical = runtime.valuesRequest(false).toBuilder();
         canonical.setAttempt(
                 canonical.getAttempt().toBuilder()
                         .setTaskId(taskId)

@@ -226,16 +226,20 @@ class SpeculativeExecutionWiringTest {
         Instant fastStart = Instant.now().minusSeconds(1);
         Instant slowStart = Instant.now().minusSeconds(60);
         for (String id : List.of("t1", "t2", "t3")) runAt(id, fastStart);
-        runAt("ts", slowStart);
-        tracker.assignWorker("ts", WA);
-        tracker.setDeadline("ts", Instant.now().plusSeconds(300));
+        tracker.registerTask(QID, "ts");
         // Store the original task request in the tracker (as the dispatch path would do)
         SubmitTaskRequest originalReq =
                 org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
                         "ts", QID, 1, 0,
                         org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                         "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        originalReq = rec.bindWorkerIdentity(originalReq, wm.getWorker(WA));
         tracker.registerTaskRequest("ts", originalReq);
+        tracker.markScheduled(QID, "ts");
+        tracker.updateTaskState(QID, "ts", "RUNNING");
+        tracker.recordTaskStart("ts", SID, slowStart);
+        tracker.assignWorker("ts", WA);
+        tracker.setDeadline("ts", Instant.now().plusSeconds(300));
 
         for (String id : List.of("t1", "t2", "t3")) tracker.updateTaskState(QID, id, "FINISHED");
 
@@ -257,6 +261,8 @@ class SpeculativeExecutionWiringTest {
                 .as("Speculative task should be assigned to a different worker than the original")
                 .isNotEqualTo(WA);
         assertThat(assignedWorker).isEqualTo(WB);
+        assertThat(tracker.getTaskRequest(specTaskId).taskRequest().getAttempt().getWorkerExecutionIdentity())
+                .isEqualTo(wm.getWorker(WB).workerExecutionIdentity().toProto());
     }
 
     @Test void launchSpeculative_noOriginalRequest_doesNotInventCopy() {
@@ -430,7 +436,8 @@ class SpeculativeExecutionWiringTest {
         return new WorkerInfo(id, host, 8080, 8081, 0, HealthState.ACTIVE,
                 MemoryPressure.NONE, 0.5, 0, 1024L * 1024 * 1024,
                 Instant.now(), 1.0, null, 2, null, List.of(), null,
-                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity(id));
     }
     static class Rec implements TaskDispatcher {
         volatile String last;

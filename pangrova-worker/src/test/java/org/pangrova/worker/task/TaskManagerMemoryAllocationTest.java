@@ -29,7 +29,7 @@ class TaskManagerMemoryAllocationTest {
     void taskProceedsWhenAllocationSufficient() {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = admission(runtime, 4 * 1024 * MB, 4 * 1024 * MB)) {
-            var info = tasks.submit(request(100 * MB, 0));
+            var info = tasks.submit(runtime.bindWorker(request(100 * MB, 0)));
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
             assertThat(tasks.terminalReport(info).error()).isNull();
@@ -42,7 +42,7 @@ class TaskManagerMemoryAllocationTest {
         // use the fixture's real process coordinator, not this separate admission arbitrator.
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = admission(runtime, MB, MB)) {
-            var info = tasks.submit(request(10 * MB, 0));
+            var info = tasks.submit(runtime.bindWorker(request(10 * MB, 0)));
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
         }
@@ -76,7 +76,7 @@ class TaskManagerMemoryAllocationTest {
                                 runtime.resultPort(),
                                 null,
                                 new TaskResource.ResultBinding("grpc", runtime.resultTickets()))) {
-            var response = resource.submitTask(SubmitTaskRequest.from(request(100 * MB, 60 * MB)));
+            var response = resource.submitTask(SubmitTaskRequest.from(runtime.bindWorker(request(100 * MB, 60 * MB))));
             assertThat(response.getStatus()).isEqualTo(503);
             assertUnregistered(tasks);
         }
@@ -87,7 +87,7 @@ class TaskManagerMemoryAllocationTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = admission(runtime, 4 * 1024 * MB, 100 * MB)) {
             for (int index = 0; index < 2; index++) {
-                var info = tasks.submit(request(50 * MB, 50 * MB));
+                var info = tasks.submit(runtime.bindWorker(request(50 * MB, 50 * MB)));
                 assertThat(info.allocatedBufferMemory()).isEqualTo(50 * MB);
                 assertThat(tasks.consume(info).values()).containsExactly(42L);
                 tasks.awaitState(info, TaskManager.TaskState.FINISHED);
@@ -104,7 +104,7 @@ class TaskManagerMemoryAllocationTest {
                 var tasks = admission(runtime, arbitratorBytes, nodeBytes)) {
             var tracker = new org.pangrova.resource.tenant.TenantResourceTracker();
             tasks.manager().setQuotaEnforcer(new TenantExecutionQuotaEnforcer(tracker));
-            var actualRequest = request(nativeBytes, bufferBytes);
+            var actualRequest = runtime.bindWorker(request(nativeBytes, bufferBytes));
             String tenant = actualRequest.getSecurity().getTenantId();
             assertThatThrownBy(() -> tasks.submit(actualRequest))
                     .isInstanceOf(PangrovaException.class)

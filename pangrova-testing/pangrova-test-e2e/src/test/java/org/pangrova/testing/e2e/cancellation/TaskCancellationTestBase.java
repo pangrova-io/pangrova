@@ -99,7 +99,7 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
     private static void registerActualWorker(WorkerInfo actual, int httpPort) throws Exception {
         var request = new WorkerRegistrationRequest(actual.workerId(), actual.host(), httpPort,
                 actual.transportPort(), actual.resultServerPort(), actual.protocolVersion(), actual.rackId(),
-                actual.dataLocality(), null, CapabilityInventoryCodec.encode(actual.capabilityInventory()));
+                actual.dataLocality(), null, CapabilityInventoryCodec.encode(actual.capabilityInventory()), actual.workerExecutionIdentity());
         postInternal("/v1/workers/register", MAPPER.writeValueAsBytes(request));
         postInternal("/v1/worker/heartbeat", MAPPER.writeValueAsBytes(new HeartbeatRequest(actual.workerId(),
                 actual.memoryPressure().name(), actual.cpuUtilization(), actual.runningTaskCount(),

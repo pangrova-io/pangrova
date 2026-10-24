@@ -352,6 +352,9 @@ public final class CanonicalTaskRequests {
             throw incompleteAttempt();
         }
         validateExecutionOwner(attempt);
+        if (attempt.hasWorkerExecutionIdentity()) {
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(attempt.getWorkerExecutionIdentity());
+        }
     }
 
     private static void validateExecutionOwner(

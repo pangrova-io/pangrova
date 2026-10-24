@@ -28,7 +28,7 @@ class WorkerRegistrationSerializationTest {
                 "http://localhost:8080", HttpClient.newHttpClient());
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
                 "worker-1", "localhost", 8080, 9090, 0, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
 
         byte[] result = client.serialize(request);
 
@@ -43,7 +43,7 @@ class WorkerRegistrationSerializationTest {
                 "http://localhost:8080", HttpClient.newHttpClient());
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
                 "w-42", "host-a", 3000, 4000, 0, 2,
-                "rack-1", List.of("/data/1"), null, canonicalInventory());
+                "rack-1", List.of("/data/1"), null, canonicalInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
 
         byte[] result = client.serialize(request);
         String json = new String(result);
@@ -65,7 +65,7 @@ class WorkerRegistrationSerializationTest {
                 "http://192.0.2.1:1", HttpClient.newHttpClient());
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
                 "worker-1", "localhost", 8080, 9090, 0, 2,
-                null, List.of(), null, canonicalInventory());
+                null, List.of(), null, canonicalInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
 
         byte[] serialized = client.serialize(request);
         assertThat(serialized).isNotNull();

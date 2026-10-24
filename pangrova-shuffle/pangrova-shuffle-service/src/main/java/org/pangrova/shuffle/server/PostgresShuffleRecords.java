@@ -36,7 +36,8 @@ final class PostgresShuffleRecords {
             + "a.metadata_version AS metadata_version, a.state AS state, "
             + "q.owner_id AS owner_id, q.owner_incarnation AS owner_incarnation, "
             + "q.owner_fencing_token AS owner_fencing_token";
-    static final String BATCH_SELECT = "SELECT b.*, f.task_id, f.control_epoch, a.query_id, a.stage_id, "
+    static final String BATCH_SELECT = "SELECT b.*, f.task_id, f.control_epoch, f.canonical_attempt, "
+            + "a.query_id, a.stage_id, "
             + "a.plan_epoch, q.owner_id, q.owner_incarnation, q.owner_fencing_token "
             + "FROM shuffle_batch b JOIN shuffle_attempt_fence f USING "
             + "(shuffle_id, producer_partition_id, producer_attempt_id) "
@@ -335,7 +336,11 @@ final class PostgresShuffleRecords {
             statement.setLong(5, batchAfter);
             statement.setInt(6, limit);
             statement.setFetchSize(1_000);
-            return readBatches(statement, attempt.getExecutionOwner(), shuffleId);
+            var batches = readBatches(statement, attempt.getExecutionOwner(), shuffleId);
+            if (batches.stream().anyMatch(batch -> !batch.producerAttempt().equals(attempt))) {
+                throw new SecurityException("Requested shuffle attempt conflicts with durable identity");
+            }
+            return batches;
         }
     }
 
@@ -404,22 +409,28 @@ final class PostgresShuffleRecords {
             ResultSet rows,
             ExecutionOwnerIdentity owner,
             String shuffleId) throws SQLException {
-        ExecutionOwnerIdentity effectiveOwner = owner == null
-                ? ExecutionOwnerIdentity.newBuilder()
-                        .setOwnerId(rows.getString("owner_id"))
-                        .setOwnerIncarnation(rows.getString("owner_incarnation"))
-                        .setFencingToken(rows.getLong("owner_fencing_token")).build()
-                : owner;
-        TaskAttemptId attempt = TaskAttemptId.newBuilder()
-                .setQueryOrJobId(rows.getString("query_id"))
-                .setStageId(rows.getInt("stage_id"))
-                .setPartitionId(rows.getInt("producer_partition_id"))
-                .setPlanEpoch(rows.getLong("plan_epoch"))
-                .setAttemptId(rows.getInt("producer_attempt_id"))
-                .setFencingToken(rows.getLong("producer_fencing_token"))
-                .setTaskId(rows.getString("task_id"))
-                .setControlEpoch(rows.getLong("control_epoch"))
-                .setExecutionOwner(effectiveOwner).build();
+        byte[] canonical = rows.getBytes("canonical_attempt");
+        if (canonical == null) {
+            throw new IllegalStateException(
+                    "Legacy shuffle attempt has no durable Worker identity; cleanup is required");
+        }
+        TaskAttemptId attempt;
+        try {
+            attempt = TaskAttemptId.parseFrom(canonical);
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(attempt.getWorkerExecutionIdentity());
+        } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException failure) {
+            throw new IllegalStateException("Durable shuffle attempt identity is invalid", failure);
+        }
+        if (!attempt.getQueryOrJobId().equals(rows.getString("query_id"))
+                || attempt.getStageId() != rows.getInt("stage_id")
+                || attempt.getPlanEpoch() != rows.getLong("plan_epoch")
+                || attempt.getPartitionId() != rows.getInt("producer_partition_id")
+                || attempt.getAttemptId() != rows.getInt("producer_attempt_id")
+                || attempt.getFencingToken() != rows.getLong("producer_fencing_token")
+                || !attempt.getTaskId().equals(rows.getString("task_id"))
+                || attempt.getControlEpoch() != rows.getLong("control_epoch")) {
+            throw new IllegalStateException("Durable shuffle attempt conflicts with indexed identity");
+        }
         BatchIdentity identity = new BatchIdentity(shuffleId, attempt.getPartitionId(),
                 attempt.getAttemptId(), rows.getInt("output_partition_id"),
                 rows.getLong("batch_sequence"));

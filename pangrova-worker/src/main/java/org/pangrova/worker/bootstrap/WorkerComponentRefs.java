@@ -33,6 +33,13 @@ import java.util.concurrent.ScheduledExecutorService;
  */
 public final class WorkerComponentRefs {
 
+    private org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation;
+
+    public org.pangrova.common.lifecycle.ProcessIncarnationStore admissionIncarnation() { return admissionIncarnation; }
+    public void setAdmissionIncarnation(org.pangrova.common.lifecycle.ProcessIncarnationStore value) {
+        admissionIncarnation = value;
+    }
+
     private boolean nativeAvailable;
     private ResourceManager resourceManager;
     private ResourceMonitor resourceMonitor;

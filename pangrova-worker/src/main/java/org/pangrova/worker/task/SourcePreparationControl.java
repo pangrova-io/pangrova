@@ -33,6 +33,7 @@ final class SourcePreparationControl implements AutoCloseable {
     SourcePreparationResult execute(PrepareCopySourceRequest request) throws IOException {
         if (closed || owner.drainExecutor.isDraining()) throw new IllegalStateException("Source preparation is closed");
         var command = request.preparation();
+        owner.verifyWorkerExecutionIdentity(command.getAttempt());
         var authority = request.admissionSeal();
         var previous = owner.taskAdmissions.preparationTerminal(authority);
         if (previous.isPresent()) {

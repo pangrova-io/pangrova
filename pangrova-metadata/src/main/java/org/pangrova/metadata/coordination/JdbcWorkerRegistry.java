@@ -46,15 +46,17 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                     + "(worker_id, host, http_port, transport_port, protocol_version, "
                     + "rack_id, data_locality, memory_pressure, cpu_utilization, "
                     + "running_task_count, available_memory_bytes, last_heartbeat_ms, registered_at_ms, "
-                    + "result_server_port, capability_inventory_proto, copy_task_tls_port) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "result_server_port, capability_inventory_proto, copy_task_tls_port, "
+                    + "admission_domain_id, incarnation_id) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SQL_UPDATE_REGISTRATION =
             "UPDATE worker_registry SET host=?, http_port=?, transport_port=?, "
                     + "protocol_version=?, rack_id=?, data_locality=?, "
                     + "memory_pressure=?, cpu_utilization=?, running_task_count=?, "
                     + "available_memory_bytes=?, last_heartbeat_ms=?, result_server_port=?, "
-                    + "capability_inventory_proto=?, copy_task_tls_port=? WHERE worker_id=?";
+                    + "capability_inventory_proto=?, copy_task_tls_port=?, "
+                    + "admission_domain_id=?, incarnation_id=? WHERE worker_id=?";
 
     private static final String SQL_HEARTBEAT =
             "UPDATE worker_registry SET memory_pressure=?, cpu_utilization=?, "
@@ -65,10 +67,12 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             "DELETE FROM worker_registry WHERE worker_id=?";
 
     private static final String SQL_GET_ACTIVE =
-            "SELECT * FROM worker_registry WHERE last_heartbeat_ms > ?";
+            "SELECT * FROM worker_registry WHERE last_heartbeat_ms > ? "
+                    + "AND admission_domain_id IS NOT NULL AND incarnation_id IS NOT NULL";
 
     private static final String SQL_GET_WORKER =
-            "SELECT * FROM worker_registry WHERE worker_id=?";
+            "SELECT * FROM worker_registry WHERE worker_id=? "
+                    + "AND admission_domain_id IS NOT NULL AND incarnation_id IS NOT NULL";
 
     private static final String SQL_EXPIRE_STALE =
             "DELETE FROM worker_registry WHERE last_heartbeat_ms < ?";
@@ -90,6 +94,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
     private static final int PARAM_RESULT_SERVER_PORT = 14;
     private static final int PARAM_CAPABILITY_INVENTORY = 15;
     private static final int PARAM_COPY_TASK_TLS_PORT = 16;
+    private static final int PARAM_ADMISSION_DOMAIN = 17;
+    private static final int PARAM_INCARNATION = 18;
 
     private static final int MAX_REGISTER_ATTEMPTS = 3;
 
@@ -166,6 +172,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             ps.setInt(parameter++, w.resultServerPort());
             ps.setString(parameter++, w.capabilityInventory());
             ps.setInt(parameter++, w.copyTaskTlsPort());
+            ps.setString(parameter++, w.admissionDomainId());
+            ps.setString(parameter++, w.incarnationId());
             ps.setString(parameter, w.workerId());
             return ps.executeUpdate();
         }
@@ -188,6 +196,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
         ps.setInt(PARAM_RESULT_SERVER_PORT, w.resultServerPort());
         ps.setString(PARAM_CAPABILITY_INVENTORY, w.capabilityInventory());
         ps.setInt(PARAM_COPY_TASK_TLS_PORT, w.copyTaskTlsPort());
+        ps.setString(PARAM_ADMISSION_DOMAIN, w.admissionDomainId());
+        ps.setString(PARAM_INCARNATION, w.incarnationId());
     }
 
     private static boolean isUniqueViolation(SQLException failure) {
@@ -307,7 +317,8 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 rs.getInt("result_server_port"),
                 null,
                 rs.getString("capability_inventory_proto"),
-                rs.getInt("copy_task_tls_port")
+                rs.getInt("copy_task_tls_port"),
+                rs.getString("admission_domain_id"), rs.getString("incarnation_id")
         );
     }
 

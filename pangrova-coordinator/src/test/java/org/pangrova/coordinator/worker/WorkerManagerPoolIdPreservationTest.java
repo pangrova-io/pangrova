@@ -27,7 +27,8 @@ class WorkerManagerPoolIdPreservationTest {
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, "gpu-pool",
                 2, null, List.of(), null,
-                TestWorkerInfoBuilder.canonicalInventory());
+                TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("w-pool"));
         manager.registerWorker(registered);
 
         manager.onHeartbeat("w-pool", new WorkerManager.HeartbeatData(
@@ -47,7 +48,8 @@ class WorkerManagerPoolIdPreservationTest {
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, null,
                 2, null, List.of(), null,
-                TestWorkerInfoBuilder.canonicalInventory());
+                TestWorkerInfoBuilder.canonicalInventory(),
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.executionIdentity("w-no-pool"));
         manager.registerWorker(registered);
 
         manager.onHeartbeat("w-no-pool", new WorkerManager.HeartbeatData(

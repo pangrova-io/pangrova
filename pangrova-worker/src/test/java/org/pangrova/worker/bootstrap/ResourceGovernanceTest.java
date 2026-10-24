@@ -208,7 +208,7 @@ class ResourceGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null, null, null, null);
+                null, null, null, null, org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());
         workerBootstrap = new WorkerBootstrap(TestShuffleServiceConfig.config(config));
         workerBootstrap.setCatalogResourceResolver(new TestCatalogResourceResolver(
                 (taskId) -> {

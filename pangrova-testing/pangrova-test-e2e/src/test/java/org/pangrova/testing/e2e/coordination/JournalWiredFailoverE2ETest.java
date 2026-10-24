@@ -282,7 +282,10 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
                     0.0, 0, 4L * 1024 * 1024 * 1024,
                     Instant.now(), 0.0, null,
                     2, null, List.of(), null,
-                    e2eNativeCapabilityInventory()));
+                    e2eNativeCapabilityInventory(),
+                    new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity(
+                            "00000000-0000-0000-0000-0000000000d1",
+                            "00000000-0000-0000-0000-0000000000e1")));
 
             CoordinatorTaskTracker recoveredTracker = new CoordinatorTaskTracker();
             QueryManager recoveredManager = org.pangrova.testing.e2e.RecoveryQueryManagerFixture.create(recoveredTracker);

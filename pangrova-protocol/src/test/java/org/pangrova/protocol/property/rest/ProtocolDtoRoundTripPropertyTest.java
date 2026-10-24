@@ -484,7 +484,7 @@ class ProtocolDtoRoundTripPropertyTest {
                         tuple.transportPort, tuple.resultServerPort,
                         2, rackId, dataLocality, null,
                         org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture
-                                .encodedInventory())));
+                                .encodedInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"))));
     }
 
     // ========== Intermediate tuple records for flatMap ==========

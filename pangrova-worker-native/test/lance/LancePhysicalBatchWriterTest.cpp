@@ -1,3 +1,4 @@
+#include "CanonicalTestAttempt.h"
 #include "LancePhysicalWriteFixture.h"
 
 #include <memory>
@@ -296,6 +297,7 @@ TEST_F(LancePhysicalCopyMetricsTest, ActualReadAndWriteCopiesSumInTaskReportAfte
   split.storage_binding = allocation.storageBinding;
   split.file_scan_detail = detail_bytes;
   task_config.splits.push_back(std::move(split));
+  pangrova::test::bindTestAttempt(task_config);
   pangrova::executor::TaskExecutor executor(task_config);
   executor.metricsCollector().observeColumnarConversionCopiedBytes(written);
   executor.start();

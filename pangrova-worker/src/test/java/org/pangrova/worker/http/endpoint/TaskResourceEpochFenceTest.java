@@ -61,7 +61,7 @@ class TaskResourceEpochFenceTest {
                 var resource = resource(fixture.manager(), runtime)) {
             TaskManager manager = fixture.manager();
             manager.requireControlEpochHandshake();
-            try (Response response = seal(resource, 1L)) {
+            try (Response response = seal(resource, runtime, 1L)) {
                 assertThat(response.getStatus()).isEqualTo(503);
                 assertThat(
                                 ((org.pangrova.protocol.rest.error.ErrorDetail)
@@ -81,7 +81,7 @@ class TaskResourceEpochFenceTest {
             TaskManager manager = fixture.manager();
             manager.requireControlEpochHandshake();
             manager.observeControlEpoch(7);
-            try (Response response = seal(resource, 8L)) {
+            try (Response response = seal(resource, runtime, 8L)) {
                 assertThat(response.getStatus()).isEqualTo(425);
                 assertThat(
                                 ((org.pangrova.protocol.rest.error.ErrorDetail)
@@ -93,10 +93,10 @@ class TaskResourceEpochFenceTest {
         }
     }
 
-    private static Response seal(TaskResource resource, long epoch) {
+    private static Response seal(TaskResource resource, ActualNativeTaskFixture runtime, long epoch) {
         var exact =
                 org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(
-                        request(epoch).taskRequest());
+                        runtime.bindWorker(request(epoch).taskRequest()));
         return resource.cancelTask(exact.getAttempt().getTaskId(), exact.toByteArray());
     }
 

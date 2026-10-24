@@ -28,14 +28,15 @@ public record WorkerRegistrationRequest(
         @JsonProperty("data_locality") List<String> dataLocality,
         @JsonProperty("shuffle_mode") String shuffleMode,
         @JsonProperty(WorkerRegistrationRequest.INVENTORY_PROPERTY) String capabilityInventory,
-        @JsonProperty("copy_task_tls_port") int copyTaskTlsPort) {
+        @JsonProperty("copy_task_tls_port") int copyTaskTlsPort,
+        @JsonProperty("worker_execution_identity") WorkerExecutionIdentity workerExecutionIdentity) {
 
     public WorkerRegistrationRequest(String workerId, String httpHost, int httpPort,
                                      int transportPort, int resultServerPort, int protocolVersion,
                                      String rackId, List<String> dataLocality, String shuffleMode,
-                                     String capabilityInventory) {
+                                     String capabilityInventory, WorkerExecutionIdentity workerExecutionIdentity) {
         this(workerId, httpHost, httpPort, transportPort, resultServerPort, protocolVersion,
-                rackId, dataLocality, shuffleMode, capabilityInventory, 0);
+                rackId, dataLocality, shuffleMode, capabilityInventory, 0, workerExecutionIdentity);
     }
 
     public static final String INVENTORY_PROPERTY = "capability_inventory";
@@ -50,6 +51,7 @@ public record WorkerRegistrationRequest(
     public static final int MAX_BODY_BYTES = CapabilityInventoryCodec.MAX_ENCODED_BYTES + 64 * 1024;
 
     public WorkerRegistrationRequest {
+        java.util.Objects.requireNonNull(workerExecutionIdentity, "workerExecutionIdentity");
         requireNonBlank(workerId, "workerId");
         requireNonBlank(httpHost, "httpHost");
         requireNonNegative(httpPort, "httpPort");

@@ -542,6 +542,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
         var identity = workerIdentities.get(id);
         return """
                 worker:
+                  admission:
+                    state-directory: "%s"
                   id: "%s"
                   host: 0.0.0.0
                   advertised-host: "%s"
@@ -578,7 +580,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                       enabled: false
                   cdc:
                     enabled: false
-                """.formatted(id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
+                """.formatted(workspace.resolve("admission-" + id), id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
                 identity.certificateChain(), identity.privateKey(), tls.root(),
                 advertisedAddress.getHostAddress(),
                 spill, shuffleSpill) + aiWorkerYaml();

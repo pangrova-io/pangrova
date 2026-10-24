@@ -78,7 +78,7 @@ public final class WorkerTaskBootstrap {
                         memoryDeps,
                         transportDeps,
                         retainedOrchestrationExecutor(config, ownership));
-        TaskManager tm = new TaskManager(deps, config.workerId(), 0.0);
+        TaskManager tm = new TaskManager(deps, config.workerId(), 0.0, refs.admissionIncarnation());
         ownership.publish(tm);
         refs.setTaskManager(tm);
         configureTaskManager(config, refs, tm, ownership);
