@@ -9,12 +9,14 @@
 #include <roaring.hh>
 #include <cstdio>
 #include <fstream>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unistd.h>
 #include <vector>
 
 #include "delete/io/DeleteFileReader.h"
+#include "jni/RuntimeInitializer.h"
 
 namespace pangrova::delete_filter::test {
 namespace {
@@ -100,6 +102,17 @@ TEST(DeleteFileReaderTest, ReadPositionsNonExistentFileReturnsEmpty) {
       DeleteFileReader::readPositions("/nonexistent.parquet", "data.parquet"),
       std::runtime_error);
 #endif
+}
+
+// Actual Iceberg SDK Parquet.writeDeletes().buildEqualityWriter() output from
+// TableControlLifecycleE2ETest: optional BIGINT id=41, field ID 1. Its encoded
+// child used to be dereferenced as a FlatVector and crashed the worker JVM.
+TEST(DeleteFileReaderTest, EncodedSdkEqualityDeleteDoesNotRequireFlatVectors) {
+  pangrova::jni::initializeVeloxRuntime(pangrova::jni::NativeRuntimeConfig{});
+  const auto file = std::filesystem::path(__FILE__).parent_path()
+      / "fixtures/iceberg-equality-id-41.parquet";
+  EXPECT_EQ(DeleteFileReader::readEqualityKeys(file.string(), {"id"}),
+            std::unordered_set<std::string>({"41"}));
 }
 
 // --- Equality Delete edge cases ---

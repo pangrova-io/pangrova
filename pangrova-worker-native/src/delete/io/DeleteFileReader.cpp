@@ -110,14 +110,23 @@ std::vector<int64_t> DeleteFileReader::readPositions(
 
     auto rowVector =
         std::dynamic_pointer_cast<facebook::velox::RowVector>(result);
-    if (!rowVector) break;
+    if (!rowVector) {
+      throw std::runtime_error("Delete reader returned a non-row batch: " + deleteFilePath);
+    }
+    // Parquet may return lazy, constant or dictionary children. Typed flat
+    // access is valid only after materializing those encodings.
+    for (auto& child : rowVector->children()) {
+      facebook::velox::BaseVector::flattenVector(child);
+    }
 
     auto* pathVector =
         rowVector->childAt(0)->asFlatVector<facebook::velox::StringView>();
     auto* posVector =
         rowVector->childAt(1)->asFlatVector<int64_t>();
 
-    if (!pathVector || !posVector) continue;
+    if (!pathVector || !posVector) {
+      throw std::runtime_error("Invalid position delete schema: " + deleteFilePath);
+    }
 
     for (facebook::velox::vector_size_t i = 0;
          i < rowVector->size(); ++i) {
@@ -230,7 +239,14 @@ std::unordered_set<std::string> DeleteFileReader::readEqualityKeys(
 
     auto rowVector =
         std::dynamic_pointer_cast<facebook::velox::RowVector>(result);
-    if (!rowVector) break;
+    if (!rowVector) {
+      throw std::runtime_error("Delete reader returned a non-row batch: " + deleteFilePath);
+    }
+    // Parquet may return lazy, constant or dictionary children. Typed flat
+    // access is valid only after materializing those encodings.
+    for (auto& child : rowVector->children()) {
+      facebook::velox::BaseVector::flattenVector(child);
+    }
 
     for (facebook::velox::vector_size_t row = 0;
          row < rowVector->size(); ++row) {

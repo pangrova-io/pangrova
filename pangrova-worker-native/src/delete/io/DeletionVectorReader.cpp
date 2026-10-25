@@ -1,6 +1,12 @@
 #include "delete/io/DeletionVectorReader.h"
 
 #include <cstring>
+#include <charconv>
+#include <optional>
+#include <limits>
+#include <zlib.h>
+
+#include "split/PathUtils.h"
 #include <fstream>
 #include <stdexcept>
 
@@ -56,9 +62,11 @@ std::string DeletionVectorReader::readFileBytes(const std::string& filePath) {
   // Fall back to local ifstream for paths without a registered scheme
   // (e.g., plain local paths in unit tests before filesystem registration).
   try {
-    auto fs = facebook::velox::filesystems::getFileSystem(filePath, nullptr);
+    auto fs = facebook::velox::filesystems::getFileSystem(
+        split::normalizeToS3Uri(split::stripFilePrefix(filePath)), nullptr);
     if (fs) {
-      auto readFile = fs->openFileForRead(filePath);
+      auto readFile = fs->openFileForRead(
+          split::normalizeToS3Uri(split::stripFilePrefix(filePath)));
       auto fileSize = readFile->size();
       if (fileSize == 0) {
         throw std::runtime_error(
@@ -95,152 +103,136 @@ void DeletionVectorReader::validatePuffinMagic(
           PuffinConstants::kMagicSize) != 0) {
     throw std::runtime_error(
         "Invalid Puffin magic bytes at " + context +
-        ": expected PUF1");
+        ": expected PFA1");
   }
 }
 
-std::pair<int64_t, int64_t> DeletionVectorReader::parsePuffinFooter(
-    const std::string& fileContent) {
-  // Puffin file layout:
-  //   [magic(4)] [blob1_data] [blob2_data] ... [footer_payload] [footer_fixed(12)]
-  //
-  // Footer fixed (last 12 bytes):
-  //   footer_payload_size (4 bytes, little-endian)
-  //   flags (4 bytes)
-  //   magic (4 bytes, "PUF1")
-  //
-  // Footer payload is JSON: { "blobs": [{"type":..., "offset":N, "length":N}, ...] }
-
-  auto fileSize = fileContent.size();
-  auto minSize = PuffinConstants::kMagicSize + PuffinConstants::kFooterFixedSize;
-  if (fileSize < minSize) {
-    throw std::runtime_error(
-        "Puffin file too small: size=" + std::to_string(fileSize) +
-        ", minimum=" + std::to_string(minSize));
+DeletionVectorReader::BlobLocation DeletionVectorReader::parsePuffinFooter(
+    const std::string& content, const std::string& dataFilePath) {
+  // Puffin: header magic, blobs, footer magic, JSON, size/flags/end magic.
+  const auto size = content.size();
+  if (size < 2 * PuffinConstants::kMagicSize + PuffinConstants::kFooterFixedSize) {
+    throw std::runtime_error("Puffin file is too small");
   }
-
-  // Validate trailing magic.
-  validatePuffinMagic(
-      fileContent, fileSize - PuffinConstants::kMagicSize, "footer-end");
-
-  // Read footer_payload_size from footer fixed area.
-  auto footerFixedStart = fileSize - PuffinConstants::kFooterFixedSize;
-  auto footerPayloadSize = decodeInt32LE(
-      fileContent.data() + footerFixedStart);
-
-  if (footerPayloadSize < 0 ||
-      static_cast<size_t>(footerPayloadSize) >
-          fileSize - PuffinConstants::kMagicSize - PuffinConstants::kFooterFixedSize) {
-    throw std::runtime_error(
-        "Invalid Puffin footer payload size: " +
-        std::to_string(footerPayloadSize));
+  validatePuffinMagic(content, size - 4, "footer-end");
+  const auto fixed = size - PuffinConstants::kFooterFixedSize;
+  const auto payloadSize = decodeInt32LE(content.data() + fixed);
+  if (payloadSize <= 0 || static_cast<size_t>(payloadSize) > fixed - 8) {
+    throw std::runtime_error("Invalid Puffin footer size");
   }
-
-  // P3-BUG-21: Parse footer payload JSON to extract blob offset/length
-  // instead of arithmetic assumption that only works for single-blob files.
-  // For multi-blob Puffin files (e.g., Iceberg v3 with column stats + DV),
-  // the arithmetic approach computes incorrect blob boundaries.
-  if (footerPayloadSize > 0) {
-    auto footerPayloadStart = footerFixedStart - footerPayloadSize;
-    std::string footerJson = fileContent.substr(
-        footerPayloadStart, footerPayloadSize);
-
-    // F-NATIVE-WRITE-10: Use folly::parseJson instead of hand-written
-    // JSON extraction. More robust against whitespace/formatting variations.
-    try {
-      auto parsed = folly::parseJson(footerJson);
-      if (parsed.isObject() && parsed.count("blobs")) {
-        const auto& blobs = parsed["blobs"];
-        if (blobs.isArray() && !blobs.empty()) {
-          // F-NATIVE-WRITE-06: Select the DV blob by type "deletion-vector-v1"
-          // instead of blindly picking the last blob. For multi-blob Puffin
-          // files, the last blob may be column stats, not the DV.
-          const folly::dynamic* dvBlob = nullptr;
-          for (size_t i = 0; i < blobs.size(); ++i) {
-            const auto& b = blobs[i];
-            if (b.isObject() && b.count("type")) {
-              auto blobType = b["type"].asString();
-              if (blobType == "deletion-vector-v1" ||
-                  blobType == "apache-datasketches-theta-v1") {
-                dvBlob = &b;
-                break;
-              }
-            }
-          }
-          // Fallback: if no typed DV blob found, use the last blob.
-          if (!dvBlob) {
-            dvBlob = &blobs[blobs.size() - 1];
-          }
-          if (dvBlob->isObject() &&
-              dvBlob->count("offset") && dvBlob->count("length")) {
-            auto blobOffset = (*dvBlob)["offset"].asInt();
-            auto blobLength = (*dvBlob)["length"].asInt();
-            if (blobOffset >= 0 && blobLength > 0) {
-              return {blobOffset, blobLength};
-            }
-          }
-        }
-      }
-    } catch (const std::exception&) {
-      // Fall through to single-blob arithmetic below.
+  if (decodeInt32LE(content.data() + fixed + 4) != 0) {
+    throw std::runtime_error("Compressed or unknown Puffin footer flags are unsupported");
+  }
+  const auto payloadStart = fixed - static_cast<size_t>(payloadSize);
+  const auto blobEnd = payloadStart - 4;
+  validatePuffinMagic(content, blobEnd, "footer-start");
+  const auto footer = folly::parseJson(content.substr(payloadStart, payloadSize));
+  if (!footer.isObject() || !footer.count("blobs") || !footer["blobs"].isArray()) {
+    throw std::runtime_error("Puffin footer has no blob inventory");
+  }
+  std::optional<BlobLocation> selected;
+  for (const auto& blob : footer["blobs"]) {
+    if (!blob.isObject() || !blob.count("type") ||
+        blob["type"].asString() != "deletion-vector-v1") {
+      continue;
     }
+    if (!blob.count("properties") || !blob["properties"].isObject()) {
+      throw std::runtime_error("Deletion vector lacks data-file properties");
+    }
+    const auto& properties = blob["properties"];
+    if (!properties.count("referenced-data-file") || !properties.count("cardinality")) {
+      throw std::runtime_error("Deletion vector lacks file identity or cardinality");
+    }
+    const auto& referenced = properties["referenced-data-file"].asString();
+    if (referenced.empty()) {
+      throw std::runtime_error("Deletion vector has an empty data-file identity");
+    }
+    if (!dataFilePath.empty() && referenced != dataFilePath) {
+      continue;
+    }
+    if (selected) {
+      throw std::runtime_error("Ambiguous deletion vector for data file: " + dataFilePath);
+    }
+    if (blob.count("compression-codec") && !blob["compression-codec"].isNull()) {
+      throw std::runtime_error("Compressed deletion vector blobs are unsupported");
+    }
+    const auto offset = blob["offset"].asInt();
+    const auto length = blob["length"].asInt();
+    if (offset < 4 || length < 20 || static_cast<uint64_t>(offset) > blobEnd ||
+        static_cast<uint64_t>(length) > blobEnd - static_cast<uint64_t>(offset)) {
+      throw std::runtime_error("Deletion vector blob lies outside the Puffin data region");
+    }
+    uint64_t cardinality = 0;
+    const auto& text = properties["cardinality"].asString();
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), cardinality);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
+      throw std::runtime_error("Invalid deletion vector cardinality");
+    }
+    selected = BlobLocation{offset, length, cardinality};
   }
-
-  // Single-blob arithmetic: when footer payload is empty (no JSON metadata),
-  // the file contains exactly one blob between header magic and footer.
-  auto blobOffset = static_cast<int64_t>(PuffinConstants::kMagicSize);
-  auto blobLength = static_cast<int64_t>(footerFixedStart) -
-      footerPayloadSize - blobOffset;
-
-  if (blobLength <= 0) {
-    throw std::runtime_error(
-        "Puffin file contains no blob data: computed blob_length=" +
-        std::to_string(blobLength));
+  if (!selected) {
+    throw std::runtime_error("No deletion vector for data file: " + dataFilePath);
   }
-
-  return {blobOffset, blobLength};
+  return *selected;
 }
 
-roaring::Roaring DeletionVectorReader::readIcebergDV(
-    const std::string& filePath) {
-  auto fileContent = readFileBytes(filePath);
-
-  // Validate header magic.
-  validatePuffinMagic(fileContent, 0, "header");
-
-  // Parse footer to locate the first blob.
-  auto [blobOffset, blobLength] = parsePuffinFooter(fileContent);
-
-  if (static_cast<size_t>(blobOffset + blobLength) > fileContent.size()) {
-    throw std::runtime_error(
-        "Puffin blob extends beyond file: offset=" +
-        std::to_string(blobOffset) + ", length=" +
-        std::to_string(blobLength) + ", file_size=" +
-        std::to_string(fileContent.size()));
+roaring::Roaring64Map DeletionVectorReader::readIcebergDV(
+    const std::string& filePath, const std::string& dataFilePath) {
+  const auto content = readFileBytes(filePath);
+  validatePuffinMagic(content, 0, "header");
+  const auto blob = parsePuffinFooter(content, dataFilePath);
+  const auto* bytes = reinterpret_cast<const unsigned char*>(content.data() + blob.offset);
+  const auto readBe32 = [](const unsigned char* p) {
+    return (uint32_t{p[0]} << 24) | (uint32_t{p[1]} << 16) |
+        (uint32_t{p[2]} << 8) | uint32_t{p[3]};
+  };
+  const auto readLe64 = [](const unsigned char* p) {
+    uint64_t result = 0;
+    for (unsigned i = 0; i < 8; ++i) result |= uint64_t{p[i]} << (8 * i);
+    return result;
+  };
+  // Iceberg BitmapPositionDeleteIndex: BE length, LE magic + portable
+  // 64-bit Roaring map, BE CRC-32 (IEEE, not CRC32C).
+  const auto length = readBe32(bytes);
+  if (length != static_cast<uint64_t>(blob.length) - 8 || length < 12) {
+    throw std::runtime_error("Invalid deletion vector payload length");
   }
-
-  const char* blobData = fileContent.data() + blobOffset;
-  size_t blobLen = static_cast<size_t>(blobLength);
-
-  // F-NATIVE-WRITE-05: Parse deletion-vector-v1 framing.
-  // Format: [4-byte magic 0xD1D33964][serialized Roaring bitmap][4-byte CRC32C]
-  // If the blob starts with the DV magic, strip the framing; otherwise
-  // fall back to raw Roaring deserialization (for older/non-standard blobs).
-  static constexpr uint32_t kDvMagic = 0xD1D33964;
-  if (blobLen >= 8) {
-    uint32_t magic = 0;
-    std::memcpy(&magic, blobData, sizeof(magic));
-    // DV magic is stored in little-endian.
-    if (magic == kDvMagic) {
-      // Strip 4-byte magic prefix and 4-byte CRC32C suffix.
-      const char* bitmapStart = blobData + 4;
-      size_t bitmapLen = blobLen - 8; // subtract magic(4) + crc(4)
-      return roaring::Roaring::readSafe(bitmapStart, bitmapLen);
+  if (static_cast<uint32_t>(decodeInt32LE(reinterpret_cast<const char*>(bytes + 4))) != 1681511377U) {
+    throw std::runtime_error("Invalid deletion vector magic");
+  }
+  const auto crc = ::crc32(0, bytes + 4, length);
+  if (crc != readBe32(bytes + 4 + length)) {
+    throw std::runtime_error("Invalid deletion vector CRC-32");
+  }
+  const auto* bitmap = bytes + 8;
+  const size_t bitmapLength = length - 4;
+  const auto count = readLe64(bitmap);
+  if (count > static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) ||
+      count > (bitmapLength - 8) / 12) {
+    throw std::runtime_error("Invalid deletion vector bitmap count");
+  }
+  size_t cursor = 8;
+  int64_t previousKey = -1;
+  for (uint64_t i = 0; i < count; ++i) {
+    if (bitmapLength - cursor < 4) throw std::runtime_error("Truncated deletion vector key");
+    const auto key = static_cast<uint32_t>(decodeInt32LE(
+        reinterpret_cast<const char*>(bitmap + cursor)));
+    if (key >= static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) || key <= previousKey) {
+      throw std::runtime_error("Invalid or unordered deletion vector key");
     }
+    previousKey = key;
+    cursor += 4;
+    const auto consumed = roaring::api::roaring_bitmap_portable_deserialize_size(
+        reinterpret_cast<const char*>(bitmap + cursor), bitmapLength - cursor);
+    if (consumed == 0) throw std::runtime_error("Invalid deletion vector bitmap");
+    cursor += consumed;
   }
-
-  // Fallback: raw Roaring bitmap (no framing).
-  return roaring::Roaring::readSafe(blobData, blobLen);
+  if (cursor != bitmapLength) throw std::runtime_error("Trailing deletion vector bitmap bytes");
+  auto result = roaring::Roaring64Map::readSafe(reinterpret_cast<const char*>(bitmap), bitmapLength);
+  if (result.cardinality() != blob.cardinality) {
+    throw std::runtime_error("Deletion vector cardinality does not match metadata");
+  }
+  return result;
 }
 
 roaring::Roaring DeletionVectorReader::readRawRoaringBitmap(

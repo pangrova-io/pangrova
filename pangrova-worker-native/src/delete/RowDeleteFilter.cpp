@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <stdexcept>
 
 #include "velox/type/Type.h"
 #include "velox/vector/FlatVector.h"
@@ -60,8 +61,18 @@ void EqualityDeleteFilter::apply(
   col_indices.reserve(columns_.size());
   for (const auto& col_name : columns_) {
     auto idx = row_type.getChildIdxIfExists(col_name);
-    if (!idx.has_value()) return;  // Column not found — skip filter.
+    if (!idx.has_value()) {
+      throw std::runtime_error("Missing equality delete column: " + col_name);
+    }
     col_indices.push_back(idx.value());
+  }
+
+  std::vector<facebook::velox::VectorPtr> decoded_columns;
+  decoded_columns.reserve(col_indices.size());
+  for (auto index : col_indices) {
+    auto child = batch.childAt(index);
+    facebook::velox::BaseVector::flattenVector(child);
+    decoded_columns.push_back(std::move(child));
   }
 
   // Pre-allocate key buffer outside the row loop to avoid per-row allocation.
@@ -76,7 +87,7 @@ void EqualityDeleteFilter::apply(
     key.clear();
     for (size_t c = 0; c < col_indices.size(); ++c) {
       if (c > 0) key.push_back('\0');  // null separator
-      auto child = batch.childAt(col_indices[c]);
+      const auto& child = decoded_columns[c];
       if (child->isNullAt(i)) {
         key.append("__NULL__");
       } else {

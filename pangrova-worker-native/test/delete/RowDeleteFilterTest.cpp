@@ -258,11 +258,17 @@ TEST_F(RowDeleteFilterTest, EqualityDeleteMissingColumn) {
   auto batch = makeIdNameBatch({1, 2}, {"Alice", "Bob"});
   SelectivityVector rows(2, true);
 
-  filter.apply(*batch, rows, /*row_offset=*/0);
+  EXPECT_THROW(filter.apply(*batch, rows, /*row_offset=*/0), std::runtime_error);
+}
 
-  // Missing column → skip filter, all rows kept.
-  EXPECT_TRUE(rows.isValid(0));
-  EXPECT_TRUE(rows.isValid(1));
+TEST_F(RowDeleteFilterTest, EqualityDeleteAcceptsConstantEncodedColumns) {
+  auto batch = makeIdNameBatch({1, 2}, {"Alice", "Bob"});
+  batch->childAt(0) = BaseVector::wrapInConstant(2, 0, batch->childAt(0));
+  EqualityDeleteFilter filter({"id"}, {"1"});
+  SelectivityVector rows(2, true);
+  filter.apply(*batch, rows, 0);
+  EXPECT_FALSE(rows.isValid(0));
+  EXPECT_FALSE(rows.isValid(1));
 }
 
 TEST_F(RowDeleteFilterTest, EqualityDeleteAllRowsMatch) {

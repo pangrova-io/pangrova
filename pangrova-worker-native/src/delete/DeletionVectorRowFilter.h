@@ -6,6 +6,7 @@
 #pragma once
 
 #include <roaring.hh>
+#include <roaring64map.hh>
 
 #include "delete/RowDeleteFilter.h"
 
@@ -19,6 +20,7 @@ class DeletionVectorRowFilter final : public RowDeleteFilter {
  public:
   // Constructs the filter by taking ownership of the bitmap.
   explicit DeletionVectorRowFilter(roaring::Roaring bitmap);
+  explicit DeletionVectorRowFilter(roaring::Roaring64Map bitmap);
 
   // Checks each row in [row_offset, row_offset + batch.size()) against
   // the bitmap. Rows whose global position is present in the bitmap
@@ -29,7 +31,7 @@ class DeletionVectorRowFilter final : public RowDeleteFilter {
       int64_t row_offset) const override;
 
  private:
-  roaring::Roaring bitmap_;
+  roaring::Roaring64Map bitmap_;
 };
 
 }  // namespace pangrova::delete_filter

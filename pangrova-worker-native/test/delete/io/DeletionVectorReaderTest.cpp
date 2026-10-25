@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <unistd.h>
 
@@ -43,38 +45,12 @@ class TempFile {
   std::string path_;
 };
 
-// Helper: encode a 4-byte little-endian integer.
-std::string encodeInt32LE(int32_t val) {
-  std::string result(4, '\0');
-  result[0] = static_cast<char>(val & 0xFF);
-  result[1] = static_cast<char>((val >> 8) & 0xFF);
-  result[2] = static_cast<char>((val >> 16) & 0xFF);
-  result[3] = static_cast<char>((val >> 24) & 0xFF);
-  return result;
-}
-
-// Helper: build a minimal Puffin file containing a Roaring Bitmap blob.
-// Layout: [magic(4)] [blob_data] [footer_payload] [footer_fixed(12)]
-// Footer fixed: [footer_payload_size(4)] [flags(4)] [magic(4)]
-std::string buildPuffinFile(const roaring::Roaring& bitmap) {
-  // Serialize the bitmap.
-  auto bitmapSize = bitmap.getSizeInBytes();
-  std::string blobData(bitmapSize, '\0');
-  bitmap.write(blobData.data());
-
-  // Footer payload (minimal JSON — not parsed by our reader, but
-  // included for format completeness).
-  std::string footerPayload = R"({"blobs":[]})";
-
-  // Build the file.
-  std::string file;
-  file.append(PuffinConstants::kMagic, PuffinConstants::kMagicSize);  // header magic
-  file.append(blobData);                                               // blob data
-  file.append(footerPayload);                                          // footer payload
-  file.append(encodeInt32LE(static_cast<int32_t>(footerPayload.size()))); // footer_payload_size
-  file.append(encodeInt32LE(0));                                       // flags
-  file.append(PuffinConstants::kMagic, PuffinConstants::kMagicSize);  // footer magic
-  return file;
+std::string sdkPuffin(const std::string& name) {
+  const auto path = std::filesystem::path(__FILE__).parent_path().parent_path()
+      / ("fixtures/iceberg-sdk-" + name + "-dv.puffin");
+  std::ifstream input(path, std::ios::binary);
+  if (!input) throw std::runtime_error("Missing SDK fixture: " + path.string());
+  return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 // Helper: build a raw Paimon DV file (just serialized Roaring Bitmap).
@@ -83,6 +59,54 @@ std::string buildPaimonDVFile(const roaring::Roaring& bitmap) {
   std::string data(bitmapSize, '\0');
   bitmap.write(data.data());
   return data;
+}
+
+// Actual pinned Iceberg BaseDVFileWriter output, including a 64-bit position.
+TEST(DeletionVectorReaderTest, ReadsSdkDeletionVectorContainer) {
+  const auto path = std::filesystem::path(__FILE__).parent_path().parent_path()
+      / "fixtures/iceberg-sdk-multiple-dv.puffin";
+  const auto result = DeletionVectorReader::readIcebergDV(path.string(), "s3://fixture/a.parquet");
+  EXPECT_EQ(result.cardinality(), 1);
+  EXPECT_TRUE(result.contains(1U));
+}
+
+TEST(DeletionVectorReaderTest, SelectsSdkBlobByDataFileAndPreserves64BitPositions) {
+  TempFile fixture(sdkPuffin("multiple"));
+  const auto bitmap = DeletionVectorReader::readIcebergDV(fixture.path(), "s3://fixture/b.parquet");
+  EXPECT_EQ(bitmap.cardinality(), 2);
+  EXPECT_TRUE(bitmap.contains(uint64_t{2}));
+  EXPECT_TRUE(bitmap.contains((uint64_t{1} << 32) + 7));
+  EXPECT_FALSE(bitmap.contains(uint64_t{1}));
+  EXPECT_FALSE(bitmap.contains(uint64_t{7}));
+  EXPECT_THROW(DeletionVectorReader::readIcebergDV(fixture.path()), std::runtime_error);
+  EXPECT_THROW(DeletionVectorReader::readIcebergDV(fixture.path(), "s3://fixture/other.parquet"),
+               std::runtime_error);
+}
+
+TEST(DeletionVectorReaderTest, RejectsSdkPayloadCorruption) {
+  auto bytes = sdkPuffin("multiple");
+  // The SDK receipt fixes the first blob at offset 4, length 42. Flip its
+  // CRC, leaving its bitmap bytes and footer intact.
+  bytes.at(45) ^= 1;
+  TempFile fixture(bytes);
+  EXPECT_THROW(DeletionVectorReader::readIcebergDV(fixture.path(), "s3://fixture/a.parquet"),
+               std::runtime_error);
+}
+
+TEST(DeletionVectorReaderTest, RejectsSdkLengthCorruption) {
+  auto bytes = sdkPuffin("multiple");
+  bytes.at(7) ^= 1;
+  TempFile fixture(bytes);
+  EXPECT_THROW(DeletionVectorReader::readIcebergDV(fixture.path(), "s3://fixture/a.parquet"),
+               std::runtime_error);
+}
+
+TEST(DeletionVectorReaderTest, RejectsUnknownFooterFlags) {
+  auto bytes = sdkPuffin("multiple");
+  bytes.at(bytes.size() - 8) = 2;
+  TempFile fixture(bytes);
+  EXPECT_THROW(DeletionVectorReader::readIcebergDV(fixture.path(), "s3://fixture/a.parquet"),
+               std::runtime_error);
 }
 
 // --- Iceberg Puffin format tests ---
@@ -94,23 +118,23 @@ TEST(DeletionVectorReaderTest, ReadIcebergDV_BasicBitmap) {
   expected.add(100);
   expected.add(9999);
 
-  auto puffinContent = buildPuffinFile(expected);
+  auto puffinContent = sdkPuffin("basic");
   TempFile tmpFile(puffinContent);
 
   auto result = DeletionVectorReader::readIcebergDV(tmpFile.path());
 
   EXPECT_EQ(result.cardinality(), 4);
-  EXPECT_TRUE(result.contains(1));
-  EXPECT_TRUE(result.contains(5));
-  EXPECT_TRUE(result.contains(100));
-  EXPECT_TRUE(result.contains(9999));
-  EXPECT_FALSE(result.contains(0));
-  EXPECT_FALSE(result.contains(2));
+  EXPECT_TRUE(result.contains(1U));
+  EXPECT_TRUE(result.contains(5U));
+  EXPECT_TRUE(result.contains(100U));
+  EXPECT_TRUE(result.contains(9999U));
+  EXPECT_FALSE(result.contains(0U));
+  EXPECT_FALSE(result.contains(2U));
 }
 
 TEST(DeletionVectorReaderTest, ReadIcebergDV_EmptyBitmap) {
   roaring::Roaring expected;
-  auto puffinContent = buildPuffinFile(expected);
+  auto puffinContent = sdkPuffin("empty");
   TempFile tmpFile(puffinContent);
 
   auto result = DeletionVectorReader::readIcebergDV(tmpFile.path());
@@ -125,13 +149,13 @@ TEST(DeletionVectorReaderTest, ReadIcebergDV_LargeBitmap) {
     expected.add(i);
   }
 
-  auto puffinContent = buildPuffinFile(expected);
+  auto puffinContent = sdkPuffin("large");
   TempFile tmpFile(puffinContent);
 
   auto result = DeletionVectorReader::readIcebergDV(tmpFile.path());
 
   EXPECT_EQ(result.cardinality(), expected.cardinality());
-  EXPECT_TRUE(result == expected);
+  EXPECT_TRUE(result == roaring::Roaring64Map(expected));
 }
 
 TEST(DeletionVectorReaderTest, ReadIcebergDV_InvalidMagic) {
@@ -173,11 +197,11 @@ TEST(DeletionVectorReaderTest, ReadPaimonDV_BasicBitmap) {
   auto result = DeletionVectorReader::readRawRoaringBitmap(tmpFile.path());
 
   EXPECT_EQ(result.cardinality(), 4);
-  EXPECT_TRUE(result.contains(0));
-  EXPECT_TRUE(result.contains(7));
-  EXPECT_TRUE(result.contains(42));
-  EXPECT_TRUE(result.contains(1000));
-  EXPECT_FALSE(result.contains(1));
+  EXPECT_TRUE(result.contains(0U));
+  EXPECT_TRUE(result.contains(7U));
+  EXPECT_TRUE(result.contains(42U));
+  EXPECT_TRUE(result.contains(1000U));
+  EXPECT_FALSE(result.contains(1U));
 }
 
 TEST(DeletionVectorReaderTest, ReadPaimonDV_EmptyBitmap) {
@@ -223,7 +247,7 @@ TEST(DeletionVectorReaderTest, IcebergAndPaimonProduceSameBitmap) {
   expected.add(500);
   expected.add(65535);
 
-  auto puffinContent = buildPuffinFile(expected);
+  auto puffinContent = sdkPuffin("cross");
   TempFile icebergFile(puffinContent);
 
   auto rawContent = buildPaimonDVFile(expected);
@@ -232,7 +256,7 @@ TEST(DeletionVectorReaderTest, IcebergAndPaimonProduceSameBitmap) {
   auto icebergResult = DeletionVectorReader::readIcebergDV(icebergFile.path());
   auto paimonResult = DeletionVectorReader::readRawRoaringBitmap(paimonFile.path());
 
-  EXPECT_TRUE(icebergResult == paimonResult);
+  EXPECT_TRUE(icebergResult == roaring::Roaring64Map(paimonResult));
   EXPECT_EQ(icebergResult.cardinality(), expected.cardinality());
 }
 

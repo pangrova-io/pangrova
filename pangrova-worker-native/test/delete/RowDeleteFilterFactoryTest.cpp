@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <unistd.h>
 
@@ -52,34 +54,12 @@ class TempFile {
   std::string path_;
 };
 
-// Helper: encode a 4-byte little-endian integer.
-std::string encodeInt32LE(int32_t val) {
-  std::string result(4, '\0');
-  result[0] = static_cast<char>(val & 0xFF);
-  result[1] = static_cast<char>((val >> 8) & 0xFF);
-  result[2] = static_cast<char>((val >> 16) & 0xFF);
-  result[3] = static_cast<char>((val >> 24) & 0xFF);
-  return result;
-}
-
-// Helper: build a minimal Puffin file containing a Roaring Bitmap blob.
-std::string buildPuffinFile(const roaring::Roaring& bitmap) {
-  auto bitmapSize = bitmap.getSizeInBytes();
-  std::string blobData(bitmapSize, '\0');
-  bitmap.write(blobData.data());
-
-  std::string footerPayload = R"({"blobs":[]})";
-
-  std::string file;
-  file.append(
-      io::PuffinConstants::kMagic, io::PuffinConstants::kMagicSize);
-  file.append(blobData);
-  file.append(footerPayload);
-  file.append(encodeInt32LE(static_cast<int32_t>(footerPayload.size())));
-  file.append(encodeInt32LE(0));
-  file.append(
-      io::PuffinConstants::kMagic, io::PuffinConstants::kMagicSize);
-  return file;
+std::string sdkPuffin(const std::string& name) {
+  const auto path = std::filesystem::path(__FILE__).parent_path()
+      / ("fixtures/iceberg-sdk-" + name + "-dv.puffin");
+  std::ifstream input(path, std::ios::binary);
+  if (!input) throw std::runtime_error("Missing SDK fixture: " + path.string());
+  return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
 // Helper: create a simple RowVector with a single int32 column.
@@ -119,6 +99,20 @@ TEST_F(RowDeleteFilterFactoryTest, NoDeleteFilesReturnsEmpty) {
   EXPECT_TRUE(filters.empty());
 }
 
+TEST_F(RowDeleteFilterFactoryTest, UnqualifiedEqualityDeleteIsRejectedBeforeFileIo) {
+  split::IcebergConfig config;
+  split::DeleteFileConfig file;
+  file.delete_type = "equality";
+  file.file_path = "/must-not-open.parquet";
+  config.delete_files.push_back(file);
+  try {
+    (void)RowDeleteFilterFactory::create(config);
+    FAIL() << "Unqualified equality deletes were accepted";
+  } catch (const std::runtime_error& error) {
+    EXPECT_NE(std::string(error.what()).find("equality deletes are not supported"), std::string::npos);
+  }
+}
+
 // Single DV delete file → one filter that marks bitmap positions as deleted.
 TEST_F(RowDeleteFilterFactoryTest, SingleDeletionVectorFilter) {
   roaring::Roaring bitmap;
@@ -126,7 +120,7 @@ TEST_F(RowDeleteFilterFactoryTest, SingleDeletionVectorFilter) {
   bitmap.add(3);
   bitmap.add(7);
 
-  auto puffinContent = buildPuffinFile(bitmap);
+  auto puffinContent = sdkPuffin("factory-basic");
   TempFile dvFile(puffinContent);
 
   split::IcebergConfig config;
@@ -153,6 +147,27 @@ TEST_F(RowDeleteFilterFactoryTest, SingleDeletionVectorFilter) {
   EXPECT_FALSE(rows.isValid(7));
 }
 
+TEST_F(RowDeleteFilterFactoryTest, SdkMultipleBlobsUseTheScannedFileAnd64BitOffset) {
+  TempFile fixture(sdkPuffin("multiple"));
+  split::IcebergConfig config;
+  split::DeleteFileConfig file;
+  file.delete_type = "deletion_vector";
+  file.dv_file_path = fixture.path();
+  config.delete_files.push_back(file);
+  auto filters = RowDeleteFilterFactory::create(config, "s3://fixture/b.parquet");
+  ASSERT_EQ(filters.size(), 1);
+  auto batch = makeRowVector(pool(), 10);
+  SelectivityVector rows(batch->size(), true);
+  filters.front()->apply(*batch, rows, 0);
+  EXPECT_TRUE(rows.isValid(1));
+  EXPECT_FALSE(rows.isValid(2));
+  EXPECT_TRUE(rows.isValid(7));
+  rows.setAll();
+  filters.front()->apply(*batch, rows, int64_t{1} << 32);
+  EXPECT_TRUE(rows.isValid(2));
+  EXPECT_FALSE(rows.isValid(7));
+}
+
 // Multiple DV files → multiple DV filters, all before position/equality.
 TEST_F(RowDeleteFilterFactoryTest, MultipleDeletionVectorFiles) {
   roaring::Roaring bitmap1;
@@ -162,8 +177,8 @@ TEST_F(RowDeleteFilterFactoryTest, MultipleDeletionVectorFiles) {
   bitmap2.add(4);
   bitmap2.add(6);
 
-  auto puffin1 = buildPuffinFile(bitmap1);
-  auto puffin2 = buildPuffinFile(bitmap2);
+  auto puffin1 = sdkPuffin("factory-first");
+  auto puffin2 = sdkPuffin("factory-second");
   TempFile dvFile1(puffin1);
   TempFile dvFile2(puffin2);
 
@@ -204,7 +219,7 @@ TEST_F(RowDeleteFilterFactoryTest, MixedDeleteTypesOrdering) {
   roaring::Roaring bitmap;
   bitmap.add(0);
 
-  auto puffinContent = buildPuffinFile(bitmap);
+  auto puffinContent = sdkPuffin("factory-zero");
   TempFile dvFile(puffinContent);
 
   // When Velox DWIO reader is available, position/equality delete files
@@ -235,16 +250,15 @@ TEST_F(RowDeleteFilterFactoryTest, MixedDeleteTypesOrdering) {
   EXPECT_TRUE(rows.isValid(4));
 }
 
-// Unknown delete_type is silently ignored.
-TEST_F(RowDeleteFilterFactoryTest, UnknownDeleteTypeIgnored) {
+// Unknown delete semantics must never return unfiltered rows.
+TEST_F(RowDeleteFilterFactoryTest, UnknownDeleteTypeRejected) {
   split::IcebergConfig config;
   split::DeleteFileConfig df;
   df.delete_type = "unknown_type";
   df.file_path = "/some/path";
   config.delete_files.push_back(df);
 
-  auto filters = RowDeleteFilterFactory::create(config);
-  EXPECT_TRUE(filters.empty());
+  EXPECT_THROW((void)RowDeleteFilterFactory::create(config), std::runtime_error);
 }
 
 // DV file read failure propagates as exception.

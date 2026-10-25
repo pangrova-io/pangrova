@@ -7,6 +7,9 @@ namespace pangrova::delete_filter {
 DeletionVectorRowFilter::DeletionVectorRowFilter(roaring::Roaring bitmap)
   : bitmap_(std::move(bitmap)) {}
 
+DeletionVectorRowFilter::DeletionVectorRowFilter(roaring::Roaring64Map bitmap)
+  : bitmap_(std::move(bitmap)) {}
+
 void DeletionVectorRowFilter::apply(
     const facebook::velox::RowVector& batch,
     facebook::velox::SelectivityVector& rows,
@@ -20,12 +23,10 @@ void DeletionVectorRowFilter::apply(
     if (!rows.isValid(i)) {
       continue;
     }
-    // P1-TC-15: Bounds check — Roaring bitmap uses uint32_t keys.
-    auto global_pos_64 = row_offset + static_cast<int64_t>(i);
-    if (global_pos_64 < 0 || global_pos_64 > static_cast<int64_t>(UINT32_MAX)) {
-      continue;  // Out of Roaring bitmap range — cannot be deleted.
+    if (row_offset < 0 || row_offset > INT64_MAX - static_cast<int64_t>(i)) {
+      throw std::runtime_error("Invalid deletion-vector row offset");
     }
-    auto global_pos = static_cast<uint32_t>(global_pos_64);
+    const auto global_pos = static_cast<uint64_t>(row_offset + static_cast<int64_t>(i));
     if (bitmap_.contains(global_pos)) {
       rows.setValid(i, false);
     }
