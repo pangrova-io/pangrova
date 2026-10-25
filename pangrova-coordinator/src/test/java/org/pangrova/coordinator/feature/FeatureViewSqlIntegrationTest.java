@@ -92,7 +92,7 @@ class FeatureViewSqlIntegrationTest {
     private int statementNumber;
     private AiInfrastructureStores infrastructure;
     private PersistentRowPolicyStore policies;
-    private PersistentColumnMaskStore masks;
+    private org.pangrova.security.mask.EnrichedColumnMaskStore masks;
     private final AtomicReference<StatementResult> completed = new AtomicReference<>();
     private final AtomicReference<AuthorizedRelation> observedCompile = new AtomicReference<>();
     private final AtomicReference<ConnectorQueryAuthority> observedLifetime = new AtomicReference<>();
@@ -111,7 +111,10 @@ class FeatureViewSqlIntegrationTest {
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.ALL, "SCHEMA", "lake", "sales", null, null));
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.SELECT, "TABLE", "lake", "raw", "customers", null));
         policies = new PersistentRowPolicyStore(dataSource);
-        masks = new PersistentColumnMaskStore(dataSource);
+        var persistedMasks = new PersistentColumnMaskStore(dataSource);
+        persistedMasks.initSchema();
+        masks = new org.pangrova.metadata.service.TableControlColumnMaskStore(
+                metadata.catalogRegistry(), persistedMasks);
         policies.savePolicy(new RowPolicy(0, "source_rows", "lake", "raw", "customers",
                 "customer_id >= 100", List.of("feature-role"), true, 1));
         masks.saveColumnMask(new ColumnMask(0, "source_secret", "lake", "raw", "customers", "secret",
@@ -161,6 +164,16 @@ class FeatureViewSqlIntegrationTest {
                 List.of(new ConnectorTableMetadata.Column("customer_id", PangrovaType.BIGINT),
                         new ConnectorTableMetadata.Column("event_ts", PangrovaType.TIMESTAMP),
                         new ConnectorTableMetadata.Column("secret", PangrovaType.VARCHAR)), Map.of()));
+        var registry = metadata.catalogRegistry();
+        registry.setTableControlService(new org.pangrova.metadata.control.TableControlService(
+                new org.pangrova.metadata.control.JdbcTableControlStore(dataSource),
+                registry::requireCurrentCatalogIdentity));
+        registry.setGovernanceBindingStore(new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(
+                dataSource));
+        var source = connectorMetadata.getTableHandle(sourceSession, new SchemaTableName("raw", "customers"));
+        registry.tableControl().adopt("lake", "raw", "customers", USER.principal(),
+                connectorMetadata.getTableIdentity(sourceSession, source),
+                connectorMetadata.observeVersion(sourceSession, source));
     }
 
     @AfterEach
