@@ -8,8 +8,9 @@ operations exist, and what the coordinator never does.
 > listing, version-checked delete, multipart upload, presigned URL issuance, and the
 > SQL `LIST @stage`, `REMOVE @stage`, and manual `ALTER STAGE ... REFRESH` are implemented. Local HTTP tests
 > cover `Range`, `If-Match`, `If-Range`, and `HEAD`; MinIO contracts cover S3 transfers,
-> version conditions, multipart, pagination, and presigning. Large-file and
-> large-directory qualification remains outstanding. SQL-level `DIRECTORY(@stage)`
+> version conditions, multipart, pagination, and presigning. A real 5 GiB LOCAL
+> HTTP transfer passed with full-content checksum and range validation. S3 large-file,
+> 100 GiB multipart, and large-directory qualification remain outstanding. SQL-level `DIRECTORY(@stage)`
 > and `PUT`/`GET` are not implemented yet; use the HTTP surface below for those operations.
 
 The previous experimental `directory_listing` Java provider has been removed. It
