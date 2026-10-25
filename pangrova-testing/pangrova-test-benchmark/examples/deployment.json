@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sourceRevision": "filled-by-job-from-source-revision",
-  "clientJarInImage": "/opt/pangrova/lib/pangrova-client-cli-0.1.0-SNAPSHOT.jar",
+  "clientJarInImage": "/opt/pangrova/cli/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar",
   "nodes": [{
     "context": "default",
     "clientHost": "127.0.0.1",

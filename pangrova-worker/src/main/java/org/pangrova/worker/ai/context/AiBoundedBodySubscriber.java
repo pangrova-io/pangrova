@@ -16,6 +16,7 @@ final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<Strin
                     bytes -> new String(bytes, StandardCharsets.UTF_8));
     private Flow.Subscription subscription;
     private boolean finished;
+    private Thread delivering;
 
     AiBoundedBodySubscriber(AiProviderCallContext.PhysicalAttempt attempt) {
         this.attempt = attempt;
@@ -41,6 +42,7 @@ final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<Strin
         if (finished) {
             return;
         }
+        delivering = Thread.currentThread();
         try {
             long bytes = 0;
             for (ByteBuffer buffer : buffers) {
@@ -52,7 +54,13 @@ final class AiBoundedBodySubscriber implements HttpResponse.BodySubscriber<Strin
             finished = true;
             subscription.cancel();
             delegate.onError(failure);
+        } finally {
+            delivering = null;
         }
+    }
+
+    synchronized boolean deliveringOnCurrentThread() {
+        return delivering == Thread.currentThread();
     }
 
     @Override

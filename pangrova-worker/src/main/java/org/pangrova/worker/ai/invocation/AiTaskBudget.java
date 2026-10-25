@@ -7,6 +7,7 @@ import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.ai.AiInvocationRequest;
 import org.pangrova.worker.ai.context.AiExecutionContext;
 import org.pangrova.worker.ai.context.BoundAiInvocation;
+import org.pangrova.worker.ai.context.AiProviderCallContext;
 
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -25,6 +26,7 @@ final class AiTaskBudget {
     private final Map<ModelKey, ModelTaskBudget> models = new HashMap<>();
     private final Map<String, OperatorBinding> admittedBindings;
     private final Set<Thread> permitWaiters = new HashSet<>();
+    private final Set<AiProviderCallContext.LocalExchange> exchanges = new HashSet<>();
     private boolean revoked;
     private boolean retired;
     private int activeAdmissions;
@@ -189,14 +191,36 @@ final class AiTaskBudget {
         return activeAdmissions == 0;
     }
 
-    synchronized void revoke() {
-        revoked = true;
-        permitWaiters.forEach(Thread::interrupt);
+    void revoke() {
+        java.util.List<AiProviderCallContext.LocalExchange> active;
+        synchronized (this) {
+            revoked = true;
+            permitWaiters.forEach(Thread::interrupt);
+            active = java.util.List.copyOf(exchanges);
+        }
+        // Never hold the budget monitor while joining callbacks that charge this budget.
+        active.forEach(AiProviderCallContext.LocalExchange::cancel);
+        active.forEach(AiProviderCallContext.LocalExchange::awaitTermination);
     }
 
-    synchronized void terminate() {
+    synchronized AiProviderCallContext.ExchangeRegistration registerExchange(
+            AiProviderCallContext.LocalExchange exchange) {
+        requireActive();
+        if (!exchanges.add(java.util.Objects.requireNonNull(exchange))) {
+            throw new IllegalStateException("AI client exchange is already registered");
+        }
+        return () -> {
+            synchronized (AiTaskBudget.this) {
+                exchanges.remove(exchange);
+            }
+        };
+    }
+
+    void terminate() {
         revoke();
-        retired = true;
+        synchronized (this) {
+            retired = true;
+        }
     }
 
     synchronized boolean isTerminated() {

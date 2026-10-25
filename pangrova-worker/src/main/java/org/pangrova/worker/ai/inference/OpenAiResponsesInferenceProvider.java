@@ -18,7 +18,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 
@@ -70,16 +69,8 @@ public final class OpenAiResponsesInferenceProvider
         Instant deadline = AiProviderCallContext.currentDeadline().orElse(null);
         AiProviderCallContext.AttemptAdmission attemptAdmission = AiProviderCallContext.currentAttemptAdmission()
                 .orElse(null);
-        List<CompletableFuture<InferenceResult>> futures =
-                java.util.stream.IntStream.range(0, prompts.size())
-                        .mapToObj(index -> CompletableFuture.supplyAsync(
-                                () -> invokeBatchItem(
-                                        prompts.get(index), effective,
-                                        key, deadline, index, attemptAdmission),
-                                batchExecutor))
-                        .toList();
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-        return futures.stream().map(CompletableFuture::join).toList();
+        return InferenceBatch.execute(prompts.size(), batchExecutor, index -> invokeBatchItem(
+                prompts.get(index), effective, key, deadline, index, attemptAdmission));
     }
 
     @Override

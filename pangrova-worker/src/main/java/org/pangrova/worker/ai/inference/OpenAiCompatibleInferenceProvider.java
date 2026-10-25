@@ -38,7 +38,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
@@ -172,31 +171,10 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         Instant invocationDeadline = AiProviderCallContext.currentDeadline().orElse(null);
         AiProviderCallContext.AttemptAdmission attemptAdmission =
                 AiProviderCallContext.currentAttemptAdmission().orElse(null);
-        List<CompletableFuture<InferenceResult>> futures =
-                java.util.stream.IntStream.range(0, prompts.size())
-                        .mapToObj(
-                                index ->
-                                        CompletableFuture.supplyAsync(
-                                                () ->
-                                                        invocationKey == null
-                                                                ? callOnce(
-                                                                        prompts.get(index), params)
-                                                                : AiProviderCallContext
-                                                                        .callWithOrdinal(
-                                                                                invocationKey,
-                                                                                invocationDeadline,
-                                                                                index,
-                                                                                attemptAdmission,
-                                                                                () ->
-                                                                                        callOnce(
-                                                                                                prompts
-                                                                                                        .get(
-                                                                                                                index),
-                                                                                                params)),
-                                                batchExecutor))
-                        .toList();
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-        return futures.stream().map(CompletableFuture::join).toList();
+        return InferenceBatch.execute(prompts.size(), batchExecutor, index -> invocationKey == null
+                ? callOnce(prompts.get(index), params)
+                : AiProviderCallContext.callWithOrdinal(invocationKey, invocationDeadline, index,
+                        attemptAdmission, () -> callOnce(prompts.get(index), params)));
     }
 
     @Override

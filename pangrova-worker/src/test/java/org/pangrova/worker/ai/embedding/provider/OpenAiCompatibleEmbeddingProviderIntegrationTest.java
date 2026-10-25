@@ -172,6 +172,15 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
 
     @Test
     void realModelBodyStallIsBoundedAndNextExplicitInvocationRecovers() throws Exception {
+        assertRealModelBodyTermination(false);
+    }
+
+    @Test
+    void realModelTaskCancellationJoinsItsClientAndANewTaskCanRun() throws Exception {
+        assertRealModelBodyTermination(true);
+    }
+
+    private void assertRealModelBodyTermination(boolean cancelTask) throws Exception {
         var input = request(EmbeddingPurpose.RAW, List.of("real response body deadline"));
         float[] expected = embed(false, input).vectors().get(0);
         var release = new java.util.concurrent.CountDownLatch(1);
@@ -207,7 +216,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
         relay.start();
         var stalled = new OpenAiCompatibleEmbeddingProvider(new OpenAiEmbeddingConfig(
                 "http://127.0.0.1:" + relay.getAddress().getPort() + "/v1/embeddings", MODEL,
-                "", 384, 8, 1000, "", "", 3));
+                "", 384, 8, 1000, "", "", cancelTask ? 20 : 3));
         var defaults = AiTransportTestAdmission.Limits.defaults();
         var singleSlot = new AiTransportTestAdmission.Limits(1, defaults.items(), defaults.attempts(),
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
@@ -223,15 +232,31 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
                 }
             });
             assertThat(bodyStarted.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            if (cancelTask) {
+                long started = System.nanoTime();
+                budget.cancel();
+                assertThat(System.nanoTime() - started).isLessThan(java.util.concurrent.TimeUnit.SECONDS.toNanos(5));
+            }
             var failure = outcome.get(8, java.util.concurrent.TimeUnit.SECONDS);
             assertThat(failure.category()).isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
             assertThat(failure.retryable()).isFalse();
-            assertThat(failure).hasCauseInstanceOf(HttpTimeoutException.class);
+            if (!cancelTask) {
+                assertThat(failure).hasCauseInstanceOf(HttpTimeoutException.class);
+            }
             assertThat(forwarded).hasValue(1);
-            var recovered = budget.call("new-explicit-invocation", () -> stalled.embed(input));
-            assertCoordinates(recovered.vectors().get(0), expected);
+            if (cancelTask) {
+                try (var next = AiTransportTestAdmission.embedding(384, 1, 1)) {
+                    var recovered = next.call("new-task-invocation", () -> stalled.embed(input));
+                    assertCoordinates(recovered.vectors().get(0), expected);
+                    assertThat(next.usage().getProviderAttempts()).isEqualTo(1);
+                }
+                assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
+            } else {
+                var recovered = budget.call("new-explicit-invocation", () -> stalled.embed(input));
+                assertCoordinates(recovered.vectors().get(0), expected);
+                assertThat(budget.usage().getProviderAttempts()).isEqualTo(2);
+            }
             assertThat(forwarded).hasValue(2);
-            assertThat(budget.usage().getProviderAttempts()).isEqualTo(2);
         } finally {
             release.countDown();
             caller.shutdownNow();

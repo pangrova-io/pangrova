@@ -31,9 +31,12 @@ project_root="$(cd "$script_dir/../.." && pwd)"
 native_container="$(docker create "$image_id")"
 trap 'docker rm "$native_container" >/dev/null' EXIT
 docker cp "$native_container:/opt/pangrova/lib" "$native_stage/lib" >&2
+docker cp "$native_container:/opt/pangrova/cli" "$native_stage/cli" >&2
 shopt -s nullglob
 jars=("$native_stage/lib"/*.jar)
 [[ ${#jars[@]} -gt 0 ]] || { echo "Production image has no runtime JARs" >&2; exit 1; }
+cli_jars=("$native_stage/cli"/pangrova-client-cli-*-exec.jar)
+[[ ${#cli_jars[@]} -eq 1 ]] || { echo "Production image must contain one CLI executable" >&2; exit 1; }
 native_bundles=("$native_stage/lib"/pangrova-native-bundle-*-linux-x86_64.jar)
 [[ ${#native_bundles[@]} -eq 1 ]] || {
     echo "Production image must contain exactly one Linux x86_64 classifier" >&2; exit 1;
@@ -49,8 +52,8 @@ native_library="$native_stage/extracted/META-INF/native/linux/x86_64/libpangrova
 bash "$project_root/pangrova-worker-native/bin/package-native-lib.sh" --production \
     "$native_library" >&2
 (
-    cd "$native_stage/lib"
-    sha256sum -- *.jar
+    cd "$native_stage"
+    sha256sum -- cli/*.jar lib/*.jar
 ) > "$native_stage/runtime.sha256"
 native_sha="$(sha256sum "$native_library" | cut -d " " -f 1)"
 bundle_sha="$(sha256sum "$native_bundle" | cut -d " " -f 1)"

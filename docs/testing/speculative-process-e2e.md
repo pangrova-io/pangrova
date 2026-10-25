@@ -8,11 +8,21 @@ prerequisite for this local validation path.
 
 Provide `pangrova.e2e.local.lib-dir`, `pangrova.e2e.local.jar-manifest` and
 `pangrova.e2e.local.native-lib` as for `IndependentLocalProcessesE2ETest`. The runtime
-inventory must include the CLI and platform Native bundle; its SHA-256 manifest and
+inventory contains `lib/` with ordinary dependencies and the platform Native bundle,
+plus `cli/` with exactly one `pangrova-client-cli-*-exec.jar`. `runtime.sha256` is
+stored beside those directories and lists their relative paths (`cli/...`, then
+`lib/...`, sorted within each directory). Its SHA-256 manifest and
 all embedded Native copies must match the qualified Release library. Freeze the
 installed production dependencies before running so concurrent builds cannot change
 child JVM inputs. This verifies that frozen runtime, not uninstalled working-tree
 changes or a Linux release image.
+
+The executable CLI is never a service or test classpath dependency. Its main Maven
+artifact remains thin; the attached `exec` artifact contains dependencies for its
+separate JVM. This follows Maven Shade's
+[attached-artifact contract](https://maven.apache.org/plugins/maven-shade-plugin/examples/attached-artifact.html).
+The POM retains normal transitive dependencies for thin-artifact consumers instead
+of publishing a dependency-reduced POM.
 
 The report relay retains the original Worker registration and translates only its
 HTTP control port to a transparent local forwarding proxy. Capabilities, worker

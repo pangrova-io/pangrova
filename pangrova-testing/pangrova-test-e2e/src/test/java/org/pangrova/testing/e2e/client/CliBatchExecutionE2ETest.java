@@ -165,7 +165,7 @@ class CliBatchExecutionE2ETest extends PangrovaE2ETestBase {
         // A missing packaged artifact is an infrastructure failure, never a skip
         // or a switch to a test-only shell/SQL implementation.
         try (var jars = Files.list(root.resolve("pangrova-client/pangrova-client-cli/target"))) {
-            assertThat(jars.anyMatch(path -> path.getFileName().toString().matches("pangrova-client-cli-.*\\.jar")))
+            assertThat(jars.anyMatch(path -> path.getFileName().toString().matches("pangrova-client-cli-.*-exec\\.jar")))
                     .as("current reactor must package the real CLI before E2E").isTrue();
         }
         var builder = new ProcessBuilder("bash",

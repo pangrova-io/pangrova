@@ -234,7 +234,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tpc-client-cli
-          path: pangrova-client/pangrova-client-cli/target/pangrova-client-cli-0.1.0-SNAPSHOT.jar
+          path: pangrova-client/pangrova-client-cli/target/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar
           if-no-files-found: error
           retention-days: 1
 
@@ -376,7 +376,7 @@ jobs:
       - name: Verify persistent production client over real HTTP and Flight transport
         run: >-
           python pangrova-testing/pangrova-test-benchmark/scripts/integration/test_persistent_transport.py
-          --classpath tpc-client/pangrova-client-cli-0.1.0-SNAPSHOT.jar
+          --classpath tpc-client/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar
       # Actual SF100/1000 comparisons run on exclusive hardware in nightly-tpc-benchmark.yml.
       # Short E2E latency samples are never submitted to a P99 calibration comparator.
   native-sanitizers:

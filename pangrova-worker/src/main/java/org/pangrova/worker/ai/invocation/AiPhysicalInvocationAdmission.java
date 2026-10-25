@@ -123,6 +123,15 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
         }
 
         @Override
+        public synchronized AiProviderCallContext.ExchangeRegistration registerExchange(
+                AiProviderCallContext.LocalExchange exchange) {
+            if (finished) {
+                throw new IllegalStateException("AI transport attempt is closed");
+            }
+            return task.registerExchange(exchange);
+        }
+
+        @Override
         public synchronized void close() {
             if (!finished) {
                 finished = true;

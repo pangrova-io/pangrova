@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     mvn -B -q -Pnative-runtime -DskipTests \
         -pl pangrova-standalone,pangrova-client/pangrova-client-cli,pangrova-connector/pangrova-connector-iceberg,pangrova-connector/pangrova-connector-paimon,pangrova-connector/pangrova-connector-lance,\!pangrova-native-bundle \
         -am install; \
-    mkdir -p /dist/lib /dist/bin /dist/config/catalog; \
+    mkdir -p /dist/lib /dist/cli /dist/bin /dist/config/catalog; \
     mvn -B -q -Pnative-runtime \
         -pl pangrova-standalone,pangrova-coordinator,pangrova-worker,pangrova-client/pangrova-client-cli,pangrova-connector/pangrova-connector-iceberg,pangrova-connector/pangrova-connector-paimon,pangrova-connector/pangrova-connector-lance \
         dependency:copy-dependencies -DincludeScope=runtime \
@@ -68,6 +68,8 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
         main_jar="$module/target/$artifact_id-$artifact_version.jar"; \
         test -f "$main_jar"; cp "$main_jar" /dist/lib/; \
     done; \
+    cli_exec=(pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar); \
+    test "${#cli_exec[@]}" -eq 1; test -f "${cli_exec[0]}"; cp "${cli_exec[0]}" /dist/cli/; \
     test -f "/dist/lib/$(basename "$bundle")"; \
     lance_jars=(/dist/lib/pangrova-connector-lance-*.jar); \
     test "${#lance_jars[@]}" -eq 1; \

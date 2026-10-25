@@ -50,8 +50,14 @@ setup, builds Lance and packages JNI resources. If the build fails, check:
 # Check that key JARs were produced
 ls pangrova-coordinator/target/pangrova-coordinator-*.jar
 ls pangrova-worker/target/pangrova-worker-*.jar
-ls pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*.jar
+ls pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar
 ```
+
+The CLI's `-exec.jar` is the standalone executable used by `bin/pangrova-cli.sh`.
+The JAR without a classifier contains only CLI classes and remains the ordinary
+Maven dependency. Distributions place the executable in `cli/`, separate from the
+services' shared `lib/` classpath, so embedded client dependencies cannot override
+the services' protocol classes.
 
 ## Start Standalone Mode
 

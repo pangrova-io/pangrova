@@ -159,9 +159,21 @@ public final class AiProviderCallContext {
         PhysicalAttempt open(long encodedRequestBytes);
     }
 
+    /** A client exchange owns its callbacks until actual sending-thread finalization. */
+    public interface LocalExchange {
+        void cancel();
+        void awaitTermination();
+    }
+
+    /** Exact-task registration removed only after client delivery has ended. */
+    public interface ExchangeRegistration extends AutoCloseable {
+        @Override void close();
+    }
+
     /** A live transport's concurrency ownership and encoded response-byte admission. */
     public interface PhysicalAttempt extends AutoCloseable {
         void acceptResponseBytes(long bytes);
+        ExchangeRegistration registerExchange(LocalExchange exchange);
         @Override void close();
     }
 }
