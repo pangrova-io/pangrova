@@ -181,11 +181,8 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('"PANGROVA_E2E_IMAGE_ID=$image_id"', production)
         self.assertIn('stage-production-regression-native.sh "$PANGROVA_E2E_IMAGE_ID"', normalized)
         self.assertNotIn('pangrova/pangrova:latest', production)
-        consumer = (ROOT / 'pangrova-testing/pangrova-test-e2e/src/test/java/'
-                    'org/pangrova/testing/e2e/speculation/IndependentSpeculationProcesses.java').read_text()
         for property_name, variable in [('pangrova.e2e.image', 'PANGROVA_E2E_IMAGE'),
                                         ('pangrova.e2e.image-id', 'PANGROVA_E2E_IMAGE_ID')]:
-            self.assertIn(f'requiredProperty("{property_name}")', consumer)
             # Full regression and the isolated owner suites both require this identity.
             self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 2)
 

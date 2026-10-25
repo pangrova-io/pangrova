@@ -37,11 +37,19 @@ record LocalRuntimeArtifacts(String classpath, Path cliJar, Path manifestPath,
         String nativeHash = HexFormat.of().formatHex(expected);
         List<Path> jars = jarInventory(lib);
         Path manifestPath = Path.of(required("pangrova.e2e.local.jar-manifest")).toRealPath();
+        Path stage = manifestPath.getParent();
+        if (!Files.isSameFile(lib, stage.resolve("lib"))) {
+            throw new IllegalStateException("Runtime lib and manifest must share the same staging directory");
+        }
+        List<Path> cliJars = jarInventory(stage.resolve("cli"));
+        Path cli = unique(cliJars, "pangrova-client-cli-", "-exec.jar");
+        if (cliJars.size() != 1) throw new IllegalStateException("CLI directory must contain only its executable");
         String manifestHash = hash(manifestPath);
-        verifyManifest(jars, manifestPath);
+        var inventory = new ArrayList<>(cliJars);
+        inventory.addAll(jars);
+        verifyManifest(inventory, manifestPath);
         Path bundle = unique(jars, "pangrova-native-bundle-",
                 "-" + platform.classifier() + ".jar");
-        Path cli = unique(jars, "pangrova-client-cli-", ".jar");
         String nativeEntry = "META-INF/native/" + platform.resourceOs() + "/"
                 + platform.resourceArch() + "/" + platform.libraryFile();
         verifyOrigin(lib, nativeLibrary, manifestPath, bundle, platform.classifier(),
@@ -50,7 +58,7 @@ record LocalRuntimeArtifacts(String classpath, Path cliJar, Path manifestPath,
         var ordered = new ArrayList<Path>();
         ordered.add(bundle);
         // The shaded CLI artifact runs only as a separate -jar process.
-        jars.stream().filter(jar -> !jar.equals(bundle) && !jar.equals(cli))
+        jars.stream().filter(jar -> !jar.equals(bundle))
                 .forEach(ordered::add);
         String classpath = String.join(java.io.File.pathSeparator,
                 ordered.stream().map(Path::toString).toList());
@@ -68,7 +76,7 @@ record LocalRuntimeArtifacts(String classpath, Path cliJar, Path manifestPath,
 
     private static void verifyManifest(List<Path> jars, Path manifest) throws Exception {
         List<String> actual = new ArrayList<>();
-        for (Path jar : jars) actual.add(hash(jar) + "  " + jar.getFileName());
+        for (Path jar : jars) actual.add(hash(jar) + "  " + manifest.getParent().relativize(jar));
         if (!Files.readAllLines(manifest).equals(actual)) {
             throw new IllegalStateException("Runtime JARs differ from the frozen SHA-256 manifest");
         }
@@ -79,6 +87,9 @@ record LocalRuntimeArtifacts(String classpath, Path cliJar, Path manifestPath,
         int matchingEntries = 0;
         for (Path jar : jars) {
             String name = jar.getFileName().toString();
+            if (name.endsWith("-exec.jar")) {
+                throw new IllegalStateException("Executable JAR cannot be in the service classpath: " + jar);
+            }
             if (name.startsWith("original-") || name.contains("-tests.")
                     || name.contains("-native-fixtures.")) {
                 throw new IllegalStateException("Test or original JAR in runtime classpath: " + jar);

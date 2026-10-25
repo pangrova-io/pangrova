@@ -18,8 +18,6 @@
 # ==============================================================================
 set -euo pipefail
 
-MAIN_CLASS="org.pangrova.client.cli.PangrovaCli"
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANGROVA_HOME="${PANGROVA_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/etc}"
@@ -90,24 +88,17 @@ if [[ "$JAVA_VERSION" -lt 17 ]]; then
     exit 1
 fi
 
-# --- Build classpath ---
-CLASSPATH=""
-if [[ -d "$PANGROVA_HOME/lib" ]]; then
-    for jar in "$PANGROVA_HOME"/lib/*.jar; do
-        [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-    done
+# --- Resolve the isolated executable; never mix embedded dependencies into lib/*.jar. ---
+CLI_DIRECTORY="$PANGROVA_HOME/cli"
+if [[ ! -d "$CLI_DIRECTORY" ]]; then
+    CLI_DIRECTORY="$PANGROVA_HOME/pangrova-client/pangrova-client-cli/target"
 fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    # The CLI module lives below the client aggregator. Its shaded artifact
-    # contains the actual REST/Arrow dependencies; unrelated reactor jars do not.
-    for jar in "$PANGROVA_HOME"/pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*.jar; do
-        [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-    done
-fi
-
-if [[ -z "$CLASSPATH" ]]; then
-    echo "ERROR: No JARs found. Run 'mvn clean package -DskipTests' first." >&2
+CLI_JARS=()
+for jar in "$CLI_DIRECTORY"/pangrova-client-cli-*-exec.jar; do
+    [[ -f "$jar" ]] && CLI_JARS+=("$jar")
+done
+if [[ "${#CLI_JARS[@]}" -ne 1 ]]; then
+    echo "ERROR: Expected one CLI executable in $CLI_DIRECTORY; found ${#CLI_JARS[@]}. Build the CLI package." >&2
     exit 1
 fi
 
@@ -140,4 +131,4 @@ if [[ -n "${PANGROVA_COORDINATOR_URL:-}" ]]; then
 fi
 
 # --- Start CLI (foreground, transparent passthrough) ---
-exec "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" "$MAIN_CLASS" "${URL_ARGS[@]+"${URL_ARGS[@]}"}" "$@"
+exec "$JAVA" $JAVA_OPTS -jar "${CLI_JARS[0]}" "${URL_ARGS[@]+"${URL_ARGS[@]}"}" "$@"

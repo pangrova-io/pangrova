@@ -44,6 +44,7 @@ class LocalRuntimeArtifactsTest {
     private Path manifest;
     private Path bundle;
     private Path cli;
+    private Path thinCli;
     private Path worker;
     private String nativeEntry;
 
@@ -69,10 +70,12 @@ class LocalRuntimeArtifactsTest {
         Files.writeString(nativeDirectory.resolve("CMakeCache.txt"), "CMAKE_BUILD_TYPE:STRING=Release\n");
         bundle = libDirectory.resolve("pangrova-native-bundle-0.1.0-SNAPSHOT-"
                 + os + "-" + classifierArch + ".jar");
-        cli = libDirectory.resolve("pangrova-client-cli-0.1.0-SNAPSHOT.jar");
+        cli = Files.createDirectory(directory.resolve("cli")).resolve("pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar");
+        thinCli = libDirectory.resolve("pangrova-client-cli-0.1.0-SNAPSHOT.jar");
         worker = libDirectory.resolve("pangrova-worker-0.1.0-SNAPSHOT.jar");
         writeJar(bundle, Map.of(nativeEntry, NATIVE_BYTES));
         writeJar(cli, Map.of("cli.txt", new byte[] {1}));
+        writeJar(thinCli, Map.of("thin-cli.txt", new byte[] {1}));
         writeJar(worker, Map.of(nativeEntry, NATIVE_BYTES));
         manifest = directory.resolve("runtime.sha256");
         refreshManifest();
@@ -99,7 +102,7 @@ class LocalRuntimeArtifactsTest {
         assertThat(artifacts.manifestPath()).isEqualTo(manifest);
         assertThat(artifacts.cliJar()).isEqualTo(cli);
         assertThat(artifacts.classpath().split(java.io.File.pathSeparator))
-                .containsExactly(bundle.toString(), worker.toString());
+                .containsExactly(bundle.toString(), thinCli.toString(), worker.toString());
     }
 
     @Test
@@ -124,6 +127,23 @@ class LocalRuntimeArtifactsTest {
         assertThatThrownBy(LocalRuntimeArtifacts::fromRequiredProperties)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Runtime JARs differ from the frozen SHA-256 manifest");
+    }
+
+    @Test
+    void refusesExecutableChangedAfterFrozenManifest() throws Exception {
+        writeJar(cli, Map.of("changed-cli.txt", new byte[] {9}));
+        assertThatThrownBy(LocalRuntimeArtifacts::fromRequiredProperties)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Runtime JARs differ from the frozen SHA-256 manifest");
+    }
+
+    @Test
+    void refusesExecutableInServiceClasspathEvenWithUpdatedManifest() throws Exception {
+        Files.copy(cli, libDirectory.resolve(cli.getFileName()));
+        refreshManifest();
+        assertThatThrownBy(LocalRuntimeArtifacts::fromRequiredProperties)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Executable JAR cannot be in the service classpath");
     }
 
     @Test
@@ -178,10 +198,11 @@ class LocalRuntimeArtifactsTest {
 
     private void refreshManifest() throws Exception {
         List<String> lines = new ArrayList<>();
+        lines.add(hash(cli) + "  " + directory.relativize(cli));
         try (var paths = Files.list(libDirectory)) {
             for (Path jar : paths.filter(path -> path.getFileName().toString().endsWith(".jar"))
                     .sorted().toList()) {
-                lines.add(hash(jar) + "  " + jar.getFileName());
+                lines.add(hash(jar) + "  " + directory.relativize(jar));
             }
         }
         Files.writeString(manifest, String.join("\n", lines) + "\n");

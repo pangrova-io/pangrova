@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  *
  * <p>Usage:
  * <pre>
- *   java -jar pangrova-client-cli.jar --host localhost --port 8080 --catalog default --query-timeout 30m
+ *   java -jar pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar --host localhost --port 8080
  * </pre>
  */
 public final class PangrovaCli {

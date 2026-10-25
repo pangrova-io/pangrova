@@ -70,8 +70,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>
-                    <!-- Shade replaces the main artifact. Always supply a fresh thin JAR,
-                         so an incremental package cannot retain old embedded dependencies. -->
+                    <!-- Recreate the thin input when upgrading from the former replaced artifact. -->
                     <forceCreation>true</forceCreation>
                 </configuration>
             </plugin>
@@ -86,6 +85,11 @@
                             <goal>shade</goal>
                         </goals>
                         <configuration>
+                            <!-- Java consumers resolve one dependency graph. The standalone
+                                 executable must never replace the ordinary dependency artifact. -->
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>exec</shadedClassifierName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>org.pangrova.client.cli.PangrovaCli</mainClass>
