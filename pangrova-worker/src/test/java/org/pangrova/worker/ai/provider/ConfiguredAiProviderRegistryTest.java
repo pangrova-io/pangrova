@@ -395,9 +395,11 @@ class ConfiguredAiProviderRegistryTest {
             var provider = resolving.get(5, TimeUnit.SECONDS);
             closing.get(5, TimeUnit.SECONDS);
 
+            // Batch dispatch wraps submission failures after all accepted work drains.
             assertThatThrownBy(() -> provider.completeBatch(
                     List.of("first", "second"), GenerationParameters.DEFAULTS))
-                    .isInstanceOf(RejectedExecutionException.class);
+                    .isInstanceOf(java.util.concurrent.CompletionException.class)
+                    .hasRootCauseInstanceOf(RejectedExecutionException.class);
             assertThatThrownBy(() -> registry.resolveInference("chat"))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("closed");
