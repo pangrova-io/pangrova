@@ -71,7 +71,8 @@ class PipelineIntegrationTest {
         workerHttpServer.start();
 
         // 2. Build orchestrator with RemoteTaskDispatcher + real worker port
-        workerManager = createWorkerManagerWithPort(workerHttpServer.getPort());
+        workerManager = createWorkerManagerWithPort(workerHttpServer.getPort(),
+                workerTaskManager.workerExecutionIdentity());
         orchestrator = buildOrchestrator(workerManager);
         queryManager = new QueryManager(QueryManagerContext.minimal(orchestrator, TRACING));
 
@@ -329,9 +330,11 @@ class PipelineIntegrationTest {
                 null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
     }
 
-    private static WorkerManager createWorkerManagerWithPort(int httpPort) {
+    private static WorkerManager createWorkerManagerWithPort(int httpPort,
+            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity identity) {
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        wm.registerWorker(workerWithPort(httpPort));
+        wm.registerWorker(TestWorkerInfoBuilder.active(
+                WORKER_ID, LOOPBACK_HOST, httpPort, TRANSPORT_PORT, identity));
         return wm;
     }
 

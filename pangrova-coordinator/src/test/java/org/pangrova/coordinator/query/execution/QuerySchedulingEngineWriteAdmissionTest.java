@@ -147,8 +147,10 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.enforceOwnership();
             fixture.installOrdinaryAuthority();
-            fixture.registry.tableControl().registerCreated(
-                    "catalog", "schema", "documents", "alice", Optional.empty(), Optional.empty());
+            fixture.registry.tableControl().registerCreatedFromConnector(fixture.metadata,
+                    org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
+                            session("managed-write"), "catalog", "schema"),
+                    "catalog", "schema", "documents", "alice");
 
             fixture.engine.ensureWriteContextRegistered(session("managed-write"), fixture.context());
 

@@ -259,6 +259,7 @@ class DdlExecutorGeneratedColumnTest {
     }
 
     private static final class EmptyMetadataStore implements MetadataStore {
+        private final Map<String, CatalogDescriptor> descriptors = new java.util.LinkedHashMap<>();
         @Override public void saveTable(TableMetadata metadata) {}
         @Override public Optional<TableMetadata> loadTable(String c, String s, String t) {
             return Optional.empty();
@@ -267,11 +268,13 @@ class DdlExecutorGeneratedColumnTest {
         @Override public List<org.pangrova.metadata.model.QualifiedTableRef> searchTables(String p) {
             return List.of();
         }
-        @Override public void saveCatalogDescriptor(CatalogDescriptor descriptor) {}
-        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String name) {
-            return Optional.empty();
+        @Override public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
+            descriptors.put(descriptor.name(), descriptor);
         }
-        @Override public void deleteCatalogDescriptor(String name) {}
+        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String name) {
+            return Optional.ofNullable(descriptors.get(name));
+        }
+        @Override public void deleteCatalogDescriptor(String name) { descriptors.remove(name); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() {
             return List.of();
         }
