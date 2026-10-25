@@ -116,7 +116,10 @@ build_target() {
     # warnings (or fails on older production workers).
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
   fi
-  local build_log
+  local build_log input_capture
+  input_capture="$(mktemp "${TMPDIR:-/tmp}/pangrova-lance-inputs.XXXXXX")"
+  python3 "${SCRIPT_DIR}/lance-ffi-provenance.py" capture \
+    --root "$(cd "${SCRIPT_DIR}/../.." && pwd)" --capture "$input_capture"
   build_log="$(mktemp "${TMPDIR:-/tmp}/pangrova-lance-build.XXXXXX")"
   if ! cargo build --color never --locked --release --target "${target}" 2>&1 | tee "$build_log"; then
     die "Lance compilation failed; diagnostics retained at ${build_log}"
@@ -127,6 +130,10 @@ build_target() {
   rm -- "$build_log"
   local lib_path="target/${target}/release/liblance_c_ffi.a"
   if [ -f "${lib_path}" ]; then
+    python3 "${SCRIPT_DIR}/lance-ffi-provenance.py" seal \
+      --root "$(cd "${SCRIPT_DIR}/../.." && pwd)" --capture "$input_capture" \
+      --archive "$lib_path" --header include/lance_c_ffi.h --target "$target"
+    rm -- "$input_capture"
     local size
     size=$(du -h "${lib_path}" | cut -f1)
     echo "  OK: ${lib_path} (${size})"

@@ -140,6 +140,8 @@ ENV RUSTUP_TOOLCHAIN=1.98.1
 RUN rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
 WORKDIR /workspace/pangrova-worker-native
 COPY pangrova-worker-native/bin/build-lance-ffi.sh /workspace/pangrova-worker-native/bin/build-lance-ffi.sh
+COPY pangrova-worker-native/bin/lance-ffi-provenance.py pangrova-worker-native/bin/prepare-lance-sdk.sh /workspace/pangrova-worker-native/bin/
+COPY pangrova-worker-native/patches/lance-writer-drain.patch /workspace/pangrova-worker-native/patches/lance-writer-drain.patch
 COPY pangrova-worker-native/lance-ffi/ /workspace/pangrova-worker-native/lance-ffi/
 COPY pangrova-protocol/src/main/proto/ /workspace/pangrova-protocol/src/main/proto/
 COPY pangrova-protocol/src/main/proto-imports/ /workspace/pangrova-protocol/src/main/proto-imports/

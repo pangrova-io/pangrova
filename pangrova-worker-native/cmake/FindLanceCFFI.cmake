@@ -49,7 +49,25 @@ if(NOT EXISTS "${_LANCE_C_FFI_INCLUDE_PATH}/lance_c_ffi.h")
     "Required Lance C FFI header is missing: ${_LANCE_C_FFI_INCLUDE_PATH}/lance_c_ffi.h")
 endif()
 
+find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+set(_LANCE_PROVENANCE_COMMAND
+  "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/bin/lance-ffi-provenance.py" verify
+  --root "${CMAKE_CURRENT_SOURCE_DIR}/.."
+  --archive "${_LANCE_C_FFI_LIB_PATH}"
+  --header "${_LANCE_C_FFI_INCLUDE_PATH}/lance_c_ffi.h"
+  --target "${_LANCE_TARGET}")
+execute_process(COMMAND ${_LANCE_PROVENANCE_COMMAND}
+  RESULT_VARIABLE _LANCE_PROVENANCE_RESULT ERROR_VARIABLE _LANCE_PROVENANCE_ERROR)
+if(NOT _LANCE_PROVENANCE_RESULT EQUAL 0)
+  message(FATAL_ERROR "${_LANCE_PROVENANCE_ERROR}")
+endif()
+# Recheck at build time as protocol/Rust inputs can change after configuration.
+add_custom_target(lance_c_ffi_provenance
+  COMMAND ${_LANCE_PROVENANCE_COMMAND}
+  COMMENT "Verify Lance Rust archive, header and canonical protocol provenance"
+  VERBATIM)
 add_library(lance_c_ffi STATIC IMPORTED)
+add_dependencies(lance_c_ffi lance_c_ffi_provenance)
 set_target_properties(lance_c_ffi PROPERTIES
   IMPORTED_LOCATION "${_LANCE_C_FFI_LIB_PATH}"
   INTERFACE_INCLUDE_DIRECTORIES "${_LANCE_C_FFI_INCLUDE_PATH}"

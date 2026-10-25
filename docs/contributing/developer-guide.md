@@ -81,6 +81,16 @@ patches; it is not a Maven Central release. Set `GRADLE_BIN` when Gradle 8.14.4 
 not the default executable. For the full release validation chain, use the
 repository's build-pipeline rule and the production CI workflow.
 
+The Lance Rust archive is tied to its Rust sources, Cargo lock/configuration,
+owned SDK patch, canonical protocols and C header by
+`liblance_c_ffi.a.provenance.json`. CMake verifies that receipt both when
+configuring and before linking. After these inputs change, run
+`pangrova-worker-native/bin/build-lance-ffi.sh` before rebuilding Native; copying
+an older archive into the expected path is rejected. When installing a separate
+`LANCE_FFI_PREFIX`, copy the receipt next to its archive in `lib/` and install the
+matching header in `include/`. The receipt is created only after a successful
+build whose inputs remained unchanged.
+
 ### 1.3 Matching AddressSanitizer Dependencies
 
 ASan must use one compiler and a matching instrumented dependency cohort. Using
