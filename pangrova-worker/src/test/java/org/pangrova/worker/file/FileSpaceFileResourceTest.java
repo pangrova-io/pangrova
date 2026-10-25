@@ -346,6 +346,44 @@ class FileSpaceFileResourceTest {
     }
 
     @Test
+    void providerUrlCannotOutliveTheAuthorizingGrant() {
+        var now = new AtomicLong(System.currentTimeMillis());
+        try (var accessors = new ObjectStoreAccessorFactory(
+                software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
+                        software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))) {
+            var worker = new FileSpaceFileResource(accessors, SECRET, mapper, now::get);
+            var grant = new FileAccessDescriptor("s3", StorageType.S3, "test-bucket", "", "http://localhost:1",
+                    "us-east-1", true, "stage", "private.bin", "read", now.get() + 5_999);
+            var encoded = encode(grant);
+            var result = worker.presign(new FileSpaceFileResource.PresignRequest(encoded,
+                    FileAccessSignature.sign(SECRET, encoded), true, 3600));
+            assertThat(result.expiresAtEpochMillis()).isEqualTo(now.get() + 5_000);
+            assertThat(java.net.URI.create(result.url()).getRawQuery()).contains("X-Amz-Expires=5");
+            now.addAndGet(5_000);
+            assertThatThrownBy(() -> worker.presign(new FileSpaceFileResource.PresignRequest(encoded,
+                    FileAccessSignature.sign(SECRET, encoded), true, 60)))
+                    .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                            assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
+        }
+    }
+
+    @Test
+    void anOpenedStorageReadCannotContinuePastItsDeliveryDeadline() throws IOException {
+        var now = new AtomicLong(1_000);
+        var worker = clocked(now);
+        worker.put(descriptor("private.bin", "write"), 10, "text/plain", stream("0123456789"));
+        var grant = new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(), "", "", "", false,
+                "volumes/media/raw/landing", "private.bin", "read", 2_000);
+        try (var opened = worker.read(grant, 0, -1, null).stream()) {
+            assertThat(opened.read()).isEqualTo('0');
+            now.set(2_000);
+            assertThatThrownBy(opened::read).isInstanceOf(IOException.class).hasMessageContaining("expired");
+            assertThatThrownBy(() -> opened.read(new byte[4])).isInstanceOf(IOException.class);
+            assertThatThrownBy(() -> opened.skip(1)).isInstanceOf(IOException.class);
+        }
+    }
+
+    @Test
     void endpointWithoutSigningSecretIsRefused() {
         assertThatThrownBy(() -> new FileSpaceFileResource(
                 new ObjectStoreAccessorFactory(), " ", mapper, () -> 1_000L))

@@ -46,6 +46,25 @@ revocation, or the rest of M0–M5. It also does not qualify authored row-policy
 rule identity, independent-process recovery or the production deployment matrix.
 The previously deferred heavy data/environment gates stay deferred.
 
+## File delivery deadline checkpoint
+
+Provider URL requests are capped at the authorizing grant's remaining whole seconds;
+less than one second remaining is rejected before signing. The Worker returns the
+bounded issue-time deadline rather than advertising a new hour-long lifetime.
+Opened file reads check their original deadline before and after storage reads/skips.
+Expiry closes the stream and reports an error; a storage read returning after expiry
+cannot deliver that chunk or be mistaken for successful EOF.
+
+Small-data real HTTP, LOCAL, actual S3 signing and MinIO checks passed: 51 tests,
+zero failures/errors/skips, including a read that returns only after expiry. The
+changed six Java owners also passed Checkstyle. Native sources are unchanged.
+
+This is an expiry boundary, not immediate RBAC revocation: previously issued provider
+URLs follow provider semantics, already transmitted bytes cannot be recalled, and an
+in-flight blocked storage read relies on its backend timeout before the post-read check.
+Autonomous idle-stream cancellation and live revocation still require separate work.
+No heavy object/scale test was run.
+
 ## Resumed implementation and qualification
 
 Current user-directed priority: align architectural correctness and research the

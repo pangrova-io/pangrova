@@ -53,7 +53,7 @@ Native DIRECTORY 接入之前，需要先把以下设计约束落到协议与状
 | [Worker 页读取器](../../pangrova-worker/src/main/java/org/pangrova/worker/file/JdbcFileDirectoryPageSource.java)直连 PostgreSQL，用一个 repeatable-read 事务保持分页快照；当前无生产 SQL 调用点。 | 它是组件基础，不是 Native DIRECTORY。若直接接入查询，将引入数据库连接、旧行版本保留和故障域耦合，且偏离既有“Worker 不直接访问控制数据库”的目标设计。 |
 | [目录引用](../../pangrova-spi/src/main/java/org/pangrova/spi/storage/file/FileDirectoryReference.java)只有 space ID 与定义修订时间。 | Stage 定义身份不能同时表示目录数据 generation。需要另外固定目录 generation、Manifest 摘要、范围与读保护。不能把时间戳当作单调 fencing epoch。 |
 | [Multipart 端点](../../pangrova-worker/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)支持带绝对期限、绑定存储范围的签名 token；清理所有权留在内存 map，过期清理由新 begin 触发。 | token 可跨 Worker 恢复 provider ID，但不能列出重启前所有待清理会话、提供持久完成结果或保证无人再次上传时也会清理。LOCAL 迁移还依赖实际共享存储。 |
-| [稳定 Stage URL](../../pangrova-coordinator/src/main/java/org/pangrova/coordinator/file/StageFileUrlService.java)每次访问重查权限后换取 Worker ticket；[文件端点](../../pangrova-worker/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)校验期限后打开内容流。 | 已有 ticket 和已打开流不自动获得新的撤权语义；provider URL 可以比签发它的 grant 更长。新设计必须分别给出签发权限、最大交付期限、活动流检查与中止规则。 |
+| [稳定 Stage URL](../../pangrova-coordinator/src/main/java/org/pangrova/coordinator/file/StageFileUrlService.java)每次访问重查权限后换取 Worker ticket；[文件端点](../../pangrova-worker/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)校验期限后打开内容流。 | 本轮已把 provider URL 的请求 TTL 限制在原 grant 剩余整秒内，读取流在每次 read 前后检查原交付期限，过期关闭并报错，不把读取中到期当 EOF。当前权限变化仍没有主动撤销已签发 ticket / provider URL；阻塞存储调用依赖其独立超时，也不承诺到期瞬间中断已在途网络字节。 |
 | [稳定治理绑定](../../pangrova-metadata/src/main/java/org/pangrova/metadata/control/TableControlPolicyBinder.java)和标签已统一为 table ID 权威；前台与后台掩码直接从该权威读取，手工列掩码携 table ID。重命名持久预留两个名称。 | 本轮已推进分类和列掩码的实际读取路径；手工行策略、质量规则、进程级重启与自动重命名协调仍需独立完成，不能据此关闭全部治理门槛。 |
 
 PostgreSQL repeatable-read 能固定数据库快照，不能固定外部对象；长快照还会扩大旧版本回收的约束。
@@ -150,7 +150,7 @@ S3 生命周期清理可以兜底，但不能替代 Pangrova 会话结算与审�
 | active stream | 需要严格撤权时，代理按约定窗口检查并中止活动流；只检查请求开始时间时必须如此描述。 |
 | content / generation retention | 按读取、快照、未决提交和备份保护决定，不以 URL 到期推断已无人读取。 |
 
-现有默认 file grant 为 5 分钟；原设计的代理 60 秒与 DIRECT 5 分钟是目标值，尚非当前实现保证。
+现有默认 file grant 为 5 分钟；provider URL 的请求 TTL 不再超过该 grant 剩余整秒，代理读取在原期限前后检查交付。原设计的代理 60 秒、DIRECT 5 分钟和活动流动态撤权窗口仍是待实现/资格验证的目标值。
 新范围授权绑定对象精确版本、范围、subject / tenant、操作、issuer / key ID、有效期和相关 epoch。
 沿用 canonical v2 的身份与能力约束，不能为 DIRECTORY 再建 feature-specific task 协议或隐式降级。
 

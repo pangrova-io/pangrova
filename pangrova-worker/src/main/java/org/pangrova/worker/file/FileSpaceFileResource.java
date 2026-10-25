@@ -259,9 +259,17 @@ public final class FileSpaceFileResource {
                 read ? "read" : "write");
         long ttlSeconds = request.ttlSeconds() <= 0
                 ? DEFAULT_URL_TTL_SECONDS : Math.min(request.ttlSeconds(), MAX_URL_TTL_SECONDS);
+        long issuedAt = clock.getAsLong();
+        long remainingSeconds = Math.subtractExact(checked.expiresAtEpochMillis(), issuedAt) / 1000;
+        ttlSeconds = Math.min(ttlSeconds, remainingSeconds);
+        if (ttlSeconds <= 0) {
+            throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
+                    "File grant has insufficient lifetime for a provider URL");
+        }
         String url = accessor(checked).presign(location(checked), checked.path(),
                 java.time.Duration.ofSeconds(ttlSeconds), read);
-        return new PresignedUrl(url, clock.getAsLong() + ttlSeconds * 1000);
+        checked.requireUnexpired(clock.getAsLong());
+        return new PresignedUrl(url, Math.addExact(issuedAt, ttlSeconds * 1000));
     }
 
     FileStat head(FileAccessDescriptor descriptor) {
@@ -305,7 +313,8 @@ public final class FileSpaceFileResource {
                 stat.etag(), stat.contentType(), stat.providerVersion(), stat.md5());
         InputStream stream = accessor.openRange(location, checked.path(), requested.offset(),
                 requested.length(), stat.providerVersion());
-        return new RangeRead(window, stream, requested.partial(), total, requested.offset());
+        return new RangeRead(window, new FileTransferDeadline(stream, checked.expiresAtEpochMillis(), clock),
+                requested.partial(), total, requested.offset());
     }
 
     void delete(FileAccessDescriptor descriptor, String expectedVersion) {
