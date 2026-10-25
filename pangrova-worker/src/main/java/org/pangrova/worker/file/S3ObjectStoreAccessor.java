@@ -62,7 +62,10 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         this(client, null);
     }
 
-    /** Adds signed-URL support; without a presigner, {@code presign} stays unavailable. */
+    /**
+     * Borrows the owner's thread-safe SDK client and optional presigner; the owner closes them.
+     * Without a presigner, {@code presign} stays unavailable.
+     */
     public S3ObjectStoreAccessor(S3Client client, S3Presigner presigner) {
         this.client = client;
         this.presigner = presigner;

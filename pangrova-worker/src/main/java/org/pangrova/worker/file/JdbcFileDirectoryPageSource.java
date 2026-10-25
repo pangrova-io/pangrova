@@ -53,16 +53,20 @@ public final class JdbcFileDirectoryPageSource implements AutoCloseable {
             int pageSize, Instant deadline) {
         Objects.requireNonNull(source, "source");
         var reader = new JdbcFileDirectoryPageSource(reference, pageSize, deadline);
+        reader.initialize(source);
+        return reader;
+    }
+
+    private synchronized void initialize(DataSource source) {
         try {
-            reader.requireActive();
-            reader.connection = source.getConnection();
-            reader.connection.setReadOnly(true);
-            reader.connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
-            reader.connection.setAutoCommit(false);
-            reader.validateReference();
-            return reader;
+            requireActive();
+            connection = source.getConnection();
+            connection.setReadOnly(true);
+            connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+            connection.setAutoCommit(false);
+            validateReference();
         } catch (SQLException | RuntimeException failure) {
-            reader.closeAfterFailure(failure);
+            closeAfterFailure(failure);
             throw unavailable("Cannot open directory snapshot", failure);
         }
     }
@@ -151,7 +155,7 @@ public final class JdbcFileDirectoryPageSource implements AutoCloseable {
         }
     }
 
-    private void validateReference() throws SQLException {
+    private synchronized void validateReference() throws SQLException {
         try (var query = connection.prepareStatement("SELECT 1 FROM file_space_registry "
                 + "WHERE file_space_id=? AND space_type='STAGE' AND directory_enabled AND updated_at=?")) {
             query.setQueryTimeout(queryTimeout());
@@ -177,7 +181,7 @@ public final class JdbcFileDirectoryPageSource implements AutoCloseable {
         }
     }
 
-    private void release() throws SQLException {
+    private synchronized void release() throws SQLException {
         if (connection == null) {
             return;
         }

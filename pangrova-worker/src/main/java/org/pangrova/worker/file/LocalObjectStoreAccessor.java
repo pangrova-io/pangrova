@@ -100,7 +100,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
     public FileStat put(ObjectLocation location, String path, InputStream data, long size,
             String contentType) throws IOException {
         Path target = resolveForWrite(location, path);
-        Path draft = Files.createTempFile(target.getParent(), ".pangrova-upload-", ".part");
+        Path draft = Files.createTempFile(parentDirectory(target), ".pangrova-upload-", ".part");
         try {
             long written = copy(data, draft, size);
             if (size >= 0 && written != size) {
@@ -134,7 +134,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
     public UploadedPart uploadPart(MultipartUpload upload, int partNumber, InputStream data,
             long size) throws IOException {
         Path part = checkedPath(partsDirectory(upload.uploadId()).resolve(partName(partNumber)));
-        Path draft = Files.createTempFile(part.getParent(), ".upload-", ".part");
+        Path draft = Files.createTempFile(parentDirectory(part), ".upload-", ".part");
         MessageDigest digest = sha256();
         try {
             long written = copy(new DigestInputStream(data, digest), draft, size);
@@ -164,7 +164,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
         Path target = resolveForWrite(upload.location(), upload.path());
         Path uploadDirectory = partsDirectory(upload.uploadId());
         try {
-            Path draft = Files.createTempFile(target.getParent(), ".pangrova-upload-", ".part");
+            Path draft = Files.createTempFile(parentDirectory(target), ".pangrova-upload-", ".part");
             List<UploadedPart> ordered = new ArrayList<>(parts);
             ordered.sort(Comparator.comparingInt(UploadedPart::partNumber));
             try {
@@ -440,10 +440,19 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
         return candidate;
     }
 
+    private static Path parentDirectory(Path path) {
+        Path parent = path.getParent();
+        if (parent == null) {
+            throw new PangrovaException(PangrovaErrorCode.FILE_PATH_INVALID,
+                    "File destination must have a parent directory");
+        }
+        return parent;
+    }
+
     private Path resolveForWrite(ObjectLocation location, String path) {
         Path candidate = resolve(location, path);
         try {
-            ensureDirectories(candidate.getParent());
+            ensureDirectories(parentDirectory(candidate));
         } catch (IOException failure) {
             throw storageFailure("Cannot prepare '" + path + "'", failure);
         }

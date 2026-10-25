@@ -47,7 +47,7 @@ maintenance touches only the affected names, with no whole-map sweep or redundan
 reservation rewrites during ordinary version observation.
 
 Security and Governance owner regressions passed, as did Planner and Worker daily
-regressions. Metadata's complete final rerun passed all 830 tests with zero
+regressions. Metadata's complete post-upgrade rerun at `27d84e07` passed all 830 tests with zero
 failures/errors/skips after the upgrade correction. Coordinator's first complete
 run had 3,346 tests and one unbound-mask fixture error; the corrected real ADOPT /
 identity-bound fixture and ownership/SDK regression passed all 35 selected tests.
@@ -55,7 +55,7 @@ Checkstyle passed for the changed Java owners. Metadata, Coordinator, Security a
 Governance owner static analysis passed; the entire reactor remains unqualified.
 Static analysis is not globally green: unchanged materialization reports nine
 representation-exposure findings and unchanged planner materialized-view rewriting
-reports two. These remain explicit gates; no rule or exclusion was weakened.
+reports two. These remain explicit gates; the reviewed Worker SDK-client classification is described below.
 Native sources are unchanged in this checkpoint.
 
 This checkpoint does not implement immutable directory Manifests/Native DIRECTORY,
@@ -105,6 +105,24 @@ URLs follow provider semantics, already transmitted bytes cannot be recalled, an
 in-flight blocked storage read relies on its backend timeout before the post-read check.
 Autonomous idle-stream cancellation and live revocation still require separate work.
 No heavy object/scale test was run.
+
+## File endpoint ownership/static-analysis checkpoint
+
+File requests defensively copy their multipart part receipts and the injected JSON
+mapper configuration. External mutation cannot alter a constructed completion request
+or switch a live endpoint's decoding rules. Directory snapshot initialization,
+validation, release and page reads share the same connection monitor; cancellation
+still uses the independently visible active statement. LOCAL staging explicitly
+requires a destination parent, with no fallback path.
+
+The 58 focused deadline/HTTP/LOCAL/real S3 signing/MinIO tests passed, with zero
+failures/errors/skips. Worker Checkstyle and SpotBugs passed after these repairs.
+One narrowly scoped constructor/field filter documents intentional retention of the
+factory-owned S3Client: the pinned SDK declares it `@ThreadSafe`, its configuration is
+built before borrowing, the accessor never returns it, and the factory owns its pool
+and shutdown. This does not suppress getter exposure or unrelated findings. The other
+eight reported Worker findings were repaired in source rather than excluded.
+The unchanged materialization/planner findings continue to block global static analysis.
 
 ## Resumed implementation and qualification
 

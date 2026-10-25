@@ -384,6 +384,28 @@ class FileSpaceFileResourceTest {
     }
 
     @Test
+    void multipartCompletionFreezesItsSubmittedPartReceipts() {
+        var part = new FileSpaceFileResource.MultipartPart(1, "etag", 5);
+        var submitted = new java.util.ArrayList<>(java.util.List.of(part));
+        var request = new FileSpaceFileResource.CompleteMultipartRequest("descriptor", "signature", "id", submitted);
+        submitted.clear();
+        assertThat(request.parts()).containsExactly(part);
+        assertThatThrownBy(() -> request.parts().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void descriptorDecodingUsesTheMapperConfigurationCapturedAtConstruction() throws IOException {
+        var shared = JsonMapperFactory.create();
+        shared.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        var worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, shared, () -> 1_000L);
+        shared.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+        var payload = shared.valueToTree(descriptor("private.bin", "read"));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) payload).put("futureMetadata", true);
+        var encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(shared.writeValueAsBytes(payload));
+        assertThat(worker.verified(encoded, FileAccessSignature.sign(SECRET, encoded)).path()).isEqualTo("private.bin");
+    }
+
+    @Test
     void endpointWithoutSigningSecretIsRefused() {
         assertThatThrownBy(() -> new FileSpaceFileResource(
                 new ObjectStoreAccessorFactory(), " ", mapper, () -> 1_000L))

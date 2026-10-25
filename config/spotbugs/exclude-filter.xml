@@ -2679,4 +2679,16 @@
         <Field name="deleter" type="org.pangrova.coordinator.file.FileDeletionClient" />
         <Bug pattern="EI_EXPOSE_REP2" />
     </Match>
+    <!-- S3Client is an SDK @ThreadSafe service, not mutable DTO representation.
+         This constructor deliberately borrows ObjectStoreAccessorFactory's exact
+         client/pool; the factory owns close(). The accessor never returns the client.
+         Copying/rebuilding it would break shared credentials and pool lifecycle.
+         Classify only this constructor's retained client field, not other exposures. -->
+    <Match>
+        <Class name="org.pangrova.worker.file.S3ObjectStoreAccessor" />
+        <Method name="&lt;init&gt;" params="software.amazon.awssdk.services.s3.S3Client,software.amazon.awssdk.services.s3.presigner.S3Presigner" returns="void" />
+        <Field name="client" type="software.amazon.awssdk.services.s3.S3Client" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+
 </FindBugsFilter>

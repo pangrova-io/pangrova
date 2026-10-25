@@ -83,7 +83,7 @@ public final class FileSpaceFileResource {
         }
         this.accessors = accessors;
         this.signingSecret = signingSecret;
-        this.mapper = mapper;
+        this.mapper = java.util.Objects.requireNonNull(mapper, "mapper").copy();
         this.clock = clock;
     }
 
@@ -521,6 +521,9 @@ public final class FileSpaceFileResource {
     /** Multipart completion request with the provider ETags of each part. */
     public record CompleteMultipartRequest(String descriptor, String signature, String uploadId,
             List<MultipartPart> parts) {
+        public CompleteMultipartRequest {
+            parts = List.copyOf(java.util.Objects.requireNonNull(parts, "parts"));
+        }
     }
 
     /** One accepted part as reported by the client. */
