@@ -15,6 +15,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -133,8 +134,25 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
     public UploadedPart uploadPart(MultipartUpload upload, int partNumber, InputStream data,
             long size) throws IOException {
         Path part = checkedPath(partsDirectory(upload.uploadId()).resolve(partName(partNumber)));
-        long written = copy(data, part, size);
-        return new UploadedPart(partNumber, Long.toString(written), written);
+        Path draft = Files.createTempFile(part.getParent(), ".upload-", ".part");
+        MessageDigest digest = sha256();
+        try {
+            long written = copy(new DigestInputStream(data, digest), draft, size);
+            if (size >= 0 && written != size) {
+                throw new PangrovaException(PangrovaErrorCode.FILE_LIMIT_EXCEEDED,
+                        "Multipart bytes do not match the declared size");
+            }
+            Files.move(draft, part, StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+            return new UploadedPart(partNumber, HexFormat.of().formatHex(digest.digest()), written);
+        } catch (IOException | RuntimeException failure) {
+            try {
+                Files.deleteIfExists(draft);
+            } catch (IOException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
     }
 
     @Override
@@ -163,7 +181,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
                             throw new PangrovaException(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID,
                                     "Multipart part " + part.partNumber() + " is missing");
                         }
-                        Files.copy(source, output);
+                        copyVerifiedPart(source, output, part);
                         expectedPart++;
                     }
                 }
@@ -177,16 +195,31 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
                 }
                 throw failure;
             }
-            return head(upload.location(), upload.path());
-        } catch (IOException failure) {
-            throw storageFailure("Cannot complete multipart upload for '" + upload.path() + "'",
-                    failure);
-        } finally {
+            FileStat completed = head(upload.location(), upload.path());
             try {
                 abortMultipart(upload);
             } catch (PangrovaException ignored) {
                 // Staged parts are best-effort cleanup after the object is committed.
             }
+            return completed;
+        } catch (IOException failure) {
+            throw storageFailure("Cannot complete multipart upload for '" + upload.path() + "'",
+                    failure);
+        }
+    }
+
+    private static void copyVerifiedPart(Path source, OutputStream output, UploadedPart part)
+            throws IOException {
+        MessageDigest digest = sha256();
+        long copied;
+        try (InputStream input = new DigestInputStream(
+                Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS), digest)) {
+            copied = input.transferTo(output);
+        }
+        if (copied != part.size()
+                || !HexFormat.of().formatHex(digest.digest()).equals(part.etag())) {
+            throw new PangrovaException(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID,
+                    "Multipart part " + part.partNumber() + " does not match its ETag or size");
         }
     }
 
@@ -300,12 +333,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
     }
 
     private static String contentVersion(FileChannel channel) throws IOException {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("Required SHA-256 algorithm is unavailable", failure);
-        }
+        MessageDigest digest = sha256();
         ByteBuffer buffer = ByteBuffer.allocate(COPY_BUFFER_BYTES);
         channel.position(0);
         while (channel.read(buffer) != -1) {
@@ -314,6 +342,14 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
             buffer.clear();
         }
         return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("Required SHA-256 algorithm is unavailable", failure);
+        }
     }
 
     private String relativePath(ObjectLocation location, Path file) {

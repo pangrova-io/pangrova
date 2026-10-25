@@ -238,6 +238,12 @@ Single-request uploads are capped at 5 GiB. Larger objects use multipart:
 3. `multipart/complete` lists every part with its ETag and returns the final
    object metadata.
 
+LOCAL multipart parts use SHA-256 ETags. Retrying a part replaces it atomically;
+a truncated, oversized, or interrupted request preserves the previous accepted
+part. Completion checks the supplied part ETags and sizes against the bytes being
+assembled. Rejected part validation leaves the published object and staged parts
+intact so the client can correct the part list and retry.
+
 The upload id returned by `multipart/begin` is a signed session token bound to the
 complete storage profile, space root, object path, and an absolute 24-hour expiry.
 The response exposes that deadline as `expiresAtEpochMillis`. Any Worker with

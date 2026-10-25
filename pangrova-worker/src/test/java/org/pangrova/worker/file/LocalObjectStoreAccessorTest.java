@@ -119,7 +119,50 @@ class LocalObjectStoreAccessorTest {
         assertThatThrownBy(() -> accessor.completeMultipart(upload, List.of(second)))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("contiguous");
-        accessor.abortMultipart(upload);
+        UploadedPart first = accessor.uploadPart(upload, 1, stream("a"), 1);
+        accessor.completeMultipart(upload, List.of(first, second));
+        assertThat(read(accessor.openRange(location, "video/clip.mov", 0, -1, null))).isEqualTo("ab");
+    }
+
+    @Test
+    void stalePartEtagRejectsSameLengthReplacementWithoutChangingPublishedObject() throws IOException {
+        accessor.put(location, "clip.bin", stream("published"), 9, null);
+        var upload = accessor.beginMultipart(location, "clip.bin", null);
+        UploadedPart old = accessor.uploadPart(upload, 1, stream("old"), 3);
+        UploadedPart replacement = accessor.uploadPart(upload, 1, stream("new"), 3);
+        assertThat(replacement.etag()).isNotEqualTo(old.etag());
+        assertThatThrownBy(() -> accessor.completeMultipart(upload, List.of(old)))
+                .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                        assertThat(failure.getErrorCode())
+                                .isEqualTo(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID));
+        assertThat(read(accessor.openRange(location, "clip.bin", 0, -1, null))).isEqualTo("published");
+        assertThatThrownBy(() -> accessor.completeMultipart(upload,
+                List.of(new UploadedPart(1, replacement.etag(), 4))))
+                .isInstanceOf(PangrovaException.class);
+        accessor.completeMultipart(upload, List.of(replacement));
+        assertThat(read(accessor.openRange(location, "clip.bin", 0, -1, null))).isEqualTo("new");
+    }
+
+    @Test
+    void incompleteOrOversizeReplacementRetainsPreviouslyAcceptedPart() throws IOException {
+        var upload = accessor.beginMultipart(location, "clip.bin", null);
+        UploadedPart original = accessor.uploadPart(upload, 1, stream("original"), 8);
+        assertThatThrownBy(() -> accessor.uploadPart(upload, 1, stream("short"), 8))
+                .isInstanceOf(PangrovaException.class);
+        assertThatThrownBy(() -> accessor.uploadPart(upload, 1, stream("too-long"), 2))
+                .isInstanceOf(PangrovaException.class);
+        InputStream interrupted = new InputStream() {
+            private int remaining = 3;
+            @Override
+            public int read() throws IOException {
+                if (remaining-- > 0) return 'x';
+                throw new IOException("connection interrupted");
+            }
+        };
+        assertThatThrownBy(() -> accessor.uploadPart(upload, 1, interrupted, 8))
+                .isInstanceOf(IOException.class);
+        accessor.completeMultipart(upload, List.of(original));
+        assertThat(read(accessor.openRange(location, "clip.bin", 0, -1, null))).isEqualTo("original");
     }
 
     @Test
