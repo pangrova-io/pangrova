@@ -48,6 +48,17 @@ stream remained open after its command exited. This is retained as an incomplete
 reactor; no test was disabled or timeout raised. The final same-source regression,
 sanitizers, isolated Native owners and deployment gates below remain required.
 
+### Declared deletion-vector format boundary
+
+The release scope now explicitly supports uncompressed Puffin footers and
+uncompressed DV blobs, with the limits documented in
+[Storage backends](../getting-started/catalogs/storage-backends.md#iceberg-deletion-file-compatibility)
+and the production sign-off checklist. Optional LZ4 footer compression is a
+deliberate unsupported format boundary. Compressed `deletion-vector-v1` blobs
+are prohibited by the [Iceberg Puffin specification](https://iceberg.apache.org/puffin-spec/#deletion-vector-v1-blob-type)
+and must remain rejected; they are not missing DV compression functionality.
+External-writer and final-artifact acceptance remain open.
+
 ## Table Control Plane
 
 ### Root causes repaired
@@ -137,7 +148,7 @@ these failures disappear.
 | P3 external lineage | Complete the snapshot/audit-log reconstruction and table/column lineage depth audit. | Queryable external lineage with durable ordering and restart recovery. |
 | P3 active-active | Exercise two real coordinators plus an independent writer, not only store instances or threads. | CAS, lease loss, version recheck, conflicting commits and restart tests show no duplicate/lost data or false success. |
 | P3 deployment matrix | Finish canonical same-source Linux image, Linux ASan/LSan, S3/MinIO and REST/Hive/JDBC catalog qualification. | Image/source provenance and all mandatory CI/release gates pass. |
-| Format coverage | Compressed Puffin footer/blob encodings are explicitly rejected. | Either implement and test them against SDK-produced files or document a deliberate supported-format limit in release qualification. |
+| Format boundary qualification | The supported DV format is now documented as uncompressed footers and uncompressed blobs. Optional compressed footers remain unsupported; compressed DV blobs violate the specification and stay rejected. | Verify the declared limit against actual external writers and the final shipped artifact; retain explicit rejection evidence and do not advertise unrestricted Puffin encoding support. |
 
 Paimon procedures that remain unsupported must continue to fail explicitly;
 they must not be advertised as successful no-ops. Their complete support/removal

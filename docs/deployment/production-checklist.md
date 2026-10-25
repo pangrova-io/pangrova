@@ -216,6 +216,12 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 - [ ] For MinIO: verify `path-style-access: true` is set in catalog config
 - [ ] Storage credentials are injected via environment variables (not hardcoded in config files)
 - [ ] Catalog YAML file placed at `/etc/pangrova/catalog/<name>.yml` on all Coordinator nodes
+- [ ] Iceberg external writers conform to the
+  [deletion-file compatibility limits](../getting-started/catalogs/storage-backends.md#iceberg-deletion-file-compatibility):
+  DV Puffin footers are uncompressed, DV blobs have no compression codec, and
+  equality-delete inputs are rejected while their read capability is false.
+  Record the actual writer/artifact acceptance results before sign-off; a
+  documented format limit is not a passing external-writer qualification.
 - [ ] Test write and read from Pangrova CLI:
   ```bash
   # Quick connectivity test (interactive CLI):
