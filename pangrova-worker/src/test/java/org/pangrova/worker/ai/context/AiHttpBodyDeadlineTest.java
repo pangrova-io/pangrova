@@ -24,15 +24,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AiHttpBodyDeadlineTest {
     @Test
     void stalledBodyAfterHeadersExpiresWithoutReplayAndReleasesThePhysicalPermit() throws Exception {
-        assertStalledBodyTerminates(false);
+        assertStalledBodyTerminates(false, false);
     }
 
     @Test
     void interruptedBodySealsDeliveryAndReleasesOnlyTheClientPermit() throws Exception {
-        assertStalledBodyTerminates(true);
+        assertStalledBodyTerminates(true, false);
     }
 
-    private static void assertStalledBodyTerminates(boolean interrupt) throws Exception {
+    @Test
+    void taskRevocationJoinsAnAlreadySentBodyWithoutWaitingForItsDeadline() throws Exception {
+        assertStalledBodyTerminates(false, true);
+    }
+
+    private static void assertStalledBodyTerminates(boolean interrupt, boolean revoke) throws Exception {
         var bodyStarted = new CountDownLatch(1);
         var releaseBody = new CountDownLatch(1);
         var sends = new AtomicInteger();
@@ -62,7 +67,7 @@ class AiHttpBodyDeadlineTest {
         server.start();
         String endpoint = "http://127.0.0.1:" + server.getAddress().getPort() + "/embeddings";
         var provider = new OpenAiCompatibleEmbeddingProvider(new OpenAiEmbeddingConfig(
-                endpoint, "transport-contract", "", 3, 1, 100, "", "", interrupt ? 10 : 1));
+                endpoint, "transport-contract", "", 3, 1, 100, "", "", interrupt || revoke ? 10 : 1));
         var defaults = AiTransportTestAdmission.Limits.defaults();
         var singleSlot = new AiTransportTestAdmission.Limits(1, defaults.items(), defaults.attempts(),
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
@@ -82,12 +87,23 @@ class AiHttpBodyDeadlineTest {
             });
             assertThat(bodyStarted.await(5, TimeUnit.SECONDS)).isTrue();
             if (interrupt) sendingThread.get().interrupt();
+            if (revoke) {
+                long started = System.nanoTime();
+                budget.cancel();
+                assertThat(System.nanoTime() - started).isLessThan(TimeUnit.SECONDS.toNanos(5));
+            }
             var failure = failed.get(5, TimeUnit.SECONDS);
             assertThat(failure.category()).isEqualTo(AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
             assertThat(failure.retryable()).isFalse();
-            assertThat(failure).hasCauseInstanceOf(interrupt ? InterruptedException.class : HttpTimeoutException.class);
+            if (!revoke) {
+                assertThat(failure).hasCauseInstanceOf(interrupt ? InterruptedException.class : HttpTimeoutException.class);
+            }
             assertThat(wasInterrupted.get()).isEqualTo(interrupt);
             assertThat(sends).hasValue(1);
+            if (revoke) {
+                assertThat(budget.usage().getProviderAttempts()).isEqualTo(1);
+                return;
+            }
             // A new explicitly admitted call can acquire the released model/task permit.
             var recovered = budget.call("next-explicit-call", () -> provider.embed(
                     EmbeddingBatchRequest.text(EmbeddingPurpose.RAW, List.of("second"))));

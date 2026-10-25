@@ -57,3 +57,20 @@ this proves that the client will not retain or publish further response data. It
 does not prove that the remote model stopped or never executed. These paths retain
 `PROVIDER_OUTCOME_UNCERTAIN` and never authorize replay. A later explicitly admitted
 invocation can acquire the released client concurrency slot.
+
+## Task cancellation and batch ownership
+
+Each transport exchange registers with the exact task budget before submission.
+Task revocation seals admission, cancels all registered exchanges, and joins their
+sending-thread finalization outside the budget lock. Body callbacks are sealed
+before physical permits are released. Cancellation between registration and send
+prevents submission. A sender or body callback cannot claim its own exit by
+joining itself; that attempt fails explicitly and retains the task for cleanup.
+This is client resource termination, not a remote model cancellation guarantee.
+
+Both chat-completions and Responses batches retain every accepted child, even if
+a later executor submission is rejected. They wait for accepted suppliers to exit
+without treating future cancellation as termination. Results retain input order.
+If any child has an unknown POST outcome, that category takes precedence over a
+known HTTP failure or submission rejection and remains non-retryable. Other child
+failures are retained as suppressed exceptions on the aggregate typed failure.
