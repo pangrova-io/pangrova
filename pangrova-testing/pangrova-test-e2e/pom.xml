@@ -230,6 +230,22 @@
         </dependency>
     </dependencies>
 
+    <profiles>
+        <profile>
+            <id>native-runtime</id>
+            <dependencies>
+                <!-- Isolated E2E runs do not build the Worker project, so its
+                     project profile cannot supply this transitive dependency. -->
+                <dependency>
+                    <groupId>org.pangrova</groupId>
+                    <artifactId>pangrova-native-bundle</artifactId>
+                    <classifier>${os.detected.classifier}</classifier>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+
     <build>
         <testResources>
             <testResource>
