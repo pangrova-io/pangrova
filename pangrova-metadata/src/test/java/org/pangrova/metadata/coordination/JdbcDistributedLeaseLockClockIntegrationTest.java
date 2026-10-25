@@ -80,14 +80,19 @@ class JdbcDistributedLeaseLockClockIntegrationTest {
                         + "VALUES ('k','uncommitted',1,clock_timestamp(),clock_timestamp()+interval '5 seconds',1)");
             }
             int blockingPid = backendPid(blocker);
-            var pending = executor.submit(() -> lease.tryAcquire("k", "owner", Duration.ofMillis(500)));
+            Duration grantDuration = Duration.ofSeconds(5);
+            var pending = executor.submit(() -> lease.tryAcquire("k", "owner", grantDuration));
             awaitLockWait(blockingPid);
             sleepOnDatabase(blocker);
+            Instant beforeRollback = databaseNow(blocker);
             blocker.rollback();
             LeaseEntry acquired = pending.get(5, TimeUnit.SECONDS).orElseThrow();
             assertThat(acquired.epoch()).isEqualTo(1);
+            // Compare database timestamps across the lock wait, not time left after
+            // client scheduling and additional connections consume part of the lease.
+            assertThat(acquired.acquiredAt()).isAfterOrEqualTo(beforeRollback);
+            assertThat(Duration.between(acquired.acquiredAt(), acquired.expiresAt())).isEqualTo(grantDuration);
             assertThat(lease.currentHolder("k")).contains(acquired);
-            assertThat(Duration.between(databaseNow(), acquired.expiresAt()).toMillis()).isGreaterThan(350);
         } finally {
             executor.shutdown();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
@@ -206,7 +211,13 @@ class JdbcDistributedLeaseLockClockIntegrationTest {
     }
 
     private Instant databaseNow() throws Exception {
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+        try (var connection = dataSource.getConnection()) {
+            return databaseNow(connection);
+        }
+    }
+
+    private static Instant databaseNow(Connection connection) throws Exception {
+        try (var statement = connection.createStatement();
                 var rows = statement.executeQuery("SELECT clock_timestamp()")) {
             assertThat(rows.next()).isTrue();
             return getInstant(rows, 1);
