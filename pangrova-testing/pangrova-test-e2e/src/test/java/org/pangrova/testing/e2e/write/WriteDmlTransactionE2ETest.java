@@ -284,7 +284,7 @@ class WriteDmlTransactionE2ETest extends PangrovaE2ETestBase {
 
             // Overwrite 'us' partition with new data
             executeDml("INSERT OVERWRITE " + fqn()
-                    + " PARTITION (region = 'us') VALUES (10, 'us', 1000.0)");
+                    + " (id, amount) PARTITION (region = 'us') VALUES (10, 1000.0)");
 
             List<TypedRow> usRows = executeQuery(
                     "SELECT * FROM " + fqn() + " WHERE region = 'us'");
