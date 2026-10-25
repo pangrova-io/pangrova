@@ -44,11 +44,39 @@ The emitter consumer owns its HTTP transport. Actual queued sends and shutdown d
 finish before the consumer closes the transport. A logical terminal event, a timeout,
 or a cancel request is not evidence of physical query or transport drain.
 
+Journal SQL cleanup may be attempted both by its caller and the background
+reaper. The cleanup owner rechecks completion after acquiring exclusive cleanup
+ownership, so a stale competing attempt cannot return the same SQL owner twice.
+A failed physical connection close remains owned and can be retried.
+
 Focused integration tests deploy the real Marquez 0.50.0 HTTP API with real PostgreSQL,
 send through the production OpenLineage SDK, then query the reference backend's actual
 `lineage_events` journal. They retain UUID and success/failure assertions and cover
 START/terminal cardinality, cancellation, structured dataset names, SQL/error facets,
 derivation categories, and independent listener owners.
+
+On ARM64 Docker hosts, the upstream Marquez 0.50.0 AMD64 image runs under
+emulation. Its request latency can exceed the integration tests' HTTP budgets.
+Prepare a native Java 17 image before running these tests:
+
+```bash
+python3.12 .pangrova/scripts/prepare-lineage-test-image.py \
+  --runtime-image eclipse-temurin:17-jre
+mvn -pl pangrova-metadata -am \
+  -Dtest=QueryLineageHttpRecoveryIntegrationTest \
+  -Dsurefire.failIfNoSpecifiedTests=false \
+  -Dpangrova.test.marquez.image=<image-tag-from-preparation> test
+```
+
+Use a digest-qualified Java 17 runtime image for repeatable preparation. The
+script copies the unmodified application and entrypoint from an immutable
+upstream image, verifies the application's SHA-256, and emits the resulting
+image ID, native architecture, source digest and runtime image ID. Preparation
+containers remain stopped and are removed after use. The resulting local image
+is used by the existing reference-backend fixture; PostgreSQL, real HTTP
+ingestion, test deadlines and assertions are unchanged. Retain the receipt and
+test reports with validation evidence. This removes emulation overhead; it does
+not establish production backend throughput or cold-start latency.
 
 This unit does not establish lossless delivery: the existing bounded in-memory queue
 can drop events and its shutdown drain can report failed sends. The existing lineage

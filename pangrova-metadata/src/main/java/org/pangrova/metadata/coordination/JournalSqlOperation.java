@@ -55,6 +55,9 @@ final class JournalSqlOperation implements AutoCloseable {
         if (returned) return true;
         if (!exited || !cleaning.compareAndSet(false, true)) return false;
         try {
+            // Another closer can return the owner between our first read and
+            // acquiring cleaning. Recheck under exclusive cleanup ownership.
+            if (returned) return true;
             if (connection != null) connection.close();
             connection = null;
             owner.leaveSql(this, purgeQuery);
