@@ -8,7 +8,33 @@ the generated-values materializer, whose availability depends on the actual
 immutable-cache readiness gate. It is distinct from the cache-disabled function
 exporter catalogue used by function-contract tests.
 
-The snapshot was recaptured on 2026-10-21 after exposing the actual Native
+The complete cache-enabled snapshot was recaptured on **2026-10-25** through
+`NativeCapabilityHandshakeE2ETest`, after the worker-incarnation protocol change.
+The current-source Native target built successfully and the packaged library
+matched the build artifact. The real PostgreSQL/Ollama/JNI handshake passed 1/1
+with no skipped tests and retained all 19 capabilities, 103 functions (including
+the governed FILE callbacks), and two configured models. Current capture receipts:
+
+- Native library SHA-256: `6dbd54c01694177de9347cd9482121a1d91af95cc7ef3bbcfcc4ea1310942f38`.
+- Inventory: 795,600 bytes, SHA-256
+  `cd658bdd93f7e0ce23ba964ef3e997c300f7dafedba9f02495cb89339118bf87`.
+- Canonical descriptor SHA-256:
+  `8e19c1d352460f0f950613fb744ac0228048a6656da001b945dde5568bd46244`.
+- Prepared Ollama image:
+  `sha256:07fd8f7607f360ed6c29d2d976daa7ebcbe200a63b81e9daecbf561866d1cb66`.
+
+The E2E harness now wires the production controlled-maintenance executor to real
+PostgreSQL policy and lease stores. Passing `null` to the mandatory executor had
+prevented coordinator startup before the handshake could run. Neither the
+ownership checks nor the capability validator were relaxed for this recapture.
+The protocol owner suite then passed all 465 tests across 81 classes, with zero
+failures, errors, or skips, including all seven actual-inventory contract cases.
+This receipt qualifies handshake and publication, not SQL feature completeness
+or the full production regression.
+
+## Historical capture and function exporter
+
+The preceding snapshot was captured on 2026-10-21 after exposing the actual Native
 `to_ieee754_32` and `to_ieee754_64` registrations through the shared SQL bindings.
 This historical complete inventory came from the rebuilt runtime containing the
 canonical nested-vector name binding, microsecond TIME bridge and UUID
@@ -22,7 +48,7 @@ The cache-disabled function catalogue was captured separately from the rebuilt
   `1c462e4c925da95480712065b6c90f8b2e69aecdbe95d7e9602e673fee225dc0`
   (9 capabilities and 87 functions).
 
-The complete cache-enabled inventory came from actual E2E JNI startup with
+That historical complete cache-enabled inventory came from actual E2E JNI startup with
 `PANGROVA_E2E_FILE_CAPABILITY_KEY` set, which deployed the governed FILE
 callbacks before Native catalogue publication:
 
