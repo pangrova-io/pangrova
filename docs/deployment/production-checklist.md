@@ -233,6 +233,10 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
 
 ## Phase 8 — First Deployment
 
+- [ ] If deploying the optional Shuffle service, build its image with the
+  `pangrova-shuffle-service-<version>-exec.jar` standalone executable. The ordinary
+  Maven JAR contains only the service classes and is used by Java consumers;
+  keep the executable's bundled dependencies off those consumers' classpaths.
 - [ ] Configuration files installed on all nodes (under `PANGROVA_CONF_DIR`, e.g. `/etc/pangrova`):
   - `/etc/pangrova/coordinator.yml` (Coordinator nodes)
   - `/etc/pangrova/worker.yml` (Worker nodes — security keys also live here, e.g. `worker.internal-auth-secret`)
