@@ -21,6 +21,7 @@ test passing does not qualify the complete deployment.
 | Native E2E ownership fixtures | Shuffle/COPY fixtures did not bind the real Worker process identity before admission. Bind the actual owner throughout the fixture chain. | `3850e292` |
 | Overwrite regression fixture | A static-partition INSERT supplied the partition column in VALUES, violating the documented SQL contract. Supply only non-partition columns while retaining assertions that the selected partition is replaced and other partitions survive. | `abd0ddf3` |
 | Lease regression fixture | A remaining-TTL assertion included client scheduling and connection latency. Assert that the database grant timestamp follows the blocking transaction boundary and retains its full duration. | `922fdf1b` |
+| Rust protocol artifact drift | The local Lance archive still used generated messages without Worker execution identity. Rust dropped that field, so a real Lance INSERT produced a transaction reference whose attempt-path hash failed Java validation. Require a source/header/archive/target provenance receipt at CMake configure and build time; rebuild the Rust archive before relinking JNI. Docker now stages the SDK preparation script and patch before its Rust build. | `4f26149e` |
 
 ## Evidence obtained
 
@@ -38,6 +39,8 @@ qualified again; earlier green results must not be represented as that result.
 | `JdbcDistributedLeaseLockClockIntegrationTest` after assertion repair | 9 passed | Actual PostgreSQL row/conflict waits and delayed writes. |
 | `WriteDmlTransactionE2ETest$InsertOverwrite` after SQL repair | 1 passed | Actual static partition overwrite. |
 | Java static analysis | protocol, metadata, Iceberg, Paimon and coordinator passed | Before the final combined-revision rebuild. |
+| Combined Java reactor | Clean-snapshot install passed, followed by install with `native-runtime` | Compilation/package evidence only. The first subsequent E2E startup correctly failed because the initial install omitted the runtime profile; its installed Worker POM lacked the classifier dependency. |
+| Lance archive provenance | 4 tooling tests passed; actual stale archive rejected by both the verifier and CMake configuration | Rust rebuild, JNI relink and real Lance SQL acceptance still pending. |
 | Isolated Native runtime owner suites | WorkerBootstrap 5; NativeExchangeTransportExternalIntegration 3; WorkerShuffleChannelAdmission 1; CopySourceReadHttp 1 passed | These 10 results precede the latest deletion-vector JNI build. |
 | macOS ASan full suite | In progress at ledger creation | Repository policy uses `detect_leaks=0` on macOS. Linux ASan/LSan remains a separate required gate. |
 | Broad Java and SQL E2E suites | In progress, with failures recorded below | Not green. |
@@ -51,6 +54,11 @@ The broader metadata run exposed the lease test timing issue fixed above and a
 Marquez startup HTTP read timeout. The latter had passed in the focused run;
 resource contention is suspected, but a successful serialized rerun is still
 required. The broad E2E run exposed the static-partition fixture fixed above.
+The broad E2E run also found a real Lance INSERT failure caused by the stale Rust
+protocol archive described above. Earlier Release and ASan results must therefore
+be retained as evidence for their exact old artifact, not promoted to validation
+of the rebuilt Rust/JNI combination.
+
 No timeout was raised, test disabled, or new sanitizer suppression added to make
 these failures disappear.
 
@@ -77,8 +85,10 @@ matrix still needs final P3 verification.
 
 ## Continuation order
 
-1. Collect the currently running reports and preserve the exact tested source,
-   JNI and runtime manifests. Finish the combined-revision build.
+1. Finish the Lance Rust rebuild with its provenance receipt, relink Release and
+   ASan JNI, repackage the classifier, and freeze a new runtime manifest. Rerun
+   `NativeDatasetControlRouteTest` to prove actual SQL writes, then the affected
+   native and Java chain. Preserve reports and hashes from the previous artifacts.
 2. Serialize the resource-heavy Docker integrations, reproduce any remaining
    failure, and rerun the four runtime owner suites in separate JVMs.
 3. Complete catalog deployment identity and stable-ID governance projections,
