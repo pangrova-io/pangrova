@@ -64,6 +64,21 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
         if (exception instanceof WebApplicationException webException) {
             return webException.getResponse().getStatus();
         }
+        if (exception instanceof PangrovaException failure) {
+            Integer fileStatus = switch (failure.getErrorCode()) {
+                case FILE_OBJECT_NOT_FOUND -> 404;
+                case FILE_OBJECT_PRECONDITION_FAILED -> 412;
+                case FILE_PATH_INVALID -> 400;
+                case FILE_UPLOAD_STATE_INVALID -> 409;
+                case FILE_LIMIT_EXCEEDED -> 413;
+                case FILE_STORAGE_UNAVAILABLE, FILE_STORAGE_NOT_CONFIGURED -> 503;
+                case ACCESS_DENIED -> 403;
+                default -> null;
+            };
+            if (fileStatus != null) {
+                return fileStatus;
+            }
+        }
         if (exception instanceof org.pangrova.worker.task.ControlEpochFenceException fence) {
             return switch (fence.reason()) {
                 case CONTROL_PLANE_NOT_READY -> 503;
@@ -104,6 +119,8 @@ public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
             case 405 -> "METHOD_NOT_ALLOWED";
             case 408 -> "ADMISSION_EXPIRED";
             case 409 -> "ADMISSION_CONFLICT";
+            case 412 -> "PRECONDITION_FAILED";
+            case 416 -> "RANGE_NOT_SATISFIABLE";
             case 425 -> "CONTROL_EPOCH_AHEAD";
             case 503 -> "SERVICE_UNAVAILABLE";
             default -> "INTERNAL_ERROR";

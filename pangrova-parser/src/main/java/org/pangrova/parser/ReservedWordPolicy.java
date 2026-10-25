@@ -168,6 +168,10 @@ public final class ReservedWordPolicy {
                 "FOR",
                 // Stream
                 "STREAM", "STREAMS", "KAFKA", "FORMAT",
+                // Volume / Stage
+                "VOLUME", "VOLUMES", "STAGE", "STAGES", "MANAGED", "EXTERNAL", "INTERNAL",
+                "LOCATION", "URL", "OWNER", "DIRECTORY", "ENABLE", "SUBPATH", "STORAGE_PROFILE",
+                "LIST", "REMOVE",
                 // Variant/geo types
                 "VARIANT", "GEOMETRY", "GEOGRAPHY", "TIMESTAMP_NS",
                 // Metadata

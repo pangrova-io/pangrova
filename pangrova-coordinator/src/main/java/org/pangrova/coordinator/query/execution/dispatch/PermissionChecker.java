@@ -7,7 +7,14 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.CreateDynamicTableStatement;
 import org.pangrova.parser.ast.CreateMaterializedViewStatement;
+import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.statement.AlterStageStatement;
+import org.pangrova.parser.ast.statement.AlterVolumeStatement;
+import org.pangrova.parser.ast.statement.CreateStageStatement;
+import org.pangrova.parser.ast.statement.CreateVolumeStatement;
+import org.pangrova.parser.ast.statement.DropStageStatement;
+import org.pangrova.parser.ast.statement.DropVolumeStatement;
 import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
 import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
@@ -53,6 +60,13 @@ public final class PermissionChecker {
             accessControl.checkCanManageStorageProfile(user, profileName);
             return;
         }
+        if (StatementClassifier.isFileSpaceDdl(stmt)) {
+            if (accessControl == null || user == null) {
+                throw new AccessDeniedException("Authenticated volume or stage principal is required");
+            }
+            checkFileSpaceMutation(stmt, context, accessControl, user);
+            return;
+        }
         QualifiedTableName parts = context == null ? null
                 : StatementClassifier.extractTableParts(stmt, context);
         checkReservedDynamicTableGeneration(stmt, parts);
@@ -70,7 +84,52 @@ public final class PermissionChecker {
         }
     }
 
-    private static void checkReservedDynamicTableGeneration(Statement stmt, QualifiedTableName parts) {
+    private static void checkFileSpaceMutation(Statement stmt, CoordinatorSessionContext context,
+            AccessControl accessControl, UserIdentity user) {
+        FileSpaceTarget target = fileSpaceTarget(stmt, context);
+        String catalog = target.catalog();
+        String schema = target.schema();
+        String name = target.name();
+        if (stmt instanceof CreateVolumeStatement create) {
+            accessControl.checkCanCreateVolume(user, catalog, schema, name, create.external());
+        } else if (stmt instanceof CreateStageStatement) {
+            accessControl.checkCanCreateStage(user, catalog, schema, name);
+        } else if (stmt instanceof AlterVolumeStatement || stmt instanceof DropVolumeStatement) {
+            accessControl.checkCanManageVolume(user, catalog, schema, name);
+        } else {
+            accessControl.checkCanManageStage(user, catalog, schema, name);
+        }
+    }
+
+    private static FileSpaceTarget fileSpaceTarget(Statement stmt,
+            CoordinatorSessionContext context) {
+        QualifiedTableName ref = TableResolver.resolveTableRef(fileSpaceName(stmt).parts(), context);
+        return new FileSpaceTarget(ref.catalog(), ref.schema(), ref.table());
+    }
+
+    private static Identifier fileSpaceName(Statement stmt) {
+        if (stmt instanceof CreateVolumeStatement create) {
+            return create.name();
+        }
+        if (stmt instanceof AlterVolumeStatement alter) {
+            return alter.name();
+        }
+        if (stmt instanceof DropVolumeStatement drop) {
+            return drop.name();
+        }
+        if (stmt instanceof CreateStageStatement create) {
+            return create.name();
+        }
+        if (stmt instanceof AlterStageStatement alter) {
+            return alter.name();
+        }
+        return ((DropStageStatement) stmt).name();
+    }
+
+    private record FileSpaceTarget(String catalog, String schema, String name) {}
+
+    private static void checkReservedDynamicTableGeneration(Statement stmt,
+            QualifiedTableName parts) {
         if (parts != null && AccessControlEnforcer.isReservedDynamicTableGeneration(parts)) {
             throw new AccessDeniedException("Dynamic Table physical generation names are reserved");
         }

@@ -52,7 +52,18 @@ public final class StatementClassifier {
     /** Returns whether a statement changes catalog, table, branch, or AI metadata. */
     public static boolean isDdl(Statement stmt) {
         return isCoreDdl(stmt) || isSemanticViewDdl(stmt)
-                || isFeatureViewDdl(stmt) || isFeatureMaterializationDdl(stmt);
+                || isFeatureViewDdl(stmt) || isFeatureMaterializationDdl(stmt)
+                || isFileSpaceDdl(stmt);
+    }
+
+    /** Returns whether a statement changes a Volume or Stage namespace. */
+    public static boolean isFileSpaceDdl(Statement stmt) {
+        return stmt instanceof org.pangrova.parser.ast.statement.CreateVolumeStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.AlterVolumeStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.DropVolumeStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.CreateStageStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.AlterStageStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.DropStageStatement;
     }
 
     private static boolean isCoreDdl(Statement stmt) {
@@ -105,7 +116,12 @@ public final class StatementClassifier {
                 || stmt instanceof ShowMaterializationsStatement
                 || stmt instanceof ShowMaterializationRefreshHistoryStatement
                 || stmt instanceof ShowMaterializationDependenciesStatement
-                || stmt instanceof ShowMaterializationGcHistoryStatement;
+                || stmt instanceof ShowMaterializationGcHistoryStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.ShowVolumesStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.DescribeVolumeStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.ShowStagesStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.DescribeStageStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.ListStageStatement;
     }
 
     /** Returns whether a statement is a scheduled maintenance operation. */

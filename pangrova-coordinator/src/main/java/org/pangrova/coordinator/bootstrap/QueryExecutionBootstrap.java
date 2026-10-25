@@ -285,6 +285,7 @@ final class QueryExecutionBootstrap {
         registerOptionalMetadataTasks(indexing, dmlDispatch, ddlExecutor, queryDispatcherRef);
         registerBranchTasks(metadataFactory, catalog);
         registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
+        registerFileSpaceTasks(metadataFactory, accessControl, metadataDataSource, auditEmitter);
 
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
@@ -534,6 +535,56 @@ final class QueryExecutionBootstrap {
         factory.registerTask(org.pangrova.parser.ast.statement.ShowStorageProfilesStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask(
                         registry, accessControl));
+    }
+
+    private void registerFileSpaceTasks(
+            org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
+            AccessControl authorization, javax.sql.DataSource source,
+            org.pangrova.security.audit.AuditEventEmitter auditOutput) {
+        if (source == null) {
+            return;
+        }
+        var registry = new org.pangrova.metadata.file.JdbcFileSpaceRegistry(source);
+        var audit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(auditOutput);
+        org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
+                factory, registry, authorization, audit);
+        var access = fileSpaceAccessService(registry, authorization, source, audit);
+        var client = access == null ? null
+                : org.pangrova.coordinator.file.WorkerFileClient
+                        .create(config.internalAuthSecret());
+        var refresh = access == null ? null
+                : new org.pangrova.coordinator.file.StageDirectoryRefreshService(
+                        new org.pangrova.metadata.file.JdbcFileDirectoryIndex(source),
+                        access, client, authorization);
+        org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
+                factory, registry, authorization, audit, refresh);
+        factory.registerTask(org.pangrova.parser.ast.statement.ListStageStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.file.ListStageTask(
+                        access, client));
+        factory.registerTask(org.pangrova.parser.ast.statement.RemoveStageStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.file.RemoveStageTask(
+                        access, client, client));
+    }
+
+    private org.pangrova.coordinator.file.FileSpaceAccessService fileSpaceAccessService(
+            org.pangrova.spi.storage.file.FileSpaceRegistry registry, AccessControl authorization,
+            javax.sql.DataSource source,
+            org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter audit) {
+        if (authorization == null || config.internalAuthSecret() == null
+                || config.internalAuthSecret().isBlank()) {
+            return null;
+        }
+        var context = org.pangrova.coordinator.file.FileSpaceAccessService.FileSpaceAccessContext
+                .of(System.getProperty("pangrova.files.managed-storage-profile", ""),
+                        () -> workerManager == null ? java.util.List.of()
+                                : workerManager.getActiveWorkers().stream()
+                                        .map(worker -> "http://" + worker.host() + ":"
+                                                + worker.httpPort())
+                                        .toList(),
+                        audit, config.internalAuthSecret());
+        return new org.pangrova.coordinator.file.FileSpaceAccessService(registry,
+                new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(source),
+                authorization, context);
     }
 
     Consumer<String> buildWriteCompleteCallback(MaintenanceScheduler ms) {

@@ -361,6 +361,125 @@ SHOW STORAGE PROFILES;
 
 ---
 
+## Volume and Stage DDL
+
+Volumes and stages name non-table file namespaces. Both surfaces persist in the
+same metadata authority, but they keep separate namespaces, DDL, and privileges:
+a volume and a stage may share a name in one schema without colliding.
+
+This milestone registers and persists the definitions, and the file data plane is
+available through the [file access API](../getting-started/catalogs/volumes-stages-files.md):
+single-request upload up to 5 GiB, ranged reads with version pinning, recursive
+listing, version-checked delete, and multipart upload. `LIST`, `REMOVE`, and manual
+`ALTER STAGE ... REFRESH` are implemented. Directory query projections, SQL
+`PUT`/`GET`, and `COPY INTO`/`read_files` ingestion are not implemented yet.
+
+| Operation | Volume | Stage |
+|---|---|---|
+| Create managed/internal | `CREATE_VOLUME` on the schema | `CREATE_STAGE` on the schema |
+| Create external | `CREATE_EXTERNAL_VOLUME` on the schema (plus location and storage profile) | `CREATE_STAGE` on the schema (plus URL and storage profile) |
+| Metadata read | `READ_VOLUME` on the volume | `USAGE_STAGE` on the stage |
+| Alter, rename, drop | `MANAGE_VOLUME` on the volume | `OWNER` on the stage |
+
+`SHOW` returns only objects covered by the read privilege; `DESCRIBE` requires
+the same exact-object read privilege. Creating an external space additionally
+requires a dedicated creation privilege so ordinary users cannot mount arbitrary
+buckets. Schema- and catalog-scoped grants cascade to volumes and stages; table
+grants and grants on the other space kind never authorize a volume or stage.
+Locations must be absolute URIs without whitespace, backslashes, or
+`..` segments, and a physical prefix cannot be claimed by two definitions.
+
+Dropping a space revokes exact-name grants in the same transaction; renaming
+moves them with the object. Schema-scoped creation grants and `*` wildcards are
+namespace grants and survive drop.
+
+### CREATE VOLUME
+
+```sql
+CREATE [MANAGED | EXTERNAL] VOLUME [IF NOT EXISTS] [catalog.]schema.name
+  [LOCATION 's3://bucket/prefix']
+  [STORAGE_PROFILE 'profile']
+  [COMMENT 'text'];
+```
+
+A managed volume must not declare a location. An external volume requires both
+`LOCATION` and `STORAGE_PROFILE`.
+
+### ALTER VOLUME
+
+```sql
+ALTER VOLUME name SET STORAGE_PROFILE 'profile';
+ALTER VOLUME name SET COMMENT 'text';
+ALTER VOLUME name SET OWNER TO user;
+ALTER VOLUME name RENAME TO new_name;
+```
+
+`RENAME` cannot move a volume between schemas. Managed volumes retain their
+persistent physical root when renamed. Recreating a dropped or renamed space's
+former name allocates an independent root and does not expose its old files.
+
+### DROP VOLUME
+
+```sql
+DROP VOLUME [IF EXISTS] name;
+```
+
+### SHOW / DESCRIBE VOLUMES
+
+```sql
+SHOW VOLUMES [FROM catalog.schema];
+DESCRIBE VOLUME name;
+```
+
+### CREATE STAGE
+
+```sql
+CREATE [EXTERNAL] STAGE [IF NOT EXISTS] [catalog.]schema.name
+  [URL = 's3://bucket/prefix']
+  [STORAGE_PROFILE = 'profile']
+  [DIRECTORY = (ENABLE = TRUE | FALSE)]
+  [COMMENT = 'text'];
+```
+
+An internal stage must not declare a URL. An external stage requires `URL` and
+`STORAGE_PROFILE`. Only stages accept a directory projection.
+
+### ALTER STAGE
+
+```sql
+ALTER STAGE name SET URL = 's3://bucket/prefix';
+ALTER STAGE name SET DIRECTORY = (ENABLE = TRUE | FALSE);
+ALTER STAGE name SET OWNER TO user;
+ALTER STAGE name RENAME TO new_name;
+ALTER STAGE name REFRESH [SUBPATH = 'prefix/'];
+```
+
+Renaming an internal stage preserves its physical root and files. A new stage
+using the former name receives an independent root, including after DROP.
+
+`REFRESH` requires an enabled directory, ownership, `USAGE_STAGE`, `READ_STAGE`,
+and a configured file plane. Workers list real object metadata; the coordinator
+persists pages privately and atomically publishes only a complete scan. A failed
+or superseded scan leaves the published index intact. `SUBPATH` replaces only the
+named directory and its descendants; adjacent prefixes are preserved. This does
+not yet enable the Native `DIRECTORY(@stage)` query projection or automatic
+updates when files are uploaded. See the [refresh contract](../getting-started/catalogs/volumes-stages-files.md#directory-refresh).
+
+### DROP STAGE
+
+```sql
+DROP STAGE [IF EXISTS] name;
+```
+
+### SHOW / DESCRIBE STAGES
+
+```sql
+SHOW STAGES [IN catalog.schema];
+DESCRIBE STAGE name;
+```
+
+---
+
 ## CREATE TABLE AS SELECT (CTAS)
 
 ```sql

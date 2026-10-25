@@ -1,5 +1,6 @@
 package org.pangrova.spi.connector.metadata;
 
+import org.pangrova.spi.annotation.Experimental;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.TableCapabilities;
@@ -16,6 +17,7 @@ import java.util.Optional;
  * match. Implementations load the current table state; they must not reuse a
  * stale handle snapshot as identity evidence.</p>
  */
+@Experimental
 public interface ConnectorTableControlMetadata {
 
     /** Returns the format-level identity of the physical table, or empty if unsupported. */

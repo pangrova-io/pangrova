@@ -20,7 +20,9 @@ import java.security.MessageDigest;
  * from untrusted clients that can reach the Worker HTTP port.</p>
  *
  * <p>The exact readiness and liveness endpoints ({@code /v1/health} and
- * {@code /v1/health/live}) are exempt from authentication to allow probes.</p>
+ * {@code /v1/health/live}) are exempt from authentication to allow probes. The
+ * file-space endpoint is also exempt because it authenticates every request with
+ * its own signed, short-lived descriptor; unsigned calls are rejected there.</p>
  *
  * <p>The shared secret should be configured via environment variable
  * {@code PANGROVA_INTERNAL_AUTH_SECRET} or YAML config
@@ -34,6 +36,7 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
     static final String AUTH_HEADER = "X-Internal-Auth";
     private static final String HEALTH_PATH = "v1/health";
     private static final String LIVE_PATH = "v1/health/live";
+    private static final String FILE_SPACE_PATH = "v1/file-space";
 
     private final byte[] expectedSecret;
 
@@ -49,7 +52,7 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
 
     @Override
     public void filter(ContainerRequestContext requestContext) {
-        if (isHealthCheck(requestContext)) {
+        if (isExempt(requestContext)) {
             return;
         }
 
@@ -69,9 +72,11 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
         }
     }
 
-    private static boolean isHealthCheck(ContainerRequestContext ctx) {
+    private static boolean isExempt(ContainerRequestContext ctx) {
         String path = ctx.getUriInfo().getPath();
-        return HEALTH_PATH.equals(path) || ("/" + HEALTH_PATH).equals(path)
-                || LIVE_PATH.equals(path) || ("/" + LIVE_PATH).equals(path);
+        String normalized = path.startsWith("/") ? path.substring(1) : path;
+        return HEALTH_PATH.equals(normalized) || LIVE_PATH.equals(normalized)
+                || FILE_SPACE_PATH.equals(normalized)
+                || normalized.startsWith(FILE_SPACE_PATH + "/");
     }
 }

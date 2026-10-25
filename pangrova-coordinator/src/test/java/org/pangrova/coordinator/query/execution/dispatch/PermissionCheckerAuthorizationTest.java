@@ -16,6 +16,7 @@ import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.spi.storage.file.FileSpaceType;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -131,6 +132,91 @@ class PermissionCheckerAuthorizationTest {
     }
 
     @Test
+    void volumeDdlUsesSchemaScopedCreationAndExactManagementPrivileges() {
+        var managed = new SqlParser().parse("CREATE VOLUME media.raw.landing");
+        var external = new SqlParser().parse("CREATE EXTERNAL VOLUME media.raw.landing "
+                + "LOCATION 's3://acme/landing/' STORAGE_PROFILE 'prod-s3'");
+        var alter = new SqlParser().parse("ALTER VOLUME media.raw.landing SET COMMENT 'x'");
+        var drop = new SqlParser().parse("DROP VOLUME IF EXISTS media.raw.landing");
+
+        var managedCreate = accessControl(spaceGrant(Privilege.CREATE_VOLUME,
+                FileSpaceType.VOLUME, "media", "raw", null));
+        assertThatCode(() -> PermissionChecker.check(managed, SESSION, managedCreate))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> PermissionChecker.check(external, SESSION, managedCreate))
+                .isInstanceOf(AuthorizationDeniedException.class)
+                .hasMessageContaining("CREATE_EXTERNAL_VOLUME");
+
+        var externalCreate = accessControl(spaceGrant(Privilege.CREATE_EXTERNAL_VOLUME,
+                FileSpaceType.VOLUME, "media", "raw", null));
+        assertThatCode(() -> PermissionChecker.check(external, SESSION, externalCreate))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> PermissionChecker.check(managed, SESSION, externalCreate))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_VOLUME");
+
+        var wrongSchema = accessControl(spaceGrant(Privilege.CREATE_VOLUME,
+                FileSpaceType.VOLUME, "media", "other", null));
+        assertThatThrownBy(() -> PermissionChecker.check(managed, SESSION, wrongSchema))
+                .isInstanceOf(AuthorizationDeniedException.class)
+                .hasMessageContaining("VOLUME media.raw.*");
+
+        var writeOnly = accessControl(spaceGrant(Privilege.WRITE_VOLUME,
+                FileSpaceType.VOLUME, "media", "raw", "landing"));
+        assertThatThrownBy(() -> PermissionChecker.check(alter, SESSION, writeOnly))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("MANAGE_VOLUME");
+        assertThatThrownBy(() -> PermissionChecker.check(drop, SESSION, writeOnly))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("MANAGE_VOLUME");
+
+        var manage = accessControl(spaceGrant(Privilege.MANAGE_VOLUME,
+                FileSpaceType.VOLUME, "media", "raw", "landing"));
+        assertThatCode(() -> PermissionChecker.check(alter, SESSION, manage)).doesNotThrowAnyException();
+        assertThatCode(() -> PermissionChecker.check(drop, SESSION, manage)).doesNotThrowAnyException();
+
+        var tableAdmin = accessControl(grant(Privilege.ALL, "*", "*", "*"));
+        assertThatThrownBy(() -> PermissionChecker.check(managed, SESSION, tableAdmin))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_VOLUME");
+        assertThatThrownBy(() -> PermissionChecker.check(managed, SESSION, null))
+                .hasMessageContaining("Authenticated volume or stage principal");
+        assertThatThrownBy(() -> PermissionChecker.check(managed, null, manage))
+                .hasMessageContaining("Authenticated volume or stage principal");
+    }
+
+    @Test
+    void stageDdlRequiresItsOwnCreationUsageAndOwnershipPrivileges() {
+        var create = new SqlParser().parse("CREATE STAGE media.raw.stage_landing");
+        var refresh = new SqlParser().parse("ALTER STAGE media.raw.stage_landing REFRESH");
+        var drop = new SqlParser().parse("DROP STAGE media.raw.stage_landing");
+
+        var volumeCreate = accessControl(spaceGrant(Privilege.CREATE_VOLUME,
+                FileSpaceType.VOLUME, "media", "raw", null));
+        assertThatThrownBy(() -> PermissionChecker.check(create, SESSION, volumeCreate))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("CREATE_STAGE");
+
+        var stageCreate = accessControl(spaceGrant(Privilege.CREATE_STAGE,
+                FileSpaceType.STAGE, "media", "raw", null));
+        assertThatCode(() -> PermissionChecker.check(create, SESSION, stageCreate))
+                .doesNotThrowAnyException();
+
+        var allStage = accessControl(spaceGrant(Privilege.ALL,
+                FileSpaceType.STAGE, "media", "raw", "stage_landing"));
+        assertThatThrownBy(() -> PermissionChecker.check(refresh, SESSION, allStage))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("OWNER");
+        assertThatThrownBy(() -> PermissionChecker.check(drop, SESSION, allStage))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("OWNER");
+
+        var owner = accessControl(spaceGrant(Privilege.OWNER,
+                FileSpaceType.STAGE, "media", "raw", "stage_landing"));
+        assertThatCode(() -> PermissionChecker.check(refresh, SESSION, owner)).doesNotThrowAnyException();
+        assertThatCode(() -> PermissionChecker.check(drop, SESSION, owner)).doesNotThrowAnyException();
+
+        var wrongStage = accessControl(spaceGrant(Privilege.OWNER,
+                FileSpaceType.STAGE, "media", "raw", "other"));
+        assertThatThrownBy(() -> PermissionChecker.check(drop, SESSION, wrongStage))
+                .isInstanceOf(AuthorizationDeniedException.class)
+                .hasMessageContaining("media.raw.stage_landing");
+    }
+
+    @Test
     void renameRequiresSourceRenameAndExactDestinationCreatePrivileges() {
         var rename = new SqlParser().parse("ALTER TABLE secured.source_schema.docs RENAME TO target_schema.renamed");
         var sourceOnly = accessControl(grant(Privilege.RENAME_TABLE, "secured", "source_schema", "docs"));
@@ -154,6 +240,11 @@ class PermissionCheckerAuthorizationTest {
     private static PrivilegeGrant grant(Privilege privilege, String catalog, String schema, String table) {
         String objectType = schema == null ? "CATALOG" : table == null ? "SCHEMA" : "TABLE";
         return PrivilegeGrant.of("ddl-role", privilege, objectType, catalog, schema, table, null);
+    }
+
+    private static PrivilegeGrant spaceGrant(Privilege privilege, FileSpaceType type,
+            String catalog, String schema, String name) {
+        return PrivilegeGrant.of("ddl-role", privilege, type.name(), catalog, schema, name, null);
     }
 
     private static DynamicRbacAccessControl accessControl(PrivilegeGrant... grants) {

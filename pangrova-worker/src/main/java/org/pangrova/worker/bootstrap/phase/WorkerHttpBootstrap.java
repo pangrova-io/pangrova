@@ -59,6 +59,7 @@ public final class WorkerHttpBootstrap {
             ExchangeTransport exchangeTransport = refs.exchangeTransport();
             var control = datasetControl(refs);
             var stageLeases = copyStageLeases(config);
+            var fileSpace = buildFileSpaceResource(config);
             WorkerHttpServer server;
             try {
                 server = new WorkerHttpServer(
@@ -69,7 +70,8 @@ public final class WorkerHttpBootstrap {
                             control,
                             new org.pangrova.worker.result.ResultReadTickets(
                                     refs.shuffleHmacCurrentKey()),
-                            stageLeases);
+                            stageLeases,
+                            fileSpace);
             } catch (RuntimeException | Error failure) {
                 if (stageLeases != null) {
                     try {
@@ -101,8 +103,22 @@ public final class WorkerHttpBootstrap {
         }
     }
 
-    private static org.pangrova.worker.copy.CopyStageLeases copyStageLeases(
+    /**
+     * The public file plane is served only when descriptors can be authenticated; without the
+     * shared secret there is no way to tell a coordinator-issued descriptor from a forged one.
+     */
+    private static org.pangrova.worker.file.FileSpaceFileResource buildFileSpaceResource(
             WorkerBootstrapConfig config) {
+        String secret = config.internalAuthSecret();
+        if (secret == null || secret.isBlank()) {
+            LOG.warn("event=file_space_disabled reason=internal_auth_secret_missing");
+            return null;
+        }
+        return new org.pangrova.worker.file.FileSpaceFileResource(
+                new org.pangrova.worker.file.ObjectStoreAccessorFactory(), secret);
+    }
+
+    private static org.pangrova.worker.copy.CopyStageLeases copyStageLeases(            WorkerBootstrapConfig config) {
         if (config.transportSecurityConfig().copyTaskTlsPort() == 0) return null;
         var file = config.nativeFunctionConfig().configForPlugin("ai-inference");
         if (!"s3".equals(file.get("file.storage-backend"))) {

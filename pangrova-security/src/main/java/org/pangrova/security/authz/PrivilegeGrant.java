@@ -2,6 +2,8 @@ package org.pangrova.security.authz;
 
 import java.time.Instant;
 
+import org.pangrova.spi.storage.file.FileSpaceType;
+
 /**
  * Represents a privilege grant to a role on a specific object (catalog/schema/table/column).
  * Null or "*" in pattern fields acts as a wildcard matching any value.
@@ -37,7 +39,7 @@ public record PrivilegeGrant(
      * does NOT satisfy table-level SELECT checks.
      */
     public boolean coversTable(String cat, String sch, String tbl) {
-        if (isColumnScoped() || "STORAGE_PROFILE".equalsIgnoreCase(objectType)) {
+        if (isColumnScoped() || isStorageProfile() || isFileSpace()) {
             return false;
         }
         return matchesOrWild(catalog, cat)
@@ -54,6 +56,44 @@ public record PrivilegeGrant(
     }
 
     /**
+     * Volume and stage grants reuse the catalog/schema/table scope columns, with
+     * {@code table} holding the space name. A null space name checks schema scope.
+     * Schema and catalog grants cascade to spaces; table grants and grants on the
+     * other file-space kind never apply to a volume or stage.
+     */
+    public boolean coversFileSpace(FileSpaceType type, String cat, String sch, String space) {
+        if (isColumnScoped() || isStorageProfile() || isOtherFileSpace(type)) {
+            return false;
+        }
+        if (!isFileSpace() && !isNamespace()) {
+            return false;
+        }
+        return matchesOrWild(catalog, cat)
+                && matchesOrWild(schema, sch)
+                && matchesOrWild(table, space);
+    }
+
+    private boolean isOtherFileSpace(FileSpaceType type) {
+        FileSpaceType other = type == FileSpaceType.VOLUME
+                ? FileSpaceType.STAGE : FileSpaceType.VOLUME;
+        return other.name().equalsIgnoreCase(objectType);
+    }
+
+    private boolean isNamespace() {
+        return "SCHEMA".equalsIgnoreCase(objectType)
+                || "CATALOG".equalsIgnoreCase(objectType);
+    }
+
+    private boolean isStorageProfile() {
+        return "STORAGE_PROFILE".equalsIgnoreCase(objectType);
+    }
+
+    private boolean isFileSpace() {
+        return FileSpaceType.VOLUME.name().equalsIgnoreCase(objectType)
+                || FileSpaceType.STAGE.name().equalsIgnoreCase(objectType);
+    }
+
+    /**
      * Returns true if this grant has a specific column scope
      * (non-null and non-wildcard column field).
      */
@@ -65,7 +105,7 @@ public record PrivilegeGrant(
      * Returns true if this grant covers the given column.
      */
     public boolean coversColumn(String cat, String sch, String tbl, String col) {
-        if ("STORAGE_PROFILE".equalsIgnoreCase(objectType)) {
+        if (isStorageProfile() || isFileSpace()) {
             return false;
         }
         // Column-level check: verify catalog/schema/table match directly

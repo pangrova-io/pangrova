@@ -13,5 +13,5 @@ import org.pangrova.spi.annotation.Stable;
 @Stable(since = "1.0")
 public interface AccessControl
         extends CatalogAccessControl, SchemaAccessControl, TableAccessControl, ColumnAccessControl,
-        StorageProfileAccessControl {
+        StorageProfileAccessControl, FileSpaceAccessControl {
 }

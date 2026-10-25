@@ -67,8 +67,11 @@ public sealed interface DataTypeSpec permits
         if (upper.startsWith("VECTOR(")) {
             return parseVector(upper);
         }
-        if (upper.equals("FILE")) {
+        if (upper.equals("FILE") || upper.equals("FILE EXTERNAL")) {
             return FileType.INSTANCE;
+        }
+        if (upper.equals("FILE MANAGED")) {
+            return FileType.MANAGED;
         }
         BaseType resolved = resolveBaseType(upper);
         if (resolved != null) {
@@ -324,15 +327,33 @@ public sealed interface DataTypeSpec permits
      * The FILE type — a syntactic sugar for a fixed STRUCT schema that stores
      * multimodal file references using the Claim-Check pattern.
      * Physical schema: STRUCT(uri VARCHAR, mime_type VARCHAR, size BIGINT, checksum VARCHAR, created_at TIMESTAMP).
+     *
+     * <p>The storage modifier decides whether the engine copies the referenced bytes into
+     * managed storage ({@code FILE MANAGED}) or records a reference to the caller's object
+     * ({@code FILE EXTERNAL}, the default for plain {@code FILE}). Both keep the same five
+     * physical fields; version identity stays on the referenced object.</p>
      */
-    record FileType() implements DataTypeSpec {
+    record FileType(FileStorage storage) implements DataTypeSpec {
 
-        /** Singleton instance since FileType carries no parameters. */
-        public static final FileType INSTANCE = new FileType();
+        /** How file bytes relate to the row that references them. */
+        public enum FileStorage {
+            EXTERNAL,
+            MANAGED
+        }
+
+        public FileType {
+            Objects.requireNonNull(storage, "storage must not be null");
+        }
+
+        /** Plain {@code FILE}: a reference to an existing object. */
+        public static final FileType INSTANCE = new FileType(FileStorage.EXTERNAL);
+
+        /** {@code FILE MANAGED}: bytes are copied into managed storage on write. */
+        public static final FileType MANAGED = new FileType(FileStorage.MANAGED);
 
         @Override
         public String toCanonicalString() {
-            return "FILE";
+            return storage == FileStorage.MANAGED ? "FILE MANAGED" : "FILE";
         }
     }
 }

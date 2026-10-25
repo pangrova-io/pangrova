@@ -35,6 +35,90 @@ class RbacAccessControlTest {
             new ColumnMaskingProcessor(new EmptyColumnMaskStore());
 
     @Test
+    void volumeAndStageGrantsStayInsideTheirOwnNamespace() {
+        DynamicRbacAccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of(
+                        PrivilegeGrant.of("analyst", Privilege.READ_VOLUME,
+                                "VOLUME", "media", "raw", "landing", null),
+                        PrivilegeGrant.of("admin", Privilege.CREATE_VOLUME,
+                                "VOLUME", "media", "raw", null, null),
+                        PrivilegeGrant.of("admin", Privilege.OWNER,
+                                "STAGE", "media", "raw", "landing", null))),
+                mappedRoles(Map.of("analyst", "analyst", "admin", "admin")),
+                rlsFilter,
+                maskProcessor);
+
+        ac.checkCanReadVolume(ANALYST, "media", "raw", "landing");
+        assertThatThrownBy(() -> ac.checkCanReadVolume(ANALYST, "media", "raw", "other"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("READ_VOLUME");
+        assertThatThrownBy(() -> ac.checkCanReadVolume(ANALYST, "other", "raw", "landing"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> ac.checkCanReadStage(ANALYST, "media", "raw", "landing"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("READ_STAGE");
+        assertThatThrownBy(() -> ac.checkCanSelectFromTable(ANALYST, "media", "raw", "landing"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("lacks SELECT");
+
+        ac.checkCanCreateVolume(ADMIN, "media", "raw", "landing", false);
+        assertThatThrownBy(() -> ac.checkCanCreateVolume(ADMIN, "media", "raw", "landing", true))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("CREATE_EXTERNAL_VOLUME");
+        assertThatThrownBy(() -> ac.checkCanCreateStage(ADMIN, "media", "raw", "landing"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("CREATE_STAGE");
+
+        ac.checkCanManageStage(ADMIN, "media", "raw", "landing");
+        assertThatThrownBy(() -> ac.checkCanManageStage(ANALYST, "media", "raw", "landing"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("OWNER");
+    }
+
+    @Test
+    void schemaAndCatalogGrantsCascadeToFileSpacesWithinTheirScope() {
+        DynamicRbacAccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of(
+                        PrivilegeGrant.of("analyst", Privilege.READ_VOLUME,
+                                "SCHEMA", "media", "raw", null, null),
+                        PrivilegeGrant.of("admin", Privilege.OWNER,
+                                "CATALOG", "media", null, null, null))),
+                mappedRoles(Map.of("analyst", "analyst", "admin", "admin")),
+                rlsFilter,
+                maskProcessor);
+
+        ac.checkCanReadVolume(ANALYST, "media", "raw", "any_volume");
+        assertThatThrownBy(() -> ac.checkCanReadVolume(ANALYST, "media", "other", "any_volume"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("READ_VOLUME");
+        assertThatThrownBy(() -> ac.checkCanReadStage(ANALYST, "media", "raw", "any_stage"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("READ_STAGE");
+
+        ac.checkCanManageStage(ADMIN, "media", "other", "any_stage");
+        ac.checkCanManageVolume(ADMIN, "media", "raw", "any_volume");
+        assertThatThrownBy(() -> ac.checkCanManageStage(ADMIN, "other", "raw", "any_stage"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("OWNER");
+
+        DynamicRbacAccessControl tableAdmin = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of(PrivilegeGrant.of("admin", Privilege.ALL,
+                        "TABLE", "*", "*", "*", null))),
+                mappedRoles(Map.of("admin", "admin")),
+                rlsFilter,
+                maskProcessor);
+        assertThatThrownBy(() -> tableAdmin.checkCanReadVolume(ADMIN, "media", "raw", "v"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("READ_VOLUME");
+        assertThatThrownBy(() -> tableAdmin.checkCanCreateStage(ADMIN, "media", "raw", "s"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("CREATE_STAGE");
+    }
+
+    @Test
+    void stageManagementRequiresOwnershipRatherThanAll() {
+        DynamicRbacAccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of(PrivilegeGrant.of("admin", Privilege.ALL,
+                        "STAGE", "media", "raw", "landing", null))),
+                mappedRoles(Map.of("admin", "admin")),
+                rlsFilter,
+                maskProcessor);
+
+        assertThatThrownBy(() -> ac.checkCanManageStage(ADMIN, "media", "raw", "landing"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("OWNER");
+    }
+
+    @Test
     void grantsSelectOnMatchingTable() {
         PrivilegeGrant grant = PrivilegeGrant.of(
                 "analyst", Privilege.SELECT, "TABLE", "iceberg", "default", "orders", null);

@@ -193,6 +193,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     protected static CoordinatorHttpServer coordinatorHttpServer;
     protected static WorkerHttpServer workerHttpServer;
+    private static org.pangrova.worker.file.ObjectStoreAccessorFactory fileSpaceAccessors;
     protected static TransportServer coordinatorTransportServer;
     protected static QueryManager queryManager;
     protected static CoordinatorTaskTracker taskTracker;
@@ -591,6 +592,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         closeE2ECoordination();
         stopQuietly(workerHttpServer);
+        closeQuietly(fileSpaceAccessors, "file_space_accessors");
+        fileSpaceAccessors = null;
         closeWorkerCatalogRuntime();
         closeQuietly(sharedDatasetControlClient, "native_dataset_control_client");
         sharedDatasetControlClient = null;
@@ -2081,11 +2084,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var httpConfig = new WorkerHttpServer.WorkerHttpConfig(
                 httpPort, IN_PROCESS_WORKER_HOST, transportPort,
                 E2E_INTERNAL_AUTH_SECRET, "grpc");
+        closeQuietly(fileSpaceAccessors, "file_space_accessors");
+        fileSpaceAccessors = new org.pangrova.worker.file.ObjectStoreAccessorFactory();
         WorkerHttpServer server = new WorkerHttpServer(
                 httpConfig, taskManager, exchangeTransport, healthEndpoint,
                 new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager,
                         java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
-                java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"));
+                java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"),
+                null, new org.pangrova.worker.file.FileSpaceFileResource(
+                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -2451,6 +2458,27 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.ast.statement.DropTagStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.DropTagTask(branchExecutor));
         var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
+        var fileSpaces = new org.pangrova.metadata.file.JdbcFileSpaceRegistry(stateStoreDataSource);
+        var fileAudit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(null);
+        org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
+                metadataFactory, fileSpaces, currentAccessControl, fileAudit);
+        var fileAccess = new org.pangrova.coordinator.file.FileSpaceAccessService(fileSpaces, spRegistry,
+                currentAccessControl,
+                org.pangrova.coordinator.file.FileSpaceAccessService.FileSpaceAccessContext.of(
+                        "", () -> List.of("http://" + IN_PROCESS_WORKER_HOST + ":"
+                                + sharedWorkerHttpPort), fileAudit, E2E_INTERNAL_AUTH_SECRET));
+        var fileClient = org.pangrova.coordinator.file.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);
+        org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
+                metadataFactory, fileSpaces, currentAccessControl, fileAudit,
+                new org.pangrova.coordinator.file.StageDirectoryRefreshService(
+                        new org.pangrova.metadata.file.JdbcFileDirectoryIndex(stateStoreDataSource),
+                        fileAccess, fileClient, currentAccessControl));
+        metadataFactory.registerTask(org.pangrova.parser.ast.statement.ListStageStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.file.ListStageTask(
+                        fileAccess, fileClient));
+        metadataFactory.registerTask(org.pangrova.parser.ast.statement.RemoveStageStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.file.RemoveStageTask(
+                        fileAccess, fileClient, fileClient));
         if (featureAccessControl != null) {
             var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
                     sharedArtifactBuildStore,

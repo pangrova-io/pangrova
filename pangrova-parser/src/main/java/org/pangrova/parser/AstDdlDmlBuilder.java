@@ -375,7 +375,9 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
             return buildVectorType(ctx);
         }
         if (ctx.FILE_TYPE_KW() != null) {
-            return DataTypeSpec.FileType.INSTANCE;
+            return ctx.MANAGED() != null
+                    ? new DataTypeSpec.FileType(DataTypeSpec.FileType.FileStorage.MANAGED)
+                    : DataTypeSpec.FileType.INSTANCE;
         }
         if (ctx.DECIMAL() != null || ctx.NUMERIC() != null) {
             return buildDecimalType(ctx);

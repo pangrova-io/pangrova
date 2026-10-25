@@ -32,10 +32,23 @@ class PangrovaErrorCodeTest {
                 .isEqualTo("MATERIALIZATION-0001");
         assertThat(PangrovaErrorCode.MATERIALIZATION_REQUEST_REJECTED.getCode())
                 .isEqualTo("MATERIALIZATION-0016");
+        assertThat(PangrovaErrorCode.METADATA_FILE_SPACE_NOT_FOUND.getCode())
+                .isEqualTo("METADATA-0019");
+        assertThat(PangrovaErrorCode.METADATA_FILE_SPACE_ALREADY_EXISTS.getCode())
+                .isEqualTo("METADATA-0020");
+        assertThat(PangrovaErrorCode.FILE_OBJECT_NOT_FOUND.getCode()).isEqualTo("FILE-0001");
+        assertThat(PangrovaErrorCode.FILE_OBJECT_PRECONDITION_FAILED.getCode())
+                .isEqualTo("FILE-0002");
+        assertThat(PangrovaErrorCode.FILE_PATH_INVALID.getCode()).isEqualTo("FILE-0003");
+        assertThat(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID.getCode()).isEqualTo("FILE-0004");
+        assertThat(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE.getCode()).isEqualTo("FILE-0005");
+        assertThat(PangrovaErrorCode.FILE_STORAGE_NOT_CONFIGURED.getCode())
+                .isEqualTo("FILE-0006");
+        assertThat(PangrovaErrorCode.FILE_LIMIT_EXCEEDED.getCode()).isEqualTo("FILE-0007");
     }
 
     @Test
     void enumHasExpectedSize() {
-        assertThat(PangrovaErrorCode.values()).hasSize(180);
+        assertThat(PangrovaErrorCode.values()).hasSize(189);
     }
 }

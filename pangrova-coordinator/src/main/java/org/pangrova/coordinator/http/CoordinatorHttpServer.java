@@ -161,6 +161,13 @@ public final class CoordinatorHttpServer {
             }
             config.register(deps.copySourceReadResource());
         }
+        if (deps.fileSpaceFilesResource() != null) {
+            if (deps.authenticationManager() == null) {
+                throw new IllegalArgumentException(
+                        "Files API endpoint requires user authentication");
+            }
+            config.register(deps.fileSpaceFilesResource());
+        }
         registerWebUiResource(config, deps);
     }
 

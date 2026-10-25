@@ -96,6 +96,15 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
         if (exception instanceof WebApplicationException webException) {
             return webException.getResponse().getStatus();
         }
+        if (exception instanceof PangrovaException failure) {
+            Integer fileStatus = switch (failure.getErrorCode()) {
+                case METADATA_FILE_SPACE_NOT_FOUND, FILE_OBJECT_NOT_FOUND -> HTTP_STATUS_NOT_FOUND;
+                case FILE_PATH_INVALID -> HTTP_STATUS_BAD_REQUEST;
+                case FILE_STORAGE_UNAVAILABLE, FILE_STORAGE_NOT_CONFIGURED -> HTTP_STATUS_SERVICE_UNAVAILABLE;
+                default -> null;
+            };
+            if (fileStatus != null) return fileStatus;
+        }
         if (exception instanceof TenantQuotaExceededException) {
             return HTTP_STATUS_TOO_MANY_REQUESTS;
         }

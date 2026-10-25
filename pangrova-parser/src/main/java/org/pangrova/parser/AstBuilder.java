@@ -292,6 +292,18 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Statement visitCreateStorageProfileStatement(PangrovaSqlParser.CreateStorageProfileStatementContext ctx) { return (Statement) extDdl.visitCreateStorageProfile(ctx.createStorageProfile()); }
     @Override public Statement visitDropStorageProfileStatement(PangrovaSqlParser.DropStorageProfileStatementContext ctx) { return (Statement) extDdl.visitDropStorageProfile(ctx.dropStorageProfile()); }
     @Override public Statement visitShowStorageProfilesStatement(PangrovaSqlParser.ShowStorageProfilesStatementContext ctx) { return (Statement) extDdl.visitShowStorageProfiles(ctx.showStorageProfiles()); }
+    @Override public Statement visitCreateVolumeStatement(PangrovaSqlParser.CreateVolumeStatementContext ctx) { return (Statement) extDdl.visitCreateVolume(ctx.createVolume()); }
+    @Override public Statement visitAlterVolumeStatement(PangrovaSqlParser.AlterVolumeStatementContext ctx) { return (Statement) extDdl.visit(ctx.alterVolume()); }
+    @Override public Statement visitDropVolumeStatement(PangrovaSqlParser.DropVolumeStatementContext ctx) { return (Statement) extDdl.visitDropVolume(ctx.dropVolume()); }
+    @Override public Statement visitShowVolumesStatement(PangrovaSqlParser.ShowVolumesStatementContext ctx) { return (Statement) extDdl.visitShowVolumes(ctx.showVolumes()); }
+    @Override public Statement visitDescribeVolumeStatement(PangrovaSqlParser.DescribeVolumeStatementContext ctx) { return (Statement) extDdl.visitDescribeVolume(ctx.describeVolume()); }
+    @Override public Statement visitCreateStageStatement(PangrovaSqlParser.CreateStageStatementContext ctx) { return (Statement) extDdl.visitCreateStage(ctx.createStage()); }
+    @Override public Statement visitAlterStageStatement(PangrovaSqlParser.AlterStageStatementContext ctx) { return (Statement) extDdl.visit(ctx.alterStage()); }
+    @Override public Statement visitDropStageStatement(PangrovaSqlParser.DropStageStatementContext ctx) { return (Statement) extDdl.visitDropStage(ctx.dropStage()); }
+    @Override public Statement visitShowStagesStatement(PangrovaSqlParser.ShowStagesStatementContext ctx) { return (Statement) extDdl.visitShowStages(ctx.showStages()); }
+    @Override public Statement visitDescribeStageStatement(PangrovaSqlParser.DescribeStageStatementContext ctx) { return (Statement) extDdl.visitDescribeStage(ctx.describeStage()); }
+    @Override public Statement visitListStageStatement(PangrovaSqlParser.ListStageStatementContext ctx) { return (Statement) extDdl.visitListStage(ctx.listStage()); }
+    @Override public Statement visitRemoveStageStatement(PangrovaSqlParser.RemoveStageStatementContext ctx) { return (Statement) extDdl.visitRemoveStage(ctx.removeStage()); }
 
     @Override public Statement visitSetSessionStatement(PangrovaSqlParser.SetSessionStatementContext ctx) {
         var ss = ctx.setSession();

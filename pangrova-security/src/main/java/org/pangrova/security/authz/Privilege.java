@@ -36,6 +36,24 @@ public enum Privilege {
     VIEW_STORAGE_PROFILE,
     /** Read object bytes through one exact storage profile. */
     READ_STORAGE_PROFILE,
+    /** Create a managed Databricks-style volume in a schema. */
+    CREATE_VOLUME,
+    /** Create an external volume that binds an existing object-store prefix. */
+    CREATE_EXTERNAL_VOLUME,
+    /** Read one volume's metadata and file bytes. */
+    READ_VOLUME,
+    /** Write or delete files in one volume. */
+    WRITE_VOLUME,
+    /** Alter, rename, transfer, or drop one volume. */
+    MANAGE_VOLUME,
+    /** Create a Snowflake-style stage in a schema. */
+    CREATE_STAGE,
+    /** Discover one stage and its directory projection. */
+    USAGE_STAGE,
+    /** Read one stage's file bytes. */
+    READ_STAGE,
+    /** Write or remove files in one stage. */
+    WRITE_STAGE,
     RENAME_TABLE,
     SHOW_SCHEMAS,
     SHOW_TABLES,

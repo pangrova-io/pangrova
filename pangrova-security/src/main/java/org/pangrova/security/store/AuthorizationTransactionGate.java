@@ -12,7 +12,7 @@ public final class AuthorizationTransactionGate {
             "pangrova_roles", "pangrova_user_roles", "pangrova_group_roles", "security_grants",
             "row_policy", "column_mask", "tenants", "tenant_user_memberships",
             "tenant", "tenant_membership",
-            "pangrova_embedding_models", "storage_profile_definitions");
+            "pangrova_embedding_models", "storage_profile_definitions", "file_space_registry");
 
     private AuthorizationTransactionGate() {}
 
@@ -59,6 +59,55 @@ public final class AuthorizationTransactionGate {
         }
         installRoleCleanup(connection);
         installStorageProfileGrantGuard(connection);
+        installFileSpaceGrantBinding(connection);
+    }
+
+    /**
+     * Volume and stage grants follow the space name: drop revokes exact grants and
+     * rename moves them. Wildcard grants intentionally survive both.
+     */
+    private static void installFileSpaceGrantBinding(Connection connection) throws SQLException {
+        if (!tableExists(connection, "security_grants")
+                || !tableExists(connection, "file_space_registry")) {
+            return;
+        }
+        execute(connection, """
+                CREATE OR REPLACE FUNCTION revoke_dropped_file_space_grants()
+                RETURNS trigger LANGUAGE plpgsql AS $cleanup$
+                BEGIN
+                    DELETE FROM security_grants
+                    WHERE upper(object_type) = OLD.space_type
+                      AND catalog_name = OLD.catalog_name
+                      AND schema_name = OLD.schema_name
+                      AND table_name = OLD.space_name
+                      AND column_name IS NULL;
+                    RETURN OLD;
+                END
+                $cleanup$
+                """);
+        execute(connection, """
+                CREATE OR REPLACE FUNCTION move_renamed_file_space_grants()
+                RETURNS trigger LANGUAGE plpgsql AS $cleanup$
+                BEGIN
+                    IF NEW.space_name IS DISTINCT FROM OLD.space_name THEN
+                        UPDATE security_grants
+                        SET table_name = NEW.space_name
+                        WHERE upper(object_type) = NEW.space_type
+                          AND catalog_name = NEW.catalog_name
+                          AND schema_name = NEW.schema_name
+                          AND table_name = OLD.space_name
+                          AND column_name IS NULL;
+                    END IF;
+                    RETURN NEW;
+                END
+                $cleanup$
+                """);
+        execute(connection, "CREATE OR REPLACE TRIGGER file_space_drop_revoke_grants "
+                + "AFTER DELETE ON file_space_registry FOR EACH ROW "
+                + "EXECUTE FUNCTION revoke_dropped_file_space_grants()");
+        execute(connection, "CREATE OR REPLACE TRIGGER file_space_rename_move_grants "
+                + "AFTER UPDATE ON file_space_registry FOR EACH ROW "
+                + "EXECUTE FUNCTION move_renamed_file_space_grants()");
     }
 
     /** Exact data/metadata read grants bind to an existing profile; direct SQL follows the same rule. */

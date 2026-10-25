@@ -272,8 +272,6 @@ class SpiWiringVerificationTest {
             "org.pangrova.worker.ai.function.AiTranscribeFunction",
             "org.pangrova.worker.ai.function.FileFromBytesFunction",
             "org.pangrova.worker.ai.function.FileFromUrlFunction",
-            "org.pangrova.worker.ai.function.table.AiTableFunctionFactory",
-            "org.pangrova.worker.ai.function.table.DirectoryListingTableFunction",
             "org.pangrova.worker.ai.inference.OpenAiCompatibleInferenceProvider",
             "org.pangrova.worker.ai.provider.ConfiguredAiProviderRegistry"
     );

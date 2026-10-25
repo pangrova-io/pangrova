@@ -178,6 +178,8 @@ class AstTypeCompletenessTest {
             case ALTER_MATERIALIZED_VIEW -> "amv";
             case ALTER_EMBEDDING_MODEL -> "aem";
             case ALTER_INDEX -> "ai";
+            case ALTER_STAGE -> "astg";
+            case ALTER_VOLUME -> "avol";
             case ALTER_TABLE -> "at";
             case BACKFILL_COLUMN -> "bc";
             case CANCEL_BACKFILL -> "cb";
@@ -187,6 +189,8 @@ class AstTypeCompletenessTest {
             case CREATE_SCHEMA -> "cs";
             case CREATE_SEMANTIC_VIEW -> "csv";
             case CREATE_FEATURE_VIEW -> "cfv";
+            case CREATE_STAGE -> "cstg";
+            case CREATE_VOLUME -> "cvol";
             case CREATE_TABLE -> "ct";
             case CREATE_TABLE_AS_SELECT -> "ctas";
             case CREATE_TAG -> "ctag";
@@ -194,6 +198,8 @@ class AstTypeCompletenessTest {
             case DESCRIBE_CATALOG -> "dc";
             case DESCRIBE_DYNAMIC_TABLE -> "ddt";
             case DESCRIBE_MATERIALIZED_VIEW -> "dmv";
+            case DESCRIBE_STAGE -> "dstg";
+            case DESCRIBE_VOLUME -> "dvol";
             case DESCRIBE_TABLE -> "dt";
             case DROP_BRANCH -> "db";
             case DROP_CATALOG -> "dcat";
@@ -201,12 +207,16 @@ class AstTypeCompletenessTest {
             case DROP_EMBEDDING_MODEL -> "dem";
             case DROP_MATERIALIZED_VIEW -> "dmvtab";
             case DROP_INDEX -> "di";
+            case DROP_STAGE -> "dstg";
+            case DROP_VOLUME -> "dvol";
             case DROP_TABLE -> "dtab";
             case DROP_TAG -> "dtag";
             case DROP_VIEW -> "dv";
             case EXPLAIN -> "exp";
             case GRANT_TENANT -> "gt";
             case INCREMENTAL_READ -> "ir";
+            case LIST_STAGE -> "lstg";
+            case REMOVE_STAGE -> "rmstg";
             case RECLUSTER_TABLE -> "rt";
             case PUBLISH_SEMANTIC_VIEW -> "psv";
             case PUBLISH_FEATURE_VIEW -> "pfv";
@@ -226,6 +236,8 @@ class AstTypeCompletenessTest {
             case SHOW_MATERIALIZED_VIEWS -> "smv";
             case SHOW_INDEXES -> "si";
             case SHOW_SEMANTIC_VIEWS -> "ssv";
+            case SHOW_STAGES -> "sstg";
+            case SHOW_VOLUMES -> "svol";
             case SHOW_METADATA -> "sm";
             case SHOW_TABLES -> "st";
             case SHOW_TAGS -> "stag";

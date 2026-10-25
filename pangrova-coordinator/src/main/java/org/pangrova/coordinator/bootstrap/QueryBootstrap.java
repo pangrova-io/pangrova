@@ -573,6 +573,7 @@ final class QueryBootstrap {
     }
 
     WorkerManager workerManager() { return workerManager; }
+    AuditEventEmitter auditEmitter() { return auditEmitter; }
     org.pangrova.spi.coordination.WriteCommitJournal writeCommitJournal() { return writeCommitJournal; }
     QueryManager queryManager() { return queryManager; }
     org.pangrova.observability.metrics.CoordinatorMetrics coordinatorMetrics() { return coordinatorMetrics; }

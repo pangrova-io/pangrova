@@ -42,8 +42,11 @@ final class DdlTypeMapper {
                 properties.put("pangrova.array.element." + column.name(),
                         array.elementType().toCanonicalString());
             }
-            if (type instanceof DataTypeSpec.FileType) {
+            if (type instanceof DataTypeSpec.FileType file) {
                 properties.put("pangrova.file.column." + column.name(), "true");
+                if (file.storage() == DataTypeSpec.FileType.FileStorage.MANAGED) {
+                    properties.put("pangrova.file.storage." + column.name(), "MANAGED");
+                }
             }
         }
     }

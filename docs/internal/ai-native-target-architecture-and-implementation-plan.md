@@ -1088,8 +1088,11 @@ The canonical cutover items identified on 2026-09-13 have since been removed:
 1. `SubmitTaskRequest` now contains only one Base64-encoded canonical v2
    `TaskRequest`; REST no longer mirrors task semantics and the Worker passes the
    same canonical bytes through admission to JNI.
-2. `AiTableFunctionFactory` exposes only the bounded directory metadata function;
-   Vector search is a typed Native relation and has no Java executor/result path.
+2. Vector search is a typed Native relation and has no Java executor/result path.
+   The unused Java directory function and its factory were removed on 2026-10-25:
+   they had no SQL binding and returned fabricated size/mtime. `DIRECTORY(@stage)`
+   still needs the authorized Native execution path; the Worker Files API lists
+   real object metadata today.
 
 The remaining qualification gaps are:
 

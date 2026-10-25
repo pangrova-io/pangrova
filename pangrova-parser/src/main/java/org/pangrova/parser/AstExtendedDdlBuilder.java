@@ -554,6 +554,169 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
         return new ShowStorageProfilesStatement();
     }
 
+    @Override
+    public CreateVolumeStatement visitCreateVolume(PangrovaSqlParser.CreateVolumeContext ctx) {
+        Identifier name = parent.visitQualifiedName(ctx.qualifiedName());
+        Optional<String> location = Optional.empty();
+        Optional<String> storageProfile = Optional.empty();
+        Optional<String> comment = Optional.empty();
+        for (PangrovaSqlParser.VolumeOptionContext option : ctx.volumeOption()) {
+            if (option.LOCATION() != null) {
+                location = stringLiteral(option.STRING_LITERAL());
+            } else if (option.COMMENT() != null) {
+                comment = stringLiteral(option.STRING_LITERAL());
+            } else {
+                storageProfile = stringLiteral(option.STRING_LITERAL());
+            }
+        }
+        return new CreateVolumeStatement(name, ctx.EXTERNAL() != null, ctx.EXISTS() != null,
+                location, storageProfile, comment);
+    }
+
+    @Override
+    public AlterVolumeStatement visitAlterVolume(PangrovaSqlParser.AlterVolumeContext ctx) {
+        Identifier name = parent.visitQualifiedName(ctx.qualifiedName(0));
+        AlterVolumeAction action;
+        if (ctx.RENAME() != null) {
+            action = new AlterVolumeAction.Rename(
+                    parent.visitQualifiedName(ctx.qualifiedName(1)));
+        } else if (ctx.OWNER() != null) {
+            action = new AlterVolumeAction.SetOwner(
+                    AstDdlDmlBuilder.extractIdentifierText(ctx.identifier()));
+        } else if (ctx.COMMENT() != null) {
+            action = new AlterVolumeAction.SetComment(
+                    AstDdlDmlBuilder.stripQuotes(ctx.STRING_LITERAL().getText()));
+        } else {
+            action = new AlterVolumeAction.SetStorageProfile(
+                    AstDdlDmlBuilder.stripQuotes(ctx.STRING_LITERAL().getText()));
+        }
+        return new AlterVolumeStatement(name, action);
+    }
+
+    @Override
+    public DropVolumeStatement visitDropVolume(PangrovaSqlParser.DropVolumeContext ctx) {
+        return new DropVolumeStatement(parent.visitQualifiedName(ctx.qualifiedName()),
+                ctx.EXISTS() != null);
+    }
+
+    @Override
+    public ShowVolumesStatement visitShowVolumes(PangrovaSqlParser.ShowVolumesContext ctx) {
+        List<String> scope = ctx.qualifiedName() != null
+                ? parent.visitQualifiedName(ctx.qualifiedName()).parts()
+                : List.of();
+        return new ShowVolumesStatement(scope);
+    }
+
+    @Override
+    public DescribeVolumeStatement visitDescribeVolume(
+            PangrovaSqlParser.DescribeVolumeContext ctx) {
+        return new DescribeVolumeStatement(parent.visitQualifiedName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public CreateStageStatement visitCreateStage(PangrovaSqlParser.CreateStageContext ctx) {
+        Identifier name = parent.visitQualifiedName(ctx.qualifiedName());
+        Optional<String> url = Optional.empty();
+        Optional<String> storageProfile = Optional.empty();
+        Optional<String> comment = Optional.empty();
+        boolean directoryEnabled = false;
+        for (PangrovaSqlParser.StageOptionContext option : ctx.stageOption()) {
+            if (option.URL() != null) {
+                url = stringLiteral(option.STRING_LITERAL());
+            } else if (option.DIRECTORY() != null) {
+                directoryEnabled = option.TRUE() != null;
+            } else if (option.COMMENT() != null) {
+                comment = stringLiteral(option.STRING_LITERAL());
+            } else {
+                storageProfile = stringLiteral(option.STRING_LITERAL());
+            }
+        }
+        return new CreateStageStatement(name, ctx.EXTERNAL() != null, ctx.EXISTS() != null,
+                url, storageProfile, directoryEnabled, comment);
+    }
+
+    @Override
+    public AlterStageStatement visitAlterStage(PangrovaSqlParser.AlterStageContext ctx) {
+        Identifier name = parent.visitQualifiedName(ctx.qualifiedName(0));
+        AlterStageAction action;
+        if (ctx.REFRESH() != null) {
+            action = new AlterStageAction.Refresh(ctx.SUBPATH() != null
+                    ? stringLiteral(ctx.STRING_LITERAL())
+                    : Optional.empty());
+        } else if (ctx.RENAME() != null) {
+            action = new AlterStageAction.Rename(
+                    parent.visitQualifiedName(ctx.qualifiedName(1)));
+        } else if (ctx.OWNER() != null) {
+            action = new AlterStageAction.SetOwner(
+                    AstDdlDmlBuilder.extractIdentifierText(ctx.identifier()));
+        } else if (ctx.URL() != null) {
+            action = new AlterStageAction.SetUrl(
+                    AstDdlDmlBuilder.stripQuotes(ctx.STRING_LITERAL().getText()));
+        } else if (ctx.DIRECTORY() != null) {
+            action = new AlterStageAction.SetDirectoryEnabled(ctx.TRUE() != null);
+        } else if (ctx.COMMENT() != null) {
+            action = new AlterStageAction.SetComment(
+                    AstDdlDmlBuilder.stripQuotes(ctx.STRING_LITERAL().getText()));
+        } else {
+            action = new AlterStageAction.SetStorageProfile(
+                    AstDdlDmlBuilder.stripQuotes(ctx.STRING_LITERAL().getText()));
+        }
+        return new AlterStageStatement(name, action);
+    }
+
+    @Override
+    public DropStageStatement visitDropStage(PangrovaSqlParser.DropStageContext ctx) {
+        return new DropStageStatement(parent.visitQualifiedName(ctx.qualifiedName()),
+                ctx.EXISTS() != null);
+    }
+
+    @Override
+    public ShowStagesStatement visitShowStages(PangrovaSqlParser.ShowStagesContext ctx) {
+        List<String> scope = ctx.qualifiedName() != null
+                ? parent.visitQualifiedName(ctx.qualifiedName()).parts()
+                : List.of();
+        return new ShowStagesStatement(scope);
+    }
+
+    @Override
+    public DescribeStageStatement visitDescribeStage(PangrovaSqlParser.DescribeStageContext ctx) {
+        return new DescribeStageStatement(parent.visitQualifiedName(ctx.qualifiedName()));
+    }
+
+    @Override
+    public ListStageStatement visitListStage(PangrovaSqlParser.ListStageContext ctx) {
+        return new ListStageStatement(parent.visitQualifiedName(ctx.stage),
+                stagePath(ctx.path), pattern(ctx.pattern));
+    }
+
+    @Override
+    public RemoveStageStatement visitRemoveStage(PangrovaSqlParser.RemoveStageContext ctx) {
+        return new RemoveStageStatement(parent.visitQualifiedName(ctx.stage),
+                stagePath(ctx.path), pattern(ctx.pattern));
+    }
+
+    private static Optional<String> stagePath(PangrovaSqlParser.StagePathContext ctx) {
+        if (ctx == null) {
+            return Optional.empty();
+        }
+        return Optional.of(ctx.stagePathSegment().stream()
+                .map(segment -> segment.STRING_LITERAL() != null
+                        ? AstDdlDmlBuilder.stripQuotes(segment.STRING_LITERAL().getText())
+                        : segment.getText())
+                .collect(java.util.stream.Collectors.joining("/")));
+    }
+
+    private static Optional<String> pattern(org.antlr.v4.runtime.Token token) {
+        return token == null
+                ? Optional.empty()
+                : Optional.of(AstDdlDmlBuilder.stripQuotes(token.getText()));
+    }
+
+    private static Optional<String> stringLiteral(
+            org.antlr.v4.runtime.tree.TerminalNode node) {
+        return Optional.of(AstDdlDmlBuilder.stripQuotes(node.getText()));
+    }
+
     private Map<String, String> visitStorageProfileProperties(
             PangrovaSqlParser.StorageProfilePropertyListContext ctx) {
         Map<String, String> props = new LinkedHashMap<>();

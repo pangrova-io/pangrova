@@ -8,7 +8,9 @@ import org.pangrova.parser.ast.statement.AlterDynamicTableStatement;
 import org.pangrova.parser.ast.statement.AlterEmbeddingModelStatement;
 import org.pangrova.parser.ast.statement.AlterMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.AlterIndexStatement;
+import org.pangrova.parser.ast.statement.AlterStageStatement;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
+import org.pangrova.parser.ast.statement.AlterVolumeStatement;
 import org.pangrova.parser.ast.statement.BackfillColumnStatement;
 import org.pangrova.parser.ast.statement.CancelBackfillStatement;
 import org.pangrova.parser.ast.statement.CreateBranchStatement;
@@ -17,26 +19,34 @@ import org.pangrova.parser.ast.statement.CreateIndexStatement;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
 import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;
 import org.pangrova.parser.ast.statement.CreateFeatureViewStatement;
+import org.pangrova.parser.ast.statement.CreateStageStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.statement.CreateTagStatement;
 import org.pangrova.parser.ast.statement.CreateViewStatement;
+import org.pangrova.parser.ast.statement.CreateVolumeStatement;
 import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
 import org.pangrova.parser.ast.statement.DescribeDynamicTableStatement;
 import org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement;
+import org.pangrova.parser.ast.statement.DescribeStageStatement;
 import org.pangrova.parser.ast.statement.DescribeTableStatement;
+import org.pangrova.parser.ast.statement.DescribeVolumeStatement;
 import org.pangrova.parser.ast.statement.DropBranchStatement;
 import org.pangrova.parser.ast.statement.DropCatalogStatement;
 import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
 import org.pangrova.parser.ast.statement.DropEmbeddingModelStatement;
 import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DropIndexStatement;
+import org.pangrova.parser.ast.statement.DropStageStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
 import org.pangrova.parser.ast.statement.DropTagStatement;
 import org.pangrova.parser.ast.statement.DropViewStatement;
+import org.pangrova.parser.ast.statement.DropVolumeStatement;
 import org.pangrova.parser.ast.statement.ExplainStatement;
 import org.pangrova.parser.ast.statement.GrantTenantStatement;
 import org.pangrova.parser.ast.statement.IncrementalReadStatement;
+import org.pangrova.parser.ast.statement.ListStageStatement;
 import org.pangrova.parser.ast.statement.ReclusterTableStatement;
+import org.pangrova.parser.ast.statement.RemoveStageStatement;
 import org.pangrova.parser.ast.statement.PublishSemanticViewStatement;
 import org.pangrova.parser.ast.statement.PublishFeatureViewStatement;
 import org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
@@ -57,9 +67,11 @@ import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.ShowIndexesStatement;
 import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
 import org.pangrova.parser.ast.statement.ShowMetadataStatement;
+import org.pangrova.parser.ast.statement.ShowStagesStatement;
 import org.pangrova.parser.ast.statement.ShowTablesStatement;
 import org.pangrova.parser.ast.statement.ShowTagsStatement;
 import org.pangrova.parser.ast.statement.ShowViewsStatement;
+import org.pangrova.parser.ast.statement.ShowVolumesStatement;
 import org.pangrova.parser.ast.statement.UseBranchStatement;
 import org.pangrova.parser.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
@@ -135,6 +147,8 @@ final class StatementTypeRegistry {
                     StatementType.ALTER_MATERIALIZED_VIEW),
             Map.entry(AlterEmbeddingModelStatement.class, StatementType.ALTER_EMBEDDING_MODEL),
             Map.entry(AlterIndexStatement.class, StatementType.ALTER_INDEX),
+            Map.entry(AlterStageStatement.class, StatementType.ALTER_STAGE),
+            Map.entry(AlterVolumeStatement.class, StatementType.ALTER_VOLUME),
             Map.entry(BackfillColumnStatement.class, StatementType.BACKFILL_COLUMN),
             Map.entry(CancelBackfillStatement.class, StatementType.CANCEL_BACKFILL),
             Map.entry(CreateBranchStatement.class, StatementType.CREATE_BRANCH),
@@ -143,6 +157,8 @@ final class StatementTypeRegistry {
             Map.entry(CreateSchemaStatement.class, StatementType.CREATE_SCHEMA),
             Map.entry(CreateSemanticViewStatement.class, StatementType.CREATE_SEMANTIC_VIEW),
             Map.entry(CreateFeatureViewStatement.class, StatementType.CREATE_FEATURE_VIEW),
+            Map.entry(CreateStageStatement.class, StatementType.CREATE_STAGE),
+            Map.entry(CreateVolumeStatement.class, StatementType.CREATE_VOLUME),
             Map.entry(CreateTableStatement.class, StatementType.CREATE_TABLE),
                 Map.entry(
                     org.pangrova.parser.ast.statement.CreateTableAsSelectStatement.class,
@@ -152,6 +168,9 @@ final class StatementTypeRegistry {
             Map.entry(DescribeCatalogStatement.class, StatementType.DESCRIBE_CATALOG),
             Map.entry(DescribeDynamicTableStatement.class, StatementType.DESCRIBE_DYNAMIC_TABLE),
             Map.entry(DescribeMaterializedViewStatement.class, StatementType.DESCRIBE_MATERIALIZED_VIEW),
+            Map.entry(DescribeStageStatement.class, StatementType.DESCRIBE_STAGE),
+            Map.entry(ListStageStatement.class, StatementType.LIST_STAGE),
+            Map.entry(DescribeVolumeStatement.class, StatementType.DESCRIBE_VOLUME),
             Map.entry(DescribeTableStatement.class, StatementType.DESCRIBE_TABLE),
             Map.entry(DropBranchStatement.class, StatementType.DROP_BRANCH),
             Map.entry(DropCatalogStatement.class, StatementType.DROP_CATALOG),
@@ -159,6 +178,8 @@ final class StatementTypeRegistry {
             Map.entry(DropEmbeddingModelStatement.class, StatementType.DROP_EMBEDDING_MODEL),
             Map.entry(DropMaterializedViewStatement.class, StatementType.DROP_MATERIALIZED_VIEW),
             Map.entry(DropIndexStatement.class, StatementType.DROP_INDEX),
+            Map.entry(DropStageStatement.class, StatementType.DROP_STAGE),
+            Map.entry(DropVolumeStatement.class, StatementType.DROP_VOLUME),
             Map.entry(DropTableStatement.class, StatementType.DROP_TABLE),
             Map.entry(DropTagStatement.class, StatementType.DROP_TAG),
             Map.entry(DropViewStatement.class, StatementType.DROP_VIEW),
@@ -166,6 +187,7 @@ final class StatementTypeRegistry {
             Map.entry(GrantTenantStatement.class, StatementType.GRANT_TENANT),
             Map.entry(IncrementalReadStatement.class, StatementType.INCREMENTAL_READ),
             Map.entry(ReclusterTableStatement.class, StatementType.RECLUSTER_TABLE),
+            Map.entry(RemoveStageStatement.class, StatementType.REMOVE_STAGE),
             Map.entry(PublishSemanticViewStatement.class, StatementType.PUBLISH_SEMANTIC_VIEW),
             Map.entry(PublishFeatureViewStatement.class, StatementType.PUBLISH_FEATURE_VIEW),
             Map.entry(MaterializeFeatureViewStatement.class, StatementType.MATERIALIZE_FEATURE_VIEW),
@@ -187,6 +209,8 @@ final class StatementTypeRegistry {
             Map.entry(ShowMaterializedViewsStatement.class, StatementType.SHOW_MATERIALIZED_VIEWS),
             Map.entry(ShowIndexesStatement.class, StatementType.SHOW_INDEXES),
             Map.entry(ShowSemanticViewsStatement.class, StatementType.SHOW_SEMANTIC_VIEWS),
+            Map.entry(ShowStagesStatement.class, StatementType.SHOW_STAGES),
+            Map.entry(ShowVolumesStatement.class, StatementType.SHOW_VOLUMES),
             Map.entry(ShowTablesStatement.class, StatementType.SHOW_TABLES),
             Map.entry(ShowTagsStatement.class, StatementType.SHOW_TAGS),
             Map.entry(ShowViewsStatement.class, StatementType.SHOW_VIEWS),

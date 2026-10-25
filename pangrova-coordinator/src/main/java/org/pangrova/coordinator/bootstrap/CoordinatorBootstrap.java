@@ -154,6 +154,37 @@ public final class CoordinatorBootstrap {
                         metadataDataSource, security.accessControl()), ha.haService());
     }
 
+    /**
+     * Files API tickets are issued only with durable metadata, an authorization provider, and
+     * the shared secret that binds a descriptor to this cluster.
+     */
+    org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource() {
+        if (metadataDataSource == null || security.accessControl() == null
+                || config.internalAuthSecret() == null || config.internalAuthSecret().isBlank()) {
+            return null;
+        }
+        var context = org.pangrova.coordinator.file.FileSpaceAccessService.FileSpaceAccessContext.of(
+                System.getProperty("pangrova.files.managed-storage-profile", ""),
+                () -> getWorkerManager() == null ? java.util.List.of()
+                        : getWorkerManager().getActiveWorkers().stream()
+                                .map(worker -> "http://" + worker.host() + ":"
+                                        + worker.httpPort())
+                                .toList(),
+                new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(
+                        query.auditEmitter()),
+                config.internalAuthSecret());
+        var access = new org.pangrova.coordinator.file.FileSpaceAccessService(
+                new org.pangrova.metadata.file.JdbcFileSpaceRegistry(metadataDataSource),
+                new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(metadataDataSource),
+                security.accessControl(), context);
+        return new org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource(
+                access,
+                new org.pangrova.coordinator.file.FileUrlService(access,
+                        org.pangrova.coordinator.file.WorkerFileClient.create(
+                                config.internalAuthSecret())),
+                new org.pangrova.coordinator.file.StageFileUrlService(metadataDataSource, access));
+    }
+
     private HighAvailabilityBootstrap buildHighAvailabilityBootstrap() {
         org.pangrova.spi.coordination.DistributedLease lease = ensureDistributedLease();
         var haBootstrap = new HighAvailabilityBootstrap(config, query.queryManager(), query.workerManager(),

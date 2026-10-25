@@ -99,6 +99,16 @@ public enum PangrovaErrorCode {
     METADATA_CHANGED_DURING_PLANNING("METADATA-0016", "Metadata changed during query planning"),
     METADATA_CATALOG_ACCESS_DENIED("METADATA-0017", "Tenant not authorized to access catalog"),
     METADATA_DEPENDENCY_VIOLATION("METADATA-0018", "Dependency violation"),
+    METADATA_FILE_SPACE_NOT_FOUND("METADATA-0019", "Volume or stage not found"),
+    METADATA_FILE_SPACE_ALREADY_EXISTS("METADATA-0020", "Volume or stage already exists"),
+
+    FILE_OBJECT_NOT_FOUND("FILE-0001", "File object not found"),
+    FILE_OBJECT_PRECONDITION_FAILED("FILE-0002", "File object version does not match the request"),
+    FILE_PATH_INVALID("FILE-0003", "File path is not valid for this volume or stage"),
+    FILE_UPLOAD_STATE_INVALID("FILE-0004", "Upload session state rejected the request"),
+    FILE_STORAGE_UNAVAILABLE("FILE-0005", "Object storage is unavailable"),
+    FILE_STORAGE_NOT_CONFIGURED("FILE-0006", "Object storage is not configured for this space"),
+    FILE_LIMIT_EXCEEDED("FILE-0007", "File operation exceeds a configured limit"),
 
     RUNTIME_TASK_FAILED("RUNTIME-0001", "Task execution failed"),
     RUNTIME_STAGE_FAILED("RUNTIME-0002", "Stage execution failed"),

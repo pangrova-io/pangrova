@@ -2,6 +2,7 @@ package org.pangrova.security.authz;
 
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.storage.file.FileSpaceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,6 +106,75 @@ public final class DynamicRbacAccessControl implements AccessControl {
     @Override
     public void checkCanAccessSchema(UserIdentity user, String catalog, String schema) {
         requireAnyGrant(user, catalog, schema, null, Privilege.SELECT);
+    }
+
+    @Override
+    public void checkCanCreateVolume(UserIdentity user, String catalog, String schema,
+            String name, boolean external) {
+        requireFileSpaceGrant(user, FileSpaceType.VOLUME, catalog, schema, null,
+                external ? Privilege.CREATE_EXTERNAL_VOLUME : Privilege.CREATE_VOLUME);
+    }
+
+    @Override
+    public void checkCanReadVolume(UserIdentity user, String catalog, String schema,
+            String name) {
+        requireFileSpaceGrant(user, FileSpaceType.VOLUME, catalog, schema, name,
+                Privilege.READ_VOLUME);
+    }
+
+    @Override
+    public void checkCanWriteVolume(UserIdentity user, String catalog, String schema,
+            String name) {
+        requireFileSpaceGrant(user, FileSpaceType.VOLUME, catalog, schema, name,
+                Privilege.WRITE_VOLUME);
+    }
+
+    @Override
+    public void checkCanManageVolume(UserIdentity user, String catalog, String schema,
+            String name) {
+        requireFileSpaceGrant(user, FileSpaceType.VOLUME, catalog, schema, name,
+                Privilege.MANAGE_VOLUME);
+    }
+
+    @Override
+    public void checkCanCreateStage(UserIdentity user, String catalog, String schema,
+            String name) {
+        requireFileSpaceGrant(user, FileSpaceType.STAGE, catalog, schema, null,
+                Privilege.CREATE_STAGE);
+    }
+
+    @Override
+    public void checkCanUseStage(UserIdentity user, String catalog, String schema,
+            String name) {
+        requireFileSpaceGrant(user, FileSpaceType.STAGE, catalog, schema, name,
+                Privilege.USAGE_STAGE);
+    }
+
+    @Override
+    public void checkCanReadStage(UserIdentity user, String catalog, String schema,
+            String name) {
+        requireFileSpaceGrant(user, FileSpaceType.STAGE, catalog, schema, name,
+                Privilege.READ_STAGE);
+    }
+
+    @Override
+    public void checkCanWriteStage(UserIdentity user, String catalog, String schema,
+            String name) {
+        requireFileSpaceGrant(user, FileSpaceType.STAGE, catalog, schema, name,
+                Privilege.WRITE_STAGE);
+    }
+
+    @Override
+    public void checkCanManageStage(UserIdentity user, String catalog, String schema,
+            String name) {
+        boolean granted = resolveGrants(user).stream().anyMatch(grant ->
+                grant.privilege() == Privilege.OWNER
+                        && grant.coversFileSpace(FileSpaceType.STAGE, catalog, schema, name));
+        if (!granted) {
+            throw new AuthorizationDeniedException(
+                    "User '%s' lacks OWNER on stage %s.%s.%s"
+                            .formatted(user.principal(), catalog, schema, name));
+        }
     }
 
     @Override
@@ -263,10 +333,23 @@ public final class DynamicRbacAccessControl implements AccessControl {
         }
     }
 
+    private void requireFileSpaceGrant(UserIdentity user, FileSpaceType type, String catalog,
+            String schema, String name, Privilege privilege) {
+        boolean granted = resolveGrants(user).stream().anyMatch(grant ->
+                grant.privilege().implies(privilege)
+                        && grant.coversFileSpace(type, catalog, schema, name));
+        if (!granted) {
+            throw new AuthorizationDeniedException(
+                    "User '%s' lacks %s on %s %s.%s.%s".formatted(user.principal(), privilege,
+                            type, catalog, schema, name == null ? "*" : name));
+        }
+    }
+
     private void requireSchemaGrant(UserIdentity user, String catalog, String schema,
-                                    Privilege privilege) {
+            Privilege privilege) {
         boolean granted = resolveGrants(user).stream()
-                .anyMatch(g -> g.privilege().implies(privilege) && g.coversTable(catalog, schema, null));
+                .anyMatch(g -> g.privilege().implies(privilege)
+                        && g.coversTable(catalog, schema, null));
         if (!granted) {
             throw new AuthorizationDeniedException(
                     "User '%s' lacks %s on %s.%s".formatted(user.principal(), privilege, catalog, schema));

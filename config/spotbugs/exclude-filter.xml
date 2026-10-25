@@ -2666,4 +2666,17 @@
         <Field name="outputHandle" type="org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
+    <!-- These are injected services, not DTO state. The audit adapter must use
+         the bootstrap-owned emitter and REMOVE must invoke the configured
+         deletion client; copying either would break their shared lifecycle. -->
+    <Match>
+        <Class name="org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter" />
+        <Field name="emitter" type="org.pangrova.security.audit.AuditEventEmitter" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.query.execution.dispatch.task.file.RemoveStageTask" />
+        <Field name="deleter" type="org.pangrova.coordinator.file.FileDeletionClient" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
 </FindBugsFilter>

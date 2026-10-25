@@ -31,6 +31,8 @@ import java.util.function.LongSupplier;
  * @param cdcHandler            CDC lifecycle manager SPI (nullable)
  * @param splitAssignmentManager pull-mode split assignment manager (nullable — split endpoint skipped if null)
  * @param coordinatorEpochSupplier current cluster control term published to Workers (never null)
+ * @param copySourceReadResource optional COPY source-read endpoint
+ * @param fileSpaceFilesResource optional Volume/Stage Files API ticket endpoint
  */
 public record CoordinatorHttpServerContext(
         TaskStatusReceiver receiver,
@@ -46,7 +48,8 @@ public record CoordinatorHttpServerContext(
         MetadataService metadataService,
         String internalAuthSecret,
         LongSupplier coordinatorEpochSupplier,
-        CopySourceReadResource copySourceReadResource) {
+        CopySourceReadResource copySourceReadResource,
+        org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource) {
 
     public CoordinatorHttpServerContext {
         checkNotNull(receiver, "receiver must not be null");
@@ -74,7 +77,7 @@ public record CoordinatorHttpServerContext(
         this(receiver, queryManager, tracingHttpFilter, authenticationManager,
                 healthCheckEndpoint, workerManager, profilerEndpoint, cdcHandler,
                 splitAssignmentManager, queryProfileService, metadataService,
-                internalAuthSecret, coordinatorEpochSupplier, null);
+                internalAuthSecret, coordinatorEpochSupplier, null, null);
     }
     // CHECKSTYLE.ON: ParameterNumber
 

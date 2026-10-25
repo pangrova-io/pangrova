@@ -42,6 +42,21 @@ public enum AuditEventType {
     SCHEMA_CREATED,
     SCHEMA_DROPPED,
 
+    // DDL - Volume / Stage
+    VOLUME_CREATED,
+    VOLUME_ALTERED,
+    VOLUME_DROPPED,
+    STAGE_CREATED,
+    STAGE_ALTERED,
+    STAGE_DROPPED,
+
+    // File object operations
+    FILE_UPLOADED,
+    FILE_DOWNLOADED,
+    FILE_DELETED,
+    FILE_LISTED,
+    FILE_URL_ISSUED,
+
     // RLS policy
     RLS_POLICY_CREATED,
     RLS_POLICY_UPDATED,

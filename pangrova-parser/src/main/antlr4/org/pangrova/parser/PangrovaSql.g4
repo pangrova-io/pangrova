@@ -94,6 +94,18 @@ statement
     | createStorageProfile           #createStorageProfileStatement
     | dropStorageProfile             #dropStorageProfileStatement
     | showStorageProfiles            #showStorageProfilesStatement
+    | createVolume                   #createVolumeStatement
+    | alterVolume                    #alterVolumeStatement
+    | dropVolume                     #dropVolumeStatement
+    | showVolumes                    #showVolumesStatement
+    | describeVolume                 #describeVolumeStatement
+    | createStage                    #createStageStatement
+    | alterStage                     #alterStageStatement
+    | dropStage                      #dropStageStatement
+    | showStages                     #showStagesStatement
+    | describeStage                  #describeStageStatement
+    | listStage                      #listStageStatement
+    | removeStage                    #removeStageStatement
     | copyInto                       #copyIntoStatement
     | setSession                     #setSessionStatement
     ;
@@ -907,6 +919,93 @@ storageProfileProperty
     : (key=identifier | skey=STRING_LITERAL) EQ value=expression
     ;
 
+// --- Volume / Stage DDL ---
+
+createVolume
+    : CREATE (MANAGED | EXTERNAL)? VOLUME (IF NOT EXISTS)? qualifiedName volumeOption*
+    ;
+
+volumeOption
+    : LOCATION STRING_LITERAL
+    | STORAGE PROFILE EQ? STRING_LITERAL
+    | STORAGE_PROFILE EQ? STRING_LITERAL
+    | COMMENT STRING_LITERAL
+    ;
+
+alterVolume
+    : ALTER VOLUME qualifiedName SET STORAGE PROFILE EQ? STRING_LITERAL
+    | ALTER VOLUME qualifiedName SET STORAGE_PROFILE EQ? STRING_LITERAL
+    | ALTER VOLUME qualifiedName SET COMMENT STRING_LITERAL
+    | ALTER VOLUME qualifiedName SET OWNER TO identifier
+    | ALTER VOLUME qualifiedName RENAME TO qualifiedName
+    ;
+
+dropVolume
+    : DROP VOLUME (IF EXISTS)? qualifiedName
+    ;
+
+showVolumes
+    : SHOW VOLUMES ((FROM | IN) qualifiedName)?
+    ;
+
+describeVolume
+    : DESCRIBE VOLUME qualifiedName
+    ;
+
+createStage
+    : CREATE (INTERNAL | EXTERNAL)? STAGE (IF NOT EXISTS)? qualifiedName stageOption*
+    ;
+
+stageOption
+    : URL EQ STRING_LITERAL
+    | STORAGE PROFILE EQ? STRING_LITERAL
+    | STORAGE_PROFILE EQ? STRING_LITERAL
+    | DIRECTORY EQ LPAREN ENABLE EQ (TRUE | FALSE) RPAREN
+    | COMMENT EQ? STRING_LITERAL
+    ;
+
+alterStage
+    : ALTER STAGE qualifiedName REFRESH (SUBPATH EQ STRING_LITERAL)?
+    | ALTER STAGE qualifiedName SET URL EQ STRING_LITERAL
+    | ALTER STAGE qualifiedName SET STORAGE PROFILE EQ? STRING_LITERAL
+    | ALTER STAGE qualifiedName SET STORAGE_PROFILE EQ? STRING_LITERAL
+    | ALTER STAGE qualifiedName SET DIRECTORY EQ LPAREN ENABLE EQ (TRUE | FALSE) RPAREN
+    | ALTER STAGE qualifiedName SET COMMENT EQ? STRING_LITERAL
+    | ALTER STAGE qualifiedName SET OWNER TO identifier
+    | ALTER STAGE qualifiedName RENAME TO qualifiedName
+    ;
+
+dropStage
+    : DROP STAGE (IF EXISTS)? qualifiedName
+    ;
+
+showStages
+    : SHOW STAGES ((FROM | IN) qualifiedName)?
+    ;
+
+describeStage
+    : DESCRIBE STAGE qualifiedName
+    ;
+
+listStage
+    : LIST AT_SIGN stage=qualifiedName (SLASH path=stagePath)? SLASH?
+      (PATTERN EQ pattern=STRING_LITERAL)?
+    ;
+
+removeStage
+    : REMOVE AT_SIGN stage=qualifiedName (SLASH path=stagePath)? SLASH?
+      (PATTERN EQ pattern=STRING_LITERAL)?
+    ;
+
+stagePath
+    : stagePathSegment (SLASH stagePathSegment)*
+    ;
+
+stagePathSegment
+    : (identifier | INTEGER_LITERAL) (DOT (identifier | INTEGER_LITERAL))*
+    | STRING_LITERAL
+    ;
+
 // --- COPY INTO ---
 
 copyInto
@@ -986,7 +1085,7 @@ columnType
     | GEOGRAPHY
     | TIMESTAMP_NS
     | BLOB
-    | FILE_TYPE_KW
+    | FILE_TYPE_KW (MANAGED | EXTERNAL)?
     | VECTOR LPAREN vectorDim=INTEGER_LITERAL (COMMA vectorElementType=(FLOAT | DOUBLE))? RPAREN
     | ARRAY LPAREN elementType=columnType RPAREN
     | MAP LPAREN keyType=columnType COMMA valueType=columnType RPAREN
@@ -1331,11 +1430,29 @@ CANCEL      : C A N C E L;
 
 // Storage Profile and COPY INTO keywords
 STORAGE     : S T O R A G E;
+STORAGE_PROFILE : S T O R A G E '_' P R O F I L E;
 PROFILE     : P R O F I L E;
 PROFILES    : P R O F I L E S;
 COPY        : C O P Y;
 FILE_FORMAT : F I L E '_' F O R M A T;
 PATTERN     : P A T T E R N;
+
+// Volume and Stage keywords
+LIST        : L I S T;
+REMOVE      : R E M O V E;
+VOLUME      : V O L U M E;
+VOLUMES     : V O L U M E S;
+STAGE       : S T A G E;
+STAGES      : S T A G E S;
+MANAGED     : M A N A G E D;
+EXTERNAL    : E X T E R N A L;
+INTERNAL    : I N T E R N A L;
+LOCATION    : L O C A T I O N;
+URL         : U R L;
+OWNER       : O W N E R;
+DIRECTORY   : D I R E C T O R Y;
+ENABLE      : E N A B L E;
+SUBPATH     : S U B P A T H;
 
 // Branch retention keywords
 RETAIN      : R E T A I N;
@@ -1450,6 +1567,7 @@ MINUTE      : M I N U T E;
 SECOND      : S E C O N D;
 
 // Operators
+AT_SIGN     : '@';
 CONCAT_OP   : '||';
 NAMED_ARROW : '=>';
 STAR        : '*';
@@ -1589,6 +1707,8 @@ nonReservedKeyword
     | TABLESAMPLE | BERNOULLI | REPEATABLE | SYSTEM_KW
     | WINDOW | RANGE
     | PIVOT | UNPIVOT | INCLUDE | EXCLUDE | NULLS | FIRST_KW | LAST_KW
-    | STORAGE | PROFILE | PROFILES | COPY | FILE_FORMAT | PATTERN
+    | STORAGE | STORAGE_PROFILE | PROFILE | PROFILES | COPY | FILE_FORMAT | PATTERN
+    | VOLUME | VOLUMES | STAGE | STAGES | MANAGED | EXTERNAL | INTERNAL
+    | LOCATION | URL | OWNER | DIRECTORY | ENABLE | SUBPATH | LIST | REMOVE
     | RETAIN | DAYS | REPLACE
     ;

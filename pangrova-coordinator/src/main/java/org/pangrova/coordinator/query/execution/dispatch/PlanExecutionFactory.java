@@ -147,6 +147,8 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
                         requestedColumns, metadata, session, table);
         org.pangrova.coordinator.query.statement.dml.FileColumnMimeValidator.validate(
                 metadata.getTableMetadata(session, table), columns, rows);
+        org.pangrova.coordinator.query.statement.dml.ManagedFileWriteGuard.requireSupported(
+                metadata.getTableMetadata(session, table), columns, rows);
     }
 
     private void requireGeneratedColumnPlanIfNeeded(

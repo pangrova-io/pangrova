@@ -28,6 +28,12 @@ public enum ObjectKind {
     /** Streaming source (e.g. Kafka topic, ingestion stream). */
     STREAM,
 
+    /** Databricks-style managed or external file namespace. */
+    VOLUME,
+
+    /** Snowflake-style internal or external stage. */
+    STAGE,
+
     /** User-defined function / scalar / table function. */
     FUNCTION,
 

@@ -29,7 +29,7 @@ public enum StatementCategory {
     /**
      * Maps a parsed statement to its category. Statements that do not match
      * any known routable category return QUERY (planner-dispatched).
-     * Unsupported statements (DESCRIBE CATALOG, ALTER CATALOG, CALL) return UNKNOWN.
+     * Unsupported statements (DESCRIBE CATALOG, ALTER CATALOG) return UNKNOWN.
      */
     public static StatementCategory categorize(Statement stmt) {
         if (StatementClassifier.isDdl(stmt)) return DDL;
