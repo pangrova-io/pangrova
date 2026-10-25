@@ -46,6 +46,7 @@ final class ActualExternalShuffleTask {
         var producerAttempt = producer.request().getAttempt();
         var attempt = base.getAttempt().toBuilder().setQueryOrJobId(producerAttempt.getQueryOrJobId())
                 .setTaskId("actual-external-consumer-" + UUID.randomUUID()).setStageId(4)
+                .setWorkerExecutionIdentity(producerAttempt.getWorkerExecutionIdentity())
                 .setPlanEpoch(producerAttempt.getPlanEpoch()).setExecutionOwner(producerAttempt.getExecutionOwner());
         var result = base.toBuilder().setAttempt(attempt).build();
         CanonicalTaskRequests.validateForAdmission(result);

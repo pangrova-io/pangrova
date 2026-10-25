@@ -217,11 +217,12 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                 .hasMessageContaining("previously staged source proof");
                         assertThat(client.redeem(ticket.nonce(), wireScope).stagedSource()).isNull();
 
-                        var stagedTask = copyTask(wireScope, ticket.nonce());
                         var certs = certificates();
                         CopySourceReadHttp.StagedSource proof;
                         try (var nativeOwner = new CopyNativeInputAssertions.Runtime(command)) {
                             var tasks = nativeOwner.manager;
+                            var stagedTask = copyTask(wireScope, ticket.nonce(),
+                                    tasks.workerExecutionIdentity().toProto());
                             tasks.requireControlEpochHandshake();
                             tasks.observeControlEpoch(wireScope.controlEpoch());
                             var worker = new WorkerHttpServer(
@@ -279,7 +280,9 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                                     assertThatThrownBy(() -> dispatcher.bindSourceInput(SubmitTaskRequest.from(wrongSource.build())))
                                             .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("frozen source proof");
                                     CopyNativeInputAssertions.verify(nativeOwner, grant -> {
-                                        var pending = CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, grant);
+                                        var pending = SubmitTaskRequest.from(nativeOwner.nativeRuntime.bindWorker(
+                                                CopyNativeInputAssertions.pendingTask(wireScope, frozenProof, grant)
+                                                        .taskRequest()));
                                         var bound = dispatcher.bindSourceInput(dispatcher.bindControlIdentity(pending));
                                         assertThat(dispatcher.bindSourceInput(bound)).isSameAs(bound);
                                         assertThat(bound.copySourceRead()).isNotNull();
@@ -403,7 +406,8 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
         return StaticCredentialsProvider.create(AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY));
     }
 
-    private static PrepareCopySourceRequest copyTask(CopySourceReadHttp.Scope scope, String nonce) {
+    private static PrepareCopySourceRequest copyTask(CopySourceReadHttp.Scope scope, String nonce,
+            org.pangrova.protocol.v2.WorkerExecutionIdentity workerIdentity) {
         var canonical = SourcePreparationRequest.newBuilder()
                 .setProtocol(CanonicalTaskRequests.protocolVersion())
                 .setAttempt(TaskAttemptId.newBuilder()
@@ -412,6 +416,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                         .setPlanEpoch(1)
                         .setFencingToken((1L << 32) | 1L)
                         .setControlEpoch(scope.controlEpoch())
+                        .setWorkerExecutionIdentity(workerIdentity)
                         .setExecutionOwner(ExecutionOwnerIdentity.newBuilder()
                                 .setOwnerId(scope.ownerId())
                                 .setOwnerIncarnation(scope.ownerIncarnation())

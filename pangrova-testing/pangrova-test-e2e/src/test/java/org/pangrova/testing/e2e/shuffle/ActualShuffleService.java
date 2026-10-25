@@ -36,6 +36,7 @@ final class ActualShuffleService implements AutoCloseable {
     private final List<ShuffleWireRelay> relays = new ArrayList<>();
     private final List<ShuffleServiceConfig.Endpoint> endpoints;
     private final int partitions;
+    private org.pangrova.common.lifecycle.ProcessIncarnationStore workerIncarnation;
 
     ActualShuffleService(Path directory, int partitions, int serviceCount) throws Exception {
         if (partitions <= 0 || serviceCount <= 0 || serviceCount > partitions) {
@@ -44,6 +45,8 @@ final class ActualShuffleService implements AutoCloseable {
         this.partitions = partitions;
         backend = new ActualShuffleBackend(directory);
         try {
+            workerIncarnation = org.pangrova.common.lifecycle.ProcessIncarnationStore.open(
+                    directory.resolve("external-worker-incarnation"));
             endpoints = endpointRanges(partitions, serviceCount);
             startListeners();
         } catch (Exception | Error failure) {
@@ -161,7 +164,15 @@ final class ActualShuffleService implements AutoCloseable {
 
     /** Acquires an actual DB-clock owner, registers over mTLS, and delegates an exact task capability. */
     AdmittedProducer registerProducer() {
-        var base = ActualNativeShuffleRequests.pendingProducer(partitions);
+        var identity = workerIncarnation.identity();
+        return registerProducer(request -> request.toBuilder().setAttempt(request.getAttempt().toBuilder()
+                .setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
+                        .setAdmissionDomainId(identity.ownershipDomainId())
+                        .setIncarnationId(identity.incarnationId()))).build());
+    }
+
+    AdmittedProducer registerProducer(java.util.function.UnaryOperator<TaskRequest> bindWorker) {
+        var base = bindWorker.apply(ActualNativeShuffleRequests.pendingProducer(partitions));
         String query = "actual-shuffle-" + UUID.randomUUID();
         var lease = backend.anchors().tryAcquire(query, "acceptance-coordinator",
                 UUID.randomUUID().toString(), Duration.ofMinutes(5)).orElseThrow();
@@ -214,6 +225,10 @@ final class ActualShuffleService implements AutoCloseable {
             try { server.close(); } catch (Exception cleanup) { failure = accumulate(failure, cleanup); }
         }
         try { backend.close(); } catch (Exception cleanup) { failure = accumulate(failure, cleanup); }
+        if (workerIncarnation != null) {
+            try { workerIncarnation.closeAfterDrain(() -> {}); }
+            catch (Exception cleanup) { failure = accumulate(failure, cleanup); }
+        }
         if (failure != null) throw failure;
     }
 

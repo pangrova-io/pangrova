@@ -39,7 +39,7 @@ class WorkerShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
     @Test void allProducerEndpointsAreAdmittedBeforeNativeCreationAndEmitCanonicalAdmissionFailure() throws Exception {
         try (var service = new ActualShuffleService(directory, 2, 2);
              var runtime = new ActualNativeTaskFixture()) {
-            var request = service.registerProducer().request();
+            var request = service.registerProducer(runtime::bindWorker).request();
             var admission = new RemoteShuffleChannelAdmission(new RemoteShuffleChannelAdmission.Limits(1, 1));
             var egress = new RemoteShuffleByteEgress(service.clientPool(admission));
             var executor = new NativeTaskExecutor(egress);

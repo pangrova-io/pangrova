@@ -68,7 +68,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         byte[] actualIpc = ActualExternalShuffleTask.arrowBatch(rows);
         assertThat(actualIpc.length).isGreaterThan(CanonicalBatchChunks.MAX_CHUNK_BYTES);
         publish(producer, actualIpc, rows);
-        var request = ActualExternalShuffleTask.consumer(producer);
+        var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
         long handle = nativeRuntime.createPending(request);
         transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding)));
@@ -93,7 +93,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         Arrays.fill(batch, (byte) 7);
         var producer = service.registerProducer();
         publish(producer, batch, 1);
-        var consumer = ActualExternalShuffleTask.consumer(producer);
+        var consumer = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, consumer);
         var chunks = new ArrayList<org.pangrova.protocol.v2.BatchChunk>();
         try (var pool = service.clientPool();
@@ -118,7 +118,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         var producer = service.registerProducer();
         publish(producer, ActualExternalShuffleTask.arrowBatch(3), 3);
         service.wire(0).truncateBeforeReadTerminal = true;
-        var request = ActualExternalShuffleTask.consumer(producer);
+        var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
         long handle = nativeRuntime.createPending(request);
         transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding)));
@@ -146,7 +146,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         var producer = service.registerProducer();
         publish(producer, ActualExternalShuffleTask.arrowBatch(3), 3);
         service.wire(0).pauseReadOutput = true;
-        var request = ActualExternalShuffleTask.consumer(producer);
+        var request = nativeRuntime.bindWorker(ActualExternalShuffleTask.consumer(producer));
         var binding = service.delegateRead(producer, request);
         long handle = nativeRuntime.createPending(request);
         transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding)));
