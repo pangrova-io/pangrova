@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -135,7 +137,7 @@ final class PaimonSystemReadBindings {
     private static FileStoreTable load(Catalog catalog, PaimonSystemTableHandle handle) {
         var base = handle.baseTable();
         try {
-            var table = catalog.getTable(Identifier.create(base.schemaName(), base.tableName()));
+            var table = PaimonTableIdentity.loadFresh(catalog, Identifier.create(base.schemaName(), base.tableName()));
             if (!(table instanceof FileStoreTable fileStore)
                     || !fileStore.location().toString().equals(base.tableLocation())) {
                 throw new IllegalStateException("Selected Paimon physical table location changed");

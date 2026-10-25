@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.pangrova.spi.connector.metadata.IncrementalScanCapability;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
@@ -225,7 +227,7 @@ public final class PaimonIncrementalScanCapability implements IncrementalScanCap
     private Table loadTable(String tableName) {
         Identifier id = parseIdentifier(tableName);
         try {
-            Table table = catalog.getTable(id);
+            Table table = PaimonTableIdentity.loadFresh(catalog, id);
             if (!(table instanceof FileStoreTable)) {
                 throw new IllegalArgumentException(
                         "Table is not a FileStoreTable: " + tableName);

@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
@@ -153,7 +155,8 @@ public class PaimonMetadata implements ConnectorMetadata {
             if (java.util.Set.of("files", "branches", "snapshots", "tags", "options", "schemas").contains(suffix)) {
                 return nativeMetadataHandle(tableName.schema(), tableName.table().substring(0, separator), suffix);
             }
-            Table table = catalog.getTable(Identifier.create(tableName.schema(), tableName.table()));
+            Table table = PaimonTableIdentity.loadFresh(catalog,
+                    Identifier.create(tableName.schema(), tableName.table()));
             return PaimonTableHandleFactory.fromTable(tableName.schema(), tableName.table(), table);
         } catch (Catalog.TableNotExistException missing) {
             LOG.debug("Table not found: {}", tableName);
@@ -163,7 +166,7 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     private ConnectorTableHandle nativeMetadataHandle(String schema, String name, String suffix)
             throws Catalog.TableNotExistException {
-        Table base = catalog.getTable(Identifier.create(schema, name));
+        Table base = PaimonTableIdentity.loadFresh(catalog, Identifier.create(schema, name));
         if (!(base instanceof FileStoreTable)) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
                     "Paimon system tables require a physical base table");
@@ -184,7 +187,8 @@ public class PaimonMetadata implements ConnectorMetadata {
             return OptionalLong.empty();
         }
         try {
-            Table table = catalog.getTable(Identifier.create(tableName.schema(), tableName.table()));
+            Table table = PaimonTableIdentity.loadFresh(catalog,
+                    Identifier.create(tableName.schema(), tableName.table()));
             if (!(table instanceof FileStoreTable fileStore)) {
                 return OptionalLong.empty();
             }
@@ -482,7 +486,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     private Table loadFreshTable(String schemaName, String tableName) {
         Identifier id = Identifier.create(schemaName, tableName);
         try {
-            return catalog.getTable(id);
+            return PaimonTableIdentity.loadFresh(catalog, id);
         } catch (Catalog.TableNotExistException e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found: " + id, e);

@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.pangrova.connector.paimon.scan.PaimonPartitionExtractor;
 
 import org.pangrova.connector.paimon.scan.PaimonDataFileExtractor;
@@ -174,7 +176,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
     private Table loadFreshTable(PaimonTableHandle handle) {
         Identifier id = Identifier.create(handle.schemaName(), handle.tableName());
         try {
-            return catalog.getTable(id);
+            return PaimonTableIdentity.loadFresh(catalog, id);
         } catch (Catalog.TableNotExistException e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found: " + id, e);

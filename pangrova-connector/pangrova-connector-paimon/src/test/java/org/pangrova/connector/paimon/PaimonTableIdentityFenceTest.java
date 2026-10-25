@@ -49,6 +49,52 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
     }
 
     @Test
+    void peerCacheCannotAdmitAnOldSchemaAfterExternalEvolution() throws Exception {
+        createTable(false, false);
+        var metadata = metadata();
+        var planned = metadata.beginInsert(SESSION, handle(metadata));
+        try (var peer = peerCatalog()) {
+            peer.getTable(IDENTIFIER); // Warm a separate real SDK catalog's name cache.
+            catalog.alterTable(IDENTIFIER, SchemaChange.addColumn("extra", DataTypes.STRING()), false);
+            var sinks = new PaimonPageSinkProvider(peer, warehouse.resolve("peer-spill").toString());
+            assertThatThrownBy(() -> sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, planned))
+                    .hasMessageContaining("schema changed");
+            var current = metadata.beginInsert(SESSION, handle(metadata));
+            try (var sink = sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, current)) {
+                sink.abort();
+            }
+        }
+    }
+
+    @Test
+    void peerCacheCannotMixTheOldSchemaWithARecreatedTablesNewIdentity() throws Exception {
+        createTable(false, false);
+        var metadata = metadata();
+        var original = metadata.beginInsert(SESSION, handle(metadata));
+        try (var peer = peerCatalog()) {
+            peer.getTable(IDENTIFIER);
+            catalog.renameTable(IDENTIFIER, Identifier.create(DATABASE, "archived"), false);
+            createTable(rowSchema().column("extra", DataTypes.STRING()).primaryKey("id")
+                    .option("bucket", "1").build());
+            var current = metadata.beginInsert(SESSION, handle(metadata));
+            var sinks = new PaimonPageSinkProvider(peer, warehouse.resolve("peer-spill").toString());
+            assertThatThrownBy(() -> sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, original))
+                    .hasMessageContaining("identity changed");
+            try (var sink = sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, current)) {
+                sink.abort();
+            }
+        }
+    }
+
+    private org.apache.paimon.catalog.Catalog peerCatalog() {
+        var options = new org.apache.paimon.options.Options();
+        options.setString("warehouse", warehouse.toUri().toString());
+        options.setString("cache.enabled", "true");
+        return org.apache.paimon.catalog.CatalogFactory.createCatalog(
+                org.apache.paimon.catalog.CatalogContext.create(options));
+    }
+
+    @Test
     void commitReplayRejectsTableRecreatedAfterPlanning() throws Exception {
         createTable(false, false);
         var metadata = metadata();

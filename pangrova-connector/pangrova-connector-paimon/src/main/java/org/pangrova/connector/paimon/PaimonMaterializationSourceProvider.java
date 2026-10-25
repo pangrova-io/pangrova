@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -265,7 +267,7 @@ public final class PaimonMaterializationSourceProvider implements SourceProvider
 
     private FileStoreTable load(SourceRef source) {
         try {
-            Table table = catalog.getTable(Identifier.create(source.schema(), source.table()));
+            Table table = PaimonTableIdentity.loadFresh(catalog, Identifier.create(source.schema(), source.table()));
             if (!(table instanceof FileStoreTable fileStore)) {
                 throw new MaterializationSourceException(
                         MaterializationSourceException.Reason.SOURCE_UNAVAILABLE,

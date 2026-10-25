@@ -47,9 +47,12 @@ maintenance touches only the affected names, with no whole-map sweep or redundan
 reservation rewrites during ordinary version observation.
 
 Security and Governance owner regressions passed, as did Planner and Worker daily
-regressions. The first Metadata owner run had 830 tests with one upgrade error;
-the 84-test correction above passed, and its complete rerun/HTTP SQL qualification
-remain in progress. Checkstyle passed for the six changed Java owners.
+regressions. Metadata's complete final rerun passed all 830 tests with zero
+failures/errors/skips after the upgrade correction. Coordinator's first complete
+run had 3,346 tests and one unbound-mask fixture error; the corrected real ADOPT /
+identity-bound fixture and ownership/SDK regression passed all 35 selected tests.
+Checkstyle passed for the changed Java owners. Metadata, Coordinator, Security and
+Governance owner static analysis passed; the entire reactor remains unqualified.
 Static analysis is not globally green: unchanged materialization reports nine
 representation-exposure findings and unchanged planner materialized-view rewriting
 reports two. These remain explicit gates; no rule or exclusion was weakened.
@@ -60,6 +63,29 @@ durable multipart ownership/reconciliation, FILE MANAGED ingestion, active-strea
 revocation, or the rest of M0–M5. It also does not qualify authored row-policy/quality
 rule identity, independent-process recovery or the production deployment matrix.
 The previously deferred heavy data/environment gates stay deferred.
+
+## Paimon metadata freshness and final classification SQL evidence
+
+The first corrected Native SQL run passed masking/rename but failed writing a new
+schema under the released original name. A separate Worker's real SDK catalog held
+the old cached table schema; SDK `uuid()` could simultaneously read the new table's
+creation time. Authority now invalidates the SDK name cache before each fresh
+metadata resolution, including writes, read binding validation, snapshots, indexes
+and procedures. Exact UUID/location/schema comparisons remain required. No retry,
+cache TTL extension or identity check was removed.
+
+Two independent real SDK catalogs cover external schema evolution (old write must
+fail) and rename/recreate (new write must succeed without inheriting old schema).
+The complete Paimon owner passed 394 tests, zero failures/errors/skips, plus
+Checkstyle. The final `TableControlLifecycleE2ETest` passed all eight tests, zero
+failures/errors/skips, in 58.329 seconds through authenticated HTTP SQL, the real
+planner, typed v2, Worker/JNI, Native execution and client result transport.
+It verifies four PII policies, NULL/short values, query-pipeline reconstruction,
+rename, old-name recreation and writes, independent policies and captured-ID drop
+cleanup. Pipeline reconstruction is not independent-process crash recovery.
+Native sources/artifacts did not change in this repair; the verified packaged
+Release JNI SHA-256 remains
+`4e6a3e1cacc646d3666c305092ef629d0ab850181f0b1c7313c520fe9196af38`.
 
 ## File delivery deadline checkpoint
 

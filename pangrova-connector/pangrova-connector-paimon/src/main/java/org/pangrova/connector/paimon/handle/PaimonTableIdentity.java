@@ -19,6 +19,19 @@ public final class PaimonTableIdentity {
 
     private PaimonTableIdentity() {}
 
+    /**
+     * Resolves authoritative metadata after evicting the SDK's name cache.
+     * A peer may have renamed, recreated or altered the table since this catalog last read it.
+     * In particular, SDK uuid() can read the new creation time while a cached table retains
+     * the old schema; that mixed observation must never become a new write/read binding.
+     */
+    public static Table loadFresh(org.apache.paimon.catalog.Catalog catalog,
+            org.apache.paimon.catalog.Identifier identifier)
+            throws org.apache.paimon.catalog.Catalog.TableNotExistException {
+        catalog.invalidateTable(identifier);
+        return catalog.getTable(identifier);
+    }
+
     /** Fingerprints the schema fields, primary keys and partition keys. */
     public static String schemaFingerprint(TableSchema schema) {
         StringBuilder canonical = new StringBuilder("paimon-schema:").append(schema.id());

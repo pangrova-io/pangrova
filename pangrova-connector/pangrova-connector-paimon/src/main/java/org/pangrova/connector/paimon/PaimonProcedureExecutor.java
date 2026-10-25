@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.spi.connector.data.TypedRow;
@@ -413,7 +415,7 @@ final class PaimonProcedureExecutor {
         String table = parts.length >= 2 ? parts[1] : parts[0];
         Identifier id = Identifier.create(schema, table);
         try {
-            return catalog.getTable(id);
+            return PaimonTableIdentity.loadFresh(catalog, id);
         } catch (Catalog.TableNotExistException e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found: " + id, e);

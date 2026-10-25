@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import com.google.protobuf.ByteString;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
@@ -174,7 +176,7 @@ final class PaimonFilesReadBindings {
         try {
             var identifier = Identifier.create(handle.baseTable().schemaName(), handle.baseTable().tableName());
             catalog.invalidateTable(identifier);
-            var table = catalog.getTable(identifier);
+            var table = PaimonTableIdentity.loadFresh(catalog, identifier);
             if (!(table instanceof FileStoreTable source)
                     || !source.location().toString().equals(handle.baseTable().tableLocation())) {
                 throw new IllegalStateException("Paimon file source location changed");

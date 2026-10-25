@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
@@ -108,7 +110,8 @@ final class PaimonReadBindings {
 
     private static FileStoreTable load(Catalog catalog, PaimonTableHandle handle) {
         try {
-            var table = catalog.getTable(Identifier.create(handle.schemaName(), handle.tableName()));
+            var table = PaimonTableIdentity.loadFresh(catalog,
+                    Identifier.create(handle.schemaName(), handle.tableName()));
             if (!(table instanceof FileStoreTable fileStore)) {
                 throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
                         "Selected native read requires physical table snapshots");

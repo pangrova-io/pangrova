@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.Path;
@@ -29,7 +31,7 @@ final class PaimonCatalogColumnValueReader implements ColumnValueReader {
             Path file = new Path(dataFilePath);
             for (String database : catalog.listDatabases()) {
                 for (String tableName : catalog.listTables(database)) {
-                    Table table = catalog.getTable(Identifier.create(database, tableName));
+                    Table table = PaimonTableIdentity.loadFresh(catalog, Identifier.create(database, tableName));
                     if (table instanceof FileStoreTable fileStoreTable
                             && belongsTo(file, fileStoreTable.location())) {
                         return new PaimonColumnValueReader(table)

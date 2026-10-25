@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.pangrova.connector.paimon.scan.PaimonDataFileExtractor;
 
 import org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata;
@@ -69,7 +71,7 @@ final class PaimonIndexAccessors {
     static List<String> listDataFiles(Catalog catalog, String schemaName, String tableName) {
         try {
             Identifier tableId = Identifier.create(schemaName, tableName);
-            Table table = catalog.getTable(tableId);
+            Table table = PaimonTableIdentity.loadFresh(catalog, tableId);
             PaimonSnapshotAwareMetadata snapshotMetadata =
                     new PaimonSnapshotAwareMetadata(table);
             Optional<String> snapshot = snapshotMetadata.currentSnapshotId();
@@ -89,7 +91,7 @@ final class PaimonIndexAccessors {
     static Optional<SnapshotAwareMetadata> getSnapshotAwareMetadata(
             Catalog catalog, String schemaName, String tableName) {
         try {
-            Table table = catalog.getTable(Identifier.create(schemaName, tableName));
+            Table table = PaimonTableIdentity.loadFresh(catalog, Identifier.create(schemaName, tableName));
             return table instanceof FileStoreTable
                     ? Optional.of(new PaimonSnapshotAwareMetadata(table))
                     : Optional.empty();
@@ -105,7 +107,7 @@ final class PaimonIndexAccessors {
             Catalog catalog, String schemaName, String tableName, List<String> dataFilePaths) {
         try {
             Identifier tableId = Identifier.create(schemaName, tableName);
-            Table table = catalog.getTable(tableId);
+            Table table = PaimonTableIdentity.loadFresh(catalog, tableId);
             if (!(table instanceof FileStoreTable)) {
                 return List.of();
             }

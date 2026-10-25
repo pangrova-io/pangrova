@@ -76,7 +76,7 @@ public class PaimonPageSinkProvider implements ConnectorPageSinkProvider {
         Identifier id = Identifier.create(handle.schemaName(), handle.tableName());
         Table fresh;
         try {
-            fresh = catalog.getTable(id);
+            fresh = PaimonTableIdentity.loadFresh(catalog, id);
         } catch (Catalog.TableNotExistException e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found for write: " + id, e);

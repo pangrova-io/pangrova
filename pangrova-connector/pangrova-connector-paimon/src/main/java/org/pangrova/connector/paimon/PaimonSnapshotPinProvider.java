@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
@@ -77,7 +79,7 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
 
     private FileStoreTable load(String schemaName, String tableName) {
         try {
-            var table = catalog.getTable(Identifier.create(schemaName, tableName));
+            var table = PaimonTableIdentity.loadFresh(catalog, Identifier.create(schemaName, tableName));
             if (table instanceof FileStoreTable fileStore) {
                 return fileStore;
             }

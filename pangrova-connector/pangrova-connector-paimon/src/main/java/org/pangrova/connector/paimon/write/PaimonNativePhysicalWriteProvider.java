@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
@@ -199,7 +201,8 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
 
     private FileStoreTable load(PaimonOutputTableHandle handle) {
         try {
-            var table = catalog.getTable(Identifier.create(handle.schemaName(), handle.tableName()));
+            var table = PaimonTableIdentity.loadFresh(catalog,
+                    Identifier.create(handle.schemaName(), handle.tableName()));
             return org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
                     table, handle.tableUuid(), handle.tableLocation(), handle.schemaFingerprint(),
                     "Physical output");

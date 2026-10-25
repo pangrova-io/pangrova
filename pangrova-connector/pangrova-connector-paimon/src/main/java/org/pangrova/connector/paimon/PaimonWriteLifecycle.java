@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
+
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
@@ -43,7 +45,7 @@ final class PaimonWriteLifecycle {
         try {
             catalog.createTable(id, schema, false);
             return PaimonTableHandleFactory.outputFromTable(
-                    metadata.table().schema(), metadata.table().table(), catalog.getTable(id));
+                    metadata.table().schema(), metadata.table().table(), PaimonTableIdentity.loadFresh(catalog, id));
         } catch (Catalog.TableAlreadyExistException failure) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_ALREADY_EXISTS,
                     "Table already exists: " + id, failure);
@@ -201,7 +203,7 @@ final class PaimonWriteLifecycle {
     private Table load(String schema, String table) {
         var id = Identifier.create(schema, table);
         try {
-            return catalog.getTable(id);
+            return PaimonTableIdentity.loadFresh(catalog, id);
         } catch (Catalog.TableNotExistException failure) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
                     "Table not found: " + id, failure);
