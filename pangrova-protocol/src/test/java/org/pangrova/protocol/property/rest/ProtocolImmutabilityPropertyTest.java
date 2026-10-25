@@ -1,12 +1,8 @@
 package org.pangrova.protocol.property.rest;
 
-import net.jqwik.api.ForAll;
-import net.jqwik.api.Property;
-import net.jqwik.api.Provide;
-import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Tag;
-import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.File;
 import java.lang.reflect.Method;
@@ -20,7 +16,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Property-based test verifying immutability of all REST DTO classes
+ * Exhaustive test verifying immutability of all REST DTO classes
  * in {@code org.pangrova.protocol.rest} and its sub-packages.
  *
  * <p>Uses reflection to discover all classes at test time, ensuring
@@ -48,20 +44,28 @@ class ProtocolImmutabilityPropertyTest {
      * Property 8: REST DTO classes use an immutable representation.
      *
      * <p>For any REST DTO class discovered via classpath scanning,
-     * the class must be a Java record or the final canonical task envelope.</p>
+     * the class must be a Java record or a final envelope with immutable final fields.</p>
      *
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
-    @Property(tries = 10)
+    @ParameterizedTest
+    @MethodSource("dtoClasses")
     @Tag("protocol-immutability")
     void allDtosUseImmutableRepresentations(
-            @ForAll("dtoClasses") Class<?> dtoClass) {
-        assertThat(dtoClass.isRecord()
-                || (dtoClass == SubmitTaskRequest.class
-                && java.lang.reflect.Modifier.isFinal(dtoClass.getModifiers())))
-                .as("DTO %s must be a record or the final canonical envelope",
-                        dtoClass.getSimpleName())
+            Class<?> dtoClass) {
+        assertThat(dtoClass.isRecord() || java.lang.reflect.Modifier.isFinal(dtoClass.getModifiers()))
+                .as("DTO %s must be a record or a final envelope", dtoClass.getSimpleName())
                 .isTrue();
+        for (var field : dtoClass.getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            assertThat(java.lang.reflect.Modifier.isFinal(field.getModifiers()))
+                    .as("DTO %s field %s must be final", dtoClass.getSimpleName(), field.getName()).isTrue();
+            assertThat(isImmutableComponentType(field.getType()))
+                    .as("DTO %s field %s must have an immutable representation",
+                            dtoClass.getSimpleName(), field.getName()).isTrue();
+        }
     }
 
     /**
@@ -72,9 +76,10 @@ class ProtocolImmutabilityPropertyTest {
      *
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
-    @Property(tries = 10)
+    @ParameterizedTest
+    @MethodSource("dtoClasses")
     @Tag("protocol-immutability")
-    void noDtoHasSetters(@ForAll("dtoClasses") Class<?> dtoClass) {
+    void noDtoHasSetters(Class<?> dtoClass) {
         for (Method method : dtoClass.getMethods()) {
             if (method.getDeclaringClass() == Object.class) {
                 continue;
@@ -98,11 +103,12 @@ class ProtocolImmutabilityPropertyTest {
      *
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
-    @Property(tries = 10)
+    @ParameterizedTest
+    @MethodSource("dtoClasses")
     @Tag("protocol-immutability")
-    void allComponentsAreImmutableTypes(@ForAll("dtoClasses") Class<?> dtoClass) {
+    void allComponentsAreImmutableTypes(Class<?> dtoClass) {
         if (!dtoClass.isRecord()) {
-            return; // covered by allDtosAreRecords
+            return; // final envelope fields are checked by allDtosUseImmutableRepresentations
         }
         for (RecordComponent component : dtoClass.getRecordComponents()) {
             Class<?> type = component.getType();
@@ -114,12 +120,11 @@ class ProtocolImmutabilityPropertyTest {
         }
     }
 
-    @Provide
-    Arbitrary<Class<?>> dtoClasses() {
+    static java.util.stream.Stream<Class<?>> dtoClasses() {
         assertThat(ALL_DTO_CLASSES)
                 .as("Should discover at least 20 REST DTO classes")
                 .hasSizeGreaterThanOrEqualTo(20);
-        return Arbitraries.of(ALL_DTO_CLASSES);
+        return ALL_DTO_CLASSES.stream();
     }
 
     private static boolean isImmutableComponentType(Class<?> type) {
@@ -139,6 +144,11 @@ class ProtocolImmutabilityPropertyTest {
         // byte[] is allowed when defensively copied in compact constructor and accessor
         // (e.g., DynamicFilterPayload clones on construction and on access)
         if (type == byte[].class) {
+            return true;
+        }
+        // Generated protobuf messages are immutable after build; mutable builders are not allowed.
+        if (com.google.protobuf.MessageLite.class.isAssignableFrom(type)
+                && java.lang.reflect.Modifier.isFinal(type.getModifiers())) {
             return true;
         }
         // Another protocol record is immutable by induction

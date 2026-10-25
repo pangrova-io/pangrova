@@ -104,7 +104,9 @@ class StatementDispatcherPropertyTest {
         return qualifiedNames().flatMap(name -> Arbitraries.of(
                 new CompactStatement(name),
                 new OptimizeStatement(name),
-                new VacuumStatement(name)
+                new VacuumStatement(name),
+                new CallStatement(Identifier.of("cat", "compact"),
+                        List.of(Literal.ofString("schema.table")))
         ));
     }
 
@@ -127,8 +129,7 @@ class StatementDispatcherPropertyTest {
     Arbitrary<Statement> unsupportedStatements() {
         return Arbitraries.of(
                 new DescribeCatalogStatement("cat"),
-                new AlterCatalogStatement("cat", Map.of()),
-                new CallStatement(Identifier.of("proc"), List.of())
+                new AlterCatalogStatement("cat", Map.of())
         );
     }
 
@@ -737,7 +738,7 @@ class StatementDispatcherPropertyTest {
 
     /**
      * Property 5: Unsupported statement rejection — for any unsupported statement
-     * (DescribeCatalogStatement, AlterCatalogStatement, CallStatement),
+     * (DescribeCatalogStatement, AlterCatalogStatement),
      * {@code StatementDispatcher.executeDirect()} rejects execution.
      *
      * <p>Unsupported statements categorize to UNKNOWN, so {@code isRoutable()} returns

@@ -58,6 +58,9 @@ public final class TableNameExtractor {
      */
     public static QualifiedTableName extractQualified(
             Statement stmt, org.pangrova.coordinator.query.session.CoordinatorSessionContext context) {
+        if (stmt instanceof org.pangrova.parser.ast.statement.maintenance.CallStatement call) {
+            return org.pangrova.coordinator.query.statement.TableResolver.resolveProcedureTableRef(call);
+        }
         if (stmt == null) {
             return null;
         }
@@ -89,6 +92,8 @@ public final class TableNameExtractor {
         put(map, AlterTableStatement.DropTag.class, AlterTableStatement.DropTag::tableName);
         put(map, AlterTableStatement.SetColumnTag.class, AlterTableStatement.SetColumnTag::tableName);
         put(map, AlterTableStatement.UnsetColumnTag.class, AlterTableStatement.UnsetColumnTag::tableName);
+        put(map, AlterTableStatement.Adopt.class, AlterTableStatement.Adopt::tableName);
+        put(map, AlterTableStatement.Unlink.class, AlterTableStatement.Unlink::tableName);
         put(map, InsertStatement.class, InsertStatement::tableName);
         put(map, InsertOverwriteStatement.class, InsertOverwriteStatement::tableName);
         put(map, InsertSelectStatement.class, InsertSelectStatement::tableName);
@@ -124,6 +129,12 @@ public final class TableNameExtractor {
                 s -> ((org.pangrova.parser.ast.statement.DropTagStatement) s).tableName());
         put(map, org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement.class,
                 org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement::tableName);
+        put(map, org.pangrova.parser.ast.statement.maintenance.CompactStatement.class,
+                org.pangrova.parser.ast.statement.maintenance.CompactStatement::tableName);
+        put(map, org.pangrova.parser.ast.statement.maintenance.OptimizeStatement.class,
+                org.pangrova.parser.ast.statement.maintenance.OptimizeStatement::tableName);
+        put(map, org.pangrova.parser.ast.statement.maintenance.VacuumStatement.class,
+                org.pangrova.parser.ast.statement.maintenance.VacuumStatement::tableName);
         return Map.copyOf(map);
     }
 

@@ -281,7 +281,7 @@ final class QueryExecutionBootstrap {
         // 2-Factory architecture: MetadataExecutionFactory (direct metadata ops)
         // + PlanExecutionFactory (compilation + DAG dispatch).
         this.metadataFactory = buildMetadataFactory(
-                ddlExecutor, showDescribeExecutor, maintenanceExecutor, catalog, dmlDispatch);
+                ddlExecutor, showDescribeExecutor, maintenanceExecutor, controlledMaintenance, catalog, dmlDispatch);
         registerOptionalMetadataTasks(indexing, dmlDispatch, ddlExecutor, queryDispatcherRef);
         registerBranchTasks(metadataFactory, catalog);
         registerStorageProfileTasks(metadataFactory, accessControl, metadataDataSource);
@@ -366,6 +366,7 @@ final class QueryExecutionBootstrap {
             org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
             org.pangrova.coordinator.query.statement.ShowDescribeExecutor showDescribeExecutor,
             org.pangrova.coordinator.query.statement.MaintenanceExecutor maintenanceExecutor,
+            org.pangrova.coordinator.query.statement.ControlledTableMaintenance controlledMaintenance,
             CatalogRegistry catalogRegistry,
             org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch) {
         var tasks = new java.util.HashMap<Class<? extends org.pangrova.parser.ast.Statement>,
@@ -431,7 +432,8 @@ final class QueryExecutionBootstrap {
                                 catalogRegistry)));
         // CALL procedure
         tasks.put(org.pangrova.parser.ast.statement.maintenance.CallStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(catalogRegistry));
+                new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(
+                        catalogRegistry, controlledMaintenance));
         // Views
         tasks.put(org.pangrova.parser.ast.statement.CreateViewStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CreateViewTask(catalogRegistry));

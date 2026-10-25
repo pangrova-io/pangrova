@@ -166,6 +166,26 @@ name only is rejected, as is a table that is already `MANAGED` or whose format
 identity changed after a drop/recreate. Re-adopting an unchanged table is
 idempotent. ADOPT does not modify or move the physical table.
 
+When `pangrova.table-control.external-readonly` is enabled, destructive
+`DROP TABLE` and `ALTER TABLE` operations check the current physical identity
+against the MANAGED control record. A changed identity quarantines the record;
+missing identity evidence rejects the operation without treating the table as
+replaced. If identity lookup fails after physical CREATE, the statement fails
+and records `ORPHANED_MANAGED` for reconciliation. STALE and ORPHANED_MANAGED
+records need physical identity evidence matching their original registered UUID
+before returning to ACTIVE. If the original identity is absent, neither a write
+nor the background observer may infer ownership from the current name. Only an
+explicit legacy write allowlist authorizes initial identity binding. Delayed
+observations cannot overwrite a newer control revision or mark a replacement
+table stale. DROP completion retires only the captured table ID and revision.
+During RENAME, the durable `RENAMING` state blocks reads, writes and maintenance and
+prevents periodic observations from interpreting the intermediate catalog state.
+A confirmed completion refreshes the physical identity and version while keeping
+the same table ID. A failed RENAME rolls ownership back only while that same registration is current
+and the source still has its original physical identity. An ambiguous outcome
+or a same-name replacement requires reconciliation instead of assigning ownership
+by name.
+
 A LINKED table starts with **no** maintenance operations enabled. Authorize
 restricted maintenance at adoption time:
 

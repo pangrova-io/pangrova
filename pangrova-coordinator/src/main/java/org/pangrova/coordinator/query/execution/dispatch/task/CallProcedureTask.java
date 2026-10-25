@@ -17,16 +17,14 @@ import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.LiteralValue;
 import org.pangrova.parser.ast.statement.maintenance.CallStatement;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.coordinator.query.statement.ControlledTableMaintenance;
 import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Executes CALL procedure(args...) by resolving the catalog from the
- * procedure name prefix and delegating to
- * {@link ConnectorMetadata#executeProcedure}.
+ * procedure name prefix and enforcing the table-control maintenance boundary.
  *
  * <p>Procedure name format: {@code catalog.procedure_name}.
  * A catalog prefix is required.</p>
@@ -36,9 +34,11 @@ public final class CallProcedureTask implements MetadataTask<CallStatement> {
     private static final Logger LOG = LoggerFactory.getLogger(CallProcedureTask.class);
 
     private final CatalogRegistry catalogRegistry;
+    private final ControlledTableMaintenance maintenance;
 
-    public CallProcedureTask(CatalogRegistry catalogRegistry) {
+    public CallProcedureTask(CatalogRegistry catalogRegistry, ControlledTableMaintenance maintenance) {
         this.catalogRegistry = catalogRegistry;
+        this.maintenance = java.util.Objects.requireNonNull(maintenance, "maintenance");
     }
 
     @Override
@@ -60,11 +60,8 @@ public final class CallProcedureTask implements MetadataTask<CallStatement> {
                     rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
         }
 
-        String schema = nameParts.size() == 3 ? nameParts.get(1) : TableResolver.defaultSchema(context.session());
-        ConnectorSession session = TableResolver.buildSession(context.session(), catalogName, schema);
-        ConnectorMetadata metadata = catalogRegistry.getCatalog(catalogName).getMetadata(session);
-
-        List<TypedRow> rows = metadata.executeProcedure(session, procedureName, args);
+        List<TypedRow> rows = maintenance.executeProcedure(procedureName,
+                TableResolver.resolveProcedureTableRef(statement), args, context.session());
         return new StatementResult(
                 rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
     }

@@ -80,7 +80,21 @@ public final class PermissionChecker {
             case MATERIALIZED_VIEW -> checkMaterializedView(stmt, user, accessControl, parts);
             case INDEX, CLUSTERING ->
                     accessControl.checkCanAlterTable(user, parts.catalog(), parts.schema(), parts.table());
+            case MAINTENANCE -> checkMaintenance(stmt, user, accessControl, parts);
             default -> { /* Non-table operations have their own authority boundary. */ }
+        }
+    }
+
+    private static void checkMaintenance(Statement stmt, UserIdentity user,
+            AccessControl accessControl, QualifiedTableName parts) {
+        boolean readOnly = stmt instanceof org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement
+                || (stmt instanceof org.pangrova.parser.ast.statement.maintenance.CallStatement call
+                && org.pangrova.coordinator.query.statement.TableWarmupExecutor.PROCEDURE_NAME
+                .equalsIgnoreCase(call.procedureName().parts().get(call.procedureName().parts().size() - 1)));
+        if (readOnly) {
+            accessControl.checkCanSelectFromTable(user, parts.catalog(), parts.schema(), parts.table());
+        } else {
+            accessControl.checkCanAlterTable(user, parts.catalog(), parts.schema(), parts.table());
         }
     }
 

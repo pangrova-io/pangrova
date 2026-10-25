@@ -22,6 +22,37 @@ public final class TableResolver {
 
     private TableResolver() {}
 
+    /** Resolves the literal table argument of a catalog procedure for both admission and execution. */
+    public static QualifiedTableName resolveProcedureTableRef(
+            org.pangrova.parser.ast.statement.maintenance.CallStatement statement) {
+        List<String> procedure = statement.procedureName().parts();
+        if (procedure.size() < 2 || procedure.size() > 3) {
+            throw new IllegalArgumentException("CALL requires catalog[.schema].procedure_name");
+        }
+        String first = procedureStringArgument(statement, 0);
+        boolean warmup = TableWarmupExecutor.PROCEDURE_NAME.equalsIgnoreCase(
+                procedure.get(procedure.size() - 1));
+        if (warmup && statement.arguments().size() == 2) {
+            return new QualifiedTableName(procedure.get(0), first, procedureStringArgument(statement, 1));
+        }
+        String[] table = first.split("\\.", -1);
+        if (table.length != 2 || table[0].isBlank() || table[1].isBlank()) {
+            throw new IllegalArgumentException("CALL table argument must be 'schema.table'");
+        }
+        return new QualifiedTableName(procedure.get(0), table[0], table[1]);
+    }
+
+    private static String procedureStringArgument(
+            org.pangrova.parser.ast.statement.maintenance.CallStatement statement, int index) {
+        if (statement.arguments().size() > index
+                && statement.arguments().get(index) instanceof org.pangrova.parser.ast.Literal literal
+                && literal.value() instanceof org.pangrova.parser.ast.LiteralValue.StringValue value
+                && !value.value().isBlank()) {
+            return value.value();
+        }
+        throw new IllegalArgumentException("CALL table argument must be a nonempty string literal");
+    }
+
     public static QualifiedTableName resolveTableRef(
             List<String> parts, CoordinatorSessionContext context) {
         return resolveTableRef(parts, defaultCatalog(context), defaultSchema(context));

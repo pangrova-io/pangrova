@@ -29,6 +29,26 @@ class PermissionCheckerAuthorizationTest {
     private static final CoordinatorSessionContext SESSION = session("secured", "source_schema");
 
     @Test
+    void maintenanceAndCallRequirePrivilegesOnTheirActualTarget() {
+        var selectOnly = accessControl(grant(Privilege.SELECT, "secured", "source_schema", "docs"));
+        var alter = accessControl(grant(Privilege.ALTER, "secured", "source_schema", "docs"));
+        for (String sql : new String[]{"COMPACT docs", "VACUUM docs", "OPTIMIZE docs",
+                "CALL secured.compact('source_schema.docs')"}) {
+            var statement = new SqlParser().parse(sql);
+            assertThatThrownBy(() -> PermissionChecker.check(statement, SESSION, selectOnly))
+                    .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("ALTER");
+            assertThatCode(() -> PermissionChecker.check(statement, SESSION, alter)).doesNotThrowAnyException();
+        }
+        var warmup = new SqlParser().parse("CALL secured.warmup_table('source_schema', 'docs')");
+        assertThatCode(() -> PermissionChecker.check(warmup, SESSION, selectOnly)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> PermissionChecker.check(warmup, SESSION, alter))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("SELECT");
+        var other = new SqlParser().parse("CALL another.compact('source_schema.docs')");
+        assertThatThrownBy(() -> PermissionChecker.check(other, SESSION, alter))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("another");
+    }
+
+    @Test
     void createAndCtasRequireCreatePrivilegeOnTheActualQueryDefaultTarget() {
         var create = new SqlParser().parse("CREATE TABLE docs (id BIGINT)");
         var ctas = new SqlParser().parse("CREATE TABLE docs AS SELECT 1 AS id");

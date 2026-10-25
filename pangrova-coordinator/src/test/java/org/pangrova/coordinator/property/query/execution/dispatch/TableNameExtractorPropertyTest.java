@@ -42,7 +42,9 @@ class TableNameExtractorPropertyTest {
                 new AlterTableStatement.CreateTag(target, "v1"),
                 new AlterTableStatement.DropTag(target, "v1"),
                 new AlterTableStatement.SetColumnTag(target, "col", "key", "value"),
-                new AlterTableStatement.UnsetColumnTag(target, "col", "key"));
+                new AlterTableStatement.UnsetColumnTag(target, "col", "key"),
+                new AlterTableStatement.Adopt(target, java.util.Map.of()),
+                new AlterTableStatement.Unlink(target));
         assertThat(statements).allSatisfy(statement ->
                 assertThat(TableNameExtractor.extract(statement)).isEqualTo("catalog.schema.table"));
     }

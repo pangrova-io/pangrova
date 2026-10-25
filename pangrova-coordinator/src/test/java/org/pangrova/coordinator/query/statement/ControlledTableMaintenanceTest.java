@@ -43,13 +43,13 @@ import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.LeaseEntry;
 import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.metadata.control.TableMaintenanceRun;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,6 +100,39 @@ class ControlledTableMaintenanceTest {
         if (auditEmitter != null) {
             auditEmitter.close();
         }
+    }
+
+    @Test
+    void replacedTableCannotInheritMaintenanceAuthorizationEvenWithTheSameVersion() {
+        TableControlRecord record = adopt("external");
+        policies.applyAdoptionProperties(record,
+                Map.of("maintenance_operations", "COMPACT"), "alice");
+        metadata.create("default", "external", "replacement");
+
+        assertThatThrownBy(() -> maintenance.execute(MaintenanceOperation.COMPACT,
+                Identifier.of("test_cat", "default", "external"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("identity");
+        assertThat(metadata.procedureCalls).isEmpty();
+        assertThat(policies.listRuns(record.tableId(), 10).get(0).state())
+                .isEqualTo(MaintenanceRunState.SKIPPED);
+        assertThat(lease.released).isTrue();
+    }
+
+    @Test
+    void identityChangeDuringExecutionIsAFailedRunRatherThanASkippedOrSuccessfulRun() {
+        TableControlRecord record = adopt("external");
+        policies.applyAdoptionProperties(record,
+                Map.of("maintenance_operations", "COMPACT"), "alice");
+        metadata.onExecute = () -> metadata.create("default", "external", "replacement");
+
+        assertThatThrownBy(() -> maintenance.execute(MaintenanceOperation.COMPACT,
+                Identifier.of("test_cat", "default", "external"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("identity");
+        assertThat(metadata.procedureCalls).hasSize(1);
+        assertThat(policies.listRuns(record.tableId(), 10).get(0).state())
+                .isEqualTo(MaintenanceRunState.FAILED);
+        assertThat(registry.tableControl().find("test_cat", "default", "external").orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
     }
 
     @Test
@@ -202,6 +235,105 @@ class ControlledTableMaintenanceTest {
     }
 
     @Test
+    void leaseLossBeforeExecutionSkipsTheConnector() {
+        var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
+                Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
+        lease.renewalAllowed = false;
+        assertThatThrownBy(() -> maintenance.execute(MaintenanceOperation.COMPACT,
+                Identifier.of("test_cat", "default", "orders"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("lease lost");
+        assertThat(metadata.procedureCalls).isEmpty();
+        assertThat(policies.listRuns(record.tableId(), 10)).singleElement()
+                .satisfies(run -> assertThat(run.state()).isEqualTo(MaintenanceRunState.SKIPPED));
+    }
+
+    @Test
+    void leaseLossDuringExecutionCannotBeReportedAsSuccess() {
+        var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
+                Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
+        metadata.onExecute = () -> lease.renewalAllowed = false;
+        assertThatThrownBy(() -> maintenance.execute(MaintenanceOperation.COMPACT,
+                Identifier.of("test_cat", "default", "orders"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("lease lost");
+        assertThat(metadata.procedureCalls).hasSize(1);
+        assertThat(policies.listRuns(record.tableId(), 10)).singleElement()
+                .satisfies(run -> assertThat(run.state()).isEqualTo(MaintenanceRunState.FAILED));
+    }
+
+    @Test
+    void leaseIsRenewedWhileTheConnectorIsStillExecuting() {
+        registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
+                Optional.of(identity("orders")), Optional.of(version()));
+        metadata.onExecute = () -> {
+            int before = lease.renewals.get();
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5))
+                    .until(() -> lease.renewals.get() >= before + 2);
+        };
+        var executor = new ControlledTableMaintenance(
+                registry, policies, lease, "renewing", Duration.ofMillis(30), CLOCK);
+        executor.execute(MaintenanceOperation.COMPACT,
+                Identifier.of("test_cat", "default", "orders"), context());
+        assertThat(lease.released).isTrue();
+    }
+
+    @Test
+    void requestsOnTheSameCoordinatorCannotReenterAnotherAttemptsLease() {
+        var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
+                Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
+        var realLease = new org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease(CLOCK);
+        var executor = new ControlledTableMaintenance(
+                registry, policies, realLease, "same-coordinator", Duration.ofMinutes(5), CLOCK);
+        var nested = new java.util.concurrent.atomic.AtomicBoolean();
+        metadata.onExecute = () -> {
+            if (nested.compareAndSet(false, true)) {
+                assertThatThrownBy(() -> executor.execute(MaintenanceOperation.COMPACT,
+                        Identifier.of("test_cat", "default", "orders"), context()))
+                        .hasMessageContaining("already in progress");
+            }
+        };
+
+        executor.execute(MaintenanceOperation.COMPACT,
+                Identifier.of("test_cat", "default", "orders"), context());
+
+        assertThat(metadata.procedureCalls).hasSize(1);
+        assertThat(policies.listRuns(record.tableId(), 10)).extracting(TableMaintenanceRun::state)
+                .containsExactlyInAnyOrder(MaintenanceRunState.SUCCEEDED, MaintenanceRunState.SKIPPED);
+        assertThat(realLease.currentHolder("table-maintenance:" + record.tableId())).isEmpty();
+    }
+
+    @Test
+    void procedureCannotWeakenRetentionOrPassUnrecognizedArguments() {
+        registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
+                Optional.of(identity("orders")), Optional.of(version()));
+        var ref = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
+                "test_cat", "default", "orders");
+        assertThatThrownBy(() -> maintenance.executeProcedure("expire_snapshots", ref,
+                Map.of("arg0", "default.orders", "arg1", "1"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("retention policy");
+        assertThatThrownBy(() -> maintenance.executeProcedure("remove_orphan_files", ref,
+                Map.of("arg0", "default.orders", "arg1", String.valueOf(NOW.toEpochMilli())), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("retention policy");
+        assertThatThrownBy(() -> maintenance.executeProcedure("compact", ref,
+                Map.of("arg0", "default.orders", "arg1", "ignored"), context()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("at most 1");
+        assertThat(metadata.procedureCalls).isEmpty();
+    }
+
+    @Test
+    void procedureWithStrongerRetentionExecutesUnderThePolicyAndLease() {
+        var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
+                Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
+        maintenance.executeProcedure("expire_snapshots",
+                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("test_cat", "default", "orders"),
+                Map.of("arg0", "default.orders", "arg1", "20",
+                        "arg2", String.valueOf(NOW.minus(Duration.ofDays(30)).toEpochMilli()), "arg3", "true"), context());
+        assertThat(metadata.procedureCalls).containsExactly("expire_snapshots|default.orders|20");
+        assertThat(policies.listRuns(record.tableId(), 10)).singleElement()
+                .satisfies(run -> assertThat(run.state()).isEqualTo(MaintenanceRunState.SUCCEEDED));
+        assertThat(lease.released).isTrue();
+    }
+
+    @Test
     void managedVacuumUsesThePolicyOrphanAge() {
         registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
                 Optional.of(identity("orders")), Optional.of(version()));
@@ -220,7 +352,7 @@ class ControlledTableMaintenanceTest {
     }
 
     private static TableIdentity identity(String table) {
-        return new TableIdentity("ICEBERG", "uuid-" + table, "s3://bucket/" + table, "schema");
+        return new TableIdentity("ICEBERG", "uuid-" + table, "s3://bucket/default." + table, "schema");
     }
 
     private static TableVersionToken version() {
@@ -250,6 +382,7 @@ class ControlledTableMaintenanceTest {
         private final Map<String, ConnectorTableMetadata> tables = new LinkedHashMap<>();
         private final Map<String, String> uuids = new LinkedHashMap<>();
         private final List<String> procedureCalls = new ArrayList<>();
+        private Runnable onExecute = () -> { };
         private Supplier<Optional<TableVersionToken>> version =
                 () -> Optional.of(TableVersionToken.of("ICEBERG", "uuid", "v1"));
 
@@ -313,6 +446,7 @@ class ControlledTableMaintenanceTest {
         @Override
         public List<TypedRow> executeProcedure(ConnectorSession session, String procedureName,
                 Map<String, String> arguments) {
+            onExecute.run();
             procedureCalls.add(procedureName + "|" + arguments.get("arg0")
                     + (arguments.containsKey("arg1") ? "|" + arguments.get("arg1") : ""));
             return List.of(TypedRow.builder()
@@ -335,7 +469,9 @@ class ControlledTableMaintenanceTest {
     }
 
     private static final class TestLease implements DistributedLease {
-        private final Map<String, LeaseEntry> active = new HashMap<>();
+        private final Map<String, LeaseEntry> active = new java.util.concurrent.ConcurrentHashMap<>();
+        private final AtomicInteger renewals = new AtomicInteger();
+        private volatile boolean renewalAllowed = true;
         private boolean busy;
         private boolean released;
         private long epoch = 1;
@@ -352,7 +488,9 @@ class ControlledTableMaintenanceTest {
 
         @Override
         public boolean tryRenew(String leaseKey, String holderId, long epoch, Duration duration) {
-            return false;
+            renewals.incrementAndGet();
+            LeaseEntry entry = active.get(leaseKey);
+            return renewalAllowed && entry != null && entry.holderId().equals(holderId) && entry.epoch() == epoch;
         }
 
         @Override

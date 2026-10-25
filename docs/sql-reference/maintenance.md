@@ -14,7 +14,7 @@ Maintenance syntax and catalog procedures have different execution paths.
 | `COMPACT` / `OPTIMIZE` / `VACUUM` | Registered and executed through `ControlledTableMaintenance`: ACTIVE LINKED/MANAGED records only, policy-checked, under a distributed lease |
 | Automatic scan | Maintenance leader only; scans ACTIVE LINKED/MANAGED records, runs due policy operations, records `AUTOMATIC` history |
 | `ANALYZE` | Collects connector statistics for ACTIVE LINKED/MANAGED tables and persists them against the stable table ID and observed version |
-| Catalog-qualified `CALL` | Wired to the selected connector's procedure implementation |
+| Catalog-qualified `CALL` | Enforces ownership, maintenance policy, identity and a distributed lease before connector execution |
 | Clustering / `RECLUSTER` | Parser and task/executor components exist; no default production task registration found |
 
 **A successful standalone maintenance response does not prove that maintenance ran.**
@@ -52,6 +52,11 @@ entry. That entry carries `mode = AUTOMATIC` and actor `system:maintenance`.
 When an external writer is detected between observations the run is recorded as
 `SKIPPED` and re-evaluated on the next cycle; other failures propagate to the
 scheduler and are logged without being masked as success.
+
+Maintenance requires matching physical identity evidence before and after the
+connector operation. A same-name replacement quarantines the old control record
+even if its reported version is unchanged. Rejection before the connector runs
+is `SKIPPED`; a failed identity check after execution begins is `FAILED`.
 
 `expire_snapshots` arguments are format-specific. Iceberg receives the retain
 count plus a time horizon computed from `snapshot_retention`; Paimon receives the
@@ -100,6 +105,12 @@ Collects connector statistics and stores them against the controlled table's
 stable ID and the version token observed during collection. The planner uses the
 stored row only while the control record still carries that token; after a
 Pangrova or external commit, live connector statistics are used instead.
+
+`ANALYZE` checks physical identity and captures the control revision before
+collection, then verifies both again before publishing. A concurrent control
+change or same-name replacement rejects the collected result; it cannot roll
+the registry back to an older version. Missing version evidence before collection
+also rejects the request.
 
 `ANALYZE` requires an ACTIVE LINKED or MANAGED control record. OBSERVED tables are
 rejected: without a stable identity, collected statistics could not be tied to the
@@ -168,17 +179,20 @@ SHOW CLUSTERING STATUS FOR TABLE prod.analytics.events;
 
 Execute catalog maintenance procedures with
 `CALL catalog.procedure_name(arg0, arg1, ...)`. Arguments are positional; the
-first part of the name must be a registered catalog.
+first part of the name must be a registered catalog. Mutating procedures require
+ALTER permission on the actual table and use the same control-plane checks as
+COMPACT/VACUUM/OPTIMIZE. OBSERVED tables are rejected; LINKED tables require an
+explicit maintenance policy. Retention arguments may preserve more history than
+the policy, but cannot shorten its retention count or time windows. Unknown or
+unmodeled procedures are rejected before reaching the connector. Warmup remains
+a read operation and requires SELECT permission.
 
 ```sql
 -- Compact data files (Iceberg)
 CALL prod_iceberg.compact('analytics.events');
 
--- Expire snapshots: keep the last 5 and drop snapshots older than the cutoff (epoch ms)
-CALL prod_iceberg.expire_snapshots('analytics.events', 5, 1704067200000);
-
--- Rollback to a previous snapshot
-CALL prod_iceberg.rollback_to_snapshot('analytics.events', 4827391056);
+-- Expire snapshots within the table policy (retain at least 10 by default)
+CALL prod_iceberg.expire_snapshots('analytics.events', 10, 1704067200000);
 
 -- Warm the table cache (engine-level, available for any catalog)
 CALL prod_iceberg.warmup_table('analytics.events');
@@ -192,20 +206,27 @@ CALL prod_iceberg.warmup_table('analytics.events');
 | `expire_snapshots` | `table_name [, retain_last] [, older_than_millis] [, dry_run]` | Expire old snapshots; `retain_last` defaults to 10 |
 | `remove_orphan_files` | `table_name [, older_than_millis] [, dry_run]` | Remove unreferenced files; the cutoff must be at least 24 hours old |
 | `rewrite_manifests` | `table_name` | Compact small manifests |
-| `rollback_to_snapshot` | `table_name, snapshot_id` | Rollback to a snapshot |
-| `set_current_snapshot` | `table_name, snapshot_id` | Fast-forward or set a branch to a snapshot |
-| `cherrypick_snapshot` | `table_name, snapshot_id` | Apply a staged snapshot as a new commit |
 
 **Paimon procedures:**
 
 | Procedure | Arguments | Description |
 |-----------|-----------|-------------|
 | `compact` | `table_name` | Compact table files |
-| `expire_snapshots` | `table_name [, retain_max] [, retain_min] [, dry_run]` | Expire old snapshots; defaults keep 30 snapshots with a floor of 10 |
-| `create_tag` / `delete_tag` | `table_name, tag_name, ...` | Manage snapshot tags |
-| `rollback_to` | `table_name, tag_name` | Rollback to a tag |
-| `create_branch` / `delete_branch` | `table_name, branch_name` | Manage branches |
+| `expire_snapshots` | `table_name [, retain_max] [, retain_min] [, dry_run]` | Expire old snapshots; defaults come from the table policy (10 snapshots by default) |
 | `remove_orphan_files` | `table_name [, older_than_ms] [, dry_run]` | Remove unreferenced files; the cutoff must be at least 24 hours old |
+
+Snapshot rollback, cherry-pick, branch and tag mutation through CALL have no
+maintenance-policy contract and are rejected. Use the dedicated authorized SQL
+DDL where supported. Connector implementation availability alone does not grant
+permission to invoke a procedure.
+
+Each maintenance attempt has a unique lease holder, including concurrent requests
+on the same coordinator. The lease is renewed during execution and checked before
+the connector is invoked and before success is recorded. Lease loss before
+execution skips the operation; loss after execution starts records a failed run.
+Such a failure does not prove that the format commit rolled back: inspect the
+table state before retrying. External engines remain outside Pangrova's lease,
+so format-level concurrency checks and the LINKED version checks still apply.
 
 Destructive procedures are conservative by default and accept `dry_run = true`
 to report what would be removed without committing anything. Procedures that

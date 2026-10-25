@@ -2372,7 +2372,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
         sharedDdlExecutor = ddlExecutor;
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
-        var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
+        var maintenancePolicyService = new org.pangrova.metadata.control.TableControlMaintenanceService(
+                new org.pangrova.metadata.control.JdbcTableControlMaintenanceStore(stateStoreDataSource));
+        var controlledMaintenance = new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(
+                catalog, maintenancePolicyService,
+                new org.pangrova.metadata.coordination.JdbcDistributedLease(stateStoreDataSource),
+                E2E_COORDINATOR_ID);
+        var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
+                controlledMaintenance);
+        ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
 
         // 2-Factory architecture: MetadataExecutionFactory + PlanExecutionFactory
         var tasks = new java.util.HashMap<Class<? extends org.pangrova.parser.ast.Statement>,
@@ -2395,6 +2403,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.DropTag.class, alterTableTask);
         tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.SetColumnTag.class, alterTableTask);
         tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.UnsetColumnTag.class, alterTableTask);
+        tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.Adopt.class, alterTableTask);
+        tasks.put(org.pangrova.parser.ast.statement.AlterTableStatement.Unlink.class, alterTableTask);
         tasks.put(org.pangrova.parser.ast.statement.CreateSchemaStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask(ddlExecutor));
         tasks.put(org.pangrova.parser.ast.CreateCatalogStatement.class,
@@ -2429,7 +2439,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.ShowViewsTask(catalog));
         // Procedures
         tasks.put(org.pangrova.parser.ast.statement.maintenance.CallStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(catalog));
+                new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(catalog, controlledMaintenance));
+        tasks.put(org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.AnalyzeTask(
+                        new org.pangrova.coordinator.query.statement.AnalyzeExecutor(catalog)));
         // Incremental read (CHANGES BETWEEN SNAPSHOT x AND y)
         tasks.put(org.pangrova.parser.ast.statement.IncrementalReadStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalog));

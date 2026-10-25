@@ -50,12 +50,12 @@ import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies CallProcedureTask dispatches the engine-level {@code warmup_table}
  * procedure to {@link TableWarmupExecutor} (G-CACHE-06) instead of forwarding
- * to the connector. Other procedures still hit
- * {@code ConnectorMetadata.executeProcedure}.
+ * to the connector. Mutation procedures must pass the table-control maintenance boundary.
  */
 class CallProcedureWarmupDispatchTest {
 
@@ -65,7 +65,7 @@ class CallProcedureWarmupDispatchTest {
     void warmupTable_isHandledByEngineExecutor_notConnector() {
         ConnectorMetadataSpy metadataSpy = new ConnectorMetadataSpy();
         CatalogRegistry registry = buildRegistry(metadataSpy);
-        CallProcedureTask task = new CallProcedureTask(registry);
+        CallProcedureTask task = new CallProcedureTask(registry, maintenance(registry));
 
         CallStatement stmt = new CallStatement(
                 Identifier.of(CATALOG, TableWarmupExecutor.PROCEDURE_NAME),
@@ -85,20 +85,41 @@ class CallProcedureWarmupDispatchTest {
     }
 
     @Test
-    void unknownProcedure_stillRoutesToConnector() {
-        ConnectorMetadataSpy metadataSpy = new ConnectorMetadataSpy();
-        CatalogRegistry registry = buildRegistry(metadataSpy);
-        CallProcedureTask task = new CallProcedureTask(registry);
+    void unknownProcedureCannotBypassMaintenancePolicy() {
+        ConnectorMetadataSpy spy = new ConnectorMetadataSpy();
+        CatalogRegistry registry = buildRegistry(spy);
+        CallProcedureTask task = new CallProcedureTask(registry, maintenance(registry));
+        CallStatement stmt = new CallStatement(Identifier.of(CATALOG, "rollback_to_snapshot"),
+                List.of(Literal.ofString("default.orders"), Literal.ofString("123")));
 
-        CallStatement stmt = new CallStatement(
-                Identifier.of(CATALOG, "do_something_else"),
-                List.of(Literal.ofString("x")));
+        assertThatThrownBy(() -> task.execute(stmt,
+                org.pangrova.coordinator.query.statement.StatementTestSessions.executionContext()))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("no table-control maintenance policy");
+        assertThat(spy.executeProcedureInvocations).isZero();
+    }
 
-        StatementResult result = task.execute(stmt,
-                org.pangrova.coordinator.query.statement.StatementTestSessions.executionContext());
-        assertThat(result.category()).isEqualTo(StatementCategory.MAINTENANCE);
-        assertThat(metadataSpy.executeProcedureInvocations).isEqualTo(1);
-        assertThat(metadataSpy.lastProcedure).isEqualTo("do_something_else");
+    @Test
+    void compactCannotMutateAnObservedTable() {
+        ConnectorMetadataSpy spy = new ConnectorMetadataSpy();
+        CatalogRegistry registry = buildRegistry(spy);
+        CallProcedureTask task = new CallProcedureTask(registry, maintenance(registry));
+        CallStatement stmt = new CallStatement(Identifier.of(CATALOG, "compact"),
+                List.of(Literal.ofString("default.orders")));
+
+        assertThatThrownBy(() -> task.execute(stmt,
+                org.pangrova.coordinator.query.statement.StatementTestSessions.executionContext()))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("OBSERVED");
+        assertThat(spy.executeProcedureInvocations).isZero();
+    }
+
+    private static org.pangrova.coordinator.query.statement.ControlledTableMaintenance maintenance(
+            CatalogRegistry registry) {
+        return new org.pangrova.coordinator.query.statement.ControlledTableMaintenance(registry,
+                new org.pangrova.metadata.control.TableControlMaintenanceService(
+                        new org.pangrova.metadata.control.InMemoryTableControlMaintenanceStore()),
+                null, "test");
     }
 
     // --- fixtures ---

@@ -59,7 +59,8 @@ class ControlledTableSourceTest {
         TableControlRecord record = adopt("stale");
         policies.applyAdoptionProperties(record,
                 Map.of("maintenance_operations", "COMPACT"), "alice");
-        store.save(record.toBuilder().state(TableControlState.STALE).build());
+        store.save(record.toBuilder().state(TableControlState.STALE)
+                .metadataRevision(record.metadataRevision() + 1).build());
 
         assertThat(source.listManagedTables()).isEmpty();
     }

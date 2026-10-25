@@ -129,6 +129,7 @@ public final class StatementClassifier {
         return stmt instanceof CompactStatement
                 || stmt instanceof OptimizeStatement
                 || stmt instanceof VacuumStatement
+                || stmt instanceof CallStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
     }
 
@@ -154,8 +155,7 @@ public final class StatementClassifier {
 
     public static boolean isUnsupported(Statement stmt) {
         return stmt instanceof org.pangrova.parser.ast.statement.DescribeCatalogStatement
-                || stmt instanceof AlterCatalogStatement
-                || stmt instanceof CallStatement;
+                || stmt instanceof AlterCatalogStatement;
     }
 
     /** Returns whether a statement manages an index. */
@@ -201,6 +201,11 @@ public final class StatementClassifier {
 
     private static final Map<Class<? extends Statement>, Function<Statement, Identifier>> TABLE_NAME_EXTRACTORS =
             Map.ofEntries(
+                    Map.entry(CompactStatement.class, s -> ((CompactStatement) s).tableName()),
+                    Map.entry(OptimizeStatement.class, s -> ((OptimizeStatement) s).tableName()),
+                    Map.entry(VacuumStatement.class, s -> ((VacuumStatement) s).tableName()),
+                    Map.entry(org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement.class,
+                            s -> ((org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement) s).tableName()),
                     Map.entry(CreateTableStatement.class, s -> ((CreateTableStatement) s).tableName()),
                     Map.entry(DropTableStatement.class, s -> ((DropTableStatement) s).tableName()),
                     Map.entry(AlterTableStatement.AddColumn.class, s -> ((AlterTableStatement) s).tableName()),
@@ -252,8 +257,12 @@ public final class StatementClassifier {
         return extractor != null ? extractor.apply(stmt) : null;
     }
 
+    /** Resolves the exact table targeted by SQL, including literal procedure arguments. */
     public static QualifiedTableName extractTableParts(
             Statement stmt, org.pangrova.coordinator.query.session.CoordinatorSessionContext context) {
+        if (stmt instanceof CallStatement call) {
+            return TableResolver.resolveProcedureTableRef(call);
+        }
         Identifier name = extractTableName(stmt);
         if (name == null) return null;
         return TableResolver.resolveTableRef(name.parts(), context);

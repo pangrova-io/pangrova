@@ -46,7 +46,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -213,8 +212,7 @@ class ControlledTableMaintenanceSpiTest {
     }
 
     private TableIdentity identity(String table) {
-        return new TableIdentity(metadata.format(table), "uuid-" + table,
-                "s3://bucket/" + table, "schema");
+        return metadata.getTableIdentity(null, new Handle("default." + table)).orElseThrow();
     }
 
     private static TableVersionToken version() {
@@ -356,7 +354,7 @@ class ControlledTableMaintenanceSpiTest {
     private record Handle(String key) implements ConnectorTableHandle { }
 
     private static final class TestLease implements DistributedLease {
-        private final Map<String, LeaseEntry> active = new HashMap<>();
+        private final Map<String, LeaseEntry> active = new java.util.concurrent.ConcurrentHashMap<>();
         private boolean busy;
         private boolean released;
         private long epoch = 1;
@@ -373,7 +371,8 @@ class ControlledTableMaintenanceSpiTest {
 
         @Override
         public boolean tryRenew(String leaseKey, String holderId, long epoch, Duration duration) {
-            return false;
+            LeaseEntry entry = active.get(leaseKey);
+            return entry != null && entry.holderId().equals(holderId) && entry.epoch() == epoch;
         }
 
         @Override

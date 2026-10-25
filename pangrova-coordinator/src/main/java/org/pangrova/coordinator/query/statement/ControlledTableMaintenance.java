@@ -95,7 +95,16 @@ public final class ControlledTableMaintenance {
     public List<TypedRow> execute(MaintenanceOperation operation, Identifier tableName,
             CoordinatorSessionContext context) {
         return execute(operation, TableResolver.resolveTableRef(tableName.parts(), context),
-                context, MODE_MANUAL);
+                context, MODE_MANUAL, Map.of());
+    }
+
+    /** CALL uses the same ownership, policy, lease and identity boundary as maintenance SQL. */
+    public List<TypedRow> executeProcedure(String procedure, QualifiedTableName ref,
+            Map<String, String> arguments, CoordinatorSessionContext context) {
+        MaintenanceOperation operation = MaintenanceOperation.parse(procedure)
+                .orElseThrow(() -> new AccessDeniedException("Procedure " + procedure
+                        + " has no table-control maintenance policy; execution is not authorized"));
+        return execute(operation, ref, context, MODE_MANUAL, arguments);
     }
 
     /**
@@ -107,11 +116,11 @@ public final class ControlledTableMaintenance {
      */
     public List<TypedRow> executeAutomatic(MaintenanceOperation operation,
             QualifiedTableName ref) {
-        return execute(operation, ref, systemContext(ref), MODE_AUTOMATIC);
+        return execute(operation, ref, systemContext(ref), MODE_AUTOMATIC, Map.of());
     }
 
     private List<TypedRow> execute(MaintenanceOperation operation, QualifiedTableName ref,
-            CoordinatorSessionContext context, String mode) {
+            CoordinatorSessionContext context, String mode, Map<String, String> arguments) {
         TableControlService control = catalogs.tableControl();
         TableControlRecord record = requireControlled(control, ref, operation);
         TableMaintenancePolicy policy = policyService.policyFor(record);
@@ -120,6 +129,7 @@ public final class ControlledTableMaintenance {
                     + record.qualifiedName() + " (" + record.ownershipMode()
                     + "); enabled operations: " + policy.enabledOperations());
         }
+        Map<String, String> connectorArguments = connectorArguments(ref, record, operation, policy, arguments);
 
         ConnectorSession session = TableResolver.buildSession(
                 context, ref.catalog(), ref.schema());
@@ -133,7 +143,10 @@ public final class ControlledTableMaintenance {
             throw new AccessDeniedException(operation + " requires a distributed lease; "
                     + "coordination is not configured, so two coordinators could run it at once");
         }
-        Optional<LeaseEntry> acquired = lease.tryAcquire(leaseKey, holderId, leaseTtl);
+        // The lease SPI is reentrant for a holder. Each attempt must have its own
+        // holder, otherwise two requests on one coordinator both acquire it.
+        String attemptHolder = holderId + ":" + UUID.randomUUID();
+        Optional<LeaseEntry> acquired = lease.tryAcquire(leaseKey, attemptHolder, leaseTtl);
         if (acquired.isEmpty()) {
             TableMaintenanceRun skipped = policyService.beginRun(
                     record, operation, mode, "", actor);
@@ -146,14 +159,22 @@ public final class ControlledTableMaintenance {
         }
 
         TableMaintenanceRun run = null;
-        try {
+        boolean executionStarted = false;
+        try (var ownership = new MaintenanceLeaseGuard(lease, acquired.orElseThrow(), leaseTtl)) {
             String versionBefore = observeVersion(metadata, session, handle);
             run = policyService.beginRun(record, operation, mode, versionBefore, actor);
             requireStableVersion(record, policy, metadata, session, ref, versionBefore);
+            control.requireActiveIdentity(record, metadata.getTableIdentity(session, handle),
+                    operation.name());
+            ownership.requireHeld();
 
+            executionStarted = true;
             List<TypedRow> rows = executeConnector(
-                    metadata, session, ref, record, operation, policy);
+                    metadata, session, operation, connectorArguments);
             String versionAfter = observeVersionFresh(metadata, session, ref);
+            control.requireActiveIdentity(record, metadata.getTableIdentity(session, handle),
+                    operation.name());
+            ownership.requireHeld();
             TableMaintenanceRun finished = policyService.finishRun(
                     run, MaintenanceRunState.SUCCEEDED, versionAfter,
                     Map.of("rows", String.valueOf(rows.size())));
@@ -166,7 +187,7 @@ public final class ControlledTableMaintenance {
             return rows;
         } catch (RuntimeException failure) {
             if (run != null) {
-                boolean rejected = failure instanceof AccessDeniedException;
+                boolean rejected = !executionStarted && failure instanceof AccessDeniedException;
                 TableMaintenanceRun finished = policyService.finishRun(run,
                         rejected ? MaintenanceRunState.SKIPPED : MaintenanceRunState.FAILED, "",
                         Map.of("error", failure.getClass().getSimpleName(),
@@ -177,7 +198,7 @@ public final class ControlledTableMaintenance {
                     record.qualifiedName(), record.tableId(), operation, failure.getMessage());
             throw failure;
         } finally {
-            acquired.ifPresent(entry -> lease.release(leaseKey, holderId, entry.epoch()));
+            acquired.ifPresent(entry -> lease.release(leaseKey, attemptHolder, entry.epoch()));
         }
     }
 
@@ -224,20 +245,69 @@ public final class ControlledTableMaintenance {
         }
     }
 
-    private List<TypedRow> executeConnector(ConnectorMetadata metadata, ConnectorSession session,
-            QualifiedTableName ref, TableControlRecord record, MaintenanceOperation operation,
-            TableMaintenancePolicy policy) {
+    private Map<String, String> connectorArguments(QualifiedTableName ref,
+            TableControlRecord record, MaintenanceOperation operation,
+            TableMaintenancePolicy policy, Map<String, String> requested) {
         Map<String, String> args = new LinkedHashMap<>();
         args.put("arg0", ref.schema() + "." + ref.table());
+        int maximumArguments = 1;
+        if (operation.isOrphanCleanup()) {
+            Instant cutoff = clock.instant().minus(policy.orphanFileAge());
+            args.put("arg1", String.valueOf(cutoff.toEpochMilli()));
+            args.put("arg2", "false");
+            maximumArguments = 3;
+        } else if (operation == MaintenanceOperation.EXPIRE_SNAPSHOTS) {
+            appendExpirationArguments(args, record, policy);
+            maximumArguments = 4;
+        }
+        for (String key : requested.keySet()) {
+            if (!args.containsKey(key)) {
+                throw new IllegalArgumentException(operation + " accepts at most " + maximumArguments + " arguments");
+            }
+        }
+        for (int index = 1; index < maximumArguments; index++) {
+            String key = "arg" + index;
+            if (!requested.containsKey(key)) {
+                continue;
+            }
+            String value = requested.get(key);
+            validateRetentionArgument(operation, record.format(), index,
+                    index == maximumArguments - 1, value, args.get(key));
+            args.put(key, value);
+        }
+        if (operation == MaintenanceOperation.EXPIRE_SNAPSHOTS && "PAIMON".equalsIgnoreCase(record.format())
+                && Long.parseLong(args.get("arg1")) < Long.parseLong(args.get("arg2"))) {
+            throw new IllegalArgumentException("retain_max must be at least retain_min");
+        }
+        return args;
+    }
+
+    private static void validateRetentionArgument(MaintenanceOperation operation, String format,
+            int index, boolean dryRun, String value, String policyLimit) {
+        if (dryRun) {
+            if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                throw new IllegalArgumentException("dry_run must be true or false");
+            }
+            return;
+        }
+        long number = Long.parseLong(value);
+        long limit = Long.parseLong(policyLimit);
+        boolean count = operation == MaintenanceOperation.EXPIRE_SNAPSHOTS
+                && (index == 1 || "PAIMON".equalsIgnoreCase(format));
+        if (count ? number < limit || number > Integer.MAX_VALUE : number > limit) {
+            throw new AccessDeniedException(operation + " argument " + index
+                    + " violates the table maintenance retention policy");
+        }
+    }
+
+    private List<TypedRow> executeConnector(ConnectorMetadata metadata, ConnectorSession session,
+            MaintenanceOperation operation, Map<String, String> args) {
         List<TypedRow> rows;
         if (operation.isCompaction()) {
             rows = metadata.executeProcedure(session, "compact", args);
         } else if (operation.isOrphanCleanup()) {
-            Instant cutoff = clock.instant().minus(policy.orphanFileAge());
-            args.put("arg1", String.valueOf(cutoff.toEpochMilli()));
             rows = metadata.executeProcedure(session, "remove_orphan_files", args);
         } else if (operation == MaintenanceOperation.EXPIRE_SNAPSHOTS) {
-            appendExpirationArguments(args, record, policy);
             rows = metadata.executeProcedure(session, "expire_snapshots", args);
         } else if (operation == MaintenanceOperation.REWRITE_MANIFESTS) {
             rows = metadata.executeProcedure(session, "rewrite_manifests", args);
