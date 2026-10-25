@@ -21,7 +21,8 @@ import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.query.ResultProtocol;
@@ -34,17 +35,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class FlightResultFetcherDeadlineTest {
 
-    @Test
-    void liveFlightStreamCannotOutrunCallerQueryDeadline() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void liveFlightStreamCannotOutrunCallerQueryDeadline(boolean streaming) throws Exception {
         try (RootAllocator allocator = new RootAllocator(32L * 1024 * 1024)) {
             var producer = new DeadlineProducer(allocator);
-            verifyDeadlineAndRecovery(allocator, producer);
+            verifyDeadlineAndRecovery(allocator, producer, streaming);
             assertThat(allocator.getAllocatedMemory()).isZero();
             assertThat(allocator.getChildAllocators()).isEmpty();
         }
     }
 
-    private static void verifyDeadlineAndRecovery(RootAllocator allocator, DeadlineProducer producer) throws Exception {
+    private static void verifyDeadlineAndRecovery(
+            RootAllocator allocator, DeadlineProducer producer, boolean streaming) throws Exception {
         try (FlightServer server = FlightServer.builder(
                      allocator, Location.forGrpcInsecure("127.0.0.1", 0),
                      producer).build().start();
@@ -53,10 +56,13 @@ class FlightResultFetcherDeadlineTest {
             try {
                 var result = executor.submit(() -> {
                     try {
-                        fetcher.fetch(new ResultEndpoint(
-                                "127.0.0.1", server.getPort(), "deadline",
-                                ResultProtocol.GRPC.value()),
-                                System.currentTimeMillis() + 3_000);
+                        var endpoint = new ResultEndpoint("127.0.0.1", server.getPort(), "deadline",
+                                ResultProtocol.GRPC.value());
+                        if (streaming) {
+                            fetcher.fetchStream(endpoint, bytes -> { }, System.currentTimeMillis() + 3_000);
+                        } else {
+                            fetcher.fetch(endpoint, System.currentTimeMillis() + 3_000);
+                        }
                         return (Throwable) null;
                     } catch (Throwable failure) {
                         return failure;

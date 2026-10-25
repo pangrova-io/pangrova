@@ -20,3 +20,16 @@ proxying; an absent selector can still inherit a default one. The selected Worke
 address remains subject to the normal connection and identity checks.
 
 An owning integration test starts the actual Coordinator acknowledgement bootstrap with JDK-generated trust material, verifies its encrypted endpoint and allocator limit, performs an authenticated Flight RPC, and rejects a missing client certificate. This verifies the configured bootstrap boundary; distributed query-plane and deployment-wide TLS remain separate qualification requirements.
+
+Result consumers may pass an absolute epoch-millisecond query deadline to
+`FlightResultFetcher.fetchStream`. The deadline bounds stream opening and each
+batch wait in addition to the idle timeout, so continuously arriving batches cannot
+keep a cancelled-by-deadline read alive. Deadline failure closes the owned stream;
+the fetcher remains available for subsequent reads. The existing overload retains
+its idle-timeout behavior.
+
+`ArrowBatchDecoder.decode` also accepts an aggregate row limit and a per-decode
+allocator limit. It checks each batch against the remaining row budget before
+creating Java row objects. A row-limit failure closes the reader and allocator.
+The allocator limit bounds Arrow allocation, not total JVM heap usage; consumers
+remain responsible for bounding serialized input and retained results.
