@@ -4,7 +4,9 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.Base64;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -178,10 +180,10 @@ class FileSpaceFileResourceTest {
                 "videos/stale.bin", "write", 2_000L);
         MultipartUpload stale = clocked.beginMultipart(expiring, null);
 
-        now.set(3_000L);
+        now.set(1_000L + FileSpaceFileResource.MULTIPART_SESSION_MILLIS);
         FileAccessDescriptor later = new FileAccessDescriptor("local", StorageType.LOCAL,
                 root.toString(), "", "", "", false, "volumes/media/raw/landing",
-                "videos/fresh.bin", "write", 9_000L);
+                "videos/fresh.bin", "write", EXPIRY);
         clocked.beginMultipart(later, null);
 
         assertThatThrownBy(() -> clocked.uploadPart(later, stale.uploadId(), 1, 1,
@@ -227,6 +229,108 @@ class FileSpaceFileResourceTest {
                 .isInstanceOfSatisfying(PangrovaException.class, failure ->
                         assertThat(failure.getErrorCode())
                                 .isEqualTo(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID));
+    }
+
+
+    @Test
+    void renewedGrantSurvivesOriginCleanupAndResumesOnAnotherWorker() throws IOException {
+        AtomicLong now = new AtomicLong(1_000L);
+        FileSpaceFileResource origin = clocked(now);
+        FileSpaceFileResource next = clocked(now);
+        FileAccessDescriptor initial = writeGrant(2_000L);
+        FileSpaceFileResource.MultipartSession session = begin(origin, initial);
+        UploadedPart first = origin.uploadPart(initial, session.uploadId(), 1, 2, stream("ab"));
+
+        now.set(3_000L);
+        origin.beginMultipart(descriptor("videos/other.bin", "write"), null);
+        assertThatThrownBy(() -> next.uploadPart(initial, session.uploadId(), 2, 2, stream("cd")))
+                .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
+        FileAccessDescriptor renewed = writeGrant(9_000L);
+        UploadedPart second = next.uploadPart(renewed, session.uploadId(), 2, 2, stream("cd"));
+        next.completeMultipart(renewed, session.uploadId(), java.util.List.of(first, second));
+        assertThat(readValue(next.read(descriptor("videos/session.bin", "read"),
+                0, -1, null).stream())).isEqualTo("abcd");
+    }
+
+    @Test
+    void sessionLifetimeCannotBeExtendedByRenewingGrantOrTamperingToken() {
+        AtomicLong now = new AtomicLong(1_000L);
+        FileSpaceFileResource origin = clocked(now);
+        FileSpaceFileResource next = clocked(now);
+        FileSpaceFileResource.MultipartSession session = begin(origin, writeGrant(2_000L));
+        assertThat(session.expiresAtEpochMillis())
+                .isEqualTo(1_000L + FileSpaceFileResource.MULTIPART_SESSION_MILLIS);
+        String tampered = session.uploadId().replace("." + session.expiresAtEpochMillis() + ".",
+                "." + EXPIRY + ".");
+        assertThatThrownBy(() -> next.uploadPart(writeGrant(EXPIRY), tampered, 1, 1, stream("x")))
+                .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                        assertThat(failure.getErrorCode())
+                                .isEqualTo(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID));
+        now.set(session.expiresAtEpochMillis());
+        assertThatThrownBy(() -> next.uploadPart(writeGrant(EXPIRY), session.uploadId(),
+                1, 1, stream("x")))
+                .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
+    }
+
+    @Test
+    void multipartTokenBindsEveryStorageScopeField() {
+        FileAccessDescriptor original = writeGrant(EXPIRY);
+        String token = begin(resource, original).uploadId();
+        Object[] scope = {original.profileName(), original.type(), original.bucket(), original.prefix(),
+                original.endpoint(), original.region(), original.pathStyleAccess(), original.baseKey(),
+                original.path()};
+        Object[] replacements = {"other-profile", StorageType.S3, root.resolve("other").toString(),
+                "different-prefix", "http://127.0.0.1:1", "eu-west-1", true, "other-root", "other.bin"};
+        for (int field = 0; field < scope.length; field++) {
+            Object[] changed = scope.clone();
+            changed[field] = replacements[field];
+            FileAccessDescriptor retargeted = new FileAccessDescriptor((String) changed[0],
+                    (StorageType) changed[1], (String) changed[2], (String) changed[3],
+                    (String) changed[4], (String) changed[5], (boolean) changed[6],
+                    (String) changed[7], (String) changed[8], "write", EXPIRY);
+            assertThatThrownBy(() -> resource.uploadPart(retargeted, token, 1, 1, stream("x")))
+                    .as("storage scope field %s", field)
+                    .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                            assertThat(failure.getErrorCode())
+                                    .isEqualTo(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID));
+        }
+    }
+
+    @Test
+    void failedExpiredCleanupRetainsOwnershipForRetry() throws IOException {
+        AtomicLong now = new AtomicLong(1_000L);
+        FileSpaceFileResource origin = clocked(now);
+        MultipartUpload stale = origin.beginMultipart(writeGrant(EXPIRY), null);
+        origin.uploadPart(writeGrant(EXPIRY), stale.uploadId(), 1, 1, stream("x"));
+        Path parts = root.resolve(".pangrova-multipart").resolve(stale.uploadId());
+        Path saved = root.resolve("saved-parts");
+        Files.move(parts, saved);
+        Files.createSymbolicLink(parts, saved);
+        now.set(1_000L + FileSpaceFileResource.MULTIPART_SESSION_MILLIS);
+        origin.beginMultipart(descriptor("videos/other.bin", "write"), null);
+        assertThat(saved.resolve("00001.part")).exists();
+        Files.delete(parts);
+        Files.move(saved, parts);
+        origin.beginMultipart(descriptor("videos/another.bin", "write"), null);
+        assertThat(parts).doesNotExist();
+    }
+
+    private FileSpaceFileResource clocked(AtomicLong now) {
+        return new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, mapper, now::get);
+    }
+
+    private FileAccessDescriptor writeGrant(long expiry) {
+        return new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(), "", "", "",
+                false, "volumes/media/raw/landing", "videos/session.bin", "write", expiry);
+    }
+
+    private FileSpaceFileResource.MultipartSession begin(FileSpaceFileResource worker,
+            FileAccessDescriptor descriptor) {
+        String encoded = encode(descriptor);
+        return worker.beginMultipart(new FileSpaceFileResource.BeginMultipartRequest(encoded,
+                FileAccessSignature.sign(SECRET, encoded), null));
     }
 
     @Test

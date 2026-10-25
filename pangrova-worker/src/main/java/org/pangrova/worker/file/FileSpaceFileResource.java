@@ -34,6 +34,8 @@ import org.pangrova.spi.storage.file.MultipartUpload;
 import org.pangrova.spi.storage.file.ObjectLocation;
 import org.pangrova.spi.storage.file.ObjectStoreAccessor;
 import org.pangrova.spi.storage.file.UploadedPart;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Worker data-plane endpoint for Volume and Stage file bytes.
@@ -46,6 +48,10 @@ import org.pangrova.spi.storage.file.UploadedPart;
  */
 @Path("/v1/file-space")
 public final class FileSpaceFileResource {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FileSpaceFileResource.class);
+    static final long MULTIPART_SESSION_MILLIS = 24L * 60 * 60 * 1000;
+    private static final int MAX_SESSION_TOKEN_LENGTH = 8192;
 
     static final long MAX_SINGLE_PUT_BYTES = 5L * 1024 * 1024 * 1024;
     static final long MULTIPART_PART_SIZE = 64L * 1024 * 1024;
@@ -61,8 +67,7 @@ public final class FileSpaceFileResource {
     private final String signingSecret;
     private final ObjectMapper mapper;
     private final LongSupplier clock;
-    private final Map<String, MultipartUpload> multipartUploads = new ConcurrentHashMap<>();
-    private final Map<String, Long> multipartDeadlines = new ConcurrentHashMap<>();
+    private final Map<String, ActiveUpload> multipartUploads = new ConcurrentHashMap<>();
 
     /** Creates the endpoint; descriptors must be signed with the cluster internal secret. */
     public FileSpaceFileResource(ObjectStoreAccessorFactory accessors, String signingSecret) {
@@ -191,8 +196,9 @@ public final class FileSpaceFileResource {
     public MultipartSession beginMultipart(BeginMultipartRequest request) {
         FileAccessDescriptor checked = verified(request.descriptor(), request.signature());
         MultipartUpload upload = beginMultipart(checked, request.contentType());
-        return new MultipartSession(sessionToken(checked, upload.uploadId()),
-                request.descriptor(), request.signature(), MULTIPART_PART_SIZE);
+        long expiresAt = multipartUploads.get(upload.uploadId()).expiresAt();
+        return new MultipartSession(sessionToken(checked, upload.uploadId(), expiresAt),
+                request.descriptor(), request.signature(), MULTIPART_PART_SIZE, expiresAt);
     }
 
     /** Accepts one part of an open multipart upload. */
@@ -312,8 +318,8 @@ public final class FileSpaceFileResource {
         evictExpired();
         MultipartUpload upload = accessor(checked).beginMultipart(
                 location(checked), checked.path(), contentType);
-        multipartUploads.put(upload.uploadId(), upload);
-        multipartDeadlines.put(upload.uploadId(), checked.expiresAtEpochMillis());
+        multipartUploads.put(upload.uploadId(),
+                new ActiveUpload(upload, Math.addExact(clock.getAsLong(), MULTIPART_SESSION_MILLIS)));
         return upload;
     }
 
@@ -333,17 +339,14 @@ public final class FileSpaceFileResource {
 
     void abortMultipart(FileAccessDescriptor descriptor, String uploadId) {
         MultipartUpload upload = requireUpload(descriptor, uploadId);
-        try {
-            accessor(descriptor).abortMultipart(upload);
-        } finally {
-            forget(uploadId, upload.uploadId());
-        }
+        accessor(descriptor).abortMultipart(upload);
+        forget(uploadId, upload.uploadId());
     }
 
     /**
      * Resolves the session opened for this exact space and path. The descriptor
-     * is verified on every call, so a leaked upload id never outlives the
-     * authorization that created it and never retargets another path.
+     * is verified on every call; a session token alone cannot authorize a transfer.
+     * Fresh write grants can resume the session until its independent absolute expiry.
      *
      * <p>The client normally sends a signed session token, so a part upload,
      * completion, or abort may land on any Worker in the cluster. Tokens are
@@ -356,93 +359,88 @@ public final class FileSpaceFileResource {
         if (providerUploadId != null) {
             return new MultipartUpload(providerUploadId, location(checked), checked.path());
         }
-        MultipartUpload upload = uploadId == null ? null : multipartUploads.get(uploadId);
-        if (upload == null) {
+        ActiveUpload active = uploadId == null ? null : multipartUploads.get(uploadId);
+        if (active == null) {
             throw new PangrovaException(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID,
                     "Unknown or already finished multipart upload");
         }
-        Long deadline = multipartDeadlines.get(uploadId);
-        if (deadline != null && deadline <= clock.getAsLong()) {
-            forget(uploadId);
-            abortQuietly(upload);
+        MultipartUpload upload = active.upload();
+        if (active.expiresAt() <= clock.getAsLong()) {
             throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
-                    "Multipart upload authorization has expired");
+                    "Multipart upload session has expired");
         }
-        if (!upload.location().baseKey().equals(checked.baseKey())
-                || !upload.path().equals(checked.path())) {
+        if (!upload.location().equals(location(checked)) || !upload.path().equals(checked.path())) {
             throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
                     "Multipart upload belongs to a different space or path");
         }
         return upload;
     }
 
-    /** Wraps a provider upload id in a path-bound token so any Worker can resume it. */
-    private String sessionToken(FileAccessDescriptor descriptor, String providerUploadId) {
+    /** Binds a provider upload, exact storage scope and absolute session lifetime. */
+    private String sessionToken(FileAccessDescriptor descriptor, String providerUploadId, long expiresAt) {
         String encoded = Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(providerUploadId.getBytes(StandardCharsets.UTF_8));
-        return encoded + '.' + FileAccessSignature.sign(signingSecret,
-                sessionPayload(descriptor, providerUploadId));
+        return encoded + '.' + expiresAt + '.' + FileAccessSignature.sign(signingSecret,
+                sessionPayload(descriptor, providerUploadId, expiresAt));
     }
 
-    /**
-     * Returns the provider upload id when the token was issued for this exact
-     * space and path, or {@code null} when the value is not a session token.
-     */
+    /** Returns only authenticated session identities; old or malformed tokens cannot reach storage. */
     private String providerUploadId(String uploadId, FileAccessDescriptor descriptor) {
-        if (uploadId == null) {
+        if (uploadId == null || uploadId.length() > MAX_SESSION_TOKEN_LENGTH) {
             return null;
         }
-        int separator = uploadId.indexOf('.');
-        if (separator <= 0 || separator == uploadId.length() - 1) {
+        String[] fields = uploadId.split("\\.", -1);
+        if (fields.length != 3) {
             return null;
         }
         String providerId;
+        long expiresAt;
         try {
-            providerId = new String(
-                    Base64.getUrlDecoder().decode(uploadId.substring(0, separator)),
-                    StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException notBase64) {
+            providerId = new String(Base64.getUrlDecoder().decode(fields[0]), StandardCharsets.UTF_8);
+            expiresAt = Long.parseLong(fields[1]);
+            if (providerId.isEmpty() || !Long.toString(expiresAt).equals(fields[1])) return null;
+        } catch (IllegalArgumentException malformed) {
             return null;
         }
         try {
             FileAccessSignature.requireValid(signingSecret,
-                    sessionPayload(descriptor, providerId),
-                    uploadId.substring(separator + 1));
-            return providerId;
+                    sessionPayload(descriptor, providerId, expiresAt), fields[2]);
         } catch (PangrovaException tamperedOrRetargeted) {
             return null;
         }
+        if (expiresAt <= clock.getAsLong()) {
+            throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
+                    "Multipart upload session has expired");
+        }
+        return providerId;
     }
 
-    private static String sessionPayload(FileAccessDescriptor descriptor,
-            String providerUploadId) {
-        return "multipart\n" + descriptor.baseKey() + "\n" + descriptor.path() + "\n"
-                + providerUploadId;
+    private String sessionPayload(FileAccessDescriptor descriptor, String providerUploadId, long expiresAt) {
+        try {
+            // JSON frames every field, including profile identity, bucket, endpoint and path;
+            // newline concatenation would permit ambiguous scope boundaries.
+            return "multipart-v2:" + mapper.writeValueAsString(List.of(descriptor.profile(),
+                    descriptor.baseKey(), descriptor.path(), providerUploadId, expiresAt));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException("Multipart scope cannot be serialized", failure);
+        }
     }
 
-    /**
-     * Releases provider parts for sessions whose authorization elapsed without a
-     * completion or abort, so expired attempts do not accumulate objects.
-     */
+    /** Cleans expired session parts; a transient abort failure retains its owner for a later retry. */
     private void evictExpired() {
         long now = clock.getAsLong();
-        multipartDeadlines.forEach((uploadId, deadline) -> {
-            if (deadline == null || deadline > now) {
-                return;
-            }
-            MultipartUpload expired = multipartUploads.remove(uploadId);
-            if (multipartDeadlines.remove(uploadId) != null && expired != null) {
-                abortQuietly(expired);
+        multipartUploads.forEach((uploadId, active) -> {
+            if (active.expiresAt() > now) return;
+            try {
+                accessors.accessor(active.upload().location().profile()).abortMultipart(active.upload());
+                multipartUploads.remove(uploadId, active);
+            } catch (RuntimeException failure) {
+                LOG.warn("event=multipart_cleanup_pending failureType={}", failure.getClass().getSimpleName());
             }
         });
     }
 
-    private void abortQuietly(MultipartUpload upload) {
-        try {
-            accessors.accessor(upload.location().profile()).abortMultipart(upload);
-        } catch (RuntimeException ignored) {
-            // The session is already unreachable; a failed abort must not mask that.
-        }
+    private record ActiveUpload(MultipartUpload upload, long expiresAt) {
     }
 
     private void forget(String... uploadIds) {
@@ -451,7 +449,6 @@ public final class FileSpaceFileResource {
                 continue;
             }
             multipartUploads.remove(uploadId);
-            multipartDeadlines.remove(uploadId);
         }
     }
 
@@ -509,7 +506,7 @@ public final class FileSpaceFileResource {
 
     /** Multipart session handed back to the client for part uploads. */
     public record MultipartSession(String uploadId, String descriptor, String signature,
-            long partSize) {
+            long partSize, long expiresAtEpochMillis) {
     }
 
     /** Multipart completion request with the provider ETags of each part. */

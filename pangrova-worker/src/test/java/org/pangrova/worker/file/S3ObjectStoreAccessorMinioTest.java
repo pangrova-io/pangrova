@@ -196,6 +196,45 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
     }
 
     @Test
+    void renewedMultipartGrantSurvivesOriginCleanupOnRealS3() throws IOException {
+        var now = new java.util.concurrent.atomic.AtomicLong(1_000L);
+        var mapper = org.pangrova.common.json.JsonMapperFactory.create();
+        var credentials = StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY));
+        try (S3Client client = client();
+                var originFactory = new ObjectStoreAccessorFactory(credentials);
+                var nextFactory = new ObjectStoreAccessorFactory(credentials)) {
+            String bucket = bucket(client, false);
+            var origin = new FileSpaceFileResource(originFactory, SECRET_KEY, mapper, now::get);
+            var next = new FileSpaceFileResource(nextFactory, SECRET_KEY, mapper, now::get);
+            String endpoint = location(bucket, "landing").profile().endpoint();
+            var initial = new FileAccessDescriptor("minio", StorageType.S3, bucket, "", endpoint,
+                    "us-east-1", true, "landing", "video/resume.mov", "write", 2_000L);
+            String encoded = java.util.Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(mapper.writeValueAsBytes(initial));
+            var session = origin.beginMultipart(new FileSpaceFileResource.BeginMultipartRequest(
+                    encoded, org.pangrova.common.file.FileAccessSignature.sign(SECRET_KEY, encoded), null));
+            byte[] head = new byte[FIVE_MIB];
+            java.util.Arrays.fill(head, (byte) 'a');
+            UploadedPart first = origin.uploadPart(initial, session.uploadId(), 1, head.length,
+                    new ByteArrayInputStream(head));
+            now.set(3_000L);
+            var renewed = new FileAccessDescriptor("minio", StorageType.S3, bucket, "", endpoint,
+                    "us-east-1", true, "landing", "video/resume.mov", "write", 9_000L);
+            var additional = origin.beginMultipart(renewed, null);
+            UploadedPart second = next.uploadPart(renewed, session.uploadId(), 2, 4, stream("tail"));
+            FileStat completed = next.completeMultipart(renewed, session.uploadId(), List.of(first, second));
+            assertThat(completed.size()).isEqualTo(FIVE_MIB + 4L);
+            try (InputStream input = new S3ObjectStoreAccessor(client).openRange(
+                    new ObjectLocation(renewed.profile(), renewed.baseKey()), "video/resume.mov", 0, -1, null)) {
+                assertThat(input.readAllBytes()).hasSize(FIVE_MIB + 4)
+                        .startsWith(head).endsWith("tail".getBytes(StandardCharsets.UTF_8));
+            }
+            origin.abortMultipart(renewed, additional.uploadId());
+        }
+    }
+
+    @Test
     void listingPaginatesAcrossContinuationTokens() throws IOException {
         try (S3Client client = client()) {
             String bucket = bucket(client, false);

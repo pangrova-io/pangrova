@@ -239,13 +239,21 @@ Single-request uploads are capped at 5 GiB. Larger objects use multipart:
    object metadata.
 
 The upload id returned by `multipart/begin` is a signed session token bound to the
-space root and path, not the raw provider id. Any Worker in the cluster can accept
-the next part, complete, or abort the upload, so a client keeps resuming even when
-requests land on different Workers. A token cannot be retargeted to another path,
-an unknown or finished token is rejected, and it stops working when the descriptor
-that created it expires. Each Worker also aborts sessions it opened once their
-descriptor expires; configure the bucket lifecycle rule for incomplete multipart
-uploads as the backstop for a Worker that never got the chance to clean up.
+complete storage profile, space root, object path, and an absolute 24-hour expiry.
+The response exposes that deadline as `expiresAtEpochMillis`. Any Worker with
+access to the same storage can accept the next part, complete, or abort the upload.
+The token alone grants no file access: every request also requires a currently
+valid signed write descriptor. Before the five-minute descriptor expires, obtain
+a fresh `write` grant from the coordinator, which rechecks the current privileges,
+and retain the original upload id. Renewal cannot extend the 24-hour session limit
+or retarget it to a different storage binding or object.
+
+When another upload starts, the originating Worker aborts sessions past their
+24-hour deadline. A failed abort retains ownership for a later cleanup attempt;
+expiration of an individual request descriptor does not abort an active session.
+Configure bucket lifecycle cleanup of incomplete multipart uploads as a backstop
+for Worker crashes. Cleanup ownership is currently in memory and cleanup is
+triggered by new uploads, so autonomous durable reclamation remains pending.
 
 ## Ranged reads and version pinning
 
