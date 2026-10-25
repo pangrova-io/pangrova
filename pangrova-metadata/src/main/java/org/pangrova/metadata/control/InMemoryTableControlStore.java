@@ -74,7 +74,11 @@ public final class InMemoryTableControlStore implements TableControlStore {
             }
         }
         byId.put(record.tableId(), record);
-        liveByName.entrySet().removeIf(entry -> entry.getValue().equals(record.tableId()));
+        if (previous != null) {
+            liveByName.remove(key(previous.catalog(), previous.schema(), previous.table()), record.tableId());
+            TableControlRenameIntent.source(previous).ifPresent(source ->
+                    liveByName.remove(key(source.catalog(), source.schema(), source.table()), record.tableId()));
+        }
         names.forEach(name -> liveByName.put(name, record.tableId()));
     }
 

@@ -147,21 +147,13 @@ public final class JdbcTableControlStore implements TableControlStore {
                             + ": another coordinator advanced the record");
                 }
                 var names = reservedNames(conn, record.tableId());
-                executeUpdate(conn, "DELETE FROM table_control_name_reservation WHERE table_id=?",
-                        ps -> ps.setObject(1, record.tableId()));
                 var reserved = new java.util.LinkedHashSet<org.pangrova.metadata.model.QualifiedTableRef>();
                 if (record.state() != TableControlState.DROPPED) {
                     reserved.add(record.tableRef());
                     TableControlRenameIntent.source(record).ifPresent(reserved::add);
                 }
-                for (var name : reserved) {
-                    executeUpdate(conn, "INSERT INTO table_control_name_reservation "
-                            + "(catalog_name,schema_name,table_name,table_id) VALUES (?,?,?,?)", ps -> {
-                                ps.setString(1, name.catalog());
-                                ps.setString(2, name.schema());
-                                ps.setString(3, name.table());
-                                ps.setObject(4, record.tableId());
-                            });
+                if (!names.equals(reserved)) {
+                    replaceReservations(conn, record.tableId(), reserved);
                 }
                 names.addAll(reserved);
                 names.add(record.tableRef());
@@ -183,6 +175,21 @@ public final class JdbcTableControlStore implements TableControlStore {
         } catch (SQLException e) {
             throw new MetastoreException(
                     "Failed to save table control record: " + record.qualifiedName(), e);
+        }
+    }
+
+    private static void replaceReservations(Connection connection, UUID tableId,
+            java.util.Set<org.pangrova.metadata.model.QualifiedTableRef> names) throws SQLException {
+        executeUpdate(connection, "DELETE FROM table_control_name_reservation WHERE table_id=?",
+                ps -> ps.setObject(1, tableId));
+        for (var name : names) {
+            executeUpdate(connection, "INSERT INTO table_control_name_reservation "
+                    + "(catalog_name,schema_name,table_name,table_id) VALUES (?,?,?,?)", ps -> {
+                        ps.setString(1, name.catalog());
+                        ps.setString(2, name.schema());
+                        ps.setString(3, name.table());
+                        ps.setObject(4, tableId);
+                    });
         }
     }
 

@@ -37,8 +37,23 @@ Real HTTP SQL validation found that the security expression parsers used the SQL
 standard function table, giving `CHAR_LENGTH` INTEGER while Native requires BIGINT.
 They now use the same typed operator contracts as ordinary SQL. The regression covers
 all three length aliases in masks and row filters, including substring positions.
-Current-source verification results will be recorded here after the owners and SQL
-regressions complete. Native sources are unchanged in this checkpoint.
+The focused final migration/control/policy verification passed: 84 tests, zero
+failures/errors/skips. It includes the PostgreSQL upgrade from V64 with an existing
+frozen COPY input, rename reservation across store restart, name reuse, canonical
+classification without event projection, and deferred raw-read rejection. Empty
+backfills now avoid issuing UPDATE statements that would unnecessarily advance the
+authorization revision and revoke an unrelated existing COPY root. Reservation
+maintenance touches only the affected names, with no whole-map sweep or redundant
+reservation rewrites during ordinary version observation.
+
+Security and Governance owner regressions passed, as did Planner and Worker daily
+regressions. The first Metadata owner run had 830 tests with one upgrade error;
+the 84-test correction above passed, and its complete rerun/HTTP SQL qualification
+remain in progress. Checkstyle passed for the six changed Java owners.
+Static analysis is not globally green: unchanged materialization reports nine
+representation-exposure findings and unchanged planner materialized-view rewriting
+reports two. These remain explicit gates; no rule or exclusion was weakened.
+Native sources are unchanged in this checkpoint.
 
 This checkpoint does not implement immutable directory Manifests/Native DIRECTORY,
 durable multipart ownership/reconciliation, FILE MANAGED ingestion, active-stream
