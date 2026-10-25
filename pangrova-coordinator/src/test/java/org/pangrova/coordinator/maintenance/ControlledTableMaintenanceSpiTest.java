@@ -77,7 +77,7 @@ class ControlledTableMaintenanceSpiTest {
         metadata.create("default", "paimon_tbl", "uuid-paimon", "PAIMON");
         ConnectorHandleFactory factory = descriptor ->
                 new ConnectorCatalogHandle(descriptor, new TestConnector(metadata));
-        control = new TableControlService(new InMemoryTableControlStore(),
+        control = new TableControlService(new InMemoryTableControlStore(), name -> registry.requireCurrentCatalogIdentity(name),
                 new TableControlSettings(true, true, Set.of()), clock);
         registry = new CatalogRegistry(new EmptyMetadataStore(), factory, null, null);
         registry.register(new CatalogDescriptor(
@@ -389,13 +389,14 @@ class ControlledTableMaintenanceSpiTest {
     }
 
     private static final class EmptyMetadataStore implements MetadataStore {
+        private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
         @Override public void saveTable(TableMetadata m) { }
         @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
         @Override public void deleteTable(String c, String s, String t) { }
         @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
-        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
-        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
-        @Override public void deleteCatalogDescriptor(String n) { }
+        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
+        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.ofNullable(descriptors.get(n)); }
+        @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
         @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
         @Override public void updateSyncTime(String c, Instant t) { }

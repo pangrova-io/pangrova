@@ -159,7 +159,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                     fixture.bootstrap.catalogRegistry(), fixture.session);
 
             var controlStore = new org.pangrova.metadata.control.InMemoryTableControlStore();
-            var control = new org.pangrova.metadata.control.TableControlService(controlStore,
+            var control = new org.pangrova.metadata.control.TableControlService(controlStore, fixture.bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
                     new org.pangrova.metadata.control.TableControlSettings(
                             true, true, java.util.Set.of()));
             var statisticsService =
@@ -169,6 +169,10 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var record = org.pangrova.metadata.control.TableControlRecord.builder()
                     .tableId(java.util.UUID.randomUUID())
                     .name("bound", "db", "analyzed")
+                    .catalogIncarnationId(fixture.bootstrap.catalogRegistry()
+                            .requireCurrentCatalogIdentity("bound").incarnationId())
+                    .catalogRevision(fixture.bootstrap.catalogRegistry()
+                            .requireCurrentCatalogIdentity("bound").revision())
                     .format("PAIMON")
                     .formatTableUuid("uuid-analyzed")
                     .ownershipMode(org.pangrova.metadata.control.OwnershipMode.MANAGED)

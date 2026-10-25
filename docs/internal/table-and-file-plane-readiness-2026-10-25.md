@@ -6,7 +6,7 @@ work against the Databricks/Snowflake alignment design as of 2026-10-25. It reco
 implementation, repairs, validation evidence and remaining production gates; it
 is not production acceptance or a claim that either plan is complete.
 
-Both workstreams were paused at the user's requested account-quota boundary
+Both workstreams were previously paused at the user's requested account-quota boundary
 (10% remaining), after committing repairs and completing in-flight focused
 validation. All file-plane changes in this checkpoint were committed and pushed
 on `codex/ai-native-semantic-closure`.
@@ -15,6 +15,38 @@ Evidence below belongs to the source/runtime snapshot identified in each section
 Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
+
+## Resumed implementation and qualification
+
+The catalog deployment identity gap is now implemented. CREATE, ADOPT, orphan
+registration and legacy registration capture the authoritative incarnation and
+revision. Admission, SQL and metadata read bindings (including cache hits),
+governance bindings, statistics, observations and rename/drop completion reject
+a changed deployment. The registry also compares the local handle with the
+durable descriptor, so a stale peer cannot register authority under a replacement
+catalog. Control-layer identity values do not depend on catalog assembly types.
+
+Legacy observation backfill requires both catalog fields to be absent, an
+explicit legacy-write allowlist entry and a matching previously registered format
+UUID/location. It cannot replace an existing or partial catalog binding. CREATE
+under a different confirmed deployment gets a new stable table ID; ADOPT rejects
+an old binding until its LINKED registration is explicitly unlinked.
+
+| Check | Observed result | Qualification limit |
+|---|---|---|
+| Catalog/control/metadata focused tests | 78 passed, including 4 real PostgreSQL deployment-binding tests; no failures, errors or skips | Includes same-UUID catalog replacement, revision changes, stale peer handles, cache rejection and guarded legacy backfill. |
+| Coordinator control-plane focused tests | 70 passed across ownership DDL, maintenance, ANALYZE, SHOW and scheduled table selection | Component scope; process-level active-active qualification remains open. |
+| HTTP SQL Table Control lifecycle | 7 passed with packaged Release JNI, actual SDK files, PostgreSQL and the prepared real Ollama deployment; no skips | Includes the new catalog replacement case rejecting SELECT, INSERT, DROP, ANALYZE and CALL while retaining the unchanged physical UUID and data. |
+| Metadata/coordinator static analysis | Both `verify -Pstatic-analysis -DskipTests` selections passed; zero reported bug instances | Tests ran separately. The analyzer still prints nonblocking missing-lambda-symbol diagnostics. |
+| Current Java reactor installation | `-Pnative-runtime -DskipTests install` passed | Compilation/package evidence; refreshes stale local CLI/shuffle artifacts that had contained older SPI classes. |
+| Full metadata owner selection | 822 tests selected: 818 passed and 4 observer-fixture errors, with no skips | The fixture discarded catalog descriptors. Its persistence was repaired and all 5 observer tests then passed; this is not a single green 822-test run. |
+| Architecture and lightweight gates | Package dependency acyclicity, scoped/full-owner Checkstyle, SPI annotations, E2E truthfulness, documentation references and dead-stub checks passed | The initial control/catalog package cycle was removed before acceptance; these checks do not establish runtime reachability by themselves. |
+| Current Release native suite | 4,333 passed; 1 of 4,334 failed with an mTLS `wrong version number` handshake error | The same isolated case subsequently passed once and in 100 diagnostic repetitions. Its intermittent full-suite failure is unresolved and the Release gate remains open. |
+
+The broader dependency reactor was also interrupted while a Docker exec output
+stream remained open after its command exited. This is retained as an incomplete
+reactor; no test was disabled or timeout raised. The final same-source regression,
+sanitizers, isolated Native owners and deployment gates below remain required.
 
 ## Table Control Plane
 
@@ -95,7 +127,7 @@ these failures disappear.
 | Plan area | Remaining work | Required acceptance evidence |
 |---|---|---|
 | P0 final regression | Complete a clean build and the affected/full Java reactor against the final combined revision; rerun failed suites and all four isolated Native owner suites with the final JNI artifact. | Matching source/artifact hashes, complete reports, no unresolved failure or skipped mandatory gate. |
-| P0/P1 catalog deployment identity | `TableControlRecord` persists catalog incarnation/revision, but `TableControlService.newRecord` does not populate them from the live catalog descriptor. Complete registration/adoption/backfill wiring and all admission comparisons. | Catalog drop/recreate and revision change cannot inherit old table authority, including when the physical table UUID is unchanged. |
+| P0/P1 catalog deployment identity qualification | Registration, adoption, guarded legacy backfill and admission comparisons are implemented and covered by the resumed checkpoint above. Complete final combined-revision and process-level qualification. | Retain same-UUID catalog replacement/revision and stale-peer PostgreSQL/HTTP SQL evidence in the final regression. |
 | P1 stable governance identity | `TableControlPolicyBinder` stores stable-ID bindings, while `MetadataTagOperations` and derived mask projections remain name-based. Finish the read/write projection and recovery audit; do not equate the binder's existence with end-to-end stable-ID enforcement. | ADOPT → tag/mask/quality/audit → rename → restart → UNLINK; external drop/recreate cannot inherit stale policy. |
 | P1 external writers | Add/run actual Spark local Iceberg writes on MinIO with JDBC/REST catalogs. | Append, position delete, DV, overwrite and equality-delete fail-closed results compared with Spark. |
 | P2 recovery | Crash/ambiguous rename currently remains RENAMING and fails closed. Durable automatic reconciliation of the physical rename and governance projections is not implemented. | Crash injection before/after physical rename and every projection step converges without granting authority to a replacement. |
@@ -235,8 +267,9 @@ focused or historical results do not close them.
    source as well.
 2. Serialize the resource-heavy Docker integrations, reproduce any remaining
    failure, and rerun the four runtime owner suites in separate JVMs.
-3. Complete catalog deployment identity and stable-ID governance projections,
-   then add actual crash/restart and active-active acceptance fixtures.
+3. Complete stable-ID governance projections and process-level qualification of
+   catalog deployment fencing, then add actual crash/restart and active-active
+   acceptance fixtures.
 4. Implement the Native Directory execution slice and then ingestion and FILE
    managed publication, following the execution boundary below.
 5. Add the Spark/Flink external-writer matrix and the equality-delete oracle.

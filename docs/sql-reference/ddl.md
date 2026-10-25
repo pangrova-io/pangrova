@@ -166,6 +166,19 @@ name only is rejected, as is a table that is already `MANAGED` or whose format
 identity changed after a drop/recreate. Re-adopting an unchanged table is
 idempotent. ADOPT does not modify or move the physical table.
 
+Control records also bind the catalog incarnation and revision. Recreating a catalog
+under the same name or changing its deployment revision invalidates the old control
+authority, even when it points to the same physical table UUID. Reads using a
+controlled cache entry, DML/DDL admission, governance and maintenance must resolve
+the confirmed deployment before proceeding. ADOPT rejects an existing record from
+another deployment; explicitly UNLINK a LINKED record before adopting it under the
+new deployment. A new CREATE registration receives a new table ID.
+
+Older records missing both catalog-binding fields stay blocked unless an operator
+explicitly legacy-write-allowlists the table and the observer confirms its previously
+recorded physical UUID and location. Existing deployment bindings are never silently
+updated through this migration path.
+
 When `pangrova.table-control.external-readonly` is enabled, destructive
 `DROP TABLE` and `ALTER TABLE` operations check the current physical identity
 against the MANAGED control record. A changed identity quarantines the record;

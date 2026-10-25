@@ -28,6 +28,11 @@ public final class PlanningReadBindings {
 
     /** Resolves once; the winning owner performs actual connector I/O without a cache lock. */
     public Optional<ConnectorReadBinding> resolve(String catalog, String schema, String table) {
+        var control = catalogs.tableControl();
+        if (control.enabled()) {
+            control.find(catalog, schema, table)
+                    .ifPresent(record -> control.requireCurrentCatalog(record, "SQL read binding"));
+        }
         var key = new TableKey(catalog, schema, table);
         var proposed = new CompletableFuture<Optional<ConnectorReadBinding>>();
         var existing = bindings.putIfAbsent(key, proposed);

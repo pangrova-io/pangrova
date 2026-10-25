@@ -143,6 +143,7 @@ public final class TableControlStatisticsService {
         if (record == null || record.state() != TableControlState.ACTIVE) {
             return Optional.empty();
         }
+        control.requireCurrentCatalog(record, "Statistics resolution");
         return store.find(record.tableId())
                 .filter(stats -> stats.matchesVersion(record.versionToken()));
     }
@@ -171,6 +172,7 @@ public final class TableControlStatisticsService {
                     + record.qualifiedName() + " is " + record.state()
                     + "; ANALYZE requires ACTIVE");
         }
+        control.requireCurrentCatalog(record, "ANALYZE");
         return record;
     }
 }

@@ -1632,6 +1632,18 @@ Pangrova may write, drop, or maintain it.
   last observed `version_token`, and a `metadata_revision` that increments on every mutation.
   Drop/recreate under the same name therefore produces a different identity; stale handles
   and write intents cannot silently target the new table.
+- Registration and adoption also capture the authoritative catalog incarnation and revision.
+  Admission, controlled resolution (including cache hits), governance bindings, statistics,
+  observations and rename/drop completion reject a deployment mismatch even when the physical
+  table UUID has not changed. A stale local catalog handle is rejected against the durable
+  descriptor before control authority can be used. Catalog replacement never rebinds an old
+  control record automatically; a newly created table receives a new stable table ID.
+- Existing records with no catalog binding fail closed. The background observer may backfill
+  both missing fields only for an explicitly legacy-write-allowlisted table whose live format
+  UUID and location match the identity already recorded. It cannot overwrite an existing or
+  partial deployment binding. Operators must confirm the intended current deployment before
+  adding an entry to this migration allowlist. A LINKED record can be explicitly unlinked
+  and adopted again to obtain a new stable ID without inheriting its previous bindings.
 - `CREATE TABLE` registers `MANAGED` in the same DDL path. If the physical table was created
   but registration failed, the record is stored as `ORPHANED_MANAGED` and the DDL fails.
   `DROP TABLE` retires the live record (`DROPPED`); `ALTER TABLE ... RENAME` moves it.

@@ -51,7 +51,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         var registry = metadataBootstrap.catalogRegistry();
         previousControl = registry.tableControl();
         store = new JdbcTableControlStore(stateStoreDataSource());
-        registry.setTableControlService(new TableControlService(store,
+        registry.setTableControlService(new TableControlService(store, registry::requireCurrentCatalogIdentity,
                 new TableControlSettings(true, true, Set.of())));
         externalCatalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString());
     }
@@ -60,6 +60,43 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
     void restoreEnforcement() throws Exception {
         metadataBootstrap.catalogRegistry().setTableControlService(previousControl);
         externalCatalog.close();
+    }
+
+    @Test
+    void recreatedCatalogCannotInheritAuthorityForAnUnchangedPhysicalTable() throws Exception {
+        var registry = metadataBootstrap.catalogRegistry();
+        var source = registry.getCatalog(CATALOG).getDescriptor();
+        String alias = "control_recreated_catalog";
+        String table = "control_catalog_identity";
+        String qualified = alias + "." + SCHEMA + "." + table;
+        registry.register(new org.pangrova.metadata.catalog.CatalogDescriptor(alias, source.type(),
+                source.provider(), source.state(), source.properties(), source.comment(), source.allowedTenants()));
+        try {
+            sqlRunner.executeDdl("CREATE TABLE " + qualified + " (id BIGINT)");
+            sqlRunner.execute("INSERT INTO " + qualified + " VALUES (7)");
+            sqlRunner.execute("SELECT id FROM " + qualified);
+            var original = store.find(alias, SCHEMA, table).orElseThrow();
+            registry.unregister(alias);
+            registry.register(new org.pangrova.metadata.catalog.CatalogDescriptor(alias, source.type(),
+                    source.provider(), source.state(), source.properties(), source.comment(), source.allowedTenants()));
+
+            assertThat(registry.getCatalog(alias).getDescriptor().incarnationId())
+                    .isNotEqualTo(original.catalogIncarnationId());
+            for (String statement : List.of("SELECT id FROM " + qualified,
+                    "INSERT INTO " + qualified + " VALUES (8)", "DROP TABLE " + qualified,
+                    "ANALYZE TABLE " + qualified,
+                    "CALL " + alias + ".compact('" + SCHEMA + "." + table + "')")) {
+                assertThat(sqlRunner.executeExpectingError(statement).message())
+                        .contains("catalog deployment");
+            }
+            assertThat(store.find(alias, SCHEMA, table)).contains(original);
+            var physical = externalCatalog.loadTable(identifier(table));
+            assertThat(((org.apache.iceberg.BaseTable) physical).operations().current().uuid())
+                    .isEqualTo(original.formatTableUuid());
+            assertThat(physical.currentSnapshot().summary()).containsEntry("total-records", "1");
+        } finally {
+            registry.unregister(alias);
+        }
     }
 
     @Test

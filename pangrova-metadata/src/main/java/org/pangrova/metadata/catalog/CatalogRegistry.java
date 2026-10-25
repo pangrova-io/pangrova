@@ -5,6 +5,7 @@ import org.pangrova.metadata.event.MetadataEvent;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
 import org.pangrova.metadata.exception.catalog.CatalogNotFoundException;
 import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
+import org.pangrova.metadata.control.CatalogDeploymentIdentity;
 import org.pangrova.metadata.control.InMemoryTableControlStatisticsStore;
 import org.pangrova.metadata.control.InMemoryTableControlStore;
 import org.pangrova.metadata.control.TableControlService;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /**
  * Central registry for catalog lifecycle: register, unregister, lookup, health monitoring.
@@ -51,6 +53,7 @@ public class CatalogRegistry {
     // Names currently being registered -- guards the window between check and loadCatalog
     private final java.util.Set<String> registering = ConcurrentHashMap.newKeySet();
     private final MetadataStore store;
+    private final CatalogDeploymentResolver catalogIdentities;
     private final CatalogHealthMonitor healthMonitor;
     private final ConnectorHandleFactory connectorHandleFactory;
     private final FederationHandleFactory federationHandleFactory;
@@ -74,12 +77,14 @@ public class CatalogRegistry {
             FederationHandleFactory federationHandleFactory,
             MetadataEventDispatcher eventDispatcher) {
         this.store = store;
+        this.catalogIdentities = new CatalogDeploymentResolver(store, catalogs);
         this.connectorHandleFactory = connectorHandleFactory;
         this.federationHandleFactory = federationHandleFactory;
         this.eventDispatcher = eventDispatcher;
         this.healthMonitor = new CatalogHealthMonitor(catalogs);
         this.tableControl = new TableControlService(
                 new InMemoryTableControlStore(),
+                catalogIdentities,
                 org.pangrova.metadata.control.TableControlSettings.fromSystemProperties());
         this.tableStatistics = new TableControlStatisticsService(
                 this.tableControl, new InMemoryTableControlStatisticsStore());
@@ -165,6 +170,11 @@ public class CatalogRegistry {
 
     public List<String> listCatalogNames() {
         return List.copyOf(catalogs.keySet());
+    }
+
+    /** Resolves the deployment authority and rejects a stale local connector handle. */
+    public CatalogDeploymentIdentity requireCurrentCatalogIdentity(String name) {
+        return catalogIdentities.apply(name);
     }
 
     /** Ownership and write-admission authority for tables in every catalog. */
@@ -315,6 +325,37 @@ public class CatalogRegistry {
         /** Returns true if no divergence was found. */
         public boolean isEmpty() {
             return loaded.isEmpty() && removed.isEmpty() && loadFailed.isEmpty();
+        }
+    }
+
+    /** Reads shared deployment authority without capturing a partially constructed registry. */
+    private static final class CatalogDeploymentResolver implements Function<String, CatalogDeploymentIdentity> {
+        private final MetadataStore store;
+        private final Map<String, CatalogHandle> handles;
+
+        CatalogDeploymentResolver(MetadataStore store, Map<String, CatalogHandle> handles) {
+            this.store = store;
+            this.handles = handles;
+        }
+
+        @Override
+        public CatalogDeploymentIdentity apply(String name) {
+            CatalogHandle handle = handles.get(name);
+            if (handle == null) {
+                throw new CatalogNotFoundException("Catalog '" + name + "' not found");
+            }
+            if (handle.getState() == CatalogState.SUSPENDED) {
+                throw new CatalogSuspendedException("Catalog '" + name + "' is suspended");
+            }
+            CatalogDescriptor local = handle.getDescriptor();
+            CatalogDescriptor current = store.getCatalogDescriptor(name)
+                    .orElseThrow(() -> new CatalogNotFoundException("Catalog '" + name + "' was removed"));
+            if (!current.incarnationId().equals(local.incarnationId())
+                    || current.revision() != local.revision()) {
+                throw new org.pangrova.spi.security.AccessDeniedException(
+                        "Catalog deployment changed for " + name + "; reload the local catalog before admission");
+            }
+            return new CatalogDeploymentIdentity(current.incarnationId(), current.revision());
         }
     }
 

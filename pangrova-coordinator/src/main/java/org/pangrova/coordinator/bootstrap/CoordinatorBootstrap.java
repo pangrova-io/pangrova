@@ -293,6 +293,7 @@ public final class CoordinatorBootstrap {
             metadataBootstrap.catalogRegistry().setTableControlService(
                     new org.pangrova.metadata.control.TableControlService(
                             new org.pangrova.metadata.control.JdbcTableControlStore(metadataDataSource),
+                            metadataBootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
                             org.pangrova.metadata.control.TableControlSettings.fromSystemProperties()));
             metadataBootstrap.catalogRegistry().setTableStatisticsService(
                     new org.pangrova.metadata.control.TableControlStatisticsService(

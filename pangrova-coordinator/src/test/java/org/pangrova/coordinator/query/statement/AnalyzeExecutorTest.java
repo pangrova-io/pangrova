@@ -63,7 +63,7 @@ class AnalyzeExecutorTest {
                 "test_cat", CatalogType.CONNECTOR, "test",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
         registry.setTableControlService(new TableControlService(
-                new InMemoryTableControlStore(),
+                new InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
                 new TableControlSettings(true, true, Set.of())));
         executor = new AnalyzeExecutor(registry);
     }
@@ -277,13 +277,14 @@ class AnalyzeExecutorTest {
     private record Handle(String key) implements ConnectorTableHandle { }
 
     private static final class EmptyMetadataStore implements MetadataStore {
+        private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
         @Override public void saveTable(TableMetadata m) { }
         @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
         @Override public void deleteTable(String c, String s, String t) { }
         @Override public java.util.List<QualifiedTableRef> searchTables(String p) { return java.util.List.of(); }
-        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
-        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
-        @Override public void deleteCatalogDescriptor(String n) { }
+        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
+        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.ofNullable(descriptors.get(n)); }
+        @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public java.util.List<CatalogDescriptor> listAllCatalogDescriptors() { return java.util.List.of(); }
         @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
         @Override public void updateSyncTime(String c, Instant t) { }

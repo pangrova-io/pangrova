@@ -20,7 +20,7 @@ class TableControlStatisticsServiceTest {
 
     private final InMemoryTableControlStore records = new InMemoryTableControlStore();
     private final TableControlService control = new TableControlService(
-            records, new TableControlSettings(true, true, java.util.Set.of()), CLOCK);
+            records, name -> new CatalogDeploymentIdentity("test-deployment", 1), new TableControlSettings(true, true, java.util.Set.of()), CLOCK);
     private final InMemoryTableControlStatisticsStore statistics =
             new InMemoryTableControlStatisticsStore();
     private final TableControlStatisticsService service =
@@ -181,7 +181,7 @@ class TableControlStatisticsServiceTest {
                 delegate.saveWithObservation(value, observation);
             }
         };
-        TableControlService retiringControl = new TableControlService(retiring,
+        TableControlService retiringControl = new TableControlService(retiring, name -> new CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, java.util.Set.of()), CLOCK);
         TableControlStatisticsService retiringService =
                 new TableControlStatisticsService(retiringControl, statistics, CLOCK);
@@ -209,6 +209,8 @@ class TableControlStatisticsServiceTest {
         return TableControlRecord.builder()
                 .tableId(UUID.randomUUID())
                 .name("cat", "db", table)
+                .catalogIncarnationId("test-deployment")
+                .catalogRevision(1L)
                 .format("ICEBERG")
                 .formatTableUuid("uuid-" + table)
                 .ownershipMode(OwnershipMode.MANAGED)

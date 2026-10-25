@@ -24,7 +24,7 @@ class TableControlPolicyBinderTest {
     private final InMemoryTableControlStore controlStore = new InMemoryTableControlStore();
     private final InMemoryTableControlGovernanceBindingStore bindingStore =
             new InMemoryTableControlGovernanceBindingStore();
-    private final TableControlService control = new TableControlService(controlStore,
+    private final TableControlService control = new TableControlService(controlStore, name -> new CatalogDeploymentIdentity("test-deployment", 1),
             new TableControlSettings(true, true, Set.of()), CLOCK);
     private final TableControlPolicyBinder binder =
             new TableControlPolicyBinder(control, bindingStore, CLOCK);

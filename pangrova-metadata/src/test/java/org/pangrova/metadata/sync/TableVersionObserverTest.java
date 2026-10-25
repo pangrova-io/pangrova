@@ -282,13 +282,16 @@ class TableVersionObserverTest {
     }
 
     static final class TestMetadataStore implements MetadataStore {
+        private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
         @Override public void saveTable(TableMetadata m) { }
         @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
         @Override public void deleteTable(String c, String s, String t) { }
         @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
-        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
-        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
-        @Override public void deleteCatalogDescriptor(String n) { }
+        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
+        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) {
+            return Optional.ofNullable(descriptors.get(n));
+        }
+        @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
         @Override public Optional<Instant> getLastSyncTime(String n) { return Optional.empty(); }
         @Override public void updateSyncTime(String n, Instant t) { }

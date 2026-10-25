@@ -24,7 +24,7 @@ class TableControlServiceTest {
 
     private static TableControlService service(boolean enabled, boolean enforce, String... allowlist) {
         return new TableControlService(
-                new InMemoryTableControlStore(),
+                new InMemoryTableControlStore(), name -> new CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(enabled, enforce, Set.of(allowlist)),
                 CLOCK);
     }
@@ -165,7 +165,7 @@ class TableControlServiceTest {
     @Test
     void linkedTableRejectsDmlAndDestructiveDdl() {
         InMemoryTableControlStore store = new InMemoryTableControlStore();
-        TableControlService control = new TableControlService(store,
+        TableControlService control = new TableControlService(store, name -> new CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, Set.of()), CLOCK);
         store.save(linkedRecord("cat", "db", "external"));
 
@@ -247,7 +247,7 @@ class TableControlServiceTest {
     @Test
     void orphanedManagedRecordIsDroppableButNotAlterable() {
         InMemoryTableControlStore store = new InMemoryTableControlStore();
-        TableControlService control = new TableControlService(store,
+        TableControlService control = new TableControlService(store, name -> new CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, Set.of()), CLOCK);
         TableControlRecord created = control.registerCreated("cat", "db", "t", "alice",
                 Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
@@ -266,7 +266,7 @@ class TableControlServiceTest {
     @Test
     void nonActiveManagedRecordBlocksWritesUntilReconciled() {
         InMemoryTableControlStore store = new InMemoryTableControlStore();
-        TableControlService control = new TableControlService(store,
+        TableControlService control = new TableControlService(store, name -> new CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, Set.of()), CLOCK);
         TableControlRecord quarantined = control.registerCreated("cat", "db", "t", "alice",
                 Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
@@ -461,7 +461,7 @@ class TableControlServiceTest {
     @Test
     void observedVersionAdvancesRevisionAndRecordsHistory() {
         InMemoryTableControlStore store = new InMemoryTableControlStore();
-        TableControlService control = new TableControlService(store,
+        TableControlService control = new TableControlService(store, name -> new CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, Set.of()), CLOCK);
         TableControlRecord record = control.adopt("cat", "db", "t", "alice",
                 Optional.of(identity("uuid-1")),
@@ -489,7 +489,7 @@ class TableControlServiceTest {
     @Test
     void unchangedVersionDoesNotWriteOrAdvanceRevision() {
         InMemoryTableControlStore store = new InMemoryTableControlStore();
-        TableControlService control = new TableControlService(store,
+        TableControlService control = new TableControlService(store, name -> new CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, Set.of()), CLOCK);
         TableControlRecord record = control.adopt("cat", "db", "t", "alice",
                 Optional.of(identity("uuid-1")),
@@ -619,6 +619,8 @@ class TableControlServiceTest {
         return TableControlRecord.builder()
                 .tableId(UUID.randomUUID())
                 .name(catalog, schema, table)
+                .catalogIncarnationId("test-deployment")
+                .catalogRevision(1L)
                 .format("ICEBERG")
                 .formatTableUuid("uuid-linked")
                 .formatLocation("s3://bucket/linked")

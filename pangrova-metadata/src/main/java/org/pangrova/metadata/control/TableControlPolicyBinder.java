@@ -126,6 +126,7 @@ public final class TableControlPolicyBinder {
                     + "for " + record.qualifiedName() + " is " + record.state()
                     + "; governance requires ACTIVE");
         }
+        control.requireCurrentCatalog(record, "Governance binding");
         return record;
     }
 }

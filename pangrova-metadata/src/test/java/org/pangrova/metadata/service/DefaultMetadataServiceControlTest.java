@@ -75,6 +75,19 @@ class DefaultMetadataServiceControlTest {
     }
 
     @Test
+    void cachedReadsRejectARecreatedCatalogEvenWhenThePhysicalTableIsUnchanged() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        service.resolveTable(session(), ref("orders"));
+        registry.unregister("cat");
+        registry.register(new CatalogDescriptor("cat", CatalogType.CONNECTOR, "test",
+                CatalogState.ACTIVE, Map.of(), "", Set.of()));
+
+        assertThatThrownBy(() -> service.resolveTable(session(), ref("orders")))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("catalog deployment");
+    }
+
+    @Test
     void cachedReadsCannotBypassAnIncompleteRename() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         service.resolveTable(session(), ref("orders"));
@@ -94,7 +107,7 @@ class DefaultMetadataServiceControlTest {
     @Test
     void dropCannotDeleteARecreatedTableWithTheOldOwnership() {
         registry.setTableControlService(new org.pangrova.metadata.control.TableControlService(
-                new org.pangrova.metadata.control.InMemoryTableControlStore(),
+                new org.pangrova.metadata.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
                 new org.pangrova.metadata.control.TableControlSettings(true, true, Set.of())));
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         connectorMetadata.create(new SchemaTableName("db", "orders"), "replacement");
@@ -366,13 +379,14 @@ class DefaultMetadataServiceControlTest {
     }
 
     static final class TestMetadataStore implements org.pangrova.metadata.store.MetadataStore {
+        private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
         @Override public void saveTable(TableMetadata m) { }
         @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
         @Override public void deleteTable(String c, String s, String t) { }
         @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
-        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
-        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
-        @Override public void deleteCatalogDescriptor(String n) { }
+        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
+        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.ofNullable(descriptors.get(n)); }
+        @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
         @Override public Optional<Instant> getLastSyncTime(String n) { return Optional.empty(); }
         @Override public void updateSyncTime(String n, Instant t) { }

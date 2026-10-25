@@ -110,7 +110,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
 
     void enforceOwnership() {
         registry.setTableControlService(new org.pangrova.metadata.control.TableControlService(
-                new org.pangrova.metadata.control.InMemoryTableControlStore(),
+                new org.pangrova.metadata.control.InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
                 new org.pangrova.metadata.control.TableControlSettings(true, true, Set.of())));
     }
 
@@ -273,6 +273,11 @@ final class SchedulingWriteFixture implements AutoCloseable {
         }
         @Override public CatalogHandle getCatalog(String name) {
             return name.equals("catalog") ? handle : null;
+        }
+        @Override public org.pangrova.metadata.control.CatalogDeploymentIdentity requireCurrentCatalogIdentity(String name) {
+            var deployment = getCatalog(name).getDescriptor();
+            return new org.pangrova.metadata.control.CatalogDeploymentIdentity(
+                    deployment.incarnationId(), deployment.revision());
         }
     }
 }

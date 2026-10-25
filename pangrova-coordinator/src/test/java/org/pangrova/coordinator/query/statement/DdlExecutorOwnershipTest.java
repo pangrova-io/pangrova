@@ -84,7 +84,7 @@ class DdlExecutorOwnershipTest {
                 "test_cat", CatalogType.CONNECTOR, "test",
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
         registry.setTableControlService(new TableControlService(
-                new InMemoryTableControlStore(),
+                new InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
                 new TableControlSettings(true, true, Set.of())));
         ddlExecutor = new DdlExecutor(registry);
         maintenanceService = new TableControlMaintenanceService(
@@ -298,7 +298,7 @@ class DdlExecutorOwnershipTest {
     @Test
     void controlRegistrationIsSkippedWhenThePlaneIsDisabled() {
         registry.setTableControlService(new TableControlService(
-                new InMemoryTableControlStore(),
+                new InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
                 new TableControlSettings(false, false, Set.of())));
         DropTableStatement stmt = (DropTableStatement) parser.parse(
                 "DROP TABLE test_cat.default.users");
@@ -808,13 +808,14 @@ class DdlExecutorOwnershipTest {
     }
 
     private static final class EmptyMetadataStore implements MetadataStore {
+        private final Map<String, CatalogDescriptor> descriptors = new LinkedHashMap<>();
         @Override public void saveTable(TableMetadata m) { }
         @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
         @Override public void deleteTable(String c, String s, String t) { }
         @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
-        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { }
-        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
-        @Override public void deleteCatalogDescriptor(String n) { }
+        @Override public void saveCatalogDescriptor(CatalogDescriptor d) { descriptors.put(d.name(), d); }
+        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.ofNullable(descriptors.get(n)); }
+        @Override public void deleteCatalogDescriptor(String n) { descriptors.remove(n); }
         @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
         @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
         @Override public void updateSyncTime(String c, Instant t) { }

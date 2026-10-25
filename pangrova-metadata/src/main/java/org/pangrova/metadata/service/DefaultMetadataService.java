@@ -232,6 +232,10 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     @Override
     public ResolvedTable resolveTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
         var control = catalogRegistry.tableControl();
+        if (control.enabled()) {
+            control.find(tableRef.catalog(), tableRef.schema(), tableRef.table())
+                    .ifPresent(record -> control.requireCurrentCatalog(record, "Table resolution"));
+        }
         if (control.enabled() && control.find(tableRef.catalog(), tableRef.schema(), tableRef.table())
                 .filter(record -> record.state() == org.pangrova.metadata.control.TableControlState.RENAMING)
                 .isPresent()) {

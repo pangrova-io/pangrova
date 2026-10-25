@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Ownership, identity, and admission decisions for the table control plane.
@@ -27,19 +28,24 @@ public final class TableControlService {
     private static final String LEGACY_FORMAT = "UNKNOWN";
 
     private final TableControlStore store;
+    private final Function<String, CatalogDeploymentIdentity> catalogs;
     private final TableControlSettings settings;
     private final Clock clock;
 
-    public TableControlService(TableControlStore store) {
-        this(store, TableControlSettings.defaults(), Clock.systemUTC());
+    public TableControlService(TableControlStore store, Function<String, CatalogDeploymentIdentity> catalogs) {
+        this(store, catalogs, TableControlSettings.defaults(), Clock.systemUTC());
     }
 
-    public TableControlService(TableControlStore store, TableControlSettings settings) {
-        this(store, settings, Clock.systemUTC());
+    public TableControlService(TableControlStore store, Function<String, CatalogDeploymentIdentity> catalogs,
+            TableControlSettings settings) {
+        this(store, catalogs, settings, Clock.systemUTC());
     }
 
-    public TableControlService(TableControlStore store, TableControlSettings settings, Clock clock) {
+    /** Creates a control authority using live catalog identities and the supplied observation clock. */
+    public TableControlService(TableControlStore store, Function<String, CatalogDeploymentIdentity> catalogs,
+            TableControlSettings settings, Clock clock) {
         this.store = store;
+        this.catalogs = java.util.Objects.requireNonNull(catalogs, "catalogs");
         this.settings = settings;
         this.clock = clock;
     }
@@ -59,6 +65,10 @@ public final class TableControlService {
     /** Ownership view for table resolution. Never persists anything. */
     public TableControlView describe(String catalog, String schema, String table) {
         return store.find(catalog, schema, table)
+                .map(record -> {
+                    requireCurrentCatalog(record, "Table resolution");
+                    return record;
+                })
                 .map(TableControlView::of)
                 .orElseGet(TableControlView::observed);
     }
@@ -102,6 +112,8 @@ public final class TableControlService {
                 || current.metadataRevision() != record.metadataRevision()) {
             return ObservationOutcome.IGNORED;
         }
+        current = backfillCatalogDeployment(current, identity, observedAt);
+        requireCurrentCatalog(current, "Version observation");
         boolean recovering = current.state() == TableControlState.STALE
                 || current.state() == TableControlState.ORPHANED_MANAGED;
         if (recovering && identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
@@ -206,6 +218,7 @@ public final class TableControlService {
         if (current.state() == TableControlState.STALE) {
             return ObservationOutcome.UNCHANGED;
         }
+        requireCurrentCatalog(current, "Missing-table observation");
         if (current.state() == TableControlState.QUARANTINED
                 || current.state() == TableControlState.ORPHANED_MANAGED) {
             return ObservationOutcome.IGNORED;
@@ -236,7 +249,8 @@ public final class TableControlService {
         }
         Instant now = clock.instant();
         Optional<TableControlRecord> existing = store.find(catalog, schema, table);
-        if (existing.isPresent() && matchesIdentity(existing.get(), identity)) {
+        if (existing.isPresent() && matchesCatalog(existing.get(), catalogs.apply(catalog))
+                && matchesIdentity(existing.get(), identity)) {
             TableControlRecord updated = withIdentity(existing.get(), identity, version, now)
                     .state(TableControlState.ACTIVE)
                     .metadataRevision(existing.get().metadataRevision() + 1)
@@ -307,6 +321,7 @@ public final class TableControlService {
         Optional<TableControlRecord> existing = store.find(catalog, schema, table);
         if (existing.isPresent()) {
             TableControlRecord record = existing.get();
+            requireCurrentCatalog(record, "ADOPT");
             if (record.ownershipMode() == OwnershipMode.MANAGED) {
                 throw new AccessDeniedException("ADOPT rejected: " + qualified
                         + " is already MANAGED by Pangrova");
@@ -379,10 +394,13 @@ public final class TableControlService {
         }
         Instant now = clock.instant();
         TableControlRecord orphaned = store.find(catalog, schema, table)
-                .map(record -> withIdentity(record, identity, Optional.empty(), now)
+                .map(record -> {
+                    requireCurrentCatalog(record, "Orphan registration");
+                    return withIdentity(record, identity, Optional.empty(), now)
                         .state(TableControlState.ORPHANED_MANAGED)
                         .metadataRevision(record.metadataRevision() + 1)
-                        .build())
+                        .build();
+                })
                 .orElseGet(() -> withIdentity(newRecord(
                         catalog, schema, table, ownerPrincipal,
                         TableControlProvenance.CREATED, now), identity, Optional.empty(), now)
@@ -402,6 +420,7 @@ public final class TableControlService {
             throw new AccessDeniedException("DROP TABLE completed with a changed control record for "
                     + expected.qualifiedName() + "; refusing to retire a newer table registration");
         }
+        requireCurrentCatalog(current, "DROP TABLE completion");
         retire(current, clock.instant());
     }
 
@@ -434,6 +453,7 @@ public final class TableControlService {
             throw new AccessDeniedException("RENAME rejected: control record changed for "
                     + expected.qualifiedName() + "; refusing to move a newer table registration");
         }
+        requireCurrentCatalog(source, "RENAME");
         Optional<TableControlRecord> target = store.find(source.catalog(), newSchema, newTable);
         if (target.isPresent() && !target.get().tableId().equals(source.tableId())) {
             throw new AccessDeniedException("RENAME rejected: " + source.catalog() + "." + newSchema
@@ -478,6 +498,7 @@ public final class TableControlService {
                 .orElseThrow(() -> new AccessDeniedException(
                         "RENAME completed without verifiable format identity for "
                                 + expected.qualifiedName() + "; reconciliation is required"));
+        requireCurrentCatalog(current, "RENAME completion");
         Instant now = clock.instant();
         String token = version.map(TableVersionToken::token).orElse(null);
         TableControlRecord completed = withIdentity(current, Optional.of(physical), version, now)
@@ -520,6 +541,7 @@ public final class TableControlService {
         if (record == null) {
             return;
         }
+        requireCurrentCatalog(record, operation);
         Optional<TableIdentity> evidence = observedIdentity
                 .filter(TableIdentity::hasFormatUuid);
         if (!hasFormatUuid(record)) {
@@ -564,6 +586,7 @@ public final class TableControlService {
             throw new AccessDeniedException(operation + " rejected: control record changed for "
                     + expected.qualifiedName() + "; resolve the table again");
         }
+        requireCurrentCatalog(current, operation);
         if (!hasFormatUuid(current) || identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
             throw new AccessDeniedException(operation + " rejected: missing format identity for "
                     + expected.qualifiedName());
@@ -628,6 +651,7 @@ public final class TableControlService {
             throw new AccessDeniedException(operation + " requires an ACTIVE control record; "
                     + qualified + " is " + record.state());
         }
+        requireCurrentCatalog(record, operation);
         return record;
     }
 
@@ -682,11 +706,14 @@ public final class TableControlService {
         return withIdentity(record.toBuilder().updatedAt(now), identity, version, now);
     }
 
-    private static TableControlRecord.Builder newRecord(String catalog, String schema, String table,
+    private TableControlRecord.Builder newRecord(String catalog, String schema, String table,
             String ownerPrincipal, TableControlProvenance provenance, Instant now) {
+        CatalogDeploymentIdentity deployment = catalogs.apply(catalog);
         return TableControlRecord.builder()
                 .tableId(UUID.randomUUID())
                 .name(catalog, schema, table)
+                .catalogIncarnationId(deployment.incarnationId())
+                .catalogRevision(deployment.revision())
                 .format(LEGACY_FORMAT)
                 .ownershipMode(OwnershipMode.MANAGED)
                 .state(TableControlState.ACTIVE)
@@ -695,6 +722,41 @@ public final class TableControlService {
                 .ownerPrincipal(ownerPrincipal)
                 .createdAt(now)
                 .updatedAt(now);
+    }
+
+    /** Rejects authority captured for another deployment, even if the format UUID is unchanged. */
+    public void requireCurrentCatalog(TableControlRecord record, String operation) {
+        if (!matchesCatalog(record, catalogs.apply(record.catalog()))) {
+            throw new AccessDeniedException(operation + " rejected: catalog deployment identity changed or "
+                    + "was never registered for " + record.qualifiedName()
+                    + "; explicitly reconcile the control record before using its authority");
+        }
+    }
+
+    private static boolean matchesCatalog(TableControlRecord record, CatalogDeploymentIdentity deployment) {
+        return deployment.incarnationId().equals(record.catalogIncarnationId())
+                && java.util.Objects.equals(deployment.revision(), record.catalogRevision());
+    }
+
+    private TableControlRecord backfillCatalogDeployment(TableControlRecord record,
+            Optional<TableIdentity> identity, Instant observedAt) {
+        if (record.catalogIncarnationId() != null || record.catalogRevision() != null
+                || !settings.isLegacyWriteAllowlisted(record.qualifiedName())
+                || !hasFormatUuid(record)
+                || identity.filter(value -> value.hasFormatUuid() && sameIdentity(record, value)).isEmpty()) {
+            return record;
+        }
+        CatalogDeploymentIdentity deployment = catalogs.apply(record.catalog());
+        TableControlRecord bound = record.toBuilder()
+                .catalogIncarnationId(deployment.incarnationId())
+                .catalogRevision(deployment.revision())
+                .metadataRevision(record.metadataRevision() + 1)
+                .updatedAt(observedAt)
+                .build();
+        store.save(bound);
+        LOG.info("event=table_control_catalog_backfilled table={} tableId={} incarnation={} revision={}",
+                bound.qualifiedName(), bound.tableId(), bound.catalogIncarnationId(), bound.catalogRevision());
+        return bound;
     }
 
     private void retire(TableControlRecord record, Instant now) {

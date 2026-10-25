@@ -28,7 +28,7 @@ class ControlledTableSourceTest {
     @BeforeEach
     void setUp() {
         store = new InMemoryTableControlStore();
-        control = new TableControlService(store,
+        control = new TableControlService(store, name -> new org.pangrova.metadata.control.CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(true, true, Set.of()));
         policies = new TableControlMaintenanceService(
                 new InMemoryTableControlMaintenanceStore());
@@ -67,7 +67,7 @@ class ControlledTableSourceTest {
 
     @Test
     void disabledControlPlaneNeverSuppliesTables() {
-        TableControlService disabled = new TableControlService(store,
+        TableControlService disabled = new TableControlService(store, name -> new org.pangrova.metadata.control.CatalogDeploymentIdentity("test-deployment", 1),
                 new TableControlSettings(false, false, Set.of()));
         disabled.registerCreated("cat", "s", "managed", "alice",
                 Optional.of(identity("managed")), Optional.of(version()));
