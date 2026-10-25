@@ -60,6 +60,8 @@ public class CatalogRegistry {
     private final MetadataEventDispatcher eventDispatcher;
     // Ownership and write admission share this authority with DDL and resolution.
     private volatile TableControlService tableControl;
+    private volatile org.pangrova.metadata.control.TableControlGovernanceBindingStore governanceBindings =
+            new org.pangrova.metadata.control.InMemoryTableControlGovernanceBindingStore();
     // ANALYZE results bound to a controlled table's stable ID and version token.
     private volatile TableControlStatisticsService tableStatistics;
 
@@ -180,6 +182,17 @@ public class CatalogRegistry {
     /** Ownership and write-admission authority for tables in every catalog. */
     public TableControlService tableControl() {
         return tableControl;
+    }
+
+    /** Shares the stable-identity governance authority with metadata DDL and replay. */
+    public org.pangrova.metadata.control.TableControlPolicyBinder tableGovernance() {
+        return new org.pangrova.metadata.control.TableControlPolicyBinder(tableControl, governanceBindings);
+    }
+
+    /** Installs the durable governance authority before serving requests. */
+    public void setGovernanceBindingStore(
+            org.pangrova.metadata.control.TableControlGovernanceBindingStore bindings) {
+        governanceBindings = java.util.Objects.requireNonNull(bindings, "bindings");
     }
 
     /** Statistics collected for controlled tables, keyed by stable table ID. */

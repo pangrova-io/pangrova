@@ -30,6 +30,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests GovernanceWiring.initialize() registers quality rules from QualityRuleStore.
  */
 class GovernanceWiringInitializeTest {
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+            tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
+
 
     private GovernanceWiring module;
 
@@ -81,7 +84,8 @@ class GovernanceWiringInitializeTest {
         TagBasedSecurityPolicy policy = new TagBasedSecurityPolicy(
                 new NoOpColumnMaskStore(), new NoOpAuditConfigStore());
         return new GovernanceWiring(new GovernanceContext(new GovernanceDeps(
-                emitter, handler, policy, scheduler, ruleStore)));
+                emitter, handler, policy, scheduler, ruleStore, new org.pangrova.governance.classification.ColumnTagService(
+                        table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID())))));
     }
 
     private GovernanceWiring buildModuleWithoutStore() {
@@ -94,7 +98,8 @@ class GovernanceWiringInitializeTest {
         TagBasedSecurityPolicy policy = new TagBasedSecurityPolicy(
                 new NoOpColumnMaskStore(), new NoOpAuditConfigStore());
         return new GovernanceWiring(new GovernanceContext(new GovernanceDeps(
-                emitter, handler, policy, scheduler, new InMemoryQualityRuleStore())));
+                emitter, handler, policy, scheduler, new InMemoryQualityRuleStore(), new org.pangrova.governance.classification.ColumnTagService(
+                        table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID())))));
     }
 
     private static DataQualityRule rule(long id, String name, boolean enabled, String schedule) {

@@ -65,7 +65,7 @@ final class E2eCurrentAuthority {
         return store;
     }
 
-    static AccessControl provisionDefault(DataSource dataSource, String principal) {
+    static AccessControl provisionDefault(DataSource dataSource, String principal, CatalogRegistry catalogs) {
         var roles = roles(dataSource);
         roles.createRole(Role.of(SQL_ROLE));
         roles.grantRoleToUser(UserRoleAssignment.of(principal, SQL_ROLE));
@@ -81,7 +81,8 @@ final class E2eCurrentAuthority {
         }
         return new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(dataSource)));
+                new ColumnMaskingProcessor(new org.pangrova.metadata.service.TableControlColumnMaskStore(
+                        catalogs, new PersistentColumnMaskStore(dataSource))));
     }
 
     static void removeDefault(DataSource dataSource, String principal) {

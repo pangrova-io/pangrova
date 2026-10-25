@@ -210,7 +210,7 @@ class DmlCopyOnWritePolicyTest {
         if (mask) {
             for (String table : List.of("target_rows", "source_rows")) {
                 masks.saveColumnMask(new ColumnMask(1, "hide_score", "default", "default", table,
-                        "score", "0", List.of("writers"), List.of(), true));
+                        "score", "0", List.of("writers"), List.of(), true, null));
             }
         }
         List<RowPolicy> policies = rowPolicy ? List.of(new RowPolicy(1, "tenant_rows", "default", "default",

@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -20,16 +19,26 @@ public class ColumnTagService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ColumnTagService.class);
 
+    private final java.util.function.Function<org.pangrova.spi.connector.metadata.table.QualifiedTableName,
+            java.util.UUID> tableIdentities;
+
+    /** Names are resolved through the authoritative control plane, never an event-built name cache. */
+    public ColumnTagService(java.util.function.Function<
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID> tableIdentities) {
+        this.tableIdentities = java.util.Objects.requireNonNull(tableIdentities, "tableIdentities");
+    }
+
+    private java.util.UUID identity(String catalog, String schema, String table) {
+        return java.util.Objects.requireNonNull(tableIdentities.apply(
+                new org.pangrova.spi.connector.metadata.table.QualifiedTableName(catalog, schema, table)), "tableId");
+    }
+
     private final List<TagChangedEventListener> listeners = new CopyOnWriteArrayList<>();
     private final Map<String, Map<String, String>> tagStore = new ConcurrentHashMap<>();
 
-    private static String tagStoreKey(String catalog, String schema, String table, String column) {
-        return catalog + "." + schema + "." + table + "." + column;
-    }
-
     public Map<String, String> getTags(String catalog, String schema, String table, String columnName) {
-        Map<String, String> tags = tagStore.get(tagStoreKey(catalog, schema, table, columnName));
-        return tags != null ? Collections.unmodifiableMap(tags) : Map.of();
+        Map<String, String> tags = tagStore.get(identity(catalog, schema, table) + ":" + columnName);
+        return tags != null ? Map.copyOf(tags) : Map.of();
     }
 
     /**
@@ -60,6 +69,12 @@ public class ColumnTagService {
      */
     public void assignTag(String catalog, String schema, String table,
                           String columnName, String tagKey, String oldValue, String newValue) {
+        assignTag(identity(catalog, schema, table), catalog, schema, table, columnName, tagKey, oldValue, newValue);
+    }
+
+    /** Projects an already captured stable identity; retirement events never resolve a replacement name. */
+    public void assignTag(java.util.UUID tableId, String catalog, String schema, String table,
+                          String columnName, String tagKey, String oldValue, String newValue) {
         checkNotNull(catalog, "catalog must not be null");
         checkNotNull(schema, "schema must not be null");
         checkNotNull(table, "table must not be null");
@@ -67,9 +82,10 @@ public class ColumnTagService {
         checkNotNull(tagKey, "tagKey must not be null");
         checkNotNull(newValue, "newValue must not be null for assignment");
 
-        String key = tagStoreKey(catalog, schema, table, columnName);
+        String key = java.util.Objects.requireNonNull(tableId, "tableId") + ":" + columnName;
         tagStore.computeIfAbsent(key, k -> new ConcurrentHashMap<>()).put(tagKey, newValue);
-        TagChangedEvent event = new TagChangedEvent(catalog, schema, table, columnName, tagKey, oldValue, newValue);
+        TagChangedEvent event = new TagChangedEvent(catalog, schema, table, columnName,
+                tagKey, oldValue, newValue, tableId);
         LOG.info("event=tag_assigned catalog={} schema={} table={} column={} tagKey={} newValue={}",
                 catalog, schema, table, columnName, tagKey, newValue);
         dispatchEvent(event);
@@ -87,6 +103,12 @@ public class ColumnTagService {
      */
     public void removeTag(String catalog, String schema, String table,
                           String columnName, String tagKey, String oldValue) {
+        removeTag(identity(catalog, schema, table), catalog, schema, table, columnName, tagKey, oldValue);
+    }
+
+    /** Withdraws only the captured identity, including after it has been retired. */
+    public void removeTag(java.util.UUID tableId, String catalog, String schema, String table,
+                          String columnName, String tagKey, String oldValue) {
         checkNotNull(catalog, "catalog must not be null");
         checkNotNull(schema, "schema must not be null");
         checkNotNull(table, "table must not be null");
@@ -94,7 +116,7 @@ public class ColumnTagService {
         checkNotNull(tagKey, "tagKey must not be null");
         checkNotNull(oldValue, "oldValue must not be null for removal");
 
-        String key = tagStoreKey(catalog, schema, table, columnName);
+        String key = java.util.Objects.requireNonNull(tableId, "tableId") + ":" + columnName;
         Map<String, String> tags = tagStore.get(key);
         if (tags != null) {
             tags.remove(tagKey);
@@ -102,20 +124,23 @@ public class ColumnTagService {
                 tagStore.remove(key);
             }
         }
-        TagChangedEvent event = new TagChangedEvent(catalog, schema, table, columnName, tagKey, oldValue, null);
+        TagChangedEvent event = new TagChangedEvent(catalog, schema, table, columnName,
+                tagKey, oldValue, null, tableId);
         LOG.info("event=tag_removed catalog={} schema={} table={} column={} tagKey={} oldValue={}",
                 catalog, schema, table, columnName, tagKey, oldValue);
         dispatchEvent(event);
     }
 
     private void dispatchEvent(TagChangedEvent event) {
+        RuntimeException failure = null;
         for (TagChangedEventListener listener : listeners) {
             try {
                 listener.onTagChanged(event);
-            } catch (Exception e) {
-                LOG.error("event=tag_listener_failed listenerClass={} tagKey={} column={}",
-                        listener.getClass().getSimpleName(), event.tagKey(), event.columnName(), e);
+            } catch (RuntimeException rejected) {
+                if (failure == null) failure = rejected;
+                else failure.addSuppressed(rejected);
             }
         }
+        if (failure != null) throw failure;
     }
 }

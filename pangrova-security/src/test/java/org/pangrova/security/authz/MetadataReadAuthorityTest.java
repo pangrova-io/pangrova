@@ -98,7 +98,7 @@ class MetadataReadAuthorityTest {
     }
 
     private static ColumnMask mask(String name, String column, List<String> roles, List<String> exempt, boolean enabled) {
-        return new ColumnMask(0, name, "cat", "sch", "orders", column, "NULL", roles, exempt, enabled);
+        return new ColumnMask(0, name, "cat", "sch", "orders", column, "NULL", roles, exempt, enabled, null);
     }
 
     private static DynamicRbacAccessControl authority(EnrichedColumnMaskStore masks, String column) {

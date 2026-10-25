@@ -24,7 +24,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.validate.SqlValidator;
@@ -135,7 +135,7 @@ public final class MaskExpressionParser {
     private static SqlValidator buildValidator(CalciteCatalogReader catalogReader,
                                                RelDataTypeFactory typeFactory) {
         return SqlValidatorUtil.newValidator(
-                SqlStdOperatorTable.instance(), catalogReader, typeFactory,
+                new PangrovaSqlOperatorTable(), catalogReader, typeFactory,
                 SqlValidator.Config.DEFAULT);
     }
 

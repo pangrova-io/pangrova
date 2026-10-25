@@ -1,147 +1,144 @@
 package org.pangrova.metadata.service;
 
 import org.pangrova.governance.classification.ColumnTagService;
+import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.control.GovernanceBinding;
+import org.pangrova.metadata.control.GovernanceBindingType;
+import org.pangrova.metadata.control.TableControlRecord;
+import org.pangrova.metadata.control.TableControlState;
 import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.tag.ColumnTagStore;
-import org.pangrova.metadata.tag.InMemoryColumnTagStore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
-/** Owns column-tag persistence and governance notifications for metadata service. */
+/** Column tags have one durable authority: governance bindings keyed by stable table identity. */
 final class MetadataTagOperations {
-
-    private static final Logger LOG = LoggerFactory.getLogger(MetadataTagOperations.class);
-
+    private final CatalogRegistry catalogs;
     private volatile ColumnTagService columnTagService;
-    private volatile ColumnTagStore tagStore = new InMemoryColumnTagStore();
+
+    MetadataTagOperations(CatalogRegistry catalogs) {
+        this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
+    }
 
     void setColumnTagService(ColumnTagService service) {
         columnTagService = service;
     }
 
-    void setColumnTagStore(ColumnTagStore store) {
-        tagStore = Objects.requireNonNull(store, "store");
-        LOG.info("event=column_tag_store_installed type={}", store.getClass().getSimpleName());
-    }
-
-    void setTag(QualifiedTableRef tableRef, String columnName, String tagKey, String value) {
+    void setTag(QualifiedTableRef table, String column, String tagKey, String value, String actor) {
         Objects.requireNonNull(value, "value");
-        String oldValue = tagStore.put(key(tableRef, columnName),
-                Objects.requireNonNull(tagKey, "tagKey"), value);
+        if ("pii_type".equals(tagKey) && org.pangrova.governance.classification.TagBasedSecurityPolicy
+                .piiTypeToMaskExpression(value) == null) {
+            throw new org.pangrova.spi.security.AccessDeniedException("Unknown PII tag value");
+        }
+        String reference = reference(column, tagKey);
+        TableControlRecord record = current(table);
+        var binder = catalogs.tableGovernance();
+        String previous = binder.find(record.tableId(), GovernanceBindingType.COLUMN_TAG, reference)
+                .map(binding -> binding.config().get("value")).orElse(null);
+        binder.bind(record, GovernanceBindingType.COLUMN_TAG,
+                reference, Map.of("column", column, "tagKey", tagKey, "value", value), actor);
         ColumnTagService service = columnTagService;
         if (service != null) {
-            service.assignTag(tableRef.catalog(), tableRef.schema(), tableRef.table(),
-                    columnName, tagKey, oldValue, value);
+            service.assignTag(record.tableId(), table.catalog(), table.schema(), table.table(),
+                    column, tagKey, previous, value);
         }
-        LOG.info("event=column_tag_set catalog={} schema={} table={} column={} tagKey={}",
-                tableRef.catalog(), tableRef.schema(), tableRef.table(), columnName, tagKey);
     }
 
-    void unsetTag(QualifiedTableRef tableRef, String columnName, String tagKey) {
-        Objects.requireNonNull(tagKey, "tagKey");
-        String removed = tagStore.remove(key(tableRef, columnName), tagKey);
-        if (removed == null) {
-            return;
-        }
-        ColumnTagService service = columnTagService;
-        if (service != null) {
-            service.removeTag(tableRef.catalog(), tableRef.schema(), tableRef.table(),
-                    columnName, tagKey, removed);
-        }
-        LOG.info("event=column_tag_unset catalog={} schema={} table={} column={} tagKey={}",
-                tableRef.catalog(), tableRef.schema(), tableRef.table(), columnName, tagKey);
+    void unsetTag(QualifiedTableRef table, String column, String tagKey) {
+        String reference = reference(column, tagKey);
+        TableControlRecord record = current(table);
+        var binder = catalogs.tableGovernance();
+        var existing = binder.find(record.tableId(), GovernanceBindingType.COLUMN_TAG, reference);
+        if (existing.isEmpty()) return;
+        binder.unbind(record.tableId(), GovernanceBindingType.COLUMN_TAG, reference);
+        emitRemoval(record, existing.orElseThrow());
     }
 
-    Map<String, String> listTags(QualifiedTableRef tableRef, String columnName) {
-        return tagStore.list(key(tableRef, columnName));
+    Map<String, String> listTags(QualifiedTableRef table, String column) {
+        Objects.requireNonNull(column, "column");
+        TableControlRecord record = current(table);
+        Map<String, String> result = new LinkedHashMap<>();
+        for (GovernanceBinding binding : catalogs.tableGovernance().bindingsFor(record.tableId())) {
+            if (binding.bindingType() == GovernanceBindingType.COLUMN_TAG
+                    && column.equals(binding.config().get("column"))) {
+                result.put(binding.config().get("tagKey"), binding.config().get("value"));
+            }
+        }
+        return Map.copyOf(result);
     }
 
-    /**
-     * Replays persisted tags into the shared {@link ColumnTagService} so
-     * listeners can regenerate derived policy (for example auto-masks) after a
-     * coordinator restart. Persistence is not touched.
-     */
     int replayAll() {
         ColumnTagService service = columnTagService;
-        if (service == null) {
-            return 0;
-        }
+        if (service == null) return 0;
         int replayed = 0;
-        for (Map.Entry<String, Map<String, String>> entry : tagStore.listAll().entrySet()) {
-            String[] parts = entry.getKey().split("\\|", 4);
-            if (parts.length != 4) {
-                LOG.warn("event=column_tag_replay_skipped reason=unparseable_key key={}",
-                        entry.getKey());
-                continue;
-            }
-            for (Map.Entry<String, String> tag : entry.getValue().entrySet()) {
-                service.assignTag(parts[0], parts[1], parts[2], parts[3],
-                        tag.getKey(), null, tag.getValue());
+        for (TableControlRecord record : catalogs.tableControl().listLive()) {
+            if (record.state() != TableControlState.ACTIVE) continue;
+            catalogs.tableControl().requireCurrentCatalog(record, "Governance replay");
+            for (GovernanceBinding binding : catalogs.tableGovernance().bindingsFor(record.tableId())) {
+                if (binding.bindingType() != GovernanceBindingType.COLUMN_TAG) continue;
+                Map<String, String> config = binding.config();
+                service.assignTag(record.tableId(), record.catalog(), record.schema(), record.table(),
+                        Objects.requireNonNull(config.get("column"), "Persisted tag column"),
+                        Objects.requireNonNull(config.get("tagKey"), "Persisted tag key"),
+                        null, Objects.requireNonNull(config.get("value"), "Persisted tag value"));
                 replayed++;
             }
         }
-        LOG.info("event=column_tags_replayed tags={}", replayed);
         return replayed;
     }
 
-    /**
-     * Removes every tag on a retired table. Each removal is dispatched so
-     * derived policy (auto-masks) is withdrawn with the tag.
-     */
-    int clearTable(QualifiedTableRef tableRef) {
-        String prefix = tableRef.catalog() + "|" + tableRef.schema() + "|"
-                + tableRef.table() + "|";
+    int clearTable(UUID tableId) {
+        TableControlRecord record = catalogs.tableControl().findById(tableId).orElseThrow();
         int removed = 0;
-        for (Map.Entry<String, Map<String, String>> entry : tagStore.listAll().entrySet()) {
-            if (!entry.getKey().startsWith(prefix)) {
-                continue;
-            }
-            String columnName = entry.getKey().substring(prefix.length());
-            for (String tagKey : entry.getValue().keySet()) {
-                unsetTag(tableRef, columnName, tagKey);
-                removed++;
-            }
+        for (GovernanceBinding binding : catalogs.tableGovernance().bindingsFor(tableId)) {
+            if (binding.bindingType() != GovernanceBindingType.COLUMN_TAG) continue;
+            catalogs.tableGovernance().unbind(tableId, GovernanceBindingType.COLUMN_TAG, binding.bindingRef());
+            emitRemoval(record, binding);
+            removed++;
         }
         return removed;
     }
 
-    private static String key(QualifiedTableRef tableRef, String columnName) {
-        Objects.requireNonNull(tableRef, "tableRef");
-        Objects.requireNonNull(columnName, "columnName");
-        return tableRef.catalog() + "|" + tableRef.schema() + "|"
-                + tableRef.table() + "|" + columnName;
-    }
-
-    /**
-     * Moves every tag entry to the renamed table. The new name is written and
-     * announced before the old entry is withdrawn, so a failure part-way leaves
-     * policy over-applied rather than silently dropped.
-     */
     int renameTable(QualifiedTableRef from, QualifiedTableRef to) {
-        if (from.equals(to)) {
-            return 0;
+        TableControlRecord record = catalogs.tableControl().find(to.catalog(), to.schema(), to.table())
+                .orElseThrow(() -> new IllegalStateException("Renamed table identity is missing"));
+        if (!from.catalog().equals(to.catalog()) || record.state() != TableControlState.RENAMING) {
+            throw new IllegalStateException("Tag projection requires the reserved rename identity");
         }
-        String prefix = from.catalog() + "|" + from.schema() + "|" + from.table() + "|";
         int moved = 0;
-        for (Map.Entry<String, Map<String, String>> entry : tagStore.listAll().entrySet()) {
-            if (!entry.getKey().startsWith(prefix)) {
-                continue;
+        for (GovernanceBinding binding : catalogs.tableGovernance().bindingsFor(record.tableId())) {
+            if (binding.bindingType() != GovernanceBindingType.COLUMN_TAG) continue;
+            ColumnTagService service = columnTagService;
+            if (service != null) {
+                Map<String, String> config = binding.config();
+                service.assignTag(record.tableId(), to.catalog(), to.schema(), to.table(),
+                        config.get("column"), config.get("tagKey"), null, config.get("value"));
             }
-            String columnName = entry.getKey().substring(prefix.length());
-            for (Map.Entry<String, String> tag : entry.getValue().entrySet()) {
-                setTag(to, columnName, tag.getKey(), tag.getValue());
-                unsetTag(from, columnName, tag.getKey());
-                moved++;
-            }
-        }
-        if (moved > 0) {
-            LOG.info("event=column_tags_renamed from={}.{}.{} to={}.{}.{} tags={}",
-                    from.catalog(), from.schema(), from.table(),
-                    to.catalog(), to.schema(), to.table(), moved);
+            moved++;
         }
         return moved;
+    }
+
+    private TableControlRecord current(QualifiedTableRef table) {
+        Objects.requireNonNull(table, "table");
+        return catalogs.tableGovernance().requireBindable(table.catalog(), table.schema(), table.table());
+    }
+
+    private void emitRemoval(TableControlRecord record, GovernanceBinding binding) {
+        ColumnTagService service = columnTagService;
+        if (service != null) {
+            Map<String, String> config = binding.config();
+            service.removeTag(record.tableId(), record.catalog(), record.schema(), record.table(),
+                    config.get("column"), config.get("tagKey"), config.get("value"));
+        }
+    }
+
+    private static String reference(String column, String tagKey) {
+        Objects.requireNonNull(column, "column");
+        Objects.requireNonNull(tagKey, "tagKey");
+        // Length framing prevents (column=a:b, tag=c) colliding with (column=a, tag=b:c).
+        return column.codePointCount(0, column.length()) + ":" + column + tagKey;
     }
 }

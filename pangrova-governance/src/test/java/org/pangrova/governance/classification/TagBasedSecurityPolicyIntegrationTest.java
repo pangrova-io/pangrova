@@ -42,7 +42,7 @@ class TagBasedSecurityPolicyIntegrationTest {
         // Simulate PII tag applied to a column
         var event = new TagChangedEvent(
                 "catalog", "schema", "users", "email",
-                "pii_type", null, "PII_EMAIL");
+                "pii_type", null, "PII_EMAIL", null);
         policy.onTagChanged(event);
 
         // Verify mask is visible through AccessControl
@@ -50,7 +50,7 @@ class TagBasedSecurityPolicyIntegrationTest {
         Optional<String> mask = accessControl.getColumnMask(
                 user, "catalog", "schema", "users", "email");
         assertThat(mask).isPresent();
-        assertThat(mask.get()).contains("mask_email");
+        assertThat(mask.get()).contains("***@***");
     }
 
     @Test
@@ -67,7 +67,7 @@ class TagBasedSecurityPolicyIntegrationTest {
         // Apply tag
         policy.onTagChanged(new TagChangedEvent(
                 "catalog", "schema", "users", "ssn",
-                "pii_type", null, "PII_SSN"));
+                "pii_type", null, "PII_SSN", null));
 
         // Verify mask exists
         UserIdentity user = new UserIdentity("bob", Set.of("analyst"), Map.of(), Instant.now());
@@ -77,7 +77,7 @@ class TagBasedSecurityPolicyIntegrationTest {
         // Remove tag
         policy.onTagChanged(new TagChangedEvent(
                 "catalog", "schema", "users", "ssn",
-                "pii_type", "PII_SSN", null));
+                "pii_type", "PII_SSN", null, null));
 
         // Verify mask is gone
         assertThat(accessControl.getColumnMask(user, "catalog", "schema", "users", "ssn"))
@@ -122,7 +122,7 @@ class TagBasedSecurityPolicyIntegrationTest {
             masks.add(new ColumnMask(nextId++, mask.maskName(), mask.catalogName(),
                     mask.schemaName(), mask.tableName(), mask.columnName(),
                     mask.maskExpression(), mask.applyToRoles(), mask.exemptRoles(),
-                    mask.enabled()));
+                    mask.enabled(), mask.tableId()));
         }
 
         @Override

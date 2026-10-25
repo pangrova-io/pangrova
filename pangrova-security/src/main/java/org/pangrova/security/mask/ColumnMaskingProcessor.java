@@ -72,6 +72,7 @@ public class ColumnMaskingProcessor implements ColumnMaskSource {
             return Optional.empty();
         }
         DeferredSubjectContext.requireStable(user, mask.maskExpression());
-        return Optional.of(mask.maskExpression().replace("{column}", column));
+        String identifier = '"' + column.replace("\"", "\"\"") + '"';
+        return Optional.of(mask.maskExpression().replace("{column}", identifier));
     }
 }

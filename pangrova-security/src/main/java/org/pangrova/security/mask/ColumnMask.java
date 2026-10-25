@@ -18,7 +18,8 @@ public record ColumnMask(
         String maskExpression,
         List<String> applyToRoles,
         List<String> exemptRoles,
-        boolean enabled
+        boolean enabled,
+        java.util.UUID tableId
 ) {
 
     /**
@@ -41,7 +42,7 @@ public record ColumnMask(
                 record.tableName(), record.columnName(),
                 record.maskExpression(),
                 record.applyToRoles(), record.exemptRoles(),
-                record.enabled());
+                record.enabled(), record.tableId());
     }
 
     /**
@@ -51,7 +52,7 @@ public record ColumnMask(
         return new ColumnMaskRecord(
                 maskId, maskName, catalogName, schemaName,
                 tableName, columnName, maskExpression,
-                applyToRoles, exemptRoles, enabled);
+                applyToRoles, exemptRoles, enabled, tableId);
     }
 
     /**

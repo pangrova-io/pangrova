@@ -12,7 +12,8 @@ public final class AuthorizationTransactionGate {
             "pangrova_roles", "pangrova_user_roles", "pangrova_group_roles", "security_grants",
             "row_policy", "column_mask", "tenants", "tenant_user_memberships",
             "tenant", "tenant_membership",
-            "pangrova_embedding_models", "storage_profile_definitions", "file_space_registry");
+            "pangrova_embedding_models", "storage_profile_definitions", "file_space_registry",
+            "table_control_governance_binding");
 
     private AuthorizationTransactionGate() {}
 

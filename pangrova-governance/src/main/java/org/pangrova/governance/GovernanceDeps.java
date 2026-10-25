@@ -17,7 +17,7 @@ import org.pangrova.governance.quality.schedule.CronScheduler;
  * @param securityPolicy   tag-based security policy (nullable)
  * @param cronScheduler    quality rule scheduler (required)
  * @param ruleStore        quality rule store (required)
- * @param columnTagService shared tag event source (nullable; a private instance is created)
+ * @param columnTagService shared stable-identity tag event source (required)
  */
 public record GovernanceDeps(
         LineageEventEmitter lineageEmitter,
@@ -27,19 +27,11 @@ public record GovernanceDeps(
         QualityRuleStore ruleStore,
         ColumnTagService columnTagService) {
 
-    /** Keeps existing callers that do not share a tag service. */
-    public GovernanceDeps(LineageEventEmitter lineageEmitter,
-            GovernanceStatementHandler statementHandler,
-            TagBasedSecurityPolicy securityPolicy,
-            CronScheduler cronScheduler,
-            QualityRuleStore ruleStore) {
-        this(lineageEmitter, statementHandler, securityPolicy, cronScheduler, ruleStore, null);
-    }
-
     public GovernanceDeps {
         Objects.requireNonNull(lineageEmitter, "lineageEmitter must not be null");
         Objects.requireNonNull(statementHandler, "statementHandler must not be null");
         Objects.requireNonNull(cronScheduler, "cronScheduler must not be null");
         Objects.requireNonNull(ruleStore, "ruleStore must not be null");
+        Objects.requireNonNull(columnTagService, "columnTagService must not be null");
     }
 }

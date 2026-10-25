@@ -139,7 +139,7 @@ class ExplainVsDmlSecurityEnforcementTest extends ContainerTestBase {
 
     private static ColumnMask mask(String name, String role) {
         return new ColumnMask(0, name, "default", "default", "orders", "department", "'***'",
-                List.of(role), List.of(), true);
+                List.of(role), List.of(), true, null);
     }
 
     private static LogicalFilter findFilter(RelNode node) {

@@ -77,7 +77,7 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
     void capturesThePoliciesActuallySerializedForTheAuthenticatedRole() throws Exception {
         rowPolicies.savePolicy(policy("department = 'sales'"));
         masks.saveColumnMask(new ColumnMask(0, "department-mask", "default", "default", "orders",
-                "department", "'hidden'", List.of("feature-reader"), List.of(), true));
+                "department", "'hidden'", List.of("feature-reader"), List.of(), true, null));
 
         AuthorizedRelation relation = pipeline.compileAuthorizedRelation(
                 "SELECT id, department FROM orders", actor);

@@ -46,6 +46,16 @@ public final class TableControlPolicyBinder {
             GovernanceBindingType type, String bindingRef, Map<String, String> config,
             String actor) {
         TableControlRecord record = requireControlled(catalog, schema, table);
+        return bind(record, type, bindingRef, config, actor);
+    }
+
+    /** Writes only the captured identity, so name reuse between admission and persistence cannot retarget policy. */
+    public GovernanceBinding bind(TableControlRecord record, GovernanceBindingType type,
+            String bindingRef, Map<String, String> config, String actor) {
+        TableControlRecord current = requireControlled(record.catalog(), record.schema(), record.table());
+        if (!current.tableId().equals(record.tableId())) {
+            throw new AccessDeniedException("Governance target was replaced after admission");
+        }
         if (bindingRef == null || bindingRef.isBlank()) {
             throw new AccessDeniedException("Governance binding rejected: the reference "
                     + "for " + type + " on " + record.qualifiedName() + " must not be blank");
@@ -81,6 +91,11 @@ public final class TableControlPolicyBinder {
         return store.list(requireControlled(catalog, schema, table).tableId());
     }
 
+    /** Lists an already captured identity for replay and retirement; this does not authorize a read. */
+    public List<GovernanceBinding> bindingsFor(UUID tableId) {
+        return store.list(java.util.Objects.requireNonNull(tableId, "tableId"));
+    }
+
     public Optional<GovernanceBinding> find(UUID tableId, GovernanceBindingType type,
             String bindingRef) {
         return store.find(tableId, type, bindingRef);
@@ -92,8 +107,8 @@ public final class TableControlPolicyBinder {
     }
 
     /** Validates that governance may be bound here without changing anything. */
-    public void requireBindable(String catalog, String schema, String table) {
-        requireControlled(catalog, schema, table);
+    public TableControlRecord requireBindable(String catalog, String schema, String table) {
+        return requireControlled(catalog, schema, table);
     }
 
     /** Removes one binding after resolving the table's current stable identity. */

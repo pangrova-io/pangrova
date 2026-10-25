@@ -51,7 +51,7 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
             SqlNameMatcher nameMatcher) {
         // Check custom operators first — if we have a match, use it exclusively
         // to override the standard table's return-type/signature (e.g. CHAR_LENGTH
-        // must return INTEGER for Velox, not BIGINT from SqlStdOperatorTable).
+        // must return BIGINT for the Native string function signature).
         List<SqlOperator> customMatches = new java.util.ArrayList<>();
         if (opName.isSimple()) {
             for (SqlOperator op : customOperators) {
@@ -124,9 +124,7 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
         // (which rejects 3+ args). This allows CONCAT(a, b, c, ...) to validate.
         ops.add(concatFunction());
         ops.add(new SubstringSqlFunction());
-        // String length functions — register all aliases with INTEGER return type
-        // to override Calcite's standard CHAR_LENGTH which returns BIGINT.
-        // Velox's native 'length' function returns INTEGER.
+        // All aliases use the Native BIGINT signature rather than the SQL standard INTEGER.
         ops.add(stringLengthFunction("LENGTH"));
         ops.add(stringLengthFunction("CHARACTER_LENGTH"));
         ops.add(stringLengthFunction("CHAR_LENGTH"));

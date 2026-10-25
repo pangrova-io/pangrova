@@ -64,6 +64,8 @@ public final class JdbcTableControlGovernanceBindingStore
     public GovernanceBinding save(GovernanceBinding binding) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(UPSERT)) {
+            conn.setAutoCommit(false);
+            org.pangrova.security.store.AuthorizationTransactionGate.lockMutation(conn);
             ps.setObject(1, binding.bindingId());
             ps.setObject(2, binding.tableId());
             ps.setString(3, binding.bindingType().name());
@@ -73,6 +75,7 @@ public final class JdbcTableControlGovernanceBindingStore
             JdbcSupport.setInstant(ps, 7, binding.createdAt());
             JdbcSupport.setInstant(ps, 8, binding.updatedAt());
             ps.executeUpdate();
+            conn.commit();
             return binding;
         } catch (SQLException e) {
             throw new MetastoreException("Failed to save governance binding "
@@ -116,14 +119,29 @@ public final class JdbcTableControlGovernanceBindingStore
         }
     }
 
+    /** Reads policy content on the publication owner's existing transaction. */
+    public static List<GovernanceBinding> list(Connection connection, UUID tableId) throws SQLException {
+        try (var statement = connection.prepareStatement(LIST)) {
+            statement.setObject(1, tableId);
+            try (var rows = statement.executeQuery()) {
+                List<GovernanceBinding> result = new ArrayList<>();
+                while (rows.next()) result.add(mapRow(rows));
+                return List.copyOf(result);
+            }
+        }
+    }
+
     @Override
     public void delete(UUID tableId, GovernanceBindingType type, String bindingRef) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(DELETE)) {
+            conn.setAutoCommit(false);
+            org.pangrova.security.store.AuthorizationTransactionGate.lockMutation(conn);
             ps.setObject(1, tableId);
             ps.setString(2, type.name());
             ps.setString(3, bindingRef);
             ps.executeUpdate();
+            conn.commit();
         } catch (SQLException e) {
             throw new MetastoreException("Failed to delete governance binding "
                     + type + "/" + bindingRef + " for tableId=" + tableId, e);
@@ -134,8 +152,11 @@ public final class JdbcTableControlGovernanceBindingStore
     public void deleteAll(UUID tableId) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(DELETE_ALL)) {
+            conn.setAutoCommit(false);
+            org.pangrova.security.store.AuthorizationTransactionGate.lockMutation(conn);
             ps.setObject(1, tableId);
             ps.executeUpdate();
+            conn.commit();
         } catch (SQLException e) {
             throw new MetastoreException(
                     "Failed to delete governance bindings for tableId=" + tableId, e);

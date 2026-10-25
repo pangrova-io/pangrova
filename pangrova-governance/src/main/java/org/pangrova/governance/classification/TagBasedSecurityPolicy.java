@@ -19,10 +19,10 @@ public class TagBasedSecurityPolicy implements TagChangedEventListener {
     private static final String SENSITIVITY_TAG = "sensitivity_level";
 
     private static final Map<String, String> PII_MASK_MAP = Map.of(
-        "PII_EMAIL", "mask_email",
-        "PII_PHONE", "mask_phone",
-        "PII_SSN", "partial",
-        "PII_NAME", "mask_name"
+        "PII_EMAIL", "CASE WHEN {column} IS NULL THEN NULL ELSE '***@***' END",
+        "PII_PHONE", suffixMask(),
+        "PII_SSN", suffixMask(),
+        "PII_NAME", "CASE WHEN {column} IS NULL THEN NULL ELSE '***' END"
     );
 
     private final ColumnMaskStore columnMaskStore;
@@ -79,19 +79,25 @@ public class TagBasedSecurityPolicy implements TagChangedEventListener {
         ColumnMaskRecord mask = new ColumnMaskRecord(
             0, "auto_pii_" + event.columnName(),
             event.catalog(), event.schema(), event.table(),
-            event.columnName(), maskExpr, List.of(), List.of(), true);
+            event.columnName(), maskExpr, List.of(), List.of(), true, event.tableId());
         columnMaskStore.saveMask(mask);
     }
 
     private void removeMask(TagChangedEvent event) {
-        List<ColumnMaskRecord> masks = columnMaskStore.getMasks(
+        List<ColumnMaskRecord> masks = columnMaskStore.getMasks(event.tableId(),
             event.catalog(), event.schema(), event.table(), event.columnName());
         masks.stream()
-            .filter(m -> m.maskName().startsWith("auto_pii_"))
+            .filter(m -> m.maskName().equals("auto_pii_" + event.columnName()))
+            .filter(m -> java.util.Objects.equals(m.tableId(), event.tableId()))
             .forEach(m -> columnMaskStore.deleteMask(m.maskId()));
     }
 
-    String piiTypeToMaskExpression(String piiType) {
+    public static String piiTypeToMaskExpression(String piiType) {
         return PII_MASK_MAP.get(piiType);
+    }
+
+    private static String suffixMask() {
+        return "CASE WHEN {column} IS NULL THEN NULL WHEN CHAR_LENGTH({column}) <= 4 THEN '***' "
+                + "ELSE '***' || SUBSTRING({column} FROM CHAR_LENGTH({column}) - 3) END";
     }
 }

@@ -146,7 +146,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
                 "id > 0", List.of("reader"), true, 1));
         var masks = new PersistentColumnMaskStore(dataSource);
         masks.saveColumnMask(new ColumnMask(0, "hide-title", "catalog", "schema", "other", "title",
-                "'masked'", List.of("reader"), List.of(), true));
+                "'masked'", List.of("reader"), List.of(), true, null));
         var authority = new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks));
         var directory = new JdbcMetadataStore(dataSource);

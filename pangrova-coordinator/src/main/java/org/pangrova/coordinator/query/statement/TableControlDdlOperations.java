@@ -5,7 +5,6 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.GovernanceBindingType;
 import org.pangrova.metadata.control.OwnershipMode;
 import org.pangrova.metadata.control.TableControlMaintenanceService;
 import org.pangrova.metadata.control.TableControlPolicyBinder;
@@ -40,7 +39,6 @@ final class TableControlDdlOperations {
 
     private final CatalogRegistry catalogRegistry;
     private volatile TableControlMaintenanceService maintenancePolicyService;
-    private volatile TableControlPolicyBinder policyBinder;
     private volatile org.pangrova.coordinator.query.audit.TableControlAuditEmitter audit;
     private volatile MetadataService metadataService;
     private volatile ColumnMaskStore columnMaskStore;
@@ -51,10 +49,6 @@ final class TableControlDdlOperations {
 
     void setMaintenancePolicyService(TableControlMaintenanceService service) {
         this.maintenancePolicyService = service;
-    }
-
-    void setPolicyBinder(TableControlPolicyBinder binder) {
-        this.policyBinder = binder;
     }
 
     void setAudit(org.pangrova.coordinator.query.audit.TableControlAuditEmitter emitter) {
@@ -119,14 +113,13 @@ final class TableControlDdlOperations {
         if (record == null) {
             return;
         }
-        var binder = policyBinder;
-        if (binder != null) {
-            binder.purge(record.tableId());
-        }
         MetadataService service = metadataService;
         if (service != null) {
-            service.clearTableTags(SessionContextConverter.toMetadataSessionContext(context),
-                    new QualifiedTableRef(record.catalog(), record.schema(), record.table()));
+            service.clearTableTags(SessionContextConverter.toMetadataSessionContext(context), record.tableId());
+        }
+        var binder = catalogRegistry.tableGovernance();
+        if (binder != null) {
+            binder.purge(record.tableId());
         }
         catalogRegistry.tableStatistics().purge(record.tableId());
     }
@@ -138,24 +131,6 @@ final class TableControlDdlOperations {
         requireBinder().requireBindable(ref.catalog(), ref.schema(), ref.table());
     }
 
-    void bindColumnTag(QualifiedTableName ref, String columnName, String tagKey,
-            String tagValue, CoordinatorSessionContext context) {
-        if (!catalogRegistry.tableControl().enabled()) {
-            return;
-        }
-        requireBinder().bind(ref.catalog(), ref.schema(), ref.table(),
-                GovernanceBindingType.COLUMN_TAG, tagBindingRef(columnName, tagKey),
-                Map.of("value", tagValue), actor(context));
-    }
-
-    void unbindColumnTag(QualifiedTableName ref, String columnName, String tagKey) {
-        if (!catalogRegistry.tableControl().enabled()) {
-            return;
-        }
-        requireBinder().unbind(ref.catalog(), ref.schema(), ref.table(),
-                GovernanceBindingType.COLUMN_TAG, tagBindingRef(columnName, tagKey));
-    }
-
     /**
      * Carries name-keyed governance across a rename. Durable tags are moved
      * first, which re-derives tag-based masks at the new name and withdraws them
@@ -165,21 +140,25 @@ final class TableControlDdlOperations {
     void moveNameScopedGovernance(QualifiedTableName from, QualifiedTableName to,
             List<String> columns, CoordinatorSessionContext context) {
         MetadataService service = metadataService;
-        if (service != null) {
+        var identity = catalogRegistry.tableControl().find(to.catalog(), to.schema(), to.table());
+        if (service != null && identity.isPresent()) {
             service.renameTableTags(SessionContextConverter.toMetadataSessionContext(context),
                     new QualifiedTableRef(from.catalog(), from.schema(), from.table()),
                     new QualifiedTableRef(to.catalog(), to.schema(), to.table()));
         }
         var store = columnMaskStore;
-        if (store == null) {
+        if (store == null || identity.isEmpty()) {
             return;
         }
         int moved = 0;
         for (String column : columns) {
-            for (var mask : store.getMasks(from.catalog(), from.schema(), from.table(), column)) {
-                store.saveMask(new ColumnMaskRecord(0, mask.maskName(),
+            for (var mask : store.getMasks(identity.orElseThrow().tableId(),
+                    from.catalog(), from.schema(), from.table(), column)) {
+                if (!mask.maskName().startsWith("auto_pii_")) {
+                    store.saveMask(new ColumnMaskRecord(0, mask.maskName(),
                         to.catalog(), to.schema(), to.table(), column, mask.maskExpression(),
-                        mask.applyToRoles(), mask.exemptRoles(), mask.enabled()));
+                        mask.applyToRoles(), mask.exemptRoles(), mask.enabled(), mask.tableId()));
+                }
                 store.deleteMask(mask.maskId());
                 moved++;
             }
@@ -190,30 +169,26 @@ final class TableControlDdlOperations {
     }
 
     /** Drops masks keyed by the retired name so a recreated table starts ungoverned. */
-    void purgeColumnMasks(QualifiedTableName ref, List<String> columns) {
+    void purgeColumnMasks(TableControlRecord record, List<String> columns) {
         var store = columnMaskStore;
         if (store == null || columns.isEmpty()) {
             return;
         }
         int removed = 0;
         for (String column : columns) {
-            for (var mask : store.getMasks(ref.catalog(), ref.schema(), ref.table(), column)) {
+            for (var mask : store.getMasks(record.tableId(),
+                    record.catalog(), record.schema(), record.table(), column)) {
                 store.deleteMask(mask.maskId());
                 removed++;
             }
         }
         if (removed > 0) {
-            LOG.info("event=column_masks_purged table={} masks={}", ref, removed);
+            LOG.info("event=column_masks_purged table={} masks={}", record.qualifiedName(), removed);
         }
     }
 
     private TableControlPolicyBinder requireBinder() {
-        var binder = policyBinder;
-        if (binder == null) {
-            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
-                    "ALTER TABLE column tags require governance binding storage");
-        }
-        return binder;
+        return catalogRegistry.tableGovernance();
     }
 
     private void validateAdoptionPolicy(Map<String, String> properties) {
@@ -239,10 +214,6 @@ final class TableControlDdlOperations {
             return;
         }
         service.applyAdoptionProperties(record, properties, actor);
-    }
-
-    private static String tagBindingRef(String columnName, String tagKey) {
-        return columnName + ":" + tagKey;
     }
 
     private static String actor(CoordinatorSessionContext context) {

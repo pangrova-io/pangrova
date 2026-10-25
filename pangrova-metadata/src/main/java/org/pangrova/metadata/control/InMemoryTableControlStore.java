@@ -55,33 +55,27 @@ public final class InMemoryTableControlStore implements TableControlStore {
 
     @Override
     public synchronized void save(TableControlRecord record) {
-        String nameKey = key(record.catalog(), record.schema(), record.table());
         TableControlRecord previous = byId.get(record.tableId());
         if (previous != null && previous.metadataRevision() >= record.metadataRevision()) {
             throw new org.pangrova.metadata.exception.MetastoreException(
                     "Stale table control write for " + record.qualifiedName());
         }
-        UUID owner = liveByName.get(nameKey);
-        if (record.state() != TableControlState.DROPPED
-                && owner != null && !owner.equals(record.tableId())) {
-            throw new org.pangrova.metadata.exception.MetastoreException(
-                    "A live table control record already owns " + record.qualifiedName());
+        var names = new java.util.LinkedHashSet<String>();
+        if (record.state() != TableControlState.DROPPED) {
+            names.add(key(record.catalog(), record.schema(), record.table()));
+            TableControlRenameIntent.source(record).ifPresent(source ->
+                    names.add(key(source.catalog(), source.schema(), source.table())));
         }
-        byId.put(record.tableId(), record);
-
-        if (previous != null) {
-            String previousKey = key(previous.catalog(), previous.schema(), previous.table());
-            if (!previousKey.equals(nameKey)) {
-                liveByName.remove(previousKey, previous.tableId());
+        for (String name : names) {
+            UUID owner = liveByName.get(name);
+            if (owner != null && !owner.equals(record.tableId())) {
+                throw new org.pangrova.metadata.exception.MetastoreException(
+                        "A live table control record already reserves " + name);
             }
         }
-
-        if (record.state() == TableControlState.DROPPED) {
-            liveByName.remove(nameKey, record.tableId());
-            return;
-        }
-
-        liveByName.put(nameKey, record.tableId());
+        byId.put(record.tableId(), record);
+        liveByName.entrySet().removeIf(entry -> entry.getValue().equals(record.tableId()));
+        names.forEach(name -> liveByName.put(name, record.tableId()));
     }
 
     @Override

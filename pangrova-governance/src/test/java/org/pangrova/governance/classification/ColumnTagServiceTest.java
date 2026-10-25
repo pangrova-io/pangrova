@@ -17,6 +17,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * and that the auto-mask pipeline (TagBasedSecurityPolicy) activates on tag changes.
  */
 class ColumnTagServiceTest {
+    private final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+            tableIds = new java.util.HashMap<>();
+
 
     private ColumnTagService tagService;
     private TagBasedSecurityPolicy securityPolicy;
@@ -26,7 +29,7 @@ class ColumnTagServiceTest {
     void setUp() {
         maskStore = new InMemoryColumnMaskStore();
         securityPolicy = new TagBasedSecurityPolicy(maskStore, new NoOpAuditConfigStore());
-        tagService = new ColumnTagService();
+        tagService = new ColumnTagService(table -> tableIds.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()));
         tagService.addListener(securityPolicy);
     }
 
@@ -37,7 +40,7 @@ class ColumnTagServiceTest {
 
         List<ColumnMaskRecord> masks = maskStore.getMasks("catalog", "schema", "users", "email");
         assertThat(masks).hasSize(1);
-        assertThat(masks.get(0).maskExpression()).isEqualTo("mask_email");
+        assertThat(masks.get(0).maskExpression()).isEqualTo("CASE WHEN {column} IS NULL THEN NULL ELSE '***@***' END");
         assertThat(masks.get(0).maskName()).isEqualTo("auto_pii_email");
     }
 
@@ -95,8 +98,9 @@ class ColumnTagServiceTest {
         tagService.addListener(event -> { throw new RuntimeException("boom"); });
         tagService.addListener(captured::set);
 
-        tagService.assignTag("cat", "sch", "tbl", "col",
-                "pii_type", null, "PII_EMAIL");
+        assertThatThrownBy(() -> tagService.assignTag("cat", "sch", "tbl", "col",
+                "pii_type", null, "PII_EMAIL"))
+                .isInstanceOf(RuntimeException.class).hasMessage("boom");
 
         // Second listener still receives the event
         assertThat(captured.get()).isNotNull();
@@ -151,7 +155,7 @@ class ColumnTagServiceTest {
             masks.add(new ColumnMaskRecord(nextId++, mask.maskName(), mask.catalogName(),
                     mask.schemaName(), mask.tableName(), mask.columnName(),
                     mask.maskExpression(), mask.applyToRoles(), mask.exemptRoles(),
-                    mask.enabled()));
+                    mask.enabled(), mask.tableId()));
         }
 
         @Override

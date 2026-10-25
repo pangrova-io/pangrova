@@ -317,16 +317,12 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
                 ruleStore, qualityExecutor, alerter);
         CronScheduler cronScheduler = new CronScheduler(handler, () -> true,
                 new org.pangrova.governance.audit.JdbcGovernanceAuditTrail(dataSource));
-        var columnMaskStore =
-                new org.pangrova.security.store.PersistentColumnMaskStore(dataSource);
-        columnMaskStore.initSchema();
-        var columnTagService = new org.pangrova.governance.classification.ColumnTagService();
-        var securityPolicy = new org.pangrova.governance.classification.TagBasedSecurityPolicy(
-                columnMaskStore,
-                new org.pangrova.governance.classification.InMemoryAuditConfigStore());
+        var columnTagService = new org.pangrova.governance.classification.ColumnTagService(table ->
+                java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry").tableGovernance()
+                        .requireBindable(table.catalog(), table.schema(), table.table()).tableId());
         governanceModule = new GovernanceWiring(new GovernanceContext(
                 new org.pangrova.governance.GovernanceDeps(
-                        lineageEmitter, handler, securityPolicy, cronScheduler, ruleStore,
+                        lineageEmitter, handler, null, cronScheduler, ruleStore,
                         columnTagService)));
         governanceModule.initialize();
         writeQualityGate = Boolean.parseBoolean(System.getProperty(

@@ -93,9 +93,6 @@ public final class DdlExecutor {
     }
 
     /** Purges table_id-scoped governance bindings when the control record retires. */
-    public void setPolicyBinder(org.pangrova.metadata.control.TableControlPolicyBinder binder) {
-        tableControlOperations.setPolicyBinder(binder);
-    }
 
     /** Owns durable column-tag persistence and governance notification. */
     public void setMetadataService(MetadataService metadataService) {
@@ -125,6 +122,7 @@ public final class DdlExecutor {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
+        catalogRegistry.tableControl().requireCreatableName(ref.catalog(), ref.schema(), ref.table());
         if (stmt.ifNotExists() && TableResolver.tableExists(metadata, session, ref)) {
             LOG.info("event=table_exists_skip table={}", ref);
             return List.of();
@@ -226,7 +224,7 @@ public final class DdlExecutor {
         metadata.dropTable(session, handle);
         record.ifPresent(tableControl::markDropped);
         record.ifPresent(target -> tableControlOperations.purgeTableState(target, context));
-        tableControlOperations.purgeColumnMasks(ref, columns);
+        record.ifPresent(target -> tableControlOperations.purgeColumnMasks(target, columns));
         invalidateSchemaCache();
         fireDropTableEvent(context.tenantId(), ref);
         LOG.info("event=table_dropped table={}", ref);
@@ -271,13 +269,9 @@ public final class DdlExecutor {
                         renameTarget.schema(), renameTarget.table());
             }
         }
-        try {
-            applyAlterOperation(metadata, session, handle, stmt);
-        } catch (RuntimeException failure) {
-            revertControlRenameOnFailure(tableControl, metadata, session, ref, renameTarget,
-                    movedControl, failure);
-            throw failure;
-        }
+        // An exception can follow a committed or still-running connector rename.
+        // Keep both names reserved until reconciliation proves the outcome.
+        applyAlterOperation(metadata, session, handle, stmt);
         if (renameTarget != null) {
             tableControlOperations.moveNameScopedGovernance(ref, renameTarget, columns, context);
             if (movedControl != null) {
@@ -292,57 +286,25 @@ public final class DdlExecutor {
         return List.of();
     }
 
-    private static void revertControlRenameOnFailure(
-            org.pangrova.metadata.control.TableControlService tableControl,
-            ConnectorMetadata metadata, ConnectorSession session, QualifiedTableName ref,
-            QualifiedTableName renameTarget,
-            org.pangrova.metadata.control.TableControlRecord movedControl, RuntimeException failure) {
-        if (movedControl == null || renameTarget == null) {
-            return;
-        }
-        try {
-            var sourceHandle = metadata.getTableHandle(session,
-                    new SchemaTableName(ref.schema(), ref.table()));
-            if (sourceHandle == null) {
-                // The catalog may have committed the rename before reporting an error.
-                return;
-            }
-            var sourceIdentity = metadata.getTableIdentity(session, sourceHandle);
-            tableControl.requireRenameSourceIdentity(movedControl, sourceIdentity);
-            var restored = tableControl.rename(movedControl, ref.schema(), ref.table());
-            tableControl.completeRename(restored, sourceIdentity, metadata.observeVersion(session, sourceHandle));
-        } catch (RuntimeException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
-    }
-
     /**
      * Assigns a governance tag. The tag is durably stored, the governance
-     * binding is recorded against the stable table_id, and listeners rebuild
-     * derived policy (auto-masks) from the emitted tag event.
+     * binding is recorded against the stable table_id, and policy readers derive
+     * masks directly from that durable authority. Events are cache hints.
      */
     private List<TypedRow> executeSetColumnTag(
             AlterTableStatement.SetColumnTag stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         MetadataService service = requireTagMetadataService();
-        requireColumn(ref, stmt.columnName(), context);
-        tableControlOperations.requireBindable(ref);
-        tableControlOperations.bindColumnTag(
-                ref, stmt.columnName(), stmt.tagKey(), stmt.tagValue(), context);
-        try {
-            service.setTag(SessionContextConverter.toMetadataSessionContext(context),
-                    new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
-                    stmt.columnName(), stmt.tagKey(), stmt.tagValue());
-        } catch (RuntimeException failure) {
-            // The tag is the source of truth; a binding without it would be
-            // dangling policy. Withdraw the binding before reporting the failure.
-            try {
-                tableControlOperations.unbindColumnTag(ref, stmt.columnName(), stmt.tagKey());
-            } catch (RuntimeException rollbackFailure) {
-                failure.addSuppressed(rollbackFailure);
-            }
-            throw failure;
+        var columnType = requireColumn(ref, stmt.columnName(), context);
+        if ("pii_type".equals(stmt.tagKey()) && columnType.orElse(null)
+                != org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR) {
+            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "PII classification masks require a VARCHAR column with a declared type");
         }
+        tableControlOperations.requireBindable(ref);
+        service.setTag(SessionContextConverter.toMetadataSessionContext(context),
+                new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
+                stmt.columnName(), stmt.tagKey(), stmt.tagValue());
         invalidateSchemaCache();
         LOG.info("event=column_tag_set table={} column={} tagKey={}",
                 ref, stmt.columnName(), stmt.tagKey());
@@ -356,7 +318,6 @@ public final class DdlExecutor {
         MetadataService service = requireTagMetadataService();
         requireColumn(ref, stmt.columnName(), context);
         tableControlOperations.requireBindable(ref);
-        tableControlOperations.unbindColumnTag(ref, stmt.columnName(), stmt.tagKey());
         service.unsetTag(SessionContextConverter.toMetadataSessionContext(context),
                 new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
                 stmt.columnName(), stmt.tagKey());
@@ -375,17 +336,20 @@ public final class DdlExecutor {
         return service;
     }
 
-    private void requireColumn(QualifiedTableName ref, String columnName,
-            CoordinatorSessionContext context) {
+    private java.util.Optional<org.pangrova.spi.connector.data.type.PangrovaType> requireColumn(
+            QualifiedTableName ref, String columnName, CoordinatorSessionContext context) {
         ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
         ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
-        boolean exists = metadata.getTableMetadata(session, handle).columns().stream()
+        var declaration = metadata.getTableMetadata(session, handle);
+        boolean exists = declaration.columns().stream()
                 .anyMatch(column -> column.equalsIgnoreCase(columnName));
         if (!exists) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Column not found: " + ref + "." + columnName);
         }
+        return declaration.typedColumns().stream().filter(column -> column.name().equalsIgnoreCase(columnName))
+                .map(org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata.Column::type).findFirst();
     }
 
     private static List<String> tableColumns(ConnectorMetadata metadata, ConnectorSession session,

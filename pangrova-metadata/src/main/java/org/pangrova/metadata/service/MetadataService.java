@@ -126,7 +126,7 @@ public interface MetadataService {
      *
      * @return the number of tag entries removed
      */
-    default int clearTableTags(MetadataSessionContext session, QualifiedTableRef tableRef) {
+    default int clearTableTags(MetadataSessionContext session, java.util.UUID tableId) {
         return 0;
     }
 

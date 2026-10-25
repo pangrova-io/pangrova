@@ -1646,7 +1646,12 @@ Pangrova may write, drop, or maintain it.
   and adopted again to obtain a new stable ID without inheriting its previous bindings.
 - `CREATE TABLE` registers `MANAGED` in the same DDL path. If the physical table was created
   but registration failed, the record is stored as `ORPHANED_MANAGED` and the DDL fails.
-  `DROP TABLE` retires the live record (`DROPPED`); `ALTER TABLE ... RENAME` moves it.
+  `DROP TABLE` retires the captured live record (`DROPPED`). `ALTER TABLE ... RENAME`
+  persists its original source and operation identity, then reserves both names through
+  `table_control_name_reservation`. Registry changes, reservations and invalidations are
+  atomic. Both names reject access and CREATE while RENAMING; successful completion
+  releases the source name. An ambiguous connector exception retains the intent and
+  reservations until the outcome can be proved.
 - Ownership is checked before the connector is touched: `DdlExecutor` for DROP/ALTER,
   `DefaultMetadataService` for the REST/metadata path, and `QuerySchedulingEngine` for
   distributed DML. Connectors are never asked to infer writability from catalog type.

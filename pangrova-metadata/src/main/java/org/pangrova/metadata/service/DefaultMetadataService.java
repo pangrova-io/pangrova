@@ -74,7 +74,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     private final SchemaEvolutionValidator schemaValidator;
     private final Cache<MetadataResolutionCacheKey, ResolvedTable> resolvedTableCache;
     private final MetadataQueryLifecycles queryLifecycles;
-    private final MetadataTagOperations tagOperations = new MetadataTagOperations();
+    private final MetadataTagOperations tagOperations;
 
     /** Guards alterTable against concurrent schema modifications on the same table. */
     private final Object alterTableLock = new Object();
@@ -102,6 +102,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
             long resolutionCacheMaxSize,
             Duration resolutionCacheTtl) {
         this.catalogRegistry = catalogRegistry;
+        this.tagOperations = new MetadataTagOperations(catalogRegistry);
         this.queryLifecycles = new MetadataQueryLifecycles(catalogRegistry);
         this.cache = cache;
         this.eventDispatcher = eventDispatcher;
@@ -139,7 +140,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     /**
      * Injects a {@link ColumnTagService} so {@link #setTag} and {@link #unsetTag}
      * emit {@code TagChangedEvent} to downstream governance listeners.
-     * Tag persistence is owned by the installed {@link org.pangrova.metadata.tag.ColumnTagStore}.
+     * Tag persistence is owned by the registry's stable-identity governance bindings.
      */
     public void setColumnTagService(ColumnTagService columnTagService) {
         tagOperations.setColumnTagService(columnTagService);
@@ -155,20 +156,10 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         return tagOperations.replayAll();
     }
 
-    /**
-     * Installs a persistent {@link org.pangrova.metadata.tag.ColumnTagStore}
-     * (e.g. JDBC-backed) so column tags survive coordinator restarts. Defaults to
-     * an in-memory store. Wired by the coordinator when a metadata datasource is
-     * configured.
-     */
-    public void setColumnTagStore(org.pangrova.metadata.tag.ColumnTagStore store) {
-        tagOperations.setColumnTagStore(store);
-    }
-
     @Override
     public void setTag(MetadataSessionContext session, QualifiedTableRef tableRef,
                        String columnName, String tagKey, String value) {
-        tagOperations.setTag(tableRef, columnName, tagKey, value);
+        tagOperations.setTag(tableRef, columnName, tagKey, value, session.user());
     }
 
     @Override
@@ -184,8 +175,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     @Override
-    public int clearTableTags(MetadataSessionContext session, QualifiedTableRef tableRef) {
-        return tagOperations.clearTable(tableRef);
+    public int clearTableTags(MetadataSessionContext session, java.util.UUID tableId) {
+        return tagOperations.clearTable(tableId);
     }
 
     @Override
@@ -281,6 +272,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
 
     @Override
     public void createTable(MetadataSessionContext session, QualifiedTableRef tableRef, TableMetadata metadata) {
+        catalogRegistry.tableControl().requireCreatableName(tableRef.catalog(), tableRef.schema(), tableRef.table());
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
         ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
                 session, tableRef.catalog(), tableRef.schema());

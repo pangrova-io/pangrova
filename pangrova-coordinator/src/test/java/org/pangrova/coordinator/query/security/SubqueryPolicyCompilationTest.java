@@ -50,7 +50,7 @@ class SubqueryPolicyCompilationTest extends ContainerTestBase {
         try (var fixture = new SecuritySqlFixture(warehouse)) {
             fixture.authorizePolicyReaders();
             fixture.saveMask(new ColumnMask(0, "null_key", "default", "default", "source_orders", "id",
-                    "CAST(NULL AS BIGINT)", List.of("sales_team"), List.of(), true));
+                    "CAST(NULL AS BIGINT)", List.of("sales_team"), List.of(), true, null));
             var actor = SecuritySqlFixture.session("sales_user", Set.of("sales_team"));
             var plan = fixture.applier().compileAndApplyPolicies(sql, actor);
             assertThatCode(() -> fixture.compiler.convertValidateAndSerialize(

@@ -17,11 +17,17 @@ import java.util.Set;
 import java.util.TreeMap;
 
 /** Reads and renders current policy content without leaving the publication transaction. */
-final class DeferredPolicyReader {
+public final class DeferredPolicyReader {
     private DeferredPolicyReader() {}
 
-    static PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
+    public static PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
                                   TablePermission permission) throws SQLException {
+        return observe(connection, principal, roles, permission, (column, masks) -> masks);
+    }
+
+    /** Owner adapter supplies identity-bound masks while rendering stays in the security owner. */
+    public static PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
+            TablePermission permission, MaskProjection projection) throws SQLException {
         // The principal is the persisted authenticated subject, not a maintenance identity.
         // Groups and ephemeral authentication attributes are deliberately not reconstructed.
         var subject = DeferredSubjectContext.fromPrincipal(principal, null);
@@ -31,12 +37,17 @@ final class DeferredPolicyReader {
         var rowFilter = RowLevelSecurityFilter.renderPolicies(subject, roles, policies);
         Map<String, Optional<String>> masks = new TreeMap<>();
         for (String column : permission.columns()) {
-            var columnMasks = readMasks(connection, permission, column);
+            var columnMasks = projection.apply(column, readMasks(connection, permission, column));
             columnMasks.stream().filter(mask -> mask.appliesTo(roles) && !mask.isExempt(roles))
                     .forEach(mask -> DeferredSubjectContext.requireStable(subject, mask.maskExpression()));
             masks.put(column, ColumnMaskingProcessor.renderMasks(subject, roles, column, columnMasks));
         }
         return new PolicySnapshot(rowFilter, masks);
+    }
+
+    @FunctionalInterface
+    public interface MaskProjection {
+        java.util.List<ColumnMask> apply(String column, java.util.List<ColumnMask> masks) throws SQLException;
     }
 
     private static ArrayList<RowPolicy> readRows(Connection connection, TablePermission permission)
@@ -72,7 +83,8 @@ final class DeferredPolicyReader {
                             result.getString("catalog_name"), result.getString("schema_name"),
                             result.getString("table_name"), column, result.getString("mask_expression"),
                             PersistentStoreSupport.decodeRoles(result.getString("apply_to_roles")),
-                            PersistentStoreSupport.decodeRoles(result.getString("exempt_roles")), true));
+                            PersistentStoreSupport.decodeRoles(result.getString("exempt_roles")), true,
+                            result.getObject("table_id", java.util.UUID.class)));
                 }
                 return masks;
             }

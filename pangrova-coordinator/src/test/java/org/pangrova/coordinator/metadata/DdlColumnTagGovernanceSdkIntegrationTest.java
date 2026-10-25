@@ -18,7 +18,6 @@ import org.pangrova.metadata.control.TableControlPolicyBinder;
 import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.service.DefaultMetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.metadata.tag.JdbcColumnTagStore;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.store.PersistentColumnMaskStore;
@@ -43,7 +42,17 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
     void tagRequiresAdoptionAndThenPersistsTagMaskAndBinding() throws Exception {
         try (var fixture = new ReadBindingSdkFixture(warehouse)) {
             FileStoreTable table = fixture.create("tag_governed");
-            ReadBindingSdkFixture.write(table, 2);
+            fixture.sdk.alterTable(Identifier.create("db", "tag_governed"), java.util.List.of(
+                    org.apache.paimon.schema.SchemaChange.addColumn("email", org.apache.paimon.types.DataTypes.STRING())),
+                    false);
+            table = (FileStoreTable) fixture.sdk.getTable(Identifier.create("db", "tag_governed"));
+            var writeBuilder = table.newBatchWriteBuilder();
+            try (var write = writeBuilder.newWrite(); var commit = writeBuilder.newCommit()) {
+                write.write(org.apache.paimon.data.GenericRow.of(1L,
+                        org.apache.paimon.data.BinaryString.fromString("alice@example.com")));
+                write.write(org.apache.paimon.data.GenericRow.of(2L, null));
+                commit.commit(write.prepareCommit());
+            }
             Identifier identifier = Identifier.create("db", "tag_governed");
             long snapshotBefore = table.snapshotManager().latestSnapshotId();
             String schemaBefore = table.rowType().toString();
@@ -53,23 +62,23 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
             var metadataService = (DefaultMetadataService) fixture.bootstrap.metadataService();
             DataSource tagAuthority = SharedPostgresContainer.isolatedDataSource("ddl_tag_governance");
             DataSource maskAuthority = SharedPostgresContainer.isolatedDataSource("ddl_tag_masks");
-            metadataService.setColumnTagStore(new JdbcColumnTagStore(tagAuthority));
-            ColumnTagService tagService = new ColumnTagService();
+            ColumnTagService tagService = new ColumnTagService(name -> fixture.bootstrap.catalogRegistry()
+                    .tableGovernance().requireBindable(name.catalog(), name.schema(), name.table()).tableId());
             metadataService.setColumnTagService(tagService);
             PersistentColumnMaskStore maskStore = new PersistentColumnMaskStore(maskAuthority);
             maskStore.initSchema();
-            tagService.addListener(new TagBasedSecurityPolicy(
-                    maskStore, new InMemoryAuditConfigStore()));
+            var boundMasks = new org.pangrova.metadata.service.TableControlColumnMaskStore(
+                    fixture.bootstrap.catalogRegistry(), maskStore);
 
-            InMemoryTableControlGovernanceBindingStore bindingStore =
-                    new InMemoryTableControlGovernanceBindingStore();
+            org.pangrova.metadata.store.SchemaMigrationRunner.migrate(tagAuthority);
+            var bindingStore = new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(tagAuthority);
+            fixture.bootstrap.catalogRegistry().setGovernanceBindingStore(bindingStore);
             var binder = new TableControlPolicyBinder(
                     fixture.bootstrap.catalogRegistry().tableControl(), bindingStore);
             AtomicInteger invalidations = new AtomicInteger();
             var executor = new DdlExecutor(fixture.bootstrap.catalogRegistry(), null,
                     invalidations::incrementAndGet);
             executor.setMetadataService(metadataService);
-            executor.setPolicyBinder(binder);
 
             var tracker = new CoordinatorTaskTracker();
             var state = new QueryStateMachine();
@@ -80,9 +89,9 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
                 var adopt = (AlterTableStatement) compiler.parseToAst(
                         "ALTER TABLE bound.db.tag_governed ADOPT");
                 var set = (AlterTableStatement) compiler.parseToAst(
-                        "ALTER TABLE bound.db.tag_governed ALTER COLUMN id SET TAG pii_type = 'PII_EMAIL'");
+                        "ALTER TABLE bound.db.tag_governed ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL'");
                 var unset = (AlterTableStatement) compiler.parseToAst(
-                        "ALTER TABLE bound.db.tag_governed ALTER COLUMN id UNSET TAG pii_type");
+                        "ALTER TABLE bound.db.tag_governed ALTER COLUMN email UNSET TAG pii_type");
                 assertThat(set).isInstanceOf(AlterTableStatement.SetColumnTag.class);
                 assertThat(unset).isInstanceOf(AlterTableStatement.UnsetColumnTag.class);
 
@@ -90,8 +99,12 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
                         .isInstanceOf(AccessDeniedException.class)
                         .hasMessageContaining("OBSERVED");
                 assertThat(invalidations).hasValue(0);
-                assertThat(new JdbcColumnTagStore(tagAuthority)
-                        .list("bound|db|tag_governed|id")).isEmpty();
+                try (var connection = tagAuthority.getConnection();
+                     var statement = connection.createStatement();
+                     var rows = statement.executeQuery("SELECT count(*) FROM table_control_governance_binding")) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getLong(1)).isZero();
+                }
 
                 executor.executeAlterTable(adopt, admitted);
                 String tableId = fixture.bootstrap.catalogRegistry().tableControl()
@@ -101,32 +114,30 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
 
                 var metadataSession = metadataSession(fixture);
                 var tableRef = new QualifiedTableRef("bound", "db", "tag_governed");
-                assertThat(metadataService.listTags(metadataSession, tableRef, "id"))
+                assertThat(metadataService.listTags(metadataSession, tableRef, "email"))
                         .containsEntry("pii_type", "PII_EMAIL");
-                assertThat(new JdbcColumnTagStore(tagAuthority)
-                        .list("bound|db|tag_governed|id"))
-                        .containsEntry("pii_type", "PII_EMAIL");
-                assertThat(maskStore.getColumnMasks("bound", "db", "tag_governed", "id"))
+                assertThat(bindingStore.list(UUID.fromString(tableId))).singleElement()
+                        .satisfies(binding -> assertThat(binding.config()).containsEntry("value", "PII_EMAIL"));
+                assertThat(boundMasks.getColumnMasks("bound", "db", "tag_governed", "email"))
                         .singleElement()
                         .satisfies(mask -> {
-                            assertThat(mask.maskName()).isEqualTo("auto_pii_id");
-                            assertThat(mask.maskExpression()).isEqualTo("mask_email");
+                            assertThat(mask.maskName()).isEqualTo("auto_pii_email");
+                            assertThat(mask.maskExpression()).isEqualTo("CASE WHEN {column} IS NULL THEN NULL ELSE '***@***' END");
                         });
                 assertThat(bindingStore.list(UUID.fromString(tableId)))
                         .singleElement()
                         .satisfies(binding -> {
                             assertThat(binding.bindingType())
                                     .isEqualTo(GovernanceBindingType.COLUMN_TAG);
-                            assertThat(binding.bindingRef()).isEqualTo("id:pii_type");
+                            assertThat(binding.bindingRef()).isEqualTo("5:emailpii_type");
                             assertThat(binding.config()).containsEntry("value", "PII_EMAIL");
                         });
 
                 executor.executeAlterTable(unset, admitted);
 
-                assertThat(metadataService.listTags(metadataSession, tableRef, "id")).isEmpty();
-                assertThat(new JdbcColumnTagStore(tagAuthority)
-                        .list("bound|db|tag_governed|id")).isEmpty();
-                assertThat(maskStore.getColumnMasks("bound", "db", "tag_governed", "id")).isEmpty();
+                assertThat(metadataService.listTags(metadataSession, tableRef, "email")).isEmpty();
+                assertThat(bindingStore.list(UUID.fromString(tableId))).isEmpty();
+                assertThat(boundMasks.getColumnMasks("bound", "db", "tag_governed", "email")).isEmpty();
                 assertThat(bindingStore.list(UUID.fromString(tableId))).isEmpty();
                 assertThat(invalidations).hasValue(2);
             } finally {

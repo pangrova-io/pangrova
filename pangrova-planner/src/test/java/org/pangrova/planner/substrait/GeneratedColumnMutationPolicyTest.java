@@ -102,7 +102,7 @@ class GeneratedColumnMutationPolicyTest {
         for (String table : List.of("documents", "source_rows")) {
             masks.saveColumnMask(new ColumnMask(table.equals("documents") ? 1 : 2,
                     "mask_body", "catalog", "schema", table, "body", "'masked-body'",
-                    List.of("writers"), List.of(), true));
+                    List.of("writers"), List.of(), true, null));
         }
         var policy = new RowPolicy(1, "own_tenant", "catalog", "schema", "documents",
                 "tenant = 1", List.of("writers"), true, 1);

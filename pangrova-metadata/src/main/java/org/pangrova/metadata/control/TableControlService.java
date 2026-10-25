@@ -62,6 +62,11 @@ public final class TableControlService {
         return store.find(catalog, schema, table);
     }
 
+    /** Resolves the original identity even after rename or retirement, for scoped cleanup. */
+    public Optional<TableControlRecord> findById(java.util.UUID tableId) {
+        return store.findById(tableId);
+    }
+
     /** Ownership view for table resolution. Never persists anything. */
     public TableControlView describe(String catalog, String schema, String table) {
         return store.find(catalog, schema, table)
@@ -233,6 +238,15 @@ public final class TableControlService {
         return ObservationOutcome.TABLE_MISSING;
     }
 
+    /** Rejects a reserved name before any physical CREATE or registration. */
+    public void requireCreatableName(String catalog, String schema, String table) {
+        store.find(catalog, schema, table).filter(record -> record.state() == TableControlState.RENAMING)
+                .ifPresent(record -> {
+                    throw new AccessDeniedException("CREATE rejected: name is reserved by pending rename "
+                            + record.tableId());
+                });
+    }
+
     /**
      * Records a table created by Pangrova as MANAGED.
      *
@@ -247,6 +261,7 @@ public final class TableControlService {
         if (!settings.enabled()) {
             return Optional.empty();
         }
+        requireCreatableName(catalog, schema, table);
         Instant now = clock.instant();
         Optional<TableControlRecord> existing = store.find(catalog, schema, table);
         if (existing.isPresent() && matchesCatalog(existing.get(), catalogs.apply(catalog))
@@ -322,6 +337,9 @@ public final class TableControlService {
         if (existing.isPresent()) {
             TableControlRecord record = existing.get();
             requireCurrentCatalog(record, "ADOPT");
+            if (record.state() == TableControlState.RENAMING) {
+                throw new AccessDeniedException("ADOPT rejected: name is reserved by a pending rename");
+            }
             if (record.ownershipMode() == OwnershipMode.MANAGED) {
                 throw new AccessDeniedException("ADOPT rejected: " + qualified
                         + " is already MANAGED by Pangrova");
@@ -462,23 +480,13 @@ public final class TableControlService {
         }
         TableControlRecord moved = source.toBuilder()
                 .state(TableControlState.RENAMING)
+                .properties(TableControlRenameIntent.begin(source))
                 .name(source.catalog(), newSchema, newTable)
                 .metadataRevision(source.metadataRevision() + 1)
                 .updatedAt(clock.instant())
                 .build();
         store.save(moved);
         return moved;
-    }
-
-    /** Verifies the physical source before undoing one admitted rename. */
-    public void requireRenameSourceIdentity(TableControlRecord expected, Optional<TableIdentity> identity) {
-        TableControlRecord current = store.findById(expected.tableId()).orElse(null);
-        if (current == null || current.state() != TableControlState.RENAMING
-                || current.metadataRevision() != expected.metadataRevision()) {
-            throw new AccessDeniedException("RENAME rollback rejected: control record changed for "
-                    + expected.qualifiedName());
-        }
-        requireMatchingIdentity(current, "RENAME rollback", identity);
     }
 
     /** Records physical identity changes caused by a successfully completed, admitted rename. */
@@ -503,6 +511,7 @@ public final class TableControlService {
         String token = version.map(TableVersionToken::token).orElse(null);
         TableControlRecord completed = withIdentity(current, Optional.of(physical), version, now)
                 .state(TableControlState.ACTIVE)
+                .properties(TableControlRenameIntent.complete(current))
                 .version(token, token == null ? null : now)
                 .metadataRevision(current.metadataRevision() + 1)
                 .build();

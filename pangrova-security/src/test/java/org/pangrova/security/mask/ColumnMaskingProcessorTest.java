@@ -33,7 +33,7 @@ class ColumnMaskingProcessorTest {
         var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
         var mask = new ColumnMask(90, "deferred_context", "lake", "default", "users", "email",
                 "CASE WHEN " + contextFunction + " = '' THEN {column} ELSE NULL END",
-                List.of("reader"), List.of(), true);
+                List.of("reader"), List.of(), true, null);
         var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(mask)));
 
         assertThatThrownBy(() -> processor.getMask(subject, Set.of("reader"), "lake", "default", "users", "email"))
@@ -44,7 +44,7 @@ class ColumnMaskingProcessorTest {
     void deferredSubjectGuardDoesNotEvaluateUnselectedOrExemptMasks() {
         var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
         var mask = new ColumnMask(90, "deferred_context", "lake", "default", "users", "email",
-                "user_attribute('department')", List.of("reader"), List.of("unmasked"), true);
+                "user_attribute('department')", List.of("reader"), List.of("unmasked"), true, null);
         var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(mask)));
 
         assertThat(processor.getMask(subject, Set.of("reader", "unmasked"),
@@ -62,19 +62,19 @@ class ColumnMaskingProcessorTest {
     @Test
     void appliesMaskExpressionWithColumnSubstitution() {
         ColumnMask mask = new ColumnMask(1, "email_mask", "iceberg", "default", "users", "email",
-                "MASK_EMAIL({column})", List.of(), List.of(), true);
+                "MASK_EMAIL({column})", List.of(), List.of(), true, null);
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
         Optional<String> result = processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email");
         assertThat(result).isPresent();
-        assertThat(result.get()).isEqualTo("MASK_EMAIL(email)");
+        assertThat(result.get()).isEqualTo("MASK_EMAIL(\"email\")");
     }
 
     @Test
     void exemptUserSeesRawData() {
         ColumnMask mask = new ColumnMask(1, "email_mask", "iceberg", "default", "users", "email",
-                "MASK_EMAIL({column})", List.of(), List.of("admin"), true);
+                "MASK_EMAIL({column})", List.of(), List.of("admin"), true, null);
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
@@ -85,7 +85,7 @@ class ColumnMaskingProcessorTest {
     @Test
     void skipsDisabledMasks() {
         ColumnMask mask = new ColumnMask(1, "disabled_mask", "iceberg", "default", "users", "email",
-                "NULL", List.of(), List.of(), false);
+                "NULL", List.of(), List.of(), false, null);
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
@@ -96,7 +96,7 @@ class ColumnMaskingProcessorTest {
     @Test
     void appliesOnlyToMatchingRoles() {
         ColumnMask mask = new ColumnMask(1, "analyst_mask", "iceberg", "default", "users", "email",
-                "MASK({column})", List.of("analyst"), List.of(), true);
+                "MASK({column})", List.of("analyst"), List.of(), true, null);
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 

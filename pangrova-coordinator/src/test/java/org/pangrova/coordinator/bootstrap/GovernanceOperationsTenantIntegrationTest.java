@@ -60,6 +60,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * </ul>
  */
 class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+            tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
+
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -334,7 +337,8 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
                 ruleStore, new DefaultQualityRuleExecutor(), alerter);
         CronScheduler scheduler = new CronScheduler(handler);
         return new GovernanceContext(new GovernanceDeps(
-                emitter, handler, null, scheduler, ruleStore));
+                emitter, handler, null, scheduler, ruleStore, new org.pangrova.governance.classification.ColumnTagService(
+                        table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()))));
     }
 
     private static DataQualityRule createRule(long id, String name,

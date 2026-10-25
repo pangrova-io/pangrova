@@ -4,8 +4,6 @@ import org.pangrova.governance.GovernanceDeps;
 import org.pangrova.governance.GovernanceContext;
 import org.pangrova.governance.audit.JdbcGovernanceAuditTrail;
 import org.pangrova.governance.classification.ColumnTagService;
-import org.pangrova.governance.classification.InMemoryAuditConfigStore;
-import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.governance.lineage.LineageBackendConfiguration;
 import org.pangrova.governance.quality.schedule.CronScheduler;
@@ -338,24 +336,18 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                 ruleStore, qualityExecutor, alerter);
         CronScheduler cronScheduler = new CronScheduler(handler, this::isMaintenanceLeader,
                 new JdbcGovernanceAuditTrail(dataSource));
-        var columnMaskStore =
-                new org.pangrova.security.store.PersistentColumnMaskStore(dataSource);
-        columnMaskStore.initSchema();
-        ColumnTagService columnTagService = new ColumnTagService();
-        TagBasedSecurityPolicy securityPolicy = new TagBasedSecurityPolicy(
-                columnMaskStore, new InMemoryAuditConfigStore());
+        ColumnTagService columnTagService = new ColumnTagService(table ->
+                java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry").tableGovernance()
+                        .requireBindable(table.catalog(), table.schema(), table.table()).tableId());
         governanceModule = new GovernanceContext(new GovernanceDeps(
-                lineageEmitter, handler, securityPolicy, cronScheduler, ruleStore, columnTagService));
+                lineageEmitter, handler, null, cronScheduler, ruleStore, columnTagService));
         governanceModule.initialize();
         writeQualityGate = writeQualityGateEnabled()
                 ? new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(
                         ruleStore, qualityExecutor)
                 : null;
-        LOG.info("Phase: governance — initialized (ruleStore={} columnMaskStore={} "
-                        + "durableAudit=true leaderGatedCron=true writeQualityGate={})",
-                ruleStore.getClass().getSimpleName(),
-                columnMaskStore.getClass().getSimpleName(),
-                writeQualityGate != null);
+        LOG.info("event=governance_initialized ruleStore={} stableTagAuthority=true writeQualityGate={}",
+                ruleStore.getClass().getSimpleName(), writeQualityGate != null);
     }
 
     /** Pre-commit quality gate; null when governance is disabled or the gate is turned off. */

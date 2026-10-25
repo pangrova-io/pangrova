@@ -115,7 +115,7 @@ class FeatureViewSqlIntegrationTest {
         policies.savePolicy(new RowPolicy(0, "source_rows", "lake", "raw", "customers",
                 "customer_id >= 100", List.of("feature-role"), true, 1));
         masks.saveColumnMask(new ColumnMask(0, "source_secret", "lake", "raw", "customers", "secret",
-                "'hidden'", List.of("feature-role"), List.of(), true));
+                "'hidden'", List.of("feature-role"), List.of(), true, null));
         var access = new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks));
         compiler = new SqlCompiler().withSessionPlanner(scope -> new PangrovaPlanner(

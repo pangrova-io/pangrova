@@ -42,7 +42,7 @@ class PersistentColumnMaskStoreTest extends ContainerTestBase {
         var original = store.getColumnMasks("cat", "sch", "orders", "email").get(0);
 
         store.saveColumnMask(new ColumnMask(0, "auto_pii_email", "cat", "sch", "orders",
-                "email", "mask_phone", List.of(), List.of(), true));
+                "email", "mask_phone", List.of(), List.of(), true, null));
 
         assertThat(store.getColumnMasks("cat", "sch", "orders", "email")).singleElement()
                 .satisfies(mask -> {
@@ -54,6 +54,6 @@ class PersistentColumnMaskStoreTest extends ContainerTestBase {
 
     private static ColumnMask mask(String name, String catalog, String schema, String table, String column,
             boolean enabled) {
-        return new ColumnMask(0, name, catalog, schema, table, column, "NULL", List.of(), List.of(), enabled);
+        return new ColumnMask(0, name, catalog, schema, table, column, "NULL", List.of(), List.of(), enabled, null);
     }
 }

@@ -163,7 +163,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         policies.savePolicy(new RowPolicy(0, "feature_rows", CATALOG, sourceSchema, "customers",
                 "customer_id >= " + minimum, List.of(role), true, 1));
         masks.saveColumnMask(new ColumnMask(0, "feature_secret", CATALOG, sourceSchema, "customers", "secret",
-                mask, List.of(role), List.of(), true));
+                mask, List.of(role), List.of(), true, null));
     }
 
     private LanceTableHandle table() {

@@ -26,6 +26,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ColumnTagService emits event → TagBasedSecurityPolicy receives it → mask applied.
  */
 class TagChangedEventWiringTest {
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+            tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
+
 
     private GovernanceContext wiring;
     private InMemoryColumnMaskStore maskStore;
@@ -44,7 +47,8 @@ class TagChangedEventWiringTest {
         CronScheduler scheduler = new CronScheduler(handler);
 
         wiring = new GovernanceContext(new GovernanceDeps(
-                emitter, handler, securityPolicy, scheduler, ruleStore));
+                emitter, handler, securityPolicy, scheduler, ruleStore, new org.pangrova.governance.classification.ColumnTagService(
+                        table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()))));
         wiring.initialize();
     }
 
@@ -66,7 +70,7 @@ class TagChangedEventWiringTest {
         // Verify mask was applied by TagBasedSecurityPolicy via the event pipeline
         List<ColumnMaskRecord> masks = maskStore.getMasks("catalog", "schema", "users", "email");
         assertThat(masks).hasSize(1);
-        assertThat(masks.get(0).maskExpression()).isEqualTo("mask_email");
+        assertThat(masks.get(0).maskExpression()).isEqualTo("CASE WHEN {column} IS NULL THEN NULL ELSE '***@***' END");
         assertThat(masks.get(0).maskName()).isEqualTo("auto_pii_email");
         assertThat(masks.get(0).enabled()).isTrue();
     }

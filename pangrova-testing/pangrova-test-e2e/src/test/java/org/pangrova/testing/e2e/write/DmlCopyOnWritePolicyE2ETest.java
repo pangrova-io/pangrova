@@ -154,7 +154,7 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
         policies.savePolicy(new RowPolicy(0, "cow_tenant_rows", CATALOG, SCHEMA, table,
                 "tenant=1", List.of(role), true, 1));
         masks.saveColumnMask(new ColumnMask(0, "cow_score_zero", CATALOG, SCHEMA, table, "score",
-                "CAST(0 AS BIGINT)", List.of(role), List.of(), true));
+                "CAST(0 AS BIGINT)", List.of(role), List.of(), true, null));
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks)));
         var visible = executeQuery("SELECT id,score FROM " + target() + " ORDER BY id");

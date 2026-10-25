@@ -54,7 +54,7 @@ Native DIRECTORY 接入之前，需要先把以下设计约束落到协议与状
 | [目录引用](../../pangrova-spi/src/main/java/org/pangrova/spi/storage/file/FileDirectoryReference.java)只有 space ID 与定义修订时间。 | Stage 定义身份不能同时表示目录数据 generation。需要另外固定目录 generation、Manifest 摘要、范围与读保护。不能把时间戳当作单调 fencing epoch。 |
 | [Multipart 端点](../../pangrova-worker/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)支持带绝对期限、绑定存储范围的签名 token；清理所有权留在内存 map，过期清理由新 begin 触发。 | token 可跨 Worker 恢复 provider ID，但不能列出重启前所有待清理会话、提供持久完成结果或保证无人再次上传时也会清理。LOCAL 迁移还依赖实际共享存储。 |
 | [稳定 Stage URL](../../pangrova-coordinator/src/main/java/org/pangrova/coordinator/file/StageFileUrlService.java)每次访问重查权限后换取 Worker ticket；[文件端点](../../pangrova-worker/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)校验期限后打开内容流。 | 已有 ticket 和已打开流不自动获得新的撤权语义；provider URL 可以比签发它的 grant 更长。新设计必须分别给出签发权限、最大交付期限、活动流检查与中止规则。 |
-| [稳定治理绑定](../../pangrova-metadata/src/main/java/org/pangrova/metadata/control/TableControlPolicyBinder.java)按 table ID 保存；[标签投影](../../pangrova-metadata/src/main/java/org/pangrova/metadata/service/MetadataTagOperations.java)及[派生掩码](../../pangrova-governance/src/main/java/org/pangrova/governance/classification/TagBasedSecurityPolicy.java)仍依赖名称。 | catalog deployment fencing 已落地，但不能替代稳定 ID 投影。重命名、重放、UNLINK 与外部 drop/recreate 必须审计到实际策略读取路径。 |
+| [稳定治理绑定](../../pangrova-metadata/src/main/java/org/pangrova/metadata/control/TableControlPolicyBinder.java)和标签已统一为 table ID 权威；前台与后台掩码直接从该权威读取，手工列掩码携 table ID。重命名持久预留两个名称。 | 本轮已推进分类和列掩码的实际读取路径；手工行策略、质量规则、进程级重启与自动重命名协调仍需独立完成，不能据此关闭全部治理门槛。 |
 
 PostgreSQL repeatable-read 能固定数据库快照，不能固定外部对象；长快照还会扩大旧版本回收的约束。
 这是根据 [事务隔离](https://www.postgresql.org/docs/17/transaction-iso.html#XACT-REPEATABLE-READ)

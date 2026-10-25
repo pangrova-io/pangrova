@@ -16,6 +16,13 @@ public interface ColumnMaskStore {
      */
     List<ColumnMaskRecord> getMasks(String catalog, String schema, String table, String column);
 
+    /** Reads only the captured identity for rename/retirement; names remain diagnostic scope. */
+    default List<ColumnMaskRecord> getMasks(java.util.UUID tableId,
+            String catalog, String schema, String table, String column) {
+        return getMasks(catalog, schema, table, column).stream()
+                .filter(mask -> java.util.Objects.equals(tableId, mask.tableId())).toList();
+    }
+
     /**
      * Persists a column mask. If a mask with the same name already exists for the
      * same table/column, the implementation should replace it.

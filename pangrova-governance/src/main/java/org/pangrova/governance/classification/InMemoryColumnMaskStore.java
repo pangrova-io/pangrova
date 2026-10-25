@@ -30,10 +30,11 @@ public final class InMemoryColumnMaskStore implements ColumnMaskStore {
     public void saveMask(ColumnMaskRecord mask) {
         masks.removeIf(m -> m.maskName().equals(mask.maskName())
                 && m.tableName().equals(mask.tableName())
-                && m.columnName().equals(mask.columnName()));
+                && m.columnName().equals(mask.columnName())
+                && java.util.Objects.equals(m.tableId(), mask.tableId()));
         masks.add(new ColumnMaskRecord(nextId.getAndIncrement(), mask.maskName(),
                 mask.catalogName(), mask.schemaName(), mask.tableName(), mask.columnName(),
-                mask.maskExpression(), mask.applyToRoles(), mask.exemptRoles(), mask.enabled()));
+                mask.maskExpression(), mask.applyToRoles(), mask.exemptRoles(), mask.enabled(), mask.tableId()));
     }
 
     @Override

@@ -119,7 +119,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
         assertThat(sqlRunner.execute(queries().get(1))).singleElement()
                 .satisfies(row -> assertThat(row.getLong("id")).isEqualTo(1));
         masks.saveColumnMask(new ColumnMask(0, "zero_amount", CATALOG, SCHEMA, hidden, "amount",
-                "CAST(0 AS BIGINT)", List.of(role), List.of(), true));
+                "CAST(0 AS BIGINT)", List.of(role), List.of(), true, null));
         assertThat(sqlRunner.execute(queries().get(0))).hasSize(2)
                 .allSatisfy(row -> assertThat(row.getLong("total")).isZero());
         clearPolicies();
@@ -157,7 +157,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
             });
         }
         masks.saveColumnMask(new ColumnMask(0, "masked_key", CATALOG, SCHEMA, hidden, "id",
-                "CAST(9 AS BIGINT)", List.of(role), List.of(), true));
+                "CAST(9 AS BIGINT)", List.of(role), List.of(), true, null));
         assertThat(sqlRunner.execute(queries().get(1))).isEmpty();
         assertThat(sqlRunner.execute(absence)).hasSize(4);
     }
@@ -173,7 +173,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
         assertThat(sqlRunner.execute(exists)).singleElement()
                 .satisfies(row -> assertThat(row.getLong("id")).isEqualTo(2));
         masks.saveColumnMask(new ColumnMask(0, "computed_key", CATALOG, SCHEMA, hidden, "id",
-                mask, List.of(role), List.of(), true));
+                mask, List.of(role), List.of(), true, null));
         boolean nullKey = mask.contains("NULL");
         assertThat(sqlRunner.execute(exists)).hasSize(nullKey ? 0 : 1);
         assertThat(sqlRunner.execute("SELECT v.id FROM " + qualified(visible)

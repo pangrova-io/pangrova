@@ -76,7 +76,7 @@ class ColumnMaskApplierTest {
     void varcharColumnMaskApplied() {
         ColumnMask mask = new ColumnMask(
                 1L, "mask_dept", "default", "default", "orders",
-                "department", "'***'", List.of("analysts"), List.of(), true);
+                "department", "'***'", List.of("analysts"), List.of(), true, null);
         ColumnMaskApplier applier = new ColumnMaskApplier(buildAccessControlWithMasks(List.of(mask)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -97,7 +97,7 @@ class ColumnMaskApplierTest {
     void numericColumnMaskProducesCorrectType() {
         ColumnMask mask = new ColumnMask(
                 2L, "mask_amount", "default", "default", "orders",
-                "amount", "0", List.of("analysts"), List.of(), true);
+                "amount", "0", List.of("analysts"), List.of(), true, null);
         ColumnMaskApplier applier = new ColumnMaskApplier(buildAccessControlWithMasks(List.of(mask)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -115,7 +115,7 @@ class ColumnMaskApplierTest {
     void bigintColumnMaskWithZeroProducesIntegerType() {
         ColumnMask mask = new ColumnMask(
                 3L, "mask_id", "default", "default", "orders",
-                "id", "0", List.of("analysts"), List.of(), true);
+                "id", "0", List.of("analysts"), List.of(), true, null);
         ColumnMaskApplier applier = new ColumnMaskApplier(buildAccessControlWithMasks(List.of(mask)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -133,7 +133,7 @@ class ColumnMaskApplierTest {
     void castExpressionMaskApplied() {
         ColumnMask mask = new ColumnMask(
                 4L, "mask_amount_zero", "default", "default", "orders",
-                "amount", "CAST(0 AS DECIMAL(10,2))", List.of("analysts"), List.of(), true);
+                "amount", "CAST(0 AS DECIMAL(10,2))", List.of("analysts"), List.of(), true, null);
         ColumnMaskApplier applier = new ColumnMaskApplier(buildAccessControlWithMasks(List.of(mask)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -150,7 +150,7 @@ class ColumnMaskApplierTest {
     void maskNotAppliedWhenUserNotInRole() {
         ColumnMask mask = new ColumnMask(
                 5L, "mask_dept", "default", "default", "orders",
-                "department", "'***'", List.of("analysts"), List.of(), true);
+                "department", "'***'", List.of("analysts"), List.of(), true, null);
         ColumnMaskApplier applier = new ColumnMaskApplier(buildAccessControlWithMasks(List.of(mask)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -164,7 +164,7 @@ class ColumnMaskApplierTest {
     void exemptUserSeesRawData() {
         ColumnMask mask = new ColumnMask(
                 6L, "mask_dept", "default", "default", "orders",
-                "department", "'***'", List.of("analysts"), List.of("admins"), true);
+                "department", "'***'", List.of("analysts"), List.of("admins"), true, null);
         ColumnMaskApplier applier = new ColumnMaskApplier(buildAccessControlWithMasks(List.of(mask)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -178,10 +178,10 @@ class ColumnMaskApplierTest {
     void effectivePlanDigestChangesWhenColumnMaskDefinitionChanges() {
         ColumnMask redacted = new ColumnMask(
                 7L, "mask_dept", "default", "default", "orders",
-                "department", "'***'", List.of("analysts"), List.of(), true);
+                "department", "'***'", List.of("analysts"), List.of(), true, null);
         ColumnMask hidden = new ColumnMask(
                 8L, "mask_dept", "default", "default", "orders",
-                "department", "'[hidden]'", List.of("analysts"), List.of(), true);
+                "department", "'[hidden]'", List.of("analysts"), List.of(), true, null);
         UserIdentity identity = testIdentity("user1", Set.of("analysts"));
         var base = COMPILER.compileToPlannedQuery("SELECT * FROM orders");
 

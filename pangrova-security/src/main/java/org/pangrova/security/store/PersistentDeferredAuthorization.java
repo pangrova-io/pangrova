@@ -20,6 +20,12 @@ public final class PersistentDeferredAuthorization {
     /** Requires current grants and exactly the transformations observed during secure compilation. */
     public static void requireCurrent(Connection connection, String principal, DeferredAuthorizationScope scope)
             throws SQLException {
+        requireCurrent(connection, principal, scope, DeferredPolicyReader::observe);
+    }
+
+    /** Metadata owners must provide their stable-identity policy projection on the same transaction. */
+    public static void requireCurrent(Connection connection, String principal, DeferredAuthorizationScope scope,
+            PolicyObserver observer) throws SQLException {
         if (principal == null || principal.isBlank()) {
             throw new AuthorizationDeniedException("Deferred work requires its real authenticated subject");
         }
@@ -29,7 +35,7 @@ public final class PersistentDeferredAuthorization {
         for (TablePermission permission : scope.permissions()) {
             requirePermission(grants, permission);
             if (permission.readMode() != ReadMode.NONE) {
-                requireCurrentPolicy(connection, principal, roles, permission);
+                requireCurrentPolicy(connection, principal, roles, permission, observer);
             }
         }
     }
@@ -77,8 +83,8 @@ public final class PersistentDeferredAuthorization {
     }
 
     private static void requireCurrentPolicy(Connection connection, String principal, Set<String> roles,
-                                             TablePermission permission) throws SQLException {
-        var current = DeferredPolicyReader.observe(connection, principal, roles, permission);
+            TablePermission permission, PolicyObserver observer) throws SQLException {
+        var current = observer.observe(connection, principal, roles, permission);
         if (permission.readMode() == ReadMode.RAW_READ) {
             if (current.rowFilter().isPresent()
                     || current.columnMasks().values().stream().anyMatch(java.util.Optional::isPresent)) {
@@ -89,5 +95,11 @@ public final class PersistentDeferredAuthorization {
             throw new AuthorizationDeniedException(
                     "Deferred policy content changed; cancel and securely recompile the materialization");
         }
+    }
+
+    @FunctionalInterface
+    public interface PolicyObserver {
+        DeferredAuthorizationScope.PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
+                TablePermission permission) throws SQLException;
     }
 }

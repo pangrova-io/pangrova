@@ -302,7 +302,10 @@ class TableControlServiceTest {
 
         control.rename("cat", "db", "old", "db", "new");
 
-        assertThat(control.find("cat", "db", "old")).isEmpty();
+        assertThat(control.find("cat", "db", "old")).get()
+                .extracting(TableControlRecord::state).isEqualTo(TableControlState.RENAMING);
+        assertThatThrownBy(() -> control.requireCreatableName("cat", "db", "old"))
+                .isInstanceOf(AccessDeniedException.class);
         TableControlRecord moved = control.find("cat", "db", "new").orElseThrow();
         assertThat(moved.tableId()).isEqualTo(record.tableId());
         assertThat(moved.metadataRevision()).isEqualTo(record.metadataRevision() + 1);
@@ -332,6 +335,7 @@ class TableControlServiceTest {
         var physical = identity("uuid-renamed");
         control.completeRename(moved, Optional.of(physical), Optional.empty());
         var completed = control.find("cat", "db", "new").orElseThrow();
+        assertThat(control.find("cat", "db", "old")).isEmpty();
         assertThat(completed.tableId()).isEqualTo(original.tableId());
         assertThat(completed.formatTableUuid()).isEqualTo(physical.formatTableUuid());
         assertThat(completed.metadataRevision()).isEqualTo(moved.metadataRevision() + 1);

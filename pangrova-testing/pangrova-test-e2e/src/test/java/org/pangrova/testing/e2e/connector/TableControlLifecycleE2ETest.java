@@ -63,6 +63,65 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void stableTagsMaskNativeResultsAcrossRenameAndNameReuse() {
+        String source = PAIMON + "." + SCHEMA + ".controlled_private_contacts";
+        String renamed = PAIMON + "." + SCHEMA + ".controlled_private_contacts_renamed";
+        sqlRunner.executeDdl("CREATE TABLE " + source
+                + " (id BIGINT, email VARCHAR, phone VARCHAR, ssn VARCHAR, person VARCHAR)");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES "
+                + "(1, 'alice@example.com', '1234567890', '123-45-6789', 'Alice'),"
+                + "(2, NULL, NULL, NULL, NULL), (3, 'invalid', '123', '123', '')");
+        var original = store.find(PAIMON, SCHEMA, "controlled_private_contacts").orElseThrow();
+        for (var entry : java.util.Map.of("email", "PII_EMAIL", "phone", "PII_PHONE",
+                "ssn", "PII_SSN", "person", "PII_NAME").entrySet()) {
+            sqlRunner.executeDdl("ALTER TABLE " + source + " ALTER COLUMN " + entry.getKey()
+                    + " SET TAG pii_type = '" + entry.getValue() + "'");
+        }
+        assertThat(sqlRunner.executeExpectingError("ALTER TABLE " + source
+                + " ALTER COLUMN id SET TAG pii_type = 'PII_EMAIL'").message()).contains("VARCHAR");
+        assertPrivateContacts(source);
+
+        // Recreate the actual query pipeline and its policy readers; no tag event replay is needed.
+        clearFeatureSecurity();
+        assertPrivateContacts(source);
+        sqlRunner.executeDdl("ALTER TABLE " + source + " RENAME TO " + renamed);
+        assertThat(store.find(PAIMON, SCHEMA, "controlled_private_contacts_renamed").orElseThrow().tableId())
+                .isEqualTo(original.tableId());
+        assertPrivateContacts(renamed);
+
+        sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT, email VARCHAR)");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (9, 'replacement@example.com')");
+        assertThat(sqlRunner.execute("SELECT email FROM " + source)).singleElement()
+                .satisfies(row -> assertThat(row.getString("email")).isEqualTo("replacement@example.com"));
+        sqlRunner.executeDdl("ALTER TABLE " + source + " ALTER COLUMN email SET TAG pii_type = 'PII_NAME'");
+        for (String column : List.of("email", "phone", "ssn", "person")) {
+            sqlRunner.executeDdl("ALTER TABLE " + renamed + " ALTER COLUMN " + column + " UNSET TAG pii_type");
+        }
+        assertThat(sqlRunner.execute("SELECT email FROM " + renamed + " WHERE id=1")).singleElement()
+                .satisfies(row -> assertThat(row.getString("email")).isEqualTo("alice@example.com"));
+        sqlRunner.executeDdl("DROP TABLE " + renamed);
+        assertThat(sqlRunner.execute("SELECT email FROM " + source)).singleElement()
+                .satisfies(row -> assertThat(row.getString("email")).isEqualTo("***"));
+        sqlRunner.executeDdl("DROP TABLE " + source);
+    }
+
+    private void assertPrivateContacts(String table) {
+        var rows = sqlRunner.execute("SELECT id,email,phone,ssn,person FROM " + table + " ORDER BY id");
+        assertThat(rows).hasSize(3);
+        assertThat(rows.get(0).getString("email")).isEqualTo("***@***");
+        assertThat(rows.get(0).getString("phone")).isEqualTo("***7890");
+        assertThat(rows.get(0).getString("ssn")).isEqualTo("***6789");
+        assertThat(rows.get(0).getString("person")).isEqualTo("***");
+        for (String column : List.of("email", "phone", "ssn", "person")) {
+            assertThat(rows.get(1).getRaw(column)).isNull();
+        }
+        assertThat(rows.get(2).getString("email")).isEqualTo("***@***");
+        assertThat(rows.get(2).getString("phone")).isEqualTo("***");
+        assertThat(rows.get(2).getString("ssn")).isEqualTo("***");
+        assertThat(rows.get(2).getString("person")).isEqualTo("***");
+    }
+
+    @Test
     void recreatedCatalogCannotInheritAuthorityForAnUnchangedPhysicalTable() throws Exception {
         var registry = metadataBootstrap.catalogRegistry();
         var source = registry.getCatalog(CATALOG).getDescriptor();

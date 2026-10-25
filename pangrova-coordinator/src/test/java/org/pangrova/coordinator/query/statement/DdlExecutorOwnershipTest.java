@@ -91,8 +91,8 @@ class DdlExecutorOwnershipTest {
                 new InMemoryTableControlMaintenanceStore());
         ddlExecutor.setMaintenancePolicyService(maintenanceService);
         bindingStore = new InMemoryTableControlGovernanceBindingStore();
-        policyBinder = new TableControlPolicyBinder(registry.tableControl(), bindingStore);
-        ddlExecutor.setPolicyBinder(policyBinder);
+        registry.setGovernanceBindingStore(bindingStore);
+        policyBinder = registry.tableGovernance();
     }
 
     @AfterEach
@@ -264,7 +264,7 @@ class DdlExecutorOwnershipTest {
     }
 
     @Test
-    void failedRenameRestoresTheCapturedRegistration() {
+    void uncertainRenameKeepsBothNamesReserved() {
         registerManaged("users");
         var original = registry.tableControl().find("test_cat", "default", "users").orElseThrow();
         metadata.beforeRename = () -> { throw new IllegalStateException("rename failed"); };
@@ -275,7 +275,12 @@ class DdlExecutorOwnershipTest {
                 .isInstanceOf(IllegalStateException.class).hasMessage("rename failed");
         assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().tableId())
                 .isEqualTo(original.tableId());
-        assertThat(registry.tableControl().find("test_cat", "default", "people")).isEmpty();
+        assertThat(registry.tableControl().find("test_cat", "default", "people").orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
+        assertThatThrownBy(() -> registry.tableControl().requireCreatableName("test_cat", "default", "users"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> registry.tableGovernance().requireBindable("test_cat", "default", "users"))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
@@ -290,9 +295,10 @@ class DdlExecutorOwnershipTest {
                 (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
                         "ALTER TABLE test_cat.default.users RENAME TO people"), context()))
                 .isInstanceOf(IllegalStateException.class).hasMessage("rename failed");
-        assertThat(registry.tableControl().find("test_cat", "default", "users")).isEmpty();
+        assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
         assertThat(registry.tableControl().find("test_cat", "default", "people").orElseThrow().state())
-                .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
     }
 
     @Test
@@ -458,7 +464,7 @@ class DdlExecutorOwnershipTest {
         var tableId = registry.tableControl()
                 .find("test_cat", "default", "users").orElseThrow().tableId();
         policyBinder.bind("test_cat", "default", "users",
-                GovernanceBindingType.COLUMN_TAG, "pii_type", Map.of(), "alice");
+                GovernanceBindingType.COLUMN_TAG, "classification", Map.of(), "alice");
 
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
@@ -487,9 +493,9 @@ class DdlExecutorOwnershipTest {
         RecordingMetadataService tags = new RecordingMetadataService();
         ddlExecutor.setMetadataService(tags);
         var set = (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
-                "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG pii_type = 'PII_EMAIL'");
+                "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'");
         var unset = (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
-                "ALTER TABLE test_cat.default.users ALTER COLUMN id UNSET TAG pii_type");
+                "ALTER TABLE test_cat.default.users ALTER COLUMN id UNSET TAG classification");
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(set, context()))
                 .isInstanceOf(AccessDeniedException.class)
@@ -504,12 +510,12 @@ class DdlExecutorOwnershipTest {
                 .find("test_cat", "default", "users").orElseThrow().tableId();
 
         ddlExecutor.executeAlterTable(set, context());
-        assertThat(tags.tags).containsEntry("test_cat|default|users|id|pii_type", "PII_EMAIL");
+        assertThat(tags.tags).containsEntry("test_cat|default|users|id|classification", "sensitive");
         assertThat(bindingStore.list(tableId)).singleElement()
                 .satisfies(binding -> {
                     assertThat(binding.bindingType()).isEqualTo(GovernanceBindingType.COLUMN_TAG);
-                    assertThat(binding.bindingRef()).isEqualTo("id:pii_type");
-                    assertThat(binding.config()).containsEntry("value", "PII_EMAIL");
+                    assertThat(binding.bindingRef()).isEqualTo("2:idclassification");
+                    assertThat(binding.config()).containsEntry("value", "sensitive");
                 });
 
         ddlExecutor.executeAlterTable(unset, context());
@@ -528,7 +534,7 @@ class DdlExecutorOwnershipTest {
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
-                        "ALTER TABLE test_cat.default.users ALTER COLUMN missing SET TAG pii_type = 'PII_EMAIL'"),
+                        "ALTER TABLE test_cat.default.users ALTER COLUMN missing SET TAG classification = 'sensitive'"),
                 context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                 .hasMessageContaining("Column not found");
@@ -544,7 +550,7 @@ class DdlExecutorOwnershipTest {
 
         assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
-                        "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG pii_type = 'PII_EMAIL'"),
+                        "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'"),
                 context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                 .hasMessageContaining("metadata service");
@@ -560,7 +566,7 @@ class DdlExecutorOwnershipTest {
                 context());
         ddlExecutor.executeAlterTable(
                 (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
-                        "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG pii_type = 'PII_EMAIL'"),
+                        "ALTER TABLE test_cat.default.users ALTER COLUMN id SET TAG classification = 'sensitive'"),
                 context());
         assertThat(tags.tags).isNotEmpty();
 
@@ -577,98 +583,34 @@ class DdlExecutorOwnershipTest {
                 "test_cat", "default", table, "alice");
     }
 
-    private static final class RecordingMetadataService implements MetadataService {
+    private final class RecordingMetadataService extends org.pangrova.metadata.service.DefaultMetadataService {
         private final Map<String, String> tags = new LinkedHashMap<>();
 
-        @Override
-        public void createCatalog(MetadataSessionContext session, CatalogDescriptor descriptor) {
-            throw new UnsupportedOperationException();
+        RecordingMetadataService() {
+            super(registry, new org.pangrova.metadata.cache.TieredMetadataCache(), null,
+                    new org.pangrova.metadata.schema.SchemaEvolutionValidator());
         }
 
         @Override
-        public void dropCatalog(MetadataSessionContext session, String catalogName, boolean cascade) {
-            throw new UnsupportedOperationException();
+        public void setTag(MetadataSessionContext session, QualifiedTableRef table,
+                String column, String key, String value) {
+            super.setTag(session, table, column, key, value);
+            tags.put(table.catalog() + "|" + table.schema() + "|" + table.table() + "|" + column + "|" + key, value);
         }
 
         @Override
-        public List<String> listCatalogs(MetadataSessionContext session) {
-            return List.of();
-        }
-
-        @Override
-        public List<String> listSchemas(MetadataSessionContext session, String catalogName) {
-            return List.of();
-        }
-
-        @Override
-        public ResolvedTable resolveTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void createTable(MetadataSessionContext session, QualifiedTableRef tableRef,
-                TableMetadata metadata) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void alterTable(MetadataSessionContext session, QualifiedTableRef tableRef,
-                List<SchemaChange> changes) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void beginQuery(MetadataSessionContext session) { }
-
-        @Override
-        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
-
-        @Override
-        public void setTag(MetadataSessionContext session, QualifiedTableRef tableRef,
-                String columnName, String tagKey, String value) {
-            tags.put(key(tableRef, columnName, tagKey), value);
-        }
-
-        @Override
-        public void unsetTag(MetadataSessionContext session, QualifiedTableRef tableRef,
-                String columnName, String tagKey) {
-            tags.remove(key(tableRef, columnName, tagKey));
-        }
-
-        @Override
-        public Map<String, String> listTags(MetadataSessionContext session,
-                QualifiedTableRef tableRef, String columnName) {
-            String prefix = prefix(tableRef, columnName);
-            Map<String, String> result = new LinkedHashMap<>();
-            tags.forEach((key, value) -> {
-                if (key.startsWith(prefix)) {
-                    result.put(key.substring(prefix.length()), value);
-                }
-            });
-            return Map.copyOf(result);
-        }
-
-        @Override
-        public int clearTableTags(MetadataSessionContext session, QualifiedTableRef tableRef) {
-            String prefix = tableRef.catalog() + "|" + tableRef.schema() + "|"
-                    + tableRef.table() + "|";
-            int before = tags.size();
+        public int clearTableTags(MetadataSessionContext session, java.util.UUID tableId) {
+            int removed = super.clearTableTags(session, tableId);
+            var retired = registry.tableControl().findById(tableId).orElseThrow();
+            String prefix = retired.catalog() + "|" + retired.schema() + "|" + retired.table() + "|";
             tags.keySet().removeIf(key -> key.startsWith(prefix));
-            return before - tags.size();
+            return removed;
         }
 
-        private static String key(QualifiedTableRef ref, String columnName, String tagKey) {
-            return prefix(ref, columnName) + tagKey;
-        }
-
-        private static String prefix(QualifiedTableRef ref, String columnName) {
-            return ref.catalog() + "|" + ref.schema() + "|" + ref.table() + "|"
-                    + columnName + "|";
+        @Override
+        public void unsetTag(MetadataSessionContext session, QualifiedTableRef table, String column, String key) {
+            super.unsetTag(session, table, column, key);
+            tags.remove(table.catalog() + "|" + table.schema() + "|" + table.table() + "|" + column + "|" + key);
         }
     }
 

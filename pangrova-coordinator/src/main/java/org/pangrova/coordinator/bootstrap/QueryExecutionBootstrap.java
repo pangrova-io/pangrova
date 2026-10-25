@@ -240,7 +240,8 @@ final class QueryExecutionBootstrap {
         if (metadataDataSource != null
                 && (config.securityEnabled() || config.governanceEnabled())) {
             ddlExecutor.setColumnMaskStore(
-                    new org.pangrova.security.store.PersistentColumnMaskStore(metadataDataSource));
+                    new org.pangrova.metadata.service.TableControlColumnMaskStore(catalog,
+                            new org.pangrova.security.store.PersistentColumnMaskStore(metadataDataSource)));
         }
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenancePolicyService =
@@ -258,13 +259,6 @@ final class QueryExecutionBootstrap {
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
-        ddlExecutor.setPolicyBinder(new org.pangrova.metadata.control.TableControlPolicyBinder(
-                catalog.tableControl(),
-                metadataDataSource != null
-                        ? new org.pangrova.metadata.control
-                                .JdbcTableControlGovernanceBindingStore(metadataDataSource)
-                        : new org.pangrova.metadata.control
-                                .InMemoryTableControlGovernanceBindingStore()));
 
         if (auditEmitter != null) {
             var tableControlAudit =

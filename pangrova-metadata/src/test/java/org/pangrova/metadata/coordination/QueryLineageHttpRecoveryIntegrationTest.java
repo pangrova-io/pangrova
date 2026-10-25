@@ -27,6 +27,9 @@ import static org.awaitility.Awaitility.await;
 
 /** Real SDK HTTP, PostgreSQL lock/acknowledgement and successor delivery; no replacement backend. */
 class QueryLineageHttpRecoveryIntegrationTest {
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+            tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
+
     private static final int FORMAL_HTTP_TIMEOUT_MS = 5000;
     private static final int STARTUP_HTTP_TIMEOUT_MS = 20_000;
     private static ReferenceLineageBackend reference;
@@ -170,7 +173,8 @@ class QueryLineageHttpRecoveryIntegrationTest {
                         new org.pangrova.governance.quality.alert.AlertChannelRegistry()));
         var scheduler = new org.pangrova.governance.quality.schedule.CronScheduler(handler);
         var context = new org.pangrova.governance.GovernanceContext(
-                new org.pangrova.governance.GovernanceDeps(emitter, handler, null, scheduler, store));
+                new org.pangrova.governance.GovernanceDeps(emitter, handler, null, scheduler, store, new org.pangrova.governance.classification.ColumnTagService(
+                        table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()))));
         AutoCloseable owner = legacyWrapper ? new org.pangrova.governance.GovernanceWiring(context) : context;
         try {
             try (var lock = reference.connection(); var statement = lock.createStatement()) {

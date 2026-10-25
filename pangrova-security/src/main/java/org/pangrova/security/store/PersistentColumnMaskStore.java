@@ -20,7 +20,7 @@ import org.pangrova.security.mask.EnrichedColumnMaskStore;
 public final class PersistentColumnMaskStore extends PersistentStoreSupport
         implements EnrichedColumnMaskStore {
     private static final String MASK_COLUMNS = "SELECT mask_id, mask_name, catalog_name, schema_name, table_name, "
-            + "column_name, mask_expression, apply_to_roles, exempt_roles, enabled FROM column_mask ";
+            + "column_name, mask_expression, apply_to_roles, exempt_roles, enabled, table_id FROM column_mask ";
 
     public PersistentColumnMaskStore(DataSource dataSource) {
         super(dataSource);
@@ -70,7 +70,7 @@ public final class PersistentColumnMaskStore extends PersistentStoreSupport
                         rs.getString("catalog_name"), rs.getString("schema_name"), rs.getString("table_name"),
                         rs.getString("column_name"), rs.getString("mask_expression"),
                         decodeRoles(rs.getString("apply_to_roles")), decodeRoles(rs.getString("exempt_roles")),
-                        rs.getBoolean("enabled")));
+                        rs.getBoolean("enabled"), rs.getObject("table_id", java.util.UUID.class)));
             }
             return masks;
         }
@@ -79,9 +79,9 @@ public final class PersistentColumnMaskStore extends PersistentStoreSupport
     @Override
     public void saveColumnMask(ColumnMask mask) {
         String sql = "INSERT INTO column_mask (mask_name, catalog_name, schema_name, table_name, "
-                + "column_name, mask_expression, apply_to_roles, exempt_roles, enabled) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT (catalog_name, schema_name, table_name, column_name, mask_name) "
+                + "column_name, mask_expression, apply_to_roles, exempt_roles, enabled, table_id) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT (catalog_name, schema_name, table_name, column_name, mask_name, table_id) "
                 + "DO UPDATE SET mask_expression = EXCLUDED.mask_expression, "
                 + "apply_to_roles = EXCLUDED.apply_to_roles, "
                 + "exempt_roles = EXCLUDED.exempt_roles, enabled = EXCLUDED.enabled";
@@ -96,6 +96,7 @@ public final class PersistentColumnMaskStore extends PersistentStoreSupport
             ps.setString(7, encodeRoles(mask.applyToRoles()));
             ps.setString(8, encodeRoles(mask.exemptRoles()));
             ps.setBoolean(9, mask.enabled());
+            ps.setObject(10, mask.tableId());
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new IllegalStateException("Failed saving column mask " + mask.maskName(), e);

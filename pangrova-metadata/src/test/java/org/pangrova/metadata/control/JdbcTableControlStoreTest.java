@@ -188,6 +188,27 @@ class JdbcTableControlStoreTest {
         assertThat(store.listVersionObservations(record.tableId(), 10)).isEmpty();
     }
 
+    @Test
+    void pendingRenameReservesBothNamesAcrossRestartAndRejectsACompetingRegistration() {
+        var original = managed("orders");
+        store.save(original);
+        var moved = original.toBuilder().name("cat", "db", "renamed")
+                .state(TableControlState.RENAMING).properties(TableControlRenameIntent.begin(original))
+                .metadataRevision(4).build();
+        store.save(moved);
+        var peer = new JdbcTableControlStore(dataSource);
+        assertThat(peer.find("cat", "db", "orders")).contains(moved);
+        assertThat(peer.find("cat", "db", "renamed")).contains(moved);
+        assertThatThrownBy(() -> peer.save(managed("orders")))
+                .isInstanceOf(org.pangrova.metadata.exception.MetastoreException.class);
+        assertThat(peer.find("cat", "db", "orders")).contains(moved);
+        peer.save(moved.toBuilder().state(TableControlState.ACTIVE)
+                .properties(TableControlRenameIntent.complete(moved)).metadataRevision(5).build());
+        assertThat(peer.find("cat", "db", "orders")).isEmpty();
+        peer.save(managed("orders"));
+        assertThat(peer.find("cat", "db", "orders").orElseThrow().tableId()).isNotEqualTo(original.tableId());
+    }
+
     private long countTableInvalidations(String catalog, String schema, String table)
             throws SQLException {
         try (var conn = dataSource.getConnection();

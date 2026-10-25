@@ -6,7 +6,6 @@ import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
 import org.pangrova.security.store.AuthorizationTransactionGate;
-import org.pangrova.security.store.PersistentDeferredAuthorization;
 import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
@@ -411,7 +410,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             throw new SecurityException("Noncanonical source write receipt");
         }
         JdbcTenantStore.requireDeferredTenant(connection, intent.principal(), intent.tenantId(), scope);
-        PersistentDeferredAuthorization.requireCurrent(connection, intent.principal(), scope);
+        org.pangrova.metadata.service.TableControlDeferredPolicy.requireCurrent(connection, intent.principal(), scope);
         scope.definitionSnapshot().ifPresent(definition -> {
             if (!definition.declaration().table().catalog().equals(intent.catalogName())
                 || !(definition.declaration().table().schema() + "." + definition.declaration().table().table())

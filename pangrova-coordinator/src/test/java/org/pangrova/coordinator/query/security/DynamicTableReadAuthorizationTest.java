@@ -29,7 +29,7 @@ class DynamicTableReadAuthorizationTest extends ContainerTestBase {
             fixture.savePolicy(new RowPolicy(0, "dt-region", LOGICAL.catalog(), LOGICAL.schema(),
                     LOGICAL.table(), "region = 'US'", List.of("analysts"), true, 100));
             fixture.saveMask(new ColumnMask(0, "dt-mask", LOGICAL.catalog(), LOGICAL.schema(),
-                    LOGICAL.table(), "department", "'hidden'", List.of("analysts"), List.of(), true));
+                    LOGICAL.table(), "department", "'hidden'", List.of("analysts"), List.of(), true, null));
             SqlCompiler compiler = fixture.dynamicTableCompiler();
             var session = SecuritySqlFixture.session("alice", Set.of("analysts"));
             var plan = compiler.compileForPolicyApplication(

@@ -20,7 +20,6 @@ import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.model.TableMetadata;
 import org.pangrova.metadata.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.sync.SyncResult;
-import org.pangrova.metadata.tag.InMemoryColumnTagStore;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
@@ -213,10 +212,10 @@ class DefaultMetadataServiceControlTest {
 
     @Test
     void persistedColumnTagsAreReplayedIntoGovernanceListeners() {
-        InMemoryColumnTagStore tagStore = new InMemoryColumnTagStore();
-        tagStore.put("cat|db|external|email", "pii_type", "PII_EMAIL");
-        service.setColumnTagStore(tagStore);
-        ColumnTagService tagService = new ColumnTagService();
+        service.createTable(session(), ref("external"), tableMetadata("external"));
+        service.setTag(session(), ref("external"), "email", "pii_type", "PII_EMAIL");
+        ColumnTagService tagService = new ColumnTagService(table -> registry.tableGovernance()
+                .requireBindable(table.catalog(), table.schema(), table.table()).tableId());
         List<TagChangedEvent> events = new java.util.ArrayList<>();
         tagService.addListener(events::add);
         service.setColumnTagService(tagService);
@@ -237,15 +236,14 @@ class DefaultMetadataServiceControlTest {
 
     @Test
     void clearingTableTagsRemovesOnlyThatTablesTags() {
-        InMemoryColumnTagStore tagStore = new InMemoryColumnTagStore();
-        tagStore.put("cat|db|orders|id", "pii_type", "PII_EMAIL");
-        tagStore.put("cat|db|other|id", "pii_type", "PII_PHONE");
-        service.setColumnTagStore(tagStore);
-
-        assertThat(service.clearTableTags(session(), ref("orders"))).isEqualTo(1);
-
-        assertThat(tagStore.list("cat|db|orders|id")).isEmpty();
-        assertThat(tagStore.list("cat|db|other|id"))
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        service.createTable(session(), ref("other"), tableMetadata("other"));
+        service.setTag(session(), ref("orders"), "id", "pii_type", "PII_EMAIL");
+        service.setTag(session(), ref("other"), "id", "pii_type", "PII_PHONE");
+        var tableId = registry.tableControl().find("cat", "db", "orders").orElseThrow().tableId();
+        assertThat(service.clearTableTags(session(), tableId)).isEqualTo(1);
+        assertThat(service.listTags(session(), ref("orders"), "id")).isEmpty();
+        assertThat(service.listTags(session(), ref("other"), "id"))
                 .containsEntry("pii_type", "PII_PHONE");
     }
 

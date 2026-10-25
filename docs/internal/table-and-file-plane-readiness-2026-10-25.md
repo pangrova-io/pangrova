@@ -16,6 +16,36 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Stable classification and rename-reservation checkpoint
+
+The current continuation replaces the duplicate name-keyed `column_tags` store with
+canonical `COLUMN_TAG` governance bindings. Foreground masks and deferred raw-read
+publication now derive classification directly from stable-ID bindings. Production
+bootstrap no longer depends on an event listener updating a second mask authority.
+Authored column masks persist a table ID; retirement and delayed notifications target
+only the captured original identity. Unknown historical ownership fails migration or
+policy reads rather than being adopted by name.
+
+Physical rename persists its source and operation identity and transactionally reserves
+both names. Both source and target remain blocked through restart while RENAMING.
+CREATE, ADOPT and governance cannot overwrite a pending rename. Connector exceptions
+retain reservations because an exception or one source-path observation cannot prove
+that an in-flight physical rename will never commit. Automatic crash reconciliation
+remains a separate open requirement.
+
+Real HTTP SQL validation found that the security expression parsers used the SQL
+standard function table, giving `CHAR_LENGTH` INTEGER while Native requires BIGINT.
+They now use the same typed operator contracts as ordinary SQL. The regression covers
+all three length aliases in masks and row filters, including substring positions.
+Current-source verification results will be recorded here after the owners and SQL
+regressions complete. Native sources are unchanged in this checkpoint.
+
+This checkpoint does not implement immutable directory Manifests/Native DIRECTORY,
+durable multipart ownership/reconciliation, FILE MANAGED ingestion, active-stream
+revocation, or the rest of M0–M5. It also does not qualify authored row-policy/quality
+rule identity, independent-process recovery or the production deployment matrix.
+The previously deferred heavy data/environment gates stay deferred.
+
 ## Resumed implementation and qualification
 
 Current user-directed priority: align architectural correctness and research the
@@ -175,9 +205,9 @@ these failures disappear.
 |---|---|---|
 | P0 final regression | Complete a clean build and the affected/full Java reactor against the final combined revision; rerun failed suites and all four isolated Native owner suites with the final JNI artifact. | Matching source/artifact hashes, complete reports, no unresolved failure or skipped mandatory gate. |
 | P0/P1 catalog deployment identity qualification | Registration, adoption, guarded legacy backfill and admission comparisons are implemented and covered by the resumed checkpoint above. Complete final combined-revision and process-level qualification. | Retain same-UUID catalog replacement/revision and stale-peer PostgreSQL/HTTP SQL evidence in the final regression. |
-| P1 stable governance identity | `TableControlPolicyBinder` stores stable-ID bindings, while `MetadataTagOperations` and derived mask projections remain name-based. Finish the read/write projection and recovery audit; do not equate the binder's existence with end-to-end stable-ID enforcement. | ADOPT → tag/mask/quality/audit → rename → restart → UNLINK; external drop/recreate cannot inherit stale policy. |
+| P1 stable governance identity | Canonical tags and authored/derived column-mask reads now use stable table IDs, including deferred raw-read authorization and captured-ID cleanup. Complete authored row-policy/quality identity and process recovery qualification; do not equate this classification checkpoint with all governance being complete. | ADOPT → tag/mask/quality/audit → rename → restart → UNLINK; external drop/recreate cannot inherit stale policy. |
 | P1 external writers | Add/run actual Spark local Iceberg writes on MinIO with JDBC/REST catalogs. | Append, position delete, DV, overwrite and equality-delete fail-closed results compared with Spark. |
-| P2 recovery | Crash/ambiguous rename currently remains RENAMING and fails closed. Durable automatic reconciliation of the physical rename and governance projections is not implemented. | Crash injection before/after physical rename and every projection step converges without granting authority to a replacement. |
+| P2 recovery | Crash/ambiguous rename persists the source intent and reserves both names in RENAMING; it fails closed across store restart. Durable automatic reconciliation of physical rename and governance projections is not implemented. | Crash injection before/after physical rename and every projection step converges without granting authority to a replacement. |
 | P2 lifecycle/governance integration | Complete combined-revision validation of automatic maintenance leadership, durable audit, tags/masks, write-quality gates, statistics consumed by planning, UNKNOWN recovery and orphan cleanup. | Actual SQL results and durable effects across coordinator process restart and leadership transfer. |
 | P2 Paimon external writer | Add/run Flink mini-cluster fixtures for primary key, sequence groups, aggregation and partial updates. | Flink-produced data remains correct and respects MANAGED/external ownership boundaries. |
 | P3 equality deletes | Full equality-delete semantics remain unimplemented/unqualified; capability must stay false. | Spark oracle for equality/position/DV mixtures, null/type/schema-evolution and snapshot/sequence applicability. |

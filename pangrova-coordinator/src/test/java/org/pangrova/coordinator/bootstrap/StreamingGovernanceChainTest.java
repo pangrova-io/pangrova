@@ -52,6 +52,9 @@ import static org.assertj.core.api.Assertions.*;
  */
 @Tag("streaming-governance-component")
 class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+            tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
+
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -225,7 +228,8 @@ class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.Si
         TagBasedSecurityPolicy policy = new TagBasedSecurityPolicy(
                 new InMemoryColumnMaskStore(), new InMemoryAuditConfigStore());
         return new GovernanceContext(new GovernanceDeps(
-                emitter, handler, policy, scheduler, ruleStore));
+                emitter, handler, policy, scheduler, ruleStore, new org.pangrova.governance.classification.ColumnTagService(
+                        table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()))));
     }
 
     private void fillEmitterQueue(LineageEventEmitter emitter, int count) {

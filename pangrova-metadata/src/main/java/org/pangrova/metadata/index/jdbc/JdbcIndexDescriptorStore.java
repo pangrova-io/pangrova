@@ -7,7 +7,6 @@ import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.index.IndexType;
 import org.pangrova.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.store.PersistentDeferredAuthorization;
 import org.pangrova.security.store.AuthorizationTransactionGate;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
@@ -169,7 +168,8 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                 }
                 if (requireCurrentGrant) {
                     JdbcTenantStore.requireDeferredTenant(connection, principal, descriptor.tenantId(), actual);
-                    PersistentDeferredAuthorization.requireCurrent(connection, principal, actual);
+                    org.pangrova.metadata.service.TableControlDeferredPolicy.requireCurrent(
+                            connection, principal, actual);
                 }
                 return principal;
             }

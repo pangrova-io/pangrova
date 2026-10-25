@@ -149,7 +149,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
         bindPolicyAuthority();
         assertMetadataReadsUnchanged();
         masks.saveColumnMask(new ColumnMask(0, "redact_region", catalog, SCHEMA, table, "region",
-                "'redacted'", List.of(role), List.of(), true));
+                "'redacted'", List.of(role), List.of(), true, null));
         assertThat(sqlRunner.execute("SELECT region FROM " + qualified)).hasSize(2)
                 .allSatisfy(row -> assertThat(row.getString("region")).isEqualTo("redacted"));
         assertPolicyBlocksMetadata();

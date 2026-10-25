@@ -30,9 +30,12 @@ CREATE TABLE IF NOT EXISTS column_mask (
     apply_to_roles  TEXT         NOT NULL,        -- comma-separated role list ('' = all)
     exempt_roles    TEXT         NOT NULL,        -- comma-separated role list
     enabled         BOOLEAN      NOT NULL DEFAULT TRUE,
-    PRIMARY KEY (mask_id),
-    UNIQUE (catalog_name, schema_name, table_name, column_name, mask_name)
+    table_id        UUID,
+    PRIMARY KEY (mask_id)
 );
+ALTER TABLE column_mask ADD COLUMN IF NOT EXISTS table_id UUID;
+CREATE UNIQUE INDEX IF NOT EXISTS column_mask_scoped_identity
+    ON column_mask (catalog_name, schema_name, table_name, column_name, mask_name, table_id) NULLS NOT DISTINCT;
 CREATE INDEX idx_column_mask_column ON column_mask (catalog_name, schema_name, table_name, column_name);
 
 -- Privilege grants (PrivilegeGrant) — backing store for dynamic RBAC GRANT/REVOKE.

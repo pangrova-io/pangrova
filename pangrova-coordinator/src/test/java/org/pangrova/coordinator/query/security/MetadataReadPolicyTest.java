@@ -51,7 +51,7 @@ class MetadataReadPolicyTest {
     void maskOnUnprojectedBaseColumnRejectsMetadataReads(String suffix) {
         var masks = new InMemoryEnrichedColumnMaskStore();
         masks.saveColumnMask(new ColumnMask(0, "redact", "cat", "sch", "orders", "secret",
-                "NULL", List.of("readers"), List.of(), true));
+                "NULL", List.of("readers"), List.of(), true, null));
         rejectsMetadata(enforcer(new EmptyRowPolicyStore(), masks), suffix);
     }
 

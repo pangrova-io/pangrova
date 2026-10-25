@@ -25,6 +25,6 @@ class InMemoryEnrichedColumnMaskStoreTest {
 
     private static ColumnMask mask(String catalog, String schema, String expression) {
         return new ColumnMask(0, "same_name", catalog, schema, "orders", "secret", "'" + expression + "'",
-                List.of(), List.of(), true);
+                List.of(), List.of(), true, null);
     }
 }

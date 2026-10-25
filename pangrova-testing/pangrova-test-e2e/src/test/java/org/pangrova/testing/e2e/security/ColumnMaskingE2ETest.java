@@ -85,7 +85,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'***'",
                     List.of("interns"),   // applies to interns
                     List.of("admins"),    // admins are exempt
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -104,7 +104,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'XXX-XX-' || SUBSTRING({column}, 8)",
                     List.of("interns"),
                     List.of("admins"),
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(ssnMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -132,7 +132,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'***'",
                     List.of("interns"),
                     List.of("admins"),
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -151,7 +151,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'XXX-XX-' || SUBSTRING({column}, 8)",
                     List.of("interns"),
                     List.of("admins"),
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(ssnMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -178,7 +178,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'REDACTED'",
                     List.of("interns"),   // only interns
                     List.of(),            // no exemptions
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -201,7 +201,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "0",
                     List.of(),            // applies to everyone
                     List.of("admins"),    // only admins exempt
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(universalMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -227,7 +227,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'***'",
                     List.of("interns"),
                     List.of(),
-                    false);  // disabled
+                    false, null);  // disabled
 
             EnrichedColumnMaskStore store = buildMaskStore(disabledMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -253,7 +253,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'***'",
                     List.of("interns"),
                     List.of("admins"),
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -279,7 +279,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'***'",
                     List.of("interns"),
                     List.of("admins"),
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
@@ -305,7 +305,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                     "'***'",
                     List.of("interns"),
                     List.of("admins"),
-                    true);
+                    true, null);
 
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);

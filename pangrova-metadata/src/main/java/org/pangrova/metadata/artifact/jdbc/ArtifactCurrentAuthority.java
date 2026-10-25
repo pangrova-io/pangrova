@@ -5,7 +5,6 @@ import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStoreMappings;
 import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.store.AuthorizationTransactionGate;
-import org.pangrova.security.store.PersistentDeferredAuthorization;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 
 import java.sql.Connection;
@@ -37,7 +36,8 @@ public final class ArtifactCurrentAuthority {
     public static void requireCurrent(Connection connection, ArtifactBuildDispatchSpec spec) throws SQLException {
         AuthorizationTransactionGate.lockPublication(connection);
         JdbcTenantStore.requireDeferredTenant(connection, spec.principal(), spec.tenantId(), spec.authorizationScope());
-        PersistentDeferredAuthorization.requireCurrent(connection, spec.principal(), spec.authorizationScope());
+        org.pangrova.metadata.service.TableControlDeferredPolicy.requireCurrent(
+                connection, spec.principal(), spec.authorizationScope());
         GeneratedModelCurrentAuthority.requireCurrent(connection, spec.principal(), spec.stageGraph().modelSnapshots());
         if (spec.authorizationScope().definitionSnapshot().isPresent()) {
             GeneratedModelCurrentAuthority.requireCurrent(connection, spec.principal(),

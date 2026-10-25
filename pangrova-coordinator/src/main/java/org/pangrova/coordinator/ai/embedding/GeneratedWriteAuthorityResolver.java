@@ -8,7 +8,6 @@ import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.store.PersistentDeferredAuthorization;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
@@ -100,7 +99,7 @@ final class GeneratedWriteAuthorityResolver {
                                     ::isReservedDynamicTableGeneration
                             : table -> false);
             if (!request.internalMaterializationExecution()) {
-                PersistentDeferredAuthorization.requireCurrent(connection, principal, scope);
+                org.pangrova.metadata.service.TableControlDeferredPolicy.requireCurrent(connection, principal, scope);
             }
             var receipt = DeferredAuthorizationScopeCodec.encodeWriteReceipt(scope);
             connection.commit();

@@ -41,11 +41,12 @@ public final class InMemoryEnrichedColumnMaskStore implements EnrichedColumnMask
                 && m.catalogName().equals(mask.catalogName())
                 && m.schemaName().equals(mask.schemaName())
                 && m.tableName().equals(mask.tableName())
-                && m.columnName().equals(mask.columnName()));
+                && m.columnName().equals(mask.columnName())
+                && java.util.Objects.equals(m.tableId(), mask.tableId()));
         masks.add(new ColumnMask(nextId.getAndIncrement(), mask.maskName(),
                 mask.catalogName(), mask.schemaName(), mask.tableName(), mask.columnName(),
                 mask.maskExpression(), mask.applyToRoles(), mask.exemptRoles(),
-                mask.enabled()));
+                mask.enabled(), mask.tableId()));
     }
 
     @Override

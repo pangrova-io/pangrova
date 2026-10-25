@@ -520,8 +520,8 @@ interface AlertChannelRegistry {
 ### 5.2 Tag Management SQL
 
 Column-level `SET TAG` / `UNSET TAG` is wired end to end. Tags are durable, bound
-to the table's stable `table_id`, and derived policies are written to the same
-store that query enforcement reads.
+to the table's stable `table_id`, and query enforcement derives classification
+masks directly from those canonical bindings.
 
 ```sql
 -- Create a tag
@@ -570,104 +570,42 @@ Rules enforced by the DDL path:
 
 ### 5.3 Tag and Security Policy Integration
 
-The chain is implemented. A tag change is persisted first, then replayed through
-a single shared `ColumnTagService`, so `TagBasedSecurityPolicy` updates the same
-`PersistentColumnMaskStore` that column-masking reads during query execution.
+`MetadataTagOperations` persists one `COLUMN_TAG` governance binding with stable table
+identity and framed `(column, tag key)` reference. `TableControlColumnMaskStore` combines
+identity-bound authored masks with mandatory PII masks derived from these bindings.
+`ColumnMaskingProcessor` renders their SQL through the same typed operator contracts
+used by ordinary queries. The resulting expression executes in Native.
 
-```
-Tag Change Event Flow:
-  1. ALTER TABLE ... ALTER COLUMN ... SET TAG pii_type = 'PII_EMAIL'
-     → DdlExecutor records the binding against the stable table_id
-     → MetadataService.setTag() persists the tag and publishes TagChangedEvent
-  2. TagBasedSecurityPolicy subscribes to TagChangedEvent
-     → Check whether the new tag matches automatic policy rules
-     → If matched, upsert a masking rule into PersistentColumnMaskStore
-  3. Query enforcement (ColumnMaskingProcessor) reads the mask store live,
-     so the new mask applies to subsequent statements without a cache flush
-  4. On coordinator restart, persisted column tags are replayed through the
-     same ColumnTagService, rebuilding auto-masks missing from the store
-```
+`TableControlDeferredPolicy` reads the current table/catalog identity and the same
+bindings on the durable publication transaction. A background raw-artifact read cannot
+bypass a canonical classification merely because another coordinator has not received
+an event. Production bootstrap does not create a second event-maintained mask authority.
 
-The mask store keys a mask by `(catalog, schema, table, column, mask_name)` and
-upserts on conflict, so re-assigning the same tag updates the expression in
-place instead of failing. `UNSET TAG` removes the mask through the same event
-path.
+`ColumnTagService` events carry `tableId`; its cache and retirement operations use that
+captured identity. It fans out notifications and reports listener failures after fanout.
+Persistence precedes notification, so a notification failure does not undo the security
+policy. Restarted policy readers consult the canonical store without event replay.
+`TagBasedSecurityPolicy` remains an explicit component for standalone event consumers;
+it is not production authorization's durable source.
 
-**Event definition**:
+Authored masks persist their stable table ID. Name reuse cannot apply an old identity's
+mask to a replacement. Unbound historical authored masks are rejected until explicitly
+rebound; the upgrade does not guess ownership from a matching name. The `auto_pii_`
+namespace is reserved for classification and cannot be written or deleted through the
+authored-mask API.
 
-```java
-/**
- * Tag change event — published by MetadataService when tags are modified.
- * Consumed by TagBasedSecurityPolicy for auto-masking.
- */
-public record TagChangedEvent(
-    String catalog, String schema, String table,
-    String columnName,    // null for table-level tags
-    String tagKey,
-    String oldValue,      // null if tag is new
-    String newValue       // null if tag is removed
-) {}
-```
+The accepted PII values, VARCHAR requirement, NULL/short-string behavior and migration
+rules are specified in [column tag SQL](../sql-reference/ddl.md#set--unset-column-tag).
+Table-level tags, tag catalog DDL, tag search SQL and automatic classification examples
+in §5.2 remain target design; they are not implemented by this column-tag path.
 
-```java
-/**
- * Tag-based automatic security policy
- *
- * Trigger mechanism: event-driven (subscribes to TagChangedEvent), not polling.
- * Automatically evaluates and applies/removes security policies when tags change.
- */
-public class TagBasedSecurityPolicy implements EventListener<TagChangedEvent> {
-
-    private final ColumnMaskStore columnMaskStore;
-    private final AuditConfigStore auditConfigStore;
-
-    @Override
-    public void onEvent(TagChangedEvent event) {
-        if (event.columnName() != null) {
-            handleColumnTagChange(event);
-        } else {
-            handleTableTagChange(event);
-        }
-    }
-
-    private void handleColumnTagChange(TagChangedEvent event) {
-        if (!"pii_type".equals(event.tagKey())) return;
-
-        String fullTableName = event.catalog() + "." + event.schema() + "." + event.table();
-
-        if (event.newValue() != null) {
-            // Tag added/changed → apply mask
-            String maskExpr = piiTypeToMaskExpression(event.newValue());
-            if (maskExpr != null) {
-                columnMaskStore.createOrUpdateMask(
-                    fullTableName, event.columnName(), maskExpr, "auto_pii_mask");
-            }
-        } else {
-            // Tag removed → remove auto-generated mask
-            columnMaskStore.removeMask(fullTableName, event.columnName(), "auto_pii_mask");
-        }
-    }
-
-    private void handleTableTagChange(TagChangedEvent event) {
-        if (!"sensitivity_level".equals(event.tagKey())) return;
-        String fullTableName = event.catalog() + "." + event.schema() + "." + event.table();
-
-        if ("CONFIDENTIAL".equals(event.newValue()) || "RESTRICTED".equals(event.newValue())) {
-            auditConfigStore.enableDetailedAudit(fullTableName);
-        }
-    }
-
-    private String piiTypeToMaskExpression(String piiType) {
-        return switch (piiType) {
-            case "PII_EMAIL" -> "mask_email({column})";
-            case "PII_PHONE" -> "mask_phone({column})";
-            case "PII_SSN" -> "CONCAT('***-**-', RIGHT({column}, 4))";
-            case "PII_NAME" -> "mask_name({column})";
-            default -> null;
-        };
-    }
-}
-```
+Physical table rename first persists its source intent and reserves both source and
+target names under one table ID. Queries, CREATE and governance mutation fail closed
+while the outcome is uncertain. Registry mutation, name reservations and invalidations
+commit atomically. Successful rename preserves classification identity; ambiguous
+connector exceptions retain RENAMING for reconciliation, rather than inferring failure
+from one observation that the old path still exists. Automatic crash reconciliation and
+stable identity for authored row policies/quality rules require separate completion.
 
 ---
 

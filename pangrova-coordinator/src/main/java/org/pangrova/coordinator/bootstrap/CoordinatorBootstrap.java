@@ -97,7 +97,10 @@ public final class CoordinatorBootstrap {
     }
 
     private void startRoleSubsystems() {
-        security = new SecurityBootstrap(config, metadataDataSource);
+        security = new SecurityBootstrap(config, metadataDataSource, source ->
+                new org.pangrova.metadata.service.TableControlColumnMaskStore(
+                        metadataBootstrap.catalogRegistry(),
+                        new org.pangrova.security.store.PersistentColumnMaskStore(source)));
         security.start();
         validateInternalAuthSecret();
         startModules();
@@ -300,13 +303,8 @@ public final class CoordinatorBootstrap {
                             metadataBootstrap.catalogRegistry().tableControl(),
                             new org.pangrova.metadata.control
                                     .JdbcTableControlStatisticsStore(metadataDataSource)));
-            // P2-3: persist column governance tags across restarts now that a metadata
-            // datasource is configured (the service defaults to in-memory otherwise).
-            if (metadataBootstrap.metadataService()
-                    instanceof org.pangrova.metadata.service.DefaultMetadataService taggedService) {
-                taggedService.setColumnTagStore(
-                        new org.pangrova.metadata.tag.JdbcColumnTagStore(metadataDataSource));
-            }
+            metadataBootstrap.catalogRegistry().setGovernanceBindingStore(
+                    new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(metadataDataSource));
             LOG.info("event=phase_started phase=metadata");
         } catch (Exception e) {
             throw new BootstrapFailedException("Metadata", e);
@@ -338,6 +336,9 @@ public final class CoordinatorBootstrap {
         }
         if (distributedLease != null) {
             moduleWiring.setDistributedLease(distributedLease);
+        }
+        if (metadataBootstrap != null) {
+            moduleWiring.setMetadataSyncDeps(metadataBootstrap.syncService(), metadataBootstrap.catalogRegistry());
         }
         moduleWiring.startGovernance(config, metadataDataSource);
         // Share the governance tag event source with metadata DDL so SET/UNSET

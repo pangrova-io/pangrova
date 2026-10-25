@@ -21,6 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * source column must trigger masking on derived objects produced by CTAS/INSERT...SELECT.
  */
 class LineageTagPropagatorTest {
+    private final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+            tableIds = new java.util.HashMap<>();
+
 
     private ColumnTagService tagService;
     private LineageCatalog lineageCatalog;
@@ -28,7 +31,7 @@ class LineageTagPropagatorTest {
 
     @BeforeEach
     void setUp() {
-        tagService = new ColumnTagService();
+        tagService = new ColumnTagService(table -> tableIds.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()));
         lineageCatalog = new LineageCatalog();
         propagator = new LineageTagPropagator(tagService, lineageCatalog);
         // Register the propagator as a listener on the tag service
@@ -126,7 +129,7 @@ class LineageTagPropagatorTest {
         // Table-level tag event (columnName == null)
         TagChangedEvent tableEvent = new TagChangedEvent(
                 "cat", "raw", "users", null,
-                "sensitivity_level", null, "RESTRICTED");
+                "sensitivity_level", null, "RESTRICTED", null);
         propagator.onTagChanged(tableEvent);
 
         // No column tags should have been added to derived

@@ -809,7 +809,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     /** Restores the ordinary fixture role after a scoped-authority E2E scenario. */
     protected static void restoreDefaultSqlAuthority() {
-        E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL);
+        E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL,
+                        metadataBootstrap.catalogRegistry());
     }
 
     /** Releases a scenario's policy wiring; no alternative compilation path is retained. */
@@ -2123,7 +2124,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         E2eCurrentAuthority.tenants(stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL, E2E_TENANT_QUOTA);
         E2eCurrentAuthority.provisionModels(stateStoreDataSource, E2E_USER_PRINCIPAL);
         currentAccessControl = featureAccessControl == null
-                ? E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL) : featureAccessControl;
+                ? E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL,
+                        metadataBootstrap.catalogRegistry()) : featureAccessControl;
         var embeddingRegistry = new org.pangrova.coordinator.ai.embedding.JdbcEmbeddingModelRegistry(
                 java.util.Objects.requireNonNull(
                         stateStoreDataSource, "E2E PostgreSQL state store must be initialized"),
@@ -2370,6 +2372,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var catalog = metadataBootstrap.catalogRegistry();
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
                 org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
+        ddlExecutor.setMetadataService(metadataBootstrap.metadataService());
+        ddlExecutor.setColumnMaskStore(new org.pangrova.metadata.service.TableControlColumnMaskStore(catalog,
+                new org.pangrova.security.store.PersistentColumnMaskStore(stateStoreDataSource)));
         sharedDdlExecutor = ddlExecutor;
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenancePolicyService = new org.pangrova.metadata.control.TableControlMaintenanceService(
@@ -2686,6 +2691,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                             descriptor, dependencies, sharedDatasetControlClient, sourceCatalogs.apply(descriptor))),
                     descriptor -> java.util.Optional.of(sourceCatalogs.apply(descriptor)));
             MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
+            bootstrap.catalogRegistry().setGovernanceBindingStore(
+                    new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(ds));
             System.err.println("[E2E-DEBUG] initializeMetadata: bootstrap initialized");
             LOG.info("MetadataBootstrap initialized with state store tables");
             return bootstrap;

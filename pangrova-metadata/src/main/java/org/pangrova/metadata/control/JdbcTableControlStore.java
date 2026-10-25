@@ -55,8 +55,8 @@ public final class JdbcTableControlStore implements TableControlStore {
             + "WHERE table_control_registry.metadata_revision < EXCLUDED.metadata_revision";
 
     private static final String FIND_LIVE = "SELECT " + COLUMNS + " FROM table_control_registry "
-            + "WHERE catalog_name=? AND schema_name=? AND table_name=? "
-            + "AND state <> 'DROPPED'";
+            + "WHERE state <> 'DROPPED' AND table_id IN (SELECT table_id "
+            + "FROM table_control_name_reservation WHERE catalog_name=? AND schema_name=? AND table_name=?)";
 
     private static final String FIND_BY_ID = "SELECT " + COLUMNS + " FROM table_control_registry "
             + "WHERE table_id=?";
@@ -146,10 +146,32 @@ public final class JdbcTableControlStore implements TableControlStore {
                             + record.metadataRevision()
                             + ": another coordinator advanced the record");
                 }
-                executeUpdate(conn, INSERT_INVALIDATION, ps -> {
-                    ps.setString(1, cacheKey(record));
-                    ps.setString(2, "TABLE");
-                });
+                var names = reservedNames(conn, record.tableId());
+                executeUpdate(conn, "DELETE FROM table_control_name_reservation WHERE table_id=?",
+                        ps -> ps.setObject(1, record.tableId()));
+                var reserved = new java.util.LinkedHashSet<org.pangrova.metadata.model.QualifiedTableRef>();
+                if (record.state() != TableControlState.DROPPED) {
+                    reserved.add(record.tableRef());
+                    TableControlRenameIntent.source(record).ifPresent(reserved::add);
+                }
+                for (var name : reserved) {
+                    executeUpdate(conn, "INSERT INTO table_control_name_reservation "
+                            + "(catalog_name,schema_name,table_name,table_id) VALUES (?,?,?,?)", ps -> {
+                                ps.setString(1, name.catalog());
+                                ps.setString(2, name.schema());
+                                ps.setString(3, name.table());
+                                ps.setObject(4, record.tableId());
+                            });
+                }
+                names.addAll(reserved);
+                names.add(record.tableRef());
+                for (var name : names) {
+                    executeUpdate(conn, INSERT_INVALIDATION, ps -> {
+                        ps.setString(1, name.catalog() + CACHE_KEY_SEPARATOR + name.schema()
+                                + CACHE_KEY_SEPARATOR + name.table());
+                        ps.setString(2, "TABLE");
+                    });
+                }
                 if (observation.isPresent()) {
                     executeUpdate(conn, INSERT_OBSERVATION, ps -> bindObservation(ps, observation.get()));
                 }
@@ -162,6 +184,20 @@ public final class JdbcTableControlStore implements TableControlStore {
             throw new MetastoreException(
                     "Failed to save table control record: " + record.qualifiedName(), e);
         }
+    }
+
+    private static java.util.Set<org.pangrova.metadata.model.QualifiedTableRef> reservedNames(
+            Connection connection, UUID tableId) throws SQLException {
+        var names = new java.util.LinkedHashSet<org.pangrova.metadata.model.QualifiedTableRef>();
+        try (var query = connection.prepareStatement("SELECT catalog_name, schema_name, table_name "
+                + "FROM table_control_name_reservation WHERE table_id=?")) {
+            query.setObject(1, tableId);
+            try (var rows = query.executeQuery()) {
+                while (rows.next()) names.add(new org.pangrova.metadata.model.QualifiedTableRef(
+                        rows.getString(1), rows.getString(2), rows.getString(3)));
+            }
+        }
+        return names;
     }
 
     private static void bindObservation(PreparedStatement ps, TableVersionObservation observation)
@@ -193,11 +229,6 @@ public final class JdbcTableControlStore implements TableControlStore {
             }
             return observations;
         });
-    }
-
-    private static String cacheKey(TableControlRecord record) {
-        return record.catalog() + CACHE_KEY_SEPARATOR + record.schema()
-                + CACHE_KEY_SEPARATOR + record.table();
     }
 
     private static int executeUpdate(Connection conn, String sql,

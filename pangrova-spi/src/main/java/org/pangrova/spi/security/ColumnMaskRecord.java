@@ -27,7 +27,8 @@ public record ColumnMaskRecord(
         String maskExpression,
         List<String> applyToRoles,
         List<String> exemptRoles,
-        boolean enabled
+        boolean enabled,
+        java.util.UUID tableId
 ) {
 
     public ColumnMaskRecord {

@@ -10,5 +10,6 @@ public record TagChangedEvent(
     String columnName,
     String tagKey,
     String oldValue,
-    String newValue
+    String newValue,
+    java.util.UUID tableId
 ) {}

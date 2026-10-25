@@ -238,15 +238,29 @@ ALTER TABLE prod.analytics.customers ALTER COLUMN email SET TAG pii_type = 'PII_
 ALTER TABLE prod.analytics.customers ALTER COLUMN email UNSET TAG pii_type;
 ```
 
-The tag is persisted in the metadata tag store and bound to the table's stable
-`table_id`. `TagBasedSecurityPolicy` reacts to the emitted tag event and upserts
-(or removes) the derived column mask in the persistent mask store that query
-execution reads, so the mask applies to subsequent statements.
+Tags have one durable authority: `COLUMN_TAG` governance bindings keyed by stable
+`table_id`, column and tag key. Query and deferred-publication policy readers derive
+PII masks directly from those bindings; asynchronous events are cache/audit hints.
+A missing or failed event projection cannot turn a committed classification into a raw read.
 
-The table must be `LINKED` or `MANAGED`; tagging an `OBSERVED` table fails and
-requires `ADOPT` first. The column must exist. Tag changes are replayed on
-coordinator restart, and `UNLINK`/`DROP TABLE` clears the table's tags, bindings,
-and derived masks. Table-level `SET TAG` and `CREATE TAG` are not implemented.
+The table must be ACTIVE and `LINKED` or `MANAGED`; tagging an `OBSERVED` table
+requires `ADOPT` first. The column must exist. `pii_type` requires a declared VARCHAR
+column and accepts exactly `PII_EMAIL`, `PII_PHONE`, `PII_SSN`, or `PII_NAME`.
+NULL stays NULL. Email becomes `***@***`, names become `***`, and phone/SSN values
+longer than four characters become `***` plus their final four characters; shorter
+values are fully redacted. Classification masks apply to all roles and take precedence
+above authored mask exemptions. Change the tag through `SET/UNSET TAG`.
+
+Rename retains the stable binding. Both names are reserved and inaccessible while
+physical rename has an uncertain outcome; an exception does not prove rollback.
+Drop/recreate receives a new table identity, and delayed cleanup/events from the old
+table cannot remove the replacement's policy. `UNLINK`/`DROP TABLE` clear the captured
+table's bindings. Table-level `SET TAG` and `CREATE TAG` are not implemented.
+
+Upgrade migrations accept historical tags only when each legacy value has a unique,
+matching live stable binding. Unproven or ambiguous ownership blocks migration and
+preserves the original rows. Authored masks without proven table identity fail closed
+until explicitly rebound. Pending legacy renames require reconciliation before upgrade.
 
 ### SHOW TABLES
 
