@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Tag("integration")
 class JdbcTableControlStoreTest {
@@ -126,10 +127,12 @@ class JdbcTableControlStoreTest {
         TableControlRecord record = managed("orders");
         store.save(record);
 
-        store.recordVersionObservation(new TableVersionObservation(
+        store.saveWithObservation(record.toBuilder().metadataRevision(4)
+                .version("ICEBERG:uuid-orders:8", NOW.plusSeconds(30)).build(), new TableVersionObservation(
                 record.tableId(), "ICEBERG:uuid-orders:8", "ICEBERG:uuid-orders:7",
                 "PERIODIC", NOW.plusSeconds(30)));
-        store.recordVersionObservation(new TableVersionObservation(
+        store.saveWithObservation(record.toBuilder().metadataRevision(5)
+                .version("ICEBERG:uuid-orders:9", NOW.plusSeconds(60)).build(), new TableVersionObservation(
                 record.tableId(), "ICEBERG:uuid-orders:9", "ICEBERG:uuid-orders:8",
                 "PERIODIC", NOW.plusSeconds(60)));
 
@@ -147,6 +150,42 @@ class JdbcTableControlStoreTest {
         store.save(record);
 
         assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(before + 1);
+    }
+
+    @Test
+    void observationFailureRollsBackRevisionAndInvalidation() throws SQLException {
+        TableControlRecord record = managed("orders");
+        store.save(record);
+        long invalidations = countTableInvalidations("cat", "db", "orders");
+        TableControlRecord updated = record.toBuilder().metadataRevision(4)
+                .version("next", NOW.plusSeconds(30)).build();
+
+        assertThatThrownBy(() -> store.saveWithObservation(updated,
+                new TableVersionObservation(record.tableId(), "next", record.versionToken(),
+                        "x".repeat(33), NOW.plusSeconds(30))))
+                .isInstanceOf(org.pangrova.metadata.exception.MetastoreException.class);
+        assertThat(store.findById(record.tableId())).contains(record);
+        assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(invalidations);
+        assertThat(store.listVersionObservations(record.tableId(), 10)).isEmpty();
+    }
+
+    @Test
+    void staleObservationCannotLeaveHistoryOrInvalidationsBehind() throws SQLException {
+        TableControlRecord record = managed("orders");
+        store.save(record);
+        store.save(record.toBuilder().state(TableControlState.QUARANTINED)
+                .metadataRevision(4).build());
+        long invalidations = countTableInvalidations("cat", "db", "orders");
+
+        assertThatThrownBy(() -> store.saveWithObservation(record.toBuilder()
+                .metadataRevision(4).version("next", NOW).build(),
+                new TableVersionObservation(record.tableId(), "next", record.versionToken(),
+                        "PERIODIC", NOW)))
+                .isInstanceOf(org.pangrova.metadata.exception.MetastoreException.class);
+        assertThat(store.findById(record.tableId()).orElseThrow().state())
+                .isEqualTo(TableControlState.QUARANTINED);
+        assertThat(countTableInvalidations("cat", "db", "orders")).isEqualTo(invalidations);
+        assertThat(store.listVersionObservations(record.tableId(), 10)).isEmpty();
     }
 
     private long countTableInvalidations(String catalog, String schema, String table)

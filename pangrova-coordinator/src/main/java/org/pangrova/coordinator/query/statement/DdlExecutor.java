@@ -217,10 +217,14 @@ public final class DdlExecutor {
 
         var tableControl = catalogRegistry.tableControl();
         tableControl.requireDroppable(ref.catalog(), ref.schema(), ref.table(), "DROP TABLE");
+        if (tableControl.enforcing()) {
+            tableControl.requireDroppable(ref.catalog(), ref.schema(), ref.table(), "DROP TABLE",
+                    metadata.getTableIdentity(session, handle));
+        }
         var record = tableControl.find(ref.catalog(), ref.schema(), ref.table());
         List<String> columns = tableColumns(metadata, session, handle);
         metadata.dropTable(session, handle);
-        tableControl.markDropped(ref.catalog(), ref.schema(), ref.table());
+        record.ifPresent(tableControl::markDropped);
         record.ifPresent(target -> tableControlOperations.purgeTableState(target, context));
         tableControlOperations.purgeColumnMasks(ref, columns);
         invalidateSchemaCache();
@@ -250,26 +254,37 @@ public final class DdlExecutor {
         var tableControl = catalogRegistry.tableControl();
         tableControl.requireManagedForDdl(ref.catalog(), ref.schema(), ref.table(), "ALTER TABLE");
         ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
+        if (tableControl.enforcing()) {
+            tableControl.requireManagedForDdl(ref.catalog(), ref.schema(), ref.table(), "ALTER TABLE",
+                    metadata.getTableIdentity(session, handle));
+        }
         validateGeneratedColumnEvolution(metadata, session, handle, stmt);
         var renameTarget = resolveRenameTarget(stmt, ref);
         List<String> columns = renameTarget == null ? List.of() : tableColumns(metadata, session, handle);
         // Move ownership before the physical rename so a target that already has a
         // live control record is rejected while the catalog is still untouched.
-        boolean controlMoved = false;
-        if (renameTarget != null) {
-            tableControl.rename(ref.catalog(), ref.schema(), ref.table(),
-                    renameTarget.schema(), renameTarget.table());
-            controlMoved = true;
+        org.pangrova.metadata.control.TableControlRecord movedControl = null;
+        if (renameTarget != null && tableControl.enabled()) {
+            var sourceControl = tableControl.find(ref.catalog(), ref.schema(), ref.table());
+            if (sourceControl.isPresent()) {
+                movedControl = tableControl.rename(sourceControl.get(),
+                        renameTarget.schema(), renameTarget.table());
+            }
         }
         try {
             applyAlterOperation(metadata, session, handle, stmt);
         } catch (RuntimeException failure) {
             revertControlRenameOnFailure(tableControl, metadata, session, ref, renameTarget,
-                    controlMoved, failure);
+                    movedControl, failure);
             throw failure;
         }
         if (renameTarget != null) {
             tableControlOperations.moveNameScopedGovernance(ref, renameTarget, columns, context);
+            if (movedControl != null) {
+                var renamed = TableResolver.requireTableHandle(metadata, session, renameTarget);
+                tableControl.completeRename(movedControl, metadata.getTableIdentity(session, renamed),
+                        metadata.observeVersion(session, renamed));
+            }
         }
         invalidateSchemaCache();
         fireSchemaChangeEvent(context.tenantId(), ref, stmt);
@@ -280,38 +295,24 @@ public final class DdlExecutor {
     private static void revertControlRenameOnFailure(
             org.pangrova.metadata.control.TableControlService tableControl,
             ConnectorMetadata metadata, ConnectorSession session, QualifiedTableName ref,
-            QualifiedTableName renameTarget, boolean controlMoved, RuntimeException failure) {
-        if (!controlMoved || renameTarget == null) {
-            return;
-        }
-        if (!sourceStillResolves(metadata, session, ref, renameTarget)) {
+            QualifiedTableName renameTarget,
+            org.pangrova.metadata.control.TableControlRecord movedControl, RuntimeException failure) {
+        if (movedControl == null || renameTarget == null) {
             return;
         }
         try {
-            tableControl.rename(ref.catalog(), renameTarget.schema(), renameTarget.table(),
-                    ref.schema(), ref.table());
+            var sourceHandle = metadata.getTableHandle(session,
+                    new SchemaTableName(ref.schema(), ref.table()));
+            if (sourceHandle == null) {
+                // The catalog may have committed the rename before reporting an error.
+                return;
+            }
+            var sourceIdentity = metadata.getTableIdentity(session, sourceHandle);
+            tableControl.requireRenameSourceIdentity(movedControl, sourceIdentity);
+            var restored = tableControl.rename(movedControl, ref.schema(), ref.table());
+            tableControl.completeRename(restored, sourceIdentity, metadata.observeVersion(session, sourceHandle));
         } catch (RuntimeException rollbackFailure) {
             failure.addSuppressed(rollbackFailure);
-        }
-    }
-
-    /**
-     * A failed physical rename leaves the source resolvable. When it does not, the
-     * move may have committed before the error, so ownership stays with the new
-     * name; reverting it would point the control record at a table that no longer
-     * exists.
-     */
-    private static boolean sourceStillResolves(ConnectorMetadata metadata,
-            ConnectorSession session, QualifiedTableName ref, QualifiedTableName target) {
-        try {
-            if (metadata.getTableHandle(session,
-                    new SchemaTableName(ref.schema(), ref.table())) != null) {
-                return true;
-            }
-            return metadata.getTableHandle(session,
-                    new SchemaTableName(target.schema(), target.table())) == null;
-        } catch (RuntimeException unverifiable) {
-            return false;
         }
     }
 

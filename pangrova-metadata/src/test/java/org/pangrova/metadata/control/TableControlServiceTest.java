@@ -8,6 +8,7 @@ import org.pangrova.spi.security.AccessDeniedException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -30,6 +31,76 @@ class TableControlServiceTest {
 
     private static TableIdentity identity(String uuid) {
         return new TableIdentity("ICEBERG", uuid, "s3://bucket/table", "schema");
+    }
+
+    @Test
+    void missingObservationForARetiredTableCannotStaleItsReplacement() {
+        TableControlService control = service(true, true);
+        TableControlRecord original = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        control.markDropped(control.find("cat", "db", "t").orElseThrow());
+        TableControlRecord replacement = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-2")), Optional.empty()).orElseThrow();
+
+        assertThat(control.markUnavailable(original, NOW.plusSeconds(30)))
+                .isEqualTo(ObservationOutcome.IGNORED);
+        assertThat(control.find("cat", "db", "t")).contains(replacement);
+    }
+
+    @Test
+    void staleObservationCannotOverwriteANewerVersion() {
+        TableControlService control = service(true, true);
+        TableControlRecord initial = control.adopt("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-1")),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "1")));
+        control.observeVersion(initial, Optional.of(identity("uuid-1")),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "3")),
+                "PERIODIC", NOW.plusSeconds(30));
+
+        assertThat(control.observeVersion(initial, Optional.of(identity("uuid-1")),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "2")),
+                "PERIODIC", NOW.plusSeconds(20))).isEqualTo(ObservationOutcome.IGNORED);
+        assertThat(control.find("cat", "db", "t").orElseThrow().versionToken())
+                .isEqualTo("uuid-1:3");
+    }
+
+    @Test
+    void delayedDropCannotRetireAReplacementWithTheSameName() {
+        TableControlService control = service(true, true);
+        var original = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("original")), Optional.empty()).orElseThrow();
+        control.markDropped(original);
+        var replacement = control.registerCreated("cat", "db", "t", "bob",
+                Optional.of(identity("replacement")), Optional.empty()).orElseThrow();
+
+        assertThatThrownBy(() -> control.markDropped(original))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("newer table registration");
+        assertThat(control.find("cat", "db", "t")).contains(replacement);
+    }
+
+    @Test
+    void staleRecordCannotRecoverWithoutIdentityEvidence() {
+        TableControlService control = service(true, true);
+        control.adopt("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty());
+        control.markUnavailable(control.find("cat", "db", "t").orElseThrow(), NOW.plusSeconds(10));
+        TableControlRecord stale = control.find("cat", "db", "t").orElseThrow();
+
+        assertThat(control.observeVersion(stale, Optional.empty(),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "2")),
+                "PERIODIC", NOW.plusSeconds(30))).isEqualTo(ObservationOutcome.UNSUPPORTED);
+        assertThat(control.find("cat", "db", "t").orElseThrow()).isEqualTo(stale);
+    }
+
+    @Test
+    void orphanedRecordCannotRecoverWithoutIdentityOrVersionEvidence() {
+        TableControlService control = service(true, true);
+        control.registerOrphanedManaged("cat", "db", "t", "alice", Optional.empty());
+        TableControlRecord orphaned = control.find("cat", "db", "t").orElseThrow();
+
+        assertThat(control.observeVersion(orphaned, Optional.empty(), Optional.empty(),
+                "PERIODIC", NOW.plusSeconds(30))).isEqualTo(ObservationOutcome.UNSUPPORTED);
+        assertThat(control.find("cat", "db", "t").orElseThrow()).isEqualTo(orphaned);
     }
 
     @Test
@@ -143,8 +214,8 @@ class TableControlServiceTest {
     }
 
     @Test
-    void legacyRecordWithoutFenceAdoptsTheFirstObservedIdentity() {
-        TableControlService control = service(true, true);
+    void explicitlyAllowlistedLegacyRecordCanBindItsFirstIdentity() {
+        TableControlService control = service(true, true, "cat.db.t");
         control.registerCreated("cat", "db", "t", "alice",
                 Optional.empty(), Optional.empty());
 
@@ -154,6 +225,23 @@ class TableControlServiceTest {
         assertThat(control.find("cat", "db", "t")).get()
                 .extracting(TableControlRecord::formatTableUuid)
                 .isEqualTo("uuid-1");
+    }
+
+    @Test
+    void unrecordedIdentityCannotBeInferredByMutationOrBackgroundObservation() {
+        TableControlService control = service(true, true);
+        var record = control.registerCreated("cat", "db", "t", "alice",
+                Optional.empty(), Optional.empty()).orElseThrow();
+        for (Optional<TableIdentity> evidence : List.of(Optional.<TableIdentity>empty(), Optional.of(identity("replacement")))) {
+            assertThatThrownBy(() -> control.requireManagedForWrite("cat", "db", "t", "INSERT", evidence))
+                    .isInstanceOf(AccessDeniedException.class).hasMessageContaining("no registered format identity");
+            assertThatThrownBy(() -> control.requireDroppable("cat", "db", "t", "DROP", evidence))
+                    .isInstanceOf(AccessDeniedException.class).hasMessageContaining("no registered format identity");
+        }
+        assertThat(control.observeVersion(record, Optional.of(identity("replacement")),
+                Optional.of(TableVersionToken.of("ICEBERG", "replacement", "2")), "TEST", CLOCK.instant()))
+                .isEqualTo(ObservationOutcome.UNSUPPORTED);
+        assertThat(control.find("cat", "db", "t")).contains(record);
     }
 
     @Test
@@ -221,12 +309,65 @@ class TableControlServiceTest {
     }
 
     @Test
+    void observersCannotOverwriteAnInFlightRename() {
+        TableControlService control = service(true, true);
+        var original = control.registerCreated("cat", "db", "old", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        var moved = control.rename(original, "db", "new");
+        assertThat(moved.state()).isEqualTo(TableControlState.RENAMING);
+        assertThat(control.markUnavailable(moved, Instant.now())).isEqualTo(ObservationOutcome.IGNORED);
+        assertThat(control.observeVersion(moved, Optional.of(identity("intermediate")),
+                Optional.empty(), "PERIODIC", Instant.now())).isEqualTo(ObservationOutcome.IGNORED);
+        assertThat(control.find("cat", "db", "new")).contains(moved);
+        assertThatThrownBy(() -> control.requireManagedForWrite("cat", "db", "new", "INSERT"))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void completedRenameRefreshesPhysicalIdentityAndInvalidatesAnUnknownVersion() {
+        TableControlService control = service(true, true);
+        var original = control.registerCreated("cat", "db", "old", "alice",
+                Optional.of(identity("uuid-old")), Optional.empty()).orElseThrow();
+        var moved = control.rename(original, "db", "new");
+        var physical = identity("uuid-renamed");
+        control.completeRename(moved, Optional.of(physical), Optional.empty());
+        var completed = control.find("cat", "db", "new").orElseThrow();
+        assertThat(completed.tableId()).isEqualTo(original.tableId());
+        assertThat(completed.formatTableUuid()).isEqualTo(physical.formatTableUuid());
+        assertThat(completed.metadataRevision()).isEqualTo(moved.metadataRevision() + 1);
+        assertThat(completed.versionToken()).isNull();
+        assertThatCode(() -> control.requireManagedForWrite("cat", "db", "new", "INSERT",
+                Optional.of(physical))).doesNotThrowAnyException();
+        assertThatThrownBy(() -> control.completeRename(moved,
+                Optional.of(identity("unrelated")), Optional.empty()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("changed control record");
+        assertThat(control.find("cat", "db", "new")).contains(completed);
+    }
+
+    @Test
+    void delayedRenameRollbackCannotMoveAReplacementRegistration() {
+        TableControlService control = service(true, true);
+        var original = control.registerCreated("cat", "db", "old", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        var moved = control.rename(original, "db", "new");
+        control.markDropped(moved);
+        var replacement = control.registerCreated("cat", "db", "new", "bob",
+                Optional.of(identity("uuid-2")), Optional.empty()).orElseThrow();
+
+        assertThatThrownBy(() -> control.rename(moved, "db", "old"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("control record changed");
+        assertThat(control.find("cat", "db", "old")).isEmpty();
+        assertThat(control.find("cat", "db", "new")).contains(replacement);
+    }
+
+    @Test
     void droppedRecordIsNoLongerLiveButRemainsAuditable() {
         TableControlService control = service(true, true);
         TableControlRecord record = control.registerCreated("cat", "db", "t", "alice",
                 Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
 
-        control.markDropped("cat", "db", "t");
+        control.markDropped(control.find("cat", "db", "t").orElseThrow());
 
         assertThat(control.find("cat", "db", "t")).isEmpty();
         assertThat(control.describe("cat", "db", "t").ownershipMode())
@@ -407,12 +548,12 @@ class TableControlServiceTest {
         control.adopt("cat", "db", "t", "alice",
                 Optional.of(identity("uuid-1")), Optional.empty());
 
-        assertThat(control.markUnavailable("cat", "db", "t", NOW.plusSeconds(30)))
+        assertThat(control.markUnavailable(control.find("cat", "db", "t").orElseThrow(), NOW.plusSeconds(30)))
                 .isEqualTo(ObservationOutcome.TABLE_MISSING);
         assertThat(control.find("cat", "db", "t")).get()
                 .extracting(TableControlRecord::state)
                 .isEqualTo(TableControlState.STALE);
-        assertThat(control.markUnavailable("cat", "db", "t", NOW.plusSeconds(60)))
+        assertThat(control.markUnavailable(control.find("cat", "db", "t").orElseThrow(), NOW.plusSeconds(60)))
                 .isEqualTo(ObservationOutcome.UNCHANGED);
     }
 
@@ -422,9 +563,10 @@ class TableControlServiceTest {
         TableControlRecord record = control.adopt("cat", "db", "t", "alice",
                 Optional.of(identity("uuid-1")),
                 Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "1")));
-        control.markUnavailable("cat", "db", "t", NOW.plusSeconds(30));
+        control.markUnavailable(control.find("cat", "db", "t").orElseThrow(), NOW.plusSeconds(30));
 
-        ObservationOutcome outcome = control.observeVersion(record,
+        ObservationOutcome outcome = control.observeVersion(
+                control.find("cat", "db", "t").orElseThrow(),
                 Optional.of(identity("uuid-1")),
                 Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "1")),
                 "PERIODIC", NOW.plusSeconds(60));

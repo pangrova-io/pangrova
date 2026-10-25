@@ -122,8 +122,7 @@ public final class TableVersionObserver {
         ConnectorTableHandle handle = metadata.getTableHandle(session,
                 new SchemaTableName(record.schema(), record.table()));
         if (handle == null) {
-            return control.markUnavailable(
-                    record.catalog(), record.schema(), record.table(), now);
+            return control.markUnavailable(record, now);
         }
         Optional<TableIdentity> identity = metadata.getTableIdentity(session, handle);
         Optional<TableVersionToken> version = metadata.observeVersion(session, handle);

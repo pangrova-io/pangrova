@@ -51,11 +51,10 @@ public final class AnalyzeExecutor {
                     "ANALYZE requires the table control plane: without ownership records "
                             + "no table can be proven safe to analyze");
         }
-        if (control.find(ref.catalog(), ref.schema(), ref.table()).isEmpty()) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+        var record = control.find(ref.catalog(), ref.schema(), ref.table())
+                .orElseThrow(() -> new org.pangrova.spi.security.AccessDeniedException(
                     "ANALYZE rejected: " + ref
-                            + " is OBSERVED; run ALTER TABLE ... ADOPT before ANALYZE");
-        }
+                            + " is OBSERVED; run ALTER TABLE ... ADOPT before ANALYZE"));
 
         ConnectorSession session =
                 TableResolver.buildSession(context, ref.catalog(), ref.schema());
@@ -63,32 +62,35 @@ public final class AnalyzeExecutor {
                 TableResolver.getMetadata(catalogs, ref.catalog(), session);
         ConnectorTableHandle handle =
                 TableResolver.requireTableHandle(metadata, session, ref);
+        control.requireActiveIdentity(record, metadata.getTableIdentity(session, handle), "ANALYZE");
 
         String before = observe(metadata, session, handle);
-        TableStatistics statistics = metadata.getTableStatistics(session, handle);
-        String after = observeFresh(metadata, session, ref);
-        if (before.isEmpty() && after.isEmpty()) {
+        if (before.isEmpty()) {
             throw new org.pangrova.common.exception.PangrovaException(
                     org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
                     "ANALYZE rejected: the connector cannot observe a version of " + ref
                             + "; collected statistics cannot be bound to a table version");
         }
+        TableStatistics statistics = metadata.getTableStatistics(session, handle);
+        String after = observeFresh(metadata, session, ref);
         if (after.isEmpty()) {
             throw new org.pangrova.common.exception.PangrovaException(
                     org.pangrova.common.exception.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "ANALYZE abandoned: " + ref + " could not be re-resolved after collection");
         }
-        if (!before.isEmpty() && !before.equals(after)) {
+        if (!before.equals(after)) {
             throw new org.pangrova.common.exception.PangrovaException(
                     org.pangrova.common.exception.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "ANALYZE abandoned: the version of " + ref + " changed during collection ("
                             + before + " -> " + after + "); retry when writers are idle");
         }
         String observedToken = after;
+        ConnectorTableHandle fresh = TableResolver.requireTableHandle(metadata, session, ref);
+        control.requireActiveIdentity(record, metadata.getTableIdentity(session, fresh), "ANALYZE");
 
         TableControlStatisticsService statisticsService = catalogs.tableStatistics();
         TableControlStatistics collected = statisticsService.record(
-                ref.catalog(), ref.schema(), ref.table(), statistics, SOURCE, observedToken);
+                record, statistics, SOURCE, observedToken);
 
         LOG.info("event=analyze_table table={} tableId={} statsVersion={} versionToken={} "
                         + "rowCount={} dataSize={}",

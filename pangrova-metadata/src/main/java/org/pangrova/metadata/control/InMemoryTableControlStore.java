@@ -30,18 +30,18 @@ public final class InMemoryTableControlStore implements TableControlStore {
             new java.util.concurrent.CopyOnWriteArrayList<>();
 
     @Override
-    public Optional<TableControlRecord> find(String catalog, String schema, String table) {
+    public synchronized Optional<TableControlRecord> find(String catalog, String schema, String table) {
         UUID id = liveByName.get(key(catalog, schema, table));
         return id == null ? Optional.empty() : Optional.ofNullable(byId.get(id));
     }
 
     @Override
-    public Optional<TableControlRecord> findById(UUID tableId) {
+    public synchronized Optional<TableControlRecord> findById(UUID tableId) {
         return Optional.ofNullable(byId.get(tableId));
     }
 
     @Override
-    public List<TableControlRecord> listByCatalog(String catalog) {
+    public synchronized List<TableControlRecord> listByCatalog(String catalog) {
         return byId.values().stream()
                 .filter(record -> record.catalog().equals(catalog))
                 .sorted(NAME_ORDER)
@@ -49,14 +49,25 @@ public final class InMemoryTableControlStore implements TableControlStore {
     }
 
     @Override
-    public List<TableControlRecord> listAll() {
+    public synchronized List<TableControlRecord> listAll() {
         return byId.values().stream().sorted(NAME_ORDER).toList();
     }
 
     @Override
-    public void save(TableControlRecord record) {
+    public synchronized void save(TableControlRecord record) {
         String nameKey = key(record.catalog(), record.schema(), record.table());
-        TableControlRecord previous = byId.put(record.tableId(), record);
+        TableControlRecord previous = byId.get(record.tableId());
+        if (previous != null && previous.metadataRevision() >= record.metadataRevision()) {
+            throw new org.pangrova.metadata.exception.MetastoreException(
+                    "Stale table control write for " + record.qualifiedName());
+        }
+        UUID owner = liveByName.get(nameKey);
+        if (record.state() != TableControlState.DROPPED
+                && owner != null && !owner.equals(record.tableId())) {
+            throw new org.pangrova.metadata.exception.MetastoreException(
+                    "A live table control record already owns " + record.qualifiedName());
+        }
+        byId.put(record.tableId(), record);
 
         if (previous != null) {
             String previousKey = key(previous.catalog(), previous.schema(), previous.table());
@@ -70,19 +81,21 @@ public final class InMemoryTableControlStore implements TableControlStore {
             return;
         }
 
-        UUID replaced = liveByName.put(nameKey, record.tableId());
-        if (replaced != null && !replaced.equals(record.tableId())) {
-            retire(replaced, record.updatedAt());
-        }
+        liveByName.put(nameKey, record.tableId());
     }
 
     @Override
-    public void recordVersionObservation(TableVersionObservation observation) {
+    public synchronized void saveWithObservation(TableControlRecord record, TableVersionObservation observation) {
+        if (!record.tableId().equals(observation.tableId())
+                || !java.util.Objects.equals(record.versionToken(), observation.versionToken())) {
+            throw new IllegalArgumentException("Observation must describe the saved table and version");
+        }
+        save(record);
         observations.add(observation);
     }
 
     @Override
-    public List<TableVersionObservation> listVersionObservations(UUID tableId, int limit) {
+    public synchronized List<TableVersionObservation> listVersionObservations(UUID tableId, int limit) {
         if (limit <= 0) {
             return List.of();
         }
@@ -92,16 +105,6 @@ public final class InMemoryTableControlStore implements TableControlStore {
                         TableVersionObservation::observedAt).reversed())
                 .limit(limit)
                 .toList();
-    }
-
-    private void retire(UUID tableId, java.time.Instant updatedAt) {
-        byId.computeIfPresent(tableId, (id, existing) -> existing.state() == TableControlState.DROPPED
-                ? existing
-                : existing.toBuilder()
-                        .state(TableControlState.DROPPED)
-                        .metadataRevision(existing.metadataRevision() + 1)
-                        .updatedAt(updatedAt)
-                        .build());
     }
 
     private static String key(String catalog, String schema, String table) {

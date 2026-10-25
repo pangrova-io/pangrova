@@ -43,6 +43,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DefaultMetadataServiceControlTest {
 
@@ -74,6 +75,39 @@ class DefaultMetadataServiceControlTest {
     }
 
     @Test
+    void cachedReadsCannotBypassAnIncompleteRename() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        service.resolveTable(session(), ref("orders"));
+        var control = registry.tableControl();
+        var expected = control.find("cat", "db", "orders").orElseThrow();
+        var pending = control.rename(expected, "db", "orders");
+
+        assertThatThrownBy(() -> service.resolveTable(session(), ref("orders")))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("rename is incomplete");
+        var handle = connectorMetadata.getTableHandle(null, new SchemaTableName("db", "orders"));
+        control.completeRename(pending, connectorMetadata.getTableIdentity(null, handle),
+                connectorMetadata.observeVersion(null, handle));
+        assertThat(service.resolveTable(session(), ref("orders")).tableId()).contains(expected.tableId());
+    }
+
+    @Test
+    void dropCannotDeleteARecreatedTableWithTheOldOwnership() {
+        registry.setTableControlService(new org.pangrova.metadata.control.TableControlService(
+                new org.pangrova.metadata.control.InMemoryTableControlStore(),
+                new org.pangrova.metadata.control.TableControlSettings(true, true, Set.of())));
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        connectorMetadata.create(new SchemaTableName("db", "orders"), "replacement");
+
+        assertThatThrownBy(() -> service.dropTable(session(), ref("orders")))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("identity");
+        assertThat(connectorMetadata.tables).containsKey("db.orders");
+        assertThat(registry.tableControl().find("cat", "db", "orders").orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+    }
+
+    @Test
     void catalogVisibleTableWithoutControlRecordIsObserved() {
         connectorMetadata.create(new SchemaTableName("db", "external"), "uuid-ext");
 
@@ -82,6 +116,35 @@ class DefaultMetadataServiceControlTest {
         assertThat(resolved.ownershipMode()).isEqualTo(OwnershipMode.OBSERVED);
         assertThat(resolved.tableId()).isEmpty();
         assertThat(resolved.versionToken()).contains("uuid-ext:snapshot-1");
+    }
+
+    @Test
+    void cachedObservedResolutionIsInvalidatedAfterAdopt() {
+        connectorMetadata.create(new SchemaTableName("db", "external"), "uuid-ext");
+        assertThat(service.resolveTable(session(), ref("external")).ownershipMode())
+                .isEqualTo(OwnershipMode.OBSERVED);
+        var adopted = registry.tableControl().adopt("cat", "db", "external", "alice",
+                Optional.of(new TableIdentity("ICEBERG", "uuid-ext", "s3://bucket/db.external", "schema")),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-ext", "snapshot-1")));
+
+        ResolvedTable resolved = service.resolveTable(session(), ref("external"));
+        assertThat(resolved.ownershipMode()).isEqualTo(OwnershipMode.LINKED);
+        assertThat(resolved.tableId()).contains(adopted.tableId());
+    }
+
+    @Test
+    void cachedResolutionCannotSurviveRetirementAndReregistrationWithTheSameVersion() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        ResolvedTable previous = service.resolveTable(session(), ref("orders"));
+        registry.tableControl().markDropped(registry.tableControl().find("cat", "db", "orders").orElseThrow());
+        var replacement = registry.tableControl().registerCreated("cat", "db", "orders", "alice",
+                Optional.of(new TableIdentity("ICEBERG", "uuid-orders", "s3://bucket/db.orders", "schema")),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-orders", "snapshot-1"))).orElseThrow();
+
+        ResolvedTable resolved = service.resolveTable(session(), ref("orders"));
+        assertThat(resolved.controlRevision()).isEqualTo(previous.controlRevision());
+        assertThat(resolved.versionToken()).isEqualTo(previous.versionToken());
+        assertThat(resolved.tableId()).contains(replacement.tableId()).isNotEqualTo(previous.tableId());
     }
 
     @Test

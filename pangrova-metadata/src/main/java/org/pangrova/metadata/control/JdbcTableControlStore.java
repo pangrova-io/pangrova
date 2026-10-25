@@ -122,6 +122,20 @@ public final class JdbcTableControlStore implements TableControlStore {
      */
     @Override
     public void save(TableControlRecord record) {
+        saveTransaction(record, Optional.empty());
+    }
+
+    @Override
+    public void saveWithObservation(TableControlRecord record, TableVersionObservation observation) {
+        if (!record.tableId().equals(observation.tableId())
+                || !java.util.Objects.equals(record.versionToken(), observation.versionToken())) {
+            throw new IllegalArgumentException("Observation must describe the saved table and version");
+        }
+        saveTransaction(record, Optional.of(observation));
+    }
+
+    private void saveTransaction(TableControlRecord record,
+            Optional<TableVersionObservation> observation) {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
@@ -136,6 +150,9 @@ public final class JdbcTableControlStore implements TableControlStore {
                     ps.setString(1, cacheKey(record));
                     ps.setString(2, "TABLE");
                 });
+                if (observation.isPresent()) {
+                    executeUpdate(conn, INSERT_OBSERVATION, ps -> bindObservation(ps, observation.get()));
+                }
                 conn.commit();
             } catch (SQLException | RuntimeException | Error failure) {
                 rollback(conn, failure);
@@ -147,21 +164,13 @@ public final class JdbcTableControlStore implements TableControlStore {
         }
     }
 
-    @Override
-    public void recordVersionObservation(TableVersionObservation observation) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(INSERT_OBSERVATION)) {
-            ps.setObject(1, observation.tableId());
-            ps.setString(2, observation.versionToken());
-            ps.setString(3, observation.previousVersionToken());
-            ps.setString(4, observation.source());
-            JdbcSupport.setInstant(ps, 5, observation.observedAt());
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            throw new MetastoreException(
-                    "Failed to record version observation for tableId="
-                            + observation.tableId(), e);
-        }
+    private static void bindObservation(PreparedStatement ps, TableVersionObservation observation)
+            throws SQLException {
+        ps.setObject(1, observation.tableId());
+        ps.setString(2, observation.versionToken());
+        ps.setString(3, observation.previousVersionToken());
+        ps.setString(4, observation.source());
+        JdbcSupport.setInstant(ps, 5, observation.observedAt());
     }
 
     @Override

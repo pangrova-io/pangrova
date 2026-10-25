@@ -231,6 +231,14 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
 
     @Override
     public ResolvedTable resolveTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
+        var control = catalogRegistry.tableControl();
+        if (control.enabled() && control.find(tableRef.catalog(), tableRef.schema(), tableRef.table())
+                .filter(record -> record.state() == org.pangrova.metadata.control.TableControlState.RENAMING)
+                .isPresent()) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Table rename is incomplete for " + tableRef
+                            + "; wait for completion or reconcile the DDL before querying");
+        }
         MetadataResolutionCacheKey cacheKey = MetadataResolutionCacheKey.of(session, tableRef);
         ResolvedTable cached = resolvedTableCache.getIfPresent(cacheKey);
         if (cached != null && isCacheEntryCurrent(tableRef, cached)) {
@@ -249,17 +257,19 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     /**
-     * OBSERVED reads have no persisted version to compare against and are safe to
-     * serve from the short-lived cache. A controlled entry is reused only while
-     * both its control revision and observed version still match the authority.
+     * Reuse a resolution only while its ownership, stable table id, revision and
+     * version still match the authority. ADOPT and same-name replacement must
+     * invalidate cached entries even when the numeric revision is unchanged.
      */
     private boolean isCacheEntryCurrent(QualifiedTableRef tableRef, ResolvedTable cached) {
-        if (cached.ownershipMode() == org.pangrova.metadata.control.OwnershipMode.OBSERVED) {
-            return true;
-        }
         var record = catalogRegistry.tableControl()
                 .find(tableRef.catalog(), tableRef.schema(), tableRef.table());
+        if (cached.ownershipMode() == org.pangrova.metadata.control.OwnershipMode.OBSERVED) {
+            return record.isEmpty();
+        }
         return record.isPresent()
+                && cached.tableId().filter(record.get().tableId()::equals).isPresent()
+                && record.get().ownershipMode() == cached.ownershipMode()
                 && record.get().metadataRevision() == cached.controlRevision()
                 && java.util.Objects.equals(
                         record.get().versionToken(), cached.versionToken().orElse(null));
@@ -285,7 +295,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
 
     @Override
     public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
-        catalogRegistry.tableControl().requireManagedForDdl(
+        catalogRegistry.tableControl().requireDroppable(
                 tableRef.catalog(), tableRef.schema(), tableRef.table(), "DROP TABLE");
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
         ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
@@ -298,9 +308,15 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
                     PangrovaErrorCode.METADATA_TABLE_NOT_FOUND,
                     "Table not found: " + tableRef);
         }
-        connMetadata.dropTable(connSession, tableHandle);
-        catalogRegistry.tableControl().markDropped(
+        if (catalogRegistry.tableControl().enforcing()) {
+            catalogRegistry.tableControl().requireDroppable(
+                    tableRef.catalog(), tableRef.schema(), tableRef.table(), "DROP TABLE",
+                    connMetadata.getTableIdentity(connSession, tableHandle));
+        }
+        var record = catalogRegistry.tableControl().find(
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
+        connMetadata.dropTable(connSession, tableHandle);
+        record.ifPresent(catalogRegistry.tableControl()::markDropped);
         invalidateTableCaches(tableRef);
         eventDispatcher.dispatch(new MetadataEvent.TableDroppedEvent(tableRef));
         LOG.info("event=table_dropped catalog={} schema={} table={}",
@@ -354,6 +370,11 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
                     "Table not found: " + tableRef);
         }
         for (SchemaChange change : changes) {
+            if (catalogRegistry.tableControl().enforcing()) {
+                catalogRegistry.tableControl().requireManagedForDdl(
+                        tableRef.catalog(), tableRef.schema(), tableRef.table(), "ALTER TABLE",
+                        connMetadata.getTableIdentity(connSession, tableHandle));
+            }
             applySchemaChange(connMetadata, connSession, tableHandle, change);
         }
         LOG.info("event=alter_table_connector_propagated catalog={} schema={} table={} changes={}",

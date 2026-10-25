@@ -97,14 +97,25 @@ public final class TableControlService {
         }
         TableControlRecord current = store.findById(record.tableId()).orElse(null);
         if (current == null || current.state() == TableControlState.DROPPED
-                || current.state() == TableControlState.QUARANTINED) {
+                || current.state() == TableControlState.RENAMING
+                || current.state() == TableControlState.QUARANTINED
+                || current.metadataRevision() != record.metadataRevision()) {
             return ObservationOutcome.IGNORED;
+        }
+        boolean recovering = current.state() == TableControlState.STALE
+                || current.state() == TableControlState.ORPHANED_MANAGED;
+        if (recovering && identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
+            // Existence and a version token do not prove that this is still the
+            // physical table whose ownership was registered.
+            return ObservationOutcome.UNSUPPORTED;
         }
         if (identity.isPresent() && identity.get().hasFormatUuid()
                 && !hasFormatUuid(current)) {
-            // A legacy or partially registered record has no fence yet. Persist the
-            // identity the connector reports now so later observations can detect a
-            // drop/recreate instead of trusting the name forever.
+            if (!settings.isLegacyWriteAllowlisted(current.qualifiedName())) {
+                // A current identity cannot prove ownership of a table whose
+                // original identity was never recorded.
+                return ObservationOutcome.UNSUPPORTED;
+            }
             current = withIdentity(current, identity, Optional.empty(), observedAt)
                     .metadataRevision(current.metadataRevision() + 1)
                     .build();
@@ -126,8 +137,6 @@ public final class TableControlService {
                     identity.get().formatTableUuid());
             return ObservationOutcome.IDENTITY_CHANGED;
         }
-        boolean recovering = current.state() == TableControlState.STALE
-                || current.state() == TableControlState.ORPHANED_MANAGED;
         if (version.isEmpty()) {
             return recovering
                     ? recover(current, identity, null, observedAt)
@@ -146,8 +155,7 @@ public final class TableControlService {
                 .updatedAt(observedAt)
                 .lastSyncedAt(observedAt)
                 .build();
-        store.save(updated);
-        store.recordVersionObservation(new TableVersionObservation(
+        store.saveWithObservation(updated, new TableVersionObservation(
                 current.tableId(), observedToken, current.versionToken(), source, observedAt));
         LOG.info("event=table_control_version_observed table={} tableId={} "
                         + "previousVersion={} observedVersion={} revision={}",
@@ -185,16 +193,16 @@ public final class TableControlService {
      * Discovery failures are handled by the caller and must not reach this method:
      * an unreachable catalog is not evidence that a table was dropped.
      */
-    public ObservationOutcome markUnavailable(String catalog, String schema, String table,
-            Instant observedAt) {
+    public ObservationOutcome markUnavailable(TableControlRecord observedRecord, Instant observedAt) {
         if (!settings.enabled()) {
             return ObservationOutcome.IGNORED;
         }
-        Optional<TableControlRecord> found = store.find(catalog, schema, table);
-        if (found.isEmpty()) {
+        TableControlRecord current = store.findById(observedRecord.tableId()).orElse(null);
+        if (current == null || current.state() == TableControlState.DROPPED
+                || current.state() == TableControlState.RENAMING
+                || current.metadataRevision() != observedRecord.metadataRevision()) {
             return ObservationOutcome.IGNORED;
         }
-        TableControlRecord current = found.get();
         if (current.state() == TableControlState.STALE) {
             return ObservationOutcome.UNCHANGED;
         }
@@ -262,21 +270,17 @@ public final class TableControlService {
             return Optional.empty();
         }
         var name = new org.pangrova.spi.connector.metadata.table.SchemaTableName(schema, table);
-        Optional<TableIdentity> identity = Optional.empty();
-        Optional<TableVersionToken> version = Optional.empty();
-        try {
-            org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle =
-                    metadata.getTableHandle(session, name);
-            if (handle != null) {
-                identity = metadata.getTableIdentity(session, handle);
-                version = metadata.observeVersion(session, handle);
-            }
-        } catch (RuntimeException unavailable) {
-            // Identity evidence is optional. A connector that cannot report it must
-            // not turn a successful physical CREATE into a failed DDL statement.
-            LOG.warn("event=table_control_identity_unavailable table={}.{}.{} reason={}",
-                    catalog, schema, table, unavailable.toString());
+        org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle =
+                metadata.getTableHandle(session, name);
+        if (handle == null) {
+            throw new org.pangrova.metadata.exception.MetastoreException(
+                    "Created table cannot be resolved for control registration: "
+                            + catalog + "." + schema + "." + table);
         }
+        // Unsupported evidence is Optional.empty(). Lookup failures must reach
+        // the DDL recovery path instead of registering an unfenced ACTIVE table.
+        Optional<TableIdentity> identity = metadata.getTableIdentity(session, handle);
+        Optional<TableVersionToken> version = metadata.observeVersion(session, handle);
         return registerCreated(catalog, schema, table, ownerPrincipal, identity, version);
     }
 
@@ -387,9 +391,18 @@ public final class TableControlService {
         store.save(orphaned);
     }
 
-    /** Retires the live control record after a MANAGED table is dropped. */
-    public void markDropped(String catalog, String schema, String table) {
-        store.find(catalog, schema, table).ifPresent(record -> retire(record, clock.instant()));
+    /** Retires only the control record captured before the physical DROP started. */
+    public void markDropped(TableControlRecord expected) {
+        if (!settings.enabled()) {
+            return;
+        }
+        TableControlRecord current = store.findById(expected.tableId()).orElse(null);
+        if (current == null || current.metadataRevision() != expected.metadataRevision()
+                || current.state() == TableControlState.DROPPED) {
+            throw new AccessDeniedException("DROP TABLE completed with a changed control record for "
+                    + expected.qualifiedName() + "; refusing to retire a newer table registration");
+        }
+        retire(current, clock.instant());
     }
 
     /**
@@ -407,17 +420,77 @@ public final class TableControlService {
         if (source.isEmpty()) {
             return;
         }
-        Optional<TableControlRecord> target = store.find(catalog, newSchema, newTable);
-        if (target.isPresent() && !target.get().tableId().equals(source.get().tableId())) {
-            throw new AccessDeniedException("RENAME rejected: " + catalog + "." + newSchema
+        rename(source.get(), newSchema, newTable);
+    }
+
+    /** Moves only the exact captured registration, including when rolling back a failed rename. */
+    public TableControlRecord rename(TableControlRecord expected, String newSchema, String newTable) {
+        if (!settings.enabled()) {
+            return expected;
+        }
+        TableControlRecord source = store.findById(expected.tableId()).orElse(null);
+        if (source == null || source.metadataRevision() != expected.metadataRevision()
+                || source.state() == TableControlState.DROPPED) {
+            throw new AccessDeniedException("RENAME rejected: control record changed for "
+                    + expected.qualifiedName() + "; refusing to move a newer table registration");
+        }
+        Optional<TableControlRecord> target = store.find(source.catalog(), newSchema, newTable);
+        if (target.isPresent() && !target.get().tableId().equals(source.tableId())) {
+            throw new AccessDeniedException("RENAME rejected: " + source.catalog() + "." + newSchema
                     + "." + newTable + " already has a live control record (tableId="
                     + target.get().tableId() + ")");
         }
-        store.save(source.get().toBuilder()
-                .name(catalog, newSchema, newTable)
-                .metadataRevision(source.get().metadataRevision() + 1)
+        TableControlRecord moved = source.toBuilder()
+                .state(TableControlState.RENAMING)
+                .name(source.catalog(), newSchema, newTable)
+                .metadataRevision(source.metadataRevision() + 1)
                 .updatedAt(clock.instant())
-                .build());
+                .build();
+        store.save(moved);
+        return moved;
+    }
+
+    /** Verifies the physical source before undoing one admitted rename. */
+    public void requireRenameSourceIdentity(TableControlRecord expected, Optional<TableIdentity> identity) {
+        TableControlRecord current = store.findById(expected.tableId()).orElse(null);
+        if (current == null || current.state() != TableControlState.RENAMING
+                || current.metadataRevision() != expected.metadataRevision()) {
+            throw new AccessDeniedException("RENAME rollback rejected: control record changed for "
+                    + expected.qualifiedName());
+        }
+        requireMatchingIdentity(current, "RENAME rollback", identity);
+    }
+
+    /** Records physical identity changes caused by a successfully completed, admitted rename. */
+    public void completeRename(TableControlRecord expected, Optional<TableIdentity> identity,
+            Optional<TableVersionToken> version) {
+        if (!settings.enabled()) {
+            return;
+        }
+        TableControlRecord current = store.findById(expected.tableId()).orElse(null);
+        if (current == null || current.state() != TableControlState.RENAMING
+                || current.metadataRevision() != expected.metadataRevision()) {
+            throw new AccessDeniedException("RENAME completed with a changed control record for "
+                    + expected.qualifiedName() + "; reconciliation is required");
+        }
+        TableIdentity physical = identity.filter(TableIdentity::hasFormatUuid)
+                .filter(value -> value.format().equals(current.format()))
+                .orElseThrow(() -> new AccessDeniedException(
+                        "RENAME completed without verifiable format identity for "
+                                + expected.qualifiedName() + "; reconciliation is required"));
+        Instant now = clock.instant();
+        String token = version.map(TableVersionToken::token).orElse(null);
+        TableControlRecord completed = withIdentity(current, Optional.of(physical), version, now)
+                .state(TableControlState.ACTIVE)
+                .version(token, token == null ? null : now)
+                .metadataRevision(current.metadataRevision() + 1)
+                .build();
+        if (token == null) {
+            store.save(completed);
+        } else {
+            store.saveWithObservation(completed, new TableVersionObservation(current.tableId(),
+                    token, current.versionToken(), "DDL_RENAME", now));
+        }
     }
 
     /** Rejects DML before it reaches the connector unless the table is MANAGED and ACTIVE. */
@@ -433,29 +506,36 @@ public final class TableControlService {
      * <p>Missing evidence is not the same as contradicting evidence. A connector
      * that cannot report an identity right now blocks the write but leaves the
      * record untouched, so a transient lookup failure cannot permanently disable a
-     * healthy table. A record registered before identity fencing existed adopts the
-     * first identity the connector reports.</p>
+     * healthy table. Only explicitly allowlisted legacy tables may bind their
+     * first reported identity; a name alone never grants ownership.</p>
      */
     public void requireManagedForWrite(String catalog, String schema, String table,
             String operation, Optional<TableIdentity> observedIdentity) {
         TableControlRecord record = requireManaged(catalog, schema, table, operation);
+        requireMatchingIdentity(record, operation, observedIdentity);
+    }
+
+    private void requireMatchingIdentity(TableControlRecord record, String operation,
+            Optional<TableIdentity> observedIdentity) {
         if (record == null) {
             return;
         }
         Optional<TableIdentity> evidence = observedIdentity
                 .filter(TableIdentity::hasFormatUuid);
         if (!hasFormatUuid(record)) {
-            if (evidence.isPresent()) {
+            if (settings.isLegacyWriteAllowlisted(record.qualifiedName()) && evidence.isPresent()) {
                 store.save(withIdentity(record, evidence, Optional.empty(), clock.instant())
                         .metadataRevision(record.metadataRevision() + 1)
                         .build());
+                return;
             }
-            return;
+            throw new AccessDeniedException(operation + " rejected: no registered format identity for "
+                    + record.qualifiedName() + "; ownership cannot be inferred from its current name");
         }
         if (evidence.isEmpty()) {
             throw new AccessDeniedException(operation + " rejected: the connector reported no "
                     + "format identity for " + record.qualifiedName()
-                    + ", so the write cannot be fenced against a drop/recreate");
+                    + ", so the operation cannot be fenced against a drop/recreate");
         }
         if (sameIdentity(record, evidence.get())) {
             return;
@@ -475,9 +555,32 @@ public final class TableControlService {
         return settings.enabled() && settings.externalReadOnly();
     }
 
+    /** Fences a controlled operation against retirement, concurrent changes and physical replacement. */
+    public void requireActiveIdentity(TableControlRecord expected, Optional<TableIdentity> identity,
+            String operation) {
+        TableControlRecord current = store.findById(expected.tableId()).orElse(null);
+        if (current == null || current.state() != TableControlState.ACTIVE
+                || current.metadataRevision() != expected.metadataRevision()) {
+            throw new AccessDeniedException(operation + " rejected: control record changed for "
+                    + expected.qualifiedName() + "; resolve the table again");
+        }
+        if (!hasFormatUuid(current) || identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
+            throw new AccessDeniedException(operation + " rejected: missing format identity for "
+                    + expected.qualifiedName());
+        }
+        requireMatchingIdentity(current, operation, identity);
+    }
+
     /** Rejects destructive DDL (DROP/ALTER) unless the table is MANAGED and ACTIVE. */
     public void requireManagedForDdl(String catalog, String schema, String table, String operation) {
         requireManaged(catalog, schema, table, operation, false);
+    }
+
+    /** Checks ownership and the physical identity resolved for destructive DDL. */
+    public void requireManagedForDdl(String catalog, String schema, String table, String operation,
+            Optional<TableIdentity> observedIdentity) {
+        requireMatchingIdentity(requireManaged(catalog, schema, table, operation, false),
+                operation, observedIdentity);
     }
 
     /**
@@ -487,6 +590,13 @@ public final class TableControlService {
      */
     public void requireDroppable(String catalog, String schema, String table, String operation) {
         requireManaged(catalog, schema, table, operation, true);
+    }
+
+    /** Allows orphan cleanup only after checking any recorded physical identity. */
+    public void requireDroppable(String catalog, String schema, String table, String operation,
+            Optional<TableIdentity> observedIdentity) {
+        requireMatchingIdentity(requireManaged(catalog, schema, table, operation, true),
+                operation, observedIdentity);
     }
 
     private TableControlRecord requireManaged(String catalog, String schema, String table,

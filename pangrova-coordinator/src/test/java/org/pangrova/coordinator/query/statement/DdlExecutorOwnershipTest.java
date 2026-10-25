@@ -58,6 +58,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.pangrova.coordinator.query.statement.StatementTestSessions.context;
 
@@ -102,6 +103,63 @@ class DdlExecutorOwnershipTest {
     }
 
     @Test
+    void identityLookupFailureAfterCreateLeavesAnOrphanInsteadOfWritableOwnership() {
+        metadata.identityFailure = true;
+        CreateTableStatement statement = (CreateTableStatement) parser.parse(
+                "CREATE TABLE test_cat.default.orders (id BIGINT)");
+
+        assertThatThrownBy(() -> ddlExecutor.executeCreateTable(statement, context()))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("control record could not be registered")
+                .hasRootCauseMessage("Identity catalog unavailable");
+        assertThat(metadata.tables).containsKey("default.orders");
+        assertThat(registry.tableControl().find("test_cat", "default", "orders").orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.ORPHANED_MANAGED);
+    }
+
+    @Test
+    void dropRejectsARecreatedPhysicalTableBeforeDeletingIt() {
+        registry.tableControl().registerCreatedFromConnector(metadata, null,
+                "test_cat", "default", "users", "alice");
+        metadata.create(new SchemaTableName("default", "users"), "uuid-replacement");
+
+        assertThatThrownBy(() -> ddlExecutor.executeDropTable((DropTableStatement) parser.parse(
+                "DROP TABLE test_cat.default.users"), context()))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("identity");
+        assertThat(metadata.tables).containsKey("default.users");
+    }
+
+    @Test
+    void alterRejectsARecreatedPhysicalTableBeforeChangingIt() {
+        registry.tableControl().registerCreatedFromConnector(metadata, null,
+                "test_cat", "default", "users", "alice");
+        metadata.create(new SchemaTableName("default", "users"), "uuid-replacement");
+
+        assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
+                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                        "ALTER TABLE test_cat.default.users ADD COLUMN email VARCHAR"), context()))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("identity");
+        assertThat(metadata.altered).isFalse();
+    }
+
+    @Test
+    void dropRejectsMissingIdentityEvidenceWithoutQuarantiningTheTable() {
+        registry.tableControl().registerCreatedFromConnector(metadata, null,
+                "test_cat", "default", "users", "alice");
+        metadata.identityAvailable = false;
+
+        assertThatThrownBy(() -> ddlExecutor.executeDropTable((DropTableStatement) parser.parse(
+                "DROP TABLE test_cat.default.users"), context()))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("identity");
+        assertThat(metadata.tables).containsKey("default.users");
+        assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.ACTIVE);
+    }
+
+    @Test
     void dropOfObservedTableIsRejectedBeforeTheConnectorIsTouched() {
         DropTableStatement stmt = (DropTableStatement) parser.parse(
                 "DROP TABLE test_cat.default.users");
@@ -110,6 +168,27 @@ class DdlExecutorOwnershipTest {
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("OBSERVED");
         assertThat(metadata.tables).containsKey("default.users");
+    }
+
+    @Test
+    void completedDropCannotRetireOwnershipRegisteredByAConcurrentRecreate() {
+        registerManaged("users");
+        var original = registry.tableControl().find("test_cat", "default", "users").orElseThrow();
+        metadata.afterDrop = () -> {
+            registry.tableControl().markDropped(original);
+            metadata.create(new SchemaTableName("default", "users"), "replacement");
+            registerManaged("users");
+        };
+
+        assertThatThrownBy(() -> ddlExecutor.executeDropTable((DropTableStatement) parser.parse(
+                "DROP TABLE test_cat.default.users"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("newer table registration");
+        assertThat(metadata.tables).containsKey("default.users");
+        assertThat(registry.tableControl().find("test_cat", "default", "users"))
+                .hasValueSatisfying(record -> {
+                    assertThat(record.tableId()).isNotEqualTo(original.tableId());
+                    assertThat(record.formatTableUuid()).isEqualTo("replacement");
+                });
     }
 
     @Test
@@ -161,6 +240,10 @@ class DdlExecutorOwnershipTest {
         assertThat(registry.tableControl().find("test_cat", "default", "users")).isEmpty();
         assertThat(registry.tableControl().find("test_cat", "default", "people")).isPresent();
         assertThat(metadata.tables).containsKey("default.people");
+        var renamed = metadata.getTableHandle(null, new SchemaTableName("default", "people"));
+        assertThatCode(() -> registry.tableControl().requireManagedForWrite(
+                "test_cat", "default", "people", "INSERT", metadata.getTableIdentity(null, renamed)))
+                .doesNotThrowAnyException();
     }
 
     @Test
@@ -178,6 +261,38 @@ class DdlExecutorOwnershipTest {
         assertThat(metadata.tables).containsKey("default.users");
         assertThat(registry.tableControl().find("test_cat", "default", "users")).isPresent();
         assertThat(registry.tableControl().find("test_cat", "default", "people")).isPresent();
+    }
+
+    @Test
+    void failedRenameRestoresTheCapturedRegistration() {
+        registerManaged("users");
+        var original = registry.tableControl().find("test_cat", "default", "users").orElseThrow();
+        metadata.beforeRename = () -> { throw new IllegalStateException("rename failed"); };
+
+        assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
+                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                        "ALTER TABLE test_cat.default.users RENAME TO people"), context()))
+                .isInstanceOf(IllegalStateException.class).hasMessage("rename failed");
+        assertThat(registry.tableControl().find("test_cat", "default", "users").orElseThrow().tableId())
+                .isEqualTo(original.tableId());
+        assertThat(registry.tableControl().find("test_cat", "default", "people")).isEmpty();
+    }
+
+    @Test
+    void failedRenameCannotRestoreOwnershipOntoAnExternalReplacement() {
+        registerManaged("users");
+        metadata.beforeRename = () -> {
+            metadata.create(new SchemaTableName("default", "users"), "external-replacement");
+            throw new IllegalStateException("rename failed");
+        };
+
+        assertThatThrownBy(() -> ddlExecutor.executeAlterTable(
+                (org.pangrova.parser.ast.statement.AlterTableStatement) parser.parse(
+                        "ALTER TABLE test_cat.default.users RENAME TO people"), context()))
+                .isInstanceOf(IllegalStateException.class).hasMessage("rename failed");
+        assertThat(registry.tableControl().find("test_cat", "default", "users")).isEmpty();
+        assertThat(registry.tableControl().find("test_cat", "default", "people").orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
     }
 
     @Test
@@ -458,8 +573,8 @@ class DdlExecutorOwnershipTest {
     }
 
     private void registerManaged(String table) {
-        registry.tableControl().registerCreated("test_cat", "default", table, "alice",
-                Optional.empty(), Optional.empty());
+        registry.tableControl().registerCreatedFromConnector(metadata, null,
+                "test_cat", "default", table, "alice");
     }
 
     private static final class RecordingMetadataService implements MetadataService {
@@ -575,6 +690,9 @@ class DdlExecutorOwnershipTest {
         private final Map<String, String> uuids = new LinkedHashMap<>();
         private boolean altered;
         private boolean identityAvailable = true;
+        private boolean identityFailure;
+        private Runnable afterDrop = () -> {};
+        private Runnable beforeRename = () -> {};
 
         void create(SchemaTableName name, String uuid) {
             tables.put(key(name), new ConnectorTableMetadata(name, List.of("id"), Map.of()));
@@ -597,11 +715,13 @@ class DdlExecutorOwnershipTest {
             String key = ((Handle) handle).key;
             tables.remove(key);
             uuids.remove(key);
+            afterDrop.run();
         }
 
         @Override
         public void renameTable(ConnectorSession session, ConnectorTableHandle handle,
                 String newSchema, String newTable) {
+            beforeRename.run();
             String key = ((Handle) handle).key;
             ConnectorTableMetadata table = tables.remove(key);
             String uuid = uuids.remove(key);
@@ -654,6 +774,9 @@ class DdlExecutorOwnershipTest {
         @Override
         public Optional<TableIdentity> getTableIdentity(ConnectorSession session,
                 ConnectorTableHandle handle) {
+            if (identityFailure) {
+                throw new IllegalStateException("Identity catalog unavailable");
+            }
             if (!identityAvailable) {
                 return Optional.empty();
             }

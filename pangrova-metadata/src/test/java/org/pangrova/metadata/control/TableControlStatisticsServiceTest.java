@@ -73,6 +73,35 @@ class TableControlStatisticsServiceTest {
     }
 
     @Test
+    void delayedCollectionCannotRollBackTheControlVersion() {
+        TableControlRecord record = managed("orders", VERSION);
+        records.save(record);
+        var current = record.toBuilder().metadataRevision(record.metadataRevision() + 1)
+                .version("ICEBERG:uuid-orders:9", NOW.plusSeconds(5)).build();
+        records.save(current);
+
+        assertThatThrownBy(() -> service.record(record,
+                new TableStatistics(100, 1_000), "ANALYZE", "ICEBERG:uuid-orders:8"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("changed during collection");
+        assertThat(records.findById(record.tableId())).contains(current);
+        assertThat(statistics.find(record.tableId())).isEmpty();
+    }
+
+    @Test
+    void delayedCollectionCannotPublishToAReplacementControlRecord() {
+        TableControlRecord original = managed("orders", VERSION);
+        records.save(original);
+        control.markDropped(control.find("cat", "db", "orders").orElseThrow());
+        TableControlRecord replacement = managed("orders", VERSION);
+        records.save(replacement);
+
+        assertThatThrownBy(() -> service.record(original,
+                new TableStatistics(100, 1_000), "ANALYZE", VERSION))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("changed during collection");
+        assertThat(statistics.find(replacement.tableId())).isEmpty();
+    }
+
+    @Test
     void observedTablesAreRejected() {
         assertThatThrownBy(() -> service.record("cat", "db", "external",
                 new TableStatistics(100, 1_000), "ANALYZE"))
@@ -145,6 +174,11 @@ class TableControlStatisticsServiceTest {
             @Override
             public void save(TableControlRecord value) {
                 delegate.save(value);
+            }
+
+            @Override
+            public void saveWithObservation(TableControlRecord value, TableVersionObservation observation) {
+                delegate.saveWithObservation(value, observation);
             }
         };
         TableControlService retiringControl = new TableControlService(retiring,

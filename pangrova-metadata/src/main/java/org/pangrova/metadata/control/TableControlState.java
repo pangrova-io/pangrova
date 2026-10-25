@@ -4,6 +4,8 @@ package org.pangrova.metadata.control;
 public enum TableControlState {
     /** Record matches the catalog and may be used. */
     ACTIVE,
+    /** An admitted rename owns this revision; observers must not adopt its intermediate state. */
+    RENAMING,
     /** The controlled table is no longer listed by the catalog; awaits confirmation. */
     STALE,
     /** The physical table was created but its control record could not be completed. */

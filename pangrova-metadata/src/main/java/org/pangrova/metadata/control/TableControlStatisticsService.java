@@ -68,8 +68,23 @@ public final class TableControlStatisticsService {
      */
     public TableControlStatistics record(String catalog, String schema, String table,
             TableStatistics statistics, String source, String observedVersionToken) {
+        return record(requireActiveControlled(catalog, schema, table), statistics, source, observedVersionToken);
+    }
+
+    /** Publishes a collection only against the exact control record captured before collecting it. */
+    public TableControlStatistics record(TableControlRecord expected, TableStatistics statistics,
+            String source, String observedVersionToken) {
         Objects.requireNonNull(statistics, "statistics must not be null");
+        Objects.requireNonNull(expected, "expected");
+        String catalog = expected.catalog();
+        String schema = expected.schema();
+        String table = expected.table();
         TableControlRecord record = requireActiveControlled(catalog, schema, table);
+        if (!record.tableId().equals(expected.tableId())
+                || record.metadataRevision() != expected.metadataRevision()) {
+            throw new AccessDeniedException("ANALYZE rejected: control record changed during collection for "
+                    + expected.qualifiedName() + "; discard the collected statistics and retry");
+        }
         String versionToken = observedVersionToken == null || observedVersionToken.isBlank()
                 ? record.versionToken() : observedVersionToken;
         if (versionToken == null || versionToken.isBlank()) {
@@ -125,7 +140,7 @@ public final class TableControlStatisticsService {
 
     /** Freshness check for a caller that already holds the control record. */
     public Optional<TableControlStatistics> fresh(TableControlRecord record) {
-        if (record == null) {
+        if (record == null || record.state() != TableControlState.ACTIVE) {
             return Optional.empty();
         }
         return store.find(record.tableId())

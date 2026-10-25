@@ -77,6 +77,31 @@ class AnalyzeExecutorTest {
     }
 
     @Test
+    void replacementCannotSupplyStatisticsForTheOldOwnership() {
+        managed("orders", version("v1"));
+        metadata.create("default", "orders", "replacement");
+        assertThatThrownBy(() -> executor.execute(analyze("orders"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("identity");
+        assertThat(metadata.statisticsReads).isZero();
+        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders")).isEmpty();
+    }
+
+    @Test
+    void controlAdvanceDuringCollectionDoesNotGetOverwrittenByOlderStatistics() {
+        var record = managed("orders", version("v1"));
+        metadata.statistics = new TableStatistics(42, 840);
+        metadata.onRead = () -> registry.tableControl().observeVersion(record,
+                metadata.getTableIdentity(null, new Handle("default.orders")),
+                Optional.of(version("v2")), "EXTERNAL", Instant.now());
+
+        assertThatThrownBy(() -> executor.execute(analyze("orders"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("control record changed");
+        assertThat(registry.tableControl().find("test_cat", "default", "orders").orElseThrow().versionToken())
+                .isEqualTo("uuid:v2");
+        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders")).isEmpty();
+    }
+
+    @Test
     void collectedStatisticsAreBoundToTheStableTableAndObservedVersion() {
         TableControlRecord record = managed("orders", version("v1"));
         metadata.statistics = new TableStatistics(42, 840);
@@ -150,8 +175,7 @@ class AnalyzeExecutorTest {
 
     private TableControlRecord managed(String table, TableVersionToken version) {
         return registry.tableControl().registerCreated("test_cat", "default", table, "alice",
-                Optional.of(new TableIdentity("ICEBERG", "uuid-" + table,
-                        "s3://bucket/" + table, "schema")),
+                metadata.getTableIdentity(null, new Handle("default." + table)),
                 Optional.of(version)).orElseThrow();
     }
 
@@ -183,14 +207,17 @@ class AnalyzeExecutorTest {
     private static final class TestMetadata implements ConnectorMetadata {
 
         private final Map<String, ConnectorTableMetadata> tables = new LinkedHashMap<>();
+        private final Map<String, String> identities = new LinkedHashMap<>();
         private Supplier<Optional<TableVersionToken>> version =
                 () -> Optional.of(TableVersionToken.of("ICEBERG", "uuid", "v1"));
         private TableStatistics statistics = TableStatistics.UNKNOWN;
         private int statisticsReads;
+        private Runnable onRead = () -> {};
 
         void create(String schema, String table, String uuid) {
             SchemaTableName name = new SchemaTableName(schema, table);
             tables.put(key(name), new ConnectorTableMetadata(name, List.of("id"), Map.of()));
+            identities.put(key(name), uuid);
         }
 
         private static String key(SchemaTableName name) {
@@ -218,6 +245,7 @@ class AnalyzeExecutorTest {
         public TableStatistics getTableStatistics(ConnectorSession session,
                 ConnectorTableHandle handle) {
             statisticsReads++;
+            onRead.run();
             return statistics;
         }
 
@@ -236,7 +264,7 @@ class AnalyzeExecutorTest {
                 ConnectorTableHandle handle) {
             String key = ((Handle) handle).key;
             return Optional.of(new TableIdentity(
-                    "ICEBERG", "uuid-" + key, "s3://bucket/" + key, "schema"));
+                    "ICEBERG", identities.get(key), "s3://bucket/" + key, "schema"));
         }
 
         @Override

@@ -24,11 +24,10 @@ public interface TableControlStore {
     void save(TableControlRecord record);
 
     /**
-     * Appends a version transition for a controlled table. OBSERVED tables never
-     * reach this method: they have no persisted identity.
+     * Atomically saves a control revision and its version transition. A failed
+     * observation must roll back the record and cache invalidation as well.
      */
-    default void recordVersionObservation(TableVersionObservation observation) {
-    }
+    void saveWithObservation(TableControlRecord record, TableVersionObservation observation);
 
     /** Returns the most recent observations for a table, newest first. */
     default List<TableVersionObservation> listVersionObservations(UUID tableId, int limit) {
