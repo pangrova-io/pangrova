@@ -89,20 +89,28 @@ public final class ArrowBatchDecoder {
      * @return decoded result batch; {@link ResultBatch#EMPTY} for null or empty input
      */
     public static ResultBatch decode(byte[] arrowIpcBytes) {
+        return decode(arrowIpcBytes, Integer.MAX_VALUE, DECODE_ALLOCATOR_LIMIT);
+    }
+
+    /** Decodes under explicit row and allocation bounds, before creating Java row objects. */
+    public static ResultBatch decode(byte[] arrowIpcBytes, int maxRows, long maxAllocatorBytes) {
+        if (maxRows < 0 || maxAllocatorBytes <= 0) {
+            throw new IllegalArgumentException("Decoder limits must be non-negative rows and positive bytes");
+        }
         if (arrowIpcBytes == null || arrowIpcBytes.length == 0) {
             return ResultBatch.EMPTY;
         }
-        try (BufferAllocator allocator = new RootAllocator(DECODE_ALLOCATOR_LIMIT);
+        try (BufferAllocator allocator = new RootAllocator(maxAllocatorBytes);
              ByteArrayInputStream bais = new ByteArrayInputStream(arrowIpcBytes);
              ArrowStreamReader reader = new ArrowStreamReader(bais, allocator)) {
-            return readAllBatches(reader);
+            return readAllBatches(reader, maxRows);
         } catch (IOException | UnsupportedOperationException e) {
             throw new TransportException("DECODE_FAILED",
                     "Failed to decode Arrow IPC bytes: " + e.getMessage(), e);
         }
     }
 
-    private static ResultBatch readAllBatches(ArrowStreamReader reader) throws IOException {
+    private static ResultBatch readAllBatches(ArrowStreamReader reader, int maxRows) throws IOException {
         VectorSchemaRoot root = reader.getVectorSchemaRoot();
         List<ColumnDescriptor> columns = buildColumns(root.getSchema());
         if (columns.isEmpty()) {
@@ -110,6 +118,10 @@ public final class ArrowBatchDecoder {
         }
         List<Object[]> rows = new ArrayList<>();
         while (reader.loadNextBatch()) {
+            if (root.getRowCount() > maxRows - rows.size()) {
+                throw new TransportException("RESULT_ROW_LIMIT_EXCEEDED",
+                        "Result exceeds the requested row limit", null);
+            }
             appendRows(root, rows);
         }
         return new ResultBatch(columns, rows);

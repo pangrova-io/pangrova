@@ -209,19 +209,25 @@ public final class FlightResultFetcher implements AutoCloseable {
      * @throws TransportServerException     on server-reported error
      */
     public void fetchStream(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer) {
+        fetchStream(endpoint, batchConsumer, Long.MAX_VALUE);
+    }
+
+    /** Streams batches under an absolute query deadline as well as the existing idle timeout. */
+    public void fetchStream(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer, long deadlineEpochMs) {
         try (var operation = lifecycle.enter()) {
-            fetchStreamOwned(endpoint, batchConsumer);
+            fetchStreamOwned(endpoint, batchConsumer, deadlineEpochMs);
         }
     }
 
-    private void fetchStreamOwned(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer) {
+    private void fetchStreamOwned(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer, long deadlineEpochMs) {
         String poolKey = poolKey(endpoint);
         Location location = resolveLocation(endpoint);
         try (var lease = lifecycle.client(poolKey, () -> buildClient(location))) {
-            try (var streamOwner = lifecycle.stream(lease.client().getStream(ticket(endpoint)), batchReadExecutor)) {
+            try (var streamOwner = lifecycle.stream(
+                    openStream(lease.client(), endpoint, deadlineEpochMs), batchReadExecutor)) {
                 FlightStream stream = streamOwner.stream();
                 VectorSchemaRoot root = stream.getRoot();
-                while (awaitNextBatch(stream, endpoint)) {
+                while (awaitNextBatch(stream, endpoint, deadlineEpochMs)) {
                     batchConsumer.accept(serializeBatch(root));
                 }
             } catch (TransportException e) {
@@ -234,7 +240,12 @@ public final class FlightResultFetcher implements AutoCloseable {
                 throw connectionError("TRANSPORT_CONNECTION_FAILED",
                         "Transport connection failed to " + detail(endpoint), e);
             } catch (Exception e) {
-                TransportException classified = classifyError(endpoint, e);
+                TransportException classified = deadlineEpochMs != Long.MAX_VALUE
+                        && (System.currentTimeMillis() >= deadlineEpochMs
+                                || e instanceof FlightRuntimeException flightFailure
+                                        && flightFailure.status().code() == FlightStatusCode.TIMED_OUT)
+                        ? queryDeadlineExceeded(endpoint, e)
+                        : classifyError(endpoint, e);
                 if (isConnectionError(classified)) {
                     lease.retire();
                 }
@@ -290,10 +301,6 @@ public final class FlightResultFetcher implements AutoCloseable {
      * @return true if a batch is available, false if stream exhausted
      * @throws TransportConnectionException if idle timeout exceeded
      */
-    private boolean awaitNextBatch(FlightStream stream, ResultEndpoint endpoint) {
-        return awaitNextBatch(stream, endpoint, Long.MAX_VALUE);
-    }
-
     private boolean awaitNextBatch(
             FlightStream stream, ResultEndpoint endpoint, long deadlineEpochMs) {
         long waitNanos = readWaitNanos(deadlineEpochMs);
