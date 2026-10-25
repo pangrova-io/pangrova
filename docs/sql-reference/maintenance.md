@@ -220,6 +220,13 @@ maintenance-policy contract and are rejected. Use the dedicated authorized SQL
 DDL where supported. Connector implementation availability alone does not grant
 permission to invoke a procedure.
 
+Paimon connector discovery lists `compact`, `expire_snapshots`,
+`remove_orphan_files`, `create_tag`, `delete_tag`, `rollback_to`, `create_branch`
+and `delete_branch`. This list describes implemented connector operations;
+the SQL `CALL` admission rules above still apply. The unsupported Paimon
+operations listed below are excluded from discovery as well as rejected on
+direct connector invocation.
+
 Each maintenance attempt has a unique lease holder, including concurrent requests
 on the same coordinator. The lease is renewed during execution and checked before
 the connector is invoked and before success is recorded. Lease loss before

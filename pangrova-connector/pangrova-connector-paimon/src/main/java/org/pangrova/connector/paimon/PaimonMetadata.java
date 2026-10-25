@@ -494,6 +494,11 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public java.util.List<org.pangrova.spi.connector.metadata.TableProcedure> listTableProcedures() {
+        return PaimonTableProcedures.list();
+    }
+
+    @Override
     public java.util.List<org.pangrova.spi.connector.data.TypedRow> executeProcedure(
             ConnectorSession session, String procedureName,
             java.util.Map<String, String> arguments) {

@@ -7,8 +7,9 @@ import java.util.List;
 /**
  * Enumerates the table maintenance procedures supported by the Paimon connector.
  *
- * <p>Returned by {@link PaimonMetadata#listTableProcedures()} so the engine can
- * expose available procedures in information-schema queries and SQL autocompletion.</p>
+ * <p>Returned by {@link PaimonMetadata#listTableProcedures()} for connector
+ * discovery. The descriptors do not grant SQL CALL admission; the coordinator
+ * applies its maintenance-policy contract independently.</p>
  */
 final class PaimonTableProcedures {
 
