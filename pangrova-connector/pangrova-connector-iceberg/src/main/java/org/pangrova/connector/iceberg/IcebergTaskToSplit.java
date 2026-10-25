@@ -41,6 +41,17 @@ final class IcebergTaskToSplit {
     IcebergSplit convert(FileScanTask task, String qualifiedTableName,
                          String readMode, long snapshotId, long fromSnapshotId, long toSnapshotId,
                          Schema tableSchema, List<ColumnMapping> columnMappings) {
+        for (DeleteFile delete : task.deletes()) {
+            if (delete.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES
+                    && !org.pangrova.connector.iceberg.handle.IcebergTableHandle.CAPABILITIES
+                            .supportsEqualityDeleteRead()) {
+                throw new org.pangrova.spi.connector.base.ConnectorException(
+                        org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                        "Cannot read Iceberg table " + qualifiedTableName + " at snapshot " + snapshotId
+                                + ": equality deletes are not supported (delete file " + delete.path()
+                                + ", data file " + task.file().path() + ")");
+            }
+        }
         byte[] residualPredicate = expressionConverter.convert(task.residual(), tableSchema)
                 .orElse(new byte[0]);
         long dataSeqNum = task.file().dataSequenceNumber() != null

@@ -29,6 +29,42 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     private static final StoredRow OTHER_SURVIVOR = new StoredRow(3, "north", "one", "also-keep");
     private static final List<String> COLUMNS = List.of("id", "region", "day", "payload");
 
+    @Test
+    void ambiguousSnapshotPublicationIsNotRetriedByTheConnector() throws Exception {
+        // Exhaust the SDK's own retry budget immediately to test the connector boundary.
+        createTable(false, true, Map.of("commit.max-retries", "0"));
+        writeRows(DELETED);
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var output = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginOverwrite(SESSION, handle(metadata));
+        List<byte[]> fragments = List.of(prepare(output, SURVIVOR));
+        var context = PaimonCommitTestSupport.context(metadata, SESSION, output, fragments);
+        var original = (org.apache.paimon.table.FileStoreTable) freshTable();
+        var publications = new java.util.concurrent.atomic.AtomicInteger();
+        var notifications = new java.util.concurrent.atomic.AtomicInteger();
+        var faultyIo = new org.apache.paimon.fs.local.LocalFileIO() {
+            @Override
+            public boolean rename(org.apache.paimon.fs.Path source, org.apache.paimon.fs.Path destination)
+                    throws java.io.IOException {
+                if (destination.getName().startsWith("snapshot-")) {
+                    publications.incrementAndGet();
+                    throw new java.io.IOException("Snapshot publication response lost");
+                }
+                return super.rename(source, destination);
+            }
+        };
+        var table = new org.apache.paimon.table.AppendOnlyFileStoreTable(faultyIo,
+                original.location(), original.schema(), org.apache.paimon.table.CatalogEnvironment.empty());
+
+        assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, fragments, context,
+                (schema, name, added, removed, snapshot, event, fingerprint) -> notifications.incrementAndGet()))
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
+                .hasStackTraceContaining("Exception occurs when committing snapshot");
+        assertThat(publications).hasValue(1);
+        assertThat(notifications).hasValue(0);
+        assertThat(readRows()).containsExactly(DELETED);
+    }
+
     @ParameterizedTest(name = "survivors: partitioned={0}, appendOnly={1}")
     @CsvSource({"false,false", "false,true", "true,false", "true,true"})
     void survivorCommitRemovesPartitionsWithoutOutput(boolean partitioned, boolean appendOnly)

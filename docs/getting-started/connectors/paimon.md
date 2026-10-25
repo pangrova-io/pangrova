@@ -7,6 +7,13 @@ description: "Apache Paimon connector configuration"
 
 Configure the Paimon connector for streaming lakehouse tables.
 
+Distributed commit retries remain inside the Paimon SDK, which tracks snapshot
+commit identity. If that operation throws, the connector does not restart it
+based on words such as "conflict" in the exception message: a lost publication
+response may still represent a committed snapshot. Recovery must reconcile the
+durable commit fingerprint before replay; an exception alone does not prove
+that staged files are safe to delete.
+
 
 ## Paimon Connector
 

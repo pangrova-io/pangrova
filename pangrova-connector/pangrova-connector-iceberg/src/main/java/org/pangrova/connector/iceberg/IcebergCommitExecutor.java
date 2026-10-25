@@ -27,8 +27,8 @@ import java.util.concurrent.TimeoutException;
  *
  * <p>A timed-out commit is never retried blindly. The executor first gives the
  * in-flight action a bounded grace window to finish, then verifies the catalog
- * state: proven success returns normally, an unchanged snapshot reports a
- * definite failure, and anything that cannot be proven fails closed as
+ * state: proven success returns normally, and anything that cannot be proven,
+ * including an unchanged snapshot, fails closed as
  * {@link CommitStateUnknownException}.</p>
  */
 final class IcebergCommitExecutor {
@@ -156,7 +156,6 @@ final class IcebergCommitExecutor {
             case SUCCEEDED -> LOG.info(
                     "event=commit_timeout_resolved table={} outcome=SUCCEEDED detail={}",
                     tableId, result.detail());
-            case FAILED -> throw new CommitTimeoutException(tableId, elapsedMs, timeoutMs, cause);
             case UNKNOWN -> throw new CommitStateUnknownException(
                     new IllegalStateException(
                             "Commit outcome for table %s is unknown after timeout: %s"

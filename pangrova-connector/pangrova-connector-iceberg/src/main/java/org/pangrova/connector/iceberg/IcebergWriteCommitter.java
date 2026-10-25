@@ -129,7 +129,7 @@ final class IcebergWriteCommitter {
     private void handleCommitFailure(Table icebergTable, IcebergOutputTableHandle handle,
                                      IcebergCollectedFragments collected, RuntimeException e,
                                      DistributedWriteCommitContext context) {
-        if (context != null || e instanceof CommitTimeoutException || e instanceof CommitStateUnknownException
+        if (context != null || e instanceof CommitStateUnknownException
                 || e instanceof IcebergCommitNotifier.NotificationFailure) {
             LOG.warn("event=distributed_write_commit_timeout_orphans_possible table={}.{} "
                             + "dataFiles={} deleteFiles={} note=left_for_maintenance_cleanup",

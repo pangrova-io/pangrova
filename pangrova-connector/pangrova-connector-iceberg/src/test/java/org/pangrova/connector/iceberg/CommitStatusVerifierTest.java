@@ -78,21 +78,21 @@ class CommitStatusVerifierTest {
     }
 
     @Test
-    void verifyFails_whenNoSnapshotOnEmptyTable() {
-        // Simulate: table had no snapshot and still has none (commit genuinely failed)
+    void verifyUnknown_whenNoSnapshotOnEmptyTable() {
+        // Simulate: table had no snapshot and still has none (remote commit may still be in flight)
         StubTable table = new StubTable(null);
 
         CommitStatusVerifier.VerificationResult result =
                 CommitStatusVerifier.verify(table, -1L, "db.table_still_empty");
 
         assertThat(result.outcome())
-                .as("Should detect failure when no snapshot appeared")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.FAILED);
+                .as("No snapshot cannot prove the remote commit has stopped")
+                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("unchanged");
     }
 
     @Test
-    void verifyFails_whenSnapshotUnchangedFromBase() {
+    void verifyUnknown_whenSnapshotUnchangedFromBase() {
         // Simulate: table had snapshot 50 and still has snapshot 50
         StubSnapshot sameSnapshot = new StubSnapshot(50L, null);
         StubTable table = new StubTable(sameSnapshot);
@@ -101,8 +101,8 @@ class CommitStatusVerifierTest {
                 CommitStatusVerifier.verify(table, 50L, "db.table_unchanged");
 
         assertThat(result.outcome())
-                .as("Should detect failure when snapshot remains at pre-commit state")
-                .isEqualTo(CommitStatusVerifier.CommitOutcome.FAILED);
+                .as("An unchanged snapshot cannot prove the remote commit has stopped")
+                .isEqualTo(CommitStatusVerifier.CommitOutcome.UNKNOWN);
         assertThat(result.detail()).contains("unchanged");
     }
 

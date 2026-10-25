@@ -1,6 +1,5 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.common.concurrent.RetryingCommitWrapper;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.spi.connector.base.ConnectorException;
@@ -8,7 +7,6 @@ import org.pangrova.spi.connector.index.CommitEventType;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
-import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataIncrement;
 import org.apache.paimon.table.FileStoreTable;
@@ -31,47 +29,14 @@ import java.util.Map;
 
 /**
  * Finishes a distributed Paimon write: deserializes commit-message fragments
- * produced by workers, commits them (with retries), and notifies the commit
+ * produced by workers, commits them through the SDK, and notifies the commit
  * listener about added and removed data files.
  */
 final class PaimonDistributedWriteFinisher {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaimonDistributedWriteFinisher.class);
 
-    private static final RetryingCommitWrapper COMMIT_RETRY = RetryingCommitWrapper.withDefaults(
-            PaimonDistributedWriteFinisher::isRetryableCommitException);
-
     private PaimonDistributedWriteFinisher() {}
-
-    /**
-     * Determines if an SDK commit failure is a transient OCC conflict that may be replayed with
-     * the same commit user.
-     *
-     * <p>Paimon reports conflicts as generic {@link RuntimeException}s, so an explicit conflict
-     * signature is required. Permanent catalog errors, programming errors, and unclassified
-     * failures are never retried: a failed attempt whose outcome cannot be proven is left to the
-     * journal reconciler, which first checks the commit fingerprint marker.
-     */
-    private static boolean isRetryableCommitException(Exception e) {
-        if (e instanceof Catalog.TableNotExistException
-                || e instanceof Catalog.DatabaseNotExistException
-                || e instanceof Catalog.TableNoPermissionException
-                || e instanceof Catalog.DatabaseNoPermissionException) {
-            return false;
-        }
-        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException
-                || e instanceof UnsupportedOperationException || e instanceof SecurityException) {
-            return false;
-        }
-        if (!(e instanceof RuntimeException) || e.getMessage() == null) {
-            return false;
-        }
-        String message = e.getMessage().toLowerCase(java.util.Locale.ROOT);
-        return message.contains("conflict")
-                || message.contains("cannot commit snapshot")
-                || message.contains("exception occurs when preparing snapshot")
-                || message.contains("exception occurs when committing snapshot");
-    }
 
     /** Callback used to notify commit listeners after a successful commit. */
     @FunctionalInterface
@@ -295,25 +260,17 @@ final class PaimonDistributedWriteFinisher {
     private static void commitPrepared(
             InnerTable innerTable, PaimonOutputTableHandle handle,
             List<CommitMessage> allMessages, CommitEventType eventType, String commitUser) {
-        try {
-            COMMIT_RETRY.execute(() -> {
-                try (InnerTableCommit tableCommit = innerTable.newCommit(commitUser)) {
-                    if (eventType == CommitEventType.OVERWRITE) {
-                        tableCommit.withOverwrite(handle.overwritePartition());
-                    }
-                    tableCommit.filterAndCommit(Map.of(0L, allMessages));
-                } catch (RuntimeException e) {
-                    throw e;
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        } catch (org.pangrova.common.exception.PangrovaException e) {
+        // The SDK owns conflict retry and snapshot idempotency state. Exceptions
+        // escaping it can mean an atomic rename is still in flight; message
+        // matching cannot prove failure or justify restarting the SDK commit.
+        try (InnerTableCommit tableCommit = innerTable.newCommit(commitUser)) {
+            if (eventType == CommitEventType.OVERWRITE) {
+                tableCommit.withOverwrite(handle.overwritePartition());
+            }
+            tableCommit.filterAndCommit(Map.of(0L, allMessages));
+        } catch (Exception e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Failed to commit Paimon distributed write after retries", e);
-        } catch (RuntimeException e) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Failed to commit Paimon distributed write", e);
+                    "Failed to commit Paimon distributed write; reconcile its durable fingerprint before replay", e);
         }
     }
 

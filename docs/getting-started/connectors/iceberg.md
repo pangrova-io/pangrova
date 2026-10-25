@@ -7,6 +7,14 @@ description: "Apache Iceberg connector configuration and feature support"
 
 Configure the Iceberg connector and review supported table features.
 
+### Ambiguous commits
+
+A catalog commit timeout or an interruption after submission has an UNKNOWN
+outcome unless a durable commit marker proves publication. An unchanged
+snapshot after the verification grace period does not prove failure: the remote
+commit may still finish. UNKNOWN commits retain their staged files and must be
+reconciled before retrying; they are not reported as retryable transient errors.
+
 
 ## Iceberg Connector
 
@@ -134,3 +142,15 @@ any matching record. If all contributing entry snapshots have expired, both
 last-update fields are NULL and `spec_id` is zero, matching the Iceberg SDK.
 The same base-table SELECT privilege and row/column policy protections apply to
 both metadata SQL forms.
+
+Equality-delete reads remain unsupported until cross-engine qualification passes.
+Split planning rejects them with the table, snapshot and delete-file identity,
+for both row projections and aggregates. Native split admission also rejects
+unqualified equality deletes and unknown delete types; they cannot silently skip
+filtering or enter the experimental equality reader through a direct split.
+
+Iceberg v3 deletion-vector reads select the Puffin blob by its referenced data
+file and preserve 64-bit row positions. Readers validate the container, payload
+length, IEEE CRC-32 and cardinality before applying deletes. Ambiguous or missing
+blob identity and corrupt payloads fail the query; compressed Puffin footers and
+compressed DV blobs are currently rejected explicitly.

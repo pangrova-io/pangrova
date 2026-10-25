@@ -22,8 +22,8 @@ import org.slf4j.LoggerFactory;
  * snapshot to our commit — a concurrent writer's snapshot descends from the
  * same base — so an advanced table is always {@link CommitOutcome#UNKNOWN}.
  *
- * <p>Only an unchanged snapshot after the grace period is treated as a
- * definite failure; anything else fails closed.
+ * <p>An unchanged snapshot is not proof of failure: a cancelled task may still
+ * be executing in a remote catalog. Absence of a marker always remains UNKNOWN.
  */
 final class CommitStatusVerifier {
 
@@ -43,8 +43,6 @@ final class CommitStatusVerifier {
     enum CommitOutcome {
         /** Commit succeeded — the snapshot carries our durable fingerprint marker. */
         SUCCEEDED,
-        /** Commit did not land — the snapshot is unchanged after the grace period. */
-        FAILED,
         /** Cannot determine outcome — requires reconciliation, never an automatic retry. */
         UNKNOWN
     }
@@ -60,8 +58,8 @@ final class CommitStatusVerifier {
     /**
      * Verifies a commit that carried no durable commit context. Without a marker
      * an advanced snapshot cannot be attributed to this commit, so advancement is
-     * reported as {@link CommitOutcome#UNKNOWN}; only an unchanged snapshot is a
-     * definite failure.
+     * reported as {@link CommitOutcome#UNKNOWN}. An unchanged snapshot also remains
+     * unknown because a remote commit may still publish after verification.
      */
     static VerificationResult verify(Table table, long preCommitSnapshotId, String tableId) {
         return verify(table, preCommitSnapshotId, null, tableId);
@@ -75,7 +73,7 @@ final class CommitStatusVerifier {
      *                            or -1 if the table had no snapshots before the commit
      * @param context             durable commit context, or null when the commit has none
      * @param tableId             table identifier for logging
-     * @return verification result indicating whether the commit succeeded, failed, or is unknown
+     * @return verification result indicating whether the commit succeeded or is unknown
      */
     static VerificationResult verify(Table table, long preCommitSnapshotId,
             DistributedWriteCommitContext context, String tableId) {
@@ -114,11 +112,11 @@ final class CommitStatusVerifier {
                             + "another writer may have committed");
         }
 
-        LOG.info("event=commit_timeout_verified_failure table={} "
+        LOG.warn("event=commit_timeout_unprovable table={} "
                         + "preCommitSnapshot={} reason=snapshot_unchanged_after_grace",
                 tableId, preCommitSnapshotId);
-        return new VerificationResult(CommitOutcome.FAILED,
-                "Snapshot unchanged after %d verification attempts (grace=%dms)"
+        return new VerificationResult(CommitOutcome.UNKNOWN,
+                "Snapshot unchanged after %d verification attempts (grace=%dms); remote commit may still publish"
                         .formatted(MAX_VERIFICATION_ATTEMPTS, VERIFICATION_GRACE_MS));
     }
 

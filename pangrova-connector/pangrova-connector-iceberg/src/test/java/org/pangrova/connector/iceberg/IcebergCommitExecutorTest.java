@@ -62,7 +62,7 @@ class IcebergCommitExecutorTest {
                     (table, snapshotId, context, tableId) -> {
                         verified.set(true);
                         return new CommitStatusVerifier.VerificationResult(
-                                CommitStatusVerifier.CommitOutcome.FAILED, "unexpected");
+                                CommitStatusVerifier.CommitOutcome.UNKNOWN, "unexpected");
                     });
 
             Throwable failure = catchThrowable(() -> commits.execute(null, null, () -> {
@@ -134,23 +134,42 @@ class IcebergCommitExecutorTest {
     }
 
     @Test
-    void timedOutCommitProvenFailedReportsTimeout() {
+    void timedOutCommitWithoutSnapshotAdvancementRemainsUnknown() {
         ExecutorService pool = Executors.newCachedThreadPool();
         CountDownLatch release = new CountDownLatch(1);
         try {
             IcebergCommitExecutor commits = new IcebergCommitExecutor(10, pool, 10,
                     (table, snapshotId, context, tableId) ->
                             new CommitStatusVerifier.VerificationResult(
-                                    CommitStatusVerifier.CommitOutcome.FAILED,
+                                    CommitStatusVerifier.CommitOutcome.UNKNOWN,
                                     "snapshot unchanged"));
 
             Throwable failure = catchThrowable(() -> commits.execute(null, null,
                     () -> awaitUninterruptibly(release), "lake.orders"));
 
             assertThat(failure)
-                    .isInstanceOf(CommitTimeoutException.class)
+                    .isInstanceOf(CommitStateUnknownException.class)
                     .hasMessageContaining("lake.orders");
         } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void interruptionAfterSubmissionDoesNotMakeTheCommitRetryable() {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            IcebergCommitExecutor commits = new IcebergCommitExecutor(2_000, pool);
+            Thread.currentThread().interrupt();
+            Throwable failure = catchThrowable(() -> commits.execute(
+                    () -> awaitUninterruptibly(release), "lake.orders"));
+
+            assertThat(failure).isInstanceOf(CommitStateUnknownException.class);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
             release.countDown();
             pool.shutdownNow();
         }

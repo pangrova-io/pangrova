@@ -127,6 +127,26 @@ class IcebergSplitManagerTest {
     }
 
     @Test
+    void getSplitsRejectsUnqualifiedEqualityDeletesBeforeNativeDispatch() {
+        Table table = createTable("db", "equality_delete", TEST_SCHEMA);
+        appendDataFile(table, "/data/equality-data.parquet", 512L);
+        var keySchema = new Schema(TEST_SCHEMA.findField("id"));
+        var key = org.apache.iceberg.data.GenericRecord.create(keySchema);
+        key.setField("id", 41L);
+        var delete = org.pangrova.connector.iceberg.write.IcebergDeleteWriter.buildEqualityDeleteFile(
+                table, new int[] {1}, keySchema, List.of(key));
+        table.newRowDelta().addDeletes(delete).commit();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> drainSplits(handleFor("db", "equality_delete", table)))
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
+                .hasMessageContaining("equality deletes are not supported")
+                .hasMessageContaining("db.equality_delete")
+                .hasMessageContaining(Long.toString(table.currentSnapshot().snapshotId()))
+                .hasMessageContaining(delete.path().toString());
+    }
+
+    @Test
     void getSplits_splitContainsEmptyDeleteFiles() {
         Table table = createTable("db", "clean", TEST_SCHEMA);
         appendDataFile(table, "/data/clean-001.parquet", 256L);
