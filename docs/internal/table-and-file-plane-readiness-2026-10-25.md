@@ -18,6 +18,14 @@ changes in other engine areas need their own current-source evidence.
 
 ## Resumed implementation and qualification
 
+Current user-directed priority: align architectural correctness and research the
+remaining design before heavy qualification. See the [2026-10-25 architecture
+review](table-and-file-plane-architecture-alignment-2026-10-25.md). The 100 GiB,
+hundred-million-entry, PB-scale and Linux production-environment gates are
+**deferred to a dedicated test environment at the user's request**. They remain
+open requirements; this checkpoint does not launch them on the development host.
+Bounded correctness checks and already-running owner selections may finish.
+
 The catalog deployment identity gap is now implemented. CREATE, ADOPT, orphan
 registration and legacy registration capture the authoritative incarnation and
 revision. Admission, SQL and metadata read bindings (including cache hits),
@@ -39,14 +47,42 @@ an old binding until its LINKED registration is explicitly unlinked.
 | HTTP SQL Table Control lifecycle | 7 passed with packaged Release JNI, actual SDK files, PostgreSQL and the prepared real Ollama deployment; no skips | Includes the new catalog replacement case rejecting SELECT, INSERT, DROP, ANALYZE and CALL while retaining the unchanged physical UUID and data. |
 | Metadata/coordinator static analysis | Both `verify -Pstatic-analysis -DskipTests` selections passed; zero reported bug instances | Tests ran separately. The analyzer still prints nonblocking missing-lambda-symbol diagnostics. |
 | Current Java reactor installation | `-Pnative-runtime -DskipTests install` passed | Compilation/package evidence; refreshes stale local CLI/shuffle artifacts that had contained older SPI classes. |
-| Full metadata owner selection | 822 tests selected: 818 passed and 4 observer-fixture errors, with no skips | The fixture discarded catalog descriptors. Its persistence was repaired and all 5 observer tests then passed; this is not a single green 822-test run. |
+| Clean metadata owner selection | 822 passed; zero failures, errors or skips; Maven exit 0 | Complete owner evidence for the catalog-fencing snapshot, following the observer-fixture repair. Does not replace the full dependency reactor or process-level qualification. |
+| Clean Coordinator owner selection | 3,264 passed; zero failures, errors or skips; Maven exit 0 | Clean compiled outputs plus the actual-authority fixture repairs in `83eadc51`; the later Shuffle/Paimon artifact changes require their own affected checks. |
 | Architecture and lightweight gates | Package dependency acyclicity, scoped/full-owner Checkstyle, SPI annotations, E2E truthfulness, documentation references and dead-stub checks passed | The initial control/catalog package cycle was removed before acceptance; these checks do not establish runtime reachability by themselves. |
 | Current Release native suite | 4,333 passed; 1 of 4,334 failed with an mTLS `wrong version number` handshake error | The same isolated case subsequently passed once and in 100 diagnostic repetitions. Its intermittent full-suite failure is unresolved and the Release gate remains open. |
+| Current macOS ASan native suite | 4,334 passed in 1,985.30 seconds; runner exit 0 | Rebuilt Rust/JNI combination, with `detect_leaks=0` per macOS policy. Linux ASan/LSan and the failed Release gate remain separate requirements. |
+| Current isolated Native runtime owner suites | WorkerBootstrap 5; NativeExchangeTransportExternalIntegration 3; WorkerShuffleChannelAdmission 1; CopySourceReadHttp 1 passed, each owner in a separate JVM | All four owners also passed again after installing `a7877791` / `7c50471b` artifacts; zero failures, errors or skips. The downstream classpath contains all 651 canonical SPI classes only in the SPI JAR. |
+| Coordinator fixture repairs | 61 tests passed after cleaning compiled outputs | Generated-column fixtures now persist catalog descriptors, routing retains actual Worker identity, and managed write admission registers the connector identity. The clean complete owner result is recorded above. |
+| Shuffle library/executable boundary | 46 module tests passed; repeated packaging and standalone configuration-loader smoke passed | The main artifact contains only 75 service classes; `-exec.jar` contains matching bytes for all 651 canonical SPI classes. Installed thin artifact passed all four downstream Native owners (10 tests); the executable remains a separately attached artifact. |
+| Paimon connector procedure matrix | 392 module tests passed, including 6 new durable-effect cases; Checkstyle and static analysis passed with zero reported bug instances | `7c50471b` wires the implemented descriptors to connector discovery. Real local SDK effects include compaction, tag retention/delete, rollback after catalog reopen, branches and orphan deletion. Unsupported operations remain unadvertised and fail without changing live rows; SQL CALL authorization is unchanged. Spark/Flink, process-level and final artifact qualification remain separate. |
+
+The first metadata owner attempt selected 822 tests: 818 passed and 4 failed
+on an observer fixture that discarded catalog descriptors. Persisting those
+descriptors repaired the fixture; the later clean 822-test run passed as recorded
+above. The earlier failed report is not treated as a passing run.
 
 The broader dependency reactor was also interrupted while a Docker exec output
 stream remained open after its command exited. This is retained as an incomplete
 reactor; no test was disabled or timeout raised. The final same-source regression,
 sanitizers, isolated Native owners and deployment gates below remain required.
+
+The rebuilt macOS ASan JNI SHA-256 is
+`712c1b7cff054908f51b434e6ef5d0ca61a941f81334719486914fc4c97aaeae`.
+It uses the Rust archive identified below. The successful ASan report does not
+replace the unresolved Release mTLS failure.
+
+The broader Coordinator selection exposed fixtures that discarded durable catalog
+state or substituted a synthetic Worker identity; `83eadc51` repairs those
+fixtures without weakening admission checks. Cleaning also removed an orphaned
+compiled test whose source is absent from the repository. The first incremental
+selection remains failed; the subsequent complete clean owner result is recorded
+separately above.
+
+`a7877791` separates the Shuffle library JAR from its attached `exec` executable
+and updates the service image input. Replacing the main dependency artifact with
+a fat JAR had embedded duplicate SPI classes in Java consumers; incremental
+packaging could then expose stale contracts ahead of the canonical SPI JAR.
 
 ### Declared deletion-vector format boundary
 
@@ -150,9 +186,10 @@ these failures disappear.
 | P3 deployment matrix | Finish canonical same-source Linux image, Linux ASan/LSan, S3/MinIO and REST/Hive/JDBC catalog qualification. | Image/source provenance and all mandatory CI/release gates pass. |
 | Format boundary qualification | The supported DV format is now documented as uncompressed footers and uncompressed blobs. Optional compressed footers remain unsupported; compressed DV blobs violate the specification and stay rejected. | Verify the declared limit against actual external writers and the final shipped artifact; retain explicit rejection evidence and do not advertise unrestricted Puffin encoding support. |
 
-Paimon procedures that remain unsupported must continue to fail explicitly;
-they must not be advertised as successful no-ops. Their complete support/removal
-matrix still needs final P3 verification.
+Paimon procedures that remain unsupported must continue to fail explicitly and
+remain excluded from discovery. The current local SDK matrix is now verified
+above; it does not authorize otherwise rejected SQL CALL mutations or close
+external-writer and process-level qualification.
 
 ## Multimodal file plane
 
@@ -270,34 +307,43 @@ criteria. Final-source regression, artifact provenance, sanitizer validation,
 process-level recovery and deployment qualification are shared release gates;
 focused or historical results do not close them.
 
-1. Freeze the next combined branch revision, relink ASan and run the full affected
+1. Complete architecture alignment before extending the file execution path, as
+   detailed in the linked 2026-10-25 review: immutable directory generations,
+   durable uploads and UNKNOWN recovery, separate authorization/ownership/read
+   protection, and stable governance projections. Heavy capacity and Linux
+   production-environment testing is deferred to the dedicated environment.
+2. Freeze the next combined branch revision and complete the affected
    native/Java chain. Release JNI, its classifier and a new runtime manifest have
    been rebuilt; the focused SQL acceptance passed. Preserve reports and hashes
-   from previous artifacts separately. Complete the interrupted file-plane
-   Coordinator/Worker owner suites and the full release profile on the final
-   source as well.
-2. Serialize the resource-heavy Docker integrations, reproduce any remaining
-   failure, and rerun the four runtime owner suites in separate JVMs.
-3. Complete stable-ID governance projections and process-level qualification of
+   from previous artifacts separately. Complete the remaining Worker-wide and full
+   release profile gates against the final source. The clean metadata / Coordinator
+   owners, macOS ASan and all four
+   isolated runtime owners have now passed for the checkpoints recorded above;
+   do not rerun unchanged inputs merely to accumulate green reports.
+3. Reproduce and correct the unresolved Release mTLS failure and dependency-reactor
+   Docker exec stream hang. Run any newly affected owner in a separate JVM;
+   preserve failed evidence until a relevant correction is validated.
+4. Complete stable-ID governance projections and process-level qualification of
    catalog deployment fencing, then add actual crash/restart and active-active
    acceptance fixtures.
-4. Implement the Native Directory execution slice and then ingestion and FILE
+5. Implement the Native Directory execution slice and then ingestion and FILE
    managed publication, following the execution boundary below.
-5. Add the Spark/Flink external-writer matrix and the equality-delete oracle.
+6. Add the Spark/Flink external-writer matrix and the equality-delete oracle.
    Complete the remaining file-plane governance, transfer, backend, scale,
    lifecycle, AI and client acceptance matrices before closing their gates.
-6. Build and qualify the canonical Linux image with Linux sanitizers and the
-   full release regression against the final implementation. Only then reassess
-   production readiness.
+7. In the dedicated environment, build and qualify the canonical Linux image,
+   Linux sanitizers and full release regression against the final implementation.
+   Only then reassess production readiness.
 
 ### File-plane execution boundary
 
 The next main vertical slice is the Native Directory execution path. Resolve and
 authorize the immutable Stage reference in the control plane, propagate a typed
 binding and publish capability only when the Worker/Native path is actually wired.
-Construct the six columns in Native and verify SELECT, predicates and joins with
-real directory snapshots and authorization changes. Do not return relational
-query rows from Coordinator Java or register a placeholder table function.
+First implement the reviewed immutable generation/Manifest boundary; do not wire
+the Worker JDBC reader into production SQL. Construct the six columns in Native
+and verify SELECT, predicates and joins with real directory snapshots and
+authorization changes. Do not return relational query rows from Coordinator Java or register a placeholder table function.
 
 Then connect ingestion and FILE managed writes to the existing fenced publication
 mechanisms before claiming the design's first complete upload → DIRECTORY → COPY

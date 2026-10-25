@@ -5,6 +5,9 @@
 本文记录官方公开文档所描述的产品行为，不反推厂商未公开的底层实现、数据库分片或事务协议。范围为文件存储、目录、访问、版本、生命周期与规模；不把模型推理能力当作存储能力。云和版本范围以各条来源为准。
 
 修订后的 Pangrova 方案见 [存储与管理设计](multimodal-storage-management-design.md)。
+2026-10-25 的官方语义复核、当前源码差距及规模设计推导见
+[Table / File Plane 架构对齐](table-and-file-plane-architecture-alignment-2026-10-25.md)；
+后者按用户要求把重型容量测试留待专用环境，调研与设计不替代生产证据。
 
 ## 1. Databricks：Volume 管文件，FILE 把文件关联到表
 
