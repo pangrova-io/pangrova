@@ -40,10 +40,11 @@ qualified again; earlier green results must not be represented as that result.
 | `WriteDmlTransactionE2ETest$InsertOverwrite` after SQL repair | 1 passed | Actual static partition overwrite. |
 | Java static analysis | protocol, metadata, Iceberg, Paimon and coordinator passed | Before the final combined-revision rebuild. |
 | Combined Java reactor | Clean-snapshot install passed, followed by install with `native-runtime` | Compilation/package evidence only. The first subsequent E2E startup correctly failed because the initial install omitted the runtime profile; its installed Worker POM lacked the classifier dependency. |
+| Combined-snapshot metadata focused integration | 80 passed across control registry, policies, statistics, database lease clocks, actual HTTP lineage recovery and materialization evidence | Includes a successful Marquez rerun after reducing concurrent load; full metadata/reactor qualification remains open. |
 | Lance archive provenance | 4 tooling tests passed; actual stale archive rejected by both the verifier and CMake configuration | Rust rebuild, JNI relink and real Lance SQL acceptance still pending. |
 | Isolated Native runtime owner suites | WorkerBootstrap 5; NativeExchangeTransportExternalIntegration 3; WorkerShuffleChannelAdmission 1; CopySourceReadHttp 1 passed | These 10 results precede the latest deletion-vector JNI build. |
-| macOS ASan full suite | In progress at ledger creation | Repository policy uses `detect_leaks=0` on macOS. Linux ASan/LSan remains a separate required gate. |
-| Broad Java and SQL E2E suites | In progress, with failures recorded below | Not green. |
+| macOS ASan full suite | 4,334 tests passed in 2,308.42 seconds | Exact pre-rebuild JNI/Rust artifact; `detect_leaks=0` per macOS policy. New Rust/JNI and Linux ASan/LSan remain separate gates. |
+| Broad Java and SQL E2E suites | Stopped with the failures below after their artifacts were superseded | Incomplete and not green; partial successes do not qualify the suite. |
 | Canonical Linux production image | Build incomplete | A local macOS runtime cannot qualify the Linux image. |
 
 The initial native and HTTP SQL tests using genuine SDK Puffin files failed on
