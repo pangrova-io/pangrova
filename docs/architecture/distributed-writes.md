@@ -154,7 +154,8 @@ A timed-out catalog commit is resolved in three states, never by an immediate re
 - `FAILED` — the snapshot is unchanged after the grace period. The commit definitely did not land;
   the caller may retry under the normal policy.
 - `UNKNOWN` — the snapshot advanced without the commit marker, or verification itself failed. The
-  write fails closed with `CommitStateUnknownException`; the durable PENDING intent is retained
+  write fails closed with Iceberg's `org.apache.iceberg.exceptions.CommitStateUnknownException`;
+  the durable PENDING intent is retained
   and only recovery/reconciliation may resolve it. Automatic retries are forbidden because they
   could duplicate an already-published commit.
 
