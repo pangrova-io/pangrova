@@ -224,6 +224,7 @@ final class JdbcMaterializationQueries {
 
     public List<RefreshAttempt> findReconcilableAttempts(Instant observedBefore) {
         String sql = "SELECT " + JdbcMaterializationRows.ATTEMPT_COLUMNS + " FROM materialization.attempts a "
+                + "LEFT JOIN materialization.commit_evidence e ON e.attempt_id=a.attempt_id "
                 + "WHERE a.state IN ('PREPARING','BUILDING','COMMITTED','QUARANTINED') "
                 + "AND (NOT EXISTS (SELECT 1 FROM execution_anchor x "
                 + "  WHERE x.execution_id=a.execution_anchor AND x.expires_at > clock_timestamp()) "

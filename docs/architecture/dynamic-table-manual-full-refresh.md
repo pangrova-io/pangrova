@@ -113,6 +113,9 @@ leader-gated and runs schedule claims, attempt reconciliation, source-pin
 sweeping, and GC in that order. Recovery and GC rely on durable attempt and
 commit evidence rather than process-local state, so a coordinator restart
 resumes from the published head.
+The reconciliation scan reads each attempt together with its persisted commit
+evidence. Attempts without evidence remain eligible for reconciliation; an
+expired execution lease does not discard evidence already recorded by a writer.
 
 Validation that needs a real catalog and native workers runs through the
 Docker-based end-to-end suite in CI; unit and JDBC integration tests cover the

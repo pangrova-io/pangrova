@@ -401,8 +401,9 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
 
         expireAnchor(dataSource, authority.anchor());
         assertThat(repository.findReconcilableAttempts(now.plusSeconds(1)))
-                .extracting(RefreshAttempt::id)
-                .contains(attemptId);
+                .filteredOn(reconciled -> reconciled.id().equals(attemptId))
+                .singleElement().satisfies(reconciled ->
+                        assertThat(reconciled.evidence()).contains(evidence));
         PublishCommand command = new PublishCommand(object, 0, candidate, attempt, evidence,
                 fence, CommandId.random());
         assertThatThrownBy(() -> repository.publish(command, event(
