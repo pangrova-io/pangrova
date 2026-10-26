@@ -87,6 +87,61 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void cachedBindingCannotInheritAnotherAdoptionOfTheSamePhysicalTable() throws Exception {
+        try (var fixture = new ReadBindingSdkFixture(warehouse)) {
+            ReadBindingSdkFixture.write(fixture.create("cached_owner"), 1);
+            var registry = fixture.bootstrap.catalogRegistry();
+            var metadata = registry.getCatalog("bound").getMetadata(fixture.session);
+            var handle = metadata.getTableHandle(fixture.session,
+                    new org.pangrova.spi.connector.metadata.table.SchemaTableName("db", "cached_owner"));
+            var identity = metadata.getTableIdentity(fixture.session, handle);
+            var version = metadata.observeVersion(fixture.session, handle);
+            var observed = new PlanningReadBindings(registry, fixture.session);
+            observed.resolve("bound", "db", "cached_owner").orElseThrow();
+            var original = registry.tableControl().adopt("bound", "db", "cached_owner", "reader", identity, version);
+            assertThatThrownBy(() -> observed.resolve("bound", "db", "cached_owner"))
+                    .hasMessageContaining("ownership changed");
+            var controlled = new PlanningReadBindings(registry, fixture.session);
+            controlled.resolve("bound", "db", "cached_owner").orElseThrow();
+            registry.tableControl().unlink("bound", "db", "cached_owner");
+            var replacement = registry.tableControl().adopt("bound", "db", "cached_owner", "reader", identity, version);
+            assertThat(replacement.tableId()).isNotEqualTo(original.tableId());
+            assertThat(replacement.formatTableUuid()).isEqualTo(original.formatTableUuid());
+            assertThatThrownBy(() -> controlled.resolve("bound", "db", "cached_owner"))
+                    .hasMessageContaining("ownership changed");
+            assertThat(registry.tableControl().findById(replacement.tableId()).orElseThrow().state())
+                    .isEqualTo(org.pangrova.metadata.control.TableControlState.ACTIVE);
+        }
+    }
+
+    @Test
+    void cachedControlledSnapshotSurvivesDataAdvanceButNotPendingRename() throws Exception {
+        try (var fixture = new ReadBindingSdkFixture(warehouse)) {
+            var table = fixture.create("cached_data");
+            ReadBindingSdkFixture.write(table, 1);
+            var registry = fixture.bootstrap.catalogRegistry();
+            var metadata = registry.getCatalog("bound").getMetadata(fixture.session);
+            var handle = metadata.getTableHandle(fixture.session,
+                    new org.pangrova.spi.connector.metadata.table.SchemaTableName("db", "cached_data"));
+            var original = registry.tableControl().adopt("bound", "db", "cached_data", "reader",
+                    metadata.getTableIdentity(fixture.session, handle), metadata.observeVersion(fixture.session, handle));
+            var owner = new PlanningReadBindings(registry, fixture.session);
+            var selected = owner.resolve("bound", "db", "cached_data").orElseThrow();
+            ReadBindingSdkFixture.write(table, 2);
+            registry.tableControl().observeVersion(original, metadata.getTableIdentity(fixture.session, handle),
+                    metadata.observeVersion(fixture.session, handle), "EXTERNAL", java.time.Instant.now());
+            assertThat(owner.resolve("bound", "db", "cached_data")).containsSame(selected);
+            assertThat(selected.statistics().rowCount()).isEqualTo(1);
+            registry.tableControl().rename(registry.tableControl().findById(original.tableId()).orElseThrow(),
+                    "db", "cached_data_renamed");
+            assertThatThrownBy(() -> owner.resolve("bound", "db", "cached_data"))
+                    .hasMessageContaining("ownership or namespace changed");
+            assertThat(registry.tableControl().findById(original.tableId()).orElseThrow().state())
+                    .isEqualTo(org.pangrova.metadata.control.TableControlState.RENAMING);
+        }
+    }
+
+    @Test
     void concurrentLookupsShareActualBindingAndDifferentTablesDoNotSharePins() throws Exception {
         try (var fixture = new ReadBindingSdkFixture(warehouse)) {
             ReadBindingSdkFixture.write(fixture.create("first"), 3);

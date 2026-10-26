@@ -34,6 +34,22 @@ class TableControlServiceTest {
     }
 
     @Test
+    void cachedOwnerProofCannotQuarantineACompletedRenameWhosePhysicalIdentityChanged() {
+        var control = service(true, true);
+        var original = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        var pending = control.rename(original, "db", "other");
+        control.completeRename(pending, Optional.of(identity("uuid-2")), Optional.empty());
+        var returning = control.rename(control.findById(original.tableId()).orElseThrow(), "db", "t");
+        control.completeRename(returning, Optional.of(identity("uuid-3")), Optional.empty());
+        assertThatThrownBy(() -> control.requireReadOwner(original, "cached read"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("ownership or namespace changed");
+        var current = control.findById(original.tableId()).orElseThrow();
+        assertThat(current.state()).isEqualTo(TableControlState.ACTIVE);
+        control.requireReadOwner(current, "current read");
+    }
+
+    @Test
     void readCatalogRevisionUsesItsValueOutsideTheBoxedLongCache() {
         var store = new InMemoryTableControlStore();
         var control = new TableControlService(store,

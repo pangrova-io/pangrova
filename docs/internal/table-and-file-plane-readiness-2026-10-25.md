@@ -16,6 +16,26 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Query-local read ownership — continuation on 2026-10-27
+
+Each cached read now retains the control owner captured with its immutable source.
+Every planning lookup revalidates that owner and the name's current UUID. An
+OBSERVED binding cannot inherit a later ADOPT; UNLINK/re-ADOPT of the same physical
+table cannot attach a new control identity to an old read. Pending rename and a
+changed captured physical identity reject reuse without quarantining a healthy
+new owner on stale evidence. Ordinary data-version observations still permit the
+same selected immutable snapshot.
+
+The Metadata ownership unit selection and Coordinator real-SDK read/derived-read,
+deferred index, index-read and Feature View selection passed, along with the
+PostgreSQL canonical tag/row-policy, artifact-authority and frozen COPY admission
+selection. This includes the preceding deferred-applicability guard. The combined
+Java reactor installation passed. The combined endpoint/Native selection passed
+all 32 tests with zero failures/errors/skips for this source, including the preceding
+deferred-applicability guard. Complete affected module/static verification remains
+in progress. This does not
+close atomic query-bound policy identity, schema/field identity or rename recovery.
+
 ## Deferred policy applicability — continuation on 2026-10-27
 
 Policy rendering now rejects an enabled role-scoped restriction whose applicability
@@ -30,8 +50,9 @@ The row/mask unit selection and two real PostgreSQL cases passed. They reproduce
 actual group-role policy application in the authenticated foreground, reject both
 raw and transformed replay with missing applicability, then grant a durable matching
 role and accept the captured transformed scope while continuing to reject raw reads.
-Complete Security tests and static analysis passed; dependent validation remains
-in progress. This is
+Complete Security tests/static analysis, focused dependent Metadata/Coordinator
+selections and the combined 32-test endpoint/Native selection passed. Complete
+dependent module/static verification remains in progress. This is
 conservative rejection, not a reconstructed authentication context or qualification
 of every deferred workflow.
 
@@ -55,8 +76,9 @@ definition-only executor. The combined SQL/Native selection passed all 32 tests
 with zero failures/errors/skips for `6397ea1c`: Stage file HTTP (8), file contract
 component (3), SQL Stage operations (5), table lifecycle/quality Native SQL (11),
 Lance secure export (2), and activation smoke (3). The read-admission revision-value
-repair is included. Coordinator-wide verification is still in progress; this result
-does not include the subsequent deferred-applicability change above.
+repair is included. The complete Coordinator module and affected static checks
+also passed for that checkpoint. These results do not include the subsequent
+deferred-applicability and cached-ownership changes above.
 
 The first governance owner run failed because the amd64 reference Marquez server
 did not become ready under QEMU within its existing timeout. The prepared arm64

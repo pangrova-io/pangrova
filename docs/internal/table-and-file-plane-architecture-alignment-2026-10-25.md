@@ -46,6 +46,9 @@ Native DIRECTORY 接入之前，需要先把以下设计约束落到协议与状
 
 ## 3. 当前源码与目标之间的差距
 
+下表保留原审查基线的差距；2026-10-26/27 的稳定行策略、质量规则身份、文件授权与读取修复见合并台账。
+列身份契约的后续裁决见 §6.4，不能把表 UUID 的完成等同于列身份完成。
+
 | 当前代码证据 | 结论与需要落实的改造 |
 |---|---|
 | [目录刷新](../../pangrova-coordinator/src/main/java/org/pangrova/coordinator/file/StageDirectoryRefreshService.java)逐页处理、完成后发布；扫描开始只签发一次 list grant，后续只重新检查权限。 | 内存有界是已有基础。grant 到期会安全失败，但没有同根续期与进程恢复；大目录需要持久 checkpoint、owner epoch 和受限续期。不能通过无限延长授权解决。 |
@@ -176,6 +179,55 @@ GC 从完整根集合、未决发布与读保护推导候选，使用 CAS 进入
 删除针对精确物理 generation；迁移、重传或同内容重新上传使用新 generation，旧删除令牌不得命中新对象。
 恢复阶段先协调 UNKNOWN 并验证根与内容，再开放读写，最后单独开放 GC。
 共享 pack 的回收、旧表快照和备份覆盖缺一项都不能报告严格物理擦除完成。
+
+### 6.4 列治理：把策略绑定到实际读取声明
+
+补充审查日期：2026-10-27。以下是契约设计与源码核对，尚未实现完整的列身份链。
+表 UUID、格式表 UUID 和字段身份是不同证据。查询内缓存已增加控制所有者校验，但名称变化与列演进仍需单独处理。
+
+官方资料与本仓库的证据分别是：
+
+| 证据 | 设计含义 |
+|---|---|
+| Iceberg 的 schema 带唯一 schema ID，演进分配新字段 ID；读文件按字段 ID 映射。[规范](https://iceberg.apache.org/spec/#schema-evolution) | 策略不能只持有列名；历史读取要使用选定 schema 的字段映射。仍需验证本仓库实际 SDK 和 Native 传播链。 |
+| Paimon schema 文件带 schema ID、字段 ID，旧快照引用旧 schema。[1.4 文档](https://paimon.apache.org/docs/1.4/concepts/spec/schema/)；本仓库锁定 1.4.1，类型映射转发 `DataField.id()`。文档页面当前标为 1.4.2。 | 文档支持设计方向，不代替对锁定 1.4.1 的新增、删除、重命名和时间旅行验收。不要拿最新补丁文档当作本机产物资格。 |
+| Lance 的字段 ID 在数据集和分支内解释；旧模式允许复用删除字段的 ID，只有相应高水位与 writer flag 生效后才有不复用保证。[字段规范](https://lance.org/format/table/schema/#field-ids)、[版本能力](https://lance.org/format/table/versioning/) | “字段 ID 非空”不足以证明跨版本身份。分支、能力与历史范围必须一起固定。最新规范不能自动赋予旧 SDK 该能力。 |
+| 本仓库 Lance 依赖锁定 0.20.0；其 owned SDK 的 schema 演进测试明确覆盖删除后再次分配同一最大 ID。当前 `LanceColumn.metadata()` 返回空字段 ID。 | 当前没有可发布的跨版本列身份能力；不得填入 ordinal 冒充它，也不得默认最新规范中的不复用能力已实现。 |
+
+上述源码证据可在 [Paimon 映射](../../pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/type/PaimonTypeMapper.java)、
+[Lance 列声明](../../pangrova-connector/pangrova-connector-lance/src/main/java/org/pangrova/connector/lance/LanceColumn.java)
+和 [锁定依赖](../../pangrova-worker-native/lance-ffi/Cargo.toml)复核。下载目录的 SDK 源码仅作本地证据，不作为仓库持久链接。
+
+Pangrova 的目标契约如下，不通过在策略读取器里临时拼造会话或重新查一份最新 schema 实现：
+
+1. Connector 在一次 `bindRead` 中返回不可变的实际源、选定快照、精确声明和类型化 schema/字段证据。
+   字段证据注明格式、数据集/分支范围、schema generation 及可证明的不复用能力；缺失就是未知。
+   单独调用 `getTableIdentity` 后再把另一份声明拼在一起，不能声称得到原子的同源证据。
+2. Metadata 把控制表 UUID、Catalog deployment 和该读取证据组合成查询内策略上下文。
+   缓存复用继续校验捕获的所有者；普通数据版本前进不重新绑定策略或快照。
+3. 策略发布使用真实认证会话和同一份读取声明，持久化表与列证据及策略修订。
+   列名必须解析成声明里的规范名称，正确处理引用、大小写、点号和嵌套路径；PII 类型还须匹配 Native 可执行的类型约束。
+   标签、手工掩码、行策略表达式依赖和质量规则不能分别采用互不相容的字段识别方式。
+4. 读取策略按捕获的 UUID 和字段证据查询，名称仅用于诊断及生成精确引用的 Native 表达式。
+   Planner、物化策略指纹、索引原始读取校验及后台授权全部迁移；不能只修 SELECT 或标签事件监听器。
+   需要新增的绑定策略能力应显式接线并迁移所有 caller，不能通过旧的按名称读取接口静默降级。
+5. 有稳定字段证明时，重命名保留同一字段策略，删除后新建字段不继承旧策略。
+   未证明不复用的来源先按已验证的 schema generation 拒绝不确定变化；仅对名称和类型做 hash 不能识别同名同类型替换。
+   旧快照按自己的字段命名空间校验，不能强行套用最新 schema；无法证明时明确拒绝。
+6. 后台作用域持久化同样的所有者、字段/schema 证据和实际策略内容，在发布事务内重验。
+   缺少认证组上下文不能证明某角色策略不适用；当前实现采用保守拒绝，不能以空组恢复来移除限制。
+   读取保护继续覆盖物理排空和 UNKNOWN，不以授权到期代替字节保留。
+7. 历史上只有列名的记录保持未证明状态，需显式核验并重新绑定。
+   普通读取、重启或迁移脚本不能把当前位置的字段 ID 回填为历史所有权；也不能删除旧限制来让测试通过。
+
+验收须覆盖真实 SDK 的列重命名、删除/同名重建、字段 ID 复用、分支和历史 schema，
+并通过 HTTP SQL → Planner → canonical v2 → Worker/JNI → Native → 结果验证掩码与行约束。
+还需证明后台索引/物化、策略变更、缺失证据和普通追加数据不会走另一条授权路径。
+这些是有界正确性用例，不需要亿级目录或 100 GiB 数据。
+
+质量检查随后复用这份绑定读取上下文，但仍要增加实际写入候选的读取能力和持久验证回执。
+回执固定候选源、base、提交片段摘要、策略内容和执行主体；不能把未接受的准备结果冒充已接受快照，
+也不能用已提交旧表的通过结果批准新写入。默认执行器的假通过已移除，完整候选验证及恢复仍未完成。
 
 ## 7. 无需重型数据即可完成的容量与故障推导
 

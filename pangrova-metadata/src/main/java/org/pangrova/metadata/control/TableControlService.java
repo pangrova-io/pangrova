@@ -610,22 +610,35 @@ public final class TableControlService {
 
     /** Fences read admission while allowing a selected immutable snapshot to predate a data-version observation. */
     public void requireReadIdentity(TableControlRecord expected, Optional<TableIdentity> identity, String operation) {
+        TableControlRecord current = currentReadOwner(expected, operation);
+        if (!hasFormatUuid(current) || identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
+            throw new AccessDeniedException(operation + " rejected: missing format identity for "
+                    + expected.qualifiedName());
+        }
+        requireMatchingIdentity(current, operation, identity);
+    }
+
+    /** Revalidates a cached binding's captured owner without treating old evidence as a new observation. */
+    public void requireReadOwner(TableControlRecord expected, String operation) {
+        currentReadOwner(expected, operation);
+    }
+
+    private TableControlRecord currentReadOwner(TableControlRecord expected, String operation) {
         TableControlRecord current = store.findById(expected.tableId()).orElse(null);
         if (current == null || current.state() != TableControlState.ACTIVE
                 || !current.catalog().equals(expected.catalog())
                 || !current.schema().equals(expected.schema())
                 || !current.table().equals(expected.table())
                 || !java.util.Objects.equals(current.catalogIncarnationId(), expected.catalogIncarnationId())
-                || !java.util.Objects.equals(current.catalogRevision(), expected.catalogRevision())) {
+                || !java.util.Objects.equals(current.catalogRevision(), expected.catalogRevision())
+                || !current.format().equals(expected.format())
+                || !java.util.Objects.equals(current.formatTableUuid(), expected.formatTableUuid())
+                || !java.util.Objects.equals(current.formatLocation(), expected.formatLocation())) {
             throw new AccessDeniedException(operation + " rejected: table ownership or namespace changed for "
                     + expected.qualifiedName() + "; resolve the table again");
         }
         requireCurrentCatalog(current, operation);
-        if (!hasFormatUuid(current) || identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
-            throw new AccessDeniedException(operation + " rejected: missing format identity for "
-                    + expected.qualifiedName());
-        }
-        requireMatchingIdentity(current, operation, identity);
+        return current;
     }
 
     /** Rejects destructive DDL (DROP/ALTER) unless the table is MANAGED and ACTIVE. */

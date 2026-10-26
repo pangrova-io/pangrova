@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.metadata.read;
 
 import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.control.TableControlRecord;
 import org.pangrova.metadata.exception.MetadataResolutionException;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
@@ -16,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PlanningReadBindings {
     private final CatalogRegistry catalogs;
     private final ConnectorSession authenticatedSession;
-    private final ConcurrentHashMap<TableKey, CompletableFuture<Optional<ConnectorReadBinding>>> bindings =
+    private final ConcurrentHashMap<TableKey, CompletableFuture<AdmittedRead>> bindings =
             new ConcurrentHashMap<>();
 
     /** Creates one binding owner for an authenticated compilation, not a cross-query live cache. */
@@ -34,7 +35,7 @@ public final class PlanningReadBindings {
                     .ifPresent(record -> control.requireCurrentCatalog(record, "SQL read binding"));
         }
         var key = new TableKey(catalog, schema, table);
-        var proposed = new CompletableFuture<Optional<ConnectorReadBinding>>();
+        var proposed = new CompletableFuture<AdmittedRead>();
         var existing = bindings.putIfAbsent(key, proposed);
         var selected = existing == null ? proposed : existing;
         if (existing == null) {
@@ -48,7 +49,9 @@ public final class PlanningReadBindings {
             }
         }
         try {
-            return selected.join();
+            var admitted = selected.join();
+            requireCurrentOwnership(key, admitted.owner());
+            return admitted.binding();
         } catch (CompletionException e) {
             if (e.getCause() instanceof RuntimeException cause) throw cause;
             if (e.getCause() instanceof Error cause) throw cause;
@@ -56,7 +59,7 @@ public final class PlanningReadBindings {
         }
     }
 
-    private Optional<ConnectorReadBinding> load(TableKey key) {
+    private AdmittedRead load(TableKey key) {
         var session = PlanningConnectorSession.bind(authenticatedSession, key.catalog(), key.schema());
         if (session.getQueryAuthority().isPresent()) {
             try (var operation = session.getQueryAuthority().orElseThrow().enterOperation()) {
@@ -66,15 +69,15 @@ public final class PlanningReadBindings {
         return loadAdmitted(key, session);
     }
 
-    private Optional<ConnectorReadBinding> loadAdmitted(TableKey key, ConnectorSession session) {
+    private AdmittedRead loadAdmitted(TableKey key, ConnectorSession session) {
         var metadata = session.getQueryAuthority().map(authority -> authority.beginMetadata(key.catalog(),
                 () -> catalogs.getCatalog(key.catalog()).getMetadata(session)))
                 .orElseGet(() -> catalogs.getCatalog(key.catalog()).getMetadata(session));
         var control = catalogs.tableControl();
         var controlled = control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
-                : Optional.<org.pangrova.metadata.control.TableControlRecord>empty();
+                : Optional.<TableControlRecord>empty();
         var handle = metadata.getTableHandle(session, new SchemaTableName(key.schema(), key.table()));
-        if (handle == null) return Optional.empty();
+        if (handle == null) return new AdmittedRead(Optional.empty(), controlled);
         var liveHandle = handle;
         controlled.ifPresent(record -> control.requireReadIdentity(
                 record, metadata.getTableIdentity(session, liveHandle), "SQL read binding"));
@@ -88,12 +91,7 @@ public final class PlanningReadBindings {
         var binding = metadata.bindRead(session, handle);
         controlled.ifPresent(record -> control.requireReadIdentity(
                 record, metadata.getTableIdentity(session, liveHandle), "SQL read binding"));
-        if (!controlled.map(org.pangrova.metadata.control.TableControlRecord::tableId).equals(
-                control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
-                        .map(org.pangrova.metadata.control.TableControlRecord::tableId) : Optional.empty())) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
-                    "SQL table ownership changed during read binding; resolve the table again");
-        }
+        requireCurrentOwnership(key, controlled);
         if (snapshot.isPresent() && (binding.snapshotId().isEmpty()
                 || binding.snapshotId().getAsLong() != snapshot.getAsLong())) {
             throw new IllegalStateException("Connector did not bind the explicit source snapshot");
@@ -105,8 +103,21 @@ public final class PlanningReadBindings {
         if (!binding.declaration().metadata().table().equals(new SchemaTableName(key.schema(), key.table()))) {
             throw new IllegalStateException("Connector read binding resolved another table");
         }
-        return Optional.of(binding);
+        return new AdmittedRead(Optional.of(binding), controlled);
     }
+
+    private void requireCurrentOwnership(TableKey key, Optional<TableControlRecord> expected) {
+        var control = catalogs.tableControl();
+        var current = control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
+                : Optional.<TableControlRecord>empty();
+        if (!expected.map(TableControlRecord::tableId).equals(current.map(TableControlRecord::tableId))) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "SQL table ownership changed during read binding; resolve the table again");
+        }
+        expected.ifPresent(record -> control.requireReadOwner(record, "Cached SQL read binding"));
+    }
+
+    private record AdmittedRead(Optional<ConnectorReadBinding> binding, Optional<TableControlRecord> owner) {}
 
     private record TableKey(String catalog, String schema, String table) {}
 }
