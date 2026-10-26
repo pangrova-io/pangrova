@@ -225,7 +225,7 @@ class SecurityChainTest extends ContainerTestBase {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         coordinatorId, 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

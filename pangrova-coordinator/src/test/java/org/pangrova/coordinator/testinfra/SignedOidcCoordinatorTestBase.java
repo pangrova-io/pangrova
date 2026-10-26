@@ -44,7 +44,7 @@ public abstract class SignedOidcCoordinatorTestBase extends ContainerTestBase {
                 CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
                 "bootstrap-test-internal-secret", Map.of("issuerUri", issuerUri(), "audience", "bootstrap-tests"));
         return SecuredCoordinatorFixtures.withAuthority(new CoordinatorBootstrapConfig(
-                original.core(), securedFlags, original.query(), original.transport(), original.workerHealth(),
+                loopbackCore(original.core()), securedFlags, original.query(), original.transport(), original.workerHealth(),
                 original.metadataJdbcConfig(), security, original.observabilityBootstrapConfig()));
     }
 
@@ -68,7 +68,7 @@ public abstract class SignedOidcCoordinatorTestBase extends ContainerTestBase {
                 CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
                 "bootstrap-test-internal-secret", Map.of("issuerUri", issuerUri(), "audience", "bootstrap-tests"));
         var config = SecuredCoordinatorFixtures.withAuthority(new CoordinatorBootstrapConfig(
-                original.core(), securedFlags, original.query(), original.transport(), original.workerHealth(),
+                loopbackCore(original.core()), securedFlags, original.query(), original.transport(), original.workerHealth(),
                 original.metadataJdbcConfig(), security, original.observabilityBootstrapConfig()));
         var bootstrap = new CoordinatorBootstrap(config);
         try {
@@ -91,6 +91,11 @@ public abstract class SignedOidcCoordinatorTestBase extends ContainerTestBase {
             }
             throw failure;
         }
+    }
+
+    private static CoordinatorBootstrapConfig.CoreConfig loopbackCore(CoordinatorBootstrapConfig.CoreConfig core) {
+        return new CoordinatorBootstrapConfig.CoreConfig(core.coordinatorId(), core.httpPort(), core.shutdownTimeoutMs(),
+                core.role(), "127.0.0.1");
     }
 
     /** Signs a request for the exact issuer/audience configured above. */

@@ -133,7 +133,7 @@ public final class PangrovaCoordinatorMain {
         var core = new CoordinatorBootstrapConfig.CoreConfig(
                 coordinatorId, httpPort,
                 CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                role);
+                role, config.getString(CoordinatorOptions.COORDINATOR_HOST));
         var queryConfig = new CoordinatorBootstrapConfig.QueryConfig(
                 config.getDuration(CoordinatorOptions.QUERY_TIMEOUT).toSeconds(),
                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TIMEOUT_CHECK_INTERVAL_SECONDS,

@@ -74,7 +74,7 @@ class WorkerHealthConfigurableThresholdsTest {
     @Test
     void configValuesFlowFromCoordinatorBootstrapConfig() {
         var config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-1", 8080, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-1", 8080, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
                 new CoordinatorBootstrapConfig.QueryConfig(300, 10, 0),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),

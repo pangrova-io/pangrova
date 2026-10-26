@@ -89,6 +89,7 @@ class PangrovaCoordinatorMainTest {
 
         assertThat(result.coordinatorId()).isEqualTo("coordinator-1");
         assertThat(result.httpPort()).isEqualTo(8080);
+        assertThat(result.httpHost()).isEqualTo("0.0.0.0");
     }
 
     @Test
@@ -96,6 +97,7 @@ class PangrovaCoordinatorMainTest {
         PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
                 "coordinator.id", "my-coordinator",
                 "coordinator.port", "9090",
+                "coordinator.host", "127.0.0.1",
                 "security.enabled", "true",
                 "security.auth.type", "OAUTH2",
                 "security.auth.properties.issuer-uri", "http://127.0.0.1:9",
@@ -105,6 +107,7 @@ class PangrovaCoordinatorMainTest {
 
         assertThat(result.coordinatorId()).isEqualTo("my-coordinator");
         assertThat(result.httpPort()).isEqualTo(9090);
+        assertThat(result.httpHost()).isEqualTo("127.0.0.1");
         assertThat(result.securityEnabled()).isTrue();
         assertThat(result.metadataEnabled()).isFalse();
     }

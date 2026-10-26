@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 class ObservabilityChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final HttpClient HTTP = HttpClient.newBuilder().proxy(java.net.ProxySelector.of(null)).build();
 
     private static com.sun.net.httpserver.HttpServer stubServer;
     private static String stubCoordinatorUrl;
@@ -236,6 +236,18 @@ class ObservabilityChainTest extends org.pangrova.coordinator.testinfra.SignedOi
         assertThat(body.get("error_type")).isEqualTo("NOT_FOUND");
     }
 
+    @Test
+    void configuredLoopbackBindDoesNotServeAnotherLocalInterface() throws Exception {
+        startCoordinator("coord-http-bind-test");
+        int port = coordinatorBootstrap.getHttpPort();
+        assertThat(sendGet(port, "/v1/query/profile/unknown-query").statusCode()).isEqualTo(404);
+        try (var otherInterface = new java.net.Socket()) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> otherInterface.connect(
+                    new java.net.InetSocketAddress("127.0.0.2", port), 1000))
+                    .isInstanceOf(java.io.IOException.class);
+        }
+    }
+
     /**
      * WorkerBootstrap starts and stops without errors when observability is disabled.
      * Proves the observability phase completes with NoOp providers.
@@ -328,7 +340,7 @@ class ObservabilityChainTest extends org.pangrova.coordinator.testinfra.SignedOi
     private HttpResponse<String> submitQuery(int port, String sql) throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
+                .uri(URI.create("http://127.0.0.1:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
                 .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
@@ -338,7 +350,7 @@ class ObservabilityChainTest extends org.pangrova.coordinator.testinfra.SignedOi
 
     private HttpResponse<String> sendGet(int port, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + path))
+                .uri(URI.create("http://127.0.0.1:" + port + path))
                 .header("Authorization", authorizationHeader())
                 .GET().build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

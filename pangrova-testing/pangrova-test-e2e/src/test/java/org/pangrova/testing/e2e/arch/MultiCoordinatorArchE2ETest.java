@@ -211,9 +211,9 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
 
             // Verify role config separation
             CoreConfig queryCore = new CoreConfig("query-coord-1", 8080,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.QUERY);
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.QUERY, "0.0.0.0");
             CoreConfig maintenanceCore = new CoreConfig("maint-coord-1", 8082,
-                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE);
+                    CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorRole.MAINTENANCE, "0.0.0.0");
 
             assertThat(queryCore.role().isQuery()).isTrue();
             assertThat(queryCore.role().isMaintenance()).isFalse();

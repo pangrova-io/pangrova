@@ -179,7 +179,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     @Test
     void resilienceCircuitBreakerWiredWhenEnabled() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-cb", 0, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-cb", 0, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, true, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -248,7 +248,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     @Test
     void securityAuthenticationManagerWiredWhenEnabled() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-sec", 0, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-sec", 0, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -264,7 +264,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     @Test
     void securityAccessControlEnforcerInQueryDispatcher() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-ace", 0, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-ace", 0, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -433,7 +433,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-completeness", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

@@ -215,7 +215,7 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
 
     private static CoordinatorBootstrapConfig config() {
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("secured", 0, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("secured", 0, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),

@@ -41,7 +41,7 @@ execution. Query rows are served directly by Native Workers.
 | `coordinator.shuffle.tls.server-identity` | string | `""` | Certificate DNS/IP identity expected from shuffle servers |
 
 TLS requires all four material/identity settings. Material supplied with TLS
-disabled is rejected. `coordinator.host` is an HTTP bind address and does not
+disabled is rejected. `coordinator.host` is passed through bootstrap to the actual HTTP listener. It does not
 set the advertised result address. Configure the advertised host explicitly for
 clients on other machines; the loopback default is only locally reachable.
 

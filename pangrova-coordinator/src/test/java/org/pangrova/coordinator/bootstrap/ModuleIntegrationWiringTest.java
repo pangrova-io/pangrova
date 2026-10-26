@@ -156,7 +156,7 @@ class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.Sig
     void securityInitializedWhenEnabled() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        "coord-sec", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -317,7 +317,7 @@ class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.Sig
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-all-modules", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

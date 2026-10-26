@@ -98,7 +98,7 @@ class QueryBootstrapFairSchedulerShutdownTest extends SignedOidcCoordinatorTestB
 
     private CoordinatorBootstrapConfig tenantConfig(CoordinatorBootstrapConfig.QueryConfig query) {
         return withControlAuthentication(new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("tenant-scheduler-lifecycle", 0, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("tenant-scheduler-lifecycle", 0, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, true, false),
                 query, CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(), null, null, null));

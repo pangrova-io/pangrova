@@ -370,7 +370,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-gov-ops-tenant", 0,
-                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

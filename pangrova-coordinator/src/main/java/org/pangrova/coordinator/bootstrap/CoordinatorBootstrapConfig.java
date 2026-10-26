@@ -45,7 +45,8 @@ public record CoordinatorBootstrapConfig(
     /** Creates a standalone coordinator configuration with production defaults. */
     public static CoordinatorBootstrapConfig withDefaults(String coordinatorId, int httpPort) {
         return new CoordinatorBootstrapConfig(
-                new CoreConfig(coordinatorId, httpPort, CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                new CoreConfig(coordinatorId, httpPort, CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
+                        CoordinatorRole.COMBINED, "0.0.0.0"),
                 FeatureFlags.allDisabled(),
                 QueryConfig.defaults(),
                 TransportConfig.defaults(),
@@ -57,6 +58,7 @@ public record CoordinatorBootstrapConfig(
 
     public String coordinatorId() { return core.coordinatorId(); }
     public int httpPort() { return core.httpPort(); }
+    public String httpHost() { return core.httpHost(); }
     public long shutdownTimeoutMs() { return core.shutdownTimeoutMs(); }
     public CoordinatorRole role() { return core.role(); }
 
@@ -152,7 +154,8 @@ public record CoordinatorBootstrapConfig(
     // -- Sub-config records --
 
     /** Core identity and lifecycle parameters. */
-    public record CoreConfig(String coordinatorId, int httpPort, long shutdownTimeoutMs, CoordinatorRole role) {
+    public record CoreConfig(String coordinatorId, int httpPort, long shutdownTimeoutMs,
+                             CoordinatorRole role, String httpHost) {
         public static final long DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 
         public CoreConfig {
@@ -165,11 +168,10 @@ public record CoordinatorBootstrapConfig(
             if (role == null) {
                 role = CoordinatorRole.COMBINED;
             }
-        }
-
-        /** Backward-compatible constructor defaulting to COMBINED role. */
-        public CoreConfig(String coordinatorId, int httpPort, long shutdownTimeoutMs) {
-            this(coordinatorId, httpPort, shutdownTimeoutMs, CoordinatorRole.COMBINED);
+            if (httpHost == null || httpHost.isBlank()) {
+                throw new IllegalArgumentException("HTTP bind host must not be blank");
+            }
+            httpHost = httpHost.trim();
         }
     }
 

@@ -184,7 +184,7 @@ class ResilienceModuleIntegrationTest {
 
     private static CoordinatorBootstrapConfig buildResilienceConfig() {
         return new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("coord-resilience-test", 0, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("coord-resilience-test", 0, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, true, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),

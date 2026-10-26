@@ -134,7 +134,7 @@ class DegradationBootstrapTest {
             CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                     new CoordinatorBootstrapConfig.CoreConfig(
                             "degrade-test", 0,
-                            CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                            CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                     new CoordinatorBootstrapConfig.FeatureFlags(
                             false, false, false, false, false, true, false, false),
                     CoordinatorBootstrapConfig.QueryConfig.defaults(),

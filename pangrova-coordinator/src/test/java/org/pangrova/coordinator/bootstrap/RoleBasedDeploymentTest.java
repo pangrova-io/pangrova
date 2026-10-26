@@ -30,7 +30,7 @@ class RoleBasedDeploymentTest {
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "query-coord-1", 0,
                         CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                        CoordinatorRole.QUERY),
+                        CoordinatorRole.QUERY, "0.0.0.0"),
                 CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
@@ -55,7 +55,7 @@ class RoleBasedDeploymentTest {
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "query-coord-2", 0,
                         CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                        CoordinatorRole.QUERY),
+                        CoordinatorRole.QUERY, "0.0.0.0"),
                 // Enable streaming + indexing flags — but QUERY role should skip them
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, true, false, false, false, false,

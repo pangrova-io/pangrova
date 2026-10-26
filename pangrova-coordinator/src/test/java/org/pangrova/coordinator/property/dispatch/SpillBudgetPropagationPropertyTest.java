@@ -64,7 +64,7 @@ class SpillBudgetPropagationPropertyTest {
         var queryConfig = new CoordinatorBootstrapConfig.QueryConfig(
                 300, 10, 0, 600, 60, spillConfig);
         var config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig("test-coord", 8080, 30_000),
+                new CoordinatorBootstrapConfig.CoreConfig("test-coord", 8080, 30_000, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
                 queryConfig,
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),

@@ -77,7 +77,8 @@ final class HttpBootstrap {
                     coordinatorBootstrap::currentCoordinatorEpoch,
                     coordinatorBootstrap.copySourceReadResource(),
                     coordinatorBootstrap.fileSpaceFilesResource());
-            httpServer = new CoordinatorHttpServer(config.httpPort(), httpDeps);
+            httpServer = new CoordinatorHttpServer(
+                    new java.net.InetSocketAddress(config.httpHost(), config.httpPort()), httpDeps);
             httpServer.start();
             LOG.info("Phase: HTTP — listening on port {}", httpServer.getPort());
         } catch (Exception e) {

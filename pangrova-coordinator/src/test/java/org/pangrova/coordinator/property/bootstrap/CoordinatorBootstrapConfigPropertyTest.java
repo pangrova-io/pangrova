@@ -27,6 +27,7 @@ class CoordinatorBootstrapConfigPropertyTest {
         // Core
         assertThat(config.coordinatorId()).isEqualTo(config.core().coordinatorId());
         assertThat(config.httpPort()).isEqualTo(config.core().httpPort());
+        assertThat(config.httpHost()).isEqualTo(config.core().httpHost());
         assertThat(config.shutdownTimeoutMs()).isEqualTo(config.core().shutdownTimeoutMs());
 
         // Feature flags
@@ -113,7 +114,9 @@ class CoordinatorBootstrapConfigPropertyTest {
         Arbitrary<CoordinatorBootstrapConfig.CoreConfig> cores = Combinators.combine(
                 coordinatorIds(),
                 Arbitraries.integers().between(0, 65535),
-                Arbitraries.longs().between(1000, 120_000)
+                Arbitraries.longs().between(1000, 120_000),
+                Arbitraries.of(org.pangrova.coordinator.bootstrap.CoordinatorRole.values()),
+                Arbitraries.of("0.0.0.0", "127.0.0.1", "::1")
         ).as(CoordinatorBootstrapConfig.CoreConfig::new);
 
         Arbitrary<CoordinatorBootstrapConfig.FeatureFlags> flags = Combinators.combine(

@@ -130,7 +130,7 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     void startWithSecurityEnabledNoOpAuthenticator() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec-1", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        "coord-sec-1", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -182,7 +182,7 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     void securityEnabledAuthFilterRejectsUnauthenticatedQueryWhenOAuth2() throws Exception {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        "coord-sec-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -242,7 +242,7 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
     void securityEnabledNoOpAdmitsRequestButRequiresWorker() throws Exception {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
-                        "coord-sec-3", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
+                        "coord-sec-3", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.coordinator.bootstrap.CoordinatorRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, true, false, false, false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
