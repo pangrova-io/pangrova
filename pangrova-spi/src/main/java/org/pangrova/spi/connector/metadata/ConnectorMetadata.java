@@ -64,7 +64,7 @@ public interface ConnectorMetadata
         return new org.pangrova.spi.connector.metadata.table.ConnectorReadBinding(table,
                 getTableReadMetadata(session, table), TableStatistics.UNKNOWN,
                 org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.UNVERSIONED,
-                java.util.OptionalLong.empty(), "");
+                java.util.OptionalLong.empty(), "", java.util.Optional.empty());
     }
 
     /**

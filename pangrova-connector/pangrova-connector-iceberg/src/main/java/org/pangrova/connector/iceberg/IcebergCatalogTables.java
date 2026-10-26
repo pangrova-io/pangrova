@@ -76,6 +76,10 @@ final class IcebergCatalogTables {
 
     ConnectorTableReadMetadata getTableReadMetadata(IcebergTableHandle handle, Table icebergTable) {
         var evidence = IcebergReadSchema.resolve(handle, icebergTable);
+        return readDeclaration(handle, evidence);
+    }
+
+    static ConnectorTableReadMetadata readDeclaration(IcebergTableHandle handle, IcebergReadSchema evidence) {
         var properties = evidence.declarationProperties().orElse(Map.of());
         var typedColumns = IcebergTypeMapper.toPangrovaColumns(
                 evidence.schema(), properties);

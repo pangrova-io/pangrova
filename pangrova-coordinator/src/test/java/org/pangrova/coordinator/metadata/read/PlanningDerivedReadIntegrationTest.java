@@ -43,7 +43,7 @@ class PlanningDerivedReadIntegrationTest extends ContainerTestBase {
             var derived = new ConnectorReadBinding(new DerivedHandle(definition),
                     new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
                     TableStatistics.UNKNOWN, ConnectorReadBinding.SnapshotState.METADATA,
-                    OptionalLong.empty(), selected.sourceIdentity());
+                    OptionalLong.empty(), selected.sourceIdentity(), java.util.Optional.empty());
             var root = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false, false);
             var catalog = root.add("bound", new org.apache.calcite.schema.impl.AbstractSchema());
             var schema = catalog.add("db", new org.apache.calcite.schema.impl.AbstractSchema());

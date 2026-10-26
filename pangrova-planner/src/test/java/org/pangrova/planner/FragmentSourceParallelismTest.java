@@ -142,7 +142,7 @@ class FragmentSourceParallelismTest {
                 new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
                 new TableStatistics(rows, bytes, sourceUnits, Map.of()),
                 rows == 0 ? ConnectorReadBinding.SnapshotState.EMPTY : ConnectorReadBinding.SnapshotState.SNAPSHOT,
-                rows == 0 ? OptionalLong.empty() : OptionalLong.of(1), "selected");
+                rows == 0 ? OptionalLong.empty() : OptionalLong.of(1), "selected", java.util.Optional.empty());
         schema.add("bound", new AbstractTable() {
             @Override
             public RelDataType getRowType(RelDataTypeFactory factory) {

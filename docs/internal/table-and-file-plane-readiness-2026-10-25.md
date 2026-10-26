@@ -16,6 +16,43 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Typed selected-schema evidence — continuation on 2026-10-27
+
+`ConnectorReadBinding` now carries optional typed schema identity, checked against
+its exact immutable declaration. Evidence identifies the physical owner, allocator
+namespace, selected schema fingerprint and actual top-level field IDs. Stability is
+explicit: `SELECTED_SOURCE` remains tied to this binding's source identity, whereas
+`NON_REUSABLE_NAMESPACE` asserts the format's non-reassignment rule in that owner/domain.
+Missing evidence, ordinals and virtual metadata fields are not promoted into proof.
+
+Iceberg builds the selected declaration and schema identity from one resolved schema;
+the ordinary case captures immutable table metadata for schema/properties together.
+Unavailable historical declaration evidence keeps schema identity unknown. Paimon
+retains the fingerprint of the actual current or historical schema and identifies
+the SDK branch namespace. Its pinned 1.4.1 SDK can roll schema files back and reuse
+field IDs, so it publishes only `SELECTED_SOURCE`. Lance remains unknown: its
+connector does not expose format field IDs and the pinned 0.20.0 allocator does not
+establish the newer non-reuse capability.
+
+All read-binding constructors were migrated explicitly, including defaults,
+metadata/derived sources and the retained Paimon limit wrapper. The SPI complete
+test/static installation and real SDK focused selections passed. An Iceberg case
+keeps an ID through rename and allocates another on replacement. A Paimon case
+actually rolls an empty table's schema back and demonstrates reuse without claiming
+non-reusability; current and historical fingerprints are checked separately.
+
+The full Java reactor installation, complete Planner tests, dependent Coordinator
+read/derived-read selection and complete Iceberg/Paimon/Lance tests with static
+analysis passed. Static verification first exposed an existing Lance constructor
+Javadoc omission and two null-path findings; local source aliases retain the same
+null rejection and make that control flow explicit. Two new Iceberg line-length
+errors were also corrected before the complete successful rerun. The final reactor
+refresh passed; its frozen-runtime Native checkpoint is pending. This is read-side
+evidence, not completed field-bound governance. Policy persistence, authenticated
+publication, query-bound policy consumers and deferred receipts still need migration;
+the schema identity alone cannot authorize cross-version policy reuse. The design
+and version boundaries are recorded in architecture review §6.4.
+
 ## Query-local read ownership — continuation on 2026-10-27
 
 Each cached read now retains the control owner captured with its immutable source.

@@ -65,6 +65,31 @@ class ConnectorReadBindingTest {
     }
 
     @Test
+    void schemaEvidenceMustMatchTheExactSelectedDeclaration() {
+        var field = new ConnectorTableMetadata.Column("email",
+                org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR, java.util.OptionalInt.of(0));
+        var evidence = new ConnectorReadSchemaIdentity(new TableIdentity("FORMAT", "owner", "location", "schema"),
+                "allocator", List.of(field), ConnectorReadSchemaIdentity.FieldIdStability.SELECTED_SOURCE);
+        assertThatThrownBy(() -> new ConnectorReadBinding(handle, declaration, TableStatistics.UNKNOWN,
+                ConnectorReadBinding.SnapshotState.SNAPSHOT, OptionalLong.of(1), "source",
+                java.util.Optional.of(evidence))).isInstanceOf(IllegalArgumentException.class);
+        var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "table"),
+                List.of("email"), List.of(field), Map.of());
+        var unavailable = new ConnectorTableReadMetadata(metadata,
+                ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE);
+        assertThatThrownBy(() -> new ConnectorReadBinding(handle, unavailable, TableStatistics.UNKNOWN,
+                ConnectorReadBinding.SnapshotState.SNAPSHOT, OptionalLong.of(1), "source",
+                java.util.Optional.of(evidence))).isInstanceOf(IllegalArgumentException.class);
+        var exact = new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
+        assertThatThrownBy(() -> new ConnectorReadBinding(handle, exact, TableStatistics.UNKNOWN,
+                ConnectorReadBinding.SnapshotState.UNVERSIONED, OptionalLong.empty(), "",
+                java.util.Optional.of(evidence))).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new ConnectorReadBinding(handle, exact, TableStatistics.UNKNOWN,
+                ConnectorReadBinding.SnapshotState.SNAPSHOT, OptionalLong.of(1), "source",
+                java.util.Optional.of(evidence)).schemaIdentity()).containsSame(evidence);
+    }
+
+    @Test
     void descriptionsDoNotExposeConnectorCredentials() {
         var selected = binding(ConnectorReadBinding.SnapshotState.SNAPSHOT, OptionalLong.of(1),
                 TableStatistics.UNKNOWN, "identity");
@@ -73,7 +98,7 @@ class ConnectorReadBindingTest {
 
     private ConnectorReadBinding binding(ConnectorReadBinding.SnapshotState state, OptionalLong snapshot,
             TableStatistics statistics, String evidence) {
-        return new ConnectorReadBinding(handle, declaration, statistics, state, snapshot, evidence);
+        return new ConnectorReadBinding(handle, declaration, statistics, state, snapshot, evidence, java.util.Optional.empty());
     }
 
     private record SelectedHandle(String identity) implements ConnectorTableHandle {}

@@ -52,7 +52,13 @@ final class PaimonReadBindings {
         return new ConnectorReadBinding(bound, declaration, statistics,
                 snapshot == null ? ConnectorReadBinding.SnapshotState.EMPTY
                         : ConnectorReadBinding.SnapshotState.SNAPSHOT,
-                snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.id()), identity);
+                snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.id()), identity,
+                Optional.of(new org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity(
+                        new org.pangrova.spi.connector.metadata.table.TableIdentity("PAIMON", table.uuid(),
+                                table.location().toString(), schema.schemaFingerprint()),
+                        "paimon.branch-fields.v1:" + table.snapshotManager().branch(), columns,
+                        org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                                .SELECTED_SOURCE)));
     }
 
     static void validate(Catalog catalog, ConnectorReadBinding binding) {

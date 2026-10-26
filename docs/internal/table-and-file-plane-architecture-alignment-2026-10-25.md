@@ -198,6 +198,11 @@ GC 从完整根集合、未决发布与读保护推导候选，使用 CAS 进入
 [Lance 列声明](../../pangrova-connector/pangrova-connector-lance/src/main/java/org/pangrova/connector/lance/LanceColumn.java)
 和 [锁定依赖](../../pangrova-worker-native/lance-ffi/Cargo.toml)复核。下载目录的 SDK 源码仅作本地证据，不作为仓库持久链接。
 
+对锁定 Paimon 1.4.1 的源码和有界 SDK 用例还确认：`SchemaManager.rollbackTo` 在没有快照/tag/changelog
+引用冲突时删除后续 schema，随后新字段可以取得被删除 schema 用过的 ID。
+因此当前读取证据只声明 `SELECTED_SOURCE`，不声明跨回滚的不复用保证。
+这种证据必须与完整读取绑定及源身份一起使用；长期策略要么取得额外的演进/保留证明，要么拒绝不确定的跨源复用。
+
 Pangrova 的目标契约如下，不通过在策略读取器里临时拼造会话或重新查一份最新 schema 实现：
 
 1. Connector 在一次 `bindRead` 中返回不可变的实际源、选定快照、精确声明和类型化 schema/字段证据。

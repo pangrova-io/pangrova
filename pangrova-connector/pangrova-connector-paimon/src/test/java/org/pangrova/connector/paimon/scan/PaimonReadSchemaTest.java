@@ -20,7 +20,7 @@ class PaimonReadSchemaTest {
     @Test
     void inputOptionsCannotChangeTheConstructedSchema() {
         var options = new LinkedHashMap<>(Map.of(VARIANT_PROPERTY, "true"));
-        var schema = new PaimonReadSchema(payloadSchema(), options);
+        var schema = new PaimonReadSchema(payloadSchema(), options, "selected-schema");
 
         options.clear();
 
@@ -30,7 +30,7 @@ class PaimonReadSchemaTest {
     @Test
     void optionsAccessorDoesNotPermitMutation() {
         var schema = new PaimonReadSchema(payloadSchema(),
-                new LinkedHashMap<>(Map.of(VARIANT_PROPERTY, "true")));
+                new LinkedHashMap<>(Map.of(VARIANT_PROPERTY, "true")), "selected-schema");
 
         assertThatThrownBy(() -> schema.options().remove(VARIANT_PROPERTY))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -41,10 +41,10 @@ class PaimonReadSchemaTest {
     void realSdkVarcharVariantHandleKeepsItsDeclarationAfterInputOptionsChange() {
         var rowType = payloadSchema();
         var options = new LinkedHashMap<>(Map.of(VARIANT_PROPERTY, "true"));
-        var schema = new PaimonReadSchema(rowType, options);
+        var schema = new PaimonReadSchema(rowType, options, "selected-schema");
         var original = (PaimonColumnHandle) schema.columnHandles().get("payload");
         assertThat(original).isEqualTo(new PaimonColumnHandle(7, "payload", PangrovaType.VARIANT));
-        assertThat(new PaimonReadSchema(rowType, Map.of()).columnHandles().get("payload"))
+        assertThat(new PaimonReadSchema(rowType, Map.of(), "selected-schema").columnHandles().get("payload"))
                 .isEqualTo(new PaimonColumnHandle(7, "payload", PangrovaType.VARCHAR));
 
         options.remove(VARIANT_PROPERTY);

@@ -49,6 +49,27 @@ class IcebergReadBindingIntegrationTest {
     };
 
     @Test
+    void schemaIdentityKeepsAFieldAcrossRenameAndDoesNotReuseItAfterReplacement() throws Exception {
+        try (var catalog = catalog()) {
+            Table table = create(catalog, "field_identity");
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var original = bind(metadata, "field_identity").schemaIdentity().orElseThrow();
+            int originalId = original.fields().get(0).fieldId().orElseThrow();
+            table.updateSchema().renameColumn("id", "renamed").commit();
+            var renamed = bind(metadata, "field_identity").schemaIdentity().orElseThrow();
+            assertThat(renamed.fields().get(0).name()).isEqualTo("renamed");
+            assertThat(renamed.fields().get(0).fieldId().orElseThrow()).isEqualTo(originalId);
+            table.updateSchema().deleteColumn("renamed").addColumn("id", Types.LongType.get()).commit();
+            var replacement = bind(metadata, "field_identity").schemaIdentity().orElseThrow();
+            assertThat(replacement.fields().get(0).fieldId().orElseThrow()).isNotEqualTo(originalId);
+            assertThat(replacement.tableIdentity().formatTableUuid()).isEqualTo(original.tableIdentity().formatTableUuid());
+            assertThat(replacement.stability()).isEqualTo(
+                    org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                            .NON_REUSABLE_NAMESPACE);
+        }
+    }
+
+    @Test
     void statisticsAndWireSplitsRetainTheSelectedCommitAfterAnotherAppend() throws Exception {
         try (var catalog = catalog()) {
             Table table = create(catalog, "rows");
@@ -93,6 +114,9 @@ class IcebergReadBindingIntegrationTest {
                     .withTimeTravelSnapshot(selected);
             var historical = metadata.bindRead(SESSION, oldHandle);
             assertThat(historical.declaration().requireExactDeclaration().columns()).containsExactly("id");
+            assertThat(current.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint())
+                    .isNotEqualTo(historical.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint());
+            assertThat(historical.schemaIdentity().orElseThrow().fields()).hasSize(1);
             assertThat(splits(catalog, current)).hasSize(1);
             assertThat(splits(catalog, historical)).hasSize(1);
         }

@@ -120,7 +120,9 @@ class PaimonReadBindingIntegrationTest {
                 assertThat(metadata.getTableStatistics(actor, original.handle())).isSameAs(original.statistics());
                 var narrowedHandle = ((org.pangrova.connector.paimon.handle.PaimonTableHandle) original.handle())
                         .withLimit(1);
-                assertThat(metadata.bindRead(actor, narrowedHandle).sourceIdentity()).isEqualTo(original.sourceIdentity());
+                var narrowed = metadata.bindRead(actor, narrowedHandle);
+                assertThat(narrowed.sourceIdentity()).isEqualTo(original.sourceIdentity());
+                assertThat(narrowed.schemaIdentity()).containsSame(original.schemaIdentity().orElseThrow());
                 var forged = new org.pangrova.connector.paimon.handle.PaimonTableHandle(
                         narrowedHandle.schemaName(), narrowedHandle.tableName(), narrowedHandle.tableLocation(),
                         narrowedHandle.tableUuid(), narrowedHandle.schemaFingerprint(),

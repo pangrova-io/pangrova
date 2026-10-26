@@ -35,6 +35,7 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
     private final String catalogName;
     private final LanceCatalogStore store;
 
+    /** Uses the catalog's durable accepted-publication authority for source snapshots. */
     public LanceMaterializationSourceProvider(String catalogName, ManagedSourceCatalog authority) {
         if (catalogName == null || catalogName.isBlank()) {
             throw new IllegalArgumentException("catalogName must not be blank");
@@ -96,14 +97,17 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
 
     @Override
     public ChangeSetPlan changeSet(PinnedSource from, PinnedSource to, ChangeSetMode mode) {
-        requireSource(from == null ? null : from.source());
-        throw unsupported(from.source(), mode);
+        SourceRef source = from == null ? null : from.source();
+        requireSource(source);
+        throw unsupported(source, mode);
     }
 
     @Override
     public ChangeProof verify(ChangeSetPlan plan) {
-        requireSource(plan == null ? null : plan.source());
-        throw unsupported(plan.source(), plan.mode());
+        SourceRef source = plan == null ? null : plan.source();
+        ChangeSetMode mode = plan == null ? null : plan.mode();
+        requireSource(source);
+        throw unsupported(source, mode);
     }
 
     @Override

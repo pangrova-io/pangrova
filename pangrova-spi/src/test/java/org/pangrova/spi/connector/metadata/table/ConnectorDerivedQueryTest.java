@@ -41,6 +41,6 @@ class ConnectorDerivedQueryTest {
                 List.of("id"), columns, Map.of());
         return new ConnectorReadBinding(new ConnectorTableHandle() {},
                 new ConnectorTableReadMetadata(metadata, ConnectorTableReadMetadata.DeclarationEvidence.EXACT),
-                TableStatistics.UNKNOWN, state, OptionalLong.empty(), "private-source-location");
+                TableStatistics.UNKNOWN, state, OptionalLong.empty(), "private-source-location", java.util.Optional.empty());
     }
 }

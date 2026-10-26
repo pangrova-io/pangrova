@@ -3,6 +3,7 @@ package org.pangrova.spi.connector.metadata.table;
 import org.pangrova.spi.annotation.Experimental;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
@@ -14,11 +15,13 @@ import java.util.OptionalLong;
  * @param state distinguishes a selected snapshot, an empty view and an unversioned source
  * @param snapshotId positive data snapshot identity, present only for SNAPSHOT
  * @param sourceIdentity connector-owned evidence verified before split enumeration
+ * @param schemaIdentity exact field evidence and its explicit stability scope, empty when unproven
  */
 @Experimental
 public record ConnectorReadBinding(ConnectorTableHandle handle,
         ConnectorTableReadMetadata declaration, TableStatistics statistics,
-        SnapshotState state, OptionalLong snapshotId, String sourceIdentity) {
+        SnapshotState state, OptionalLong snapshotId, String sourceIdentity,
+        Optional<ConnectorReadSchemaIdentity> schemaIdentity) {
     /** An absent data snapshot is distinct from a source that has no snapshot capability. */
     public enum SnapshotState { SNAPSHOT, EMPTY, METADATA, UNVERSIONED }
 
@@ -29,6 +32,7 @@ public record ConnectorReadBinding(ConnectorTableHandle handle,
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(snapshotId, "snapshotId");
         Objects.requireNonNull(sourceIdentity, "sourceIdentity");
+        Objects.requireNonNull(schemaIdentity, "schemaIdentity");
         if ((state == SnapshotState.SNAPSHOT) != snapshotId.isPresent()
                 || (snapshotId.isPresent() && snapshotId.getAsLong() <= 0)) {
             throw new IllegalArgumentException("Selected data snapshot must have a positive exact identity");
@@ -42,6 +46,17 @@ public record ConnectorReadBinding(ConnectorTableHandle handle,
         if (statistics.rowCount() < -1 || statistics.dataSize() < -1
                 || statistics.sourceWorkUnits() < -1) {
             throw new IllegalArgumentException("Unknown statistics use -1, not another negative value");
+        }
+        if (schemaIdentity.isPresent()) {
+            var evidence = schemaIdentity.orElseThrow();
+            var metadata = declaration.metadata();
+            if (state == SnapshotState.UNVERSIONED
+                    || declaration.declarationEvidence() != ConnectorTableReadMetadata.DeclarationEvidence.EXACT
+                    || !evidence.fields().equals(metadata.typedColumns())
+                    || !metadata.columns().equals(evidence.fields().stream()
+                            .map(ConnectorTableMetadata.Column::name).toList())) {
+                throw new IllegalArgumentException("Selected schema identity differs from the exact read declaration");
+            }
         }
     }
 

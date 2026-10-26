@@ -117,7 +117,7 @@ public final class LanceMetadata implements ConnectorMetadata {
                         : org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT,
                 selected.version() == 0 ? java.util.OptionalLong.empty()
                         : java.util.OptionalLong.of(selected.version()),
-                selected.tableId() + ":" + selected.version());
+                selected.tableId() + ":" + selected.version(), java.util.Optional.empty());
     }
     @Override public void validateReadBinding(ConnectorSession session,
             org.pangrova.spi.connector.metadata.table.ConnectorReadBinding binding) {

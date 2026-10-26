@@ -98,7 +98,7 @@ final class PaimonSystemReadBindings {
         var binding = new ConnectorReadBinding(pinned, declaration,
                 new TableStatistics(pinned.objects().size(), -1, -1, java.util.Map.of()),
                 ConnectorReadBinding.SnapshotState.METADATA, OptionalLong.empty(),
-                pinned.sourceIdentity());
+                pinned.sourceIdentity(), java.util.Optional.empty());
         if (selector.bound()) {
             validate(catalog, binding);
         }

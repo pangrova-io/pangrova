@@ -14,9 +14,12 @@ import java.util.Map;
 
 /** Reads schema evidence from the exact Paimon snapshot, never from current columns for an old pin. */
 @Internal
-public record PaimonReadSchema(RowType rowType, Map<String, String> options) {
+public record PaimonReadSchema(RowType rowType, Map<String, String> options, String schemaFingerprint) {
     public PaimonReadSchema {
         options = Map.copyOf(options);
+        if (schemaFingerprint == null || schemaFingerprint.isBlank()) {
+            throw new IllegalArgumentException("Selected read schema requires its captured fingerprint");
+        }
     }
 
     /** Preserves SDK field IDs and declared types from this resolved schema. */
@@ -41,14 +44,15 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options) {
             var properties = new java.util.LinkedHashMap<>(handle.properties());
             properties.remove(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY);
             properties.remove(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY);
-            return new PaimonReadSchema(PaimonTableHandleFactory.parseRowType(handle), properties);
+            return new PaimonReadSchema(PaimonTableHandleFactory.parseRowType(handle), properties,
+                    handle.schemaFingerprint());
         }
         if (handle.snapshotId().isEmpty()) {
             var identity = PaimonTableHandleFactory.fromTable(handle.schemaName(), handle.tableName(), current);
             if (!identity.tableLocation().equals(handle.tableLocation())) {
                 throw new IllegalArgumentException("Paimon metadata belongs to a different table");
             }
-            return new PaimonReadSchema(current.rowType(), identity.properties());
+            return new PaimonReadSchema(current.rowType(), identity.properties(), identity.schemaFingerprint());
         }
         long version = handle.snapshotId().orElseThrow();
         var table = requirePinnedTable(handle, current, version);
@@ -60,7 +64,8 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options) {
         if (schema == null || schema.id() != snapshot.schemaId()) {
             throw missingSnapshot(table, version, "exact schema-id=" + snapshot.schemaId() + " is unavailable");
         }
-        return new PaimonReadSchema(schema.logicalRowType(), schema.options());
+        return new PaimonReadSchema(schema.logicalRowType(), schema.options(),
+                org.pangrova.connector.paimon.handle.PaimonTableIdentity.schemaFingerprint(schema));
     }
 
     private static FileStoreTable requirePinnedTable(PaimonTableHandle handle, Table current, long version) {
