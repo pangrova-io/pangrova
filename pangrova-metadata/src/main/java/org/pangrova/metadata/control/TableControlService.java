@@ -608,6 +608,26 @@ public final class TableControlService {
         requireMatchingIdentity(current, operation, identity);
     }
 
+    /** Fences read admission while allowing a selected immutable snapshot to predate a data-version observation. */
+    public void requireReadIdentity(TableControlRecord expected, Optional<TableIdentity> identity, String operation) {
+        TableControlRecord current = store.findById(expected.tableId()).orElse(null);
+        if (current == null || current.state() != TableControlState.ACTIVE
+                || !current.catalog().equals(expected.catalog())
+                || !current.schema().equals(expected.schema())
+                || !current.table().equals(expected.table())
+                || !java.util.Objects.equals(current.catalogIncarnationId(), expected.catalogIncarnationId())
+                || !java.util.Objects.equals(current.catalogRevision(), expected.catalogRevision())) {
+            throw new AccessDeniedException(operation + " rejected: table ownership or namespace changed for "
+                    + expected.qualifiedName() + "; resolve the table again");
+        }
+        requireCurrentCatalog(current, operation);
+        if (!hasFormatUuid(current) || identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
+            throw new AccessDeniedException(operation + " rejected: missing format identity for "
+                    + expected.qualifiedName());
+        }
+        requireMatchingIdentity(current, operation, identity);
+    }
+
     /** Rejects destructive DDL (DROP/ALTER) unless the table is MANAGED and ACTIVE. */
     public void requireManagedForDdl(String catalog, String schema, String table, String operation) {
         requireManaged(catalog, schema, table, operation, false);

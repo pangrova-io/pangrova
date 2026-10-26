@@ -70,8 +70,14 @@ public final class PlanningReadBindings {
         var metadata = session.getQueryAuthority().map(authority -> authority.beginMetadata(key.catalog(),
                 () -> catalogs.getCatalog(key.catalog()).getMetadata(session)))
                 .orElseGet(() -> catalogs.getCatalog(key.catalog()).getMetadata(session));
+        var control = catalogs.tableControl();
+        var controlled = control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
+                : Optional.<org.pangrova.metadata.control.TableControlRecord>empty();
         var handle = metadata.getTableHandle(session, new SchemaTableName(key.schema(), key.table()));
         if (handle == null) return Optional.empty();
+        var liveHandle = handle;
+        controlled.ifPresent(record -> control.requireReadIdentity(
+                record, metadata.getTableIdentity(session, liveHandle), "SQL read binding"));
         var snapshot = PlanningSnapshotSelectors.snapshot(session, key.catalog(), key.schema(), key.table());
         var range = PlanningIncrementalSelectors.range(session, key.catalog(), key.schema(), key.table());
         if (snapshot.isPresent() && range.isPresent()) {
@@ -80,6 +86,14 @@ public final class PlanningReadBindings {
         if (snapshot.isPresent()) handle = handle.withTimeTravelSnapshot(snapshot.getAsLong());
         if (range.isPresent()) handle = handle.withIncrementalRange(range.orElseThrow());
         var binding = metadata.bindRead(session, handle);
+        controlled.ifPresent(record -> control.requireReadIdentity(
+                record, metadata.getTableIdentity(session, liveHandle), "SQL read binding"));
+        if (!controlled.map(org.pangrova.metadata.control.TableControlRecord::tableId).equals(
+                control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
+                        .map(org.pangrova.metadata.control.TableControlRecord::tableId) : Optional.empty())) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "SQL table ownership changed during read binding; resolve the table again");
+        }
         if (snapshot.isPresent() && (binding.snapshotId().isEmpty()
                 || binding.snapshotId().getAsLong() != snapshot.getAsLong())) {
             throw new IllegalStateException("Connector did not bind the explicit source snapshot");

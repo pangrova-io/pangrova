@@ -34,6 +34,67 @@ class TableControlServiceTest {
     }
 
     @Test
+    void readCatalogRevisionUsesItsValueOutsideTheBoxedLongCache() {
+        var store = new InMemoryTableControlStore();
+        var control = new TableControlService(store,
+                name -> new CatalogDeploymentIdentity("test-deployment", 1000),
+                new TableControlSettings(true, true, Set.of()), CLOCK);
+        var original = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        store.save(original.toBuilder().catalogRevision(Long.parseLong("1000"))
+                .metadataRevision(original.metadataRevision() + 1).build());
+        control.requireReadIdentity(original, Optional.of(identity("uuid-1")), "read");
+        store.save(original.toBuilder().catalogRevision(1001L)
+                .metadataRevision(original.metadataRevision() + 2).build());
+        assertThatThrownBy(() -> control.requireReadIdentity(original, Optional.of(identity("uuid-1")), "read"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("namespace changed");
+    }
+
+    @Test
+    void readIdentityAllowsOrdinaryVersionAdvanceButRejectsRetirementAndReplacement() {
+        var control = service(true, true);
+        var original = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-1")), Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "1")))
+                .orElseThrow();
+        control.observeVersion(original, Optional.of(identity("uuid-1")),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-1", "2")), "EXTERNAL", NOW.plusSeconds(1));
+        control.requireReadIdentity(original, Optional.of(identity("uuid-1")), "read");
+        control.markDropped(control.findById(original.tableId()).orElseThrow());
+        var replacement = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-2")), Optional.empty()).orElseThrow();
+        assertThatThrownBy(() -> control.requireReadIdentity(original, Optional.of(identity("uuid-2")), "read"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("ownership");
+        assertThat(control.find("cat", "db", "t")).contains(replacement);
+    }
+
+    @Test
+    void readNamespaceComparisonDoesNotFlattenQuotedIdentifierComponents() {
+        var control = service(true, true);
+        var original = control.registerCreated("cat", "db", "t.x", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        var pending = control.rename(original, "db.t", "x");
+        control.completeRename(pending, Optional.of(identity("uuid-1")), Optional.empty());
+        var renamed = control.findById(original.tableId()).orElseThrow();
+        assertThat(renamed.qualifiedName()).isEqualTo(original.qualifiedName());
+        assertThatThrownBy(() -> control.requireReadIdentity(original, Optional.of(identity("uuid-1")), "read"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("namespace changed");
+        assertThat(control.findById(original.tableId()).orElseThrow().state()).isEqualTo(TableControlState.ACTIVE);
+    }
+
+    @Test
+    void readIdentityRejectsMissingEvidenceWithoutQuarantineAndQuarantinesAContradiction() {
+        var control = service(true, true);
+        var original = control.registerCreated("cat", "db", "t", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        assertThatThrownBy(() -> control.requireReadIdentity(original, Optional.empty(), "read"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("missing format identity");
+        assertThat(control.findById(original.tableId()).orElseThrow().state()).isEqualTo(TableControlState.ACTIVE);
+        assertThatThrownBy(() -> control.requireReadIdentity(original, Optional.of(identity("uuid-2")), "read"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("no longer matches");
+        assertThat(control.findById(original.tableId()).orElseThrow().state()).isEqualTo(TableControlState.QUARANTINED);
+    }
+
+    @Test
     void missingObservationForARetiredTableCannotStaleItsReplacement() {
         TableControlService control = service(true, true);
         TableControlRecord original = control.registerCreated("cat", "db", "t", "alice",

@@ -64,6 +64,29 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void controlledReadRejectsAnExternalReplacementBeforeAnyWriteObservesIt() throws Exception {
+        try (var fixture = new ReadBindingSdkFixture(warehouse)) {
+            var original = fixture.create("read_owner");
+            ReadBindingSdkFixture.write(original, 1);
+            var registry = fixture.bootstrap.catalogRegistry();
+            var metadata = registry.getCatalog("bound").getMetadata(fixture.session);
+            var handle = metadata.getTableHandle(fixture.session,
+                    new org.pangrova.spi.connector.metadata.table.SchemaTableName("db", "read_owner"));
+            var record = registry.tableControl().adopt("bound", "db", "read_owner", "reader",
+                    metadata.getTableIdentity(fixture.session, handle), metadata.observeVersion(fixture.session, handle));
+            assertThat(new PlanningReadBindings(registry, fixture.session).resolve("bound", "db", "read_owner"))
+                    .isPresent();
+            fixture.sdk.dropTable(Identifier.create("db", "read_owner"), false);
+            ReadBindingSdkFixture.write(fixture.create("read_owner"), 2);
+            assertThatThrownBy(() -> new PlanningReadBindings(registry, fixture.session)
+                    .resolve("bound", "db", "read_owner"))
+                    .hasStackTraceContaining("format identity");
+            assertThat(registry.tableControl().findById(record.tableId()).orElseThrow().state())
+                    .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+        }
+    }
+
+    @Test
     void concurrentLookupsShareActualBindingAndDifferentTablesDoNotSharePins() throws Exception {
         try (var fixture = new ReadBindingSdkFixture(warehouse)) {
             ReadBindingSdkFixture.write(fixture.create("first"), 3);

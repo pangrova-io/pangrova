@@ -254,6 +254,27 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void readsRejectAnExternalReplacementBeforeAnyWriteObservesIt() throws Exception {
+        String table = "control_read_replacement";
+        sqlRunner.executeDdl("CREATE TABLE " + fqn(table) + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + fqn(table) + " VALUES (1)");
+        assertThat(sqlRunner.execute("SELECT id FROM " + fqn(table)))
+                .singleElement().satisfies(row -> assertThat(row.getLong("id")).isEqualTo(1L));
+        var original = store.find(CATALOG, SCHEMA, table).orElseThrow();
+
+        externalCatalog.dropTable(identifier(table), true);
+        Table replacement = externalCatalog.createTable(identifier(table), TABLE_SCHEMA);
+        append(replacement, 99L);
+
+        assertThat(sqlRunner.executeExpectingError("SELECT id FROM " + fqn(table)).message())
+                .contains("identity");
+        assertThat(store.findById(original.tableId()).orElseThrow().state())
+                .isEqualTo(TableControlState.QUARANTINED);
+        assertThat(externalCatalog.loadTable(identifier(table)).currentSnapshot().summary())
+                .containsEntry("total-records", "1");
+    }
+
+    @Test
     void managedWritesSucceedButDropOfAnExternalReplacementIsRejected() throws Exception {
         String table = "control_managed_replacement";
         sqlRunner.executeDdl("CREATE TABLE " + fqn(table) + " (id BIGINT)");

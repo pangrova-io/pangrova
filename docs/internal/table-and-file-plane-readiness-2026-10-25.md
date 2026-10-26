@@ -16,6 +16,29 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Controlled SQL read admission — continuation on 2026-10-27
+
+Controlled SELECT now checks fresh connector format identity before and after
+binding its source. External DROP/re-create under the same name is rejected and
+the contradicted owner is quarantined before any write or destructive DDL has to
+observe it. The captured control UUID must still own the name after binding.
+Namespace components are compared individually, including quoted identifiers that
+contain dots. Missing identity evidence rejects admission without quarantining a
+table on absence alone.
+
+Read admission permits an ordinary data-version observation to advance while an
+immutable snapshot is selected. Retirement, namespace changes and replaced catalog
+deployments still reject the old admission. Catalog revision comparison uses value
+equality, with a regression above the boxed-Long cache boundary. Publication/write
+fences retain their stricter metadata revision check.
+
+The focused Metadata tests (50), Coordinator real-SDK read/derived-read selection,
+Java reactor installation and affected static analysis passed. The preceding
+`a7bf2df2` complete Governance/Metadata/Coordinator owner run also passed. Final
+combined endpoint/Native and current owner verification is in progress; these
+results do not close query-lifetime policy binding, stable column-schema identity,
+actual quality evaluation, Native DIRECTORY, durable multipart or recovery gates.
+
 ## Quality ownership and HTTP binding — continuation on 2026-10-26
 
 Quality definitions and audit results now carry the captured table UUID. Production
