@@ -312,6 +312,23 @@ class TableControlServiceTest {
     }
 
     @Test
+    void orphanRegistrationCannotOverwriteOrReleasePendingRenameReservations() {
+        var control = service(true, true);
+        var original = control.registerCreated("cat", "db", "old", "alice",
+                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+        var moved = control.rename(original, "db", "new");
+        for (String name : java.util.List.of("old", "new")) {
+            assertThatThrownBy(() -> control.registerCreated("cat", "db", name,
+                    "concurrent-create", Optional.of(identity("uuid-1")), Optional.empty()))
+                    .isInstanceOf(AccessDeniedException.class).hasMessageContaining("reserved");
+            assertThatThrownBy(() -> control.registerOrphanedManaged("cat", "db", name,
+                    "concurrent-create", Optional.of(identity("replacement"))))
+                    .isInstanceOf(AccessDeniedException.class).hasMessageContaining("reserved");
+            assertThat(control.find("cat", "db", name)).contains(moved);
+        }
+    }
+
+    @Test
     void observersCannotOverwriteAnInFlightRename() {
         TableControlService control = service(true, true);
         var original = control.registerCreated("cat", "db", "old", "alice",

@@ -240,11 +240,13 @@ public final class TableControlService {
 
     /** Rejects a reserved name before any physical CREATE or registration. */
     public void requireCreatableName(String catalog, String schema, String table) {
-        store.find(catalog, schema, table).filter(record -> record.state() == TableControlState.RENAMING)
-                .ifPresent(record -> {
-                    throw new AccessDeniedException("CREATE rejected: name is reserved by pending rename "
-                            + record.tableId());
-                });
+        store.find(catalog, schema, table).ifPresent(TableControlService::requireNoPendingRename);
+    }
+
+    private static void requireNoPendingRename(TableControlRecord record) {
+        if (record.state() == TableControlState.RENAMING) {
+            throw new AccessDeniedException("CREATE rejected: name is reserved by pending rename " + record.tableId());
+        }
     }
 
     /**
@@ -261,9 +263,9 @@ public final class TableControlService {
         if (!settings.enabled()) {
             return Optional.empty();
         }
-        requireCreatableName(catalog, schema, table);
         Instant now = clock.instant();
         Optional<TableControlRecord> existing = store.find(catalog, schema, table);
+        existing.ifPresent(TableControlService::requireNoPendingRename);
         if (existing.isPresent() && matchesCatalog(existing.get(), catalogs.apply(catalog))
                 && matchesIdentity(existing.get(), identity)) {
             TableControlRecord updated = withIdentity(existing.get(), identity, version, now)
@@ -410,9 +412,12 @@ public final class TableControlService {
         if (!settings.enabled()) {
             return;
         }
+        // A concurrent CREATE may fail registration after another operation reserved this name.
+        // Its recovery must never overwrite the rename intent or release the protected source.
         Instant now = clock.instant();
         TableControlRecord orphaned = store.find(catalog, schema, table)
                 .map(record -> {
+                    requireNoPendingRename(record);
                     requireCurrentCatalog(record, "Orphan registration");
                     return withIdentity(record, identity, Optional.empty(), now)
                         .state(TableControlState.ORPHANED_MANAGED)
