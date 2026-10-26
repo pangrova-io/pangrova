@@ -16,6 +16,18 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Invalid provider receipt diagnostics — continuation on 2026-10-27
+
+Coordinator validates that a Worker URL receipt contains a nonblank URL and positive
+expiry. Null, incomplete and malformed JSON receipts reject with a storage error.
+Payload parsing has a separate sanitization boundary: Jackson messages and causes
+can retain credential-bearing response content, so neither is attached to the
+outward exception. HTTP transport failures remain distinct from payload validation.
+Real HTTP response tests cover null, missing, blank, invalid-expiry and malformed
+receipts and assert that a signature sentinel is absent from the full exception
+trace. Focused client/service tests and Coordinator static verification passed;
+complete Coordinator regression and the refreshed runtime cohort are pending.
+
 ## Directory diagnostic owner fencing — continuation on 2026-10-27
 
 Diagnostic directory pages previously selected the current Stage by name, allowing

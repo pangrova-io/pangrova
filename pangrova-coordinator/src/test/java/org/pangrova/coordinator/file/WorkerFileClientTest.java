@@ -26,6 +26,8 @@ class WorkerFileClientTest {
     private final ObjectMapper mapper = JsonMapperFactory.create();
     private HttpServer server;
     private volatile boolean fail;
+    private volatile String presignResponse = "{\"url\":\"https://storage.example/a.jpg?sig=x\","
+            + "\"expiresAtEpochMillis\":1234}";
     private volatile Map<String, Object> received;
     private volatile String receivedAuth;
     private volatile String receivedMethod;
@@ -59,10 +61,7 @@ class WorkerFileClientTest {
             receivedAuth = exchange.getRequestHeaders().getFirst("X-Internal-Auth");
             received = mapper.readValue(exchange.getRequestBody().readAllBytes(), Map.class);
             int status = fail ? 503 : 200;
-            byte[] body = (fail ? "{}"
-                    : "{\"url\":\"https://storage.example/a.jpg?sig=x\","
-                    + "\"expiresAtEpochMillis\":1234}")
-                    .getBytes(StandardCharsets.UTF_8);
+            byte[] body = (fail ? "{}" : presignResponse).getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(status, body.length);
             exchange.getResponseBody().write(body);
@@ -134,6 +133,26 @@ class WorkerFileClientTest {
                 .isInstanceOfSatisfying(PangrovaException.class, failure ->
                         assertThat(failure.getErrorCode())
                                 .isEqualTo(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE));
+    }
+
+    @Test
+    void invalidReceiptsFailWithoutRetainingCredentialBearingParseDiagnostics() {
+        String credential = "secret-provider-signature";
+        for (String payload : java.util.List.of("null", "{}", "{\"url\":\"\",\"expiresAtEpochMillis\":1234}",
+                "{\"url\":\"https://storage.example/?sig=" + credential + "\",\"expiresAtEpochMillis\":0}",
+                "{\"url\":\"https://storage.example/?sig=" + credential
+                        + "\",\"expiresAtEpochMillis\":\"" + credential + "\"}")) {
+            presignResponse = payload;
+            assertThatThrownBy(() -> client().presign(grant(), true, 600))
+                    .isInstanceOfSatisfying(PangrovaException.class, failure -> {
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE);
+                        assertThat(failure.getMessage()).isEqualTo("Worker presign response is invalid");
+                        assertThat(failure.getCause()).isNull();
+                        var trace = new java.io.StringWriter();
+                        failure.printStackTrace(new java.io.PrintWriter(trace));
+                        assertThat(trace.toString()).doesNotContain(credential);
+                    });
+        }
     }
 
     @Test

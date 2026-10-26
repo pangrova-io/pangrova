@@ -149,7 +149,7 @@ public final class WorkerFileClient implements FileListingClient, FileDeletionCl
                         "Worker presign failed with HTTP " + response.statusCode()
                                 + " at " + grant.workerUrl());
             }
-            return mapper.readValue(response.body(), FileUrl.class);
+            return providerUrl(response.body());
         } catch (IOException failure) {
             throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
                     "Worker presign failed at " + grant.workerUrl() + ": "
@@ -158,6 +158,19 @@ public final class WorkerFileClient implements FileListingClient, FileDeletionCl
             Thread.currentThread().interrupt();
             throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
                     "Worker presign was interrupted", failure);
+        }
+    }
+
+    private FileUrl providerUrl(byte[] response) {
+        try {
+            FileUrl result = mapper.readValue(response, FileUrl.class);
+            if (result == null) throw new IllegalArgumentException("Missing Worker URL receipt");
+            return result;
+        } catch (IOException | IllegalArgumentException invalid) {
+            // Jackson diagnostics can retain the credential-bearing response. Neither
+            // its message nor its cause may cross this response-validation boundary.
+            throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
+                    "Worker presign response is invalid");
         }
     }
 

@@ -17,6 +17,12 @@ public interface FileUrlClient {
 
     /** Signed provider URL and the epoch millisecond at which it stops working. */
     record FileUrl(String url, long expiresAtEpochMillis) {
+        public FileUrl {
+            if (url == null || url.isBlank() || expiresAtEpochMillis <= 0) {
+                throw new IllegalArgumentException("Worker URL requires a nonblank URL and positive expiry");
+            }
+        }
+
         /** Omits bearer credentials from diagnostics. */
         @Override public String toString() { return "FileUrl[expiresAtEpochMillis=" + expiresAtEpochMillis + "]"; }
     }
