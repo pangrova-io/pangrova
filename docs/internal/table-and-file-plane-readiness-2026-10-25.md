@@ -16,6 +16,49 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Frozen bounded runtime checkpoint — 2026-10-27, implementation 2367c831
+
+The isolated SDK checkout uses the branch-required patch cohort
+`6799535a1bdf87ce9af3f559546dbbe10ef244c210f3a19f52cf6fbf56bbeadb` on
+Velox `3da0390118fa4b0addbfbdeb03f438ec1b1237a6`. Its copied third-party package
+configs and generated xsimd cache entry were relocated to the owned dependency
+snapshot; no compiler warning rule was relaxed and the shared SDK checkout was not
+reverted. The earlier diagnostic run using the other SDK patch failed provenance
+and remains failed evidence. The corrected isolated Release build passed all
+**4334 Native tests**, including provenance checks. The mTLS case then passed
+**20 consecutive runs** with stop-on-first-failure semantics; this is bounded
+current-cohort evidence, not a demonstrated cause for every historical intermittent
+failure or Linux qualification.
+
+Current artifact SHA-256 receipts:
+
+- Release JNI: `a59914ea232a6f724dda2bcf4d565e2c34bcb76a7557b46c8f5642c99f74bbf2`.
+- Native test executable: `1a1da6c88cc43782f47f529b9844cebfcc1eed223f7a876577278a89c7bb8f0b`.
+- Velox archive: `f68ba80497e29057ece35c96f8e5485932531122e6a622b412b61ced1285690b`.
+- Lance FFI archive: `786a171a8eb8ba416a82652c3502fe3c4fd83ea360c672bce96e1a47d367ee98`.
+- Frozen runtime JAR manifest: `700b66acdfd3783749a67162fc511c1344b7bd3474cd649487d237bc16d9ca9b`.
+
+The JNI classifier and Worker resource contain the same new library. After
+packaging, the complete Java reactor installed successfully; its JARs were frozen
+before any E2E consumer started. The same bounded **34-test** endpoint/Native
+selection passed with zero failures/errors/skips: Stage HTTP 8, file contract 3,
+file DDL 5, table control lifecycle 13, Lance Feature View export 2 and activation
+smoke 3. The real AI fixture used immutable image
+`sha256:e10dbd499c14b15dfe7bc7bc778d45d2f1554add090d8eba6b322ae111a8ec2a`.
+Four isolated runtime owners then passed with the same staged JAR manifest and JNI:
+Worker bootstrap 5, external Native Exchange 3, Shuffle admission 1, and the private
+COPY-ticket restart case 1, all with zero failures/errors/skips.
+
+The affected default module suites/static checks also passed: Metadata 564,
+Coordinator 2938 and Worker 1414 current reports, all zero failures/errors/skips.
+Default profiles exclude their configured integration/Native groups; these counts
+are not a full production-regression result. The full default Java reactor test
+is the next shared-SPI check. The implementation and production matrices below
+remain open, including schema-bound governance, real quality execution, immutable
+Directory manifests/Native execution, durable multipart recovery and the deferred
+large-data/Linux/provider qualification. No scope is closed by combining historical
+results with this checkpoint.
+
 ## Invalid provider receipt diagnostics — continuation on 2026-10-27
 
 Coordinator validates that a Worker URL receipt contains a nonblank URL and positive
@@ -26,7 +69,7 @@ outward exception. HTTP transport failures remain distinct from payload validati
 Real HTTP response tests cover null, missing, blank, invalid-expiry and malformed
 receipts and assert that a signature sentinel is absent from the full exception
 trace. Focused client/service tests and Coordinator static verification passed;
-complete Coordinator regression and the refreshed runtime cohort are pending.
+complete default Coordinator regression and the frozen bounded runtime checkpoint above also passed.
 
 ## Directory diagnostic owner fencing — continuation on 2026-10-27
 
@@ -36,8 +79,8 @@ the exact captured Stage ID and definition revision and hold a shared definition
 lock for the one page transaction. The index query uses only the admitted ID.
 Reference admission uses the same check. Ten real-PostgreSQL cases passed, including
 same-name replacement and storage-profile revision changes, followed by Metadata
-static verification. Complete Metadata regression and the refreshed runtime cohort
-are pending. These diagnostic pages do not provide immutable generations, manifest
+static verification. Complete default Metadata regression and the frozen bounded
+runtime checkpoint above also passed. These diagnostic pages do not provide immutable generations, manifest
 publication or Native DIRECTORY execution.
 
 ## Provider URL expiry receipts and audit admission — continuation on 2026-10-27
@@ -57,7 +100,7 @@ and Coordinator tests/static verification, and nine bounded real-MinIO cases pas
 Stable Stage links likewise capture the authorized object/principal and emit success
 only after URI construction succeeds; valid and failed construction cases passed
 with the audit queues fully drained, followed by Coordinator static verification.
-The refreshed Native/end-to-end cohort is still pending. This does not provide
+The refreshed bounded Native/end-to-end cohort is recorded above. This does not provide
 immediate revocation of provider URLs, STS credential lifetime qualification, durable
 multipart recovery or production-provider acceptance.
 
@@ -94,7 +137,7 @@ not the deferred large-object gate). Static verification also passed after corre
 line length, Javadoc and aggregation braces, and narrowing the server's retained
 reference to the endpoint's destruction capability. Repeated close calls retain the
 same failure instead of allowing lifecycle-hook logging to hide it. The combined
-refreshed-runtime endpoint/Native checkpoint is pending the isolated SDK build. This is resource ownership, not durable upload reclamation,
+refreshed-runtime endpoint/Native checkpoint is recorded above. This is resource ownership, not durable upload reclamation,
 active stream revocation or a completed transfer deadline/watchdog implementation.
 
 ## Typed Metadata creation — continuation on 2026-10-27
