@@ -16,6 +16,24 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Default-reactor policy fixture repair — continuation on 2026-10-27
+
+The full default reactor at `a5ea42e0` reached E2E and recorded six failures in
+`DmlCopyOnWritePolicyE2ETest`: its fixture persisted name-only policies, which the
+transaction-bound production authorization correctly rejected as unproven. The
+run was intentionally stopped (exit 130) after retaining the original log and
+failure XML. It is failed/incomplete evidence, not a passing full-reactor gate.
+
+COW and the related subquery fixture now enable durable controlled registration
+before creating their actual tables and publish through Metadata's stable row
+policy/mask stores. They restore the previous control owner during teardown. COW
+also asserts that persisted policies and masks carry the created table ID. All
+physical-survivor, masked-predicate, NULL, grant-revocation and correlation assertions
+remain intact. The six COW and six subquery Native SQL cases passed with zero
+failures/errors/skips, followed by E2E static verification. The fail-closed rejection
+of unbound policies remains unchanged. A fresh full default reactor and refreshed
+runtime cohort are required after these fixture/implementation repairs.
+
 ## Iceberg rename identity fence — continuation on 2026-10-27
 
 Rename completion now rejects a changed Iceberg table UUID, preserving the pending

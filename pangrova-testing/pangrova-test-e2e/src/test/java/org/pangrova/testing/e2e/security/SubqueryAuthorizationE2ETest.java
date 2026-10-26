@@ -22,6 +22,11 @@ import org.pangrova.security.store.PersistentColumnMaskStore;
 import org.pangrova.security.store.PersistentGrantStore;
 import org.pangrova.security.store.PersistentRoleStore;
 import org.pangrova.security.store.PersistentRowPolicyStore;
+import org.pangrova.metadata.control.JdbcTableControlStore;
+import org.pangrova.metadata.control.TableControlService;
+import org.pangrova.metadata.control.TableControlSettings;
+import org.pangrova.metadata.service.TableControlColumnMaskStore;
+import org.pangrova.metadata.service.TableControlRowPolicyStore;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 
@@ -37,8 +42,9 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
     private String role;
     private PersistentRoleStore roles;
     private PersistentGrantStore grants;
-    private PersistentRowPolicyStore policies;
-    private PersistentColumnMaskStore masks;
+    private TableControlRowPolicyStore policies;
+    private TableControlColumnMaskStore masks;
+    private TableControlService previousControl;
     private boolean rewired;
 
     @Override
@@ -48,6 +54,10 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
 
     @BeforeEach
     void createSourcesAndScopedReader() {
+        var registry = metadataBootstrap.catalogRegistry();
+        previousControl = registry.tableControl();
+        registry.setTableControlService(new TableControlService(new JdbcTableControlStore(stateStoreDataSource()),
+                registry::requireCurrentCatalogIdentity, new TableControlSettings(true, true, java.util.Set.of())));
         String unique = UUID.randomUUID().toString().replace("-", "");
         visible = "visible_" + unique;
         hidden = "hidden_" + unique;
@@ -61,8 +71,8 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(UserRoleAssignment.of(authenticatedCatalogSession(CATALOG).getUser(), role));
         grants = new PersistentGrantStore(stateStoreDataSource());
-        policies = new PersistentRowPolicyStore(stateStoreDataSource());
-        masks = new PersistentColumnMaskStore(stateStoreDataSource());
+        policies = new TableControlRowPolicyStore(registry, new PersistentRowPolicyStore(stateStoreDataSource()));
+        masks = new TableControlColumnMaskStore(registry, new PersistentColumnMaskStore(stateStoreDataSource()));
         grant(visible);
     }
 
@@ -71,17 +81,23 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
         try {
             awaitQueriesDrained();
         } finally {
-            clearPolicies();
-            if (rewired) clearFeatureSecurity();
-            rewired = false;
-            if (roles != null) {
-                if (grants != null) grants.listGrantsForRole(role).forEach(grant -> grants.revokeGrant(grant.id()));
-                roles.dropRole(role);
+            try {
+                clearPolicies();
+                if (rewired) clearFeatureSecurity();
+                rewired = false;
+                if (roles != null) {
+                    if (grants != null) grants.listGrantsForRole(role).forEach(grant -> grants.revokeGrant(grant.id()));
+                    roles.dropRole(role);
+                }
+                for (String table : List.of(visible, hidden)) {
+                    sqlRunner.executeDdl("DROP TABLE IF EXISTS " + qualified(table));
+                }
+                awaitQueriesDrained();
+            } finally {
+                if (previousControl != null) {
+                    metadataBootstrap.catalogRegistry().setTableControlService(previousControl);
+                }
             }
-            for (String table : List.of(visible, hidden)) {
-                sqlRunner.executeDdl("DROP TABLE IF EXISTS " + qualified(table));
-            }
-            awaitQueriesDrained();
         }
     }
 

@@ -4,6 +4,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
+import org.pangrova.metadata.control.JdbcTableControlStore;
+import org.pangrova.metadata.control.TableControlService;
+import org.pangrova.metadata.control.TableControlSettings;
+import org.pangrova.metadata.service.TableControlColumnMaskStore;
+import org.pangrova.metadata.service.TableControlRowPolicyStore;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
@@ -23,6 +28,7 @@ import org.pangrova.testing.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,8 +48,9 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
     private String table;
     private String role;
     private PersistentRoleStore roles;
-    private PersistentRowPolicyStore policies;
-    private PersistentColumnMaskStore masks;
+    private TableControlRowPolicyStore policies;
+    private TableControlColumnMaskStore masks;
+    private TableControlService previousControl;
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -52,6 +59,10 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
 
     @BeforeEach
     void createRealNativeWrittenTarget() {
+        var registry = metadataBootstrap.catalogRegistry();
+        previousControl = registry.tableControl();
+        registry.setTableControlService(new TableControlService(new JdbcTableControlStore(stateStoreDataSource()),
+                registry::requireCurrentCatalogIdentity, new TableControlSettings(true, true, Set.of())));
         table = "target_" + UUID.randomUUID().toString().replace("-", "");
         executeDdl("CREATE TABLE " + target()
                 + " (id BIGINT, tenant BIGINT, score BIGINT, nullable_probe BIGINT, note VARCHAR)"
@@ -66,10 +77,16 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
 
     @AfterEach
     void releasePersistentScenarioPolicies() {
-        if (policies != null) removePolicies();
-        if (roles != null) {
-            clearFeatureSecurity();
-            roles.dropRole(role);
+        try {
+            if (policies != null) removePolicies();
+            if (roles != null) {
+                clearFeatureSecurity();
+                roles.dropRole(role);
+            }
+        } finally {
+            if (previousControl != null) {
+                metadataBootstrap.catalogRegistry().setTableControlService(previousControl);
+            }
         }
     }
 
@@ -149,12 +166,18 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
         roles.grantRoleToUser(UserRoleAssignment.of(session.getUser(), role));
         var grants = new PersistentGrantStore(stateStoreDataSource());
         grants.addGrant(PrivilegeGrant.of(role, Privilege.ALL, "SCHEMA", CATALOG, SCHEMA, null, null));
-        policies = new PersistentRowPolicyStore(stateStoreDataSource());
-        masks = new PersistentColumnMaskStore(stateStoreDataSource());
+        var registry = metadataBootstrap.catalogRegistry();
+        policies = new TableControlRowPolicyStore(registry, new PersistentRowPolicyStore(stateStoreDataSource()));
+        masks = new TableControlColumnMaskStore(registry, new PersistentColumnMaskStore(stateStoreDataSource()));
         policies.savePolicy(new RowPolicy(0, "cow_tenant_rows", CATALOG, SCHEMA, table,
                 "tenant=1", List.of(role), true, 1, null));
         masks.saveColumnMask(new ColumnMask(0, "cow_score_zero", CATALOG, SCHEMA, table, "score",
                 "CAST(0 AS BIGINT)", List.of(role), List.of(), true, null));
+        UUID tableId = registry.tableControl().find(CATALOG, SCHEMA, table).orElseThrow().tableId();
+        assertThat(policies.getPolicies(CATALOG, SCHEMA, table)).singleElement()
+                .satisfies(policy -> assertThat(policy.tableId()).isEqualTo(tableId));
+        assertThat(masks.getColumnMasks(CATALOG, SCHEMA, table, "score")).singleElement()
+                .satisfies(mask -> assertThat(mask.tableId()).isEqualTo(tableId));
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks)));
         var visible = executeQuery("SELECT id,score FROM " + target() + " ORDER BY id");
