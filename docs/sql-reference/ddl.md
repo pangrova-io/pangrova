@@ -194,7 +194,8 @@ table stale. DROP completion retires only the captured table ID and revision.
 During RENAME, the durable `RENAMING` state blocks reads, writes and maintenance and
 prevents periodic observations from interpreting the intermediate catalog state.
 A confirmed completion refreshes the physical identity and version while keeping
-the same table ID. A failed RENAME rolls ownership back only while that same registration is current
+the same table ID. Iceberg completion must retain the original table UUID; a
+different UUID leaves the rename blocked for reconciliation. A failed RENAME rolls ownership back only while that same registration is current
 and the source still has its original physical identity. An ambiguous outcome
 or a same-name replacement requires reconciliation instead of assigning ownership
 by name.

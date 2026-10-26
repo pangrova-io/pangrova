@@ -33,15 +33,38 @@ class TableControlServiceTest {
         return new TableIdentity("ICEBERG", uuid, "s3://bucket/table", "schema");
     }
 
+    private static TableIdentity paimonIdentity(String uuid) {
+        return new TableIdentity("PAIMON", uuid, "s3://bucket/table", "schema");
+    }
+
+    @Test
+    void icebergRenameCannotTransferAuthorityToAnotherPhysicalUuid() {
+        for (String format : java.util.List.of("ICEBERG", "iceberg")) {
+            var control = service(true, true);
+            var original = control.registerCreated("cat", "db", "source", "alice",
+                    Optional.of(new TableIdentity(format, "original", "s3://bucket/source", "schema")),
+                    Optional.empty()).orElseThrow();
+            var pending = control.rename(original, "db", "renamed");
+            assertThatThrownBy(() -> control.completeRename(pending,
+                    Optional.of(new TableIdentity(format, "replacement", "s3://bucket/renamed", "schema")),
+                    Optional.empty())).isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("different Iceberg table UUID");
+            assertThat(control.findById(original.tableId())).contains(pending);
+            assertThat(control.find("cat", "db", "source")).contains(pending);
+            assertThat(control.find("cat", "db", "renamed")).contains(pending);
+            assertThat(pending.state()).isEqualTo(TableControlState.RENAMING);
+        }
+    }
+
     @Test
     void cachedOwnerProofCannotQuarantineACompletedRenameWhosePhysicalIdentityChanged() {
         var control = service(true, true);
         var original = control.registerCreated("cat", "db", "t", "alice",
-                Optional.of(identity("uuid-1")), Optional.empty()).orElseThrow();
+                Optional.of(paimonIdentity("uuid-1")), Optional.empty()).orElseThrow();
         var pending = control.rename(original, "db", "other");
-        control.completeRename(pending, Optional.of(identity("uuid-2")), Optional.empty());
+        control.completeRename(pending, Optional.of(paimonIdentity("uuid-2")), Optional.empty());
         var returning = control.rename(control.findById(original.tableId()).orElseThrow(), "db", "t");
-        control.completeRename(returning, Optional.of(identity("uuid-3")), Optional.empty());
+        control.completeRename(returning, Optional.of(paimonIdentity("uuid-3")), Optional.empty());
         assertThatThrownBy(() -> control.requireReadOwner(original, "cached read"))
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("ownership or namespace changed");
         var current = control.findById(original.tableId()).orElseThrow();
@@ -421,12 +444,13 @@ class TableControlServiceTest {
     }
 
     @Test
-    void completedRenameRefreshesPhysicalIdentityAndInvalidatesAnUnknownVersion() {
+    void completedIcebergRenameRetainsPhysicalIdentityAndClearsAnUnavailableVersion() {
         TableControlService control = service(true, true);
         var original = control.registerCreated("cat", "db", "old", "alice",
-                Optional.of(identity("uuid-old")), Optional.empty()).orElseThrow();
+                Optional.of(identity("uuid-old")),
+                Optional.of(TableVersionToken.of("ICEBERG", "uuid-old", "1"))).orElseThrow();
         var moved = control.rename(original, "db", "new");
-        var physical = identity("uuid-renamed");
+        var physical = identity("uuid-old");
         control.completeRename(moved, Optional.of(physical), Optional.empty());
         var completed = control.find("cat", "db", "new").orElseThrow();
         assertThat(control.find("cat", "db", "old")).isEmpty();

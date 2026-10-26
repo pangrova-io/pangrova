@@ -87,6 +87,21 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void crossNamespaceRenamePreservesTableUuidAndTheExactMetadataPointer() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var before = ((org.apache.iceberg.BaseTable) selected.loadTable(TABLE)).operations().current();
+            selected.createNamespace(Namespace.of("renamed_namespace"));
+            var target = TableIdentifier.of("renamed_namespace", "renamed_table");
+            selected.renameTable(TABLE, target);
+            var after = ((org.apache.iceberg.BaseTable) selected.loadTable(target)).operations().current();
+            assertThat(selected.tableExists(TABLE)).isFalse();
+            assertThat(after.uuid()).isEqualTo(before.uuid());
+            assertThat(after.metadataFileLocation()).isEqualTo(before.metadataFileLocation());
+        }
+    }
+
     private JdbcCatalog catalog(DatabaseSchema schema, String version) {
         var postgres = IcebergJdbcTestDatabase.instance();
         Map<String, String> properties = Map.of(

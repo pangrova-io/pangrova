@@ -16,6 +16,22 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Iceberg rename identity fence — continuation on 2026-10-27
+
+Rename completion now rejects a changed Iceberg table UUID, preserving the pending
+record and both name reservations for reconciliation instead of transferring old
+governance to a replacement. The positive test retains the UUID and verifies that
+an unavailable post-rename version clears the previous known version. The generic
+cached-owner test uses Paimon's name-scoped identity model instead of incorrectly
+modeling a changing durable Iceberg UUID.
+
+Focused control-service tests and Metadata static verification passed. Five real
+JDBC SDK cases/static verification passed, including cross-namespace rename keeping
+the same table UUID and exact metadata pointer on the locked candidate4 SDK. The
+[Iceberg specification](https://iceberg.apache.org/spec/#table-metadata-fields)
+requires rejection of UUID mismatches. This does not complete Paimon/other-format
+rename proof, automatic crash reconciliation or the final refreshed reactor gate.
+
 ## S3 checksum evidence — continuation on 2026-10-27
 
 S3 HEAD and listing no longer infer content MD5 from a 32-hex ETag. Encryption,

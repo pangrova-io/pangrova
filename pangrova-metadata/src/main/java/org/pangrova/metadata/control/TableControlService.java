@@ -512,6 +512,11 @@ public final class TableControlService {
                         "RENAME completed without verifiable format identity for "
                                 + expected.qualifiedName() + "; reconciliation is required"));
         requireCurrentCatalog(current, "RENAME completion");
+        if ("ICEBERG".equalsIgnoreCase(current.format())
+                && !physical.formatTableUuid().equals(current.formatTableUuid())) {
+            throw new AccessDeniedException("RENAME completed with a different Iceberg table UUID for "
+                    + expected.qualifiedName() + "; reconciliation is required");
+        }
         Instant now = clock.instant();
         String token = version.map(TableVersionToken::token).orElse(null);
         TableControlRecord completed = withIdentity(current, Optional.of(physical), version, now)
