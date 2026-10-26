@@ -50,7 +50,23 @@ class RowLevelSecurityFilterTest {
         assertThat(subject.attributes()).containsEntry("tenant_id", "tenant-one");
         assertThat(filter.getFilter(subject, Set.of("reader"), "lake", "default", "orders"))
                 .hasValue("(owner = 'alice')");
-        assertThat(filter.getFilter(subject, Set.of(), "lake", "default", "orders")).isEmpty();
+        assertThatThrownBy(() -> filter.getFilter(subject, Set.of(), "lake", "default", "orders"))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
+        assertThatThrownBy(() -> RowLevelSecurityFilter.renderPolicies(subject, Set.of(), List.of(policy)))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
+    }
+
+    @Test
+    void missingGroupsCannotSilentlyOmitAConstantRoleScopedRowRestriction() {
+        var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
+        var enabled = new RowPolicy(90, "private_rows", "lake", "default", "orders",
+                "visible = true", List.of("private_group_role"), true, 1, null);
+        var filter = new RowLevelSecurityFilter(new InMemoryRowPolicyStore(List.of(enabled)));
+        assertThatThrownBy(() -> filter.getFilter(subject, Set.of("reader"), "lake", "default", "orders"))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
+        var disabled = new RowPolicy(91, "disabled", "lake", "default", "orders",
+                "visible = false", List.of("private_group_role"), false, 1, null);
+        assertThat(RowLevelSecurityFilter.renderPolicies(subject, Set.of("reader"), List.of(disabled))).isEmpty();
     }
 
     @Test

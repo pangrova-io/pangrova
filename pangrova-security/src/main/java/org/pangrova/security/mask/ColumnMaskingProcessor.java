@@ -56,6 +56,8 @@ public class ColumnMaskingProcessor implements ColumnMaskSource {
     /** Renders masks read on the caller's current authorization transaction. */
     public static Optional<String> renderMasks(
             UserIdentity user, Set<String> effectiveRoles, String column, java.util.List<ColumnMask> masks) {
+        masks.stream().filter(ColumnMask::enabled).forEach(mask ->
+                DeferredSubjectContext.requireKnownApplicability(user, effectiveRoles, mask.applyToRoles()));
         return masks.stream()
                 .filter(ColumnMask::enabled)
                 .sorted(Comparator.comparingLong(ColumnMask::maskId))

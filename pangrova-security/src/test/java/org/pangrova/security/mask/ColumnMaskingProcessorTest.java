@@ -41,7 +41,7 @@ class ColumnMaskingProcessorTest {
     }
 
     @Test
-    void deferredSubjectGuardDoesNotEvaluateUnselectedOrExemptMasks() {
+    void deferredSubjectRetainsProvenExemptionButCannotInferNonApplicability() {
         var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
         var mask = new ColumnMask(90, "deferred_context", "lake", "default", "users", "email",
                 "user_attribute('department')", List.of("reader"), List.of("unmasked"), true, null);
@@ -49,7 +49,25 @@ class ColumnMaskingProcessorTest {
 
         assertThat(processor.getMask(subject, Set.of("reader", "unmasked"),
                 "lake", "default", "users", "email")).isEmpty();
-        assertThat(processor.getMask(subject, Set.of(), "lake", "default", "users", "email")).isEmpty();
+        assertThatThrownBy(() -> processor.getMask(subject, Set.of(), "lake", "default", "users", "email"))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
+    }
+
+    @Test
+    void unknownRoleApplicabilityCannotSkipAPriorMaskOrAnUnprojectedRawReadRestriction() {
+        var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
+        var uncertain = new ColumnMask(1, "private_group_mask", "lake", "default", "users", "email",
+                "NULL", List.of("private_group_role"), List.of(), true, null);
+        var selected = new ColumnMask(2, "reader_mask", "lake", "default", "users", "email",
+                "{column}", List.of("reader"), List.of(), true, null);
+        var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(uncertain, selected)));
+        assertThatThrownBy(() -> processor.getMask(subject, Set.of("reader"), "lake", "default", "users", "email"))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
+        assertThatThrownBy(() -> processor.hasApplicableMask(subject, Set.of("reader"), "lake", "default", "users"))
+                .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
+        var disabled = new ColumnMask(3, "disabled", "lake", "default", "users", "email",
+                "NULL", List.of("private_group_role"), List.of(), false, null);
+        assertThat(ColumnMaskingProcessor.renderMasks(subject, Set.of(), "email", List.of(disabled))).isEmpty();
     }
 
     @Test

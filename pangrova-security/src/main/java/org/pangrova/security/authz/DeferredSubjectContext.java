@@ -30,6 +30,16 @@ public final class DeferredSubjectContext {
         return new UserIdentity(principal, Set.of(), attributes, Instant.EPOCH);
     }
 
+    /** Missing authentication groups cannot prove that a role-scoped restriction does not apply. */
+    public static void requireKnownApplicability(UserIdentity subject, Set<String> effectiveRoles,
+            java.util.Collection<String> policyRoles) {
+        if ("true".equals(subject.attributes().get(DEFERRED_ATTRIBUTE)) && !policyRoles.isEmpty()
+                && effectiveRoles.stream().noneMatch(policyRoles::contains)) {
+            throw new AuthorizationDeniedException(
+                    "Deferred policy role applicability requires a current identity-context resolver");
+        }
+    }
+
     /** Rejects policies that need authentication context unavailable to a deferred execution. */
     public static void requireStable(UserIdentity subject, String expression) {
         if (!"true".equals(subject.attributes().get(DEFERRED_ATTRIBUTE))) return;

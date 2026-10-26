@@ -613,6 +613,16 @@ bindings on the durable publication transaction. A background raw-artifact read 
 bypass a canonical classification merely because another coordinator has not received
 an event. Production bootstrap does not create a second event-maintained mask authority.
 
+Deferred subjects do not reconstruct authentication groups. An enabled role-scoped
+row policy or mask cannot be omitted merely because its roles are absent from the
+restored direct assignments: applicability is unknown, so the read is rejected
+until a current identity-context resolver can establish it. This also applies to
+constant expressions without context functions and to masks outside a raw read's
+projection. Matching current durable roles still render the policy; proven mask
+exemptions retain their existing behavior, and disabled policies do not block.
+Security-transformed replay must also match the captured policy content. Ordinary
+authenticated requests retain their current group-to-role resolution.
+
 `ColumnTagService` events carry `tableId`; its cache and retirement operations use that
 captured identity. It fans out notifications and reports listener failures after fanout.
 Persistence precedes notification, so a notification failure does not undo the security

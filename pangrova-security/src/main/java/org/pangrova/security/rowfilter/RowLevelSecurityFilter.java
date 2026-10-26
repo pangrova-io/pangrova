@@ -56,14 +56,14 @@ public class RowLevelSecurityFilter implements RowFilterSource {
      */
     public Optional<ParameterizedFilter> getParameterizedFilter(UserIdentity user, Set<String> effectiveRoles,
                                                                  String catalog, String schema, String table) {
-        List<RowPolicy> applicable = filterApplicable(store.getPolicies(catalog, schema, table), effectiveRoles);
+        List<RowPolicy> applicable = filterApplicable(user, store.getPolicies(catalog, schema, table), effectiveRoles);
         return bindApplicablePolicies(user, applicable);
     }
 
     /** Renders policies read on the caller's current authorization transaction. */
     public static Optional<String> renderPolicies(
             UserIdentity user, Set<String> effectiveRoles, List<RowPolicy> policies) {
-        return bindApplicablePolicies(user, filterApplicable(policies, effectiveRoles))
+        return bindApplicablePolicies(user, filterApplicable(user, policies, effectiveRoles))
                 .map(ParameterizedFilter::toSafeExpression);
     }
 
@@ -76,7 +76,10 @@ public class RowLevelSecurityFilter implements RowFilterSource {
         return Optional.of(bindUserContext(merged, user));
     }
 
-    private static List<RowPolicy> filterApplicable(List<RowPolicy> policies, Set<String> effectiveRoles) {
+    private static List<RowPolicy> filterApplicable(UserIdentity user, List<RowPolicy> policies,
+            Set<String> effectiveRoles) {
+        policies.stream().filter(RowPolicy::enabled).forEach(policy ->
+                DeferredSubjectContext.requireKnownApplicability(user, effectiveRoles, policy.applyToRoles()));
         return policies.stream()
                 .filter(RowPolicy::enabled)
                 .filter(p -> p.appliesTo(effectiveRoles))
