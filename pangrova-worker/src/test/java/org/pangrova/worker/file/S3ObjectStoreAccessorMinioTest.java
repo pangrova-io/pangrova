@@ -91,6 +91,25 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
     }
 
     @Test
+    void partialCloseAbortsItsBodyAndLeavesTheClientUsableForTheNextRange() throws IOException {
+        try (S3Client client = client()) {
+            String bucket = bucket(client, false);
+            var accessor = new S3ObjectStoreAccessor(client);
+            var location = location(bucket, "partial-close");
+            byte[] bytes = new byte[32 * 1024];
+            for (int i = 0; i < bytes.length; i++) bytes[i] = (byte) (i % 251);
+            accessor.put(location, "body.bin", new ByteArrayInputStream(bytes), bytes.length,
+                    "application/octet-stream");
+            try (var input = accessor.openRange(location, "body.bin", 0, -1, null)) {
+                assertThat(input.readNBytes(7)).isEqualTo(java.util.Arrays.copyOf(bytes, 7));
+            }
+            try (var next = accessor.openRange(location, "body.bin", 19, 11, null)) {
+                assertThat(next.readAllBytes()).isEqualTo(java.util.Arrays.copyOfRange(bytes, 19, 30));
+            }
+        }
+    }
+
+    @Test
     void unversionedReadUsesProviderConditionAcrossConcurrentReplacement() throws IOException {
         try (S3Client writer = client()) {
             String bucket = bucket(writer, false);

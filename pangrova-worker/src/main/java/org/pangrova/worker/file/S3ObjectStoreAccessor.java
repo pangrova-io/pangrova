@@ -50,6 +50,8 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
  * multipart ETags are never presented as content hashes.</p>
  */
 public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
+    private static final Pattern CONTENT_RANGE = Pattern.compile(
+            "bytes ([0-9]+)-([0-9]+)/([0-9]+)", Pattern.CASE_INSENSITIVE);
 
     private static final Pattern MD5_ETAG = Pattern.compile("[0-9a-fA-F]{32}");
     private static final int NOT_FOUND = 404;
@@ -120,10 +122,12 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         if (expectedVersion != null && !expectedVersion.equals(current.providerVersion())) {
             throw precondition("Version precondition failed for '" + path + "'");
         }
-        if (offset < 0 || offset > current.size() || length > current.size() - offset) {
+        if (offset < 0 || offset > current.size() || length < -1 || length > current.size() - offset) {
             throw new PangrovaException(PangrovaErrorCode.FILE_PATH_INVALID,
                     "Requested range is outside '" + path + "'");
         }
+        long expectedLength = length < 0 ? current.size() - offset : length;
+        if (expectedLength == 0) return InputStream.nullInputStream();
         GetObjectRequest.Builder request = GetObjectRequest.builder()
                 .bucket(location.profile().bucket())
                 .key(key);
@@ -150,11 +154,28 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
                 abort(stream);
                 throw precondition("Object ETag changed while opening '" + path + "'");
             }
-            return stream;
+            if (!Long.valueOf(expectedLength).equals(response.contentLength())
+                    || !matchesRange(response.contentRange(), offset, end, current.size())) {
+                abort(stream);
+                throw precondition("Object response did not prove the requested byte window");
+            }
+            return new S3ObjectReadStream(stream, expectedLength);
         } catch (S3Exception failure) {
             throw translate("Failed to read '" + path + "'", failure);
         } catch (SdkException failure) {
             throw storageFailure("Failed to read '" + path + "'", failure);
+        }
+    }
+
+    private static boolean matchesRange(String header, long offset, long end, long size) {
+        if (header == null) return false;
+        var range = CONTENT_RANGE.matcher(header);
+        if (!range.matches()) return false;
+        try {
+            return Long.parseLong(range.group(1)) == offset && Long.parseLong(range.group(2)) == end
+                    && Long.parseLong(range.group(3)) == size;
+        } catch (NumberFormatException invalid) {
+            return false;
         }
     }
 

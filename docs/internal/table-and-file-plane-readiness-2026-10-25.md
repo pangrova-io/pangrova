@@ -16,6 +16,23 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## S3 byte-window proof and partial closure — continuation on 2026-10-27
+
+An opened S3 read now proves the requested byte window using returned content length,
+Content-Range start/end/total, and the existing ETag/version admission. A missing,
+ignored, mismatched or overflowing window is aborted before delivery. Zero-length
+reads avoid an invalid provider GET; negative lengths other than the documented -1
+are rejected. Stream counters reject truncated/excess bodies. Fully consumed bodies
+use normal SDK closure; partial/failed reads abort the connection without draining
+unread provider bytes, including cancellation through the delivery-deadline wrapper.
+
+Eight SDK-stream/response unit cases and nine bounded real-MinIO cases passed with
+zero failures/errors/skips, followed by Worker static verification. The new real
+case stops after seven bytes of a 32 KiB object and successfully reads another exact
+range with the same client. Fault-injected responses are unit evidence, not an
+external-provider oracle. This does not implement an idle-read watchdog, live RBAC
+revocation, autonomous multipart cleanup or the large-object production matrix.
+
 ## Worker file endpoint ownership — continuation on 2026-10-27
 
 The Worker HTTP server now retains and closes its FileSpace endpoint, including

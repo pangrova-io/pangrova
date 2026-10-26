@@ -429,3 +429,10 @@ embedders must close `FileSpaceFileResource` (or its owning HTTP container). The
 factory owns its separate default credential chain; injected credential providers
 remain owned by their caller. This lifecycle does not reclaim durable provider
 multipart uploads or implement active transfer revocation.
+
+
+S3 range reads require the provider response to prove the requested start/end, total
+object size and body length. Missing or contradictory range evidence fails before
+file bytes are delivered. Closing a partial or failed response aborts its connection
+without draining the remaining object; completed reads retain normal connection reuse.
+This is independent of the remaining idle-deadline and active-revocation work.
