@@ -283,8 +283,9 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         ConnectorMetadata connMetadata = catalogHandle.getMetadata(connSession);
         SchemaTableName schemaTable = new SchemaTableName(tableRef.schema(), tableRef.table());
         List<String> columnNames = metadata.columns().stream().map(ColumnMetadata::name).toList();
+        var typedColumns = metadata.columns().stream().map(MetadataColumnDeclarations::connectorColumn).toList();
         ConnectorTableMetadata connTableMeta = new ConnectorTableMetadata(
-                schemaTable, columnNames, metadata.properties());
+                schemaTable, columnNames, typedColumns, metadata.properties());
         connMetadata.createTable(connSession, connTableMeta);
         registerCreatedTable(connMetadata, connSession, tableRef, session.user());
         invalidateTableCaches(tableRef);

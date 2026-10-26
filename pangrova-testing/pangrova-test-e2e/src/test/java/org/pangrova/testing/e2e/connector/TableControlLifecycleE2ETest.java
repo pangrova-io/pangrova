@@ -63,6 +63,37 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void metadataApiCreationPreservesScalarParametersForActualNativeSql() {
+        String table = "controlled_metadata_created";
+        String source = PAIMON + "." + SCHEMA + "." + table;
+        var service = metadataBootstrap.metadataService();
+        // The trusted engine API receives the configured test actor's metadata-only context.
+        // Writes and result reads below traverse authenticated HTTP SQL and actual Native execution.
+        var actor = new org.pangrova.metadata.service.MetadataSessionContext("e2e-user", PAIMON, SCHEMA,
+                "UTC", "en", java.util.Map.of(), "default", null, null);
+        var ref = new org.pangrova.metadata.model.QualifiedTableRef(PAIMON, SCHEMA, table);
+        var columns = List.of(
+                new org.pangrova.metadata.model.ColumnMetadata("id",
+                        org.pangrova.metadata.model.ColumnType.of("BIGINT"), true, "", java.util.Map.of()),
+                new org.pangrova.metadata.model.ColumnMetadata("email",
+                        org.pangrova.metadata.model.ColumnType.varchar(128), true, "", java.util.Map.of()),
+                new org.pangrova.metadata.model.ColumnMetadata("amount",
+                        org.pangrova.metadata.model.ColumnType.decimal(12, 2), true, "", java.util.Map.of()));
+        service.createTable(actor, ref, new org.pangrova.metadata.model.TableMetadata(PAIMON, SCHEMA, table,
+                columns, java.util.Map.of(), List.of(), java.util.Map.of(), null, null));
+        assertThat(store.find(PAIMON, SCHEMA, table).orElseThrow().ownershipMode()).isEqualTo(OwnershipMode.MANAGED);
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (7, 'typed@example.com', 12.34)");
+        service.setTag(actor, ref, "EMAIL", "pii_type", "PII_EMAIL");
+        assertThat(sqlRunner.execute("SELECT id,email,CAST(amount AS VARCHAR) AS amount_text FROM " + source))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getLong("id")).isEqualTo(7L);
+                    assertThat(row.getString("email")).isEqualTo("***@***");
+                    assertThat(row.getString("amount_text")).isEqualTo("12.34");
+                });
+        sqlRunner.executeDdl("DROP TABLE " + source);
+    }
+
+    @Test
     void stableTagsMaskNativeResultsAcrossRenameAndNameReuse() {
         String source = PAIMON + "." + SCHEMA + ".controlled_private_contacts";
         String renamed = PAIMON + "." + SCHEMA + ".controlled_private_contacts_renamed";

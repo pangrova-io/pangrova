@@ -16,6 +16,42 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Typed Metadata creation — continuation on 2026-10-27
+
+The engine Metadata creation path previously forwarded names without typed columns,
+so real connector schema builders could receive an empty declaration. It now forwards
+scalar types and explicit DECIMAL precision/scale and VARCHAR length. Parameters are
+validated before connector creation. Incomplete structured declarations and unknown
+types reject instead of inventing children or field IDs; actual format allocators
+still own IDs. This does not complete Metadata's whole DDL model or the REST-catalog
+compatibility surface.
+
+The focused declaration/control tests and complete Metadata tests/static verification
+passed, followed by module installation and a frozen combined 34-test endpoint/Native
+selection with zero failures/errors/skips. The added case creates a managed table
+through the trusted engine Metadata API, then uses authenticated HTTP SQL for an
+actual Native INSERT/SELECT: DECIMAL(12,2) retains `12.34`, and a directly assigned
+uppercase PII tag masks the declared VARCHAR column. The fixture's metadata-only
+actor is not a claim that the REST catalog authenticates or implements that path.
+
+## SDK cohort requalification — continuation on 2026-10-27
+
+The complete Release CTest invocation returned 4,333 passing tests and one failing
+gate (`canonical_function_provenance`); the mTLS case passed in that invocation,
+which does not resolve its historical intermittence. The shared SDK source/archive
+had moved to patch `9b14ba80…`, whereas this branch requires `6799535a…`. The gate
+correctly rejects that cohort. The rebuilt diagnostic test executable consumed that
+shared archive, so its results do not qualify the existing JNI package or close the
+final-source Native gate. The packaged JNI remained `4e6a3e1c…`; the separately frozen
+32/33-test HTTP/Native checkpoints above retain their own artifact evidence.
+
+No production Native code or provenance requirement was changed. Temporary listener
+experiments rejected a second same-port server for both explicit-false and default
+configuration on this host; the experiments were removed after not reproducing the
+failure. A separate SDK checkout at the pinned Git commit with this branch's exact
+reviewed patch is being built under an isolated cohort directory. Shared SDK state
+is not reverted, and acceptance requires its own matching archive/source receipt.
+
 ## Canonical column tag admission — continuation on 2026-10-27
 
 The default Metadata SET/UNSET/list API resolves actual canonical columns under the
@@ -29,8 +65,12 @@ control owner for persistence/removal/listing instead of resolving another name 
 Focused Metadata tests passed, including canonical names and ambiguous case, missing
 or wrong types, changed schema evidence, external replacement during resolution and
 control UUID replacement. Captured storage-owner rejection and complete Metadata tests/static verification
-also passed. The refreshed Java reactor installation passed; complete Coordinator/static and
-actual HTTP/Native regressions are pending. This is admission repair;
+also passed. The refreshed Java reactor installation and complete Coordinator tests/static verify
+passed. The frozen runtime for `3baebc71` passed the combined 33-test endpoint/Native
+selection with zero failures/errors/skips. Actual HTTP SQL now supplies uppercase
+SET/UNSET column names while Native verifies all four PII masks, NULL/short-string
+behavior, rename and name reuse. A separate SDK external replacement followed directly
+by tag DDL is rejected and quarantined without publishing any tag binding. This is admission repair;
 durable field binding and atomic external-schema continuity remain open.
 
 ## Typed selected-schema evidence — continuation on 2026-10-27

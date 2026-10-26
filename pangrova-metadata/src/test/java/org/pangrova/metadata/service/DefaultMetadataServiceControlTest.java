@@ -215,8 +215,6 @@ class DefaultMetadataServiceControlTest {
         service.createTable(session(), ref("external"), new TableMetadata("cat", "db", "external",
                 List.of(new ColumnMetadata("email", ColumnType.of("VARCHAR"), true, "", Map.of())),
                 Map.of(), List.of(), Map.of(), null, null));
-        declareColumns("external", List.of(new ConnectorTableMetadata.Column("email",
-                org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR)));
         service.setTag(session(), ref("external"), "email", "pii_type", "PII_EMAIL");
         ColumnTagService tagService = new ColumnTagService(table -> registry.tableGovernance()
                 .requireBindable(table.catalog(), table.schema(), table.table()).tableId());
@@ -292,6 +290,8 @@ class DefaultMetadataServiceControlTest {
     @Test
     void tagApiRejectsUntypedPiiAndUnavailableSchemaEvidence() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        connectorMetadata.tables.put("db.orders", new ConnectorTableMetadata(
+                new SchemaTableName("db", "orders"), List.of("id"), Map.of()));
         assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "id", "pii_type", "PII_EMAIL"))
                 .hasMessageContaining("declared type");
         connectorMetadata.schemaFingerprint = "";

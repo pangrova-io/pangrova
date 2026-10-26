@@ -2432,3 +2432,14 @@ Metadata management emits the following spans (see [14 §4](./observability.md) 
 > **MetadataService implementation:** `MetadataService` is an interface and
 > `DefaultMetadataService` is its current implementation. The traced decorator in
 > §7.2 is proposed and is not present in the source tree.
+
+
+### Engine creation declarations
+
+`DefaultMetadataService.createTable` forwards typed scalar declarations to connector
+schema builders. DECIMAL uses the supplied precision and scale; VARCHAR retains its
+optional length. Missing/invalid parameters, unknown types and structured declarations
+that the Metadata model cannot represent are rejected before physical creation. The
+service does not fabricate format field IDs. This bridge does not establish REST
+catalog protocol compatibility, recursive schema/nullability support or field-bound
+governance; each requires its own provider contract and qualification.
