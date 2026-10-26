@@ -76,7 +76,17 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
 
             assertThat(written.size()).isEqualTo(10);
             assertThat(written.providerVersion()).isNotBlank();
-            assertThat(written.md5()).isEqualTo(md5Of("0123456789"));
+            // This fixture's ETag happens to equal MD5; the generic S3 port cannot
+            // establish that guarantee for encrypted or compatible-provider objects.
+            assertThat(written.etag().replace("\"", "")).isEqualTo(md5Of("0123456789"));
+            assertThat(written.md5()).isNull();
+            assertThat(read(accessor.openRange(location, "images/a.bin", 0, -1, null)))
+                    .isEqualTo("0123456789");
+            assertThat(accessor.list(location, "images", null, 10).files()).singleElement()
+                    .satisfies(file -> {
+                        assertThat(file.etag()).isEqualTo(written.etag());
+                        assertThat(file.md5()).isNull();
+                    });
             assertThat(read(accessor.openRange(location, "images/a.bin", 2, 3, null)))
                     .isEqualTo("234");
             assertThat(read(accessor.openRange(location, "images/a.bin", 8, -1, null)))

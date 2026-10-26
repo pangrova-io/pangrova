@@ -16,6 +16,19 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## S3 checksum evidence — continuation on 2026-10-27
+
+S3 HEAD and listing no longer infer content MD5 from a 32-hex ETag. Encryption,
+multipart and compatible-provider semantics do not permit that inference; the
+current generic accessor reports unknown MD5 while preserving opaque ETag and
+provider-version conditions. This follows the [AWS object contract](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html).
+Three SDK metadata policy cases cover encryption declarations/customer encryption
+and listing. They are unit evidence, not encrypted-provider qualification. Nine
+bounded real-MinIO cases passed, retaining full-body/range checks and checking that
+the fixture's MD5-looking ETag is preserved without inventing MD5. Complete default
+Worker tests and static verification passed. A refreshed combined Java/runtime
+cohort is still required after the remaining reactor repairs below.
+
 ## Frozen bounded runtime checkpoint — 2026-10-27, implementation 2367c831
 
 The isolated SDK checkout uses the branch-required patch cohort

@@ -98,6 +98,10 @@ The result has four columns:
 | `name` | `VARCHAR` | `@catalog.schema.stage/<space-relative path>` |
 | `size` | `BIGINT` | Object size in bytes |
 | `md5` | `VARCHAR` | Content MD5 when the backend reports one, otherwise `NULL` |
+
+The current generic S3 accessor returns `NULL` for `md5`. A 32-character ETag
+does not prove a content MD5, including for encrypted objects. ETags remain opaque
+provider identities for conditional access. See the [S3 object contract](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html).
 | `last_modified` | `VARCHAR` | ISO-8601 instant from provider metadata |
 
 `PATTERN` is a Java regular expression matched against the space-relative path

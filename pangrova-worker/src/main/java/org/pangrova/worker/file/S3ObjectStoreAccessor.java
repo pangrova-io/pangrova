@@ -6,7 +6,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -54,7 +53,6 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
     private static final Pattern CONTENT_RANGE = Pattern.compile(
             "bytes ([0-9]+)-([0-9]+)/([0-9]+)", Pattern.CASE_INSENSITIVE);
 
-    private static final Pattern MD5_ETAG = Pattern.compile("[0-9a-fA-F]{32}");
     private static final int NOT_FOUND = 404;
     private static final int PRECONDITION_FAILED = 412;
 
@@ -378,8 +376,10 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         }
         String etag = response.eTag();
         String version = realVersionId(response.versionId());
+        // ETag shape does not prove content MD5: encryption, multipart and
+        // compatible providers have different semantics. Keep checksum unknown.
         return new FileStat(path, size, modified, etag, response.contentType(),
-                version != null ? version : etag, md5(etag));
+                version != null ? version : etag, null);
     }
 
     private static FileStat listing(ObjectLocation location, S3Object object) {
@@ -389,23 +389,12 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         // ListObjectsV2 does not report version ids, so the ETag is the only
         // provider identity available for recovery until a HEAD pins one.
         return new FileStat(path, object.size(), object.lastModified(), object.eTag(),
-                null, object.eTag(), md5(object.eTag()));
+                null, object.eTag(), null);
     }
 
     private static String realVersionId(String versionId) {
         return versionId == null || versionId.isBlank() || "null".equals(versionId)
                 ? null : versionId;
-    }
-
-    /** Only a plain single-part ETag is an MD5 digest; multipart ETags contain '-'. */
-    private static String md5(String etag) {
-        if (etag == null) {
-            return null;
-        }
-        String stripped = etag.startsWith("\"") && etag.endsWith("\"")
-                ? etag.substring(1, etag.length() - 1) : etag;
-        return MD5_ETAG.matcher(stripped).matches()
-                ? stripped.toLowerCase(Locale.ROOT) : null;
     }
 
     private static void abort(ResponseInputStream<?> stream) {
