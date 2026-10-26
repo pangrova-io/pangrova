@@ -16,6 +16,25 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Worker file endpoint ownership — continuation on 2026-10-27
+
+The Worker HTTP server now retains and closes its FileSpace endpoint, including
+failed startup; constructor failure releases the newly allocated endpoint too.
+Endpoint destruction releases the accessor factory's clients/presigners. The factory
+fences resolution against closure, waits for the one cleanup result and preserves
+failure across repeated close calls. It owns a separate default credential chain;
+caller-supplied credential providers remain borrowed and are not closed. The AWS SDK's
+shared `create()` singleton is not used for an owned credential chain.
+
+Focused lifecycle, actual HTTP startup and file endpoint tests passed, followed by
+all default Worker tests and the eight bounded real-MinIO transfer cases (5 MiB parts,
+not the deferred large-object gate). Static verification also passed after correcting
+line length, Javadoc and aggregation braces, and narrowing the server's retained
+reference to the endpoint's destruction capability. Repeated close calls retain the
+same failure instead of allowing lifecycle-hook logging to hide it. The combined
+refreshed-runtime endpoint/Native checkpoint is pending the isolated SDK build. This is resource ownership, not durable upload reclamation,
+active stream revocation or a completed transfer deadline/watchdog implementation.
+
 ## Typed Metadata creation — continuation on 2026-10-27
 
 The engine Metadata creation path previously forwarded names without typed columns,

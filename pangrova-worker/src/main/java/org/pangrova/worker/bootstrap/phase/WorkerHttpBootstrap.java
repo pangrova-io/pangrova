@@ -80,6 +80,13 @@ public final class WorkerHttpBootstrap {
                         failure.addSuppressed(cleanup);
                     }
                 }
+                if (fileSpace != null) {
+                    try {
+                        fileSpace.close();
+                    } catch (Exception cleanup) {
+                        failure.addSuppressed(cleanup);
+                    }
+                }
                 throw failure;
             }
             try {

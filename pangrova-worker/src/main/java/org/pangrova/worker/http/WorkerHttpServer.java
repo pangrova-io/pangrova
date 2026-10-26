@@ -44,6 +44,7 @@ public final class WorkerHttpServer {
     private final TaskResource taskResource;
     private final org.pangrova.worker.dataset.NativeDatasetControlService datasetControl;
     private final org.pangrova.worker.copy.CopyStageLeases copyStageLeases;
+    private final AutoCloseable fileSpaceClose;
 
     /** Worker HTTP server configuration. */
     public record WorkerHttpConfig(int port, String workerHost, int transportPort,
@@ -129,6 +130,8 @@ public final class WorkerHttpServer {
         checkNotNull(exchangeTransport, "exchangeTransport must not be null");
         this.datasetControl = datasetControl;
         this.copyStageLeases = copyStageLeases;
+        // Jersey owns endpoint routing; the server retains only its destruction capability.
+        this.fileSpaceClose = fileSpaceResource == null ? null : fileSpaceResource::close;
         if (copyStageLeases != null && copyStageLeases.supportsNativeInputs()) {
             taskManager.getSharedNativeExecutor().ifPresent(executor -> {
                 if (executor instanceof org.pangrova.worker.execution.NativeTaskExecutor nativeExecutor) {
@@ -197,13 +200,16 @@ public final class WorkerHttpServer {
             failure = stopFailure;
         }
         for (AutoCloseable endpoint : new AutoCloseable[] {
-                datasetControl, taskResource, copyStageLeases}) {
+                datasetControl, taskResource, copyStageLeases, fileSpaceClose}) {
             if (endpoint == null) continue;
             try {
                 endpoint.close();
             } catch (Exception closeFailure) {
-                if (failure == null) failure = closeFailure;
-                else failure.addSuppressed(closeFailure);
+                if (failure == null) {
+                    failure = closeFailure;
+                } else if (failure != closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
             }
         }
         if (failure != null) throw failure;

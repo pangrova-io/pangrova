@@ -15,6 +15,7 @@ import org.pangrova.testing.TestExchangeTransport;
 import org.pangrova.worker.task.TaskManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** First-request routing and authentication after cold startup; task execution has separate JNI tests. */
 class WorkerHttpStartupTest {
@@ -59,6 +60,28 @@ class WorkerHttpStartupTest {
                 .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(401);
         assertThat(response.body()).contains("INTERNAL_AUTH");
+    }
+
+    @Test
+    void stopAlsoClosesTheFileEndpointFactory() throws Exception {
+        var factory = new org.pangrova.worker.file.ObjectStoreAccessorFactory();
+        var files = new org.pangrova.worker.file.FileSpaceFileResource(factory, SECRET);
+        var localTasks = TaskManager.forHttpWiringOnly();
+        var withFiles = new WorkerHttpServer(
+                new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", 0, SECRET), localTasks,
+                TestExchangeTransport.INSTANCE, null, null, null, null, files);
+        try {
+            withFiles.start();
+            withFiles.stop();
+            var profile = new org.pangrova.spi.storage.StorageProfile("closed",
+                    org.pangrova.spi.storage.StorageType.LOCAL, "/tmp", "", "", "us-east-1",
+                    java.util.Map.of(), java.util.Map.of());
+            assertThatThrownBy(() -> factory.accessor(profile)).hasMessageContaining("closed");
+            files.close();
+        } finally {
+            withFiles.stop();
+            localTasks.close();
+        }
     }
 
     private URI taskUri() {

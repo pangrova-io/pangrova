@@ -47,7 +47,7 @@ import org.slf4j.LoggerFactory;
  * plane.</p>
  */
 @Path("/v1/file-space")
-public final class FileSpaceFileResource {
+public final class FileSpaceFileResource implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(FileSpaceFileResource.class);
     static final long MULTIPART_SESSION_MILLIS = 24L * 60 * 60 * 1000;
@@ -69,7 +69,7 @@ public final class FileSpaceFileResource {
     private final LongSupplier clock;
     private final Map<String, ActiveUpload> multipartUploads = new ConcurrentHashMap<>();
 
-    /** Creates the endpoint; descriptors must be signed with the cluster internal secret. */
+    /** Creates the endpoint, taking ownership of its factory; descriptors require the cluster secret. */
     public FileSpaceFileResource(ObjectStoreAccessorFactory accessors, String signingSecret) {
         this(accessors, signingSecret, JsonMapperFactory.create(), System::currentTimeMillis);
     }
@@ -81,10 +81,18 @@ public final class FileSpaceFileResource {
             throw new IllegalArgumentException(
                     "File space endpoint requires a descriptor signing secret");
         }
-        this.accessors = accessors;
+        this.accessors = java.util.Objects.requireNonNull(accessors, "accessors");
         this.signingSecret = signingSecret;
         this.mapper = java.util.Objects.requireNonNull(mapper, "mapper").copy();
         this.clock = clock;
+    }
+
+    /** Releases the owned provider clients when the HTTP endpoint is destroyed or explicitly stopped. */
+    @jakarta.annotation.PreDestroy
+    @Override
+    public void close() {
+        multipartUploads.clear();
+        accessors.close();
     }
 
     /** Returns object metadata for a signed descriptor. */

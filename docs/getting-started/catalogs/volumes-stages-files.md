@@ -420,3 +420,12 @@ copy path lands.
   `BUILD_STAGE_FILE_URL`); REST `files/presign` and `files/stage-url` are available
 - Scoped (user-bound) URLs and temporary volume credentials
 - `COPY INTO` URI sources, `read_files`, and external tables
+
+
+The Worker owns its file endpoint's object-store clients and closes them when HTTP
+service stops or startup fails. Factory closure rejects later client allocation;
+repeated closure waits for the same cleanup and preserves its failure. Standalone
+embedders must close `FileSpaceFileResource` (or its owning HTTP container). The
+factory owns its separate default credential chain; injected credential providers
+remain owned by their caller. This lifecycle does not reclaim durable provider
+multipart uploads or implement active transfer revocation.
