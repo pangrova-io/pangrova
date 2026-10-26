@@ -68,12 +68,14 @@ public final class FileSpaceAccessService {
      */
     public FileAccessGrant grant(UserIdentity user, String kind, String catalog, String schema,
             String name, String path, String operation) {
-        Resolved resolved = resolve(user, kind, catalog, schema, name, path, operation);
-        FileAccessGrant grant = resolved.grant();
-        context.audit().fileOperation(resolved.principal().principal(),
-                tenantId(resolved.principal()), resolved.space(), grant.path(),
-                grant.operation(), grant.workerUrl());
-        return grant;
+        return context.authority().read(() -> {
+            Resolved resolved = resolve(user, kind, catalog, schema, name, path, operation);
+            FileAccessGrant grant = resolved.grant();
+            context.audit().fileOperation(resolved.principal().principal(),
+                    tenantId(resolved.principal()), resolved.space(), grant.path(),
+                    grant.operation(), grant.workerUrl());
+            return grant;
+        });
     }
 
     /**
@@ -84,13 +86,15 @@ public final class FileSpaceAccessService {
      */
     public FileAccessGrant urlGrant(UserIdentity user, String kind, String catalog,
             String schema, String name, String path, boolean read, long ttlSeconds) {
-        Resolved resolved = resolve(user, kind, catalog, schema, name, path,
-                read ? "read" : "write");
-        FileAccessGrant grant = resolved.grant();
-        context.audit().urlIssued(resolved.principal().principal(),
-                tenantId(resolved.principal()), resolved.space(), grant.path(),
-                read ? "presigned-read" : "presigned-write", ttlSeconds, grant.workerUrl());
-        return grant;
+        return context.authority().read(() -> {
+            Resolved resolved = resolve(user, kind, catalog, schema, name, path,
+                    read ? "read" : "write");
+            FileAccessGrant grant = resolved.grant();
+            context.audit().urlIssued(resolved.principal().principal(),
+                    tenantId(resolved.principal()), resolved.space(), grant.path(),
+                    read ? "presigned-read" : "presigned-write", ttlSeconds, grant.workerUrl());
+            return grant;
+        });
     }
 
     private Resolved resolve(UserIdentity user, String kind, String catalog, String schema,
@@ -102,16 +106,22 @@ public final class FileSpaceAccessService {
                 .orElseThrow(() -> new PangrovaException(
                         PangrovaErrorCode.METADATA_FILE_SPACE_NOT_FOUND,
                         kind + " not found: " + catalog + "." + schema + "." + name));
+        principal = subject(principal, space);
         authorize(principal, space, normalizedOperation);
         return descriptor(principal, space, path, normalizedOperation);
     }
 
-    /** Resolves and authorizes a long-lived Stage link while the caller holds the authority gate. */
+    /** Resolves and authorizes a long-lived Stage link within the shared authority boundary. */
     FileSpace stageLink(UserIdentity user, String catalog, String schema, String name, String path) {
+        return context.authority().read(() -> stageLinkAuthorized(user, catalog, schema, name, path));
+    }
+
+    private FileSpace stageLinkAuthorized(UserIdentity user, String catalog, String schema, String name, String path) {
         UserIdentity principal = requireUser(user);
         FileSpace space = spaces.find(FileSpaceType.STAGE, catalog, schema, name)
                 .orElseThrow(() -> new PangrovaException(PangrovaErrorCode.METADATA_FILE_SPACE_NOT_FOUND,
                         "Stage not found: " + catalog + "." + schema + "." + name));
+        principal = subject(principal, space);
         authorizeStageLink(principal, space);
         String relative = requireObjectPath(path);
         context.audit().urlIssued(principal.principal(), tenantId(principal), space, relative,
@@ -121,10 +131,15 @@ public final class FileSpaceAccessService {
 
     /** Re-authorizes one immutable Stage ID before issuing its bounded transfer ticket. */
     FileAccessGrant stageRead(UserIdentity user, UUID id, String path) {
+        return context.authority().read(() -> stageReadAuthorized(user, id, path));
+    }
+
+    private FileAccessGrant stageReadAuthorized(UserIdentity user, UUID id, String path) {
         UserIdentity principal = requireUser(user);
         FileSpace space = spaces.find(id).filter(value -> value.type() == FileSpaceType.STAGE)
                 .orElseThrow(() -> new PangrovaException(PangrovaErrorCode.METADATA_FILE_SPACE_NOT_FOUND,
                         "Stage link no longer exists"));
+        principal = subject(principal, space);
         authorizeStageLink(principal, space);
         Resolved resolved = descriptor(principal, space, requireObjectPath(path), "read");
         context.audit().fileOperation(principal.principal(), tenantId(principal), space,
@@ -224,12 +239,18 @@ public final class FileSpaceAccessService {
         }
     }
 
+    private UserIdentity subject(UserIdentity authenticated, FileSpace space) {
+        var resolved = context.authority().resolve(authenticated, space);
+        if (resolved == null || !authenticated.principal().equals(resolved.principal())
+                || tenantId(resolved) == null || tenantId(resolved).isBlank()) {
+            throw new AccessDeniedException("File authority must retain the subject and resolve its current tenant");
+        }
+        return resolved;
+    }
+
     private static UserIdentity requireUser(UserIdentity user) {
         if (user == null || user.principal() == null || user.principal().isBlank()) {
             throw new AccessDeniedException("Authenticated principal is required for file access");
-        }
-        if (tenantId(user) == null || tenantId(user).isBlank()) {
-            throw new AccessDeniedException("Authenticated tenant is required for file access");
         }
         return user;
     }
@@ -294,16 +315,19 @@ public final class FileSpaceAccessService {
      * @param workerEndpoints    active Worker base URLs
      * @param audit              file-operation audit sink
      * @param signingSecret      coordinator/Worker shared secret
+     * @param authority          durable read gate and tenant membership using the registries' database
      */
     public record FileSpaceAccessContext(String managedProfileName, Duration ttl,
             LongSupplier clock, Supplier<List<String>> workerEndpoints,
-            FileSpaceAuditEmitter audit, String signingSecret) {
+            FileSpaceAuditEmitter audit, String signingSecret,
+            org.pangrova.metadata.file.FileSpaceAuthority authority) {
 
         public FileSpaceAccessContext {
             Objects.requireNonNull(ttl, "ttl must not be null");
             Objects.requireNonNull(clock, "clock must not be null");
             Objects.requireNonNull(workerEndpoints, "workerEndpoints must not be null");
             Objects.requireNonNull(audit, "audit must not be null");
+            Objects.requireNonNull(authority, "authority must not be null");
             if (ttl.isNegative() || ttl.isZero()) {
                 throw new IllegalArgumentException("descriptor ttl must be positive");
             }
@@ -316,9 +340,9 @@ public final class FileSpaceAccessService {
         /** Convenience factory with the standard five-minute descriptor lifetime. */
         public static FileSpaceAccessContext of(String managedProfileName,
                 Supplier<List<String>> workerEndpoints, FileSpaceAuditEmitter audit,
-                String signingSecret) {
+                String signingSecret, org.pangrova.metadata.file.FileSpaceAuthority authority) {
             return new FileSpaceAccessContext(managedProfileName, Duration.ofMinutes(5),
-                    System::currentTimeMillis, workerEndpoints, audit, signingSecret);
+                    System::currentTimeMillis, workerEndpoints, audit, signingSecret, authority);
         }
     }
 

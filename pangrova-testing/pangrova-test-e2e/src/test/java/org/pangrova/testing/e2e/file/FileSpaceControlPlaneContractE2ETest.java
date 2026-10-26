@@ -10,10 +10,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,15 +25,11 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.file.FileSpaceAccessService;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.spi.security.FileSpaceAccessControl;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.storage.StorageProfile;
 import org.pangrova.spi.storage.StorageType;
 import org.pangrova.spi.storage.file.FileListing;
-import org.pangrova.spi.storage.file.FileSpace;
 import org.pangrova.spi.storage.file.FileSpaceDefinition;
-import org.pangrova.spi.storage.file.FileSpaceMutation;
-import org.pangrova.spi.storage.file.FileSpaceRegistry;
 import org.pangrova.spi.storage.file.FileSpaceType;
 import org.pangrova.spi.storage.file.FileStat;
 import org.pangrova.worker.file.FileSpaceFileResource;
@@ -49,7 +43,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * authorizes a user and signs a credential-free descriptor, and the Worker
  * consumes that exact wire form to move bytes.
  */
+@org.testcontainers.junit.jupiter.Testcontainers
 class FileSpaceControlPlaneContractE2ETest {
+    @org.testcontainers.junit.jupiter.Container
+    private static final org.testcontainers.containers.PostgreSQLContainer<?> POSTGRES =
+            new org.testcontainers.containers.PostgreSQLContainer<>("postgres:16-alpine");
 
     private static final String SECRET = "file-space-e2e-secret";
     private static final long NOW = 1_000_000L;
@@ -60,25 +58,62 @@ class FileSpaceControlPlaneContractE2ETest {
     Path root;
 
     private final ObjectMapper mapper = JsonMapperFactory.create();
-    private final FakeSpaces spaces = new FakeSpaces();
-    private final org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry profiles =
-            new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
+    private org.pangrova.metadata.file.JdbcFileSpaceRegistry spaces;
+    private org.pangrova.metadata.storage.JdbcStorageProfileRegistry profiles;
     private FileSpaceAccessService coordinator;
     private FileSpaceFileResource worker;
 
     @BeforeEach
-    void setUp() {
-        spaces.put(new FileSpace(UUID.randomUUID(), FileSpaceType.VOLUME, "media", "raw", "landing", false,
-                "local", "", "volumes/media/raw/landing", false, "", "alice", Instant.EPOCH, Instant.EPOCH));
-        spaces.put(new FileSpace(UUID.randomUUID(), FileSpaceType.STAGE, "media", "raw", "landing", false,
-                "local", "", "stages/media/raw/landing", true, "", "alice", Instant.EPOCH, Instant.EPOCH));
-        profiles.register(new StorageProfile("local", StorageType.LOCAL, root.toString(), "",
-                "", "", Map.of(), Map.of()));
-
+    void setUp() throws Exception {
+        var source = new org.postgresql.ds.PGSimpleDataSource();
+        source.setURL(POSTGRES.getJdbcUrl());
+        source.setUser(POSTGRES.getUsername());
+        source.setPassword(POSTGRES.getPassword());
+        String schema = "file_issuer_" + UUID.randomUUID().toString().replace("-", "");
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schema);
+        }
+        source.setCurrentSchema(schema);
+        org.pangrova.metadata.store.SchemaMigrationRunner.migrate(source);
+        var tenants = new org.pangrova.metadata.tenant.JdbcTenantStore(source);
+        tenants.initSchema();
+        tenants.createTenant(new org.pangrova.security.tenant.model.Tenant("tenant-a", "File contract tests",
+                org.pangrova.security.tenant.model.TenantStatus.ACTIVE,
+                new org.pangrova.security.tenant.model.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
+                List.of(), List.of(), "", Map.of(), Instant.EPOCH, "fixture"));
+        tenants.addUserToTenant("tenant-a", "alice", org.pangrova.security.tenant.model.TenantRole.MEMBER);
+        spaces = new org.pangrova.metadata.file.JdbcFileSpaceRegistry(source);
+        profiles = new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(source);
+        assertThat(profiles.createIfAbsent(new StorageProfile("local", StorageType.LOCAL, root.toString(), "",
+                "", "", Map.of(), Map.of()))).isTrue();
+        for (FileSpaceType type : List.of(FileSpaceType.VOLUME, FileSpaceType.STAGE)) {
+            spaces.create(new FileSpaceDefinition(type, "media", "raw", "landing", false,
+                    "local", "", type == FileSpaceType.STAGE, "", "alice"), false);
+        }
+        var roles = new org.pangrova.security.store.PersistentRoleStore(source);
+        roles.initSchema();
+        roles.createRole(org.pangrova.security.authz.Role.of("file_contract"));
+        roles.grantRoleToUser(org.pangrova.security.authz.UserRoleAssignment.of("alice", "file_contract"));
+        var grants = new org.pangrova.security.store.PersistentGrantStore(source);
+        for (var privilege : List.of(org.pangrova.security.authz.Privilege.READ_VOLUME,
+                org.pangrova.security.authz.Privilege.WRITE_VOLUME)) {
+            grants.addGrant(org.pangrova.security.authz.PrivilegeGrant.of("file_contract", privilege,
+                    "VOLUME", "media", "raw", "landing", null));
+        }
+        for (var privilege : List.of(org.pangrova.security.authz.Privilege.USAGE_STAGE,
+                org.pangrova.security.authz.Privilege.READ_STAGE, org.pangrova.security.authz.Privilege.WRITE_STAGE)) {
+            grants.addGrant(org.pangrova.security.authz.PrivilegeGrant.of("file_contract", privilege,
+                    "STAGE", "media", "raw", "landing", null));
+        }
+        var authorization = new org.pangrova.security.authz.DynamicRbacAccessControl(grants, roles,
+                new org.pangrova.security.rowfilter.RowLevelSecurityFilter(
+                        new org.pangrova.security.store.PersistentRowPolicyStore(source)),
+                new org.pangrova.security.mask.ColumnMaskingProcessor(
+                        new org.pangrova.security.store.PersistentColumnMaskStore(source)));
         var context = new FileSpaceAccessService.FileSpaceAccessContext("local",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://worker:8080"),
-                new FileSpaceAuditEmitter(null), SECRET);
-        coordinator = new FileSpaceAccessService(spaces, profiles, new AllowAll(), context);
+                new FileSpaceAuditEmitter(null), SECRET, new org.pangrova.metadata.file.JdbcFileSpaceAuthority(source));
+        coordinator = new FileSpaceAccessService(spaces, profiles, authorization, context);
         worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, mapper,
                 () -> NOW);
     }
@@ -128,7 +163,8 @@ class FileSpaceControlPlaneContractE2ETest {
     @Test
     void stageTicketRootsUnderStagesAndCannotBeUsedForAnotherOperation() throws IOException {
         FileSpaceAccessService.FileAccessGrant write = grant("stages", "events/a.csv", "write");
-        assertThat(descriptorFields(write)).containsEntry("baseKey", "stages/media/raw/landing")
+        var stage = spaces.find(FileSpaceType.STAGE, "media", "raw", "landing").orElseThrow();
+        assertThat(descriptorFields(write)).containsEntry("baseKey", "managed/stages/" + stage.id())
                 .containsEntry("path", "events/a.csv")
                 .containsEntry("type", "LOCAL");
 
@@ -174,86 +210,5 @@ class FileSpaceControlPlaneContractE2ETest {
     private static InputStream stream(String value) {
         return new ByteArrayInputStream(value.getBytes(StandardCharsets.UTF_8));
     }
-
-    private static final class AllowAll implements FileSpaceAccessControl {
-
-        @Override
-        public void checkCanReadVolume(UserIdentity user, String catalog, String schema,
-                String name) {
-        }
-
-        @Override
-        public void checkCanWriteVolume(UserIdentity user, String catalog, String schema,
-                String name) {
-        }
-
-        @Override
-        public void checkCanUseStage(UserIdentity user, String catalog, String schema,
-                String name) {
-        }
-
-        @Override
-        public void checkCanReadStage(UserIdentity user, String catalog, String schema,
-                String name) {
-        }
-
-        @Override
-        public void checkCanWriteStage(UserIdentity user, String catalog, String schema,
-                String name) {
-        }
-    }
-
-    private static final class FakeSpaces implements FileSpaceRegistry {
-        private final Map<String, FileSpace> byName = new HashMap<>();
-
-        void put(FileSpace space) {
-            byName.put(key(space.type(), space.catalog(), space.schema(), space.name()), space);
-        }
-
-        private static String key(FileSpaceType type, String catalog, String schema,
-                String name) {
-            return type + "/" + catalog + "/" + schema + "/" + name;
-        }
-
-        @Override
-        public FileSpace create(FileSpaceDefinition definition, boolean ifNotExists) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public FileSpace mutate(FileSpaceType type, String catalog, String schema, String name,
-                FileSpaceMutation mutation) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public FileSpace rename(FileSpaceType type, String catalog, String schema, String name,
-                String newName) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<FileSpace> find(java.util.UUID id) {
-            return byName.values().stream().filter(space -> space.id().equals(id)).findFirst();
-        }
-
-        @Override
-        public Optional<FileSpace> find(FileSpaceType type, String catalog, String schema,
-                String name) {
-            return Optional.ofNullable(byName.get(key(type, catalog, schema, name)));
-        }
-
-        @Override
-        public List<FileSpace> list(FileSpaceType type, String catalog, String schema) {
-            return List.copyOf(byName.values());
-        }
-
-        @Override
-        public boolean drop(FileSpaceType type, String catalog, String schema, String name,
-                boolean ifExists) {
-            throw new UnsupportedOperationException();
-        }
-    }
-
 
 }

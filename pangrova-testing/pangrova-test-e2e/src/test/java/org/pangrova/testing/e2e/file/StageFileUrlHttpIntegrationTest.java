@@ -108,6 +108,15 @@ class StageFileUrlHttpIntegrationTest {
         }
         source.setCurrentSchema(schema);
         SchemaMigrationRunner.migrate(source);
+        var tenants = new org.pangrova.metadata.tenant.JdbcTenantStore(source);
+        tenants.initSchema();
+        tenants.createTenant(new org.pangrova.security.tenant.model.Tenant("tenant-a", "HTTP file tests",
+                org.pangrova.security.tenant.model.TenantStatus.ACTIVE,
+                new org.pangrova.security.tenant.model.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
+                List.of(), List.of(), "", Map.of(), Instant.EPOCH, "fixture"));
+        for (String principal : List.of("alice", "bob")) {
+            tenants.addUserToTenant("tenant-a", principal, org.pangrova.security.tenant.model.TenantRole.MEMBER);
+        }
         grants = new PersistentGrantStore(source);
         grants.initSchema();
         var roles = new PersistentRoleStore(source);
@@ -127,12 +136,12 @@ class StageFileUrlHttpIntegrationTest {
         worker = start(new ResourceConfig().register(new FileSpaceFileResource(accessors, SECRET))
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class));
         var context = FileSpaceAccessService.FileSpaceAccessContext.of("local",
-                () -> List.of(base(worker).toString()), new FileSpaceAuditEmitter(null), SECRET);
+                () -> List.of(base(worker).toString()), new FileSpaceAuditEmitter(null), SECRET, new org.pangrova.metadata.file.JdbcFileSpaceAuthority(source));
         var access = new FileSpaceAccessService(spaces, profiles, rbac, context);
         authentication = new AuthenticationManager(List.of(new TestAuthenticator()));
         coordinator = start(new ResourceConfig().register(new FileSpaceFilesResource(access,
                 new FileUrlService(access, new WorkerFileClient(CLIENT, SECRET)),
-                new StageFileUrlService(source, access)))
+                new StageFileUrlService(access)))
                 .register(new AuthenticationFilter(authentication, SECRET))
                 .register(CoordinatorExceptionMapper.class));
         base = base(coordinator);
@@ -324,6 +333,32 @@ class StageFileUrlHttpIntegrationTest {
         }
     }
 
+    @Test
+    void ordinaryFileTicketsWaitForTenantRevocationAndDoNotUseOldAuthenticationClaims() throws Exception {
+        URI link = build("landing", "scoped.bin");
+        var body = JsonMapperFactory.create().writeValueAsString(
+                new FileSpaceFilesResource.AccessRequest("scoped.bin", "read"));
+        var request = HttpRequest.newBuilder(base.resolve("v1/stages/media/raw/landing/files/access"))
+                .header("Content-Type", "application/json").header("Authorization", "Bearer alice-token")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+        grant("landing", Privilege.USAGE_STAGE);
+        assertThat(CLIENT.send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(200);
+        try (var mutation = source.getConnection()) {
+            mutation.setAutoCommit(false);
+            AuthorizationTransactionGate.lockMutation(mutation);
+            try (var remove = mutation.prepareStatement(
+                    "DELETE FROM tenant_user_memberships WHERE user_principal='alice'")) {
+                remove.executeUpdate();
+            }
+            var pending = CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            await().atMost(Duration.ofSeconds(4)).until(this::waitingForAuthority);
+            assertThat(pending.isDone()).isFalse();
+            mutation.commit();
+            assertThat(pending.get(10, TimeUnit.SECONDS).statusCode()).isEqualTo(403);
+        }
+        assertThat(get(link, "alice").statusCode()).isEqualTo(403);
+    }
+
     private boolean waitingForAuthority() throws Exception {
         try (var connection = source.getConnection(); var query = connection.prepareStatement(
                 "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' "
@@ -400,7 +435,7 @@ class StageFileUrlHttpIntegrationTest {
         @Override public AuthenticationResult authenticate(AuthenticationRequest request) {
             for (String name : List.of("alice", "bob")) {
                 if ((name + "-token").equals(request.token())) {
-                    return AuthenticationResult.success(new UserIdentity(name, Set.of(), Map.of("tenant_id", "tenant-a"), Instant.EPOCH));
+                    return AuthenticationResult.success(new UserIdentity(name, Set.of(), Map.of(), Instant.EPOCH));
                 }
             }
             return AuthenticationResult.failure("Unknown test credential");

@@ -185,7 +185,8 @@ class RemoveStageTaskTest {
                 Map.of("path-style-access", "true"));
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
-                new FileSpaceAuditEmitter(null), SECRET);
+                new FileSpaceAuditEmitter(null), SECRET,
+                org.pangrova.coordinator.file.FileAuthorityTestFixture.authority());
         var profiles = new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
         profiles.register(profile);
         return new FileSpaceAccessService(new Spaces(spaces), profiles,

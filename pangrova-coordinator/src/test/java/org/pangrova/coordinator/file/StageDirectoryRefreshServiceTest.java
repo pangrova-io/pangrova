@@ -57,7 +57,7 @@ class StageDirectoryRefreshServiceTest {
         index = new JdbcFileDirectoryIndex(source);
         access = new FileSpaceAccessService(spaces, profiles, authorization,
                 FileSpaceAccessService.FileSpaceAccessContext.of("",
-                        () -> List.of("http://worker.invalid"), new FileSpaceAuditEmitter(null), "test-secret"));
+                        () -> List.of("http://worker.invalid"), new FileSpaceAuditEmitter(null), "test-secret", FileAuthorityTestFixture.provision(source)));
         var initial = index.begin(stage, "");
         index.append(initial, null, new FileListing(List.of(file("old.txt")), null));
         index.publish(initial);

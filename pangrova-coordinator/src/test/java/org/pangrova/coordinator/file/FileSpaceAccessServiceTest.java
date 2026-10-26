@@ -86,8 +86,10 @@ class FileSpaceAccessServiceTest {
     }
 
     @Test
-    void tenantlessSubjectsCannotReceiveAFileGrant() {
-        var tenantless = new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH);
+    void unmappedSubjectsCannotReceiveAFileGrant() {
+        spaces.put(space(FileSpaceType.STAGE, false, "media", ""));
+        profiles.register(profile("media", ""));
+        var tenantless = new UserIdentity("unmapped", Set.of(), Map.of("tenant_id", "tenant-a"), Instant.EPOCH);
         assertThatThrownBy(() -> service(List.of("http://w1:8080"))
                 .grant(tenantless, "stages", "media", "raw", "landing", "x", "write"))
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("tenant");
@@ -214,7 +216,8 @@ class FileSpaceAccessServiceTest {
     private FileSpaceAccessService service(List<String> workers) {
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> workers,
-                new FileSpaceAuditEmitter(null), SECRET);
+                new FileSpaceAuditEmitter(null), SECRET,
+                org.pangrova.coordinator.file.FileAuthorityTestFixture.authority());
         return new FileSpaceAccessService(spaces, profiles, access, context);
     }
 

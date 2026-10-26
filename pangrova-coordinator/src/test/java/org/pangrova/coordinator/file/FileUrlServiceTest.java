@@ -113,7 +113,8 @@ class FileUrlServiceTest {
         profiles.register(profile());
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
-                new FileSpaceAuditEmitter(new AuditEventEmitter(events::add)), SECRET);
+                new FileSpaceAuditEmitter(new AuditEventEmitter(events::add)), SECRET,
+                FileAuthorityTestFixture.authority());
         var grants = new FileSpaceAccessService(spaces, profiles, access, context);
         return new FileUrlService(grants, client);
     }

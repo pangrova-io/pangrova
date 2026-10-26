@@ -16,6 +16,37 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Current file authority — continuation on 2026-10-26
+
+File issuance now resolves the authenticated principal against current PostgreSQL
+tenant membership, requires ACTIVE status, enforces the tenant catalog/schema
+allowlists and rejects a conflicting tenant claim. Claimless authenticated subjects
+work when actually mapped; a claim alone cannot invent membership. The authority
+read gate covers the complete namespace/profile/RBAC resolution and signature
+issuance for ordinary file grants, presigned-URL grants and stable Stage links.
+Role, tenant, namespace and profile mutations cannot overtake a read already inside
+that boundary; a request queued behind a committed revocation sees the revoked
+state. Lock/storage failures reject issuance using the existing bounded timeouts.
+Stage URLs delegate to the issuer's gate rather than holding a duplicate connection.
+Production HTTP and SQL Stage bootstrap both supply the durable authority.
+
+Five real PostgreSQL subject/concurrency tests passed. The focused Coordinator
+file/Stage regressions, Java reactor installation and Metadata/Coordinator static
+analysis passed. The combined endpoint/SQL/Native selection passed 28 tests with
+zero failures/errors/skips: `StageFileUrlHttpIntegrationTest` (8),
+`FileSpaceControlPlaneContractE2ETest` (3), `FileSpaceDdlE2ETest` (5),
+`TableControlLifecycleE2ETest` (9), and `ActivationSmokeE2ETest` (3).
+It verifies a normal file-ticket request queued behind membership removal fails,
+claimless HTTP authentication, actual SQL Stage operations and unchanged Native
+classification/row filtering. The file contract component now uses real PostgreSQL
+namespaces, profiles, tenant membership and RBAC rather than allowing fake policies.
+
+The complete Worker/Coordinator rerun of preceding commit `82657b7f` passed.
+Metadata/Coordinator complete reruns for this new authority checkpoint are in progress.
+This remains bounded ticket issuance, not revocation of already issued bearer tickets,
+active streams, provider URLs or durable multipart sessions. No final reactor or
+production-scale acceptance is inferred from this selection; other ledger gates stay open.
+
 ## File-session authority binding — continuation on 2026-10-26
 
 File tickets now carry stable namespace ID, authenticated subject/tenant and the

@@ -577,7 +577,8 @@ final class QueryExecutionBootstrap {
                                         .map(worker -> "http://" + worker.host() + ":"
                                                 + worker.httpPort())
                                         .toList(),
-                        audit, config.internalAuthSecret());
+                        audit, config.internalAuthSecret(),
+                        new org.pangrova.metadata.file.JdbcFileSpaceAuthority(source));
         return new org.pangrova.coordinator.file.FileSpaceAccessService(registry,
                 new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(source),
                 authorization, context);

@@ -178,7 +178,8 @@ public final class CoordinatorBootstrap {
                                 .toList(),
                 new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(
                         query.auditEmitter()),
-                config.internalAuthSecret());
+                config.internalAuthSecret(),
+                new org.pangrova.metadata.file.JdbcFileSpaceAuthority(metadataDataSource));
         var access = new org.pangrova.coordinator.file.FileSpaceAccessService(
                 new org.pangrova.metadata.file.JdbcFileSpaceRegistry(metadataDataSource),
                 new org.pangrova.metadata.storage.JdbcStorageProfileRegistry(metadataDataSource),
@@ -188,7 +189,7 @@ public final class CoordinatorBootstrap {
                 new org.pangrova.coordinator.file.FileUrlService(access,
                         org.pangrova.coordinator.file.WorkerFileClient.create(
                                 config.internalAuthSecret())),
-                new org.pangrova.coordinator.file.StageFileUrlService(metadataDataSource, access));
+                new org.pangrova.coordinator.file.StageFileUrlService(access));
     }
 
     private HighAvailabilityBootstrap buildHighAvailabilityBootstrap() {

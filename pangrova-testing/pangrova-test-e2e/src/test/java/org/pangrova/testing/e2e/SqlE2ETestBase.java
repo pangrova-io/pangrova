@@ -2484,7 +2484,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 currentAccessControl,
                 org.pangrova.coordinator.file.FileSpaceAccessService.FileSpaceAccessContext.of(
                         "", () -> List.of("http://" + IN_PROCESS_WORKER_HOST + ":"
-                                + sharedWorkerHttpPort), fileAudit, E2E_INTERNAL_AUTH_SECRET));
+                                + sharedWorkerHttpPort), fileAudit, E2E_INTERNAL_AUTH_SECRET,
+                        new org.pangrova.metadata.file.JdbcFileSpaceAuthority(stateStoreDataSource)));
         var fileClient = org.pangrova.coordinator.file.WorkerFileClient.create(E2E_INTERNAL_AUTH_SECRET);
         org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
                 metadataFactory, fileSpaces, currentAccessControl, fileAudit,

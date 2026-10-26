@@ -261,8 +261,16 @@ applies to raw provider IDs retained by the originating Worker.
 
 Tickets are bearer capabilities until their original bounded deadline. Binding their
 subject does not authenticate a different holder of an already issued ticket or
-immediately revoke it. Issuance requires an authenticated nonblank `tenant_id` in the
-subject context. Descriptors missing the new authority fields and older multipart
+immediately revoke it. Every issuance resolves the authenticated principal's current ACTIVE tenant
+membership and its catalog/schema allowlist from PostgreSQL. An authentication
+`tenant_id` claim is optional; when present it must match current membership.
+The issuer fills the descriptor tenant from that authority, so a claim cannot
+invent membership or retain a tenant after removal. The shared authorization
+transaction gate covers namespace/profile resolution, current RBAC checks and
+signing; queued revocation takes effect before a waiting request can issue a ticket.
+The same boundary applies to ordinary file tickets, presigned-URL tickets and
+Stage links. A lock/storage failure rejects issuance. Previously issued tickets
+retain their bounded bearer lifetime. Descriptors missing the new authority fields and older multipart
 signatures are rejected; clients must obtain fresh tickets and begin new sessions
 when upgrading across this contract change.
 
