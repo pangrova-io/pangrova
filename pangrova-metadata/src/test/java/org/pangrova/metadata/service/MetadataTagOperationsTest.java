@@ -48,65 +48,81 @@ class MetadataTagOperationsTest {
 
     @Test
     void keepsTagsIsolatedByStableTableAndColumn() {
-        tags.setTag(orders, "id", "classification", "sensitive", "alice");
-        assertThat(tags.listTags(orders, "id")).containsEntry("classification", "sensitive");
-        assertThat(tags.listTags(orders, "other")).isEmpty();
-        assertThat(tags.listTags(new QualifiedTableRef("cat", "db", "customers"), "id")).isEmpty();
-        tags.unsetTag(orders, "id", "classification");
-        assertThat(tags.listTags(orders, "id")).isEmpty();
+        tags.setTag(current(orders), "id", "classification", "sensitive", "alice");
+        assertThat(tags.listTags(current(orders), "id")).containsEntry("classification", "sensitive");
+        assertThat(tags.listTags(current(orders), "other")).isEmpty();
+        assertThat(tags.listTags(current(new QualifiedTableRef("cat", "db", "customers")), "id")).isEmpty();
+        tags.unsetTag(current(orders), "id", "classification");
+        assertThat(tags.listTags(current(orders), "id")).isEmpty();
     }
 
     @Test
     void reconstructedServiceReadsTheSameDurableAuthority() {
-        tags.setTag(orders, "id", "classification", "sensitive", "alice");
+        tags.setTag(current(orders), "id", "classification", "sensitive", "alice");
         var reopened = new MetadataTagOperations(catalogs);
-        assertThat(reopened.listTags(orders, "id")).containsEntry("classification", "sensitive");
+        assertThat(reopened.listTags(current(orders), "id")).containsEntry("classification", "sensitive");
     }
 
     @Test
     void replacementDoesNotInheritTagsAndOldCleanupCannotDeleteNewTags() {
         var original = control.find("cat", "db", "orders").orElseThrow();
-        tags.setTag(orders, "id", "classification", "old", "alice");
+        tags.setTag(current(orders), "id", "classification", "old", "alice");
         control.markDropped(original);
         create("orders");
-        assertThat(tags.listTags(orders, "id")).isEmpty();
-        tags.setTag(orders, "id", "classification", "new", "alice");
+        assertThat(tags.listTags(current(orders), "id")).isEmpty();
+        tags.setTag(current(orders), "id", "classification", "new", "alice");
         assertThat(tags.clearTable(original.tableId())).isEqualTo(1);
-        assertThat(tags.listTags(orders, "id")).containsEntry("classification", "new");
+        assertThat(tags.listTags(current(orders), "id")).containsEntry("classification", "new");
     }
 
     @Test
     void renameRetainsTagsWithoutMovingTheDurableKey() {
-        tags.setTag(orders, "id", "classification", "sensitive", "alice");
+        tags.setTag(current(orders), "id", "classification", "sensitive", "alice");
         var original = control.find("cat", "db", "orders").orElseThrow();
         var pending = control.rename(original, "db", "renamed");
         var renamed = new QualifiedTableRef("cat", "db", "renamed");
         assertThat(tags.renameTable(orders, renamed)).isEqualTo(1);
         control.completeRename(pending, Optional.of(identity("orders")), Optional.empty());
-        assertThat(tags.listTags(renamed, "id")).containsEntry("classification", "sensitive");
+        assertThat(tags.listTags(current(renamed), "id")).containsEntry("classification", "sensitive");
         create("orders");
-        assertThat(tags.listTags(orders, "id")).isEmpty();
+        assertThat(tags.listTags(current(orders), "id")).isEmpty();
+    }
+
+    @Test
+    void capturedTagOwnerCannotWriteRemoveOrReadAReplacement() {
+        var admitted = current(orders);
+        tags.setTag(admitted, "id", "classification", "old", "alice");
+        control.markDropped(admitted);
+        create("orders");
+        tags.setTag(current(orders), "id", "classification", "new", "alice");
+        assertThatThrownBy(() -> tags.setTag(admitted, "id", "classification", "stale", "alice"))
+                .hasMessageContaining("ownership");
+        assertThatThrownBy(() -> tags.unsetTag(admitted, "id", "classification"))
+                .hasMessageContaining("ownership");
+        assertThatThrownBy(() -> tags.listTags(admitted, "id"))
+                .hasMessageContaining("ownership");
+        assertThat(tags.listTags(current(orders), "id")).containsEntry("classification", "new");
     }
 
     @Test
     void lengthFramedReferencesDoNotCollideOnColons() {
-        tags.setTag(orders, "a:b", "c", "first", "alice");
-        tags.setTag(orders, "a", "b:c", "second", "alice");
-        assertThat(tags.listTags(orders, "a:b")).containsExactly(Map.entry("c", "first"));
-        assertThat(tags.listTags(orders, "a")).containsExactly(Map.entry("b:c", "second"));
+        tags.setTag(current(orders), "a:b", "c", "first", "alice");
+        tags.setTag(current(orders), "a", "b:c", "second", "alice");
+        assertThat(tags.listTags(current(orders), "a:b")).containsExactly(Map.entry("c", "first"));
+        assertThat(tags.listTags(current(orders), "a")).containsExactly(Map.entry("b:c", "second"));
     }
 
     @Test
     void rejectsObservedTablesAndMissingFields() {
-        assertThatThrownBy(() -> tags.setTag(new QualifiedTableRef("cat", "db", "observed"),
+        assertThatThrownBy(() -> tags.setTag(current(new QualifiedTableRef("cat", "db", "observed")),
                 "id", "classification", "sensitive", "alice")).hasMessageContaining("OBSERVED");
         assertThatThrownBy(() -> tags.setTag(null, "id", "classification", "sensitive", "alice"))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> tags.setTag(orders, null, "classification", "sensitive", "alice"))
+        assertThatThrownBy(() -> tags.setTag(current(orders), null, "classification", "sensitive", "alice"))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> tags.setTag(orders, "id", null, "sensitive", "alice"))
+        assertThatThrownBy(() -> tags.setTag(current(orders), "id", null, "sensitive", "alice"))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> tags.setTag(orders, "id", "classification", null, "alice"))
+        assertThatThrownBy(() -> tags.setTag(current(orders), "id", "classification", null, "alice"))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -114,7 +130,7 @@ class MetadataTagOperationsTest {
     void independentMaskReadersSeeCanonicalTagsWithoutEventDelivery() {
         var persisted = new org.pangrova.security.store.PersistentColumnMaskStore(source);
         persisted.initSchema();
-        tags.setTag(orders, "email", "pii_type", "PII_EMAIL", "alice");
+        tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
         var first = new TableControlColumnMaskStore(catalogs, persisted);
         var peer = new TableControlColumnMaskStore(catalogs,
                 new org.pangrova.security.store.PersistentColumnMaskStore(source));
@@ -123,7 +139,7 @@ class MetadataTagOperationsTest {
         assertThat(peer.getColumnMasks("cat", "db", "orders", "email"))
                 .isEqualTo(first.getColumnMasks("cat", "db", "orders", "email"));
         assertThat(persisted.getTableMasks("cat", "db", "orders")).isEmpty();
-        tags.unsetTag(orders, "email", "pii_type");
+        tags.unsetTag(current(orders), "email", "pii_type");
         assertThat(peer.getTableMasks("cat", "db", "orders")).isEmpty();
     }
 
@@ -133,7 +149,7 @@ class MetadataTagOperationsTest {
                 catalogs.tableGovernance().requireBindable(table.catalog(), table.schema(), table.table()).tableId());
         events.addListener(event -> { throw new IllegalStateException("notification failed"); });
         tags.setColumnTagService(events);
-        assertThatThrownBy(() -> tags.setTag(orders, "email", "pii_type", "PII_EMAIL", "alice"))
+        assertThatThrownBy(() -> tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice"))
                 .hasMessage("notification failed");
         var persisted = new org.pangrova.security.store.PersistentColumnMaskStore(source);
         persisted.initSchema();
@@ -172,11 +188,15 @@ class MetadataTagOperationsTest {
         var masks = new TableControlColumnMaskStore(catalogs, persisted);
         masks.saveColumnMask(new org.pangrova.security.mask.ColumnMask(0, "authored", "cat", "db", "orders",
                 "email", "{column}", java.util.List.of(), java.util.List.of("reader"), true, null));
-        tags.setTag(orders, "email", "pii_type", "PII_EMAIL", "alice");
+        tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
         var user = new org.pangrova.spi.security.UserIdentity("alice", Set.of(), Map.of(), java.time.Instant.now());
         assertThat(new org.pangrova.security.mask.ColumnMaskingProcessor(masks)
                 .getMask(user, Set.of("reader"), "cat", "db", "orders", "email"))
                 .hasValueSatisfying(expression -> assertThat(expression).contains("***@***"));
+    }
+
+    private org.pangrova.metadata.control.TableControlRecord current(QualifiedTableRef table) {
+        return catalogs.tableGovernance().requireBindable(table.catalog(), table.schema(), table.table());
     }
 
     private void create(String table) {
@@ -198,11 +218,11 @@ class MetadataTagOperationsTest {
             transaction.setAutoCommit(false);
             TableControlDeferredPolicy.requireCurrent(transaction, "alice", scope);
             transaction.rollback();
-            tags.setTag(orders, "email", "pii_type", "PII_EMAIL", "alice");
+            tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
             assertThatThrownBy(() -> TableControlDeferredPolicy.requireCurrent(transaction, "alice", scope))
                     .hasMessageContaining("Raw artifact reads cannot bypass");
             transaction.rollback();
-            tags.unsetTag(orders, "email", "pii_type");
+            tags.unsetTag(current(orders), "email", "pii_type");
             TableControlDeferredPolicy.requireCurrent(transaction, "alice", scope);
             transaction.rollback();
         }

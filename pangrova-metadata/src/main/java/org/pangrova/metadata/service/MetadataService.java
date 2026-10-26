@@ -76,6 +76,8 @@ public interface MetadataService {
      * Assigns a governance tag to a column. Emits a {@code TagChangedEvent}
      * so listeners (e.g. TagBasedSecurityPolicy) can activate auto-masking
      * or audit policies.
+     * The default service resolves the actual canonical column and declared PII
+     * type with this caller's connector session and validates current physical ownership.
      *
      * <p>Default implementation throws {@link UnsupportedOperationException}
      * — implementations that do not wire a ColumnTagService can keep it.
@@ -95,6 +97,8 @@ public interface MetadataService {
     /**
      * Removes a previously assigned governance tag from a column. Emits a
      * {@code TagChangedEvent} on success.
+     * The default service resolves the canonical column and current physical ownership
+     * using the caller's connector session before removing the captured owner's binding.
      *
      * @param session    metadata session context
      * @param tableRef   qualified table reference

@@ -602,6 +602,16 @@ Rules enforced by the DDL path:
 
 ### 5.3 Tag and Security Policy Integration
 
+The default Metadata tag API resolves the actual canonical column through the caller's
+connector session for SET, UNSET and listing; DDL delegates the same admission instead
+of performing a different name/type check. An exact name wins; a case-insensitive match
+must be unique. PII masks require a declared VARCHAR type even for direct API callers.
+Fresh physical identity is checked before and after declaration resolution, and a
+missing or changing schema fingerprint rejects the operation. Persistence receives the
+captured control owner and cannot retarget to a replacement UUID. These admission
+checks do not close concurrent external schema evolution after admission: durable
+field-bound policies and query-bound consumers remain required.
+
 `MetadataTagOperations` persists one `COLUMN_TAG` governance binding with stable table
 identity and framed `(column, tag key)` reference. `TableControlColumnMaskStore` combines
 identity-bound authored masks with mandatory PII masks derived from these bindings.

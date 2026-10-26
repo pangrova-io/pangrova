@@ -212,7 +212,11 @@ class DefaultMetadataServiceControlTest {
 
     @Test
     void persistedColumnTagsAreReplayedIntoGovernanceListeners() {
-        service.createTable(session(), ref("external"), tableMetadata("external"));
+        service.createTable(session(), ref("external"), new TableMetadata("cat", "db", "external",
+                List.of(new ColumnMetadata("email", ColumnType.of("VARCHAR"), true, "", Map.of())),
+                Map.of(), List.of(), Map.of(), null, null));
+        declareColumns("external", List.of(new ConnectorTableMetadata.Column("email",
+                org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR)));
         service.setTag(session(), ref("external"), "email", "pii_type", "PII_EMAIL");
         ColumnTagService tagService = new ColumnTagService(table -> registry.tableGovernance()
                 .requireBindable(table.catalog(), table.schema(), table.table()).tableId());
@@ -238,13 +242,107 @@ class DefaultMetadataServiceControlTest {
     void clearingTableTagsRemovesOnlyThatTablesTags() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         service.createTable(session(), ref("other"), tableMetadata("other"));
-        service.setTag(session(), ref("orders"), "id", "pii_type", "PII_EMAIL");
-        service.setTag(session(), ref("other"), "id", "pii_type", "PII_PHONE");
+        service.setTag(session(), ref("orders"), "id", "classification", "sensitive");
+        service.setTag(session(), ref("other"), "id", "classification", "internal");
         var tableId = registry.tableControl().find("cat", "db", "orders").orElseThrow().tableId();
         assertThat(service.clearTableTags(session(), tableId)).isEqualTo(1);
         assertThat(service.listTags(session(), ref("orders"), "id")).isEmpty();
         assertThat(service.listTags(session(), ref("other"), "id"))
-                .containsEntry("pii_type", "PII_PHONE");
+                .containsEntry("classification", "internal");
+    }
+
+    @Test
+    void tagApiResolvesCanonicalColumnsAndChecksTypesWithoutDdlPrechecks() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        declareColumns("orders", List.of(new ConnectorTableMetadata.Column("email",
+                org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR)));
+        service.setTag(session(), ref("orders"), "EMAIL", "pii_type", "PII_EMAIL");
+        assertThat(service.listTags(session(), ref("orders"), "email"))
+                .containsExactly(Map.entry("pii_type", "PII_EMAIL"));
+        assertThat(service.listTags(session(), ref("orders"), "EMAIL"))
+                .isEqualTo(service.listTags(session(), ref("orders"), "email"));
+        assertThat(connectorMetadata.lastSession.getUser()).isEqualTo("alice");
+        assertThat(connectorMetadata.lastSession.getProperties()).containsEntry("tenant_id", "default");
+        service.unsetTag(session(), ref("orders"), "EMAIL", "pii_type");
+        assertThat(service.listTags(session(), ref("orders"), "email")).isEmpty();
+
+        declareColumns("orders", List.of(new ConnectorTableMetadata.Column("id",
+                org.pangrova.spi.connector.data.type.PangrovaType.BIGINT)));
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "ID", "pii_type", "PII_EMAIL"))
+                .hasMessageContaining("VARCHAR");
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "missing", "classification", "private"))
+                .hasMessageContaining("Column not found");
+        assertThat(registry.tableGovernance().bindingsFor("cat", "db", "orders")).isEmpty();
+    }
+
+    @Test
+    void ambiguousCaseFoldedTagTargetIsRejectedWhileExactNamesRemainDistinct() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        declareColumns("orders", List.of(
+                new ConnectorTableMetadata.Column("Email", org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR),
+                new ConnectorTableMetadata.Column("email", org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR)));
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "EMAIL", "pii_type", "PII_EMAIL"))
+                .hasMessageContaining("ambiguous");
+        service.setTag(session(), ref("orders"), "Email", "pii_type", "PII_EMAIL");
+        assertThat(service.listTags(session(), ref("orders"), "email")).isEmpty();
+        assertThat(service.listTags(session(), ref("orders"), "Email"))
+                .containsEntry("pii_type", "PII_EMAIL");
+    }
+
+    @Test
+    void tagApiRejectsUntypedPiiAndUnavailableSchemaEvidence() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "id", "pii_type", "PII_EMAIL"))
+                .hasMessageContaining("declared type");
+        connectorMetadata.schemaFingerprint = "";
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "id", "classification", "private"))
+                .hasMessageContaining("schema evidence");
+        assertThat(registry.tableGovernance().bindingsFor("cat", "db", "orders")).isEmpty();
+    }
+
+    @Test
+    void tagApiQuarantinesExternalReplacementDuringColumnResolution() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        var original = registry.tableControl().find("cat", "db", "orders").orElseThrow();
+        connectorMetadata.afterDeclaration = () -> connectorMetadata.create(
+                new SchemaTableName("db", "orders"), "replacement");
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "id", "classification", "private"))
+                .hasMessageContaining("identity");
+        assertThat(registry.tableControl().findById(original.tableId()).orElseThrow().state())
+                .isEqualTo(org.pangrova.metadata.control.TableControlState.QUARANTINED);
+        assertThat(registry.tableGovernance().bindingsFor(original.tableId())).isEmpty();
+    }
+
+    @Test
+    void tagApiCannotRetargetAControlOwnerReplacedDuringResolution() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        var control = registry.tableControl();
+        var original = control.find("cat", "db", "orders").orElseThrow();
+        connectorMetadata.afterDeclaration = () -> {
+            control.markDropped(original);
+            control.registerCreated("cat", "db", "orders", "alice", Optional.of(new TableIdentity(
+                    "ICEBERG", "uuid-orders", "s3://bucket/db.orders", "schema")), Optional.empty());
+        };
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "id", "classification", "private"))
+                .hasMessageContaining("ownership");
+        var replacement = control.find("cat", "db", "orders").orElseThrow();
+        assertThat(replacement.tableId()).isNotEqualTo(original.tableId());
+        assertThat(registry.tableGovernance().bindingsFor(replacement.tableId())).isEmpty();
+        assertThat(registry.tableGovernance().bindingsFor(original.tableId())).isEmpty();
+    }
+
+    @Test
+    void tagApiRejectsSchemaChangeDuringColumnResolution() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        connectorMetadata.afterDeclaration = () -> connectorMetadata.schemaFingerprint = "another-schema";
+        assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "id", "classification", "private"))
+                .hasMessageContaining("schema evidence");
+        assertThat(registry.tableGovernance().bindingsFor("cat", "db", "orders")).isEmpty();
+    }
+
+    private void declareColumns(String table, List<ConnectorTableMetadata.Column> fields) {
+        connectorMetadata.tables.put("db." + table, new ConnectorTableMetadata(new SchemaTableName("db", table),
+                fields.stream().map(ConnectorTableMetadata.Column::name).toList(), fields, Map.of()));
     }
 
     private static QualifiedTableRef ref(String table) {
@@ -268,6 +366,9 @@ class DefaultMetadataServiceControlTest {
         private final Map<String, ConnectorTableMetadata> tables = new LinkedHashMap<>();
         private final Map<String, String> uuids = new LinkedHashMap<>();
         private final Map<String, String> versions = new LinkedHashMap<>();
+        private String schemaFingerprint = "schema";
+        private Runnable afterDeclaration = () -> { };
+        private ConnectorSession lastSession;
 
         void create(SchemaTableName name, String uuid) {
             tables.put(key(name), new ConnectorTableMetadata(name, List.of("id"), Map.of()));
@@ -320,7 +421,10 @@ class DefaultMetadataServiceControlTest {
 
         @Override
         public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle h) {
-            return tables.get(((TestHandle) h).key);
+            lastSession = session;
+            var declaration = tables.get(((TestHandle) h).key);
+            afterDeclaration.run();
+            return declaration;
         }
 
         @Override
@@ -337,7 +441,7 @@ class DefaultMetadataServiceControlTest {
         public Optional<TableIdentity> getTableIdentity(ConnectorSession session, ConnectorTableHandle handle) {
             String key = ((TestHandle) handle).key;
             return Optional.of(new TableIdentity(
-                    "ICEBERG", uuids.get(key), "s3://bucket/" + key, "schema"));
+                    "ICEBERG", uuids.get(key), "s3://bucket/" + key, schemaFingerprint));
         }
 
         @Override

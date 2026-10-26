@@ -159,19 +159,23 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     @Override
     public void setTag(MetadataSessionContext session, QualifiedTableRef tableRef,
                        String columnName, String tagKey, String value) {
-        tagOperations.setTag(tableRef, columnName, tagKey, value, session.user());
+        var target = MetadataColumnTagTarget.resolve(catalogRegistry, session, tableRef, columnName);
+        target.requireTagType(tagKey);
+        tagOperations.setTag(target.owner(), target.column(), tagKey, value, session.user());
     }
 
     @Override
     public void unsetTag(MetadataSessionContext session, QualifiedTableRef tableRef,
                          String columnName, String tagKey) {
-        tagOperations.unsetTag(tableRef, columnName, tagKey);
+        var target = MetadataColumnTagTarget.resolve(catalogRegistry, session, tableRef, columnName);
+        tagOperations.unsetTag(target.owner(), target.column(), tagKey);
     }
 
     @Override
     public Map<String, String> listTags(MetadataSessionContext session,
                                         QualifiedTableRef tableRef, String columnName) {
-        return tagOperations.listTags(tableRef, columnName);
+        var target = MetadataColumnTagTarget.resolve(catalogRegistry, session, tableRef, columnName);
+        return tagOperations.listTags(target.owner(), target.column());
     }
 
     @Override

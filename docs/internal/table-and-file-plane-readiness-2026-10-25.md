@@ -16,6 +16,23 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Canonical column tag admission — continuation on 2026-10-27
+
+The default Metadata SET/UNSET/list API resolves actual canonical columns under the
+caller's connector session. DDL no longer has a separate case-insensitive type check
+that can persist a spelling different from Native's field name. Exact names remain
+distinct; a folded name must have one match. PII type validation is enforced for direct
+API callers too. Fresh physical ownership is checked around declaration resolution,
+missing/changing schema fingerprints reject admission, and storage receives the captured
+control owner for persistence/removal/listing instead of resolving another name owner.
+
+Focused Metadata tests passed, including canonical names and ambiguous case, missing
+or wrong types, changed schema evidence, external replacement during resolution and
+control UUID replacement. Captured storage-owner rejection and complete Metadata tests/static verification
+also passed. The refreshed Java reactor installation passed; complete Coordinator/static and
+actual HTTP/Native regressions are pending. This is admission repair;
+durable field binding and atomic external-schema continuity remain open.
+
 ## Typed selected-schema evidence — continuation on 2026-10-27
 
 `ConnectorReadBinding` now carries optional typed schema identity, checked against
@@ -47,7 +64,9 @@ analysis passed. Static verification first exposed an existing Lance constructor
 Javadoc omission and two null-path findings; local source aliases retain the same
 null rejection and make that control flow explicit. Two new Iceberg line-length
 errors were also corrected before the complete successful rerun. The final reactor
-refresh passed; its frozen-runtime Native checkpoint is pending. This is read-side
+refresh passed. The frozen installed runtime for `8686dca9` passed the combined
+32-test endpoint/Native selection with zero failures/errors/skips (stage URLs,
+file-space contract/DDL, table ownership, Lance Feature View export and activation). This is read-side
 evidence, not completed field-bound governance. Policy persistence, authenticated
 publication, query-bound policy consumers and deferred receipts still need migration;
 the schema identity alone cannot authorize cross-version policy reuse. The design

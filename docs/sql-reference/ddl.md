@@ -244,7 +244,10 @@ PII masks directly from those bindings; asynchronous events are cache/audit hint
 A missing or failed event projection cannot turn a committed classification into a raw read.
 
 The table must be ACTIVE and `LINKED` or `MANAGED`; tagging an `OBSERVED` table
-requires `ADOPT` first. The column must exist. `pii_type` requires a declared VARCHAR
+requires `ADOPT` first. The column must exist. SET and UNSET resolve its canonical
+stored spelling: an exact match wins; a case-insensitive match must be unique.
+The Metadata API applies the same checks as SQL, including fresh table ownership and
+stable schema evidence during resolution. `pii_type` requires a declared VARCHAR
 column and accepts exactly `PII_EMAIL`, `PII_PHONE`, `PII_SSN`, or `PII_NAME`.
 NULL stays NULL. Email becomes `***@***`, names become `***`, and phone/SSN values
 longer than four characters become `***` plus their final four characters; shorter

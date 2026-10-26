@@ -295,13 +295,6 @@ public final class DdlExecutor {
             AlterTableStatement.SetColumnTag stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         MetadataService service = requireTagMetadataService();
-        var columnType = requireColumn(ref, stmt.columnName(), context);
-        if ("pii_type".equals(stmt.tagKey()) && columnType.orElse(null)
-                != org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR) {
-            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "PII classification masks require a VARCHAR column with a declared type");
-        }
-        tableControlOperations.requireBindable(ref);
         service.setTag(SessionContextConverter.toMetadataSessionContext(context),
                 new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
                 stmt.columnName(), stmt.tagKey(), stmt.tagValue());
@@ -316,8 +309,6 @@ public final class DdlExecutor {
             AlterTableStatement.UnsetColumnTag stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         MetadataService service = requireTagMetadataService();
-        requireColumn(ref, stmt.columnName(), context);
-        tableControlOperations.requireBindable(ref);
         service.unsetTag(SessionContextConverter.toMetadataSessionContext(context),
                 new QualifiedTableRef(ref.catalog(), ref.schema(), ref.table()),
                 stmt.columnName(), stmt.tagKey());
@@ -334,22 +325,6 @@ public final class DdlExecutor {
                     "ALTER TABLE column tags require the metadata service");
         }
         return service;
-    }
-
-    private java.util.Optional<org.pangrova.spi.connector.data.type.PangrovaType> requireColumn(
-            QualifiedTableName ref, String columnName, CoordinatorSessionContext context) {
-        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
-        ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
-        ConnectorTableHandle handle = TableResolver.requireTableHandle(metadata, session, ref);
-        var declaration = metadata.getTableMetadata(session, handle);
-        boolean exists = declaration.columns().stream()
-                .anyMatch(column -> column.equalsIgnoreCase(columnName));
-        if (!exists) {
-            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "Column not found: " + ref + "." + columnName);
-        }
-        return declaration.typedColumns().stream().filter(column -> column.name().equalsIgnoreCase(columnName))
-                .map(org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata.Column::type).findFirst();
     }
 
     private static List<String> tableColumns(ConnectorMetadata metadata, ConnectorSession session,

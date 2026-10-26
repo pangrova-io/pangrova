@@ -26,14 +26,14 @@ final class MetadataTagOperations {
         columnTagService = service;
     }
 
-    void setTag(QualifiedTableRef table, String column, String tagKey, String value, String actor) {
+    void setTag(TableControlRecord admitted, String column, String tagKey, String value, String actor) {
         Objects.requireNonNull(value, "value");
         if ("pii_type".equals(tagKey) && org.pangrova.governance.classification.TagBasedSecurityPolicy
                 .piiTypeToMaskExpression(value) == null) {
             throw new org.pangrova.spi.security.AccessDeniedException("Unknown PII tag value");
         }
         String reference = reference(column, tagKey);
-        TableControlRecord record = current(table);
+        TableControlRecord record = current(admitted);
         var binder = catalogs.tableGovernance();
         String previous = binder.find(record.tableId(), GovernanceBindingType.COLUMN_TAG, reference)
                 .map(binding -> binding.config().get("value")).orElse(null);
@@ -41,14 +41,14 @@ final class MetadataTagOperations {
                 reference, Map.of("column", column, "tagKey", tagKey, "value", value), actor);
         ColumnTagService service = columnTagService;
         if (service != null) {
-            service.assignTag(record.tableId(), table.catalog(), table.schema(), table.table(),
+            service.assignTag(record.tableId(), record.catalog(), record.schema(), record.table(),
                     column, tagKey, previous, value);
         }
     }
 
-    void unsetTag(QualifiedTableRef table, String column, String tagKey) {
+    void unsetTag(TableControlRecord admitted, String column, String tagKey) {
         String reference = reference(column, tagKey);
-        TableControlRecord record = current(table);
+        TableControlRecord record = current(admitted);
         var binder = catalogs.tableGovernance();
         var existing = binder.find(record.tableId(), GovernanceBindingType.COLUMN_TAG, reference);
         if (existing.isEmpty()) return;
@@ -56,9 +56,9 @@ final class MetadataTagOperations {
         emitRemoval(record, existing.orElseThrow());
     }
 
-    Map<String, String> listTags(QualifiedTableRef table, String column) {
+    Map<String, String> listTags(TableControlRecord admitted, String column) {
         Objects.requireNonNull(column, "column");
-        TableControlRecord record = current(table);
+        TableControlRecord record = current(admitted);
         Map<String, String> result = new LinkedHashMap<>();
         for (GovernanceBinding binding : catalogs.tableGovernance().bindingsFor(record.tableId())) {
             if (binding.bindingType() == GovernanceBindingType.COLUMN_TAG
@@ -121,9 +121,15 @@ final class MetadataTagOperations {
         return moved;
     }
 
-    private TableControlRecord current(QualifiedTableRef table) {
-        Objects.requireNonNull(table, "table");
-        return catalogs.tableGovernance().requireBindable(table.catalog(), table.schema(), table.table());
+    private TableControlRecord current(TableControlRecord admitted) {
+        Objects.requireNonNull(admitted, "admitted");
+        catalogs.tableControl().requireReadOwner(admitted, "Column tags");
+        var current = catalogs.tableGovernance().requireBindable(
+                admitted.catalog(), admitted.schema(), admitted.table());
+        if (!current.tableId().equals(admitted.tableId())) {
+            throw new org.pangrova.spi.security.AccessDeniedException("Column tag target was replaced after admission");
+        }
+        return admitted;
     }
 
     private void emitRemoval(TableControlRecord record, GovernanceBinding binding) {

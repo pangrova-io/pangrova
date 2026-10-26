@@ -74,7 +74,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         var original = store.find(PAIMON, SCHEMA, "controlled_private_contacts").orElseThrow();
         for (var entry : java.util.Map.of("email", "PII_EMAIL", "phone", "PII_PHONE",
                 "ssn", "PII_SSN", "person", "PII_NAME").entrySet()) {
-            sqlRunner.executeDdl("ALTER TABLE " + source + " ALTER COLUMN " + entry.getKey()
+            sqlRunner.executeDdl("ALTER TABLE " + source + " ALTER COLUMN " + entry.getKey().toUpperCase(java.util.Locale.ROOT)
                     + " SET TAG pii_type = '" + entry.getValue() + "'");
         }
         assertThat(sqlRunner.executeExpectingError("ALTER TABLE " + source
@@ -95,7 +95,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
                 .satisfies(row -> assertThat(row.getString("email")).isEqualTo("replacement@example.com"));
         sqlRunner.executeDdl("ALTER TABLE " + source + " ALTER COLUMN email SET TAG pii_type = 'PII_NAME'");
         for (String column : List.of("email", "phone", "ssn", "person")) {
-            sqlRunner.executeDdl("ALTER TABLE " + renamed + " ALTER COLUMN " + column + " UNSET TAG pii_type");
+            sqlRunner.executeDdl("ALTER TABLE " + renamed + " ALTER COLUMN " + column.toUpperCase(java.util.Locale.ROOT) + " UNSET TAG pii_type");
         }
         assertThat(sqlRunner.execute("SELECT email FROM " + renamed + " WHERE id=1")).singleElement()
                 .satisfies(row -> assertThat(row.getString("email")).isEqualTo("alice@example.com"));
@@ -316,6 +316,22 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
                 .isEqualTo(TableControlState.QUARANTINED);
         assertThat(externalCatalog.loadTable(identifier(table)).currentSnapshot().summary())
                 .containsEntry("total-records", "1");
+    }
+
+    @Test
+    void tagAdmissionRejectsExternalReplacementBeforeAReadObservesIt() throws Exception {
+        String table = "control_tag_replacement";
+        sqlRunner.executeDdl("CREATE TABLE " + fqn(table) + " (id BIGINT)");
+        var original = store.find(CATALOG, SCHEMA, table).orElseThrow();
+        externalCatalog.dropTable(identifier(table), true);
+        externalCatalog.createTable(identifier(table), TABLE_SCHEMA);
+
+        assertThat(sqlRunner.executeExpectingError("ALTER TABLE " + fqn(table)
+                + " ALTER COLUMN ID SET TAG classification = 'private'").message()).contains("identity");
+        assertThat(store.findById(original.tableId()).orElseThrow().state())
+                .isEqualTo(TableControlState.QUARANTINED);
+        assertThat(metadataBootstrap.catalogRegistry().tableGovernance().bindingsFor(original.tableId())).isEmpty();
+        assertThat(externalCatalog.tableExists(identifier(table))).isTrue();
     }
 
     @Test
