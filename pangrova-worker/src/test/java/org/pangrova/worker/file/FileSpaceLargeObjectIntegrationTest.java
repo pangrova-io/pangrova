@@ -111,7 +111,7 @@ class FileSpaceLargeObjectIntegrationTest {
 
     private String descriptor(String operation) throws Exception {
         var grant = new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(), "", "", "",
-                false, "stage", "large.bin", operation, System.currentTimeMillis() + 300_000L);
+                false, "stage", "large.bin", operation, System.currentTimeMillis() + 300_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(
                 JsonMapperFactory.create().writeValueAsBytes(grant));
     }

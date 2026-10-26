@@ -228,6 +228,76 @@ class StageFileUrlHttpIntegrationTest {
     }
 
     @Test
+    void realGrantsCannotResumeAnotherSubjectsOrRecreatedNamespacesMultipartSession() throws Exception {
+        spaces.create(definition("external", true), false);
+        for (String name : List.of("external")) {
+            for (Privilege privilege : List.of(Privilege.USAGE_STAGE, Privilege.READ_STAGE, Privilege.WRITE_STAGE)) {
+                grant(name, privilege);
+            }
+        }
+        new PersistentRoleStore(source).grantRoleToUser(UserRoleAssignment.of("bob", "reader"));
+        var original = accessGrant("external", "alice", "write");
+        var mapper = JsonMapperFactory.create();
+        URI endpoint = base(worker).resolve("v1/file-space/");
+        var began = workerPost(endpoint.resolve("multipart/begin"),
+                new FileSpaceFileResource.BeginMultipartRequest(original.descriptor(), original.signature(), null));
+        assertThat(began.statusCode()).as(began.body()).isEqualTo(200);
+        var session = mapper.readValue(began.body(), FileSpaceFileResource.MultipartSession.class);
+        var denied = multipartPart(endpoint, accessGrant("external", "bob", "write"), session.uploadId());
+        assertThat(denied.statusCode()).as(denied.body()).isEqualTo(409);
+        spaces.rename(FileSpaceType.STAGE, "media", "raw", "external", "renamed_upload");
+        var renewed = accessGrant("renamed_upload", "alice", "write");
+        var resumed = multipartPart(endpoint, renewed, session.uploadId());
+        assertThat(resumed.statusCode()).as(resumed.body()).isEqualTo(200);
+        var part = mapper.readValue(resumed.body(), org.pangrova.spi.storage.file.UploadedPart.class);
+        spaces.drop(FileSpaceType.STAGE, "media", "raw", "renamed_upload", false);
+        spaces.create(definition("external", true), false);
+        for (Privilege privilege : List.of(Privilege.USAGE_STAGE, Privilege.READ_STAGE, Privilege.WRITE_STAGE)) {
+            grant("external", privilege);
+        }
+        var replacement = multipartPart(endpoint, accessGrant("external", "alice", "write"), session.uploadId());
+        assertThat(replacement.statusCode()).as(replacement.body()).isEqualTo(409);
+        // A previously issued bearer ticket retains its original bounded lifetime.
+        var completed = workerPost(endpoint.resolve("multipart/complete"),
+                new FileSpaceFileResource.CompleteMultipartRequest(original.descriptor(), original.signature(),
+                        session.uploadId(), List.of(new FileSpaceFileResource.MultipartPart(
+                                part.partNumber(), part.etag(), part.size()))));
+        assertThat(completed.statusCode()).as(completed.body()).isEqualTo(200);
+        var read = accessGrant("external", "alice", "read");
+        var bytes = CLIENT.send(HttpRequest.newBuilder(URI.create(endpoint + "object?descriptor="
+                        + read.descriptor() + "&signature=" + read.signature())).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(bytes.statusCode()).as(bytes.body()).isEqualTo(200);
+        assertThat(bytes.body()).isEqualTo("verified bytes");
+    }
+
+    private FileSpaceAccessService.FileAccessGrant accessGrant(String name, String user, String operation)
+            throws Exception {
+        var body = new FileSpaceFilesResource.AccessRequest("scoped.bin", operation);
+        var response = CLIENT.send(HttpRequest.newBuilder(base.resolve("v1/stages/media/raw/" + name + "/files/access"))
+                .header("Content-Type", "application/json").header("Authorization", "Bearer " + user + "-token")
+                .POST(HttpRequest.BodyPublishers.ofString(JsonMapperFactory.create().writeValueAsString(body))).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        return JsonMapperFactory.create().readValue(response.body(), FileSpaceAccessService.FileAccessGrant.class);
+    }
+
+    private HttpResponse<String> multipartPart(URI endpoint, FileSpaceAccessService.FileAccessGrant grant,
+            String uploadId) throws Exception {
+        return CLIENT.send(HttpRequest.newBuilder(URI.create(endpoint + "multipart/part?descriptor="
+                        + grant.descriptor() + "&signature=" + grant.signature() + "&uploadId=" + uploadId
+                        + "&partNumber=1"))
+                .header("Content-Type", "application/octet-stream")
+                .PUT(HttpRequest.BodyPublishers.ofString("verified bytes")).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> workerPost(URI endpoint, Object body) throws Exception {
+        return CLIENT.send(HttpRequest.newBuilder(endpoint).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(JsonMapperFactory.create().writeValueAsString(body))).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
     void unsafePathsAreRejectedBeforeRedirect() throws Exception {
         for (String path : List.of("", "../secret", "a/../secret", "a\\secret", "%2e%2e/secret")) {
             assertThat(post("landing", path, "alice").statusCode()).isEqualTo(400);
@@ -330,7 +400,7 @@ class StageFileUrlHttpIntegrationTest {
         @Override public AuthenticationResult authenticate(AuthenticationRequest request) {
             for (String name : List.of("alice", "bob")) {
                 if ((name + "-token").equals(request.token())) {
-                    return AuthenticationResult.success(new UserIdentity(name, Set.of(), Map.of(), Instant.EPOCH));
+                    return AuthenticationResult.success(new UserIdentity(name, Set.of(), Map.of("tenant_id", "tenant-a"), Instant.EPOCH));
                 }
             }
             return AuthenticationResult.failure("Unknown test credential");

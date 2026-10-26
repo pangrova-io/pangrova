@@ -20,8 +20,6 @@ import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.FileSpaceAccessControl;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.storage.StorageProfile;
-import org.pangrova.spi.storage.StorageProfileRegistry;
-import org.pangrova.spi.storage.StorageProfileRevision;
 import org.pangrova.spi.storage.StorageType;
 import org.pangrova.spi.storage.file.FileSpace;
 import org.pangrova.spi.storage.file.FileSpaceDefinition;
@@ -37,10 +35,11 @@ class FileUrlServiceTest {
     private static final String SECRET = "file-url-test-secret";
     private static final long NOW = 1_000_000L;
     private static final UserIdentity USER =
-            new UserIdentity("alice", Set.of("analysts"), Map.of(), Instant.EPOCH);
+            new UserIdentity("alice", Set.of("analysts"), Map.of("tenant_id", "tenant-a"), Instant.EPOCH);
 
     private final FakeSpaces spaces = new FakeSpaces();
-    private final FakeProfiles profiles = new FakeProfiles();
+    private final org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry profiles =
+            new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
     private final RecordingAccessControl access = new RecordingAccessControl();
     private final RecordingUrlClient client = new RecordingUrlClient();
     private final List<AuditEvent> events = new CopyOnWriteArrayList<>();
@@ -111,7 +110,7 @@ class FileUrlServiceTest {
         spaces.put(new FileSpace(UUID.randomUUID(), FileSpaceType.STAGE, "media", "raw", "landing", true,
                 "media", "s3://acme/warehouse/stage/landing", "", false, "", "alice", Instant.EPOCH,
                 Instant.EPOCH));
-        profiles.put(profile());
+        profiles.register(profile());
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
                 new FileSpaceAuditEmitter(new AuditEventEmitter(events::add)), SECRET);
@@ -230,52 +229,5 @@ class FileUrlServiceTest {
         }
     }
 
-    private static final class FakeProfiles implements StorageProfileRegistry {
-        private final Map<String, StorageProfile> byName = new HashMap<>();
 
-        void put(StorageProfile profile) {
-            byName.put(profile.name(), profile);
-        }
-
-        @Override
-        public void register(StorageProfile profile) {
-            byName.put(profile.name(), profile);
-        }
-
-        @Override
-        public boolean createIfAbsent(StorageProfile profile) {
-            return byName.putIfAbsent(profile.name(), profile) == null;
-        }
-
-        @Override
-        public boolean unregister(String name) {
-            return byName.remove(name) != null;
-        }
-
-        @Override
-        public Optional<StorageProfile> get(String name) {
-            return Optional.ofNullable(byName.get(name));
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> getCurrentRevision(String name) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> findRevision(String name, String incarnationId,
-                long revision) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<StorageProfile> list() {
-            return List.copyOf(byName.values());
-        }
-
-        @Override
-        public Optional<StorageProfile> resolveByUrl(String url) {
-            return Optional.empty();
-        }
-    }
 }

@@ -6,7 +6,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -152,7 +151,8 @@ public final class FileSpaceAccessService {
 
     private Resolved descriptor(UserIdentity principal, FileSpace space, String path,
             String normalizedOperation) {
-        StorageProfile profile = profileFor(space);
+        var revision = profileFor(space);
+        StorageProfile profile = revision.profile();
         String baseKey = space.external()
                 ? FileSpaceLayout.externalBaseKey(space, profile)
                 : FileSpaceLayout.managedKey(space, profile);
@@ -164,7 +164,8 @@ public final class FileSpaceAccessService {
         String encoded = encode(new FileAccessDescriptorPayload(profile.name(), profile.type(),
                 profile.bucket(), profile.prefix(), profile.endpoint(), profile.region(),
                 profile.isPathStyleAccess(), baseKey, normalizedPath, normalizedOperation,
-                expiresAt));
+                expiresAt, space.id().toString(), principal.principal(), tenantId(principal),
+                revision.incarnationId(), revision.revision()));
         String signature = FileAccessSignature.sign(context.signingSecret(), encoded);
         return new Resolved(space, principal, new FileAccessGrant(workerUrl, encoded, signature,
                 normalizedOperation, normalizedPath, expiresAt));
@@ -190,13 +191,13 @@ public final class FileSpaceAccessService {
         return "write".equals(operation) || "delete".equals(operation);
     }
 
-    private StorageProfile profileFor(FileSpace space) {
+    private org.pangrova.spi.storage.StorageProfileRevision profileFor(FileSpace space) {
         String name = space.storageProfile().isBlank()
                 ? context.managedProfileName() : space.storageProfile();
         if (name.isBlank()) {
             throw notConfigured(space, "no storage profile is configured");
         }
-        Optional<StorageProfile> profile = profiles.get(name);
+        var profile = profiles.getCurrentRevision(name);
         if (profile.isEmpty()) {
             throw notConfigured(space, "storage profile '" + name + "' does not exist");
         }
@@ -226,6 +227,9 @@ public final class FileSpaceAccessService {
     private static UserIdentity requireUser(UserIdentity user) {
         if (user == null || user.principal() == null || user.principal().isBlank()) {
             throw new AccessDeniedException("Authenticated principal is required for file access");
+        }
+        if (tenantId(user) == null || tenantId(user).isBlank()) {
+            throw new AccessDeniedException("Authenticated tenant is required for file access");
         }
         return user;
     }
@@ -324,7 +328,8 @@ public final class FileSpaceAccessService {
     record FileAccessDescriptorPayload(String profileName,
             org.pangrova.spi.storage.StorageType type, String bucket, String prefix,
             String endpoint, String region, boolean pathStyleAccess, String baseKey,
-            String path, String operation, long expiresAtEpochMillis) {
+            String path, String operation, long expiresAtEpochMillis, String spaceId,
+            String subject, String tenantId, String profileIncarnationId, long profileRevision) {
     }
 
     /** One authorized file operation, ready to send to the named Worker. */

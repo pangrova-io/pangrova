@@ -25,8 +25,6 @@ import org.pangrova.parser.ast.statement.ListStageStatement;
 import org.pangrova.spi.security.FileSpaceAccessControl;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.storage.StorageProfile;
-import org.pangrova.spi.storage.StorageProfileRegistry;
-import org.pangrova.spi.storage.StorageProfileRevision;
 import org.pangrova.spi.storage.StorageType;
 import org.pangrova.spi.storage.file.FileListing;
 import org.pangrova.spi.storage.file.FileSpace;
@@ -44,7 +42,7 @@ class ListStageTaskTest {
     private static final String SECRET = "list-stage-test-secret";
     private static final long NOW = 1_000_000L;
     private static final UserIdentity USER =
-            new UserIdentity("alice", Set.of("analysts"), Map.of(), Instant.EPOCH);
+            new UserIdentity("alice", Set.of("analysts"), Map.of("tenant_id", "tenant-a"), Instant.EPOCH);
 
     private final List<FileAccessGrant> grants = new ArrayList<>();
 
@@ -116,7 +114,9 @@ class ListStageTaskTest {
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
                 new FileSpaceAuditEmitter(null), SECRET);
-        return new FileSpaceAccessService(new Spaces(spaces), new Profiles(profile),
+        var profiles = new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
+        profiles.register(profile);
+        return new FileSpaceAccessService(new Spaces(spaces), profiles,
                 new AllowAll(), context);
     }
 
@@ -192,47 +192,5 @@ class ListStageTaskTest {
         }
     }
 
-    private record Profiles(StorageProfile profile) implements StorageProfileRegistry {
 
-        @Override
-        public void register(StorageProfile profile) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean createIfAbsent(StorageProfile profile) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean unregister(String name) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<StorageProfile> get(String name) {
-            return profile.name().equals(name) ? Optional.of(profile) : Optional.empty();
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> getCurrentRevision(String name) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> findRevision(String name, String incarnationId,
-                long revision) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<StorageProfile> list() {
-            return List.of(profile);
-        }
-
-        @Override
-        public Optional<StorageProfile> resolveByUrl(String url) {
-            return Optional.empty();
-        }
-    }
 }

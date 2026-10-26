@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class StageDirectoryRefreshServiceTest {
-    private static final UserIdentity USER = new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH);
+    private static final UserIdentity USER = new UserIdentity("alice", Set.of(), Map.of("tenant_id", "tenant-a"), Instant.EPOCH);
     private final AtomicBoolean readable = new AtomicBoolean(true);
     private final FileSpaceAccessControl authorization = new FileSpaceAccessControl() {
         @Override

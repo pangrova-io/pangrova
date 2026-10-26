@@ -100,7 +100,7 @@ class FileSpaceMultipartHttpTest {
 
     private String descriptor(String operation, String path) throws Exception {
         var grant = new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(),
-                "", "", "", false, "stage-root", path, operation, now.get() + 60_000L);
+                "", "", "", false, "stage-root", path, operation, now.get() + 60_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(mapper.writeValueAsBytes(grant));
     }
 

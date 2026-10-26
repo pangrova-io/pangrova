@@ -21,8 +21,6 @@ import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.FileSpaceAccessControl;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.storage.StorageProfile;
-import org.pangrova.spi.storage.StorageProfileRegistry;
-import org.pangrova.spi.storage.StorageProfileRevision;
 import org.pangrova.spi.storage.StorageType;
 import org.pangrova.spi.storage.file.FileSpace;
 import org.pangrova.spi.storage.file.FileSpaceDefinition;
@@ -38,17 +36,18 @@ class FileSpaceAccessServiceTest {
     private static final String SECRET = "file-access-test-secret";
     private static final long NOW = 1_000_000L;
     private static final UserIdentity USER =
-            new UserIdentity("alice", Set.of("analysts"), Map.of(), Instant.EPOCH);
+            new UserIdentity("alice", Set.of("analysts"), Map.of("tenant_id", "tenant-a"), Instant.EPOCH);
 
     private final ObjectMapper mapper = JsonMapperFactory.create();
     private final FakeSpaces spaces = new FakeSpaces();
-    private final FakeProfiles profiles = new FakeProfiles();
+    private final org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry profiles =
+            new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
     private final RecordingAccessControl access = new RecordingAccessControl();
 
     @Test
     void managedVolumeReadIssuesSignedDescriptorAtTheManagedRoot() throws Exception {
         spaces.put(space(FileSpaceType.VOLUME, false, "media", "volumes/media/raw/landing"));
-        profiles.put(profile("media", "warehouse"));
+        profiles.register(profile("media", "warehouse"));
 
         FileSpaceAccessService.FileAccessGrant grant = service(List.of("http://w1:8080"))
                 .grant(USER, "volumes", "media", "raw", "landing", "images/a.jpg", "read");
@@ -69,9 +68,35 @@ class FileSpaceAccessServiceTest {
     }
 
     @Test
+    void grantPinsTheNamespaceSubjectTenantAndCurrentProfileIncarnation() throws Exception {
+        var namespace = space(FileSpaceType.STAGE, true, "media", "s3://acme/stage/landing");
+        spaces.put(namespace);
+        profiles.register(profile("media", ""));
+        var issuer = service(List.of("http://w1:8080"));
+        var original = descriptor(issuer.grant(USER, "stages", "media", "raw", "landing", "x", "write"));
+        assertThat(original).containsEntry("spaceId", namespace.id().toString())
+                .containsEntry("subject", "alice").containsEntry("tenantId", "tenant-a")
+                .containsEntry("profileRevision", 1)
+                .containsEntry("profileIncarnationId", profiles.getCurrentRevision("media").orElseThrow().incarnationId());
+        profiles.unregister("media");
+        profiles.createIfAbsent(profile("media", ""));
+        var replaced = descriptor(issuer.grant(USER, "stages", "media", "raw", "landing", "x", "write"));
+        assertThat(replaced.get("profileIncarnationId")).isNotEqualTo(original.get("profileIncarnationId"));
+        assertThat(replaced.get("baseKey")).isEqualTo(original.get("baseKey"));
+    }
+
+    @Test
+    void tenantlessSubjectsCannotReceiveAFileGrant() {
+        var tenantless = new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH);
+        assertThatThrownBy(() -> service(List.of("http://w1:8080"))
+                .grant(tenantless, "stages", "media", "raw", "landing", "x", "write"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("tenant");
+    }
+
+    @Test
     void externalStageUsesItsDeclaredLocationAsRoot() throws Exception {
         spaces.put(space(FileSpaceType.STAGE, true, "media", "s3://acme/stage/landing"));
-        profiles.put(profile("media", ""));
+        profiles.register(profile("media", ""));
 
         FileSpaceAccessService.FileAccessGrant grant = service(List.of("http://w1:8080"))
                 .grant(USER, "stages", "media", "raw", "landing", "", "list");
@@ -85,7 +110,7 @@ class FileSpaceAccessServiceTest {
     @Test
     void stageWriteRequiresWritePrivilege() {
         spaces.put(space(FileSpaceType.STAGE, false, "media", ""));
-        profiles.put(profile("media", ""));
+        profiles.register(profile("media", ""));
         access.denyWrites = true;
 
         assertThatThrownBy(() -> service(List.of("http://w1:8080"))
@@ -97,7 +122,7 @@ class FileSpaceAccessServiceTest {
     @Test
     void volumeWriteAlsoRequiresWritePrivilege() {
         spaces.put(space(FileSpaceType.VOLUME, false, "media", "volumes/media/raw/landing"));
-        profiles.put(profile("media", ""));
+        profiles.register(profile("media", ""));
         access.denyWrites = true;
 
         assertThatThrownBy(() -> service(List.of("http://w1:8080"))
@@ -109,7 +134,7 @@ class FileSpaceAccessServiceTest {
     @Test
     void traversalIsRejectedBeforeAnyDescriptorExists() {
         spaces.put(space(FileSpaceType.VOLUME, false, "media", "volumes/media/raw/landing"));
-        profiles.put(profile("media", ""));
+        profiles.register(profile("media", ""));
 
         assertThatThrownBy(() -> service(List.of("http://w1:8080"))
                 .grant(USER, "volumes", "media", "raw", "landing", "images/../secret", "read"))
@@ -121,7 +146,7 @@ class FileSpaceAccessServiceTest {
     @Test
     void missingWorkerFailsClosed() {
         spaces.put(space(FileSpaceType.VOLUME, false, "media", "volumes/media/raw/landing"));
-        profiles.put(profile("media", ""));
+        profiles.register(profile("media", ""));
 
         assertThatThrownBy(() -> service(List.of())
                 .grant(USER, "volumes", "media", "raw", "landing", "a.jpg", "read"))
@@ -143,7 +168,7 @@ class FileSpaceAccessServiceTest {
 
     @Test
     void unknownSpaceAndOperationAreDistinguished() {
-        profiles.put(profile("media", ""));
+        profiles.register(profile("media", ""));
 
         assertThatThrownBy(() -> service(List.of("http://w1:8080"))
                 .grant(USER, "volumes", "media", "raw", "missing", "a.jpg", "read"))
@@ -168,7 +193,7 @@ class FileSpaceAccessServiceTest {
     @Test
     void workersAreChosenRoundRobin() {
         spaces.put(space(FileSpaceType.VOLUME, false, "media", "volumes/media/raw/landing"));
-        profiles.put(profile("media", ""));
+        profiles.register(profile("media", ""));
         FileSpaceAccessService service = service(List.of("http://w1:8080", "http://w2:8080"));
 
         assertThat(service.grant(USER, "volumes", "media", "raw", "landing", "a", "read")
@@ -301,52 +326,5 @@ class FileSpaceAccessServiceTest {
         }
     }
 
-    private static final class FakeProfiles implements StorageProfileRegistry {
-        private final Map<String, StorageProfile> byName = new HashMap<>();
 
-        void put(StorageProfile profile) {
-            byName.put(profile.name(), profile);
-        }
-
-        @Override
-        public void register(StorageProfile profile) {
-            byName.put(profile.name(), profile);
-        }
-
-        @Override
-        public boolean createIfAbsent(StorageProfile profile) {
-            return byName.putIfAbsent(profile.name(), profile) == null;
-        }
-
-        @Override
-        public boolean unregister(String name) {
-            return byName.remove(name) != null;
-        }
-
-        @Override
-        public Optional<StorageProfile> get(String name) {
-            return Optional.ofNullable(byName.get(name));
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> getCurrentRevision(String name) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> findRevision(String name, String incarnationId,
-                long revision) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<StorageProfile> list() {
-            return List.copyOf(byName.values());
-        }
-
-        @Override
-        public Optional<StorageProfile> resolveByUrl(String url) {
-            return byName.values().stream().filter(profile -> profile.matchesUrl(url)).findFirst();
-        }
-    }
 }

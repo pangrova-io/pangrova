@@ -96,7 +96,7 @@ class FileSpaceFileResourceTest {
     void expiredDescriptorIsRejectedBeforeAnyStorageAccess() {
         FileAccessDescriptor expired = new FileAccessDescriptor("local", StorageType.LOCAL,
                 root.toString(), "", "", "", false, "volumes/media/raw/landing",
-                "images/a.bin", "read", 500L);
+                "images/a.bin", "read", 500L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
 
         assertThatThrownBy(() -> resource.head(expired))
                 .isInstanceOfSatisfying(PangrovaException.class, failure ->
@@ -177,13 +177,13 @@ class FileSpaceFileResourceTest {
                 new ObjectStoreAccessorFactory(), SECRET, mapper, now::get);
         FileAccessDescriptor expiring = new FileAccessDescriptor("local", StorageType.LOCAL,
                 root.toString(), "", "", "", false, "volumes/media/raw/landing",
-                "videos/stale.bin", "write", 2_000L);
+                "videos/stale.bin", "write", 2_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
         MultipartUpload stale = clocked.beginMultipart(expiring, null);
 
         now.set(1_000L + FileSpaceFileResource.MULTIPART_SESSION_MILLIS);
         FileAccessDescriptor later = new FileAccessDescriptor("local", StorageType.LOCAL,
                 root.toString(), "", "", "", false, "volumes/media/raw/landing",
-                "videos/fresh.bin", "write", EXPIRY);
+                "videos/fresh.bin", "write", EXPIRY, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
         clocked.beginMultipart(later, null);
 
         assertThatThrownBy(() -> clocked.uploadPart(later, stale.uploadId(), 1, 1,
@@ -289,12 +289,53 @@ class FileSpaceFileResourceTest {
             FileAccessDescriptor retargeted = new FileAccessDescriptor((String) changed[0],
                     (StorageType) changed[1], (String) changed[2], (String) changed[3],
                     (String) changed[4], (String) changed[5], (boolean) changed[6],
-                    (String) changed[7], (String) changed[8], "write", EXPIRY);
+                    (String) changed[7], (String) changed[8], "write", EXPIRY, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
             assertThatThrownBy(() -> resource.uploadPart(retargeted, token, 1, 1, stream("x")))
                     .as("storage scope field %s", field)
                     .isInstanceOfSatisfying(PangrovaException.class, failure ->
                             assertThat(failure.getErrorCode())
                                     .isEqualTo(PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID));
+        }
+    }
+
+    @Test
+    void rawAndSignedMultipartSessionsCannotBeReboundToAnotherAuthority() {
+        var original = writeGrant(EXPIRY);
+        String signed = begin(resource, original).uploadId();
+        String raw = resource.beginMultipart(original, null).uploadId();
+        Object[] scope = {original.spaceId(), original.subject(), original.tenantId(),
+                original.profileIncarnationId(), original.profileRevision()};
+        Object[] replacements = {"00000000-0000-0000-0000-000000000003", "bob", "tenant-b",
+                "00000000-0000-0000-0000-000000000004", 2L};
+        for (int field = 0; field < scope.length; field++) {
+            Object[] changed = scope.clone();
+            changed[field] = replacements[field];
+            var retargeted = new FileAccessDescriptor(original.profileName(), original.type(), original.bucket(),
+                    original.prefix(), original.endpoint(), original.region(), original.pathStyleAccess(),
+                    original.baseKey(), original.path(), "write", EXPIRY, (String) changed[0], (String) changed[1],
+                    (String) changed[2], (String) changed[3], (long) changed[4]);
+            for (String uploadId : java.util.List.of(signed, raw)) {
+                assertThatThrownBy(() -> resource.uploadPart(retargeted, uploadId, 1, 1, stream("x")))
+                        .as("authority scope field %s, signed=%s", field, uploadId.equals(signed))
+                        .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                                assertThat(failure.getErrorCode()).isIn(PangrovaErrorCode.ACCESS_DENIED,
+                                        PangrovaErrorCode.FILE_UPLOAD_STATE_INVALID));
+            }
+        }
+    }
+
+    @Test
+    void signedLegacyDescriptorsWithoutAuthorityAreRejectedBeforeStorage() throws Exception {
+        var tree = mapper.valueToTree(writeGrant(EXPIRY));
+        for (String field : java.util.List.of("spaceId", "subject", "tenantId", "profileIncarnationId",
+                "profileRevision")) {
+            var missing = tree.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) missing).remove(field);
+            String encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(mapper.writeValueAsBytes(missing));
+            assertThatThrownBy(() -> resource.verified(encoded, FileAccessSignature.sign(SECRET, encoded)))
+                    .as("missing authority %s", field)
+                    .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                            assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
         }
     }
 
@@ -323,7 +364,7 @@ class FileSpaceFileResourceTest {
 
     private FileAccessDescriptor writeGrant(long expiry) {
         return new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(), "", "", "",
-                false, "volumes/media/raw/landing", "videos/session.bin", "write", expiry);
+                false, "volumes/media/raw/landing", "videos/session.bin", "write", expiry, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
     }
 
     private FileSpaceFileResource.MultipartSession begin(FileSpaceFileResource worker,
@@ -353,7 +394,7 @@ class FileSpaceFileResourceTest {
                         software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))) {
             var worker = new FileSpaceFileResource(accessors, SECRET, mapper, now::get);
             var grant = new FileAccessDescriptor("s3", StorageType.S3, "test-bucket", "", "http://localhost:1",
-                    "us-east-1", true, "stage", "private.bin", "read", now.get() + 5_999);
+                    "us-east-1", true, "stage", "private.bin", "read", now.get() + 5_999, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
             var encoded = encode(grant);
             var result = worker.presign(new FileSpaceFileResource.PresignRequest(encoded,
                     FileAccessSignature.sign(SECRET, encoded), true, 3600));
@@ -373,7 +414,7 @@ class FileSpaceFileResourceTest {
         var worker = clocked(now);
         worker.put(descriptor("private.bin", "write"), 10, "text/plain", stream("0123456789"));
         var grant = new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(), "", "", "", false,
-                "volumes/media/raw/landing", "private.bin", "read", 2_000);
+                "volumes/media/raw/landing", "private.bin", "read", 2_000, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
         try (var opened = worker.read(grant, 0, -1, null).stream()) {
             assertThat(opened.read()).isEqualTo('0');
             now.set(2_000);
@@ -423,7 +464,7 @@ class FileSpaceFileResourceTest {
 
     private FileAccessDescriptor descriptor(String path, String operation) {
         return new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(),
-                "", "", "", false, "volumes/media/raw/landing", path, operation, EXPIRY);
+                "", "", "", false, "volumes/media/raw/landing", path, operation, EXPIRY, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
     }
 
     private static InputStream stream(String value) {

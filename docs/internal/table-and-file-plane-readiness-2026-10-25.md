@@ -16,6 +16,33 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## File-session authority binding — continuation on 2026-10-26
+
+File tickets now carry stable namespace ID, authenticated subject/tenant and the
+exact storage-profile incarnation/revision returned by one current-definition
+lookup. Multipart signatures and originating-Worker provider-ID checks bind these
+fields together with the complete physical storage scope and path. A new grant
+from another principal, tenant, namespace or profile version cannot resume the
+old session even when the physical path is identical. Rename keeps the namespace
+identity; DROP/re-CREATE cannot adopt it. Missing authority fields and older
+session signatures fail closed. Upgrade requires fresh tickets/new sessions.
+
+The reactor installation, focused Worker/Coordinator regressions and both owners'
+static analysis passed. The corrected combined selection passed all 22 tests,
+zero failures/errors/skips: `StageFileUrlHttpIntegrationTest` (7),
+`FileSpaceControlPlaneContractE2ETest` (3), `TableControlLifecycleE2ETest` (9),
+and `ActivationSmokeE2ETest` (3). The HTTP regression uses actual PostgreSQL RBAC,
+authentication filters, Coordinator issuance and Worker LOCAL multipart bytes.
+The registry correctly forbids overlapping external locations; the test exercises
+rename followed by DROP/re-CREATE at that location instead of weakening the guard.
+Complete Worker/Coordinator module reruns are in progress at this checkpoint.
+
+An already issued ticket remains a bearer capability until its original deadline;
+subject binding does not authenticate its holder or provide immediate revocation.
+This is not durable multipart state, autonomous cleanup, UNKNOWN reconciliation,
+current tenant-membership qualification or the final production regression.
+No heavy-data test or native source change is included.
+
 ## Stable row-policy ownership — continuation on 2026-10-26
 
 Production bootstrap now reads and saves authored row policies through the stable

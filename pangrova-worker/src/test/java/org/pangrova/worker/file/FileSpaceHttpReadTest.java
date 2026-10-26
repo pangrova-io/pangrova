@@ -261,7 +261,7 @@ class FileSpaceHttpReadTest {
     private String descriptor(String operation, String path) throws Exception {
         FileAccessDescriptor descriptor = new FileAccessDescriptor("local", StorageType.LOCAL,
                 root.toString(), "", "", "", false, "volumes/media/raw/landing", path,
-                operation, System.currentTimeMillis() + 60_000);
+                operation, System.currentTimeMillis() + 60_000, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(
                 JsonMapperFactory.create().writeValueAsBytes(descriptor));
     }

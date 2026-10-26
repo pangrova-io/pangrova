@@ -24,6 +24,11 @@ import org.pangrova.spi.storage.StorageType;
  * @param path            space-relative object path; empty for listings at the root
  * @param operation       head, list, read, write, or delete
  * @param expiresAtEpochMillis absolute expiry in epoch milliseconds
+ * @param spaceId namespace incarnation, retained through rename and replaced after DROP
+ * @param subject authenticated principal that received the grant
+ * @param tenantId authenticated tenant that received the grant
+ * @param profileIncarnationId exact storage-profile incarnation
+ * @param profileRevision exact storage-profile definition revision
  */
 public record FileAccessDescriptor(
         String profileName,
@@ -36,7 +41,12 @@ public record FileAccessDescriptor(
         String baseKey,
         String path,
         String operation,
-        long expiresAtEpochMillis
+        long expiresAtEpochMillis,
+        String spaceId,
+        String subject,
+        String tenantId,
+        String profileIncarnationId,
+        long profileRevision
 ) {
 
     public FileAccessDescriptor {
@@ -49,6 +59,12 @@ public record FileAccessDescriptor(
         endpoint = endpoint == null ? "" : endpoint;
         region = region == null ? "" : region;
         path = path == null ? "" : path;
+        java.util.UUID.fromString(Objects.requireNonNull(spaceId, "spaceId"));
+        java.util.UUID.fromString(Objects.requireNonNull(profileIncarnationId, "profileIncarnationId"));
+        if (subject == null || subject.isBlank() || tenantId == null || tenantId.isBlank()
+                || profileRevision <= 0) {
+            throw new IllegalArgumentException("File descriptor requires a subject, tenant and profile revision");
+        }
     }
 
     /** Rebuilds the credential-free profile the Worker will access. */

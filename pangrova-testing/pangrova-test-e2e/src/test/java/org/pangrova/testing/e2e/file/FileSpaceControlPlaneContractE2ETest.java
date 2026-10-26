@@ -30,8 +30,6 @@ import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.spi.security.FileSpaceAccessControl;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.storage.StorageProfile;
-import org.pangrova.spi.storage.StorageProfileRegistry;
-import org.pangrova.spi.storage.StorageProfileRevision;
 import org.pangrova.spi.storage.StorageType;
 import org.pangrova.spi.storage.file.FileListing;
 import org.pangrova.spi.storage.file.FileSpace;
@@ -56,14 +54,15 @@ class FileSpaceControlPlaneContractE2ETest {
     private static final String SECRET = "file-space-e2e-secret";
     private static final long NOW = 1_000_000L;
     private static final UserIdentity USER =
-            new UserIdentity("alice", Set.of("analysts"), Map.of(), Instant.EPOCH);
+            new UserIdentity("alice", Set.of("analysts"), Map.of("tenant_id", "tenant-a"), Instant.EPOCH);
 
     @TempDir
     Path root;
 
     private final ObjectMapper mapper = JsonMapperFactory.create();
     private final FakeSpaces spaces = new FakeSpaces();
-    private final FakeProfiles profiles = new FakeProfiles();
+    private final org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry profiles =
+            new org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry();
     private FileSpaceAccessService coordinator;
     private FileSpaceFileResource worker;
 
@@ -73,7 +72,7 @@ class FileSpaceControlPlaneContractE2ETest {
                 "local", "", "volumes/media/raw/landing", false, "", "alice", Instant.EPOCH, Instant.EPOCH));
         spaces.put(new FileSpace(UUID.randomUUID(), FileSpaceType.STAGE, "media", "raw", "landing", false,
                 "local", "", "stages/media/raw/landing", true, "", "alice", Instant.EPOCH, Instant.EPOCH));
-        profiles.put(new StorageProfile("local", StorageType.LOCAL, root.toString(), "",
+        profiles.register(new StorageProfile("local", StorageType.LOCAL, root.toString(), "",
                 "", "", Map.of(), Map.of()));
 
         var context = new FileSpaceAccessService.FileSpaceAccessContext("local",
@@ -256,52 +255,5 @@ class FileSpaceControlPlaneContractE2ETest {
         }
     }
 
-    private static final class FakeProfiles implements StorageProfileRegistry {
-        private final Map<String, StorageProfile> byName = new HashMap<>();
 
-        void put(StorageProfile profile) {
-            byName.put(profile.name(), profile);
-        }
-
-        @Override
-        public void register(StorageProfile profile) {
-            byName.put(profile.name(), profile);
-        }
-
-        @Override
-        public boolean createIfAbsent(StorageProfile profile) {
-            return byName.putIfAbsent(profile.name(), profile) == null;
-        }
-
-        @Override
-        public boolean unregister(String name) {
-            return byName.remove(name) != null;
-        }
-
-        @Override
-        public Optional<StorageProfile> get(String name) {
-            return Optional.ofNullable(byName.get(name));
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> getCurrentRevision(String name) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Optional<StorageProfileRevision> findRevision(String name, String incarnationId,
-                long revision) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<StorageProfile> list() {
-            return List.copyOf(byName.values());
-        }
-
-        @Override
-        public Optional<StorageProfile> resolveByUrl(String url) {
-            return byName.values().stream().filter(profile -> profile.matchesUrl(url)).findFirst();
-        }
-    }
 }

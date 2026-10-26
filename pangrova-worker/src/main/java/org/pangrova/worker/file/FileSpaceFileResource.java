@@ -328,7 +328,7 @@ public final class FileSpaceFileResource {
         MultipartUpload upload = accessor(checked).beginMultipart(
                 location(checked), checked.path(), contentType);
         multipartUploads.put(upload.uploadId(),
-                new ActiveUpload(upload, Math.addExact(clock.getAsLong(), MULTIPART_SESSION_MILLIS)));
+                new ActiveUpload(upload, checked, Math.addExact(clock.getAsLong(), MULTIPART_SESSION_MILLIS)));
         return upload;
     }
 
@@ -378,7 +378,8 @@ public final class FileSpaceFileResource {
             throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
                     "Multipart upload session has expired");
         }
-        if (!upload.location().equals(location(checked)) || !upload.path().equals(checked.path())) {
+        if (!sessionPayload(active.authority(), upload.uploadId(), active.expiresAt())
+                .equals(sessionPayload(checked, upload.uploadId(), active.expiresAt()))) {
             throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
                     "Multipart upload belongs to a different space or path");
         }
@@ -428,8 +429,10 @@ public final class FileSpaceFileResource {
         try {
             // JSON frames every field, including profile identity, bucket, endpoint and path;
             // newline concatenation would permit ambiguous scope boundaries.
-            return "multipart-v2:" + mapper.writeValueAsString(List.of(descriptor.profile(),
-                    descriptor.baseKey(), descriptor.path(), providerUploadId, expiresAt));
+            return "multipart-v3:" + mapper.writeValueAsString(List.of(descriptor.profile(),
+                    descriptor.baseKey(), descriptor.path(), descriptor.spaceId(), descriptor.subject(),
+                    descriptor.tenantId(), descriptor.profileIncarnationId(), descriptor.profileRevision(),
+                    providerUploadId, expiresAt));
         } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
             throw new IllegalStateException("Multipart scope cannot be serialized", failure);
         }
@@ -449,7 +452,7 @@ public final class FileSpaceFileResource {
         });
     }
 
-    private record ActiveUpload(MultipartUpload upload, long expiresAt) {
+    private record ActiveUpload(MultipartUpload upload, FileAccessDescriptor authority, long expiresAt) {
     }
 
     private void forget(String... uploadIds) {

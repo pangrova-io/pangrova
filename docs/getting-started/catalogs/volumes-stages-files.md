@@ -246,14 +246,25 @@ assembled. Rejected part validation leaves the published object and staged parts
 intact so the client can correct the part list and retry.
 
 The upload id returned by `multipart/begin` is a signed session token bound to the
-complete storage profile, space root, object path, and an absolute 24-hour expiry.
+complete storage profile, its incarnation and revision, stable namespace ID,
+authenticated subject and tenant, space root, object path, and an absolute 24-hour expiry.
 The response exposes that deadline as `expiresAtEpochMillis`. Any Worker with
 access to the same storage can accept the next part, complete, or abort the upload.
 The token alone grants no file access: every request also requires a currently
 valid signed write descriptor. Before the five-minute descriptor expires, obtain
 a fresh `write` grant from the coordinator, which rechecks the current privileges,
 and retain the original upload id. Renewal cannot extend the 24-hour session limit
-or retarget it to a different storage binding or object.
+or retarget it to a different subject, tenant, namespace incarnation, profile revision,
+storage binding or object. Rename retains the namespace ID and permits continuation;
+DROP/re-CREATE on the same external location cannot adopt the old session. This also
+applies to raw provider IDs retained by the originating Worker.
+
+Tickets are bearer capabilities until their original bounded deadline. Binding their
+subject does not authenticate a different holder of an already issued ticket or
+immediately revoke it. Issuance requires an authenticated nonblank `tenant_id` in the
+subject context. Descriptors missing the new authority fields and older multipart
+signatures are rejected; clients must obtain fresh tickets and begin new sessions
+when upgrading across this contract change.
 
 When another upload starts, the originating Worker aborts sessions past their
 24-hour deadline. A failed abort retains ownership for a later cleanup attempt;

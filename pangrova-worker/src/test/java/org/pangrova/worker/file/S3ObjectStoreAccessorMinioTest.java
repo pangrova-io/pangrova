@@ -209,7 +209,7 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
             var next = new FileSpaceFileResource(nextFactory, SECRET_KEY, mapper, now::get);
             String endpoint = location(bucket, "landing").profile().endpoint();
             var initial = new FileAccessDescriptor("minio", StorageType.S3, bucket, "", endpoint,
-                    "us-east-1", true, "landing", "video/resume.mov", "write", 2_000L);
+                    "us-east-1", true, "landing", "video/resume.mov", "write", 2_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
             String encoded = java.util.Base64.getUrlEncoder().withoutPadding()
                     .encodeToString(mapper.writeValueAsBytes(initial));
             var session = origin.beginMultipart(new FileSpaceFileResource.BeginMultipartRequest(
@@ -220,7 +220,7 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
                     new ByteArrayInputStream(head));
             now.set(3_000L);
             var renewed = new FileAccessDescriptor("minio", StorageType.S3, bucket, "", endpoint,
-                    "us-east-1", true, "landing", "video/resume.mov", "write", 9_000L);
+                    "us-east-1", true, "landing", "video/resume.mov", "write", 9_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
             var additional = origin.beginMultipart(renewed, null);
             UploadedPart second = next.uploadPart(renewed, session.uploadId(), 2, 4, stream("tail"));
             FileStat completed = next.completeMultipart(renewed, session.uploadId(), List.of(first, second));
