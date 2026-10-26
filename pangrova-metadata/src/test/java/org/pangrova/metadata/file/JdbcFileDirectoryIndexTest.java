@@ -125,6 +125,30 @@ class JdbcFileDirectoryIndexTest {
         assertPaths();
     }
 
+    @Test
+    void capturedDefinitionCannotReadASameNameReplacement() {
+        FileSpace previous = stage;
+        publish("previous.txt");
+        spaces.drop(FileSpaceType.STAGE, "media", "raw", "landing", false);
+        stage = spaces.create(new FileSpaceDefinition(FileSpaceType.STAGE, "media", "raw", "landing",
+                false, "local", "", true, "", "bob"), false);
+        publish("replacement.txt");
+        assertThatThrownBy(() -> index.page(previous, null, 100)).hasMessageContaining("definition changed");
+        assertThatThrownBy(() -> index.reference(previous)).hasMessageContaining("definition changed");
+        assertPaths("replacement.txt");
+    }
+
+    @Test
+    void capturedDefinitionCannotReadAfterItsRevisionChanges() {
+        FileSpace previous = stage;
+        stage = spaces.mutate(FileSpaceType.STAGE, "media", "raw", "landing",
+                new FileSpaceMutation.SetStorageProfile("other"));
+        publish("new-root.txt");
+        assertThatThrownBy(() -> index.page(previous, null, 100)).hasMessageContaining("definition changed");
+        assertThat(index.reference(stage).spaceId()).isEqualTo(stage.id());
+        assertPaths("new-root.txt");
+    }
+
     private void publish(String... paths) {
         var token = index.begin(stage, "");
         index.append(token, null, new FileListing(java.util.Arrays.stream(paths)

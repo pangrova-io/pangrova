@@ -16,6 +16,18 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Directory diagnostic owner fencing — continuation on 2026-10-27
+
+Diagnostic directory pages previously selected the current Stage by name, allowing
+an old captured FileSpace to read a same-name replacement's index. They now validate
+the exact captured Stage ID and definition revision and hold a shared definition
+lock for the one page transaction. The index query uses only the admitted ID.
+Reference admission uses the same check. Ten real-PostgreSQL cases passed, including
+same-name replacement and storage-profile revision changes, followed by Metadata
+static verification. Complete Metadata regression and the refreshed runtime cohort
+are pending. These diagnostic pages do not provide immutable generations, manifest
+publication or Native DIRECTORY execution.
+
 ## Provider URL expiry receipts and audit admission — continuation on 2026-10-27
 
 The experimental storage SPI now returns the signed URL together with the actual

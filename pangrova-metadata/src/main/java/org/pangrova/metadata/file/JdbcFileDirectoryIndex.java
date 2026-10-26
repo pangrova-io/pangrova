@@ -34,28 +34,28 @@ public final class JdbcFileDirectoryIndex {
 
     /** Resolves an already authorized Stage definition to its immutable scan identity. */
     public FileDirectoryReference reference(FileSpace space) {
+        return transaction(connection -> reference(connection, space));
+    }
+
+    private static FileDirectoryReference reference(Connection connection, FileSpace space) throws SQLException {
         if (space.type() != FileSpaceType.STAGE || !space.directoryEnabled()) {
             throw invalid("Stage directory is not enabled");
         }
-        return transaction(connection -> {
-            try (var query = connection.prepareStatement("SELECT file_space_id,updated_at FROM file_space_registry "
-                    + "WHERE space_type='STAGE' AND catalog_name=? AND schema_name=? AND space_name=? "
-                    + "AND directory_enabled AND created_at=? AND updated_at=? AND file_space_id=?")) {
-                query.setString(1, space.catalog());
-                query.setString(2, space.schema());
-                query.setString(3, space.name());
-                JdbcSupport.setInstant(query, 4, space.createdAt());
-                JdbcSupport.setInstant(query, 5, space.updatedAt());
-                query.setObject(6, space.id());
-                try (var row = query.executeQuery()) {
-                    if (!row.next()) {
-                        throw invalid("Stage definition changed before directory binding");
-                    }
-                    return new FileDirectoryReference(row.getObject(1, UUID.class),
-                            JdbcSupport.getInstant(row, "updated_at"));
-                }
+        try (var query = connection.prepareStatement("SELECT file_space_id,updated_at FROM file_space_registry "
+                + "WHERE space_type='STAGE' AND catalog_name=? AND schema_name=? AND space_name=? "
+                + "AND directory_enabled AND created_at=? AND updated_at=? AND file_space_id=? FOR SHARE")) {
+            query.setString(1, space.catalog());
+            query.setString(2, space.schema());
+            query.setString(3, space.name());
+            JdbcSupport.setInstant(query, 4, space.createdAt());
+            JdbcSupport.setInstant(query, 5, space.updatedAt());
+            query.setObject(6, space.id());
+            try (var row = query.executeQuery()) {
+                if (!row.next()) throw invalid("Stage definition changed before directory binding");
+                return new FileDirectoryReference(row.getObject(1, UUID.class),
+                        JdbcSupport.getInstant(row, "updated_at"));
             }
-        });
+        }
     }
 
     /** Starts a full or directory-scoped refresh and fences an earlier unfinished scan. */
@@ -181,16 +181,15 @@ public final class JdbcFileDirectoryIndex {
             throw new IllegalArgumentException("Directory page size must be between 1 and 1000");
         }
         return transaction(connection -> {
+            // Hold the captured definition through this diagnostic page. A same-name
+            // replacement must not receive authority from the caller's old FileSpace.
+            reference(connection, space);
             List<FileStat> files = new ArrayList<>();
-            try (var query = connection.prepareStatement("SELECT i.* FROM file_directory_index i "
-                    + "JOIN file_space_registry s USING (file_space_id) WHERE s.space_type='STAGE' "
-                    + "AND s.catalog_name=? AND s.schema_name=? AND s.space_name=? "
-                    + "AND s.directory_enabled AND i.relative_path > ? ORDER BY i.relative_path LIMIT ?")) {
-                query.setString(1, space.catalog());
-                query.setString(2, space.schema());
-                query.setString(3, space.name());
-                query.setString(4, after == null ? "" : after);
-                query.setInt(5, limit);
+            try (var query = connection.prepareStatement("SELECT * FROM file_directory_index "
+                    + "WHERE file_space_id=? AND relative_path > ? ORDER BY relative_path LIMIT ?")) {
+                query.setObject(1, space.id());
+                query.setString(2, after == null ? "" : after);
+                query.setInt(3, limit);
                 try (var row = query.executeQuery()) {
                     while (row.next()) {
                         files.add(new FileStat(row.getString("relative_path"), row.getLong("size_bytes"),
