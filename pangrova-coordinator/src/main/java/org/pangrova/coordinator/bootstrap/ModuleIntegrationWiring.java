@@ -305,7 +305,8 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
         }
         JdbcQualityRuleStore jdbcRuleStore = new JdbcQualityRuleStore(dataSource);
         jdbcRuleStore.initSchema();
-        QualityRuleStore ruleStore = jdbcRuleStore;
+        QualityRuleStore ruleStore = new org.pangrova.metadata.service.TableControlQualityRuleStore(
+                java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry"), jdbcRuleStore);
         lineageEmitter = LineageBackendConfiguration.createEmitter(
                 new org.pangrova.metadata.coordination.JdbcQueryLineageOutbox(dataSource));
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();

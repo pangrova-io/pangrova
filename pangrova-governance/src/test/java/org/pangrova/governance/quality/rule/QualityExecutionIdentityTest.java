@@ -19,7 +19,7 @@ class QualityExecutionIdentityTest {
     @Test
     void enabledRuleCannotInventAnOwnerForALegacyDefinition() {
         assertThatThrownBy(() -> new DataQualityRule(1, "rule", "catalog", "schema", "table",
-                "id > 0", Severity.ERROR, null, true, null, Instant.now(), Instant.now(), null))
+                "id > 0", Severity.ERROR, null, true, null, Instant.now(), Instant.now(), null, null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("execution identity");
     }
 }

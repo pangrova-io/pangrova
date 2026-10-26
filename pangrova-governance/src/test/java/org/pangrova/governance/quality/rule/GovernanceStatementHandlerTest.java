@@ -73,7 +73,7 @@ class GovernanceStatementHandlerTest {
                 2, "disabled_rule", "catalog", "schema", "table",
                 "col > 0", Severity.WARNING, "msg", false, null,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
         ruleStore.saveRule(enabled);
         ruleStore.saveRule(disabled);
 
@@ -125,7 +125,7 @@ class GovernanceStatementHandlerTest {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 expression, Severity.WARNING, "msg", true, null,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 
     /** Executor that always returns a failed result. */
@@ -135,7 +135,7 @@ class GovernanceStatementHandlerTest {
             return new QualityCheckResult(
                     0, rule.ruleId(), rule.ruleName(), rule.tableName(),
                     rule.severity(), Instant.now(), false, 100, 50, 10,
-                    "simulated failure");
+                    "simulated failure", null);
         }
     }
 }

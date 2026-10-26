@@ -37,7 +37,7 @@ class QualityCheckServiceTest {
 
         QualityRuleExecutor executor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
-                r.severity(), Instant.now(), true, 50, 0, 5, null);
+                r.severity(), Instant.now(), true, 50, 0, 5, null, null);
 
         QualityCheckService service = new QualityCheckService(ruleStore, executor, alerter);
 
@@ -55,7 +55,7 @@ class QualityCheckServiceTest {
         QualityRuleExecutor executor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
                 r.severity(), Instant.now(), false, 1000, 42, 15,
-                "42 rows have non-positive amount");
+                "42 rows have non-positive amount", null);
 
         QualityCheckService service = new QualityCheckService(ruleStore, executor, alerter);
 
@@ -75,7 +75,7 @@ class QualityCheckServiceTest {
 
         QualityRuleExecutor executor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
-                r.severity(), Instant.now(), true, 200, 0, 3, null);
+                r.severity(), Instant.now(), true, 200, 0, 3, null, null);
 
         QualityCheckService service = new QualityCheckService(ruleStore, executor, alerter);
 
@@ -103,11 +103,11 @@ class QualityCheckServiceTest {
                 2, "disabled_rule", "catalog", "schema", "orders",
                 "col IS NOT NULL", Severity.WARNING, "msg", false, null,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant")));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null));
 
         QualityRuleExecutor executor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
-                r.severity(), Instant.now(), true, 10, 0, 1, null);
+                r.severity(), Instant.now(), true, 10, 0, 1, null, null);
 
         QualityCheckService service = new QualityCheckService(ruleStore, executor, alerter);
 
@@ -131,6 +131,6 @@ class QualityCheckServiceTest {
         return new DataQualityRule(id, name, "catalog", "schema", "orders",
                 expression, Severity.WARNING, "msg", true, null,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 }

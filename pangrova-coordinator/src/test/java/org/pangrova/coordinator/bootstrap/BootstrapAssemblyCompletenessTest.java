@@ -225,7 +225,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
     void governanceLineageEmitterWiredWhenEnabled() throws Exception {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             wiring.startGovernance(buildAllModulesEnabled(),
-                    org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring"));
+                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring")));
 
             assertThat(wiring.getLineageEmitter()).isNotNull();
         }

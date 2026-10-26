@@ -121,7 +121,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
         DataQualityAlerter alerter = new DataQualityAlerter(registry);
         var result = new org.pangrova.governance.quality.QualityCheckResult(
                 0, 1, "test_rule", "test_table", Severity.WARNING,
-                Instant.now(), false, 100, 5, 5, "5 nulls found");
+                Instant.now(), false, 100, 5, 5, "5 nulls found", null);
 
         // Alert dispatch should not throw
         assertThatCode(() -> alerter.alert(result)).doesNotThrowAnyException();
@@ -148,7 +148,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
     void governanceWiredInModuleIntegrationBootstrap() throws Exception {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             wiring.startGovernance(buildAllModulesEnabled(),
-                    org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring"));
+                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring")));
 
             assertThat(wiring.getLineageEmitter()).isNotNull();
         }
@@ -346,7 +346,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 "expression", Severity.WARNING, "msg", enabled, schedule,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 
     private static Tenant createTenant(String tenantId, int maxConcurrent) {

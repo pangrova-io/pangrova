@@ -23,6 +23,7 @@ class SqlQualityRuleExecutorTest {
                     : new QualityQueryResult(2, 2, List.of(List.of("bad-one"), List.of("bad-two")));
         });
         var result = executor.execute(rule);
+        assertThat(result.tableId()).isEqualTo(rule("unused", true).tableId());
         assertThat(result.passed()).isFalse();
         assertThat(result.totalRows()).isEqualTo(4);
         assertThat(result.failedRows()).isEqualTo(2);
@@ -65,6 +66,7 @@ class SqlQualityRuleExecutorTest {
             throw new GovernanceQueryException(request.expression(), "invalid scalar expression");
         });
         var result = executor.execute(rule("col IN (SELECT col FROM other)", true));
+        assertThat(result.tableId()).isEqualTo(rule("unused", true).tableId());
         assertThat(result.passed()).isFalse();
         assertThat(result.totalRows()).isZero();
         assertThat(result.failedRows()).isZero();
@@ -74,6 +76,7 @@ class SqlQualityRuleExecutorTest {
     private static DataQualityRule rule(String expression, boolean enabled) {
         return new DataQualityRule(1, "rule", "catalog with spaces", "schema", "quoted\"table", expression,
                 Severity.ERROR, "message", enabled, null, Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("owner", "tenant"));
+                new QualityExecutionIdentity("owner", "tenant"),
+                java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
     }
 }

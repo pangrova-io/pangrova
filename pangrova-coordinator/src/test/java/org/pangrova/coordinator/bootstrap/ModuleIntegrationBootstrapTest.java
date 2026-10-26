@@ -84,7 +84,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
     void startGovernanceInitializesLineageAndQualityComponents() throws Exception {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
             wiring.startGovernance(buildAllModulesEnabled(),
-                    org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring"));
+                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring")));
             assertThat(wiring.getLineageEmitter()).isNotNull();
             assertThat(wiring.getWriteQualityGate()).isNotNull();
         }
@@ -288,7 +288,7 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
         CoordinatorBootstrapConfig config = buildAllModulesEnabled();
         wiring.startStreaming(config, null);
         wiring.startGovernance(config,
-                org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_close"));
+                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_close")));
         wiring.startResilience(config);
         wiring.startTenant(config, null);
         wiring.startOperations(config);

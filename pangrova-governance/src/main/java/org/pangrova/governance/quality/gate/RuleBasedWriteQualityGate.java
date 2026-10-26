@@ -84,7 +84,7 @@ public final class RuleBasedWriteQualityGate implements WriteQualityGate {
             return new QualityCheckResult(
                     0, rule.ruleId(), rule.ruleName(), rule.tableName(),
                     rule.severity(), Instant.now(), false, 0, 0, 0,
-                    "Rule execution failed: " + e.getMessage());
+                    "Rule execution failed: " + e.getMessage(), rule.tableId());
         }
     }
 

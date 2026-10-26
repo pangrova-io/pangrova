@@ -16,6 +16,48 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Quality ownership and HTTP binding — continuation on 2026-10-26
+
+Quality definitions and audit results now carry the captured table UUID. Production
+bootstrap uses the stable ownership adapter for current rule reads, table lookups
+and scheduled reloads. Rename projects current diagnostic names; old-name reuse,
+pending rename and replaced catalog deployments cannot execute another identity's
+rule. V101 preserves unproven historical rules/results as unbound. An enabled
+unbound rule cannot run through the adapter; no current name is adopted as proof.
+
+The permanent `quality_rule_identity` owner remains after rule deletion. A numeric
+rule ID cannot be reassigned to another table UUID. Definitions and results refer
+to that owner, so a late result can still be appended after deletion and cannot be
+attributed to a replacement. The PostgreSQL lifecycle/upgrade selection passed,
+including identity-safe upsert, captured-ID deletion/name reuse, late audit results,
+legacy preservation and the existing frozen COPY upgrade. Governance producer
+checks preserve the captured UUID on both normal and failed evaluations.
+
+This is ownership, not actual data-quality acceptance. Bootstrap still chooses the
+definition-only default executor. An authorized Native quality query runner,
+expected-source identity at query admission, policy-content mutation fencing and
+validation of the actual candidate write/post-image remain open. String validity
+or a scan of already committed data cannot qualify the incoming write.
+
+The preceding `bd7e2fa5` owner run passed Metadata but Coordinator reported one HTTP
+protocol error: a profiler request received an SSH banner. The HTTP configuration
+adapter discarded `coordinator.host`. A local socket reproducer confirmed that a
+later address-specific listener can overlap a wildcard listener on this macOS host;
+the failed port was owned by QEMU when inspected. Commit `22078665` carries the
+configured bind host through bootstrap to Jetty. Authenticated local startup probes
+now bind explicitly to loopback, and a real socket regression proves another
+loopback address is not served. Config translation and property/startup tests pass.
+This does not establish that the earlier Native mTLS failure has the same cause.
+
+The combined Java reactor installation and Governance/Metadata/Coordinator static
+analysis passed. The final combined selection passed all 30 tests, zero
+failures/errors/skips: Stage file HTTP (8), file contract component (3), actual SQL
+Stage operations (5), table lifecycle Native SQL (9), Lance secure export (2), and
+activation smoke (3). These are the existing execution paths, not Native DIRECTORY
+or actual data-quality evaluation. Release JNI remains unchanged at SHA-256
+`4e6a3e1cacc646d3666c305092ef629d0ab850181f0b1c7313c520fe9196af38`.
+Complete module and final production regression still require the resulting source.
+
 ## Current file authority — continuation on 2026-10-26
 
 File issuance now resolves the authenticated principal against current PostgreSQL
@@ -394,7 +436,7 @@ these failures disappear.
 |---|---|---|
 | P0 final regression | Complete a clean build and the affected/full Java reactor against the final combined revision; rerun failed suites and all four isolated Native owner suites with the final JNI artifact. | Matching source/artifact hashes, complete reports, no unresolved failure or skipped mandatory gate. |
 | P0/P1 catalog deployment identity qualification | Registration, adoption, guarded legacy backfill and admission comparisons are implemented and covered by the resumed checkpoint above. Complete final combined-revision and process-level qualification. | Retain same-UUID catalog replacement/revision and stale-peer PostgreSQL/HTTP SQL evidence in the final regression. |
-| P1 stable governance identity | Canonical tags and authored/derived column-mask reads now use stable table IDs, including deferred raw-read authorization and captured-ID cleanup. Authored row-policy reads now share the stable UUID in foreground/background paths. Complete quality-rule and column-schema identity and process recovery qualification; do not equate this classification checkpoint with all governance being complete. | ADOPT → tag/mask/quality/audit → rename → restart → UNLINK; external drop/recreate cannot inherit stale policy. |
+| P1 stable governance identity | Canonical tags and authored/derived column-mask reads now use stable table IDs, including deferred raw-read authorization and captured-ID cleanup. Authored row-policy reads now share the stable UUID in foreground/background paths. Quality definitions/results now use stable ownership with permanent rule IDs; actual quality execution, column-schema identity and process recovery qualification remain open; do not equate this classification checkpoint with all governance being complete. | ADOPT → tag/mask/quality/audit → rename → restart → UNLINK; external drop/recreate cannot inherit stale policy. |
 | P1 external writers | Add/run actual Spark local Iceberg writes on MinIO with JDBC/REST catalogs. | Append, position delete, DV, overwrite and equality-delete fail-closed results compared with Spark. |
 | P2 recovery | Crash/ambiguous rename persists the source intent and reserves both names in RENAMING; it fails closed across store restart. Durable automatic reconciliation of physical rename and governance projections is not implemented. | Crash injection before/after physical rename and every projection step converges without granting authority to a replacement. |
 | P2 lifecycle/governance integration | Complete combined-revision validation of automatic maintenance leadership, durable audit, tags/masks, write-quality gates, statistics consumed by planning, UNKNOWN recovery and orphan cleanup. | Actual SQL results and durable effects across coordinator process restart and leadership transfer. |

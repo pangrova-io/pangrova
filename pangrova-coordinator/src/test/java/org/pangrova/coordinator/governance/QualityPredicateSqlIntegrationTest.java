@@ -38,7 +38,7 @@ class QualityPredicateSqlIntegrationTest extends ContainerTestBase {
             var now = Instant.now();
             var rule = new DataQualityRule(1, "positive_amount", connection.getCatalog(), schema,
                     "rows", "amount > 0", Severity.WARNING, "must be positive", true, null, now, now,
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
 
             var result = executor.execute(rule);
 

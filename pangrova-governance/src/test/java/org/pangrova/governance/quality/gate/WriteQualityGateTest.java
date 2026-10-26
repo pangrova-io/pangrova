@@ -36,7 +36,7 @@ class WriteQualityGateTest {
         QualityRuleExecutor failingExecutor = rule -> new QualityCheckResult(
                 0, rule.ruleId(), rule.ruleName(), rule.tableName(),
                 rule.severity(), Instant.now(), false, 100, 5, 10,
-                "5 rows have NULL values in col");
+                "5 rows have NULL values in col", null);
 
         RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(ruleStore, failingExecutor);
 
@@ -55,7 +55,7 @@ class WriteQualityGateTest {
 
         QualityRuleExecutor passingExecutor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
-                r.severity(), Instant.now(), true, 100, 0, 5, null);
+                r.severity(), Instant.now(), true, 100, 0, 5, null, null);
 
         RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(ruleStore, passingExecutor);
 
@@ -75,7 +75,7 @@ class WriteQualityGateTest {
         QualityRuleExecutor failingExecutor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
                 r.severity(), Instant.now(), false, 50, 3, 8,
-                "3 rows have invalid email format");
+                "3 rows have invalid email format", null);
 
         RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(ruleStore, failingExecutor);
 
@@ -104,7 +104,7 @@ class WriteQualityGateTest {
                 1, "disabled_rule", "catalog", "schema", "test_table",
                 "col > 0", Severity.ERROR, "msg", false, null,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
         ruleStore.saveRule(disabled);
 
         RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(
@@ -127,7 +127,7 @@ class WriteQualityGateTest {
                     0, r.ruleId(), r.ruleName(), r.tableName(),
                     r.severity(), Instant.now(), passed, 100,
                     passed ? 0 : 10, 5,
-                    passed ? null : "10 violations found");
+                    passed ? null : "10 violations found", null);
         };
 
         RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(ruleStore, executor);
@@ -145,7 +145,7 @@ class WriteQualityGateTest {
 
         QualityRuleExecutor executor = r -> new QualityCheckResult(
                 0, r.ruleId(), r.ruleName(), r.tableName(),
-                r.severity(), Instant.now(), true, 50, 0, 3, null);
+                r.severity(), Instant.now(), true, 50, 0, 3, null, null);
 
         RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(ruleStore, executor);
         gate.validate("catalog", "schema", "test_table");
@@ -176,6 +176,6 @@ class WriteQualityGateTest {
         return new DataQualityRule(id, name, "catalog", "schema", "test_table",
                 expression, severity, "msg", true, null,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 }

@@ -216,7 +216,7 @@ class CronSchedulerTest {
         var handler = new GovernanceStatementHandler(store, current -> {
             observed.add(current);
             return new QualityCheckResult(0, current.ruleId(), current.ruleName(), current.tableName(),
-                    current.severity(), Instant.now(), false, 5, 2, 1, "2 violations");
+                    current.severity(), Instant.now(), false, 5, 2, 1, "2 violations", null);
         }, new DataQualityAlerter(new AlertChannelRegistry()));
         var audit = new org.pangrova.governance.audit.InMemoryGovernanceAuditTrail();
         scheduler = new CronScheduler(handler, () -> true, audit);
@@ -242,7 +242,7 @@ class CronSchedulerTest {
         scheduler = new CronScheduler(handler, () -> true, audit);
         DataQualityRule scheduled = rule(1, "scheduled");
         store.saveRule(new DataQualityRule(1, "disabled", "catalog", "schema", "table",
-                "true", Severity.WARNING, "msg", false, "0 * * * *", Instant.now(), Instant.now(), null));
+                "true", Severity.WARNING, "msg", false, "0 * * * *", Instant.now(), Instant.now(), null, null));
         scheduler.runCheck(scheduled);
         scheduler.runCheck(rule(2, "deleted"));
         assertThat(executions).hasValue(0);
@@ -276,6 +276,6 @@ class CronSchedulerTest {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 "expression", Severity.WARNING, "msg", true, "0 * * * *",
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 }

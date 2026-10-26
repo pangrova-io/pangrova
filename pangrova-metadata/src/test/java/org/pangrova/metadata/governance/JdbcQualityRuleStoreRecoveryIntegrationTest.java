@@ -54,10 +54,10 @@ class JdbcQualityRuleStoreRecoveryIntegrationTest {
         Instant updated = created.plusSeconds(1);
         store.saveRule(new DataQualityRule(1, "initial", "c", "s", "t", "x IS NOT NULL",
                 Severity.WARNING, "initial", true, null, created, created,
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant")));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null));
         store.saveRule(new DataQualityRule(1, "revised", "c", "s", "t", "x > 0",
                 Severity.ERROR, "revised", false, null, updated, updated,
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant")));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null));
         var fresh = initializedStore(dataSource);
         var loaded = fresh.getRule(1).orElseThrow();
         assertThat(loaded.ruleName()).isEqualTo("revised");
@@ -66,7 +66,7 @@ class JdbcQualityRuleStoreRecoveryIntegrationTest {
         assertThat(fresh.getRulesForTable("c", "s", "t")).containsExactly(loaded);
         assertThat(fresh.getAllEnabledRules()).doesNotContain(loaded);
         store.saveResult(new QualityCheckResult(1, 1, "revised", "t", Severity.ERROR,
-                updated, false, 10, 2, 1, "actual failure"));
+                updated, false, 10, 2, 1, "actual failure", null));
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
              var rows = statement.executeQuery("SELECT failed_rows FROM quality_check_results WHERE result_id=1")) {
             assertThat(rows.next()).isTrue();
@@ -87,7 +87,7 @@ class JdbcQualityRuleStoreRecoveryIntegrationTest {
                     .isInstanceOf(MetastoreException.class);
             assertThatThrownBy(store::getAllEnabledRules).isInstanceOf(MetastoreException.class);
             assertThatThrownBy(() -> store.saveResult(new QualityCheckResult(2, 1, "r", "t",
-                    Severity.ERROR, Instant.now(), false, 1, 1, 1, "failure")))
+                    Severity.ERROR, Instant.now(), false, 1, 1, 1, "failure", null)))
                     .isInstanceOf(MetastoreException.class);
         } finally {
             initializedStore(dataSource);

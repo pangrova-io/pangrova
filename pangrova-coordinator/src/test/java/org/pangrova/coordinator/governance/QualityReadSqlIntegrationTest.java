@@ -191,7 +191,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
         var now = Instant.now();
         var rule = new DataQualityRule(13, "quoted_rule", "catalog", "schema", "odd\"table", "\"drop\" = 'delete'",
                 Severity.WARNING, "message", true, null, now, now,
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
         var result = executor.execute(rule);
         assertThat(result.totalRows()).isEqualTo(3);
         assertThat(result.failedRows()).isEqualTo(2);
@@ -212,7 +212,7 @@ class QualityReadSqlIntegrationTest extends ContainerTestBase {
     private static DataQualityRule rule(long id, String name, String expression) {
         return new DataQualityRule(id, name, "catalog", "schema", "test_table",
                 expression, Severity.WARNING, "msg", true, null, Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 
     /** Test-only independent engine; every returned count and row is read from the actual SQL result. */

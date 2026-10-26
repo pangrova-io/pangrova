@@ -81,7 +81,7 @@ public class GovernanceStatementHandler {
             return new QualityCheckResult(
                     0, rule.ruleId(), rule.ruleName(), rule.tableName(),
                     rule.severity(), Instant.now(), false, 0, 0, elapsedMs,
-                    e.getMessage());
+                    e.getMessage(), rule.tableId());
         }
     }
 }

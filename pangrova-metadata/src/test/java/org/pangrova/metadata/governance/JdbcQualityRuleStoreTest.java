@@ -58,7 +58,7 @@ class JdbcQualityRuleStoreTest {
         DataQualityRule updated = new DataQualityRule(2L, "range_check_v2", "cat", "sch",
                 "items", "price > 0 AND price < 10000", Severity.ERROR, "updated msg",
                 false, "120", Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
         store.saveRule(updated);
 
         DataQualityRule loaded = store.getRule(2L).orElseThrow();
@@ -113,7 +113,7 @@ class JdbcQualityRuleStoreTest {
         Instant now = Instant.now();
         QualityCheckResult result = new QualityCheckResult(
                 100L, 1L, "null_check", "orders",
-                Severity.ERROR, now, false, 1000L, 50L, 250L, "50 nulls found");
+                Severity.ERROR, now, false, 1000L, 50L, 250L, "50 nulls found", null);
         store.saveResult(result);
     }
 
@@ -126,7 +126,7 @@ class JdbcQualityRuleStoreTest {
                 "COUNT(*) WHERE amount IS NULL = 0", Severity.ERROR,
                 "Sales amount must not be null", true, "*/5 * * * *",
                 created, updated,
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
         store.saveRule(rule);
 
         DataQualityRule loaded = store.getRule(50L).orElseThrow();
@@ -152,6 +152,6 @@ class JdbcQualityRuleStoreTest {
         return new DataQualityRule(id, name, catalog, schema, table, expression,
                 severity, "test message", enabled, "60",
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 }

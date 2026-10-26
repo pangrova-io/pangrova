@@ -86,7 +86,7 @@ class JdbcQualityRuleStoreIntegrationTest extends ContainerTestBase {
         restarted.saveResult(result);
         assertSqlFailure("23505", () -> restarted.saveResult(new QualityCheckResult(
                 501, 101, "duplicate", "orders", Severity.ERROR,
-                Instant.parse("2026-01-04T00:00:00Z"), true, 1, 0, 1, "must not replace")));
+                Instant.parse("2026-01-04T00:00:00Z"), true, 1, 0, 1, "must not replace", null)));
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement();
              ResultSet rows = statement.executeQuery("SELECT * FROM quality_check_results WHERE result_id = 501")) {
@@ -163,12 +163,12 @@ class JdbcQualityRuleStoreIntegrationTest extends ContainerTestBase {
                                         Instant createdAt, Instant updatedAt) {
         return new DataQualityRule(id, name, "catalog", "schema", "orders", "amount > 0",
                 Severity.ERROR, "bad rows", enabled, null, createdAt, updatedAt,
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 
     private static QualityCheckResult result(long id) {
         return new QualityCheckResult(id, 101, "updated", "orders", Severity.ERROR,
-                Instant.parse("2026-01-03T00:00:00Z"), false, 10, 2, 17, "bad rows");
+                Instant.parse("2026-01-03T00:00:00Z"), false, 10, 2, 17, "bad rows", null);
     }
 
     private static PGSimpleDataSource adminDataSource() {

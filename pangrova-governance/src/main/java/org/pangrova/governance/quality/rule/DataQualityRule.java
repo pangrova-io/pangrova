@@ -20,7 +20,8 @@ public record DataQualityRule(
     String schedule,
     Instant createdAt,
     Instant updatedAt,
-    QualityExecutionIdentity executionIdentity
+    QualityExecutionIdentity executionIdentity,
+    java.util.UUID tableId
 ) {
     public DataQualityRule {
         if (enabled && executionIdentity == null) {

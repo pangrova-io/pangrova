@@ -106,7 +106,7 @@ class GovernanceWiringInitializeTest {
         return new DataQualityRule(id, name, "catalog", "schema", "table",
                 "expression", Severity.WARNING, "msg", enabled, schedule,
                 Instant.now(), Instant.now(),
-                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"));
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), null);
     }
 
     // --- In-memory implementations for real testing (no mocks) ---

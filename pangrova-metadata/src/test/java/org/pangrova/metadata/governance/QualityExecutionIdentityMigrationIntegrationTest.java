@@ -40,7 +40,7 @@ class QualityExecutionIdentityMigrationIntegrationTest {
         var identity = new QualityExecutionIdentity("quality-owner", "tenant-a");
         store.saveRule(new DataQualityRule(legacy.ruleId(), legacy.ruleName(), legacy.catalogName(),
                 legacy.schemaName(), legacy.tableName(), legacy.checkExpression(), legacy.severity(),
-                legacy.message(), true, legacy.schedule(), legacy.createdAt(), Instant.now(), identity));
+                legacy.message(), true, legacy.schedule(), legacy.createdAt(), Instant.now(), identity, null));
         var restarted = new JdbcQualityRuleStore(source);
         assertThat(restarted.getAllEnabledRules()).singleElement()
                 .satisfies(rule -> assertThat(rule.executionIdentity()).isEqualTo(identity));
@@ -61,6 +61,6 @@ class QualityExecutionIdentityMigrationIntegrationTest {
 
     private static DataQualityRule rule(Instant created, QualityExecutionIdentity identity) {
         return new DataQualityRule(1, "rule", "catalog", "schema", "orders", "amount > 0",
-                Severity.ERROR, "positive", true, "0 * * * *", created, created, identity);
+                Severity.ERROR, "positive", true, "0 * * * *", created, created, identity, null);
     }
 }

@@ -68,7 +68,7 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
                     0, rule.ruleId(), rule.ruleName(), rule.tableName(),
                     rule.severity(), Instant.now(), passed,
                     queryResult.totalRows(), queryResult.failedRows(),
-                    elapsedMs, passed ? null : buildErrorMessage(rule, queryResult, samples));
+                    elapsedMs, passed ? null : buildErrorMessage(rule, queryResult, samples), rule.tableId());
         } catch (GovernanceQueryException e) {
             long elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MILLI;
             LOG.error("event=quality_rule_sql_failed ruleId={} ruleName={} sql={} error={}",
@@ -76,7 +76,7 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
             return new QualityCheckResult(
                     0, rule.ruleId(), rule.ruleName(), rule.tableName(),
                     rule.severity(), Instant.now(), false, 0, 0, elapsedMs,
-                    e.getMessage());
+                    e.getMessage(), rule.tableId());
         }
     }
 

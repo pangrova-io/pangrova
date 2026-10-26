@@ -46,7 +46,7 @@ class LogAlertChannelTest {
 
         QualityCheckResult failedResult = new QualityCheckResult(
                 1, 100, "range_check", "catalog.schema.metrics",
-                Severity.ERROR, Instant.now(), false, 500, 10, 42, "Out of range");
+                Severity.ERROR, Instant.now(), false, 500, 10, 42, "Out of range", null);
 
         alerter.alert(failedResult);
         // If LogAlertChannel were missing, alerter would silently drop.

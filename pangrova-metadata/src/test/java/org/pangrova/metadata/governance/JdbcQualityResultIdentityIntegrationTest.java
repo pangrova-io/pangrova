@@ -74,7 +74,7 @@ class JdbcQualityResultIdentityIntegrationTest extends ContainerTestBase {
         var time = Instant.parse("2026-01-01T00:00:00Z");
         store.saveRule(new org.pangrova.governance.quality.rule.DataQualityRule(1, "invalid-config",
                 "catalog", "schema", "orders", "", Severity.ERROR, "invalid", true, null, time, time,
-                new org.pangrova.governance.quality.rule.QualityExecutionIdentity("quality-owner", "quality-tenant")));
+                new org.pangrova.governance.quality.rule.QualityExecutionIdentity("quality-owner", "quality-tenant"), null));
         var gate = new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(store,
                 new org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor());
         assertThat(gate.validate("catalog", "schema", "orders").allowed()).isFalse();
@@ -117,6 +117,6 @@ class JdbcQualityResultIdentityIntegrationTest extends ContainerTestBase {
 
     private static QualityCheckResult result(String name) {
         return new QualityCheckResult(0, 1, name, "orders", Severity.ERROR,
-                Instant.parse("2026-01-01T00:00:00Z"), false, 10, 2, 1, "actual failure");
+                Instant.parse("2026-01-01T00:00:00Z"), false, 10, 2, 1, "actual failure", null);
     }
 }

@@ -20,6 +20,7 @@ import org.pangrova.governance.quality.alert.Severity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
 import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.rule.QualityRuleStore;
+import org.pangrova.governance.quality.rule.IdentityQualityRuleStore;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,11 +38,19 @@ import org.slf4j.LoggerFactory;
  * No in-process mutable state.</p>
  */
 @ThreadSafe
-public final class JdbcQualityRuleStore implements QualityRuleStore {
+public final class JdbcQualityRuleStore implements IdentityQualityRuleStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcQualityRuleStore.class);
 
     // ── DDL ──────────────────────────────────────────────────────────
+
+    static final String DDL_RULE_IDENTITIES = """
+            CREATE TABLE IF NOT EXISTS quality_rule_identity (
+                rule_id BIGINT PRIMARY KEY,
+                table_id UUID NOT NULL,
+                UNIQUE(rule_id,table_id)
+            )
+            """;
 
     static final String DDL_QUALITY_RULES = """
             CREATE TABLE IF NOT EXISTS quality_rules (
@@ -59,6 +68,9 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 updated_at         TIMESTAMP     NOT NULL,
                 execution_principal VARCHAR(512),
                 execution_tenant    VARCHAR(255),
+                table_id            UUID,
+                CONSTRAINT quality_rule_owner FOREIGN KEY(rule_id,table_id)
+                    REFERENCES quality_rule_identity(rule_id,table_id),
                 CONSTRAINT quality_rule_execution_identity CHECK (
                     (execution_principal IS NULL AND execution_tenant IS NULL AND NOT enabled)
                     OR (execution_principal IS NOT NULL AND length(trim(execution_principal)) > 0
@@ -78,7 +90,10 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 total_rows         BIGINT        NOT NULL DEFAULT 0,
                 failed_rows        BIGINT        NOT NULL DEFAULT 0,
                 execution_time_ms  BIGINT        NOT NULL DEFAULT 0,
-                error_message      TEXT
+                error_message      TEXT,
+                table_id           UUID,
+                CONSTRAINT quality_result_owner FOREIGN KEY(rule_id,table_id)
+                    REFERENCES quality_rule_identity(rule_id,table_id)
             )
             """;
 
@@ -87,15 +102,16 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     private static final String SQL_MERGE_RULE =
             "INSERT INTO quality_rules (rule_id, rule_name, catalog_name, schema_name, "
                     + "table_name, check_expression, severity, message, enabled, schedule, "
-                    + "created_at, updated_at, execution_principal, execution_tenant) "
-                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    + "created_at, updated_at, execution_principal, execution_tenant, table_id) "
+                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     + "ON CONFLICT (rule_id) DO UPDATE SET "
                     + "rule_name=EXCLUDED.rule_name, catalog_name=EXCLUDED.catalog_name, "
                     + "schema_name=EXCLUDED.schema_name, table_name=EXCLUDED.table_name, "
                     + "check_expression=EXCLUDED.check_expression, severity=EXCLUDED.severity, "
                     + "message=EXCLUDED.message, enabled=EXCLUDED.enabled, "
                     + "schedule=EXCLUDED.schedule, updated_at=EXCLUDED.updated_at, "
-                    + "execution_principal=EXCLUDED.execution_principal, execution_tenant=EXCLUDED.execution_tenant";
+                    + "execution_principal=EXCLUDED.execution_principal, execution_tenant=EXCLUDED.execution_tenant "
+                    + "WHERE quality_rules.table_id IS NOT DISTINCT FROM EXCLUDED.table_id";
 
     private static final String SQL_GET_RULE =
             "SELECT * FROM quality_rules WHERE rule_id = ?";
@@ -113,9 +129,9 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     private static final String SQL_INSERT_RESULT =
             "INSERT INTO quality_check_results (result_id, rule_id, rule_name, table_name, "
                     + "severity, check_time, passed, total_rows, failed_rows, "
-                    + "execution_time_ms, error_message) "
+                    + "execution_time_ms, error_message, table_id) "
                     + "VALUES (COALESCE(NULLIF(?,0),nextval(pg_get_serial_sequence("
-                    + "'quality_check_results','result_id'))),?,?,?,?,?,?,?,?,?,?)";
+                    + "'quality_check_results','result_id'))),?,?,?,?,?,?,?,?,?,?,?)";
 
     // ── Fields ───────────────────────────────────────────────────────
 
@@ -132,8 +148,16 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     public void initSchema() {
         try (Connection conn = dataSource.getConnection();
              var stmt = conn.createStatement()) {
+            conn.setAutoCommit(false);
+            org.pangrova.security.store.AuthorizationTransactionGate.lockMutation(conn);
+            stmt.execute(DDL_RULE_IDENTITIES);
             stmt.execute(DDL_QUALITY_RULES);
             stmt.execute(DDL_QUALITY_CHECK_RESULTS);
+            stmt.execute("ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS table_id UUID");
+            stmt.execute("ALTER TABLE quality_check_results ADD COLUMN IF NOT EXISTS table_id UUID");
+            stmt.execute("CREATE INDEX IF NOT EXISTS quality_rule_table_identity ON quality_rules(table_id)");
+            org.pangrova.security.store.AuthorizationTransactionGate.initialize(conn);
+            conn.commit();
             LOG.info("event=quality_rule_schema_initialized");
         } catch (SQLException e) {
             throw new MetastoreException("Failed to initialize quality rule schema", e);
@@ -145,14 +169,43 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     @Override
     public void saveRule(DataQualityRule rule) {
         Objects.requireNonNull(rule, "rule must not be null");
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(SQL_MERGE_RULE)) {
-            bindRule(ps, rule);
-            ps.executeUpdate();
-            LOG.info("event=quality_rule_saved ruleId={} ruleName={}", rule.ruleId(), rule.ruleName());
-        } catch (SQLException e) {
-            throw new MetastoreException("Failed to save quality rule ruleId=" + rule.ruleId(), e);
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                requireRuleOwner(connection, rule);
+                try (var statement = connection.prepareStatement(SQL_MERGE_RULE)) {
+                    bindRule(statement, rule);
+                    if (statement.executeUpdate() != 1) throw changedOwner();
+                }
+                connection.commit();
+                LOG.info("event=quality_rule_saved ruleId={} ruleName={}", rule.ruleId(), rule.ruleName());
+            } catch (SQLException | RuntimeException failure) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackFailure) {
+                    failure.addSuppressed(rollbackFailure);
+                }
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to save quality rule ruleId=" + rule.ruleId(), failure);
         }
+    }
+
+    private static void requireRuleOwner(Connection connection, DataQualityRule rule) throws SQLException {
+        if (rule.tableId() == null) return;
+        try (var statement = connection.prepareStatement("INSERT INTO quality_rule_identity(rule_id,table_id) "
+                + "VALUES (?,?) ON CONFLICT(rule_id) DO UPDATE SET table_id=quality_rule_identity.table_id "
+                + "WHERE quality_rule_identity.table_id=EXCLUDED.table_id")) {
+            statement.setLong(1, rule.ruleId());
+            statement.setObject(2, rule.tableId());
+            if (statement.executeUpdate() != 1) throw changedOwner();
+        }
+    }
+
+    private static org.pangrova.spi.security.AccessDeniedException changedOwner() {
+        return new org.pangrova.spi.security.AccessDeniedException(
+                "Quality rule ID belongs to another stable table identity");
     }
 
     @Override
@@ -186,6 +239,18 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
         } catch (SQLException e) {
             throw new MetastoreException(
                     "Failed to get rules for table=" + catalogName + "." + schemaName + "." + tableName, e);
+        }
+    }
+
+    @Override
+    public List<DataQualityRule> getRules(java.util.UUID tableId) {
+        try (Connection connection = dataSource.getConnection();
+                var statement = connection.prepareStatement(
+                        "SELECT * FROM quality_rules WHERE table_id=? ORDER BY rule_id")) {
+            statement.setObject(1, Objects.requireNonNull(tableId, "tableId"));
+            return collectRules(statement);
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to read stable quality rules", failure);
         }
     }
 
@@ -240,6 +305,8 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     private static final int RESULT_ERROR_MESSAGE_PARAM = 11;
     private static final int RULE_PRINCIPAL_PARAM = 13;
     private static final int RULE_TENANT_PARAM = 14;
+    private static final int RULE_TABLE_ID_PARAM = 15;
+    private static final int RESULT_TABLE_ID_PARAM = 12;
 
     private static List<DataQualityRule> collectRules(PreparedStatement ps) throws SQLException {
         try (ResultSet rs = ps.executeQuery()) {
@@ -269,6 +336,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
         QualityExecutionIdentity identity = rule.executionIdentity();
         ps.setString(RULE_PRINCIPAL_PARAM, identity == null ? null : identity.principal());
         ps.setString(RULE_TENANT_PARAM, identity == null ? null : identity.tenantId());
+        ps.setObject(RULE_TABLE_ID_PARAM, rule.tableId());
     }
 
     static long insertResult(Connection connection, QualityCheckResult result) throws SQLException {
@@ -295,6 +363,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
         ps.setLong(9, result.failedRows());
         ps.setLong(10, result.executionTimeMs());
         ps.setString(RESULT_ERROR_MESSAGE_PARAM, result.errorMessage());
+        ps.setObject(RESULT_TABLE_ID_PARAM, result.tableId());
     }
 
     static DataQualityRule mapRule(ResultSet rs) throws SQLException {
@@ -314,6 +383,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 createdAt != null ? createdAt.toInstant() : null,
                 updatedAt != null ? updatedAt.toInstant() : null,
                 rs.getString("execution_principal") == null ? null : new QualityExecutionIdentity(
-                        rs.getString("execution_principal"), rs.getString("execution_tenant")));
+                        rs.getString("execution_principal"), rs.getString("execution_tenant")),
+                rs.getObject("table_id", java.util.UUID.class));
     }
 }

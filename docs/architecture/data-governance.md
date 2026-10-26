@@ -12,6 +12,30 @@ sidebar_label: "Data Governance"
 
 > **Summary.** Data lineage, data-quality rules, and data classification.
 
+## Stable ownership of quality definitions and results
+
+Production rule reads and saves use a stable controlled-table UUID. Catalog, schema
+and table names are diagnostic projections from the current registry. Rename keeps
+the rule; a new table under a released name cannot inherit it. A non-ACTIVE table or
+replaced catalog deployment cannot execute the rule. Scheduled callbacks reload the
+rule by ID before evaluating it, so a captured diagnostic name is not policy authority.
+
+`quality_rule_identity` retains the table owner after rule deletion. A numeric rule ID
+cannot be reassigned to a different table UUID; new targets require new rule IDs.
+Bound definitions and audit results reference that permanent owner. Results retain
+the captured UUID, including an evaluation finishing after its rule was deleted.
+
+V101 preserves historical name-only definitions and results as unbound. It neither
+claims a current table nor changes historical counts/expressions. Enabled unbound
+rules fail closed in the production adapter until an administrator verifies and
+explicitly binds their intended owner or retires them. Assigning every old rule the
+UUID currently found at its name is not a supported migration.
+
+These ownership checks do not qualify actual data evaluation or candidate-write
+validation. The existing production bootstrap still chooses the definition-only
+default executor; replacing that path with an authorized Native query runner and
+validating the actual write candidate remain open implementation requirements.
+
 ## Quality read contract and execution identity
 
 Enabled rules require a persisted principal and tenant. V74 preserves old rules but

@@ -18,5 +18,6 @@ public record QualityCheckResult(
     long totalRows,
     long failedRows,
     long executionTimeMs,
-    String errorMessage
+    String errorMessage,
+    java.util.UUID tableId
 ) {}

@@ -33,7 +33,7 @@ public final class DefaultQualityRuleExecutor implements QualityRuleExecutor {
         return new QualityCheckResult(
                 0, rule.ruleId(), rule.ruleName(), rule.tableName(),
                 rule.severity(), Instant.now(), passed, 0, 0, elapsedMs,
-                errorMessage);
+                errorMessage, rule.tableId());
     }
 
     private boolean validateRule(DataQualityRule rule) {
