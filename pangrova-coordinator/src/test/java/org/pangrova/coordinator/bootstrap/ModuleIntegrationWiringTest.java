@@ -64,9 +64,11 @@ class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.Sig
     @Test
     void startGovernanceInitializesLineageAndQualityComponents() throws Exception {
         try (ModuleIntegrationWiring wiring = new ModuleIntegrationWiring()) {
-            wiring.startGovernance(buildAllModulesEnabled(),
-                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring")));
+            var source = org.pangrova.coordinator.testinfra.SharedPostgresContainer
+                    .migratedDataSource("governance_wiring");
+            wiring.startGovernance(buildAllModulesEnabled(), GovernanceBootstrapTestAuthority.bind(wiring, source));
             assertThat(wiring.getLineageEmitter()).isNotNull();
+            GovernanceBootstrapTestAuthority.assertMissingRunnerBlocks(wiring.getWriteQualityGate(), source);
         }
     }
 

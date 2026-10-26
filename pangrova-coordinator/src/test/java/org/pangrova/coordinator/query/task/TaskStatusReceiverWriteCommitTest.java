@@ -336,6 +336,34 @@ class TaskStatusReceiverWriteCommitTest {
     }
 
     @Test
+    void unconfiguredQualityEvaluationCannotPublishFinishedNativeFragments() {
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID, CATALOG_NAME, new TestOutputTableHandle(), new TestConnectorSession(),
+                binding(), org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", Map.of()), null);
+        var rules = new org.pangrova.governance.quality.rule.InMemoryQualityRuleStore();
+        rules.saveRule(new org.pangrova.governance.quality.rule.DataQualityRule(
+                1, "required_positive", CATALOG_NAME, "default", "events", "amount > 0",
+                org.pangrova.governance.quality.alert.Severity.ERROR, "msg", true, null,
+                Instant.now(), Instant.now(),
+                new org.pangrova.governance.quality.rule.QualityExecutionIdentity("writer", "tenant"), null));
+        receiver.setWriteQualityGate(new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(
+                rules, new org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor()));
+        registerRunningQuery();
+        registerTwoTasks();
+        receiver.onTaskStatus(finishedWithWriteResult("t-1", new byte[]{1}));
+        receiver.onTaskStatus(finishedWithWriteResult("t-2", new byte[]{2}));
+
+        assertThat(recordingMetadata.finishCalls).isEmpty();
+        assertThat(writeCommitJournal.getEntry(QUERY_ID)).isEmpty();
+        assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.FAILED);
+        assertThat(rules.getRecentResults()).singleElement().satisfies(result -> {
+            assertThat(result.passed()).isFalse();
+            assertThat(result.errorMessage()).contains("was not evaluated");
+        });
+    }
+
+    @Test
     void qualityGateBlocksWriteBeforeCatalogCommit() {
         writeCommitTracker.registerWriteContext(
                 QUERY_ID, CATALOG_NAME, new TestOutputTableHandle(), new TestConnectorSession(),

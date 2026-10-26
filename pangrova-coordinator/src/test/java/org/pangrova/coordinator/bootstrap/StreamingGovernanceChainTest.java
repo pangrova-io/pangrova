@@ -12,7 +12,7 @@ import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.*;
 import org.pangrova.governance.quality.alert.AlertChannelRegistry;
 import org.pangrova.governance.quality.alert.DataQualityAlerter;
-import org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor;
+import org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
 import org.pangrova.governance.quality.rule.InMemoryQualityRuleStore;
 import org.pangrova.governance.quality.schedule.CronScheduler;
@@ -221,7 +221,7 @@ class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.Si
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
-                ruleStore, new DefaultQualityRuleExecutor(), alerter);
+                ruleStore, new UnconfiguredQualityRuleExecutor(), alerter);
         CronScheduler scheduler = new CronScheduler(handler);
         closeables.add(scheduler);
         LineageEventEmitter emitter = createLineageEmitter();

@@ -83,10 +83,12 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
     @Test
     void startGovernanceInitializesLineageAndQualityComponents() throws Exception {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
-            wiring.startGovernance(buildAllModulesEnabled(),
-                GovernanceBootstrapTestAuthority.bind(wiring, org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring")));
+            var source = org.pangrova.coordinator.testinfra.SharedPostgresContainer
+                    .migratedDataSource("governance_wiring");
+            wiring.startGovernance(buildAllModulesEnabled(), GovernanceBootstrapTestAuthority.bind(wiring, source));
             assertThat(wiring.getLineageEmitter()).isNotNull();
             assertThat(wiring.getWriteQualityGate()).isNotNull();
+            GovernanceBootstrapTestAuthority.assertMissingRunnerBlocks(wiring.getWriteQualityGate(), source);
         }
     }
 

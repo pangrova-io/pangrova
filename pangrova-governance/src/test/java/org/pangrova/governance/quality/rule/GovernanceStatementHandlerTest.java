@@ -29,11 +29,11 @@ class GovernanceStatementHandlerTest {
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         handler = new GovernanceStatementHandler(
-                ruleStore, new DefaultQualityRuleExecutor(), alerter);
+                ruleStore, new UnconfiguredQualityRuleExecutor(), alerter);
     }
 
     @Test
-    void handleRunCheckUsesExecutorNotHardcoded() {
+    void handleRunCheckCannotPassWithoutADataPlaneRunner() {
         DataQualityRule rule = rule(1, "null_check", "col IS NOT NULL");
         ruleStore.saveRule(rule);
 
@@ -43,8 +43,11 @@ class GovernanceStatementHandlerTest {
         assertEquals(1, results.size());
         QualityCheckResult result = results.get(0);
         assertEquals("null_check", result.ruleName());
-        // With DefaultQualityRuleExecutor, a rule with valid expression passes
-        assertTrue(result.passed());
+        assertFalse(result.passed());
+        assertTrue(result.errorMessage().contains("was not evaluated"));
+        assertEquals(0, result.totalRows());
+        assertEquals(0, result.failedRows());
+        assertEquals(List.of(result), ruleStore.getRecentResults());
     }
 
     @Test

@@ -168,7 +168,7 @@ class QueryLineageHttpRecoveryIntegrationTest {
         var store = new org.pangrova.metadata.governance.JdbcQualityRuleStore(dataSource);
         store.initSchema();
         var handler = new org.pangrova.governance.quality.rule.GovernanceStatementHandler(store,
-                new org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor(),
+                new org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor(),
                 new org.pangrova.governance.quality.alert.DataQualityAlerter(
                         new org.pangrova.governance.quality.alert.AlertChannelRegistry()));
         var scheduler = new org.pangrova.governance.quality.schedule.CronScheduler(handler);

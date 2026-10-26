@@ -254,6 +254,50 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void missingQualityRunnerRejectsActualNativeWriteAndPersistsFailedAudit() throws Exception {
+        String table = "controlled_quality_runner";
+        String source = PAIMON + "." + SCHEMA + "." + table;
+        sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (1)");
+        var owner = store.find(PAIMON, SCHEMA, table).orElseThrow();
+        var persisted = new org.pangrova.metadata.governance.JdbcQualityRuleStore(stateStoreDataSource());
+        var rules = new org.pangrova.metadata.service.TableControlQualityRuleStore(
+                metadataBootstrap.catalogRegistry(), persisted);
+        long ruleId = java.util.UUID.randomUUID().getLeastSignificantBits() & Long.MAX_VALUE;
+        var now = java.time.Instant.now();
+        rules.saveRule(new org.pangrova.governance.quality.rule.DataQualityRule(ruleId,
+                "required_positive", PAIMON, SCHEMA, table, "id > 0",
+                org.pangrova.governance.quality.alert.Severity.ERROR, "msg", true, null, now, now,
+                new org.pangrova.governance.quality.rule.QualityExecutionIdentity("e2e-user", "e2e-tenant"), null));
+        configureWriteQualityGate(new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(
+                rules, new org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor()));
+        try {
+            assertThat(sqlRunner.executeExpectingError("INSERT INTO " + source + " VALUES (2)").message())
+                    .contains("was not evaluated", "no authorized data-plane");
+            assertThat(sqlRunner.execute("SELECT id FROM " + source))
+                    .singleElement().satisfies(row -> assertThat(row.getLong("id")).isEqualTo(1L));
+            try (var connection = stateStoreDataSource().getConnection();
+                    var query = connection.prepareStatement("SELECT table_id,passed,total_rows,failed_rows,"
+                            + "error_message FROM quality_check_results WHERE rule_id=?")) {
+                query.setLong(1, ruleId);
+                try (var audit = query.executeQuery()) {
+                    assertThat(audit.next()).isTrue();
+                    assertThat(audit.getObject("table_id", java.util.UUID.class)).isEqualTo(owner.tableId());
+                    assertThat(audit.getBoolean("passed")).isFalse();
+                    assertThat(audit.getLong("total_rows")).isZero();
+                    assertThat(audit.getLong("failed_rows")).isZero();
+                    assertThat(audit.getString("error_message")).contains("was not evaluated");
+                    assertThat(audit.next()).isFalse();
+                }
+            }
+        } finally {
+            configureWriteQualityGate(null);
+            persisted.deleteRule(ruleId);
+            sqlRunner.executeDdl("DROP TABLE " + source);
+        }
+    }
+
+    @Test
     void readsRejectAnExternalReplacementBeforeAnyWriteObservesIt() throws Exception {
         String table = "control_read_replacement";
         sqlRunner.executeDdl("CREATE TABLE " + fqn(table) + " (id BIGINT)");

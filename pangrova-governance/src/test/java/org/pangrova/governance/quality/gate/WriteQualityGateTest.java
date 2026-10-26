@@ -29,6 +29,27 @@ class WriteQualityGateTest {
     }
 
     @Test
+    void unconfiguredEvaluationBlocksErrorRulesAndPersistsTheCapturedOwner() {
+        var tableId = java.util.UUID.randomUUID();
+        ruleStore.saveRule(new DataQualityRule(1, "required_positive", "catalog", "schema", "test_table",
+                "amount > 0", Severity.ERROR, "msg", true, null, Instant.now(), Instant.now(),
+                new QualityExecutionIdentity("quality-test-user", "quality-test-tenant"), tableId));
+        var gate = new RuleBasedWriteQualityGate(ruleStore,
+                new org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor());
+
+        var result = gate.validate("catalog", "schema", "test_table");
+
+        assertThat(result.allowed()).isFalse();
+        assertThat(result.blockReason()).contains("was not evaluated", "no authorized data-plane");
+        assertThat(ruleStore.getRecentResults()).singleElement().satisfies(audit -> {
+            assertThat(audit.passed()).isFalse();
+            assertThat(audit.tableId()).isEqualTo(tableId);
+            assertThat(audit.totalRows()).isZero();
+            assertThat(audit.failedRows()).isZero();
+        });
+    }
+
+    @Test
     void violatingErrorRule_blocksWrite() {
         DataQualityRule errorRule = rule(1, "not_null_check", "col IS NOT NULL", Severity.ERROR);
         ruleStore.saveRule(errorRule);

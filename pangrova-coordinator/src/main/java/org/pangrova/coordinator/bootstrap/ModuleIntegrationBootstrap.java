@@ -10,7 +10,7 @@ import org.pangrova.governance.quality.schedule.CronScheduler;
 import org.pangrova.governance.quality.alert.AlertChannelRegistry;
 import org.pangrova.governance.quality.alert.DataQualityAlerter;
 import org.pangrova.governance.quality.alert.LogAlertChannel;
-import org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor;
+import org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
 import org.pangrova.metadata.governance.JdbcQualityRuleStore;
 import org.pangrova.governance.quality.rule.QualityRuleStore;
@@ -332,7 +332,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         channelRegistry.register(new LogAlertChannel());
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         org.pangrova.governance.quality.rule.QualityRuleExecutor qualityExecutor =
-                new DefaultQualityRuleExecutor();
+                new UnconfiguredQualityRuleExecutor();
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
                 ruleStore, qualityExecutor, alerter);
         CronScheduler cronScheduler = new CronScheduler(handler, this::isMaintenanceLeader,

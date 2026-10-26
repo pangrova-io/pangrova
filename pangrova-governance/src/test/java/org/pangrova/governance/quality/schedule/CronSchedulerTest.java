@@ -6,7 +6,7 @@ import org.pangrova.governance.quality.alert.AlertChannelRegistry;
 import org.pangrova.governance.quality.alert.DataQualityAlerter;
 import org.pangrova.governance.quality.alert.Severity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
-import org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor;
+import org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
 import org.pangrova.governance.quality.rule.InMemoryQualityRuleStore;
 import org.junit.jupiter.api.AfterEach;
@@ -193,7 +193,7 @@ class CronSchedulerTest {
     @Test
     void handlerExceptionDoesNotPropagateFromRunCheck() {
         GovernanceStatementHandler throwingHandler = new GovernanceStatementHandler(
-                new InMemoryQualityRuleStore(), new DefaultQualityRuleExecutor(),
+                new InMemoryQualityRuleStore(), new UnconfiguredQualityRuleExecutor(),
                 new DataQualityAlerter(new AlertChannelRegistry())) {
             @Override
             public Optional<QualityCheckResult> handleRunRule(long ruleId) {
@@ -257,7 +257,7 @@ class CronSchedulerTest {
         var ruleStore = new InMemoryQualityRuleStore();
         ruleStore.saveRule(rule(1, "check_rule"));
         var alerter = new DataQualityAlerter(new AlertChannelRegistry());
-        return new GovernanceStatementHandler(ruleStore, new DefaultQualityRuleExecutor(), alerter) {
+        return new GovernanceStatementHandler(ruleStore, new UnconfiguredQualityRuleExecutor(), alerter) {
             @Override
             public Optional<QualityCheckResult> handleRunRule(long ruleId) {
                 counter.incrementAndGet();
@@ -268,7 +268,7 @@ class CronSchedulerTest {
 
     private GovernanceStatementHandler simpleHandler() {
         return new GovernanceStatementHandler(
-                new InMemoryQualityRuleStore(), new DefaultQualityRuleExecutor(),
+                new InMemoryQualityRuleStore(), new UnconfiguredQualityRuleExecutor(),
                 new DataQualityAlerter(new AlertChannelRegistry()));
     }
 

@@ -819,6 +819,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         rebuildQueryPipeline();
     }
 
+    /** Installs the production quality gate on the actual Native write completion owner. */
+    protected static void configureWriteQualityGate(org.pangrova.governance.quality.gate.WriteQualityGate gate) {
+        java.util.Objects.requireNonNull(sharedTaskStatusReceiver, "E2E task receiver is not initialized")
+                .setWriteQualityGate(gate);
+    }
+
     /** Rebuilds only a storage-profile scenario with the production JDBC authority. */
     protected static void configureDurableStorageProfiles(boolean enabled) {
         durableStorageProfileScenario = enabled;

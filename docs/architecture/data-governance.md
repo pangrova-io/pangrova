@@ -32,9 +32,10 @@ explicitly binds their intended owner or retires them. Assigning every old rule 
 UUID currently found at its name is not a supported migration.
 
 These ownership checks do not qualify actual data evaluation or candidate-write
-validation. The existing production bootstrap still chooses the definition-only
-default executor; replacing that path with an authorized Native query runner and
-validating the actual write candidate remain open implementation requirements.
+validation. Production bootstrap rejects attempted checks without an authorized
+data-plane query runner; definition validity cannot produce a passing result.
+Supplying the Native runner and validating the actual write candidate remain open
+implementation requirements.
 
 ## Quality read contract and execution identity
 
@@ -450,12 +451,19 @@ evaluates every enabled rule for the target table:
 - Every rule result is appended to `quality_check_results`, giving a durable
   record of the decision.
 
-The gate uses the coordinator's configured `QualityRuleExecutor`. The bootstrap
-currently wires `DefaultQualityRuleExecutor`, which validates rule definitions;
-evaluating rule expressions against table data requires supplying
-`SqlQualityRuleExecutor` with a `GovernanceQueryRunner`. Because the check runs
-before the catalog commit, it observes the table's committed state, not the
-staged rows of the in-flight write.
+The gate uses the coordinator's configured `QualityRuleExecutor`. Bootstrap
+currently wires `UnconfiguredQualityRuleExecutor`, which rejects every attempted
+evaluation with an explicit missing-runner error. A nonblank expression is never
+evidence that table data passed a rule. The handler and write gate append the
+failed result with its captured table UUID; an enabled `ERROR` rule blocks the
+write before durable commit intent or connector publication. Tables with no
+enabled rules continue through the gate, and `WARNING`/`INFO` keep their documented
+nonblocking severity while recording failure.
+
+Actual evaluation requires an authorized Native query runner and
+`SqlQualityRuleExecutor`. A scan of committed data cannot validate staged rows of
+the in-flight write: candidate/post-image validation, immutable source ownership
+and its durable recovery receipt remain separate acceptance work.
 
 ### 4.4 Quality Alerting
 

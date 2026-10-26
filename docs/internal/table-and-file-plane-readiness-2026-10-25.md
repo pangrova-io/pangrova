@@ -16,6 +16,39 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Missing quality execution fails explicitly — continuation on 2026-10-27
+
+The definition-only executor has been removed. Both Coordinator bootstrap paths
+now select `UnconfiguredQualityRuleExecutor` until an authorized data-plane query
+runner is supplied. An attempted evaluation reports that the rule was not
+evaluated; a nonblank expression can never produce a passing result by itself.
+The existing handler and pre-commit gate persist failure with the captured table
+UUID. An enabled ERROR rule blocks publication before durable write intent;
+WARNING/INFO retain their documented nonblocking severity and failed audit.
+
+The focused governance handler, gate and SQL-executor selection passed. Both
+production-bootstrap/PostgreSQL checks and the actual Native INSERT regression
+passed: the rejected INSERT leaves the original row visible and appends one failed
+audit result for the captured owner. The complete governance clean verify/static
+analysis, affected PostgreSQL quality/lineage selection and Java reactor installation
+passed. The runtime JAR contains the explicit unconfigured executor and no deleted
+definition-only executor. Coordinator-wide and combined current-source SQL/Native
+verification is in progress.
+
+The first governance owner run failed because the amd64 reference Marquez server
+did not become ready under QEMU within its existing timeout. The prepared arm64
+fixture retains the unmodified pinned upstream application JAR, SHA-256
+`6b5a7ace21b6e3b0d98458abacf93a6dfbe55cd1cb784f1f22a8133d6a966c6a`;
+the failed selection and then clean complete governance/static verification passed
+with that image. New bootstrap tests initially inserted a catalog definition without
+loading its local handle; the real deployment fence rejected it. The fixture now
+registers the catalog normally and both bootstrap checks pass. Neither failure was
+hidden by weakening admission or readiness checks.
+
+This removes false success; it does not implement actual evaluation,
+candidate/post-image checks, source/policy receipts or crash recovery for validated
+writes. Those remain required before data-quality acceptance.
+
 ## Controlled SQL read admission — continuation on 2026-10-27
 
 Controlled SELECT now checks fresh connector format identity before and after
@@ -33,10 +66,12 @@ equality, with a regression above the boxed-Long cache boundary. Publication/wri
 fences retain their stricter metadata revision check.
 
 The focused Metadata tests (50), Coordinator real-SDK read/derived-read selection,
-Java reactor installation and affected static analysis passed. The preceding
-`a7bf2df2` complete Governance/Metadata/Coordinator owner run also passed. Final
-combined endpoint/Native and current owner verification is in progress; these
-results do not close query-lifetime policy binding, stable column-schema identity,
+Java reactor installation and affected static analysis passed. The complete
+Metadata owner then passed for this read-admission source. The preceding
+`a7bf2df2` complete Governance/Metadata/Coordinator owner run also passed. An
+endpoint/Native selection passed 31 tests before the final boxed-revision repair;
+the combined current-source run is still required. These results do not close
+query-lifetime policy binding, stable column-schema identity,
 actual quality evaluation, Native DIRECTORY, durable multipart or recovery gates.
 
 ## Quality ownership and HTTP binding — continuation on 2026-10-26

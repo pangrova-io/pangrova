@@ -76,7 +76,7 @@ class JdbcQualityResultIdentityIntegrationTest extends ContainerTestBase {
                 "catalog", "schema", "orders", "", Severity.ERROR, "invalid", true, null, time, time,
                 new org.pangrova.governance.quality.rule.QualityExecutionIdentity("quality-owner", "quality-tenant"), null));
         var gate = new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(store,
-                new org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor());
+                new org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor());
         assertThat(gate.validate("catalog", "schema", "orders").allowed()).isFalse();
         assertThat(gate.validate("catalog", "schema", "orders").allowed()).isFalse();
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();

@@ -12,7 +12,7 @@ import org.pangrova.governance.quality.alert.DataQualityAlerter;
 import org.pangrova.governance.quality.alert.LogAlertChannel;
 import org.pangrova.governance.quality.alert.Severity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
-import org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor;
+import org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
 import org.pangrova.governance.quality.rule.InMemoryQualityRuleStore;
 import org.pangrova.governance.quality.rule.QualityRuleStore;
@@ -133,7 +133,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
-                ruleStore, new DefaultQualityRuleExecutor(), alerter);
+                ruleStore, new UnconfiguredQualityRuleExecutor(), alerter);
         CronScheduler scheduler = new CronScheduler(handler);
 
         DataQualityRule rule = createRule(10, "scheduled_rule", true, "0 * * * *");
@@ -334,7 +334,7 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
         channelRegistry.register(new LogAlertChannel());
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
-                ruleStore, new DefaultQualityRuleExecutor(), alerter);
+                ruleStore, new UnconfiguredQualityRuleExecutor(), alerter);
         CronScheduler scheduler = new CronScheduler(handler);
         return new GovernanceContext(new GovernanceDeps(
                 emitter, handler, null, scheduler, ruleStore, new org.pangrova.governance.classification.ColumnTagService(

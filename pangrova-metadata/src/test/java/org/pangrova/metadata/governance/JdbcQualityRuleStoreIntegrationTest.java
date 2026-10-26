@@ -2,7 +2,7 @@ package org.pangrova.metadata.governance;
 
 import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
 import org.pangrova.governance.quality.rule.DataQualityRule;
-import org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor;
+import org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -133,7 +133,7 @@ class JdbcQualityRuleStoreIntegrationTest extends ContainerTestBase {
     @Test
     void writeGateFailsClosedWhenRuleReadFails() throws SQLException {
         JdbcQualityRuleStore store = initializedStore(dataSource);
-        RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(store, new DefaultQualityRuleExecutor());
+        RuleBasedWriteQualityGate gate = new RuleBasedWriteQualityGate(store, new UnconfiguredQualityRuleExecutor());
 
         var noRules = gate.validate("catalog", "schema", "orders");
         assertThat(noRules.allowed()).isTrue();
