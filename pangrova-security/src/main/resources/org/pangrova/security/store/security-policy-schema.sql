@@ -13,9 +13,14 @@ CREATE TABLE IF NOT EXISTS row_policy (
     apply_to_roles    TEXT         NOT NULL,      -- comma-separated role list ('' = all)
     enabled           BOOLEAN      NOT NULL DEFAULT TRUE,
     priority          INT          NOT NULL DEFAULT 0,
-    PRIMARY KEY (policy_id),
-    UNIQUE (catalog_name, schema_name, table_name, policy_name)
+    table_id          UUID,
+    PRIMARY KEY (policy_id)
 );
+ALTER TABLE row_policy ADD COLUMN IF NOT EXISTS table_id UUID;
+CREATE UNIQUE INDEX IF NOT EXISTS row_policy_scoped_identity ON row_policy (table_id, policy_name)
+    WHERE table_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS row_policy_unbound_name
+    ON row_policy (catalog_name, schema_name, table_name, policy_name) WHERE table_id IS NULL;
 CREATE INDEX idx_row_policy_table ON row_policy (catalog_name, schema_name, table_name);
 
 -- Column masking policies (ColumnMask).

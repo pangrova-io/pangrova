@@ -57,8 +57,8 @@ import static org.awaitility.Awaitility.await;
 class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
     private static final String CATALOG = "lance_feature_export";
     private PersistentRoleStore roles;
-    private PersistentRowPolicyStore policies;
-    private PersistentColumnMaskStore masks;
+    private org.pangrova.security.rowfilter.RowPolicyStore policies;
+    private org.pangrova.security.mask.EnrichedColumnMaskStore masks;
     private String role;
     private String sourceSchema;
     private String tenant;
@@ -150,8 +150,10 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         var grants = new PersistentGrantStore(stateStoreDataSource());
         grants.addGrant(PrivilegeGrant.of(role, Privilege.ALL, "SCHEMA", CATALOG, "default", null, null));
         grants.addGrant(PrivilegeGrant.of(role, Privilege.SELECT, "TABLE", CATALOG, sourceSchema, "customers", null));
-        policies = new PersistentRowPolicyStore(stateStoreDataSource());
-        masks = new PersistentColumnMaskStore(stateStoreDataSource());
+        policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(metadataBootstrap.catalogRegistry(),
+                new PersistentRowPolicyStore(stateStoreDataSource()));
+        masks = new org.pangrova.metadata.service.TableControlColumnMaskStore(metadataBootstrap.catalogRegistry(),
+                new PersistentColumnMaskStore(stateStoreDataSource()));
         replacePolicies(minimum, mask);
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks)));
@@ -161,7 +163,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         policies.getPolicies(CATALOG, sourceSchema, "customers").forEach(policy -> policies.deletePolicy(policy.policyId()));
         masks.getColumnMasks(CATALOG, sourceSchema, "customers", "secret").forEach(value -> masks.deleteMask(value.maskId()));
         policies.savePolicy(new RowPolicy(0, "feature_rows", CATALOG, sourceSchema, "customers",
-                "customer_id >= " + minimum, List.of(role), true, 1));
+                "customer_id >= " + minimum, List.of(role), true, 1, null));
         masks.saveColumnMask(new ColumnMask(0, "feature_secret", CATALOG, sourceSchema, "customers", "secret",
                 mask, List.of(role), List.of(), true, null));
     }

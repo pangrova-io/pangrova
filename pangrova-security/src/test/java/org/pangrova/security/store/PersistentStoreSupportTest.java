@@ -16,12 +16,14 @@ class PersistentStoreSupportTest {
     @Test
     void schemaResourceParsesIntoExpectedStatements() {
         List<String> statements = PersistentStoreSupport.loadSchemaStatements();
-        // 10 CREATE TABLE + 7 CREATE INDEX + 7 ALTER TABLE = 24 total.
+        // 10 CREATE TABLE + 9 CREATE INDEX + 8 ALTER TABLE = 27 total.
         // Tables: row_policy, column_mask, security_grants, tenant_quota, pangrova_roles,
         //         pangrova_user_roles, pangrova_group_roles (F-SEC-04), tenant, tenant_property,
         //         tenant_membership (F-SEC-02).
-        // Alters: 6 ADD COLUMN on tenant_quota (F-SEC-02), plus stable mask table_id.
-        assertThat(statements).hasSize(24);
+        // Alters: 6 ADD COLUMN on tenant_quota (F-SEC-02), plus stable mask and row-policy table_id.
+        assertThat(statements).hasSize(27);
+        assertThat(statements).anyMatch(s -> s.contains("row_policy_scoped_identity")
+                && s.contains("table_id, policy_name"));
         assertThat(statements).anyMatch(s -> s.contains("ALTER TABLE column_mask ADD COLUMN IF NOT EXISTS table_id UUID"));
         assertThat(statements).anyMatch(s -> s.contains("column_mask_scoped_identity")
                 && s.contains("mask_name, table_id) NULLS NOT DISTINCT"));

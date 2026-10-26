@@ -52,7 +52,7 @@ class DmlRlsPolicyInjectionTest extends ContainerTestBase {
         var applier = install(policy("region_restrict", "region IN ('US', 'EU')", "regional_team"));
         fixture.installPolicies(List.of(policy("region_restrict", "region IN ('US', 'EU')", "regional_team"),
                 new RowPolicy(0, "source_region_restrict", "default", "default", "source_orders",
-                        "region IN ('US', 'EU')", List.of("regional_team"), true, 100)));
+                        "region IN ('US', 'EU')", List.of("regional_team"), true, 100, null)));
         var plan = fixture.compile("MERGE INTO orders t USING source_orders s ON t.id = s.id "
                 + "WHEN MATCHED THEN UPDATE SET amount = s.amount");
 
@@ -124,7 +124,7 @@ class DmlRlsPolicyInjectionTest extends ContainerTestBase {
     }
 
     private static RowPolicy policy(String name, String expression, String role) {
-        return new RowPolicy(0, name, "default", "default", "orders", expression, List.of(role), true, 100);
+        return new RowPolicy(0, name, "default", "default", "orders", expression, List.of(role), true, 100, null);
     }
 
     private static LogicalFilter findFilter(RelNode node) {

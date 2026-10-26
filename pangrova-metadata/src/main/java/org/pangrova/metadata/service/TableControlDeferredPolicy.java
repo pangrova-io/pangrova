@@ -28,7 +28,11 @@ public final class TableControlDeferredPolicy {
         UUID tableId = identity(connection, permission);
         var bindings = tableId == null ? List.<org.pangrova.metadata.control.GovernanceBinding>of()
                 : JdbcTableControlGovernanceBindingStore.list(connection, tableId);
-        return DeferredPolicyReader.observe(connection, principal, roles, permission, (column, masks) ->
+        return DeferredPolicyReader.observe(connection, principal, roles, permission,
+                rows -> TableControlRowPolicyStore.project(tableId, table.catalog(), table.schema(), table.table(),
+                        rows, tableId == null ? List.of()
+                                : org.pangrova.security.store.PersistentRowPolicyStore.list(connection, tableId)),
+                (column, masks) ->
                 TableControlColumnMaskStore.project(tableId, table.catalog(), table.schema(), table.table(),
                         masks, bindings).stream().filter(mask -> mask.columnName().equals(column)).toList());
     }

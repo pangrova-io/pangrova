@@ -100,7 +100,10 @@ public final class CoordinatorBootstrap {
         security = new SecurityBootstrap(config, metadataDataSource, source ->
                 new org.pangrova.metadata.service.TableControlColumnMaskStore(
                         metadataBootstrap.catalogRegistry(),
-                        new org.pangrova.security.store.PersistentColumnMaskStore(source)));
+                        new org.pangrova.security.store.PersistentColumnMaskStore(source)),
+                source -> new org.pangrova.metadata.service.TableControlRowPolicyStore(
+                        metadataBootstrap.catalogRegistry(),
+                        new org.pangrova.security.store.PersistentRowPolicyStore(source)));
         security.start();
         validateInternalAuthSecret();
         startModules();

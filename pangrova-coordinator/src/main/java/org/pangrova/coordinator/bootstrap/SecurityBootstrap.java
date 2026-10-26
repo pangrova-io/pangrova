@@ -11,7 +11,6 @@ import org.pangrova.security.store.PersistentGrantStore;
 import org.pangrova.security.store.PersistentRoleStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.store.PersistentRowPolicyStore;
 import org.pangrova.security.tenant.quota.ClusterConcurrencySlots;
 import org.pangrova.security.tenant.quota.JdbcClusterConcurrencySlots;
 import org.pangrova.security.tenant.quota.TenantQuotaAdmissionController;
@@ -39,14 +38,19 @@ final class SecurityBootstrap {
     private final java.util.function.Function<DataSource,
             org.pangrova.security.mask.EnrichedColumnMaskStore> maskStores;
 
+    private final java.util.function.Function<DataSource,
+            org.pangrova.security.rowfilter.RowPolicyStore> rowPolicyStores;
+
     private AuthenticationManager authenticationManager;
     private AccessControl accessControl;
 
     SecurityBootstrap(CoordinatorBootstrapConfig config, DataSource dataSource,
-            java.util.function.Function<DataSource, org.pangrova.security.mask.EnrichedColumnMaskStore> maskStores) {
+            java.util.function.Function<DataSource, org.pangrova.security.mask.EnrichedColumnMaskStore> maskStores,
+            java.util.function.Function<DataSource, org.pangrova.security.rowfilter.RowPolicyStore> rowPolicyStores) {
         this.config = config;
         this.dataSource = dataSource;
         this.maskStores = java.util.Objects.requireNonNull(maskStores, "maskStores");
+        this.rowPolicyStores = java.util.Objects.requireNonNull(rowPolicyStores, "rowPolicyStores");
     }
 
     void start() {
@@ -124,7 +128,7 @@ final class SecurityBootstrap {
         grants.listGrants();
         var maskStore = maskStores.apply(dataSource);
         return new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
+                new RowLevelSecurityFilter(rowPolicyStores.apply(dataSource)),
                 new ColumnMaskingProcessor(maskStore));
     }
 

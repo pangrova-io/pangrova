@@ -40,7 +40,7 @@ class RowLevelSecurityInjectionTest {
     })
     void rejectsInjectionPayloadInPrincipal(String maliciousPrincipal) {
         RowPolicy policy = new RowPolicy(1L, "owner_filter", CATALOG, SCHEMA, TABLE,
-                "owner = current_user()", List.of(), true, 1);
+                "owner = current_user()", List.of(), true, 1, null);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(singlePolicyStore(policy));
         UserIdentity attacker = new UserIdentity(
                 maliciousPrincipal, Set.of("users"), Map.of(), Instant.now());
@@ -59,7 +59,7 @@ class RowLevelSecurityInjectionTest {
     })
     void rejectsInjectionPayloadInUserAttribute(String maliciousAttribute) {
         RowPolicy policy = new RowPolicy(1L, "dept_filter", CATALOG, SCHEMA, TABLE,
-                "department = user_attribute('department')", List.of(), true, 1);
+                "department = user_attribute('department')", List.of(), true, 1, null);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(singlePolicyStore(policy));
         UserIdentity attacker = new UserIdentity(
                 "alice", Set.of("users"), Map.of("department", maliciousAttribute), Instant.now());
@@ -77,7 +77,7 @@ class RowLevelSecurityInjectionTest {
     })
     void rejectsInjectionPayloadInGroups(String maliciousGroup) {
         RowPolicy policy = new RowPolicy(1L, "group_filter", CATALOG, SCHEMA, TABLE,
-                "role IN (current_groups())", List.of(), true, 1);
+                "role IN (current_groups())", List.of(), true, 1, null);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(singlePolicyStore(policy));
         UserIdentity attacker = new UserIdentity(
                 "alice", Set.of(maliciousGroup), Map.of(), Instant.now());
@@ -91,7 +91,7 @@ class RowLevelSecurityInjectionTest {
     @Test
     void allowsSafePrincipalValues() {
         RowPolicy policy = new RowPolicy(1L, "owner_filter", CATALOG, SCHEMA, TABLE,
-                "owner = current_user()", List.of(), true, 1);
+                "owner = current_user()", List.of(), true, 1, null);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(singlePolicyStore(policy));
         UserIdentity safeUser = new UserIdentity(
                 "alice.smith@company.com", Set.of("engineering"), Map.of(), Instant.now());
@@ -107,7 +107,7 @@ class RowLevelSecurityInjectionTest {
     @Test
     void allowsSafeAttributeValues() {
         RowPolicy policy = new RowPolicy(1L, "dept_filter", CATALOG, SCHEMA, TABLE,
-                "department = user_attribute('department')", List.of(), true, 1);
+                "department = user_attribute('department')", List.of(), true, 1, null);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(singlePolicyStore(policy));
         UserIdentity safeUser = new UserIdentity(
                 "alice", Set.of("users"), Map.of("department", "engineering"), Instant.now());
@@ -123,7 +123,7 @@ class RowLevelSecurityInjectionTest {
     @Test
     void parameterizedFilterSeparatesTemplateFromValues() {
         RowPolicy policy = new RowPolicy(1L, "owner_filter", CATALOG, SCHEMA, TABLE,
-                "owner = current_user()", List.of(), true, 1);
+                "owner = current_user()", List.of(), true, 1, null);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(singlePolicyStore(policy));
         UserIdentity user = new UserIdentity(
                 "alice", Set.of("users"), Map.of(), Instant.now());

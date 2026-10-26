@@ -79,7 +79,7 @@ class RowFilterApplierTest {
     void filterExpressionAppliedToTableScan() {
         RowPolicy policy = new RowPolicy(
                 1L, "sales_only", "default", "default", "orders",
-                "department = 'sales'", List.of("sales_team"), true, 100);
+                "department = 'sales'", List.of("sales_team"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -101,7 +101,7 @@ class RowFilterApplierTest {
         // After remapping, it should reference index 1 in the pruned schema (department)
         RowPolicy policy = new RowPolicy(
                 1L, "sales_only", "default", "default", "orders",
-                "department = 'sales'", List.of("sales_team"), true, 100);
+                "department = 'sales'", List.of("sales_team"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT region, department FROM orders");
 
@@ -123,7 +123,7 @@ class RowFilterApplierTest {
         // After remapping, "amount" should reference the correct index in the scan's RowType
         RowPolicy policy = new RowPolicy(
                 1L, "amount_limit", "default", "default", "orders",
-                "amount > 1000", List.of("managers"), true, 100);
+                "amount > 1000", List.of("managers"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT id, amount FROM orders");
 
@@ -141,7 +141,7 @@ class RowFilterApplierTest {
     void compoundFilterExpressionApplied() {
         RowPolicy policy = new RowPolicy(
                 1L, "region_filter", "default", "default", "orders",
-                "region = 'US' AND status = 'active'", List.of("us_team"), true, 100);
+                "region = 'US' AND status = 'active'", List.of("us_team"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -159,7 +159,7 @@ class RowFilterApplierTest {
     void inExpressionFilterApplied() {
         RowPolicy policy = new RowPolicy(
                 1L, "multi_region", "default", "default", "orders",
-                "region IN ('US', 'EU', 'APAC')", List.of("global_team"), true, 100);
+                "region IN ('US', 'EU', 'APAC')", List.of("global_team"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -175,7 +175,7 @@ class RowFilterApplierTest {
     void numericComparisonFilterApplied() {
         RowPolicy policy = new RowPolicy(
                 1L, "amount_limit", "default", "default", "orders",
-                "amount > 1000", List.of("managers"), true, 100);
+                "amount > 1000", List.of("managers"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -193,7 +193,7 @@ class RowFilterApplierTest {
     void policyNotAppliedWhenUserNotInRole() {
         RowPolicy policy = new RowPolicy(
                 1L, "sales_only", "default", "default", "orders",
-                "department = 'sales'", List.of("sales_team"), true, 100);
+                "department = 'sales'", List.of("sales_team"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
@@ -206,7 +206,7 @@ class RowFilterApplierTest {
     void anonymousRequestToRlsProtectedTableThrows401() {
         RowPolicy policy = new RowPolicy(
                 1L, "confidential_filter", "default", "default", "orders",
-                "classification = 'public'", List.of("all_users"), true, 100);
+                "classification = 'public'", List.of("all_users"), true, 100, null);
         RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 

@@ -131,7 +131,7 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
 
     private static RowPolicy policy(String expression) {
         return new RowPolicy(0, "department-filter", "default", "default", "orders",
-                expression, List.of("feature-reader"), true, 1);
+                expression, List.of("feature-reader"), true, 1, null);
     }
 
     private static SqlCompiler compiler() {

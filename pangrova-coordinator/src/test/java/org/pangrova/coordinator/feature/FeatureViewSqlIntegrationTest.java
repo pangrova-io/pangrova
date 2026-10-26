@@ -91,7 +91,7 @@ class FeatureViewSqlIntegrationTest {
     private CoordinatorTaskTracker taskTracker;
     private int statementNumber;
     private AiInfrastructureStores infrastructure;
-    private PersistentRowPolicyStore policies;
+    private org.pangrova.security.rowfilter.RowPolicyStore policies;
     private org.pangrova.security.mask.EnrichedColumnMaskStore masks;
     private final AtomicReference<StatementResult> completed = new AtomicReference<>();
     private final AtomicReference<AuthorizedRelation> observedCompile = new AtomicReference<>();
@@ -110,13 +110,14 @@ class FeatureViewSqlIntegrationTest {
         var grants = new PersistentGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.ALL, "SCHEMA", "lake", "sales", null, null));
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.SELECT, "TABLE", "lake", "raw", "customers", null));
-        policies = new PersistentRowPolicyStore(dataSource);
+        policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
+                metadata.catalogRegistry(), new PersistentRowPolicyStore(dataSource));
         var persistedMasks = new PersistentColumnMaskStore(dataSource);
         persistedMasks.initSchema();
         masks = new org.pangrova.metadata.service.TableControlColumnMaskStore(
                 metadata.catalogRegistry(), persistedMasks);
         policies.savePolicy(new RowPolicy(0, "source_rows", "lake", "raw", "customers",
-                "customer_id >= 100", List.of("feature-role"), true, 1));
+                "customer_id >= 100", List.of("feature-role"), true, 1, null));
         masks.saveColumnMask(new ColumnMask(0, "source_secret", "lake", "raw", "customers", "secret",
                 "'hidden'", List.of("feature-role"), List.of(), true, null));
         var access = new DynamicRbacAccessControl(grants, roles,
@@ -222,7 +223,7 @@ class FeatureViewSqlIntegrationTest {
         }
         for (var policy : policies.getPolicies("lake", "raw", "customers")) policies.deletePolicy(policy.policyId());
         policies.savePolicy(new RowPolicy(0, "changed_rows", "lake", "raw", "customers",
-                "customer_id >= 200", List.of("feature-role"), true, 1));
+                "customer_id >= 200", List.of("feature-role"), true, 1, null));
         observedCompile.set(null);
         // The real empty table has no snapshot 41. Recompilation must happen first;
         // snapshot lookup then fails instead of executing unpinned current data.

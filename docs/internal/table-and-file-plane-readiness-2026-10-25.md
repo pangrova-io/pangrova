@@ -16,6 +16,38 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Stable row-policy ownership — continuation on 2026-10-26
+
+Production bootstrap now reads and saves authored row policies through the stable
+table ID. Canonical rows survive rename without a name migration; diagnostic names
+are projected from the current registry. A different table under the released name
+cannot inherit or overwrite those policies, and deleting the captured original
+policy ID leaves replacement policies intact. Both reserved rename names and a
+replaced catalog deployment reject policy reads. Deferred artifact authorization
+uses the same UUID lookup on its existing publication transaction.
+
+V100 preserves historical name-only rows as unbound instead of guessing ownership.
+An enabled unbound row fails closed until explicitly verified and rebound or
+retired. Upgrading an existing populated policy table preserves expressions and
+priorities, replaces the old name-only uniqueness constraint, and does not advance
+the authorization revision merely for an unchanged policy migration.
+
+The Java reactor installation passed with JDK 17 and Python 3.12. Security,
+Metadata and Coordinator module test invocations passed, together with a separate
+populated-policy upgrade regression and changed-owner Checkstyle. Security,
+Metadata and Coordinator static analysis also passed. The focused
+HTTP SQL/Native selection passed 14 tests, zero failures/errors/skips:
+`TableControlLifecycleE2ETest` (9), `LanceFeatureViewExportE2ETest` (2), and
+`ActivationSmokeE2ETest` (3). The fixture now shares production JDBC table ownership
+between foreground SQL and background publication instead of assigning unrelated
+in-memory identities. Rebuilding the query pipeline and reopening a store do not
+qualify independent-process recovery. JNI sources/artifacts are unchanged.
+
+This closes the tested table-identity path for authored row policies. Quality-rule
+identity, column-schema identity, immutable directory manifests, durable multipart,
+managed ingestion, active stream revocation and final production qualification
+remain open; the deferred heavy environment gates remain deferred.
+
 ## Stable classification and rename-reservation checkpoint
 
 The current continuation replaces the duplicate name-keyed `column_tags` store with
@@ -304,7 +336,7 @@ these failures disappear.
 |---|---|---|
 | P0 final regression | Complete a clean build and the affected/full Java reactor against the final combined revision; rerun failed suites and all four isolated Native owner suites with the final JNI artifact. | Matching source/artifact hashes, complete reports, no unresolved failure or skipped mandatory gate. |
 | P0/P1 catalog deployment identity qualification | Registration, adoption, guarded legacy backfill and admission comparisons are implemented and covered by the resumed checkpoint above. Complete final combined-revision and process-level qualification. | Retain same-UUID catalog replacement/revision and stale-peer PostgreSQL/HTTP SQL evidence in the final regression. |
-| P1 stable governance identity | Canonical tags and authored/derived column-mask reads now use stable table IDs, including deferred raw-read authorization and captured-ID cleanup. Complete authored row-policy/quality identity and process recovery qualification; do not equate this classification checkpoint with all governance being complete. | ADOPT → tag/mask/quality/audit → rename → restart → UNLINK; external drop/recreate cannot inherit stale policy. |
+| P1 stable governance identity | Canonical tags and authored/derived column-mask reads now use stable table IDs, including deferred raw-read authorization and captured-ID cleanup. Authored row-policy reads now share the stable UUID in foreground/background paths. Complete quality-rule and column-schema identity and process recovery qualification; do not equate this classification checkpoint with all governance being complete. | ADOPT → tag/mask/quality/audit → rename → restart → UNLINK; external drop/recreate cannot inherit stale policy. |
 | P1 external writers | Add/run actual Spark local Iceberg writes on MinIO with JDBC/REST catalogs. | Append, position delete, DV, overwrite and equality-delete fail-closed results compared with Spark. |
 | P2 recovery | Crash/ambiguous rename persists the source intent and reserves both names in RENAMING; it fails closed across store restart. Durable automatic reconciliation of physical rename and governance projections is not implemented. | Crash injection before/after physical rename and every projection step converges without granting authority to a replacement. |
 | P2 lifecycle/governance integration | Complete combined-revision validation of automatic maintenance leadership, durable audit, tags/masks, write-quality gates, statistics consumed by planning, UNKNOWN recovery and orphan cleanup. | Actual SQL results and durable effects across coordinator process restart and leadership transfer. |

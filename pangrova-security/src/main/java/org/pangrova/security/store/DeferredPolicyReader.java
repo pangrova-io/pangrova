@@ -22,16 +22,16 @@ public final class DeferredPolicyReader {
 
     public static PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
                                   TablePermission permission) throws SQLException {
-        return observe(connection, principal, roles, permission, (column, masks) -> masks);
+        return observe(connection, principal, roles, permission, rows -> rows, (column, masks) -> masks);
     }
 
     /** Owner adapter supplies identity-bound masks while rendering stays in the security owner. */
     public static PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
-            TablePermission permission, MaskProjection projection) throws SQLException {
+            TablePermission permission, RowProjection rowProjection, MaskProjection projection) throws SQLException {
         // The principal is the persisted authenticated subject, not a maintenance identity.
         // Groups and ephemeral authentication attributes are deliberately not reconstructed.
         var subject = DeferredSubjectContext.fromPrincipal(principal, null);
-        var policies = readRows(connection, permission);
+        var policies = rowProjection.apply(readRows(connection, permission));
         policies.stream().filter(policy -> policy.appliesTo(roles))
                 .forEach(policy -> DeferredSubjectContext.requireStable(subject, policy.filterExpression()));
         var rowFilter = RowLevelSecurityFilter.renderPolicies(subject, roles, policies);
@@ -43,6 +43,11 @@ public final class DeferredPolicyReader {
             masks.put(column, ColumnMaskingProcessor.renderMasks(subject, roles, column, columnMasks));
         }
         return new PolicySnapshot(rowFilter, masks);
+    }
+
+    @FunctionalInterface
+    public interface RowProjection {
+        java.util.List<RowPolicy> apply(java.util.List<RowPolicy> policies) throws SQLException;
     }
 
     @FunctionalInterface
@@ -62,7 +67,7 @@ public final class DeferredPolicyReader {
                             result.getString("catalog_name"), result.getString("schema_name"),
                             result.getString("table_name"), result.getString("filter_expression"),
                             PersistentStoreSupport.decodeRoles(result.getString("apply_to_roles")),
-                            true, result.getInt("priority")));
+                            true, result.getInt("priority"), result.getObject("table_id", java.util.UUID.class)));
                 }
                 return policies;
             }

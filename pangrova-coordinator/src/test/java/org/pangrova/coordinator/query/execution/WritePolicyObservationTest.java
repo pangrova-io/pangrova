@@ -219,7 +219,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
 
     private void installTargetPolicies() {
         rowPolicies.savePolicy(new RowPolicy(0, "tenant_rows", "default", "default", "target_rows",
-                "tenant = 1", List.of("writer"), true, 1));
+                "tenant = 1", List.of("writer"), true, 1, null));
         masks.saveColumnMask(new ColumnMask(0, "score_mask", "default", "default", "target_rows",
                 "score", "0", List.of("writer"), List.of(), true, null));
     }

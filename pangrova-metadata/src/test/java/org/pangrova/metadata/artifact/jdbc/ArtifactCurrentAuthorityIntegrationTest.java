@@ -50,6 +50,7 @@ class ArtifactCurrentAuthorityIntegrationTest extends ContainerTestBase {
     private static final QualifiedTableName TARGET = new QualifiedTableName("lake", "features", "event_features");
     private static final DeferredAuthorizationScope RAW = DeferredAuthorizationScope.raw(SOURCE, Set.of("value"), TARGET);
     private DataSource dataSource;
+    private java.util.UUID sourceTableId;
     private JdbcArtifactBuildStore builds;
     private JdbcTabularExportPublicationStore publisher;
 
@@ -58,6 +59,19 @@ class ArtifactCurrentAuthorityIntegrationTest extends ContainerTestBase {
         dataSource = SharedPostgresContainer.isolatedDataSource("current_artifact_authority");
         SchemaMigrationRunner.migrate(dataSource);
         ArtifactAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL, RAW);
+        var metadata = new org.pangrova.metadata.store.JdbcMetadataStore(dataSource);
+        var descriptor = new org.pangrova.metadata.catalog.CatalogDescriptor(SOURCE.catalog(),
+                org.pangrova.metadata.catalog.CatalogType.CONNECTOR, "test",
+                org.pangrova.metadata.catalog.CatalogState.ACTIVE, Map.of(), "", Set.of());
+        metadata.saveCatalogDescriptor(descriptor);
+        var control = new org.pangrova.metadata.control.TableControlService(
+                new org.pangrova.metadata.control.JdbcTableControlStore(dataSource), name ->
+                        new org.pangrova.metadata.control.CatalogDeploymentIdentity(
+                                descriptor.incarnationId(), descriptor.revision()));
+        sourceTableId = control.registerCreated(SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), PRINCIPAL,
+                Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
+                        "TEST", "authority-source", "file:/authority-source", "schema")), Optional.empty())
+                .orElseThrow().tableId();
         builds = new JdbcArtifactBuildStore(dataSource);
         executions = new org.pangrova.metadata.testinfra.ArtifactExecutionFixtures(dataSource);
         publisher = new JdbcTabularExportPublicationStore(dataSource);
@@ -100,7 +114,7 @@ class ArtifactCurrentAuthorityIntegrationTest extends ContainerTestBase {
         var raw = createClaim("raw-policy", RAW);
         var secure = createClaim("transformed-policy", transformed);
         new PersistentRowPolicyStore(dataSource).savePolicy(new RowPolicy(0, "scope_filter",
-                SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), "value > 10", List.of("artifact_builder"), true, 1));
+                SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), "value > 10", List.of("artifact_builder"), true, 1, sourceTableId));
         assertThatThrownBy(() -> publisher.publishClaimed(raw, "publisher", 1, NOW.plusSeconds(2)))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("Raw artifact reads");
         assertThatThrownBy(() -> publisher.publishClaimed(secure, "publisher", 1, NOW.plusSeconds(2)))
@@ -110,7 +124,7 @@ class ArtifactCurrentAuthorityIntegrationTest extends ContainerTestBase {
     @Test
     void observedPolicyContentCanPublishAndLaterRevokeDoesNotHidePublishedArtifact() throws Exception {
         new PersistentRowPolicyStore(dataSource).savePolicy(new RowPolicy(0, "scope_filter",
-                SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), "value > 10", List.of("artifact_builder"), true, 1));
+                SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), "value > 10", List.of("artifact_builder"), true, 1, sourceTableId));
         var scope = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(SOURCE, Set.of("value"), Privilege.SELECT,
                         DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,

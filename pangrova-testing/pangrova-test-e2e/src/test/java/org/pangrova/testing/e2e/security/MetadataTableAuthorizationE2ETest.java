@@ -133,7 +133,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
         bindPolicyAuthority();
         assertMetadataReadsUnchanged();
         policies.savePolicy(new RowPolicy(0, "only_private", catalog, SCHEMA, table,
-                "id = 1", List.of(role), true, 1));
+                "id = 1", List.of(role), true, 1, null));
         assertThat(sqlRunner.execute("SELECT id FROM " + qualified)).singleElement()
                 .satisfies(row -> assertThat(row.getLong("id")).isEqualTo(1L));
         assertPolicyBlocksMetadata();

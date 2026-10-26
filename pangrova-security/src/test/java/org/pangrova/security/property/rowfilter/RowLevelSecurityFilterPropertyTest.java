@@ -37,7 +37,7 @@ class RowLevelSecurityFilterPropertyTest {
         RowPolicy policy = new RowPolicy(
                 1L, "test", "cat", "sch", "tbl",
                 "owner = current_user()",
-                List.of(), true, 1);
+                List.of(), true, 1, null);
 
         RowPolicyStore store = singlePolicyStore(policy);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
@@ -63,7 +63,7 @@ class RowLevelSecurityFilterPropertyTest {
         RowPolicy policy = new RowPolicy(
                 1L, "test", "cat", "sch", "tbl",
                 "dept = user_attribute('department')",
-                List.of(), true, 1);
+                List.of(), true, 1, null);
 
         RowPolicyStore store = singlePolicyStore(policy);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
@@ -86,7 +86,7 @@ class RowLevelSecurityFilterPropertyTest {
         RowPolicy policy = new RowPolicy(
                 1L, "test", "cat", "sch", "tbl",
                 "owner = current_user()",
-                List.of(), true, 1);
+                List.of(), true, 1, null);
 
         RowPolicyStore store = singlePolicyStore(policy);
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);

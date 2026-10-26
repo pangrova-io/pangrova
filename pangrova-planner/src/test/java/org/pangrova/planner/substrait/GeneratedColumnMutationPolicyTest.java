@@ -105,7 +105,7 @@ class GeneratedColumnMutationPolicyTest {
                     List.of("writers"), List.of(), true, null));
         }
         var policy = new RowPolicy(1, "own_tenant", "catalog", "schema", "documents",
-                "tenant = 1", List.of("writers"), true, 1);
+                "tenant = 1", List.of("writers"), true, 1, null);
         var authority = new DynamicRbacAccessControl(new StaticGrantStore(List.of()), roles,
                 new RowLevelSecurityFilter(new ImmutablePolicies(policy)), new ColumnMaskingProcessor(masks));
         modify = new ColumnMaskApplier(authority).applyColumnMasks(modify, WRITER);

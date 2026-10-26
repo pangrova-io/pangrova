@@ -36,7 +36,8 @@ class SignedOidcSecurityBootstrapIntegrationTest extends ContainerTestBase {
                     "security.enabled", "true", "security.auth.type", "OAUTH2",
                     "security.auth.properties.issuer-uri", issuer.uri(),
                     "security.auth.properties.audience", "pangrova")));
-            var bootstrap = new SecurityBootstrap(configWith(security), dataSource, org.pangrova.security.store.PersistentColumnMaskStore::new);
+            var bootstrap = new SecurityBootstrap(configWith(security), dataSource, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
             try {
                 bootstrap.start();
                 assertThat(bootstrap.isHealthy()).isTrue();

@@ -32,7 +32,7 @@ class RowLevelSecurityFilterTest {
     void deferredPrincipalCannotBindMissingAuthenticationContextAsEmpty(String contextFunction) {
         var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
         var policy = new RowPolicy(90, "deferred_context", "lake", "default", "orders",
-                "department = " + contextFunction, List.of("reader"), true, 1);
+                "department = " + contextFunction, List.of("reader"), true, 1, null);
         var filter = new RowLevelSecurityFilter(new InMemoryRowPolicyStore(List.of(policy)));
 
         assertThatThrownBy(() -> filter.getFilter(subject, Set.of("reader"), "lake", "default", "orders"))
@@ -43,7 +43,7 @@ class RowLevelSecurityFilterTest {
     void deferredPrincipalStillUsesCurrentPersistedRolesAndStablePrincipal() {
         var subject = DeferredSubjectContext.fromPrincipal("alice", "tenant-one");
         var policy = new RowPolicy(90, "owner", "lake", "default", "orders",
-                "owner = current_user()", List.of("reader"), true, 1);
+                "owner = current_user()", List.of("reader"), true, 1, null);
         var filter = new RowLevelSecurityFilter(new InMemoryRowPolicyStore(List.of(policy)));
 
         assertThat(subject.groups()).isEmpty();
@@ -63,7 +63,7 @@ class RowLevelSecurityFilterTest {
     @Test
     void returnsSinglePolicyExpression() {
         RowPolicy policy = new RowPolicy(1, "dept_filter", "iceberg", "default", "orders",
-                "department = current_user()", List.of(), true, 1);
+                "department = current_user()", List.of(), true, 1, null);
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -75,9 +75,9 @@ class RowLevelSecurityFilterTest {
     @Test
     void mergesMultiplePoliciesWithAnd() {
         RowPolicy p1 = new RowPolicy(1, "a_filter", "iceberg", "default", "orders",
-                "region = 'US'", List.of(), true, 1);
+                "region = 'US'", List.of(), true, 1, null);
         RowPolicy p2 = new RowPolicy(2, "b_filter", "iceberg", "default", "orders",
-                "status = 'active'", List.of(), true, 2);
+                "status = 'active'", List.of(), true, 2, null);
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(p1, p2));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -89,7 +89,7 @@ class RowLevelSecurityFilterTest {
     @Test
     void skipsDisabledPolicies() {
         RowPolicy disabled = new RowPolicy(1, "disabled", "iceberg", "default", "orders",
-                "1=0", List.of(), false, 1);
+                "1=0", List.of(), false, 1, null);
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(disabled));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -100,7 +100,7 @@ class RowLevelSecurityFilterTest {
     @Test
     void appliesOnlyToMatchingRoles() {
         RowPolicy policy = new RowPolicy(1, "analyst_only", "iceberg", "default", "orders",
-                "visible = true", List.of("analyst"), true, 1);
+                "visible = true", List.of("analyst"), true, 1, null);
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -111,7 +111,7 @@ class RowLevelSecurityFilterTest {
     @Test
     void bindsUserAttributeFunction() {
         RowPolicy policy = new RowPolicy(1, "attr_filter", "iceberg", "default", "orders",
-                "dept = user_attribute('department')", List.of(), true, 1);
+                "dept = user_attribute('department')", List.of(), true, 1, null);
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -123,7 +123,7 @@ class RowLevelSecurityFilterTest {
     @Test
     void bindsCurrentGroupsFunction() {
         RowPolicy policy = new RowPolicy(1, "group_filter", "iceberg", "default", "orders",
-                "role IN (current_groups())", List.of(), true, 1);
+                "role IN (current_groups())", List.of(), true, 1, null);
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 

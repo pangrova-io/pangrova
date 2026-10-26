@@ -152,7 +152,7 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
         policies = new PersistentRowPolicyStore(stateStoreDataSource());
         masks = new PersistentColumnMaskStore(stateStoreDataSource());
         policies.savePolicy(new RowPolicy(0, "cow_tenant_rows", CATALOG, SCHEMA, table,
-                "tenant=1", List.of(role), true, 1));
+                "tenant=1", List.of(role), true, 1, null));
         masks.saveColumnMask(new ColumnMask(0, "cow_score_zero", CATALOG, SCHEMA, table, "score",
                 "CAST(0 AS BIGINT)", List.of(role), List.of(), true, null));
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,

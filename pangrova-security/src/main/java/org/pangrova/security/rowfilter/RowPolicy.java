@@ -15,7 +15,8 @@ public record RowPolicy(
         String filterExpression,
         List<String> applyToRoles,
         boolean enabled,
-        int priority
+        int priority,
+        java.util.UUID tableId
 ) {
 
     /**

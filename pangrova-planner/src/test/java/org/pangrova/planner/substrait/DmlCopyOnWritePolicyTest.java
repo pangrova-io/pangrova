@@ -214,7 +214,7 @@ class DmlCopyOnWritePolicyTest {
             }
         }
         List<RowPolicy> policies = rowPolicy ? List.of(new RowPolicy(1, "tenant_rows", "default", "default",
-                "target_rows", "tenant = 1", List.of("writers"), true, 1)) : List.of();
+                "target_rows", "tenant = 1", List.of("writers"), true, 1, null)) : List.of();
         return new DynamicRbacAccessControl(new StaticGrantStore(List.of()), roles,
                 new RowLevelSecurityFilter(new ImmutablePolicies(policies)), new ColumnMaskingProcessor(masks));
     }

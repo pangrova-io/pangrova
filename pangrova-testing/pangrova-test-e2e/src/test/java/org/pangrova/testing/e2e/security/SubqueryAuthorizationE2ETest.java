@@ -112,7 +112,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
     void innerRowFilterAndMaskApplyBeforeSubqueryAggregationAndMembership() {
         grant(hidden);
         policies.savePolicy(new RowPolicy(0, "first_row", CATALOG, SCHEMA, hidden,
-                "id = 1", List.of(role), true, 1));
+                "id = 1", List.of(role), true, 1, null));
         bindAuthority();
         assertThat(sqlRunner.execute(queries().get(0))).hasSize(2)
                 .allSatisfy(row -> assertThat(row.getLong("total")).isEqualTo(10));
@@ -135,7 +135,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
         sqlRunner.execute("INSERT INTO " + qualified(visible) + " VALUES (3, 30), (NULL, 40)");
         grant(hidden);
         policies.savePolicy(new RowPolicy(0, "selected_rows", CATALOG, SCHEMA, hidden,
-                policy, List.of(role), true, 1));
+                policy, List.of(role), true, 1, null));
         bindAuthority();
         boolean populated = policy.equals("id = 1");
         assertThat(sqlRunner.execute(queries().get(1))).hasSize(populated ? 1 : 0);

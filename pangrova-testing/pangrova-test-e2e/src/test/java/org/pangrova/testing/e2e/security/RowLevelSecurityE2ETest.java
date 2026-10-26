@@ -98,7 +98,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void userA_seesOnlyOwnRows() {
             RowPolicy ownerPolicy = new RowPolicy(1, "owner_filter",
                     CATALOG, SCHEMA, tableName,
-                    "owner = current_user()", List.of(), true, 1);
+                    "owner = current_user()", List.of(), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -118,7 +118,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void userB_seesOnlyOwnRows() {
             RowPolicy ownerPolicy = new RowPolicy(1, "owner_filter",
                     CATALOG, SCHEMA, tableName,
-                    "owner = current_user()", List.of(), true, 1);
+                    "owner = current_user()", List.of(), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -133,7 +133,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             // Policy applies only to team_a and team_b roles, not admins
             RowPolicy ownerPolicy = new RowPolicy(1, "owner_filter",
                     CATALOG, SCHEMA, tableName,
-                    "owner = current_user()", List.of("team_a", "team_b"), true, 1);
+                    "owner = current_user()", List.of("team_a", "team_b"), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -146,7 +146,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void sameQuery_differentFilterPerUser() {
             RowPolicy ownerPolicy = new RowPolicy(1, "owner_filter",
                     CATALOG, SCHEMA, tableName,
-                    "owner = current_user()", List.of(), true, 1);
+                    "owner = current_user()", List.of(), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -178,7 +178,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void userAttribute_bindsDepartmentForUserA() {
             RowPolicy deptPolicy = new RowPolicy(1, "dept_filter",
                     CATALOG, SCHEMA, tableName,
-                    "department = user_attribute('department')", List.of(), true, 1);
+                    "department = user_attribute('department')", List.of(), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(deptPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -192,7 +192,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void userAttribute_bindsDepartmentForUserB() {
             RowPolicy deptPolicy = new RowPolicy(1, "dept_filter",
                     CATALOG, SCHEMA, tableName,
-                    "department = user_attribute('department')", List.of(), true, 1);
+                    "department = user_attribute('department')", List.of(), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(deptPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -215,10 +215,10 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void multiplePolicies_andMerged() {
             RowPolicy ownerPolicy = new RowPolicy(1, "owner_filter",
                     CATALOG, SCHEMA, tableName,
-                    "owner = current_user()", List.of(), true, 1);
+                    "owner = current_user()", List.of(), true, 1, null);
             RowPolicy deptPolicy = new RowPolicy(2, "dept_filter",
                     CATALOG, SCHEMA, tableName,
-                    "department = user_attribute('department')", List.of(), true, 2);
+                    "department = user_attribute('department')", List.of(), true, 2, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(
                     List.of(ownerPolicy, deptPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
@@ -244,7 +244,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void roleScopedPolicy_appliesOnlyToMatchingRole() {
             RowPolicy teamAPolicy = new RowPolicy(1, "team_a_filter",
                     CATALOG, SCHEMA, tableName,
-                    "owner = current_user()", List.of("team_a"), true, 1);
+                    "owner = current_user()", List.of("team_a"), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(teamAPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
@@ -308,7 +308,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
         void rlsFilter_integratesWithAccessControl() {
             RowPolicy ownerPolicy = new RowPolicy(1, "owner_filter",
                     CATALOG, SCHEMA, tableName,
-                    "owner = current_user()", List.of("team_a", "team_b"), true, 1);
+                    "owner = current_user()", List.of("team_a", "team_b"), true, 1, null);
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
 
             AccessControl acA = buildAccessControl(store, USER_A);

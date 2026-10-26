@@ -37,7 +37,7 @@ class MetadataReadPolicyTest {
             @Override
             public List<RowPolicy> getPolicies(String catalog, String schema, String table) {
                 return List.of(new RowPolicy(1, "tenant", catalog, schema, table,
-                        "tenant_id = 1", List.of("readers"), true, 1));
+                        "tenant_id = 1", List.of("readers"), true, 1, null));
             }
             @Override public void savePolicy(RowPolicy policy) { throw new UnsupportedOperationException(); }
             @Override public void deletePolicy(long id) { throw new UnsupportedOperationException(); }

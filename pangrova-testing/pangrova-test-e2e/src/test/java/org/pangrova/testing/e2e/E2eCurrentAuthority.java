@@ -80,7 +80,8 @@ final class E2eCurrentAuthority {
                     "STORAGE_PROFILE", "*", null, null, null));
         }
         return new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
+                new RowLevelSecurityFilter(new org.pangrova.metadata.service.TableControlRowPolicyStore(
+                        catalogs, new PersistentRowPolicyStore(dataSource))),
                 new ColumnMaskingProcessor(new org.pangrova.metadata.service.TableControlColumnMaskStore(
                         catalogs, new PersistentColumnMaskStore(dataSource))));
     }

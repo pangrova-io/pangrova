@@ -96,7 +96,7 @@ class DmlWriteSecurityEnforcementTest extends ContainerTestBase {
     }
 
     private static RowPolicy policy(String name, String expression, String role) {
-        return new RowPolicy(0, name, "default", "default", "orders", expression, List.of(role), true, 100);
+        return new RowPolicy(0, name, "default", "default", "orders", expression, List.of(role), true, 100, null);
     }
 
     private static LogicalFilter findFilter(RelNode node) {

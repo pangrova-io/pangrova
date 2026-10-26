@@ -2691,6 +2691,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                             descriptor, dependencies, sharedDatasetControlClient, sourceCatalogs.apply(descriptor))),
                     descriptor -> java.util.Optional.of(sourceCatalogs.apply(descriptor)));
             MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
+            bootstrap.catalogRegistry().setTableControlService(new org.pangrova.metadata.control.TableControlService(
+                    new org.pangrova.metadata.control.JdbcTableControlStore(ds),
+                    bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
+                    org.pangrova.metadata.control.TableControlSettings.fromSystemProperties()));
+            bootstrap.catalogRegistry().setTableStatisticsService(
+                    new org.pangrova.metadata.control.TableControlStatisticsService(
+                            bootstrap.catalogRegistry().tableControl(),
+                            new org.pangrova.metadata.control.JdbcTableControlStatisticsStore(ds)));
             bootstrap.catalogRegistry().setGovernanceBindingStore(
                     new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(ds));
             System.err.println("[E2E-DEBUG] initializeMetadata: bootstrap initialized");

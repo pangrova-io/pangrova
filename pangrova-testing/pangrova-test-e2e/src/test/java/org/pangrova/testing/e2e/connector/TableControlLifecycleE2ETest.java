@@ -105,6 +105,41 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("DROP TABLE " + source);
     }
 
+    @Test
+    void rowPoliciesFollowStableIdentityAcrossRenameAndNameReuse() {
+        String table = "controlled_private_rows";
+        String renamedTable = table + "_renamed";
+        String source = PAIMON + "." + SCHEMA + "." + table;
+        String renamed = PAIMON + "." + SCHEMA + "." + renamedTable;
+        sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (1),(2)");
+        var policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
+                metadataBootstrap.catalogRegistry(),
+                new org.pangrova.security.store.PersistentRowPolicyStore(stateStoreDataSource()));
+        policies.savePolicy(new org.pangrova.security.rowfilter.RowPolicy(0, "private_rows", PAIMON,
+                SCHEMA, table, "id > 1", List.of(), true, 1, null));
+        var original = policies.getPolicies(PAIMON, SCHEMA, table).get(0);
+        assertThat(sqlRunner.execute("SELECT id FROM " + source))
+                .singleElement().satisfies(row -> assertThat(row.getLong("id")).isEqualTo(2L));
+        clearFeatureSecurity();
+        sqlRunner.executeDdl("ALTER TABLE " + source + " RENAME TO " + renamed);
+        assertThat(sqlRunner.execute("SELECT id FROM " + renamed))
+                .singleElement().satisfies(row -> assertThat(row.getLong("id")).isEqualTo(2L));
+        assertThat(policies.getPolicies(PAIMON, SCHEMA, renamedTable).get(0).policyId())
+                .isEqualTo(original.policyId());
+        sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (0),(3)");
+        assertThat(sqlRunner.execute("SELECT id FROM " + source)).hasSize(2);
+        policies.savePolicy(new org.pangrova.security.rowfilter.RowPolicy(0, "private_rows", PAIMON,
+                SCHEMA, table, "id > 2", List.of(), true, 1, null));
+        policies.deletePolicy(original.policyId());
+        assertThat(sqlRunner.execute("SELECT id FROM " + source))
+                .singleElement().satisfies(row -> assertThat(row.getLong("id")).isEqualTo(3L));
+        assertThat(sqlRunner.execute("SELECT id FROM " + renamed)).hasSize(2);
+        sqlRunner.executeDdl("DROP TABLE " + source);
+        sqlRunner.executeDdl("DROP TABLE " + renamed);
+    }
+
     private void assertPrivateContacts(String table) {
         var rows = sqlRunner.execute("SELECT id,email,phone,ssn,person FROM " + table + " ORDER BY id");
         assertThat(rows).hasSize(3);

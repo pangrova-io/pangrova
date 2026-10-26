@@ -45,7 +45,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
                 "old-bucket", "", "", "", Map.of(), Map.of()));
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
                 "STORAGE_PROFILE", "incoming", null, null, null));
-        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new);
+        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
         try {
             bootstrap.start();
             var alice = user("alice", Set.of());
@@ -76,7 +77,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
                 "hidden-bucket", "", "", "", Map.of(), Map.of()))).isTrue();
         grants.addGrant(PrivilegeGrant.of("profile-viewer", Privilege.VIEW_STORAGE_PROFILE,
                 "STORAGE_PROFILE", "visible", null, null, null));
-        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new);
+        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
         try {
             bootstrap.start();
             var session = new CoordinatorSessionContext("profile-show", Map.of(), user("alice", Set.of()), "tenant-a");
@@ -134,8 +136,10 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
         roles.mapGroupToRole(GroupRoleMapping.of("directory-analysts", "reader"));
         var grants = new PersistentGrantStore(source);
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "lake", "public", "facts", null));
-        var first = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new);
-        var second = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new);
+        var first = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
+        var second = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
         try {
             first.start();
             second.start();
@@ -161,7 +165,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
 
     @Test
     void missingDatasourceFailsStartupAndClearsAuthentication() {
-        var bootstrap = new SecurityBootstrap(config(), null, org.pangrova.security.store.PersistentColumnMaskStore::new);
+        var bootstrap = new SecurityBootstrap(config(), null, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
         assertThatThrownBy(bootstrap::start).isInstanceOf(BootstrapFailedException.class)
                 .hasRootCauseMessage("Security requires the authoritative PostgreSQL datasource");
         assertThat(bootstrap.isHealthy()).isFalse();
@@ -178,7 +183,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
         new PersistentGrantStore(source).addGrant(
                 PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "lake", "public", "facts", null));
-        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new);
+        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
         try {
             bootstrap.start();
             var alice = user("alice", Set.of());
@@ -197,7 +203,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
 
     @Test
     void securityDisabledHasNoAuthority() {
-        var bootstrap = new SecurityBootstrap(CoordinatorBootstrapConfig.withDefaults("unsecured", 0), null, org.pangrova.security.store.PersistentColumnMaskStore::new);
+        var bootstrap = new SecurityBootstrap(CoordinatorBootstrapConfig.withDefaults("unsecured", 0), null, org.pangrova.security.store.PersistentColumnMaskStore::new,
+                    org.pangrova.security.store.PersistentRowPolicyStore::new);
         bootstrap.start();
         assertThat(bootstrap.accessControl()).isNull();
     }

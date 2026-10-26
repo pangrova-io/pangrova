@@ -26,6 +26,23 @@ coordinator `SecurityBootstrap`.
 - `security.enabled=false` → the startup banner prints a
   `SECURITY DISABLED` warning.
 
+## Stable row-policy ownership
+
+Production row-policy reads and saves resolve the current controlled table ID.
+`row_policy.table_id` is the owner; catalog, schema and table names are diagnostic.
+A table rename keeps its policies without rewriting them. A different table created
+under the old name starts with a different identity and does not inherit them.
+Updates use `(table_id, policy_name)` and retain the database-issued policy ID;
+deleting a captured policy ID cannot delete another table's policy.
+
+V100 preserves historical name-only rows with a NULL table ID. These rows are not
+automatically adopted from a current name: enabled unbound policies reject reads
+until an administrator verifies their intended owner and explicitly rebinds or
+retires them. An unproven binding must not be repaired by assigning every old row
+the ID currently found at its name. The same fail-closed identity projection runs
+inside the existing authorization transaction for background artifact publication.
+Catalog replacement and pending rename also reject reads.
+
 ## Internal Authentication (Coordinator ↔ Worker)
 
 Coordinator-to-worker control calls carry an `X-Internal-Auth` header verified

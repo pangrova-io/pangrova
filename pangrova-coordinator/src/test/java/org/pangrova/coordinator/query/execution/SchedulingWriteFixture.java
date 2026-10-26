@@ -143,7 +143,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "catalog", "schema", "other", null));
         var policies = new PersistentRowPolicyStore(dataSource);
         policies.savePolicy(new RowPolicy(0, "positive-id", "catalog", "schema", "other",
-                "id > 0", List.of("reader"), true, 1));
+                "id > 0", List.of("reader"), true, 1, null));
         var masks = new PersistentColumnMaskStore(dataSource);
         masks.saveColumnMask(new ColumnMask(0, "hide-title", "catalog", "schema", "other", "title",
                 "'masked'", List.of("reader"), List.of(), true, null));
