@@ -12,6 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
 import org.pangrova.security.audit.AuditEvent;
 import org.pangrova.security.audit.AuditEventEmitter;
@@ -43,6 +44,17 @@ class FileUrlServiceTest {
     private final RecordingAccessControl access = new RecordingAccessControl();
     private final RecordingUrlClient client = new RecordingUrlClient();
     private final List<AuditEvent> events = new CopyOnWriteArrayList<>();
+    private final List<AuditEventEmitter> emitters = new java.util.ArrayList<>();
+
+    @AfterEach
+    void closeAuditEmitters() {
+        for (var emitter : emitters) {
+            emitter.close();
+            assertThat(emitter.shutdownTimedOut()).isFalse();
+            assertThat(emitter.eventsLostDuringShutdown()).isZero();
+        }
+        emitters.clear();
+    }
 
     @Test
     void issuesAReadUrlAndRecordsTheIssuanceWithoutTheUrl() {
@@ -50,7 +62,7 @@ class FileUrlServiceTest {
                 "landing", "images/a.jpg", true, 600);
 
         assertThat(issued.url()).isEqualTo("https://storage.example/a.jpg?sig=x");
-        assertThat(issued.expiresAtEpochMillis()).isEqualTo(1234);
+        assertThat(issued.expiresAtEpochMillis()).isEqualTo(NOW + 5_000);
         assertThat(issued.path()).isEqualTo("images/a.jpg");
         assertThat(issued.mode()).isEqualTo("presigned-read");
         assertThat(client.grant.operation()).isEqualTo("read");
@@ -104,6 +116,28 @@ class FileUrlServiceTest {
         assertThat(client.grant).isNull();
     }
 
+    @Test
+    void expiredOrOverlongWorkerReceiptsCannotBecomeIssuedUrlsOrSuccessAudits() {
+        for (boolean overlong : new boolean[]{false, true}) {
+            client.expired = !overlong;
+            client.overlong = overlong;
+            assertThatThrownBy(() -> service().issue(USER, "volumes", "media", "raw",
+                    "landing", "a.jpg", true, 600)).isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("expiry");
+        }
+        closeAuditEmitters();
+        assertThat(events).isEmpty();
+    }
+
+    @Test
+    void aWorkerSigningFailureDoesNotRecordASuccessfulIssuance() {
+        client.failure = new IllegalStateException("provider unavailable");
+        assertThatThrownBy(() -> service().issue(USER, "volumes", "media", "raw",
+                "landing", "a.jpg", true, 600)).isSameAs(client.failure);
+        closeAuditEmitters();
+        assertThat(events).isEmpty();
+    }
+
     private FileUrlService service() {
         spaces.put(new FileSpace(UUID.randomUUID(), FileSpaceType.VOLUME, "media", "raw", "landing", false,
                 "media", "", "volumes/media/raw/landing", false, "", "alice", Instant.EPOCH, Instant.EPOCH));
@@ -111,12 +145,14 @@ class FileUrlServiceTest {
                 "media", "s3://acme/warehouse/stage/landing", "", false, "", "alice", Instant.EPOCH,
                 Instant.EPOCH));
         profiles.register(profile());
+        var emitter = new AuditEventEmitter(events::add);
+        emitters.add(emitter);
         var context = new FileSpaceAccessService.FileSpaceAccessContext("media",
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
-                new FileSpaceAuditEmitter(new AuditEventEmitter(events::add)), SECRET,
+                new FileSpaceAuditEmitter(emitter), SECRET,
                 FileAuthorityTestFixture.authority());
         var grants = new FileSpaceAccessService(spaces, profiles, access, context);
-        return new FileUrlService(grants, client);
+        return new FileUrlService(grants, client, () -> NOW);
     }
 
     private static StorageProfile profile() {
@@ -129,6 +165,9 @@ class FileUrlServiceTest {
         FileSpaceAccessService.FileAccessGrant grant;
         boolean read;
         long ttlSeconds;
+        boolean expired;
+        boolean overlong;
+        RuntimeException failure;
 
         @Override
         public FileUrl presign(FileSpaceAccessService.FileAccessGrant grant, boolean read,
@@ -136,7 +175,9 @@ class FileUrlServiceTest {
             this.grant = grant;
             this.read = read;
             this.ttlSeconds = ttlSeconds;
-            return new FileUrl("https://storage.example/a.jpg?sig=x", 1234);
+            if (failure != null) throw failure;
+            long expiry = expired ? NOW : overlong ? grant.expiresAtEpochMillis() + 1 : NOW + 5_000;
+            return new FileUrl("https://storage.example/a.jpg?sig=x", expiry);
         }
     }
 

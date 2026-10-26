@@ -19,10 +19,17 @@ public final class FileUrlService {
 
     private final FileSpaceAccessService access;
     private final FileUrlClient client;
+    private final java.util.function.LongSupplier clock;
 
+    /** Verifies provider expiry before reporting a successful issuance. */
     public FileUrlService(FileSpaceAccessService access, FileUrlClient client) {
+        this(access, client, System::currentTimeMillis);
+    }
+
+    FileUrlService(FileSpaceAccessService access, FileUrlClient client, java.util.function.LongSupplier clock) {
         this.access = Objects.requireNonNull(access, "access must not be null");
         this.client = Objects.requireNonNull(client, "client must not be null");
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     /**
@@ -34,9 +41,16 @@ public final class FileUrlService {
     public IssuedUrl issue(UserIdentity user, String kind, String catalog, String schema,
             String name, String path, boolean read, long ttlSeconds) {
         long ttl = clamp(ttlSeconds);
-        FileSpaceAccessService.FileAccessGrant grant = access.urlGrant(user, kind, catalog,
+        var authorized = access.urlGrant(user, kind, catalog,
                 schema, name, path, read, ttl);
+        var grant = authorized.grant();
         FileUrlClient.FileUrl url = client.presign(grant, read, ttl);
+        if (url.expiresAtEpochMillis() <= clock.getAsLong()
+                || url.expiresAtEpochMillis() > grant.expiresAtEpochMillis()) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Worker URL expiry is outside its authorizing grant");
+        }
+        access.urlIssued(authorized, read, ttl);
         return new IssuedUrl(url.url(), url.expiresAtEpochMillis(), grant.path(),
                 read ? "presigned-read" : "presigned-write");
     }
@@ -50,5 +64,9 @@ public final class FileUrlService {
 
     /** Issued URL, its expiry, and the normalized object path it covers. */
     public record IssuedUrl(String url, long expiresAtEpochMillis, String path, String mode) {
+        /** Omits bearer credentials from diagnostics. */
+        @Override public String toString() {
+            return "IssuedUrl[expiresAtEpochMillis=" + expiresAtEpochMillis + ", mode=" + mode + "]";
+        }
     }
 }

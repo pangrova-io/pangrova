@@ -17,5 +17,7 @@ public interface FileUrlClient {
 
     /** Signed provider URL and the epoch millisecond at which it stops working. */
     record FileUrl(String url, long expiresAtEpochMillis) {
+        /** Omits bearer credentials from diagnostics. */
+        @Override public String toString() { return "FileUrl[expiresAtEpochMillis=" + expiresAtEpochMillis + "]"; }
     }
 }

@@ -393,16 +393,37 @@ class FileSpaceFileResourceTest {
                 software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
                         software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))) {
             var worker = new FileSpaceFileResource(accessors, SECRET, mapper, now::get);
-            var grant = new FileAccessDescriptor("s3", StorageType.S3, "test-bucket", "", "http://localhost:1",
-                    "us-east-1", true, "stage", "private.bin", "read", now.get() + 5_999, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
+            java.util.function.LongFunction<FileAccessDescriptor> grantAt = expiry ->
+                    new FileAccessDescriptor("s3", StorageType.S3, "test-bucket", "", "http://localhost:1",
+                    "us-east-1", true, "stage", "private.bin", "read", expiry, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
+            accessors.accessor(grantAt.apply(Long.MAX_VALUE).profile());
+            now.set(System.currentTimeMillis());
+            var grant = grantAt.apply(now.get() + 5_999);
             var encoded = encode(grant);
             var result = worker.presign(new FileSpaceFileResource.PresignRequest(encoded,
                     FileAccessSignature.sign(SECRET, encoded), true, 3600));
-            assertThat(result.expiresAtEpochMillis()).isEqualTo(now.get() + 5_000);
+            assertThat(result.expiresAtEpochMillis()).isGreaterThan(now.get())
+                    .isLessThanOrEqualTo(grant.expiresAtEpochMillis());
             assertThat(java.net.URI.create(result.url()).getRawQuery()).contains("X-Amz-Expires=5");
             now.addAndGet(5_000);
             assertThatThrownBy(() -> worker.presign(new FileSpaceFileResource.PresignRequest(encoded,
                     FileAccessSignature.sign(SECRET, encoded), true, 60)))
+                    .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                            assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
+        }
+    }
+
+    @Test
+    void providerExpiryEvidenceMustBeCurrentAndWithinTheAbsoluteGrant() {
+        var grant = descriptor("private.bin", "read");
+        String url = "https://storage.invalid/key?signature=private";
+        var atBoundary = FileSpaceFileResource.admitProviderUrl(grant,
+                new org.pangrova.spi.storage.file.PresignedObjectUrl(url, grant.expiresAtEpochMillis()), 1_000);
+        assertThat(atBoundary.expiresAtEpochMillis()).isEqualTo(grant.expiresAtEpochMillis());
+        assertThat(atBoundary.toString()).doesNotContain("signature", "private");
+        for (long expiry : new long[]{1_000, grant.expiresAtEpochMillis() + 1}) {
+            assertThatThrownBy(() -> FileSpaceFileResource.admitProviderUrl(grant,
+                    new org.pangrova.spi.storage.file.PresignedObjectUrl(url, expiry), 1_000))
                     .isInstanceOfSatisfying(PangrovaException.class, failure ->
                             assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
         }

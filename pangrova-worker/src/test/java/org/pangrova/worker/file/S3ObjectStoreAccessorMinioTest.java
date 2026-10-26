@@ -285,8 +285,12 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
             ObjectLocation location = location(bucket, "landing");
             accessor.put(location, "images/presigned.txt", stream("signed"), 6, "text/plain");
 
-            String url = accessor.presign(location, "images/presigned.txt",
+            long before = System.currentTimeMillis();
+            var signed = accessor.presign(location, "images/presigned.txt",
                     java.time.Duration.ofMinutes(5), true);
+            String url = signed.url();
+            assertThat(signed.expiresAtEpochMillis()).isGreaterThan(before)
+                    .isLessThanOrEqualTo(System.currentTimeMillis() + 300_000);
 
             assertThat(url).contains(bucket).contains("X-Amz-Signature");
             var response = java.net.http.HttpClient.newHttpClient().send(

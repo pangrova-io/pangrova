@@ -79,22 +79,24 @@ public final class FileSpaceAccessService {
     }
 
     /**
-     * Issues the descriptor behind a signed URL and records the issuance separately.
+     * Captures authorization for a provider URL; issuance is recorded only after signing succeeds.
      *
      * <p>The grant is a plain {@code read} or {@code write} ticket so the Worker
      * applies the same operation check as any other transfer.</p>
      */
-    public FileAccessGrant urlGrant(UserIdentity user, String kind, String catalog,
+    UrlGrant urlGrant(UserIdentity user, String kind, String catalog,
             String schema, String name, String path, boolean read, long ttlSeconds) {
         return context.authority().read(() -> {
             Resolved resolved = resolve(user, kind, catalog, schema, name, path,
                     read ? "read" : "write");
-            FileAccessGrant grant = resolved.grant();
-            context.audit().urlIssued(resolved.principal().principal(),
-                    tenantId(resolved.principal()), resolved.space(), grant.path(),
-                    read ? "presigned-read" : "presigned-write", ttlSeconds, grant.workerUrl());
-            return grant;
+            return new UrlGrant(resolved.grant(), resolved.space(), resolved.principal());
         });
+    }
+
+    void urlIssued(UrlGrant authorized, boolean read, long ttlSeconds) {
+        context.audit().urlIssued(authorized.principal().principal(), tenantId(authorized.principal()),
+                authorized.space(), authorized.grant().path(), read ? "presigned-read" : "presigned-write",
+                ttlSeconds, authorized.grant().workerUrl());
     }
 
     private Resolved resolve(UserIdentity user, String kind, String catalog, String schema,
@@ -366,5 +368,9 @@ public final class FileSpaceAccessService {
     }
 
     private record Resolved(FileSpace space, UserIdentity principal, FileAccessGrant grant) {
+    }
+
+    record UrlGrant(FileAccessGrant grant, FileSpace space, UserIdentity principal) {
+        @Override public String toString() { return "UrlGrant[authorized]"; }
     }
 }

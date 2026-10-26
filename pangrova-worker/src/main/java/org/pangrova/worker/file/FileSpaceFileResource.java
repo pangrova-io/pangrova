@@ -274,10 +274,19 @@ public final class FileSpaceFileResource implements AutoCloseable {
             throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
                     "File grant has insufficient lifetime for a provider URL");
         }
-        String url = accessor(checked).presign(location(checked), checked.path(),
+        var url = accessor(checked).presign(location(checked), checked.path(),
                 java.time.Duration.ofSeconds(ttlSeconds), read);
-        checked.requireUnexpired(clock.getAsLong());
-        return new PresignedUrl(url, Math.addExact(issuedAt, ttlSeconds * 1000));
+        return admitProviderUrl(checked, url, clock.getAsLong());
+    }
+
+    static PresignedUrl admitProviderUrl(FileAccessDescriptor grant,
+            org.pangrova.spi.storage.file.PresignedObjectUrl url, long now) {
+        grant.requireUnexpired(now);
+        if (url.expiresAtEpochMillis() <= now || url.expiresAtEpochMillis() > grant.expiresAtEpochMillis()) {
+            throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,
+                    "Provider URL expiry is outside its authorizing grant");
+        }
+        return new PresignedUrl(url.url(), url.expiresAtEpochMillis());
     }
 
     FileStat head(FileAccessDescriptor descriptor) {
@@ -546,8 +555,12 @@ public final class FileSpaceFileResource implements AutoCloseable {
             long ttlSeconds) {
     }
 
-    /** Signed URL and the epoch millisecond at which it stops working. */
+    /** Signed URL and its admitted provider-reported expiry bound. */
     public record PresignedUrl(String url, long expiresAtEpochMillis) {
+        /** Omits bearer credentials from diagnostics. */
+        @Override public String toString() {
+            return "PresignedUrl[expiresAtEpochMillis=" + expiresAtEpochMillis + "]";
+        }
     }
 
     /** One resolved range with metadata sized to the returned window. */

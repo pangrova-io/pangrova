@@ -16,6 +16,24 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Provider URL expiry receipts and audit admission — continuation on 2026-10-27
+
+The experimental storage SPI now returns the signed URL together with the actual
+signing operation's provider-reported conservative expiry bound. S3 uses the pinned
+AWS SDK's public `expiration()` receipt rather than calculating expiry before
+credential resolution and signing. Worker and Coordinator both require a still-live
+receipt no later than the captured authorizing grant; the response reports that
+admitted bound. Credential-bearing result diagnostics redact the URL.
+
+Provider-URL success audit is emitted only after the Worker call and receipt
+validation succeed, using the originally captured principal and FileSpace. Failed,
+expired and overlong receipts produce no success event; tests drain the audit queue
+before asserting absence. SPI tests/static verification, complete default Worker
+and Coordinator tests/static verification, and nine bounded real-MinIO cases passed.
+The refreshed Native/end-to-end cohort is still pending. This does not provide
+immediate revocation of provider URLs, STS credential lifetime qualification, durable
+multipart recovery or production-provider acceptance.
+
 ## S3 byte-window proof and partial closure — continuation on 2026-10-27
 
 An opened S3 read now proves the requested byte window using returned content length,

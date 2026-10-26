@@ -83,10 +83,11 @@ public interface ObjectStoreAccessor {
      * is a delivery convenience, not an authorization replacement: callers must
      * still authorize the request before asking for a URL.</p>
      *
-     * @param ttl  positive lifetime of the signed URL
+     * @param ttl  positive requested lifetime of the signed URL
      * @param read true for a download URL, false for an upload URL
+     * @return the actual provider URL and its signing-operation expiry bound
      */
-    default String presign(ObjectLocation location, String path, java.time.Duration ttl,
+    default PresignedObjectUrl presign(ObjectLocation location, String path, java.time.Duration ttl,
             boolean read) {
         throw new org.pangrova.common.exception.PangrovaException(
                 org.pangrova.common.exception.PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,

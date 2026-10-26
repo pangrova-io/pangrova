@@ -17,6 +17,7 @@ import org.pangrova.spi.storage.file.FileStat;
 import org.pangrova.spi.storage.file.MultipartUpload;
 import org.pangrova.spi.storage.file.ObjectLocation;
 import org.pangrova.spi.storage.file.ObjectStoreAccessor;
+import org.pangrova.spi.storage.file.PresignedObjectUrl;
 import org.pangrova.spi.storage.file.UploadedPart;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -74,7 +75,7 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
     }
 
     @Override
-    public String presign(ObjectLocation location, String path, java.time.Duration ttl,
+    public PresignedObjectUrl presign(ObjectLocation location, String path, java.time.Duration ttl,
             boolean read) {
         if (presigner == null) {
             throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
@@ -87,16 +88,16 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         String key = location.key(path);
         String bucket = location.profile().bucket();
         try {
-            if (read) {
-                return presigner.presignGetObject(GetObjectPresignRequest.builder()
+            var signed = read
+                    ? presigner.presignGetObject(GetObjectPresignRequest.builder()
                         .signatureDuration(ttl)
                         .getObjectRequest(request -> request.bucket(bucket).key(key))
-                        .build()).url().toString();
-            }
-            return presigner.presignPutObject(PutObjectPresignRequest.builder()
+                        .build())
+                    : presigner.presignPutObject(PutObjectPresignRequest.builder()
                     .signatureDuration(ttl)
                     .putObjectRequest(request -> request.bucket(bucket).key(key))
-                    .build()).url().toString();
+                    .build());
+            return new PresignedObjectUrl(signed.url().toString(), signed.expiration().toEpochMilli());
         } catch (SdkException failure) {
             throw storageFailure("Failed to sign a URL for '" + path + "'", failure);
         }
