@@ -124,6 +124,27 @@ and shutdown. This does not suppress getter exposure or unrelated findings. The 
 eight reported Worker findings were repaired in source rather than excluded.
 The unchanged materialization/planner findings continue to block global static analysis.
 
+## Combined correctness checkpoint — continuation on 2026-10-26
+
+The final combined selection passed all 30 tests, zero failures/errors/skips:
+`TableControlLifecycleE2ETest` (8), `FileDirectorySnapshotIntegrationTest` (8),
+`ActivationSmokeE2ETest` (3), and `ColumnMaskingE2ETest` (11). This includes actual
+Native SQL and activation, plus the PostgreSQL directory component; the latter is
+not Native DIRECTORY SQL. The quoted-column regression asserts the rendered
+identifier `"ssn"` explicitly instead of expecting the old unsafe bare substitution.
+
+CREATE registration and orphan registration now validate the exact control record
+read for mutation. A separate preflight name check cannot protect an interleaving
+rename by itself. Neither path may overwrite RENAMING or release either reserved
+name; the captured metadata revision still fences later concurrent changes.
+The 57 selected service/JDBC/tag regressions passed after this final guard, as did
+Metadata Checkstyle/SpotBugs. The complete 830-test Metadata result recorded above
+belongs to the earlier post-upgrade checkpoint; it is not relabelled as a fresh
+complete reactor run after this final guard.
+
+All remaining implementation/production gates below remain open. This checkpoint
+qualifies the listed paths and does not claim M0–M5 or the entire plan complete.
+
 ## Resumed implementation and qualification
 
 Current user-directed priority: align architectural correctness and research the

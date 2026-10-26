@@ -112,7 +112,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             Optional<String> mask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "ssn");
 
             assertThat(mask).isPresent();
-            assertThat(mask.get()).isEqualTo("'XXX-XX-' || SUBSTRING(ssn, 8)");
+            assertThat(mask.get()).isEqualTo("'XXX-XX-' || SUBSTRING(\"ssn\", 8)");
         }
     }
 
