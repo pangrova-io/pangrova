@@ -20,8 +20,10 @@ public final class StageFileUrlService {
     public URI build(UserIdentity user, String catalog, String schema, String name, String path, URI baseUri) {
         String relative = FileSpaceAccessService.requireObjectPath(path);
         var stage = access.stageLink(user, catalog, schema, name, relative);
-        return UriBuilder.fromUri(baseUri).path("v1/stage-files/{id}")
-                .queryParam("path", relative).build(stage.id());
+        URI result = UriBuilder.fromUri(baseUri).path("v1/stage-files/{id}")
+                .queryParam("path", relative).build(stage.space().id());
+        access.stageLinkIssued(stage);
+        return result;
     }
 
     /** Re-authorizes each access and exchanges the stable identity for one bounded Worker read ticket. */

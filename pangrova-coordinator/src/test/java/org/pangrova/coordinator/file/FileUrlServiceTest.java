@@ -138,7 +138,34 @@ class FileUrlServiceTest {
         assertThat(events).isEmpty();
     }
 
+    @Test
+    void stableStageLinkAuditsOnlyAfterSuccessfulUriConstruction() {
+        var service = new StageFileUrlService(grants());
+        var result = service.build(USER, "media", "raw", "landing", "images/a.jpg",
+                java.net.URI.create("https://coordinator.example/"));
+        assertThat(result.getPath()).startsWith("/v1/stage-files/");
+        closeAuditEmitters();
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.eventType()).isEqualTo(AuditEventType.FILE_URL_ISSUED);
+            assertThat(event.principal()).isEqualTo("alice");
+            assertThat(event.properties()).containsEntry("mode", "stage").containsEntry("path", "images/a.jpg");
+        });
+    }
+
+    @Test
+    void failedStageLinkConstructionDoesNotRecordSuccessfulIssuance() {
+        var service = new StageFileUrlService(grants());
+        assertThatThrownBy(() -> service.build(USER, "media", "raw", "landing", "a.jpg", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        closeAuditEmitters();
+        assertThat(events).isEmpty();
+    }
+
     private FileUrlService service() {
+        return new FileUrlService(grants(), client, () -> NOW);
+    }
+
+    private FileSpaceAccessService grants() {
         spaces.put(new FileSpace(UUID.randomUUID(), FileSpaceType.VOLUME, "media", "raw", "landing", false,
                 "media", "", "volumes/media/raw/landing", false, "", "alice", Instant.EPOCH, Instant.EPOCH));
         spaces.put(new FileSpace(UUID.randomUUID(), FileSpaceType.STAGE, "media", "raw", "landing", true,
@@ -151,8 +178,7 @@ class FileUrlServiceTest {
                 Duration.ofMinutes(5), () -> NOW, () -> List.of("http://w1:8080"),
                 new FileSpaceAuditEmitter(emitter), SECRET,
                 FileAuthorityTestFixture.authority());
-        var grants = new FileSpaceAccessService(spaces, profiles, access, context);
-        return new FileUrlService(grants, client, () -> NOW);
+        return new FileSpaceAccessService(spaces, profiles, access, context);
     }
 
     private static StorageProfile profile() {

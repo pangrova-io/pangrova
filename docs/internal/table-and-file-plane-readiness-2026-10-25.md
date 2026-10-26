@@ -30,6 +30,9 @@ validation succeed, using the originally captured principal and FileSpace. Faile
 expired and overlong receipts produce no success event; tests drain the audit queue
 before asserting absence. SPI tests/static verification, complete default Worker
 and Coordinator tests/static verification, and nine bounded real-MinIO cases passed.
+Stable Stage links likewise capture the authorized object/principal and emit success
+only after URI construction succeeds; valid and failed construction cases passed
+with the audit queues fully drained, followed by Coordinator static verification.
 The refreshed Native/end-to-end cohort is still pending. This does not provide
 immediate revocation of provider URLs, STS credential lifetime qualification, durable
 multipart recovery or production-provider acceptance.

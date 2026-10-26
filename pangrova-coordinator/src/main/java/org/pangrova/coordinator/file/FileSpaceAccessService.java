@@ -114,11 +114,11 @@ public final class FileSpaceAccessService {
     }
 
     /** Resolves and authorizes a long-lived Stage link within the shared authority boundary. */
-    FileSpace stageLink(UserIdentity user, String catalog, String schema, String name, String path) {
+    StageLink stageLink(UserIdentity user, String catalog, String schema, String name, String path) {
         return context.authority().read(() -> stageLinkAuthorized(user, catalog, schema, name, path));
     }
 
-    private FileSpace stageLinkAuthorized(UserIdentity user, String catalog, String schema, String name, String path) {
+    private StageLink stageLinkAuthorized(UserIdentity user, String catalog, String schema, String name, String path) {
         UserIdentity principal = requireUser(user);
         FileSpace space = spaces.find(FileSpaceType.STAGE, catalog, schema, name)
                 .orElseThrow(() -> new PangrovaException(PangrovaErrorCode.METADATA_FILE_SPACE_NOT_FOUND,
@@ -126,9 +126,12 @@ public final class FileSpaceAccessService {
         principal = subject(principal, space);
         authorizeStageLink(principal, space);
         String relative = requireObjectPath(path);
-        context.audit().urlIssued(principal.principal(), tenantId(principal), space, relative,
-                "stage", 0, "");
-        return space;
+        return new StageLink(space, principal, relative);
+    }
+
+    void stageLinkIssued(StageLink authorized) {
+        context.audit().urlIssued(authorized.principal().principal(), tenantId(authorized.principal()),
+                authorized.space(), authorized.path(), "stage", 0, "");
     }
 
     /** Re-authorizes one immutable Stage ID before issuing its bounded transfer ticket. */
@@ -369,6 +372,8 @@ public final class FileSpaceAccessService {
 
     private record Resolved(FileSpace space, UserIdentity principal, FileAccessGrant grant) {
     }
+
+    record StageLink(FileSpace space, UserIdentity principal, String path) {}
 
     record UrlGrant(FileAccessGrant grant, FileSpace space, UserIdentity principal) {
         @Override public String toString() { return "UrlGrant[authorized]"; }
