@@ -31,9 +31,10 @@ deferred index, index-read and Feature View selection passed, along with the
 PostgreSQL canonical tag/row-policy, artifact-authority and frozen COPY admission
 selection. This includes the preceding deferred-applicability guard. The combined
 Java reactor installation passed. The combined endpoint/Native selection passed
-all 32 tests with zero failures/errors/skips for this source, including the preceding
-deferred-applicability guard. Complete affected module/static verification remains
-in progress. This does not
+all 32 tests with zero failures/errors/skips for `92dc3e28`, including the preceding
+deferred-applicability guard. Complete Metadata and Coordinator tests/static verify
+also passed for that source. Security complete tests/static had already passed with
+the same applicability implementation. This does not
 close atomic query-bound policy identity, schema/field identity or rename recovery.
 
 ## Deferred policy applicability — continuation on 2026-10-27
@@ -51,8 +52,8 @@ actual group-role policy application in the authenticated foreground, reject bot
 raw and transformed replay with missing applicability, then grant a durable matching
 role and accept the captured transformed scope while continuing to reject raw reads.
 Complete Security tests/static analysis, focused dependent Metadata/Coordinator
-selections and the combined 32-test endpoint/Native selection passed. Complete
-dependent module/static verification remains in progress. This is
+selections, complete dependent module/static verification and the combined 32-test
+endpoint/Native selection passed at `92dc3e28`. This is
 conservative rejection, not a reconstructed authentication context or qualification
 of every deferred workflow.
 
