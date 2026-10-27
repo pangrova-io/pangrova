@@ -43,6 +43,13 @@ claim ABI qualification. The real macOS leak-enabled diagnostic reported leaks
 and remains failed evidence; no suppression was added and Linux ASan/LSan remains
 an independent mandatory production gate.
 
+The matching SDK rebuild was deliberately interrupted with exit 130 when host
+swap reached approximately 15.5 GiB during concurrent template compilation and
+JVM qualification. No test was interrupted. After the isolated JVM gates drained,
+the same SDK configuration resumed incrementally with one compiler job; Native
+ASan compilation also uses one job. The interrupted log is retained and is not
+a passing sanitizer result. Instrumentation, checks and test timeouts are unchanged.
+
 ## Paimon E2E admission contracts — continuation on 2026-10-27
 
 The frozen shared collection also reached fixtures predating the controlled
@@ -97,9 +104,13 @@ failed preparation is retained separately.
 The current production-runtime snapshot preserves the other 352 frozen JARs and
 replaces Worker and classifier with these verified current artifacts. Its manifest
 starts `1f4bd6a8…`; all 397 installed consumer JARs stayed unchanged. This is current
-component and packaging evidence. ASan, isolated owners and a complete current
-shared E2E gate remain pending; the ongoing frozen collection uses the earlier
-JNI and does not qualify this fix.
+component and packaging evidence. The four isolated owner invocations then passed
+10 cases in separate JVMs: Worker bootstrap/lifecycle (5), actual external shuffle
+transport (3), channel admission (1), and exact-version private COPY staging with
+managed-byte restart (1). Every invocation used the current Worker/classifier and
+the same frozen process runtime; all 397 installed consumer JARs stayed unchanged.
+ASan and a complete current shared E2E gate remain pending; the ongoing frozen
+collection uses the earlier JNI and does not qualify this fix.
 
 ## S3 committed-write receipts — continuation on 2026-10-27
 
