@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * E2E tests for Paimon file-level indexes: bloom filter, bitmap, and BSI.
@@ -22,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 1. Tables persist bloom-filter.columns and return correct point queries
  * 2. Tables persist bitmap.columns and return correct low-cardinality filters
  * 3. Tables persist bsi.columns and return correct numeric range filters
- * 4. rewrite_file_index procedure rebuilds indexes on existing tables
+ * 4. Unsupported rewrite_file_index requests fail without changing the table
  *
  * <p>Requirements: C10 (File Index Bloom/Bitmap/BSI)
  */
@@ -55,6 +56,20 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
         return sqlRunner.execute("SELECT * FROM " + fqn() + "$options").stream()
                 .collect(Collectors.toMap(row -> row.getString("key"),
                         row -> row.getString("value")));
+    }
+
+    private void rejectUnsupportedRewrite() {
+        long snapshotBefore = sqlRunner.execute("SELECT snapshot_id FROM " + fqn()
+                + "$snapshots ORDER BY snapshot_id DESC LIMIT 1").get(0).getLong("snapshot_id");
+
+        assertThatThrownBy(() -> sqlRunner.execute("CALL " + CATALOG
+                + ".rewrite_file_index('" + SCHEMA + "." + tableName + "')"))
+                .hasMessageContaining("rewrite_file_index")
+                .hasMessageContaining("has no table-control maintenance policy");
+
+        assertThat(sqlRunner.execute("SELECT snapshot_id FROM " + fqn()
+                + "$snapshots ORDER BY snapshot_id DESC LIMIT 1").get(0).getLong("snapshot_id"))
+                .isEqualTo(snapshotBefore);
     }
 
     // --- 2.12.4: bloom-filter.columns point query filtering ---
@@ -190,8 +205,8 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
     class RewriteFileIndex {
 
         @Test
-        @DisplayName("CALL rewrite_file_index rebuilds indexes and table remains queryable")
-        void rewriteFileIndexProcedure() {
+        @DisplayName("Unsupported rewrite_file_index is rejected and table remains queryable")
+        void rewriteFileIndexIsRejected() {
             sqlRunner.executeDdl("CREATE TABLE " + fqn()
                     + " (id BIGINT, name VARCHAR, score INT,"
                     + " PRIMARY KEY (id) NOT ENFORCED)"
@@ -204,16 +219,14 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
                         + i + ", 'user_" + i + "', " + (i * 10) + ")");
             }
 
-            // Rebuild file indexes
-            sqlRunner.execute("CALL " + CATALOG
-                    + ".rewrite_file_index('" + tableName + "')");
+            rejectUnsupportedRewrite();
 
-            // Verify table is still queryable after index rebuild
+            // The rejected procedure must leave the original table queryable.
             List<TypedRow> allRows = sqlRunner.execute(
                     "SELECT * FROM " + fqn() + " ORDER BY id");
             assertThat(allRows).hasSize(10);
 
-            // Verify point query still works after rebuild
+            // Preserve the original point-query result as well.
             List<TypedRow> filtered = sqlRunner.execute(
                     "SELECT id, name FROM " + fqn()
                             + " WHERE name = 'user_5'");
@@ -222,8 +235,8 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("rewrite_file_index preserves data integrity")
-        void rewriteFileIndexPreservesData() {
+        @DisplayName("Rejected rewrite_file_index preserves data integrity")
+        void rejectedRewriteFileIndexPreservesData() {
             sqlRunner.executeDdl("CREATE TABLE " + fqn()
                     + " (id BIGINT, value INT, PRIMARY KEY (id) NOT ENFORCED)"
                     + " WITH ('bitmap.columns' = 'value')");
@@ -237,8 +250,7 @@ class PaimonFileIndexTest extends SqlE2ETestBase {
                     .mapToLong(r -> ((Number) r.getRaw("value")).longValue())
                     .sum();
 
-            sqlRunner.execute("CALL " + CATALOG
-                    + ".rewrite_file_index('" + tableName + "')");
+            rejectUnsupportedRewrite();
 
             long sumAfter = sqlRunner.execute(
                     "SELECT id, value FROM " + fqn())

@@ -16,6 +16,29 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Paimon E2E admission contracts — continuation on 2026-10-27
+
+The frozen shared collection also reached fixtures predating the controlled
+maintenance boundary. Bare table arguments were rejected before connector
+execution; tag/branch/rollback CALLs additionally lack an authorized maintenance
+policy. The fixture repair follows the documented contract rather than reopening
+that bypass: tags and branches use authorized DDL, supported maintenance uses
+`schema.table`, and unmodeled procedures prove rejection with unchanged durable
+snapshots/data. Snapshot expiration first proves that retaining one violates the
+default policy, then actually expires twelve snapshots to ten and retains all
+twelve current rows. Unsupported `rewrite_file_index` remains unsupported.
+
+All four affected Paimon test classes passed 42 cases with zero failures/errors/
+skips in a separate JVM against the frozen `d465fac1` runtime. This qualifies
+the fixture/admission and metadata scan paths, not the newer S3 receipt or NULL
+predicate fixes. Affected E2E/static verification exited successfully with zero
+reported SpotBugs findings; its missing-analysis-symbol diagnostics are retained.
+TTL tag metadata is produced by an independent real Paimon SDK
+writer and scanned through Native SQL after proving the SQL CALL was denied;
+it is not evidence of an authorized TTL SQL mutation API. Rollback connector
+effects remain separately tested at the connector boundary. None of these
+checks closes an unimplemented design feature or replaces combined qualification.
+
 ## Synthetic-column NULL predicates — continuation on 2026-10-27
 
 The frozen `d465fac1` shared E2E collection exposed a real Native read failure:

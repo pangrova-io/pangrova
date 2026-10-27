@@ -460,7 +460,7 @@ class SystemTableE2ETest extends SqlE2ETestBase {
     class PaimonTags {
 
         @Test
-        @DisplayName("SELECT FROM table$tags shows tag created via CALL create_tag")
+        @DisplayName("SELECT FROM table$tags shows tag created via authorized DDL")
         void selectFromPaimonTagsAfterCreateTag() {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR,"
@@ -468,8 +468,7 @@ class SystemTableE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, name) VALUES (1, 'alice')");
 
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".create_tag('" + tableName + "', 'v1')");
+            sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " CREATE TAG v1");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + paimonFqn() + "$tags");
@@ -506,7 +505,7 @@ class SystemTableE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        void ttlTagCreatedBySqlExposesSdkRetentionAndCreationTime() {
+        void externalTtlTagExposesSdkRetentionAndCreationTime() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR,"
                     + " PRIMARY KEY (id) NOT ENFORCED)");
@@ -516,8 +515,21 @@ class SystemTableE2ETest extends SqlE2ETestBase {
                     + paimonFqn() + "$snapshots ORDER BY snapshot_id DESC LIMIT 1")
                     .get(0).getLong("snapshot_id");
 
-            sqlRunner.execute("CALL " + PAI_CATALOG + ".create_tag('"
-                    + tableName + "', 'retained', " + snapshotId + ", '2 d')");
+            assertThat(sqlRunner.executeExpectingError("CALL " + PAI_CATALOG + ".create_tag('"
+                    + SCHEMA + "." + tableName + "', 'retained', " + snapshotId + ", '2 d')").message())
+                    .contains("has no table-control maintenance policy");
+
+            // CALL cannot bypass governance to set retention. An independent
+            // SDK writer supplies the external metadata consumed by this scan.
+            var options = new org.apache.paimon.options.Options();
+            options.setString("warehouse", paimonWarehouse().toString());
+            try (var catalog = org.apache.paimon.catalog.CatalogFactory.createCatalog(
+                    org.apache.paimon.catalog.CatalogContext.create(options))) {
+                var table = (org.apache.paimon.table.FileStoreTable) catalog.getTable(
+                        org.apache.paimon.catalog.Identifier.create(SCHEMA, tableName));
+                assertThat(table.tagManager().tagExists("retained")).isFalse();
+                table.createTag("retained", snapshotId, Duration.ofDays(2));
+            }
 
             List<TypedRow> rows = sqlRunner.execute("SELECT * FROM "
                     + paimonFqn() + "$tags WHERE tag_name = 'retained'");

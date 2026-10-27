@@ -167,8 +167,7 @@ class PaimonTimeTravelTest extends SqlE2ETestBase {
                     + " (id, val) VALUES (1, 'v1'), (2, 'v1')");
 
             // Create tag at current state
-            sqlRunner.execute("CALL " + CATALOG
-                    + ".create_tag('" + tableName + "', 'release_v1')");
+            sqlRunner.executeDdl("ALTER TABLE " + fqn() + " CREATE TAG release_v1");
             long snapshotAtTagCreation = latestSnapshotId();
 
             // Insert more data after tag

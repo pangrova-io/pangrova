@@ -187,6 +187,11 @@ the policy, but cannot shorten its retention count or time windows. Unknown or
 unmodeled procedures are rejected before reaching the connector. Warmup remains
 a read operation and requires SELECT permission.
 
+The table argument is a nonempty string literal in `schema.table` form. The
+catalog comes from the procedure prefix; admission and execution resolve the
+same fully identified table. `warmup_table` also accepts separate schema and
+table arguments.
+
 ```sql
 -- Compact data files (Iceberg)
 CALL prod_iceberg.compact('analytics.events');

@@ -25,8 +25,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * CALL procedure E2E tests for Paimon connector.
  *
- * <p>Verifies that {@code CALL catalog.procedure_name(args)} correctly routes
- * to connector procedure implementations and executes expected operations.
+ * <p>Verifies controlled maintenance CALLs and authorized branch/tag DDL.
+ * Connector procedures without a maintenance-policy contract must be rejected.
  * Published system-table SQL is validated separately by {@link SystemTableE2ETest}.
  *
  * <p>Covers: C4 (Tag Management), C5 (Branch Management), C8 (CALL Procedures),
@@ -67,6 +67,23 @@ class ProcedureE2ETest extends SqlE2ETestBase {
         return PAI_CATALOG + "." + SCHEMA + "." + tableName;
     }
 
+    private String procedureTable() {
+        return SCHEMA + "." + tableName;
+    }
+
+    private void createTag(String name) {
+        sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " CREATE TAG \"" + name + "\"");
+    }
+
+    private void rejectUnmodeledProcedure(String procedure, String arguments) throws Exception {
+        long snapshotBefore = inspectCommittedTable(table -> table.snapshotManager().latestSnapshotId());
+        assertThat(sqlRunner.executeExpectingError("CALL " + PAI_CATALOG + "." + procedure
+                + "('" + procedureTable() + "'" + arguments + ")").message())
+                .contains(procedure, "has no table-control maintenance policy");
+        Long snapshotAfter = inspectCommittedTable(table -> table.snapshotManager().latestSnapshotId());
+        assertThat(snapshotAfter).isEqualTo(snapshotBefore);
+    }
+
     private <T> T inspectCommittedTable(Function<FileStoreTable, T> inspect) throws Exception {
         Options options = new Options();
         options.setString("warehouse", paimonWarehouse().toString());
@@ -103,22 +120,24 @@ class ProcedureE2ETest extends SqlE2ETestBase {
                 .sum());
     }
 
-    // --- 2.2.13: CALL create_tag then SDK metadata verification ---
+    // --- 2.2.13: authorized tag DDL then SDK metadata verification ---
 
     @Nested
-    @DisplayName("2.2.13 - CALL create_tag then persisted metadata verification")
+    @DisplayName("2.2.13 - Tag DDL and persisted metadata verification")
     class CreateTagVerification {
 
         @Test
-        @DisplayName("CALL create_tag persists a named tag in Paimon metadata")
+        @DisplayName("Tag DDL persists a named tag while CALL remains unauthorized")
         void createTagThenVerifyPersistedMetadata() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, name) VALUES (1, 'alice'), (2, 'bob')");
 
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".create_tag('" + tableName + "', 'v1.0')");
+            rejectUnmodeledProcedure("create_tag", ", 'v1.0'");
+            boolean tagExists = inspectCommittedTable(table -> table.tagManager().tagExists("v1.0"));
+            assertThat(tagExists).isFalse();
+            createTag("v1.0");
 
             List<Long> tagSnapshots = inspectCommittedTable(table -> table.tagManager()
                     .tags().entrySet().stream()
@@ -130,19 +149,17 @@ class ProcedureE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Multiple tags created via CALL persist in Paimon metadata")
+        @DisplayName("Multiple tags created via DDL persist in Paimon metadata")
         void multipleTagsCreation() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, val VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, val) VALUES (1, 'a')");
 
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".create_tag('" + tableName + "', 'v1')");
+            createTag("v1");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, val) VALUES (2, 'b')");
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".create_tag('" + tableName + "', 'v2')");
+            createTag("v2");
 
             List<String> tags = inspectCommittedTable(table -> table.tagManager()
                     .tags().values().stream()
@@ -153,22 +170,21 @@ class ProcedureE2ETest extends SqlE2ETestBase {
         }
     }
 
-    // --- 2.2.14: CALL sys.rollback_to then data rollback verification ---
+    // --- 2.2.14: rollback CALL cannot bypass maintenance policy ---
 
     @Nested
-    @DisplayName("2.2.14 - CALL rollback_to then data rollback verification")
+    @DisplayName("2.2.14 - Unmodeled rollback CALL is rejected")
     class RollbackToVerification {
 
         @Test
-        @DisplayName("CALL rollback_to restores table to tagged snapshot")
-        void rollbackToTagRestoresData() {
+        @DisplayName("Rejected tag rollback leaves the current data and tag intact")
+        void rollbackToTagIsRejected() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, name) VALUES (1, 'alice')");
 
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".create_tag('" + tableName + "', 'before_bob')");
+            createTag("before_bob");
 
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, name) VALUES (2, 'bob')");
@@ -177,18 +193,19 @@ class ProcedureE2ETest extends SqlE2ETestBase {
                     "SELECT * FROM " + paimonFqn() + " ORDER BY id");
             assertThat(beforeRollback).hasSize(2);
 
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".rollback_to('" + tableName + "', 'before_bob')");
+            rejectUnmodeledProcedure("rollback_to", ", 'before_bob'");
 
             List<TypedRow> afterRollback = sqlRunner.execute(
                     "SELECT * FROM " + paimonFqn() + " ORDER BY id");
-            assertThat(afterRollback).hasSize(1);
-            assertThat(afterRollback.get(0).getRaw("name")).isEqualTo("alice");
+            assertThat(afterRollback).extracting(row -> row.getString("name"))
+                    .containsExactly("alice", "bob");
+            boolean tagExists = inspectCommittedTable(table -> table.tagManager().tagExists("before_bob"));
+            assertThat(tagExists).isTrue();
         }
 
         @Test
-        @DisplayName("CALL rollback_to with snapshot_id restores to specific snapshot")
-        void rollbackToSnapshotIdRestoresData() throws Exception {
+        @DisplayName("Rejected snapshot rollback preserves all current rows")
+        void rollbackToSnapshotIdIsRejected() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, val VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
@@ -201,13 +218,12 @@ class ProcedureE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, val) VALUES (2, 'b')");
 
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".rollback_to('" + tableName + "', " + firstSnapshotId + ")");
+            rejectUnmodeledProcedure("rollback_to", ", " + firstSnapshotId);
 
             List<TypedRow> afterRollback = sqlRunner.execute(
                     "SELECT * FROM " + paimonFqn() + " ORDER BY id");
-            assertThat(afterRollback).hasSize(1);
-            assertThat(afterRollback.get(0).getRaw("val")).isEqualTo("a");
+            assertThat(afterRollback).extracting(row -> row.getString("val"))
+                    .containsExactly("a", "b");
         }
     }
 
@@ -232,7 +248,7 @@ class ProcedureE2ETest extends SqlE2ETestBase {
             assertThat(fileCountBefore).isGreaterThan(0);
 
             sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".compact('" + tableName + "')");
+                    + ".compact('" + procedureTable() + "')");
 
             long fileCountAfter = currentDataFileCount();
 
@@ -256,40 +272,50 @@ class ProcedureE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
 
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < 12; i++) {
                 sqlRunner.execute("INSERT INTO " + paimonFqn()
                         + " (id, name) VALUES (" + i + ", 'user" + i + "')");
             }
 
             int snapshotCountBefore = committedSnapshotCount();
-            assertThat(snapshotCountBefore).isGreaterThanOrEqualTo(5);
+            assertThat(snapshotCountBefore).isGreaterThanOrEqualTo(12);
+
+            assertThat(sqlRunner.executeExpectingError("CALL " + PAI_CATALOG
+                    + ".expire_snapshots('" + procedureTable() + "', 1)").message())
+                    .contains("retention policy");
+            assertThat(committedSnapshotCount()).isEqualTo(snapshotCountBefore);
 
             sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".expire_snapshots('" + tableName + "', 1)");
+                    + ".expire_snapshots('" + procedureTable() + "', 10)");
 
             int snapshotCountAfter = committedSnapshotCount();
 
             assertThat(snapshotCountAfter).isLessThan(snapshotCountBefore);
-            assertThat(snapshotCountAfter).isGreaterThanOrEqualTo(1);
+            assertThat(snapshotCountAfter).isEqualTo(10);
+            assertThat(sqlRunner.execute("SELECT id FROM " + paimonFqn() + " ORDER BY id"))
+                    .extracting(row -> row.getLong("id"))
+                    .containsExactly(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L);
         }
     }
 
     // --- 2.2.17: CALL create_branch then SDK metadata verification ---
 
     @Nested
-    @DisplayName("2.2.17 - CALL create_branch then persisted metadata verification")
+    @DisplayName("2.2.17 - Branch DDL and persisted metadata verification")
     class CreateBranchVerification {
 
         @Test
-        @DisplayName("CALL create_branch persists a branch in Paimon metadata")
+        @DisplayName("Branch DDL persists a branch while CALL remains unauthorized")
         void createBranchThenVerifyPersistedMetadata() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
             sqlRunner.execute("INSERT INTO " + paimonFqn()
                     + " (id, name) VALUES (1, 'alice')");
 
-            sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".create_branch('" + tableName + "', 'dev')");
+            rejectUnmodeledProcedure("create_branch", ", 'dev'");
+            List<String> before = inspectCommittedTable(table -> table.branchManager().branches());
+            assertThat(before).doesNotContain("dev");
+            sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " CREATE BRANCH dev");
 
             List<String> branches = inspectCommittedTable(table -> table.branchManager()
                     .branches());
@@ -312,7 +338,7 @@ class ProcedureE2ETest extends SqlE2ETestBase {
                     + " (id, name) VALUES (1, 'alice')");
 
             sqlRunner.execute("CALL " + PAI_CATALOG
-                    + ".remove_orphan_files('" + tableName + "')");
+                    + ".remove_orphan_files('" + procedureTable() + "')");
 
             List<TypedRow> data = sqlRunner.execute(
                     "SELECT * FROM " + paimonFqn());
@@ -328,15 +354,14 @@ class ProcedureE2ETest extends SqlE2ETestBase {
 
         @Test
         @DisplayName("CALL non-existent procedure throws clear error")
-        void callNonExistentProcedureThrowsError() {
+        void callNonExistentProcedureThrowsError() throws Exception {
             sqlRunner.executeDdl("CREATE TABLE " + paimonFqn()
                     + " (id BIGINT, name VARCHAR, PRIMARY KEY (id) NOT ENFORCED)");
 
-            assertThatThrownBy(() ->
-                    sqlRunner.execute("CALL " + PAI_CATALOG
-                            + ".non_existent_procedure('" + tableName + "')"))
-                    .hasMessageContaining("non_existent_procedure")
-                    .hasMessageContaining("not found");
+            sqlRunner.execute("INSERT INTO " + paimonFqn() + " VALUES (1, 'retained')");
+            rejectUnmodeledProcedure("non_existent_procedure", "");
+            assertThat(sqlRunner.execute("SELECT name FROM " + paimonFqn()))
+                    .extracting(row -> row.getString("name")).containsExactly("retained");
         }
 
         @Test
@@ -347,7 +372,7 @@ class ProcedureE2ETest extends SqlE2ETestBase {
 
             assertThatThrownBy(() ->
                     sqlRunner.execute("CALL " + PAI_CATALOG
-                            + ".create_tag('" + tableName + "')"))
+                            + ".compact()"))
                     .hasMessageContaining("argument");
         }
     }
