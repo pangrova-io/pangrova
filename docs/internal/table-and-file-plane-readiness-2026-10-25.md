@@ -16,6 +16,16 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Frozen shared E2E R5 dispatch EOF — investigation on 2026-10-27
+
+The still-running `d465fac1` shared collection recorded an additional real
+failure in `IndexEmptyResultE2ETest.bloomFilterEmptyResult`: task dispatch received
+HTTP EOF before response headers. Some producer completion notifications were
+already buffered when the query failed. This does not establish the root cause
+or prove the admission outcome of every submission. The error remains unresolved;
+there is no automatic retry, timeout increase or passing combined-gate claim.
+Original evidence must remain separate from subsequent targeted diagnostics.
+
 ## ASan dependency preparation — continuation on 2026-10-27
 
 The isolated matching SDK build reached Native configuration and correctly
@@ -70,9 +80,26 @@ passed after repair. The full matching Release Native gate then passed 4337/4337
 with a real owned PostgreSQL/Lance authority in 822.96 seconds. Its immutable
 fixture snapshot and all 397 frozen consumer JAR hashes remained unchanged.
 Physical-column NULL filters remain enabled. The SQL regression retains its
-original three-row assertion and adds IS NOT NULL, AND and OR cases. Updated
-JNI/SQL and ASan qualification remain pending; the ongoing frozen collection
-uses the earlier JNI and does not qualify this fix.
+original three-row assertion and adds IS NOT NULL, AND and OR cases.
+
+The new JNI `b1186f7c…` was linked into an independent output directory, preserving
+the ongoing old collection's JNI. Its matching classifier and Worker then passed
+all 1443 default Worker cases, zero failures/errors/skips, and static verification
+with zero reported SpotBugs findings. The actual UNKNOWN-column SQL and activation
+smoke selection passed 11 cases, zero failures/errors/skips. Artifact inspection
+verified all 507 consumed Worker class payloads and the identical JNI in both
+consumed JARs. The audit wrapper initially expected a classes directory, whereas
+the reactor consumed its freshly packaged target JAR; the corrected artifact
+audit required no test rerun. The initial classifier packaging invocation also
+stopped before tests because the explicit native-library path was missing; that
+failed preparation is retained separately.
+
+The current production-runtime snapshot preserves the other 352 frozen JARs and
+replaces Worker and classifier with these verified current artifacts. Its manifest
+starts `1f4bd6a8…`; all 397 installed consumer JARs stayed unchanged. This is current
+component and packaging evidence. ASan, isolated owners and a complete current
+shared E2E gate remain pending; the ongoing frozen collection uses the earlier
+JNI and does not qualify this fix.
 
 ## S3 committed-write receipts — continuation on 2026-10-27
 
