@@ -192,6 +192,24 @@ class DdlExecutorOwnershipTest {
     }
 
     @Test
+    void shadowDropRejectsARecreatedCatalogBeforeDeletingThePhysicalTable() {
+        registry.setTableControlService(new TableControlService(
+                new InMemoryTableControlStore(), registry::requireCurrentCatalogIdentity,
+                new TableControlSettings(true, false, Set.of())));
+        registerManaged("users");
+        var captured = registry.tableControl().find("test_cat", "default", "users").orElseThrow();
+        registry.unregister("test_cat");
+        registry.register(new CatalogDescriptor("test_cat", CatalogType.CONNECTOR, "test",
+                CatalogState.ACTIVE, Map.of(), "", Set.of()));
+
+        assertThatThrownBy(() -> ddlExecutor.executeDropTable((DropTableStatement) parser.parse(
+                "DROP TABLE test_cat.default.users"), context()))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("catalog deployment");
+        assertThat(metadata.tables).containsKey("default.users");
+        assertThat(registry.tableControl().find("test_cat", "default", "users")).contains(captured);
+    }
+
+    @Test
     void dropOfManagedTableSucceedsAndRetiresOwnership() {
         registerManaged("users");
         DropTableStatement stmt = (DropTableStatement) parser.parse(

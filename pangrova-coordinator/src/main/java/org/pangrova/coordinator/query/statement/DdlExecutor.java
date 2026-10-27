@@ -220,6 +220,9 @@ public final class DdlExecutor {
                     metadata.getTableIdentity(session, handle));
         }
         var record = tableControl.find(ref.catalog(), ref.schema(), ref.table());
+        if (tableControl.enabled()) {
+            record.ifPresent(captured -> tableControl.requireCurrentCatalog(captured, "DROP TABLE"));
+        }
         List<String> columns = tableColumns(metadata, session, handle);
         metadata.dropTable(session, handle);
         record.ifPresent(tableControl::markDropped);

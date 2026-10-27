@@ -87,6 +87,22 @@ class DefaultMetadataServiceControlTest {
     }
 
     @Test
+    void shadowDropRejectsARecreatedCatalogBeforeDeletingThePhysicalTable() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        var captured = registry.tableControl().find("cat", "db", "orders").orElseThrow();
+        assertThat(registry.tableControl().enforcing()).isFalse();
+        registry.unregister("cat");
+        registry.register(new CatalogDescriptor("cat", CatalogType.CONNECTOR, "test",
+                CatalogState.ACTIVE, Map.of(), "", Set.of()));
+
+        assertThatThrownBy(() -> service.dropTable(session(), ref("orders")))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("catalog deployment");
+        assertThat(connectorMetadata.tables).containsKey("db.orders");
+        assertThat(registry.tableControl().find("cat", "db", "orders")).contains(captured);
+    }
+
+    @Test
     void cachedReadsCannotBypassAnIncompleteRename() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         service.resolveTable(session(), ref("orders"));

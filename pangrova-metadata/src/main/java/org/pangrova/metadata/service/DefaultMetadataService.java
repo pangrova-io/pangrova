@@ -296,7 +296,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
 
     @Override
     public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
-        catalogRegistry.tableControl().requireDroppable(
+        var tableControl = catalogRegistry.tableControl();
+        tableControl.requireDroppable(
                 tableRef.catalog(), tableRef.schema(), tableRef.table(), "DROP TABLE");
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
         ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
@@ -309,15 +310,18 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
                     PangrovaErrorCode.METADATA_TABLE_NOT_FOUND,
                     "Table not found: " + tableRef);
         }
-        if (catalogRegistry.tableControl().enforcing()) {
-            catalogRegistry.tableControl().requireDroppable(
+        if (tableControl.enforcing()) {
+            tableControl.requireDroppable(
                     tableRef.catalog(), tableRef.schema(), tableRef.table(), "DROP TABLE",
                     connMetadata.getTableIdentity(connSession, tableHandle));
         }
-        var record = catalogRegistry.tableControl().find(
+        var record = tableControl.find(
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
+        if (tableControl.enabled()) {
+            record.ifPresent(captured -> tableControl.requireCurrentCatalog(captured, "DROP TABLE"));
+        }
         connMetadata.dropTable(connSession, tableHandle);
-        record.ifPresent(catalogRegistry.tableControl()::markDropped);
+        record.ifPresent(tableControl::markDropped);
         invalidateTableCaches(tableRef);
         eventDispatcher.dispatch(new MetadataEvent.TableDroppedEvent(tableRef));
         LOG.info("event=table_dropped catalog={} schema={} table={}",
