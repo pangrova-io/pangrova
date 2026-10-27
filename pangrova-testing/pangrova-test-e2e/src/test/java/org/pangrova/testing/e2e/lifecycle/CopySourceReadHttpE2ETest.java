@@ -135,6 +135,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
     }
 
     @Test
+    @org.junit.jupiter.api.Tag("native-required")
     @org.junit.jupiter.api.Tag("native-runtime-owner")
     @org.junit.jupiter.api.parallel.ResourceLock("pangrova-packaged-native-runtime")
     void privateTicketStagesExactVersionAndRestartsFromManagedBytes() throws Exception {
