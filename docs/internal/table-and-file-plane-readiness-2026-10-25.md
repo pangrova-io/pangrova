@@ -16,6 +16,23 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## ASan dependency preparation — continuation on 2026-10-27
+
+The isolated matching SDK build reached Native configuration and correctly
+rejected a mixed RE2/Abseil package with a real hash-container assertion. A
+complete matching dependency cohort passes the independent address-check probe;
+the SDK is being rebuilt against that cohort. These preparation attempts do not
+constitute a passing Native ASan gate.
+
+The RE2 runtime probe also forced leak checking on macOS despite the documented
+address-only gate. It now selects address checks on Darwin and retains Linux
+leak checks, with halt-on-error on both. Three actual CMake child-process tests
+verify the selected environments and that a failed child still rejects the
+configuration. They substitute dependency discovery/compilation and do not
+claim ABI qualification. The real macOS leak-enabled diagnostic reported leaks
+and remains failed evidence; no suppression was added and Linux ASan/LSan remains
+an independent mandatory production gate.
+
 ## Paimon E2E admission contracts — continuation on 2026-10-27
 
 The frozen shared collection also reached fixtures predating the controlled

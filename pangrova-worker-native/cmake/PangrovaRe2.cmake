@@ -62,9 +62,16 @@ endif()
 if(CMAKE_CROSSCOMPILING AND NOT CMAKE_CROSSCOMPILING_EMULATOR)
   message(FATAL_ERROR "Canonical RE2 runtime ABI verification requires a target emulator when cross-compiling")
 endif()
+# Match the Native runner's platform qualification scope: Darwin runs address
+# checks, while Linux must also retain the leak check.
+if(APPLE)
+  set(_PANGROVA_RE2_ASAN_OPTIONS "detect_leaks=0:halt_on_error=1")
+else()
+  set(_PANGROVA_RE2_ASAN_OPTIONS "detect_leaks=1:halt_on_error=1")
+endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
-          "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1"
+          "ASAN_OPTIONS=${_PANGROVA_RE2_ASAN_OPTIONS}"
           "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_LIST_DIR}/../sanitizer-suppressions/asan.supp"
           ${CMAKE_CROSSCOMPILING_EMULATOR}
           "${CMAKE_CURRENT_BINARY_DIR}/re2-contract-check/pangrova_re2_contract${CMAKE_EXECUTABLE_SUFFIX}"

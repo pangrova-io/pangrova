@@ -106,9 +106,10 @@ python3 pangrova-worker-native/bin/run-native-tests.py \
   --build-dir pangrova-worker-native/build-asan
 ```
 
-macOS does not provide LeakSanitizer for this toolchain; run its ASan CTest with
-`ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`. Linux ASan/LSan is a separate
-release gate and must not be inferred from the macOS result.
+The macOS gate qualifies address checks with
+`ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`; it does not qualify LeakSanitizer.
+Dependency runtime probes use the same platform scope. Linux ASan/LSan is a
+separate release gate and must not be inferred from the macOS result.
 
 ### Package (native lib → Java classpath)
 
