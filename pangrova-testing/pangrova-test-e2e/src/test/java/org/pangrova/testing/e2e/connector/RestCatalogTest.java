@@ -51,9 +51,11 @@ class RestCatalogTest extends SqlE2ETestBase {
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
         List<ConnectorTestConfig> configs = new ArrayList<>();
-        if (configured(ICEBERG_URI)) {
+        if (hasIcebergCatalog()) {
+            String icebergUri = configured(ICEBERG_URI) ? System.getenv(ICEBERG_URI)
+                    : org.pangrova.testing.e2e.SharedRestCatalogFixture.endpoint().toString();
             configs.add(new ConnectorTestConfig(ICE_CATALOG, SCHEMA, "iceberg", Map.of(
-                    "catalog-type", "rest", "uri", System.getenv(ICEBERG_URI))));
+                    "catalog-type", "rest", "uri", icebergUri)));
         }
         if (configured(PAIMON_URI)) {
             if (!configured(PAIMON_WAREHOUSE)) {
@@ -73,7 +75,11 @@ class RestCatalogTest extends SqlE2ETestBase {
     }
 
     private static boolean hasConfiguredCatalog() {
-        return configured(ICEBERG_URI) || configured(PAIMON_URI);
+        return hasIcebergCatalog() || configured(PAIMON_URI);
+    }
+
+    private static boolean hasIcebergCatalog() {
+        return configured(ICEBERG_URI) || Boolean.getBoolean("pangrova.e2e.rest.fixture");
     }
 
     private static boolean configured(String name) {
@@ -93,7 +99,7 @@ class RestCatalogTest extends SqlE2ETestBase {
 
     @Nested
     @DisplayName("2.15.3 - Iceberg REST Catalog CRUD")
-    @EnabledIfEnvironmentVariable(named = ICEBERG_URI, matches = ".+")
+    @EnabledIf("org.pangrova.testing.e2e.connector.RestCatalogTest#hasIcebergCatalog")
     class IcebergRestCatalogCrud {
 
         @Test

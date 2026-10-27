@@ -631,6 +631,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             sharedShuffleServiceLease.close();
             sharedShuffleServiceLease = null;
         }
+        SharedRestCatalogFixture.closeIfStarted();
         if (POSTGRES != null) POSTGRES.stop();
         if (sharedNetwork != null) sharedNetwork.close();
     }
