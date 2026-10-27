@@ -82,6 +82,11 @@ class E2eDeploymentBootstrapE2ETest extends PangrovaE2ETestBase {
             try {
                 executeDml("INSERT INTO " + table + " VALUES (7)");
                 TestCatalogRegistrar.registerAll(registry, configs, SqlE2ETestBase::authenticatedCatalogSession);
+                var deployment = registry.requireCurrentCatalogIdentity(config.catalogName());
+                registerTestConnectors(List.of(ConnectorTestConfig.icebergLocal(
+                        "bootstrap_intervening", SCHEMA, tempDir.resolve("intervening-warehouse").toString())));
+                registerTestConnectors(configs);
+                assertThat(registry.requireCurrentCatalogIdentity(config.catalogName())).isEqualTo(deployment);
                 assertScalarEquals("SELECT id FROM " + table, 7L);
             } finally {
                 executeDdl("DROP TABLE " + table);
@@ -95,6 +100,25 @@ class E2eDeploymentBootstrapE2ETest extends PangrovaE2ETestBase {
                 .isInstanceOf(UncheckedIOException.class)
                 .hasCauseInstanceOf(java.nio.file.FileAlreadyExistsException.class);
         assertThat(registry.listCatalogNames()).doesNotContain(blockedCatalog);
+    }
+
+    @Test
+    void sameCatalogNamesCannotHideAChangedWarehouseConfiguration() {
+        String catalog = "bootstrap_changed_" + UUID.randomUUID().toString().replace("-", "");
+        Path first = tempDir.resolve(catalog + "-first");
+        Path second = tempDir.resolve(catalog + "-second");
+        var registry = metadataBootstrap.catalogRegistry();
+        try {
+            registerTestConnectors(List.of(ConnectorTestConfig.icebergLocal(catalog, SCHEMA, first.toString())));
+            var original = registry.requireCurrentCatalogIdentity(catalog);
+            registerTestConnectors(List.of(ConnectorTestConfig.icebergLocal(catalog, SCHEMA, second.toString())));
+            assertThat(registry.requireCurrentCatalogIdentity(catalog)).isNotEqualTo(original);
+            assertThat(registry.getCatalog(catalog).getDescriptor().properties())
+                    .containsEntry("warehouse", second.toString());
+            assertThat(second.resolve(SCHEMA)).isDirectory();
+        } finally {
+            registerTestConnectors(connectorConfigs());
+        }
     }
 
     private static Tenant withQuota(Tenant tenant, ResourceQuota quota) {

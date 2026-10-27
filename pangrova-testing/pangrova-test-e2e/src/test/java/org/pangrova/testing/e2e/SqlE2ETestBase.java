@@ -307,12 +307,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static final java.util.Set<String> registeredClasses =
             java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
-    // Tracks which catalog names have been registered this JVM session
-    // (used only to skip redundant registration within the SAME class —
-    // e.g. when a class has both connectorConfigs() and @BeforeAll registerTestConnectors())
-    private static final java.util.Set<String> lastRegisteredCatalogs =
-            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
-
     /** Fails jqwik properties when required E2E infrastructure is unavailable. */
     @net.jqwik.api.lifecycle.BeforeProperty
     void requirePropertyInfrastructure() {
@@ -642,7 +636,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static void resetPerClassState() {
         registeredClasses.clear();
-        lastRegisteredCatalogs.clear();
         defaultSchemaPath = List.of("");
         drainNativeTasksBetweenClasses();
     }
@@ -758,23 +751,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         ConnectorTestConfig first = configs.get(0);
         defaultSchemaPath = List.of(first.catalogName(), first.schemaName());
-        java.util.Set<String> catalogNames = new java.util.LinkedHashSet<>();
-        for (ConnectorTestConfig config : configs) {
-            catalogNames.add(config.catalogName());
-        }
-        if (lastRegisteredCatalogs.equals(catalogNames)) {
-            LOG.debug("Catalogs {} already registered for this class — skipping redundant rebuild", catalogNames);
-            return;
-        }
         var registry = metadataBootstrap.catalogRegistry();
         for (ConnectorTestConfig config : configs) {
             if (registry.listCatalogNames().contains(config.catalogName())) {
-                registry.unregister(config.catalogName());
+                var existing = registry.getCatalog(config.catalogName()).getDescriptor();
+                // Switching test classes must not replace an unchanged physical deployment.
+                boolean matches = existing.type() == org.pangrova.metadata.catalog.CatalogType.CONNECTOR
+                        && existing.provider().equals(config.connectorType())
+                        && existing.properties().equals(config.properties())
+                        && existing.allowedTenants().isEmpty();
+                if (!matches) registry.unregister(config.catalogName());
             }
         }
         TestCatalogRegistrar.registerAll(registry, configs, E2eCatalogSession::new);
-        lastRegisteredCatalogs.clear();
-        lastRegisteredCatalogs.addAll(catalogNames);
         rebuildQueryPipeline();
         LOG.info("Registered {} test connectors and rebuilt query pipeline", configs.size());
     }
@@ -2745,7 +2734,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         materializationRepository = null;
         materializationCatalog = null;
         materializationDispatcher = null;
-        lastRegisteredCatalogs.clear();
         rebuildQueryPipeline();
         initCoordinatorReadiness();
         if (workerTaskManagerRef != null) {

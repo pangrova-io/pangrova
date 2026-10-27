@@ -28,8 +28,13 @@ their metadata. The original delivery deadline remains on the admitted stream.
 Five actual-SDK/HTTP fault-injection and cleanup cases passed, together with the
 existing deadline/resource/HTTP selection: 52 tests, zero failures/errors/skips.
 These ran in a separate diagnostic output directory so the ongoing reactor's
-compiled classes remained frozen. Worker and E2E Checkstyle passed. The complete
-Worker/static and refreshed endpoint/Native checks remain pending. This is
+compiled classes remained frozen. Worker and E2E Checkstyle passed. A separate
+checkout then passed all 1422 default Worker tests and static verification with
+zero failures/errors/skips and zero SpotBugs findings. Its initial invocation
+omitted `native-runtime` and failed because the JNI resource was absent; that
+failed log/XML is retained separately. The corrected invocation loads the
+matching classifier instead of disabling Native tests. Refreshed combined
+endpoint/Native checks remain pending. This is
 boundary revalidation, not a provider-call timeout, blocked-I/O/idle watchdog,
 active-RBAC revocation or completed transfer qualification.
 
@@ -50,21 +55,49 @@ remain intact. The six COW and six subquery Native SQL cases passed with zero
 failures/errors/skips, followed by E2E static verification. The fail-closed rejection
 of unbound policies remains unchanged.
 
-The second full default reactor uses the compiled `19b5ffe1` snapshot and is still
-running. It has recorded a separate COPY fixture ownership error: the private
+The second full default reactor used the compiled `19b5ffe1` snapshot and ended
+with 13246 tests, zero assertion failures, five errors and zero skips. Its E2E
+portion reported 991 tests and the five errors; failed class initialization does
+not mean the undiscovered nested query cases passed. The COPY fixture ownership error came from the private
 ticket/restart method had `native-runtime-owner` but lacked the `native-required`
 tag used by the other three owners, so the daily selection entered it in the shared
 Native JVM. The ownership guard rejected before modifying runtime state. The
 missing tag is restored; the case remains mandatory in its isolated JVM selection.
-The failed report is retained and this invocation cannot become a passing reactor
-gate. Corrected discovery and all four independent owners still require fresh
-validation after the current consumer exits.
+The failed report is retained and this invocation is not a passing reactor gate.
+Three independent-process fixtures rejected the inherited `LC_ALL=C` before
+startup; their non-ASCII CLI credential tests require a real UTF-8 native locale.
+The remaining error occurred when TPC-H setup replaced an unchanged Catalog
+deployment and DROP completion rejected its old control record. Corrected
+independent-process runs and all four isolated owners remain pending.
+
+Shared connector registration now retains a matching provider/properties/tenant
+definition and still ensures the requested schema. A changed warehouse cannot be
+hidden by the former catalog-name-only shortcut. Three actual deployment/bootstrap
+cases and the three non-owner COPY cases passed, with E2E static verification:
+six tests, zero failures/errors/skips. These validate the fixture change against
+the frozen installed runtime; they are not combined-source production acceptance.
 
 The independent Native gate at `19b5ffe1` passed all 4334 cases using frozen
 installed fixture JARs and the matching isolated SDK/JNI cohort below. The staged
 runtime manifest for that Java snapshot is
 `7ba3039c7e142507945e074c90b00bc6c9d3bc2b64cf2eb4a50f3d4c04b9ddae`.
 The new read-admission source repair is not part of these running/frozen artifacts.
+
+## Shadow DROP deployment admission — continuation on 2026-10-27
+
+The TPC-H failure also exposed a production ordering gap: shadow-mode DROP could
+delete the physical table and only then reject retirement of a control record
+from a replaced Catalog deployment. Both SQL DDL and the trusted Metadata API
+now validate the captured record's deployment before physical DROP. Completion
+keeps its existing revision/deployment checks. The Metadata path also keeps the
+same control-service owner throughout the operation.
+
+The affected Metadata/DDL ownership selection and static verification passed all
+49 cases. Two regressions retain the original control record and physical table
+after a same-UUID Catalog replacement in shadow mode. Complete owner suites and
+the new real-SDK/HTTP SQL preservation case are pending. This does not provide an
+atomic Catalog lease across I/O or automatic reconciliation after a concurrent
+deployment change.
 
 ## Iceberg rename identity fence — continuation on 2026-10-27
 
