@@ -16,6 +16,40 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Bounded runtime and pooled E2E metadata — continuation on 2026-10-27
+
+Production inputs at `84411836` passed the affected complete default owners/static
+checks: Worker 1422, Metadata 566 and Coordinator 2939, all zero failures/errors/
+skips and zero SpotBugs findings. The first separate-checkout Coordinator attempt
+omitted the required Lance tool path; its two prerequisite failures and interrupted
+invocation remain retained. The corrected complete Coordinator run uses the
+matching built tool explicitly. No test or timeout was weakened.
+
+After installing the three changed owners, the frozen 354-JAR runtime manifest is
+`a5f69d27555d8a13c94818bc4eb770ac210fefa706d09c4665c9945b47fbdee6`.
+Its Worker and classifier both contain JNI `a59914ea…`; direct dynamic dependency
+hashes match the prior receipt. Native/protocol/POM inputs are unchanged from the
+4334-test Native gate at `19b5ffe1`. The consumer JAR hashes remained unchanged
+through the subsequent checks; no Maven install overlapped these consumers.
+
+The expanded 63-case endpoint/Native/TPC-H invocation recorded six 30-second
+planning/submit timeouts (Q2/Q5/Q7/Q8/Q9/Q21); it is failed evidence. All 14 actual
+table lifecycle cases passed, including the shadow-DROP physical UUID/one-row
+preservation case. A thread snapshot showed SCRAM password derivation for a new
+PostgreSQL connection inside repeated ownership checks: the shared E2E fixture
+used an unpooled DriverManager datasource, unlike production.
+
+The shared fixture now uses the existing bounded production connection-pool
+factory. Its owner closes the pool after stopping artifact consumers and metadata,
+and closes partially initialized resources on startup failure. A real-PostgreSQL
+case verifies backend reuse over 32 logical connections. With this correction,
+all 22 TPC-H queries and four deployment/bootstrap cases passed with static
+verification: 26 tests, zero failures/errors/skips. Ownership checks and the
+30-second submission limit remain intact. These are bounded correctness results,
+not production latency measurements. A fresh default E2E collection, independent
+processes and all four isolated Native owners remain required for the final
+test-fixture revision. The P0–P3/M0–M5 implementation matrix remains incomplete.
+
 ## Read admission after provider I/O — continuation on 2026-10-27
 
 Worker rechecks the captured descriptor after endpoint HEAD, before opening the

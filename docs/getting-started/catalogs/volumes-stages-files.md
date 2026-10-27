@@ -307,6 +307,12 @@ for the current strong ETag; a stale tag, weak tag, or date causes a complete
 `200` response. `HEAD` returns read metadata without opening a body stream.
 These behaviors follow [HTTP semantics (RFC 9110)](https://www.rfc-editor.org/rfc/rfc9110.html).
 
+Worker rechecks the original ticket expiry after its metadata lookup, before opening
+the provider body and after the open returns. An expired open is closed before
+returning a successful HTTP response. Admitted streams check the same deadline
+before and after reads; these checks do not interrupt a blocked provider call or
+provide an idle-read watchdog.
+
 `version` is a provider-version precondition, not an HTTP entity tag or a request
 for historical content. A stale version returns `412`. Every download also pins
 the opened stream to the version observed during metadata lookup, even when the

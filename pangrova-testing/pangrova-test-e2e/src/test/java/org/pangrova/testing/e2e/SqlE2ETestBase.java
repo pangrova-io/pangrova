@@ -302,6 +302,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // State store DataSource — shared PostgreSQL backend for journal, registry, tenant, etc.
     // Created alongside metadata DataSource during bootstrap; exposed for subclass E2E tests.
     private static volatile DataSource stateStoreDataSource;
+    private static volatile com.zaxxer.hikari.HikariDataSource metadataDataSourcePool;
 
     // Tracks which test classes have already registered their connectors
     private static final java.util.Set<String> registeredClasses =
@@ -601,7 +602,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         if (coordinatorResultBuffer != null) coordinatorResultBuffer.close();
         if (metadataBootstrap != null) {
             try {
-                metadataBootstrap.shutdown();
+                shutdownMetadata();
             } catch (Exception e) {
                 LOG.warn("event=metadata_shutdown_error error={}", e.getMessage());
             }
@@ -2656,10 +2657,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static MetadataBootstrap initializeMetadata() {
+        com.zaxxer.hikari.HikariDataSource startingPool = null;
+        MetadataBootstrap startingBootstrap = null;
         try {
             System.err.println("[E2E-DEBUG] initializeMetadata: creating datasource");
-            DataSource ds = MetadataSchemaInitializer.createDataSource(
+            startingPool = org.pangrova.metadata.store.PooledDataSourceFactory.create(
                     pgJdbcUrl(), pgUsername(), pgPassword());
+            DataSource ds = startingPool;
             System.err.println("[E2E-DEBUG] initializeMetadata: datasource created");
             MetadataSchemaInitializer.createSchema(ds);
             System.err.println("[E2E-DEBUG] initializeMetadata: schema created");
@@ -2687,6 +2691,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                             descriptor, dependencies, sharedDatasetControlClient, sourceCatalogs.apply(descriptor))),
                     descriptor -> java.util.Optional.of(sourceCatalogs.apply(descriptor)));
             MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
+            startingBootstrap = bootstrap;
             bootstrap.catalogRegistry().setTableControlService(new org.pangrova.metadata.control.TableControlService(
                     new org.pangrova.metadata.control.JdbcTableControlStore(ds),
                     bootstrap.catalogRegistry()::requireCurrentCatalogIdentity,
@@ -2699,16 +2704,29 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     new org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore(ds));
             System.err.println("[E2E-DEBUG] initializeMetadata: bootstrap initialized");
             LOG.info("MetadataBootstrap initialized with state store tables");
+            metadataDataSourcePool = startingPool;
             return bootstrap;
-        } catch (Exception e) {
+        } catch (Exception | Error e) {
+            try (var failedPool = startingPool) {
+                if (startingBootstrap != null) startingBootstrap.shutdown();
+            } catch (RuntimeException | Error cleanupFailure) {
+                if (cleanupFailure != e) e.addSuppressed(cleanupFailure);
+            }
+            stateStoreDataSource = null;
+            if (e instanceof Error error) throw error;
             throw new IllegalStateException(
                     "MetadataBootstrap initialization failed", e);
         }
     }
 
     private static void shutdownMetadata() {
-        if (metadataBootstrap != null) {
-            metadataBootstrap.shutdown();
+        try (var ownedPool = metadataDataSourcePool) {
+            stopArtifactControlLoops();
+            if (metadataBootstrap != null) metadataBootstrap.shutdown();
+        } finally {
+            metadataBootstrap = null;
+            metadataDataSourcePool = null;
+            stateStoreDataSource = null;
         }
     }
 

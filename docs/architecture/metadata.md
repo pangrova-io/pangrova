@@ -1638,6 +1638,9 @@ Pangrova may write, drop, or maintain it.
   table UUID has not changed. A stale local catalog handle is rejected against the durable
   descriptor before control authority can be used. Catalog replacement never rebinds an old
   control record automatically; a newly created table receives a new stable table ID.
+  SQL DROP and the trusted Metadata API check the captured deployment before physical
+  deletion, including shadow mode; completion retains its revision/deployment checks.
+  This is not an atomic Catalog lease across connector I/O.
 - Existing records with no catalog binding fail closed. The background observer may backfill
   both missing fields only for an explicitly legacy-write-allowlisted table whose live format
   UUID and location match the identity already recorded. It cannot overwrite an existing or

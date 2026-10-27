@@ -103,6 +103,20 @@ class E2eDeploymentBootstrapE2ETest extends PangrovaE2ETestBase {
     }
 
     @Test
+    void sharedMetadataLookupsReuseAuthenticatedPostgresBackends() throws Exception {
+        var backends = new java.util.HashSet<Integer>();
+        for (int lookup = 0; lookup < 32; lookup++) {
+            try (var connection = stateStoreDataSource().getConnection();
+                    var statement = connection.createStatement();
+                    var rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+                assertThat(rows.next()).isTrue();
+                backends.add(rows.getInt(1));
+            }
+        }
+        assertThat(backends).hasSizeLessThan(32);
+    }
+
+    @Test
     void sameCatalogNamesCannotHideAChangedWarehouseConfiguration() {
         String catalog = "bootstrap_changed_" + UUID.randomUUID().toString().replace("-", "");
         Path first = tempDir.resolve(catalog + "-first");
