@@ -80,6 +80,14 @@ class TpcHCorrectnessTest extends TpcHTestBase {
             List<TypedRow> rows = executeQuery("q05.sql");
             assertMatchesReference(rows, "q05.sql",
                     "n_name", "revenue");
+            // The fixed fixture contains an exact revenue tie. Keep it in the
+            // ordered oracle so a lost secondary key is observable.
+            var japan = rows.stream().filter(row -> "JAPAN".equals(row.getString("n_name")))
+                    .findFirst().orElseThrow();
+            var jordan = rows.stream().filter(row -> "JORDAN".equals(row.getString("n_name")))
+                    .findFirst().orElseThrow();
+            assertThat(japan.getDouble("revenue")).isEqualTo(jordan.getDouble("revenue"));
+            assertThat(rows.indexOf(japan)).isLessThan(rows.indexOf(jordan));
         }
     }
 

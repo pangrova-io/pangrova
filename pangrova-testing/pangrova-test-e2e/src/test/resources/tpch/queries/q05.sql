@@ -23,4 +23,5 @@ WHERE
 GROUP BY
     n_name
 ORDER BY
-    revenue DESC
+    revenue DESC,
+    n_name ASC

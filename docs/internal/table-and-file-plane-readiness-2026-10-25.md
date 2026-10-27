@@ -16,6 +16,29 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Q5 deterministic oracle ordering — continuation on 2026-10-27
+
+The third default E2E collection at fixture `7d43e059` / production runtime
+`84411836` ended with 1010 tests, one assertion failure, zero errors and zero
+skips. The complete original XML collection is retained. The three real-process
+selections passed (local processes 1, speculation 10, AI processes 1); this does
+not qualify independent Coordinator failover or the production deployment matrix.
+
+The one failure was Q5's ordered comparison. A separate complete-row diagnostic
+proved that Native and PostgreSQL returned the same 14-row multiset within the
+existing numeric tolerance. JAPAN and JORDAN have exactly equal revenue
+`-38403.376`, while the original SQL ordered only by revenue. Their relative
+order was therefore unspecified. The bounded E2E SQL now adds `n_name ASC` as a
+secondary key, and Q5 additionally verifies the fixture's exact revenue tie and
+country order. Complete row-by-row comparison remains enabled; the temporary
+diagnostic was removed and the benchmark workload was not changed.
+
+The Q5/strict-comparator selection and E2E static verification passed all eight
+cases with zero failures/errors/skips. A fresh unified default E2E collection and
+the four isolated Native owners remain pending for this final fixture correction.
+Production/runtime JAR inputs remain those of `84411836`; no install or artifact
+overwrite occurred during these consumers.
+
 ## Bounded runtime and pooled E2E metadata — continuation on 2026-10-27
 
 Production inputs at `84411836` passed the affected complete default owners/static
