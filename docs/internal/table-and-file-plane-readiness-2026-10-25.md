@@ -16,6 +16,41 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Default E2E R4 Native crash — continuation on 2026-10-27
+
+The frozen `e74d80e9` fixture / `84411836` production-runtime collection ended
+with Maven exit 1 and fork exit 134. Its 1010 completed XML cases report zero
+failures/errors/skips, including Q5 and all 12 independent-process cases, but the
+JVM crashed in `AiSqlReadWriteE2ETest$VectorColumnOperations`; this is a failed gate.
+Original XML, dumpstream, HotSpot report and macOS crash report are retained.
+All 397 consumer JAR hashes remained unchanged throughout this invocation.
+
+The crash stack recursively enters the SDK's complex-column schema export
+from shuffle serialization, dereferencing a null address while reading an
+`ARRAY<REAL>` column. A focused Native regression failed before repair: exact
+type/name matching returned the original row without materializing its lazy
+array child. The schema bridge then interpreted LazyVector storage as an actual
+ArrayVector. Canonical binding now recursively materializes children even when
+names match, retaining unchanged wrappers and sharing payload/null/index buffers.
+
+All 15 focused Native binding/type tests passed, including batch and iterative
+array serialization round trips. The complete standard fixture-owned Native
+gate passed 4336/4336; all 171 fixture consumer JAR hashes stayed unchanged.
+The actual vector SQL read/write selection passed 12 cases with zero failures/
+errors/skips, using matching Worker and classifier JNI resources `b3bcee6b…`.
+The pre-repair log remains failed evidence. Updated JNI consumers then passed
+all 1432 default Worker cases/static checks (zero SpotBugs findings) and the
+explicit 23-case bounded integration selection, all zero failures/errors/skips.
+ASan and a fresh combined E2E/isolated-owner gate remain pending.
+
+Preparing a matching isolated ASan SDK also exposed the pinned SDK's unconditional
+Linux `-latomic` flag on macOS/Homebrew Clang. A separate bootstrap portability
+patch omits it on Darwin and appends it without discarding existing linker flags
+elsewhere. Four actual CMake selection cases passed. The canonical function/
+execution SDK patch remains `6799535a…`; this platform fix changes build flags,
+not function-generation semantics. Dependency/tool prerequisites and the private
+ASan build are retained separately from production qualification.
+
 ## Opened-body absolute expiry — continuation on 2026-10-27
 
 Worker now owns both admitted provider streams and a cancellable alarm for each
@@ -37,6 +72,14 @@ zero failures/errors/skips and zero SpotBugs findings, including all nine real
 MinIO cases. The ten deadline/concurrent-cleanup cases also passed 20 deliberate
 repetitions (200 test executions). The focused Maven/static selection passed
 before the final two cleanup cases were added; the complete module includes them.
+The real SDK/socket expiry case additionally passed five deliberate repetitions.
+An explicit bounded integration selection subsequently passed 23 cases, zero
+failures/errors/skips, covering startup/authentication/cancellation/Native creation
+and shutdown. An earlier broad-profile invocation accidentally selected the 5 GiB
+capacity case and was stopped (exit 143) to respect the user's dedicated-environment
+boundary. Its compressed original log and 419 completed-case reports are retained
+as interrupted evidence, not a passing gate. The generated partial upload was
+verified against the fixture pattern and closed-file ownership before removal.
 
 These edits are separate from the frozen `e74d80e9` default E2E collection;
 that collection does not validate this new implementation. Native/protocol inputs

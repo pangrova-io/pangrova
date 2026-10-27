@@ -16,6 +16,7 @@
 #include "velox/type/Type.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/ComplexVector.h"
+#include "velox/vector/LazyVector.h"
 #include "velox/vector/tests/utils/VectorMaker.h"
 #include "columnar/CanonicalBatchStream.h"
 #include <arrow/array.h>
@@ -42,6 +43,57 @@ class ArrowBatchTypeContractTest : public ::testing::Test {
   }
   std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
 };
+
+class ComplexSchemaLoader final : public VectorLoader {
+ public:
+  explicit ComplexSchemaLoader(VectorPtr values) : values_(std::move(values)) {}
+
+ protected:
+  void loadInternal(RowSet, ValueHook* hook, vector_size_t size, VectorPtr* result) override {
+    VELOX_CHECK(!hook && size <= values_->size());
+    *result = values_;
+  }
+
+ private:
+  VectorPtr values_;
+};
+
+TEST_F(ArrowBatchTypeContractTest, LazyArraySchemaSurvivesBatchAndIterativeRoundTrips) {
+  facebook::velox::test::VectorMaker maker(pool_.get());
+  auto arrays = maker.arrayVector<float>({{1.0F, 0.0F}, {}, {0.5F}});
+  substrait::Type declared;
+  declared.mutable_list()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  *declared.mutable_list()->mutable_type() =
+      schema::primitive("fp32", substrait::Type::NULLABILITY_NULLABLE);
+  const auto options = declaredOptions({schema::computed("embedding", declared)});
+  ArrowBatchVectorSerde serde;
+  for (bool iterative : {false, true}) {
+    auto deferred = std::make_shared<LazyVector>(pool_.get(), arrays->type(), arrays->size(),
+        std::make_unique<ComplexSchemaLoader>(arrays));
+    auto input = maker.rowVector({"embedding"}, {deferred});
+    auto rowType = std::dynamic_pointer_cast<const RowType>(input->type());
+    IOBufOutputStream output(*pool_);
+    if (iterative) {
+      StreamArena arena(pool_.get());
+      auto writer = serde.createIterativeSerializer(rowType, 0, &arena, &options);
+      writer->append(input);
+      writer->flush(&output);
+    } else {
+      auto writer = serde.createBatchSerializer(pool_.get(), &options);
+      IndexRange range{0, input->size()};
+      writer->serialize(input, folly::Range<const IndexRange*>(&range, 1), &output);
+    }
+    auto wire = output.getIOBuf();
+    BufferInputStream source(byteRangesFromIOBuf(wire.get()));
+    RowVectorPtr decoded;
+    serde.deserialize(&source, pool_.get(), rowType, &decoded, &options);
+    ASSERT_EQ(decoded->size(), 3);
+    for (vector_size_t row = 0; row < decoded->size(); ++row) {
+      EXPECT_TRUE(decoded->childAt(0)->equalValueAt(arrays.get(), row, row));
+    }
+    EXPECT_EQ(input->childAt(0), deferred);
+  }
+}
 
 TEST_F(ArrowBatchTypeContractTest, ThrowsOnOpaqueType) {
   auto opaqueType = OpaqueType::create<int>();

@@ -310,6 +310,13 @@ build_velox() {
   fi
   cd "$VELOX_DIR"
   bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/apply-velox-patches.sh" apply "$VELOX_DIR"
+  # Darwin supplies these atomics through its toolchain; preserve sanitizer flags
+  # on platforms that do require the separate library.
+  local atomic_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-darwin-atomic-link.patch"
+  if ! git apply --reverse --check "$atomic_patch" >/dev/null 2>&1; then
+    git apply --check "$atomic_patch"
+    git apply "$atomic_patch"
+  fi
   if [[ "$OS" == "Darwin" ]]; then
     export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-Y}"
     export CURL_OPTIONS="${CURL_OPTIONS:---retry 20 --retry-all-errors --connect-timeout 30}"

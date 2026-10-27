@@ -346,6 +346,12 @@ re-register without blocking the sole write-drain consumer.
 The Arrow C Data bridge exists for columnar interoperability, but does not
 make the network shuffle or result path zero-copy.
 
+Before schema export, canonical vector binding materializes lazy children,
+including complex columns whose names and types already match the declaration.
+Unchanged wrappers and payload/null/index buffers remain shared. Schema export
+must see the actual array/map/row vector rather than interpret LazyVector storage
+as a complex vector; logical type equality alone does not prove that layout.
+
 ## 7. Native Read Architecture
 
 Read-dependent SQL tasks arrive as canonical v2 task requests with connector

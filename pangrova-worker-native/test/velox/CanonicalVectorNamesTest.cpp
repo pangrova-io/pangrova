@@ -9,6 +9,7 @@
 #include "velox/vector/ConstantVector.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/LazyVector.h"
+#include "velox/vector/tests/utils/VectorMaker.h"
 
 namespace pangrova::velox::test {
 namespace {
@@ -145,6 +146,22 @@ TEST(CanonicalVectorNamesTest, PhysicalTypeAndArityChangesRemainRejected) {
   EXPECT_THROW(bindCanonicalVectorNames(input, ROW({"new"}, {INTEGER()})), std::invalid_argument);
   EXPECT_THROW(bindCanonicalVectorNames(input, ROW({}, {})), std::invalid_argument);
   EXPECT_THROW(bindCanonicalVectorNames(nullptr, input->type()), std::invalid_argument);
+}
+
+TEST(CanonicalVectorNamesTest, MatchingNamesStillMaterializeLazyArrayChildrenForSchemaExport) {
+  auto pool = pangrova::test::testLeafPool("canonical-names-lazy-array");
+  facebook::velox::test::VectorMaker maker(pool.get());
+  auto elements = maker.arrayVector<float>({{1.0F, 0.0F}, {}, {0.5F}});
+  auto deferred = std::make_shared<LazyVector>(pool.get(), elements->type(), elements->size(),
+      std::make_unique<NamesLoader>(elements));
+  auto source = maker.rowVector({"embedding"}, {deferred});
+  auto output = bindCanonicalVectorNames(source, source->type());
+  // Schema export uses the physical complex vector; retaining a LazyVector here
+  // makes the SDK interpret its storage as ArrayVector and dereference garbage.
+  ASSERT_EQ(output->as<RowVector>()->childAt(0), elements);
+  EXPECT_EQ(source->childAt(0), deferred);
+  EXPECT_EQ(output->as<RowVector>()->childAt(0)->as<ArrayVector>()->elements(), elements->elements());
+  EXPECT_EQ(bindCanonicalVectorNames(output, output->type()), output);
 }
 }  // namespace
 }  // namespace pangrova::velox::test
