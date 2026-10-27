@@ -16,6 +16,33 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## S3 committed-write receipts — continuation on 2026-10-27
+
+Two real MinIO regressions failed before repair: PUT and multipart completion
+discarded their provider responses and returned the latest object's HEAD. A
+second writer between acknowledgement and HEAD caused the first operation's
+receipt to report the second writer's version and size. The original failures
+are retained. Both accessors now pin metadata to the acknowledged version ID,
+with the returned ETag as a condition. A mutable `null` version continues to use
+ETag evidence, consistent with [S3 suspended-version semantics](https://docs.aws.amazon.com/AmazonS3/latest/userguide/AddingObjectstoVersionSuspendedBuckets.html).
+
+The fixed diagnostic passed all 13 real MinIO cases and seven actual-SDK/HTTP
+receipt cases, zero failures/errors/skips. Missing identity, mismatched evidence,
+missing metadata and post-acknowledgement HEAD failure cannot produce a successful
+receipt or trigger an accessor-level replay. Versioned concurrent writes return
+their own acknowledged generation; both unversioned PUT and multipart races fail
+receipt verification after commitment. HTTP fixture corrections retain the
+SDK's real checksum validation; a fake ETag that contradicted its four-byte body
+was rejected and its failed diagnostic is retained. The first complete default
+Worker/static run passed 1441 cases and zero SpotBugs findings before the two
+unversioned MinIO cases were added. Its full collection is retained. The expanded
+complete Worker/static run passed 1443 tests with zero failures/errors/skips and
+zero SpotBugs findings. Final combined-revision qualification remains pending.
+
+The ongoing frozen `d465fac1` E2E collection does not validate this change. No
+consumer JAR was installed/overwritten. Durable multipart state, idempotence,
+UNKNOWN reconciliation and provider production qualification remain open.
+
 ## Default E2E R4 Native crash — continuation on 2026-10-27
 
 The frozen `e74d80e9` fixture / `84411836` production-runtime collection ended

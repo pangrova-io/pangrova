@@ -13,6 +13,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.spi.storage.StorageProfile;
@@ -98,6 +100,77 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
                             assertThat(failure.getErrorCode())
                                     .isEqualTo(PangrovaErrorCode.FILE_OBJECT_NOT_FOUND));
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,true", "true,true", "false,false", "true,false"})
+    void committedReceiptDoesNotDescribeAConcurrentWritersNewerVersion(boolean multipart, boolean versioned)
+            throws IOException {
+        try (S3Client otherWriter = client()) {
+            String bucket = bucket(otherWriter, versioned);
+            var location = location(bucket, "commit-receipt");
+            var committed = new java.util.concurrent.atomic.AtomicReference<String>();
+            var committedEtag = new java.util.concurrent.atomic.AtomicReference<String>();
+            var writes = new java.util.concurrent.atomic.AtomicInteger();
+            var replaceAfterCommit = new ExecutionInterceptor() {
+                @Override
+                public void afterExecution(Context.AfterExecution context, ExecutionAttributes attributes) {
+                    String version = null;
+                    String etag = null;
+                    if (!multipart && context.response()
+                            instanceof software.amazon.awssdk.services.s3.model.PutObjectResponse response) {
+                        version = response.versionId();
+                        etag = response.eTag();
+                    } else if (multipart && context.response()
+                            instanceof software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse response) {
+                        version = response.versionId();
+                        etag = response.eTag();
+                    }
+                    if (etag != null) {
+                        writes.incrementAndGet();
+                        committed.set(version);
+                        committedEtag.set(etag);
+                        otherWriter.putObject(request -> request.bucket(bucket).key(location.key("item.bin")),
+                                software.amazon.awssdk.core.sync.RequestBody.fromString("other-writer"));
+                    }
+                }
+            };
+            try (S3Client originalWriter = client(replaceAfterCommit)) {
+                var accessor = new S3ObjectStoreAccessor(originalWriter);
+                FileStat result = null;
+                if (versioned) {
+                    result = writeOwnedObject(accessor, location, multipart);
+                } else {
+                    assertThatThrownBy(() -> writeOwnedObject(accessor, location, multipart))
+                            .isInstanceOfSatisfying(PangrovaException.class, failure -> {
+                                assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE);
+                                assertThat(failure).hasMessageContaining("committed");
+                            });
+                }
+                assertThat(writes.get()).isEqualTo(1);
+                assertThat(committedEtag.get()).isNotBlank();
+                var latest = otherWriter.headObject(request -> request.bucket(bucket)
+                        .key(location.key("item.bin")));
+                assertThat(latest.eTag()).isNotEqualTo(committedEtag.get());
+                if (versioned) {
+                    assertThat(latest.versionId()).isNotEqualTo(committed.get());
+                    assertThat(result.providerVersion()).isEqualTo(committed.get());
+                    assertThat(result.size()).isEqualTo(5);
+                    String ownedVersion = result.providerVersion();
+                    assertThat(otherWriter.getObjectAsBytes(request -> request.bucket(bucket)
+                            .key(location.key("item.bin")).versionId(ownedVersion)).asUtf8String())
+                            .isEqualTo("owned");
+                }
+            }
+        }
+    }
+
+    private static FileStat writeOwnedObject(S3ObjectStoreAccessor accessor, ObjectLocation location,
+            boolean multipart) throws IOException {
+        if (!multipart) return accessor.put(location, "item.bin", stream("owned"), 5, "text/plain");
+        var upload = accessor.beginMultipart(location, "item.bin", "text/plain");
+        var part = accessor.uploadPart(upload, 1, stream("owned"), 5);
+        return accessor.completeMultipart(upload, List.of(part));
     }
 
     @Test
@@ -332,15 +405,22 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
     }
 
     private static S3Client client() {
-        return S3Client.builder()
+        return client(null);
+    }
+
+    private static S3Client client(ExecutionInterceptor interceptor) {
+        var builder = S3Client.builder()
                 .region(Region.US_EAST_1)
                 .endpointOverride(URI.create(
                         "http://" + MINIO.getHost() + ":" + MINIO.getMappedPort(9000)))
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY)))
                 .serviceConfiguration(S3Configuration.builder()
-                        .pathStyleAccessEnabled(true).build())
-                .build();
+                        .pathStyleAccessEnabled(true).build());
+        if (interceptor != null) {
+            builder.overrideConfiguration(config -> config.addExecutionInterceptor(interceptor));
+        }
+        return builder.build();
     }
 
     private static S3Presigner presigner() {

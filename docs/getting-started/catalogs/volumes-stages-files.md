@@ -450,3 +450,14 @@ object size and body length. Missing or contradictory range evidence fails befor
 file bytes are delivered. Closing a partial or failed response aborts its connection
 without draining the remaining object; completed reads retain normal connection reuse.
 This is independent of the remaining idle-deadline and active-revocation work.
+
+S3 PUT and multipart-completion receipts describe the version acknowledged by
+that operation. Metadata lookup uses its returned immutable version ID and ETag;
+unversioned or mutable `null` versions use an ETag condition. A concurrent writer
+cannot turn a newer current object into the earlier operation's receipt. S3
+returns version identity with [PUT](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html)
+and [multipart completion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CompleteMultipartUpload.html).
+The Worker credentials must permit metadata lookup for that returned version.
+If metadata verification fails after acknowledgement, the write has already
+committed; the accessor reports that context without replaying it. Durable
+operation-outcome reconciliation remains an open transfer-lifecycle gate.

@@ -24,6 +24,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
@@ -33,6 +34,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -45,9 +47,9 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
  * S3-compatible implementation of the file-plane transfer layer.
  *
  * <p>Range reads first pin the current version with a HEAD, then request that
- * exact version so two plans never splice different object versions. MD5 is
- * reported only for single-part objects whose ETag is a plain MD5 digest;
- * multipart ETags are never presented as content hashes.</p>
+ * exact version so two plans never splice different object versions. Write
+ * receipts likewise pin the provider's acknowledged version. ETags remain
+ * provider identity evidence and are never inferred to be content MD5.</p>
  */
 public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
     private static final Pattern CONTENT_RANGE = Pattern.compile(
@@ -193,14 +195,15 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         if (contentType != null && !contentType.isBlank()) {
             request.contentType(contentType);
         }
+        PutObjectResponse response;
         try {
-            client.putObject(request.build(), RequestBody.fromInputStream(data, size));
+            response = client.putObject(request.build(), RequestBody.fromInputStream(data, size));
         } catch (S3Exception failure) {
             throw translate("Failed to write '" + path + "'", failure);
         } catch (SdkException failure) {
             throw storageFailure("Failed to write '" + path + "'", failure);
         }
-        return head(location, path);
+        return committedStat(location, path, response.versionId(), response.eTag());
     }
 
     @Override
@@ -268,8 +271,9 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
                     .partNumber(part.partNumber()).eTag(part.etag()).build());
             expectedPart++;
         }
+        CompleteMultipartUploadResponse response;
         try {
-            client.completeMultipartUpload(CompleteMultipartUploadRequest.builder()
+            response = client.completeMultipartUpload(CompleteMultipartUploadRequest.builder()
                     .bucket(upload.location().profile().bucket())
                     .key(upload.location().key(upload.path()))
                     .uploadId(upload.uploadId())
@@ -282,7 +286,7 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
             throw storageFailure("Failed to complete multipart upload for '" + upload.path() + "'",
                     failure);
         }
-        return head(upload.location(), upload.path());
+        return committedStat(upload.location(), upload.path(), response.versionId(), response.eTag());
     }
 
     @Override
@@ -365,6 +369,34 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         } catch (SdkException failure) {
             throw storageFailure("Failed to stat '" + key + "'", failure);
         }
+    }
+
+    /** Reads the completed write's identity; a later writer's current HEAD is not its receipt. */
+    private FileStat committedStat(ObjectLocation location, String path, String reportedVersion, String etag) {
+        String version = realVersionId(reportedVersion);
+        if (version == null && (etag == null || etag.isBlank())) {
+            throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
+                    "S3 committed the write but returned no object identity for '" + path + "'");
+        }
+        var request = HeadObjectRequest.builder().bucket(location.profile().bucket()).key(location.key(path));
+        if (version != null) request.versionId(version);
+        if (etag != null && !etag.isBlank()) request.ifMatch(etag);
+        HeadObjectResponse metadata;
+        try {
+            metadata = client.headObject(request.build());
+        } catch (SdkException failure) {
+            // The provider already acknowledged the write. Metadata failure is not
+            // rollback evidence and must not cause this method to replay the write.
+            throw storageFailure("S3 committed the write but its metadata could not be verified for '"
+                    + path + "'", failure);
+        }
+        if ((version != null && !version.equals(realVersionId(metadata.versionId())))
+                || (etag != null && !etag.isBlank() && !etag.equals(metadata.eTag()))
+                || metadata.contentLength() == null || metadata.lastModified() == null) {
+            throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
+                    "S3 committed the write but its returned identity could not be verified for '" + path + "'");
+        }
+        return stat(path, metadata);
     }
 
     private static FileStat stat(String path, HeadObjectResponse response) {
