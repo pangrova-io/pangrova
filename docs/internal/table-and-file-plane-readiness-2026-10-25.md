@@ -16,6 +16,23 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Read admission after provider I/O — continuation on 2026-10-27
+
+Worker rechecks the captured descriptor after endpoint HEAD, before opening the
+provider body and after that open returns. An expired HEAD cannot disclose range
+metadata or start the subsequent read; an expired open is closed before an HTTP
+success response is constructed. Cleanup failure remains suppressed on the
+original access denial. HEAD-only responses likewise recheck before returning
+their metadata. The original delivery deadline remains on the admitted stream.
+
+Five actual-SDK/HTTP fault-injection and cleanup cases passed, together with the
+existing deadline/resource/HTTP selection: 52 tests, zero failures/errors/skips.
+These ran in a separate diagnostic output directory so the ongoing reactor's
+compiled classes remained frozen. Worker and E2E Checkstyle passed. The complete
+Worker/static and refreshed endpoint/Native checks remain pending. This is
+boundary revalidation, not a provider-call timeout, blocked-I/O/idle watchdog,
+active-RBAC revocation or completed transfer qualification.
+
 ## Default-reactor policy fixture repair — continuation on 2026-10-27
 
 The full default reactor at `a5ea42e0` reached E2E and recorded six failures in
@@ -31,8 +48,23 @@ also asserts that persisted policies and masks carry the created table ID. All
 physical-survivor, masked-predicate, NULL, grant-revocation and correlation assertions
 remain intact. The six COW and six subquery Native SQL cases passed with zero
 failures/errors/skips, followed by E2E static verification. The fail-closed rejection
-of unbound policies remains unchanged. A fresh full default reactor and refreshed
-runtime cohort are required after these fixture/implementation repairs.
+of unbound policies remains unchanged.
+
+The second full default reactor uses the compiled `19b5ffe1` snapshot and is still
+running. It has recorded a separate COPY fixture ownership error: the private
+ticket/restart method had `native-runtime-owner` but lacked the `native-required`
+tag used by the other three owners, so the daily selection entered it in the shared
+Native JVM. The ownership guard rejected before modifying runtime state. The
+missing tag is restored; the case remains mandatory in its isolated JVM selection.
+The failed report is retained and this invocation cannot become a passing reactor
+gate. Corrected discovery and all four independent owners still require fresh
+validation after the current consumer exits.
+
+The independent Native gate at `19b5ffe1` passed all 4334 cases using frozen
+installed fixture JARs and the matching isolated SDK/JNI cohort below. The staged
+runtime manifest for that Java snapshot is
+`7ba3039c7e142507945e074c90b00bc6c9d3bc2b64cf2eb4a50f3d4c04b9ddae`.
+The new read-admission source repair is not part of these running/frozen artifacts.
 
 ## Iceberg rename identity fence — continuation on 2026-10-27
 

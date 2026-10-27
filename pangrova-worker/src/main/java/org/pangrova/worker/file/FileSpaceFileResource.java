@@ -173,6 +173,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
             @HeaderParam("If-Match") String ifMatch) {
         FileAccessDescriptor checked = require(verified(descriptor, signature), "read");
         FileStat stat = accessor(checked).head(location(checked), checked.path());
+        require(checked, "read");
         FileReadPreconditions.check(stat, version, ifMatch);
         return readMetadata(stat, Response.Status.OK).build();
     }
@@ -317,6 +318,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
         ObjectStoreAccessor accessor = accessor(checked);
         ObjectLocation location = location(checked);
         FileStat stat = accessor.head(location, checked.path());
+        require(checked, "read");
         FileReadPreconditions.check(stat, version, ifMatch);
         long total = stat.size();
         // Dates are not strong validators here; only an exact strong tag enables resumption.
@@ -328,10 +330,25 @@ public final class FileSpaceFileResource implements AutoCloseable {
                 : FileReadWindow.resolve(total, offset, length, range);
         FileStat window = new FileStat(stat.path(), requested.length(), stat.lastModified(),
                 stat.etag(), stat.contentType(), stat.providerVersion(), stat.md5());
+        require(checked, "read");
         InputStream stream = accessor.openRange(location, checked.path(), requested.offset(),
                 requested.length(), stat.providerVersion());
-        return new RangeRead(window, new FileTransferDeadline(stream, checked.expiresAtEpochMillis(), clock),
-                requested.partial(), total, requested.offset());
+        return new RangeRead(window, admitRead(checked, stream), requested.partial(), total, requested.offset());
+    }
+
+    /** Takes ownership of a provider stream before any HTTP success metadata is returned. */
+    InputStream admitRead(FileAccessDescriptor checked, InputStream stream) {
+        try {
+            require(checked, "read");
+            return new FileTransferDeadline(stream, checked.expiresAtEpochMillis(), clock);
+        } catch (RuntimeException | Error failure) {
+            try {
+                stream.close();
+            } catch (IOException | RuntimeException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     void delete(FileAccessDescriptor descriptor, String expectedVersion) {
