@@ -66,10 +66,13 @@ schema, matching the existing comparison handlers. The authoritative Native
 Filter continues to evaluate the predicate after schema evolution supplies NULL.
 
 A new regression failed before repair and all 17 related Native predicate tests
-passed after repair. Physical-column NULL filters remain enabled. The SQL
-regression retains its original three-row assertion and adds IS NOT NULL, AND
-and OR cases. Updated JNI/SQL, complete Native and ASan qualification are pending;
-the ongoing frozen collection uses the earlier JNI and does not qualify this fix.
+passed after repair. The full matching Release Native gate then passed 4337/4337
+with a real owned PostgreSQL/Lance authority in 822.96 seconds. Its immutable
+fixture snapshot and all 397 frozen consumer JAR hashes remained unchanged.
+Physical-column NULL filters remain enabled. The SQL regression retains its
+original three-row assertion and adds IS NOT NULL, AND and OR cases. Updated
+JNI/SQL and ASan qualification remain pending; the ongoing frozen collection
+uses the earlier JNI and does not qualify this fix.
 
 ## S3 committed-write receipts — continuation on 2026-10-27
 
