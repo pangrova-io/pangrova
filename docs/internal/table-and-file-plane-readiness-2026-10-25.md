@@ -16,6 +16,21 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Synthetic-column NULL predicates — continuation on 2026-10-27
+
+The frozen `d465fac1` shared E2E collection exposed a real Native read failure:
+`WHERE future_field IS NULL` on an Iceberg UNKNOWN column pushed a filter for
+that synthetic column into a physical Parquet reader whose schema contains only
+`id`. Both NULL predicate handlers now require membership in the physical reader
+schema, matching the existing comparison handlers. The authoritative Native
+Filter continues to evaluate the predicate after schema evolution supplies NULL.
+
+A new regression failed before repair and all 17 related Native predicate tests
+passed after repair. Physical-column NULL filters remain enabled. The SQL
+regression retains its original three-row assertion and adds IS NOT NULL, AND
+and OR cases. Updated JNI/SQL, complete Native and ASan qualification are pending;
+the ongoing frozen collection uses the earlier JNI and does not qualify this fix.
+
 ## S3 committed-write receipts — continuation on 2026-10-27
 
 Two real MinIO regressions failed before repair: PUT and multipart completion

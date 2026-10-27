@@ -223,6 +223,15 @@ class IcebergUnknownTypeTest extends SqlE2ETestBase {
             assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
             assertThat(rows.get(1).getLong("id")).isEqualTo(2L);
             assertThat(rows.get(2).getLong("id")).isEqualTo(3L);
+
+            assertThat(sqlRunner.execute("SELECT id FROM " + fqn()
+                    + " WHERE future_field IS NOT NULL")).isEmpty();
+            assertThat(sqlRunner.execute("SELECT id FROM " + fqn()
+                    + " WHERE future_field IS NULL AND id > 1 ORDER BY id"))
+                    .extracting(row -> row.getLong("id")).containsExactly(2L, 3L);
+            assertThat(sqlRunner.execute("SELECT id FROM " + fqn()
+                    + " WHERE future_field IS NOT NULL OR id = 1 ORDER BY id"))
+                    .extracting(row -> row.getLong("id")).containsExactly(1L);
         }
     }
 

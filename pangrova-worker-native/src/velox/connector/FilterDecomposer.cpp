@@ -183,25 +183,27 @@ bool isIntegerType(const facebook::velox::TypePtr& type) {
 
 int decomposeIsNull(
     const facebook::velox::core::CallTypedExpr* call,
-    const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec) {
+    const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
+    const facebook::velox::RowTypePtr& outputType) {
   if (call->name() != "is_null" ||
       call->inputs().size() != 1) return 0;
   auto fieldName = extractFieldName(call->inputs()[0].get());
-  if (!fieldName) return 0;
+  if (!fieldName || !findColumnIndex(*fieldName, outputType)) return 0;
   return pushFilter(*fieldName,
       std::make_unique<facebook::velox::common::IsNull>(), scanSpec);
 }
 
 int decomposeIsNotNull(
     const facebook::velox::core::CallTypedExpr* call,
-    const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec) {
+    const std::shared_ptr<facebook::velox::common::ScanSpec>& scanSpec,
+    const facebook::velox::RowTypePtr& outputType) {
   if (call->name() != "not" || call->inputs().size() != 1) return 0;
   auto* inner = dynamic_cast<
       const facebook::velox::core::CallTypedExpr*>(call->inputs()[0].get());
   if (!inner || inner->name() != "is_null" ||
       inner->inputs().size() != 1) return 0;
   auto fieldName = extractFieldName(inner->inputs()[0].get());
-  if (!fieldName) return 0;
+  if (!fieldName || !findColumnIndex(*fieldName, outputType)) return 0;
   return pushFilter(*fieldName,
       std::make_unique<facebook::velox::common::IsNotNull>(), scanSpec);
 }
@@ -406,9 +408,9 @@ int decomposeImpl(
            decomposeImpl(call->inputs()[1].get(), scanSpec, outputType, parquetUuidBytes);
   }
 
-  int result = decomposeIsNull(call, scanSpec);
+  int result = decomposeIsNull(call, scanSpec, outputType);
   if (result > 0) return result;
-  result = decomposeIsNotNull(call, scanSpec);
+  result = decomposeIsNotNull(call, scanSpec, outputType);
   if (result > 0) return result;
   result = decomposeInList(call, scanSpec, outputType, parquetUuidBytes);
   if (result > 0) return result;

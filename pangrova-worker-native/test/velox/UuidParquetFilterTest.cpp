@@ -127,5 +127,25 @@ TEST(FilterDecomposerBoundaryTest, ImpossibleStrictIntegerBoundsRejectAllRowsWit
   }
 }
 
+TEST(FilterDecomposerBoundaryTest, NullPredicatesRequireAColumnInThePhysicalReaderSchema) {
+  auto field = std::make_shared<core::FieldAccessTypedExpr>(VARCHAR(), "future_field");
+  auto isNull = std::make_shared<core::CallTypedExpr>(BOOLEAN(),
+      std::vector<core::TypedExprPtr>{field}, "is_null");
+  auto isNotNull = std::make_shared<core::CallTypedExpr>(BOOLEAN(),
+      std::vector<core::TypedExprPtr>{isNull}, "not");
+  for (const auto& predicate : {isNull, isNotNull}) {
+    auto missing = std::make_shared<common::ScanSpec>("root");
+    EXPECT_EQ(decomposeFilterToScanSpec(predicate, missing, ROW({"id"}, {BIGINT()})), 0);
+    EXPECT_TRUE(missing->children().empty());
+
+    auto present = std::make_shared<common::ScanSpec>("root");
+    ASSERT_EQ(decomposeFilterToScanSpec(predicate, present,
+        ROW({"future_field"}, {VARCHAR()})), 1);
+    const auto* filter = present->childByName("future_field")->filter();
+    ASSERT_NE(filter, nullptr);
+    EXPECT_EQ(filter->testNull(), predicate == isNull);
+  }
+}
+
 }  // namespace
 }  // namespace pangrova::velox::test
