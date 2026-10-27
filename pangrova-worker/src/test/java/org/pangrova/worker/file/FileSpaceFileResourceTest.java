@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.Base64;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,11 +37,22 @@ class FileSpaceFileResourceTest {
 
     private final ObjectMapper mapper = JsonMapperFactory.create();
     private FileSpaceFileResource resource;
+    private final java.util.List<FileSpaceFileResource> endpoints = new java.util.ArrayList<>();
+
+    private FileSpaceFileResource owned(FileSpaceFileResource endpoint) {
+        endpoints.add(endpoint);
+        return endpoint;
+    }
+
+    @AfterEach
+    void closeEndpoints() {
+        endpoints.forEach(FileSpaceFileResource::close);
+    }
 
     @BeforeEach
     void setUp() {
-        resource = new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET,
-                mapper, () -> 1_000L);
+        resource = owned(new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET,
+                mapper, () -> 1_000L));
     }
 
     @Test
@@ -173,8 +185,8 @@ class FileSpaceFileResourceTest {
     void expiredMultipartSessionsAreEvictedWhenTheNextUploadStarts() {
         java.util.concurrent.atomic.AtomicLong now =
                 new java.util.concurrent.atomic.AtomicLong(1_000L);
-        FileSpaceFileResource clocked = new FileSpaceFileResource(
-                new ObjectStoreAccessorFactory(), SECRET, mapper, now::get);
+        FileSpaceFileResource clocked = owned(new FileSpaceFileResource(
+                new ObjectStoreAccessorFactory(), SECRET, mapper, now::get));
         FileAccessDescriptor expiring = new FileAccessDescriptor("local", StorageType.LOCAL,
                 root.toString(), "", "", "", false, "volumes/media/raw/landing",
                 "videos/stale.bin", "write", 2_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
@@ -200,8 +212,8 @@ class FileSpaceFileResourceTest {
         FileSpaceFileResource.MultipartSession session = resource.beginMultipart(
                 new FileSpaceFileResource.BeginMultipartRequest(encoded,
                         FileAccessSignature.sign(SECRET, encoded), "video/mp4"));
-        FileSpaceFileResource anotherWorker = new FileSpaceFileResource(
-                new ObjectStoreAccessorFactory(), SECRET, mapper, () -> 1_000L);
+        FileSpaceFileResource anotherWorker = owned(new FileSpaceFileResource(
+                new ObjectStoreAccessorFactory(), SECRET, mapper, () -> 1_000L));
 
         UploadedPart first = anotherWorker.uploadPart(upload, session.uploadId(), 1, 2,
                 stream("ab"));
@@ -359,7 +371,7 @@ class FileSpaceFileResourceTest {
     }
 
     private FileSpaceFileResource clocked(AtomicLong now) {
-        return new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, mapper, now::get);
+        return owned(new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, mapper, now::get));
     }
 
     private FileAccessDescriptor writeGrant(long expiry) {
@@ -392,7 +404,7 @@ class FileSpaceFileResourceTest {
         try (var accessors = new ObjectStoreAccessorFactory(
                 software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
                         software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))) {
-            var worker = new FileSpaceFileResource(accessors, SECRET, mapper, now::get);
+            var worker = owned(new FileSpaceFileResource(accessors, SECRET, mapper, now::get));
             java.util.function.LongFunction<FileAccessDescriptor> grantAt = expiry ->
                     new FileAccessDescriptor("s3", StorageType.S3, "test-bucket", "", "http://localhost:1",
                     "us-east-1", true, "stage", "private.bin", "read", expiry, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
@@ -459,7 +471,7 @@ class FileSpaceFileResourceTest {
     void descriptorDecodingUsesTheMapperConfigurationCapturedAtConstruction() throws IOException {
         var shared = JsonMapperFactory.create();
         shared.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        var worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, shared, () -> 1_000L);
+        var worker = owned(new FileSpaceFileResource(new ObjectStoreAccessorFactory(), SECRET, shared, () -> 1_000L));
         shared.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
         var payload = shared.valueToTree(descriptor("private.bin", "read"));
         ((com.fasterxml.jackson.databind.node.ObjectNode) payload).put("futureMetadata", true);

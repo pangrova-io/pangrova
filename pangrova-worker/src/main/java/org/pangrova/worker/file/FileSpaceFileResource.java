@@ -67,6 +67,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
     private final String signingSecret;
     private final ObjectMapper mapper;
     private final LongSupplier clock;
+    private final FileReadWatchdog reads;
     private final Map<String, ActiveUpload> multipartUploads = new ConcurrentHashMap<>();
 
     /** Creates the endpoint, taking ownership of its factory; descriptors require the cluster secret. */
@@ -84,15 +85,19 @@ public final class FileSpaceFileResource implements AutoCloseable {
         this.accessors = java.util.Objects.requireNonNull(accessors, "accessors");
         this.signingSecret = signingSecret;
         this.mapper = java.util.Objects.requireNonNull(mapper, "mapper").copy();
-        this.clock = clock;
+        this.clock = java.util.Objects.requireNonNull(clock, "clock");
+        this.reads = new FileReadWatchdog();
     }
 
     /** Releases the owned provider clients when the HTTP endpoint is destroyed or explicitly stopped. */
     @jakarta.annotation.PreDestroy
     @Override
     public void close() {
-        multipartUploads.clear();
-        accessors.close();
+        try (var ownedFactory = accessors) {
+            reads.close();
+        } finally {
+            multipartUploads.clear();
+        }
     }
 
     /** Returns object metadata for a signed descriptor. */
@@ -337,10 +342,9 @@ public final class FileSpaceFileResource implements AutoCloseable {
     }
 
     /** Takes ownership of a provider stream before any HTTP success metadata is returned. */
-    InputStream admitRead(FileAccessDescriptor checked, InputStream stream) {
+    InputStream admitRead(FileAccessDescriptor checked, InputStream stream) throws IOException {
         try {
             require(checked, "read");
-            return new FileTransferDeadline(stream, checked.expiresAtEpochMillis(), clock);
         } catch (RuntimeException | Error failure) {
             try {
                 stream.close();
@@ -349,6 +353,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
             }
             throw failure;
         }
+        return reads.open(stream, checked.expiresAtEpochMillis(), clock);
     }
 
     void delete(FileAccessDescriptor descriptor, String expectedVersion) {

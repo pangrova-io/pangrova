@@ -16,6 +16,33 @@ Component tests and results from different snapshots must not be combined into a
 passing final-revision gate. The final combined revision needs fresh qualification;
 changes in other engine areas need their own current-source evidence.
 
+## Opened-body absolute expiry — continuation on 2026-10-27
+
+Worker now owns both admitted provider streams and a cancellable alarm for each
+stream's original signed expiry. The alarm closes an opened body even when no
+read returns, using the existing S3 partial-response abort path. Explicit stream
+closure cancels its alarm; endpoint shutdown retires alarms and active bodies
+before provider clients. Concurrent close callers wait for the same cleanup;
+cleanup failures remain observable, and fatal errors are not hidden by earlier
+ordinary failures. Admission rejects expiry/shutdown that races with scheduling.
+
+The focused diagnostic selection passed 42 tests with zero failures/errors/skips.
+Its actual SDK/socket case proves the reader entered a blocked socket read before
+the real timer aborted it at the original expiry, with one GET and no replay.
+This is bounded transport fault injection, not external-provider qualification.
+The first diagnostic HTTP fixture omitted Last-Modified and correctly failed the
+existing metadata-completeness check; that failed log is retained separately.
+The complete default Worker module/static verification then passed 1432 tests,
+zero failures/errors/skips and zero SpotBugs findings, including all nine real
+MinIO cases. The ten deadline/concurrent-cleanup cases also passed 20 deliberate
+repetitions (200 test executions). The focused Maven/static selection passed
+before the final two cleanup cases were added; the complete module includes them.
+
+These edits are separate from the frozen `e74d80e9` default E2E collection;
+that collection does not validate this new implementation. Native/protocol inputs
+are unchanged. Pre-stream HEAD/open deadlines, idle timeout, active RBAC revocation
+and the remaining P0–P3/M0–M5 matrix are still incomplete.
+
 ## Q5 deterministic oracle ordering — continuation on 2026-10-27
 
 The third default E2E collection at fixture `7d43e059` / production runtime

@@ -31,7 +31,8 @@ class FileTransferDeadlineTest {
             }
         };
         var delivered = new ByteArrayOutputStream();
-        try (var input = new FileTransferDeadline(storage, 1_000, now::get)) {
+        try (var owner = new FileReadWatchdog(new ManualFileReadAlarm());
+                var input = owner.open(storage, 1_000, now::get)) {
             assertThatThrownBy(() -> input.transferTo(delivered)).isInstanceOf(IOException.class)
                     .hasMessageContaining("expired");
             assertThat(delivered.size()).isZero();

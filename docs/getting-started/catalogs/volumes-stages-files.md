@@ -310,8 +310,12 @@ These behaviors follow [HTTP semantics (RFC 9110)](https://www.rfc-editor.org/rf
 Worker rechecks the original ticket expiry after its metadata lookup, before opening
 the provider body and after the open returns. An expired open is closed before
 returning a successful HTTP response. Admitted streams check the same deadline
-before and after reads; these checks do not interrupt a blocked provider call or
-provide an idle-read watchdog.
+before and after reads. An endpoint-owned timer also closes each opened body at
+that original deadline, aborting an unread S3 response instead of draining it.
+Closing the stream retires its timer; stopping the endpoint closes active bodies
+before provider clients and preserves cleanup failures. This does not impose a
+deadline on HEAD/body-open calls, provide an idle-read timeout, or actively revoke
+an otherwise unexpired ticket after an RBAC change.
 
 `version` is a provider-version precondition, not an HTTP entity tag or a request
 for historical content. A stale version returns `412`. Every download also pins
