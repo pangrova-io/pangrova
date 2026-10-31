@@ -9,7 +9,7 @@ import org.pangrova.databuild.api.build.DataBuildSplit;
 import org.pangrova.databuild.api.DataBuildOutputScope;
 import org.pangrova.databuild.api.build.DataBuildStore;
 import org.pangrova.databuild.api.execution.template.DataBuildStageTemplate.PublicationRead;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore.PublishedInput;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PublishedInput;
 import org.pangrova.protocol.databuild.PublishedGenerationBindingChecksum;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;

@@ -3,6 +3,7 @@ package org.pangrova.databuild.store.jdbc.exchange;
 import org.pangrova.databuild.store.jdbc.execution.CurrentDeferredExecutionContext;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore;
 import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
 import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
 
@@ -26,7 +27,7 @@ import java.util.Optional;
 
 /** Immutable external exchange evidence, gated by current security and the actual execution anchor. */
 @org.pangrova.common.api.annotation.Internal
-public final class JdbcDataBuildStageExchangeStore {
+public final class JdbcDataBuildStageExchangeStore implements DataBuildStageExchangeStore {
     private final DataSource dataSource;
     private final DataBuildTransactionAuthority transactionAuthority;
     private final JdbcDataBuildExecutionFence executionFence;
@@ -43,6 +44,7 @@ public final class JdbcDataBuildStageExchangeStore {
     }
 
     /** Persists the original real allocation without replacing an earlier registration. */
+    @Override
     public void register(DataBuildJobKey job, DataBuildExecutionOwner owner,
             DataBuildExchangeRegistration registration) {
         transaction(connection -> {
@@ -67,6 +69,7 @@ public final class JdbcDataBuildStageExchangeStore {
     }
 
     /** The caller supplies the actual RPC response only after strict protocol validation, never page statistics. */
+    @Override
     public void finalizeExchange(DataBuildJobKey job, DataBuildExecutionOwner owner,
             DataBuildExchangeFinalization finalization) {
         transaction(connection -> {
@@ -93,6 +96,7 @@ public final class JdbcDataBuildStageExchangeStore {
     }
 
     /** Restores exact allocations; short-lived access grants are renewed at the real external service. */
+    @Override
     public List<ExchangeEvidence> load(DataBuildJobKey job, DataBuildExecutionOwner owner) {
         return transaction(connection -> {
             var context = CurrentDeferredExecutionContext.resolve(
@@ -120,9 +124,6 @@ public final class JdbcDataBuildStageExchangeStore {
         }
         return List.copyOf(result);
     }
-
-    public record ExchangeEvidence(DataBuildExchangeRegistration registration,
-            Optional<DataBuildExchangeFinalization> finalization) {}
 
     /** Stores the exact submitted graph's immutable consumer edges on the creating transaction. */
     public static void insertGraphEdges(Connection connection,

@@ -1,6 +1,7 @@
 package org.pangrova.databuild.store.jdbc.execution;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.databuild.spi.storage.CurrentExecutionAuthority;
 
 import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwner;
@@ -12,7 +13,7 @@ import java.sql.SQLException;
 import java.util.Set;
 
 /** Process-local current authority evidence; neither a credential nor a persisted identity snapshot. */
-public final class CurrentDeferredExecutionContext {
+public final class CurrentDeferredExecutionContext implements CurrentExecutionAuthority {
     private final DataBuildDispatchSpec dispatchSpec;
     private final ExecutionAnchor executionAnchor;
     private final Set<String> currentDirectRoles;
@@ -45,11 +46,14 @@ public final class CurrentDeferredExecutionContext {
     }
 
     /** Includes the original compiler-observed policies; current reads never invent new compiler observations. */
+    @Override
     public DataBuildDispatchSpec dispatchSpec() { return dispatchSpec; }
 
     /** Actual backend-issued owner and bounded deadline, not a synthetic identity or caller token. */
+    @Override
     public ExecutionAnchor executionAnchor() { return executionAnchor; }
 
     /** Current persistent direct roles, distinct from IdP groups and never durably replayed as roles. */
+    @Override
     public Set<String> currentDirectRoles() { return currentDirectRoles; }
 }

@@ -1,8 +1,8 @@
 # Metadata、Catalog 与生成任务存储边界设计
 
-> 状态：2026-10-31 源码审查形成的**未实施设计**。本文只新增设计文档，不代表模块、接口或生产接线已迁移。审查范围为当前 `pangrova-metadata` 的 132 个主源 Java 文件，以及当前 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`。不含生成源码和 `target`。其他并行 provider 修复应在实施各批前重新核对。
+> 状态：2026-10-31 源码审查形成的目标设计，模块拆分尚未完成。审查基线为 `pangrova-metadata` 的 132 个主源 Java 文件及 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`，不含生成源码和 `target`。后续阶段执行/交换 SPI 已实际落位，新增4个主源，任务模块现为73个主源；详见[执行记录第38节](../project-restructure-execution-plan.md#38-阶段执行与交换状态的存储-spi)。本文原逐文件表保留审查基线，以下实施状态明确区分当前与目标。
 >
-> `pangrova-data-build` 是已经落地但用户未接受的过渡名称。最终名称须表达“派生数据生成任务”的实际内核范围，尚未定案。本文用 `<generation-jobs>` 作为目标占位名称；用户已授权更名，具体名称尚未落定。现有 SQL 表名、协议枚举、canonical JSON 字段、缓存路径和历史迁移均保持原值。
+> `pangrova-data-build` 是已经落地但用户未接受的过渡名称。职责审查后，目标名称采用 `pangrova-derived-data-jobs`，表达“派生数据生成任务”；当前源码尚未完成最终迁移。现有 SQL 表名、协议枚举、canonical JSON 字段、缓存路径和历史迁移均保持原值。
 
 ## 1. 结论与设计方式
 
@@ -13,6 +13,25 @@
 3. **公共任务内核不拥有 Index/AI 定义及 active generation。** 它拥有任务、阶段、页、租约、fencing、依赖、恢复、immutable output 和完成证据；Indexing/AI 拥有领域定义、领域版本与当前可见版本选择。公共任务仍受源身份、授权及实际执行 owner 约束，不能扩大成任意 workflow 平台。
 4. **独立演进需要编译边界。** 业务调用方只依赖无 SQL 的 Store SPI；PostgreSQL provider 与业务制品分开。跨领域原子发布通过单独、明确的 JDBC 事务协作端口保留，不能用多个各自提交的 Store 调用替代。
 5. **后端能力必须真实。** 当前完整持久化链以 PostgreSQL 为基准；`Jdbc` 命名不构成任意数据库兼容承诺。Memory provider 只有实现并验证同一语义后才能提供相同能力，不能作为未配置 PostgreSQL 时的静默回退。
+
+下面箭头表示依赖，虚线表示实现契约。组合根选择后端，业务代码不反向依赖后端实现。
+
+```mermaid
+flowchart TD
+  Root[Coordinator 进程装配] --> Domains[Catalog / Indexing / AI / Table 业务]
+  Root --> Providers[各领域 PostgreSQL provider]
+  Domains --> DomainSPI[各领域语义存储 SPI]
+  Domains --> Jobs[派生数据生成任务内核]
+  Jobs --> JobSPI[任务 / 阶段 / 交换存储 SPI]
+  Providers -.实现.-> DomainSPI
+  JobPG[任务 PostgreSQL provider] -.实现.-> JobSPI
+  Root --> JobPG
+  Providers --> TxSPI[同连接事务协作 SPI]
+  JobPG --> TxSPI
+```
+
+图中业务对任务内核的调用仅适用于需要生成任务的能力，不要求 Catalog 普通目录操作依赖任务系统。
+事务协作 SPI 保持独立的技术边界，领域应用使用上面的语义接口。
 
 ## 2. 当前 Metadata 的事实与 owner 边界
 
@@ -112,6 +131,11 @@ SQL writer 证据来自主源字符串扫描，并人工补全字符串拼接与
 
 ## 4. Store SPI 与 PostgreSQL provider 的可实施分层
 
+实施更新：阶段执行、交换及其8个record已移到`databuild.spi.storage`，上层消费接口；
+JDBC上下文实现三getter只读view，原private构造/同事务resolver保留。新增源码为
+CurrentExecutionAuthority、DataBuildStageExecutionStore、DataBuildStageExchangeStore和package-info。
+下面的表记录审查时的缺口；其中上述缺口已由第38节关闭，物理provider拆分及其他事务口仍待实施。
+
 ### 4.1 哪些接口已经是 port，哪些还不是
 
 | 当前类型/调用方式 | 判断 | 目标动作 |
@@ -146,15 +170,15 @@ pangrova-catalog/                         # 新建的真实领域 family
     org.pangrova.catalog.store.postgresql/# 实际 SQL、row mapper、invalidation writer/poller
   # memory dependency provider 按实际能力归位；不假造完整 durable Catalog 后端
 
-<generation-jobs>/                       # 语义为“派生数据生成任务”；最终名字待确认
-  <generation-jobs>-core/
+pangrova-derived-data-jobs/                       # 派生数据生成任务；已确定目标名，源码待迁移
+  pangrova-derived-data-jobs-core/
     api/                                 # job、page、lease、stage、output、manifest、evidence
     spi/                                 # TaskStore、StageExecutionStore、StageExchangeStore、PublicationStore
     core/                                # 任务/格式校验与发布路由；无 PG SQL
     protocol/                            # canonical 合同与稳定编码
-  <generation-jobs>-transaction-spi/     # 必要的窄 JDBC borrowed-transaction bridge
+  pangrova-derived-data-jobs-transaction-spi/     # 必要的窄 JDBC borrowed-transaction bridge
     spi.jdbc/                            # authority、job insert/read/finalize、publication fence
-  <generation-jobs>-store-postgresql/
+  pangrova-derived-data-jobs-store-postgresql/
     store.postgresql/                    # 当前真实存储实现与 PG 集成测试
 
 pangrova-{security,table,indexing,ai}/

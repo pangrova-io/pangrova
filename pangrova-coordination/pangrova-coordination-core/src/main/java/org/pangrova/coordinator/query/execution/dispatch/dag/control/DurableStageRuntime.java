@@ -13,10 +13,10 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.databuild.api.build.DataBuildJobKey;
 import org.pangrova.databuild.api.build.DataBuildLease;
 import org.pangrova.databuild.api.execution.DataBuildStageGraph;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore.PreparedExecution;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore.PartitionProgress;
-import org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PreparedExecution;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PartitionProgress;
+import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore;
 import org.pangrova.planner.ShuffleType;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
@@ -48,10 +48,10 @@ public final class DurableStageRuntime {
     private final StageExecutionContext.Durable control;
 
     /** Runtime dependencies do not become part of the immutable plan or persisted identity. */
-    public record Dependencies(JdbcDataBuildStageExecutionStore stages, WorkerManager workers,
+    public record Dependencies(DataBuildStageExecutionStore stages, WorkerManager workers,
             TaskScheduler scheduler, LongSupplier controlTerm, Duration leaseDuration,
             BiConsumer<PreparedTask, CompletableFuture<DispatchResult>> dispatched,
-            JdbcDataBuildStageExchangeStore exchanges) {
+            DataBuildStageExchangeStore exchanges) {
         public Dependencies {
             java.util.Objects.requireNonNull(stages, "stages");
             java.util.Objects.requireNonNull(workers, "workers");
@@ -160,7 +160,7 @@ public final class DurableStageRuntime {
             DurablePartitionRequest.ExchangeAccess exchange, Instant now) {
         List<WorkerInfo> snapshot = List.copyOf(dependencies.workers().getActiveWorkers());
         long term = dependencies.controlTerm().getAsLong();
-        var claim = new JdbcDataBuildStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
+        var claim = new DataBuildStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
                 stage, partition, progress.pageOrdinal(), term, dependencies.leaseDuration(), now);
         return dependencies.stages().preparePartition(claim, evidence -> {
             var request = DurablePartitionRequest.prepare(evidence, exchange, now, control.traceContext());
@@ -225,7 +225,7 @@ public final class DurableStageRuntime {
                 && coverage.getCoverageRatio() == 1.0;
     }
 
-    private static boolean exactIssuedAttempt(JdbcDataBuildStageExecutionStore.NativeWinner stored,
+    private static boolean exactIssuedAttempt(DataBuildStageExecutionStore.NativeWinner stored,
             org.pangrova.protocol.v2.TaskAttemptId attempt) {
         var owner = attempt.getExecutionOwner();
         return attempt.getAttemptId() == stored.attemptId() && attempt.getFencingToken() == stored.fencingToken()

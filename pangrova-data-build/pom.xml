@@ -10,7 +10,7 @@
     </parent>
     <artifactId>pangrova-data-build</artifactId>
     <name>Pangrova Data Build</name>
-    <description>Durable control plane for snapshot-pinned derived-data builds, immutable outputs, stage/exchange evidence, and atomic publication routing</description>
+    <description>Durable control plane for derived-data generation jobs, immutable output evidence, stage and exchange state, and atomic publication routing</description>
     <properties>
         <module.name>org.pangrova.databuild</module.name>
     </properties>

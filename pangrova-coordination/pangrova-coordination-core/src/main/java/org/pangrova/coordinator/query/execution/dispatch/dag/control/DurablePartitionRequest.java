@@ -4,7 +4,7 @@ import org.pangrova.coordinator.databuild.template.DataBuildPartitionBindings;
 import org.pangrova.coordinator.databuild.template.PersistedStagePlan;
 import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore.PreparedPartition;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;

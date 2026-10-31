@@ -22,7 +22,7 @@ import org.pangrova.databuild.api.build.DataBuildPageCompletion;
 import org.pangrova.databuild.api.DataBuildOutputTypeIds;
 import org.pangrova.metadata.databuild.GeneratedValueBuildDescriptor;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
 import org.pangrova.coordinator.databuild.template.FrozenStageBindings;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.metadata.databuild.jdbc.JdbcGeneratedValuePublicationStore;
@@ -122,7 +122,7 @@ class GeneratedValuePublicationIntegrationTest {
             pool.setMinimumIdle(0);
             pool.setConnectionTimeout(500);
             var claimed = ModelAuthorityFixtures.artifacts().stages(pool).preparePartition(
-                    new JdbcDataBuildStageExecutionStore.PartitionClaim(
+                    new DataBuildStageExecutionStore.PartitionClaim(
                             new org.pangrova.databuild.api.build.DataBuildJobKey(TENANT, consumerJob), owner,
                             0, 0, 0, 10, Duration.ofSeconds(30), START), prepared -> {
                         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);

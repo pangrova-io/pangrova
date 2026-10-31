@@ -812,6 +812,7 @@ artifacts:
       - org.pangrova.databuild.core.publication
       - org.pangrova.databuild.protocol
       - org.pangrova.databuild.spi.jdbc
+      - org.pangrova.databuild.spi.storage
       - org.pangrova.databuild.store.jdbc.build
       - org.pangrova.databuild.store.jdbc.exchange
       - org.pangrova.databuild.store.jdbc.execution
@@ -842,6 +843,7 @@ artifacts:
       - org.pangrova.databuild.assembly
       - org.pangrova.databuild.protocol
       - org.pangrova.databuild.spi.jdbc
+      - org.pangrova.databuild.spi.storage
       - org.pangrova.databuild.store.jdbc.build
       - org.pangrova.databuild.store.jdbc.exchange
       - org.pangrova.databuild.store.jdbc.execution

@@ -2063,3 +2063,46 @@ Integration首次命令漏传已准备的真实AI镜像参数，3个E2E类在set
 Native/proto本批没有修改，继续使用此前输入匹配的库，不声称重新构建或执行ASan。
 全项目文件语义审查、存储SPI/PG分拆、Catalog/Metadata归位、最终名称、领域发布原子性、
 7组SCC及最终R5/R6仍未完成。用户已授权随时commit/push；本批提交应明确是可编译的阶段检查点。
+
+阶段检查点已提交并推送到 `origin/refeactor-modules`：`9d38fbd4`。
+
+## 38. 阶段执行与交换状态的存储 SPI
+
+### 38.1 契约、实现与实际调用链
+
+新增 `databuild.spi.storage`：DataBuildStageExecutionStore（5个操作及7个record）、
+DataBuildStageExchangeStore（3个操作及1个record）、CurrentExecutionAuthority（三个只读getter）
+和包说明。原JDBC类实现相应接口，嵌套值对象迁出实现包；Metadata工厂返回SPI，Coordinator的
+派发、恢复、输入绑定、exchange evidence和任务报告直接依赖SPI。没有旧嵌套类转发壳。
+
+CurrentDeferredExecutionContext继续由原private构造器和同事务resolver产生，只实现只读view。
+该view不能作为JDBC授权输入；各claim/renew/publish仍重新验证当前状态，SQL/helper仍要求
+内部上下文。不能将一次返回的roles/owner当成持续有效的凭证。preparePartition回调保持原锁
+和事务范围内执行，失败回滚claim；没有改成提交后回调或另开连接。
+
+33个provider方法/构造器主体比对保持一致，SQL、静态内部helper、锁顺序、异常语义不变。
+PartitionClaim移出实现时保留坐标/epoch/时长校验，其job/anchor不可变类型继续校验身份。
+4MiB原始报告上限用record内部共享private常量表达，值不变、不增加公开常量。
+package-info明确Internal稳定性、允许的runtime/provider消费者及禁止承载领域SQL的职责。
+
+### 38.2 验证与完成边界
+
+| 检查 | 结果 |
+|---|---|
+| 最近隔离/编码兼容 | 11项通过；真实加载3接口、8record、泛型签名及构造，禁止SQL/provider实现泄漏 |
+| 任务owner | 36项通过；最初static报8个接口record冗余public，删除修饰符后static/install通过 |
+| Metadata真实PG消费者 | 46项通过并static/install：build22、exchange15、authority8、submission1 |
+| 全reactor clean install | 64项通过，跳过测试；清理后JAR无旧JDBC嵌套DTO残留 |
+| Core消费链 | 46项通过并static/install，含producer报告、生成值发布、Feature、绑定/截止及exchange |
+| 真实SQL/Native | 13项通过并static，含非空/空生成值、Lance导出/发布、COPY与activation |
+| 模块/包/状态枚举 | 12项通过；全图无环项仍因原7组SCC失败，成员集合不变 |
+
+受限classloader隔离证明合同可以在JDBC实现不可见时加载，不能称当前单个JAR已经物理拆分，
+也不能称整个core没有Jackson/Security依赖。3个canonical golden的SHA保持不变。
+本批未变Native/proto输入，使用匹配JNI库；没有重做ASan或虚报其他owner完整回归。
+本批临时日志前缀 `/tmp/pangrova-storage-spi-*`，接口源码与消费链均为实际实现，不是计划中的占位。
+
+当前3,568主源、657包、2,373测试源，仍为64reactor/51Java叶子/1资源制品。
+最终任务family名称确定为 `pangrova-derived-data-jobs`，拟拆core、transaction-spi、
+store-postgresql三叶；当前源码尚用data-build过渡路径。下一批先完成同连接submission/fence
+契约，再迁物理制品与最终包名。领域writer、Catalog、7个SCC、全文件语义审查及R5/R6仍未关闭。

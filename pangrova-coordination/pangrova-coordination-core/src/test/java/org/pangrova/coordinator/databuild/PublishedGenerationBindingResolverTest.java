@@ -13,7 +13,7 @@ import org.pangrova.databuild.api.DataBuildOutputScope;
 import org.pangrova.databuild.api.build.DataBuildPage;
 import org.pangrova.databuild.api.build.DataBuildStore;
 import org.pangrova.databuild.api.manifest.DataBuildGenerationManifest;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore.PublishedInput;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PublishedInput;
 import org.pangrova.protocol.databuild.PublishedGenerationBindingChecksum;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;

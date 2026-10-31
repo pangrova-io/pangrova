@@ -313,8 +313,8 @@ class FeatureViewSqlIntegrationTest {
             var key = new org.pangrova.databuild.api.build.DataBuildJobKey(TENANT, jobId);
             var progress = stages.inspectPartition(key, anchor, terminal.stageId(), 0);
             assertThat(progress.pageOrdinal()).isPositive();
-            assertThat(stages.preparePartition(new org.pangrova.databuild.store.jdbc.build
-                    .JdbcDataBuildStageExecutionStore.PartitionClaim(
+            assertThat(stages.preparePartition(new org.pangrova.databuild.spi.storage
+                    .DataBuildStageExecutionStore.PartitionClaim(
                             key, anchor, terminal.stageId(), 0, progress.pageOrdinal(),
                             4, java.time.Duration.ofMinutes(1), Instant.now()),
                     evidence -> evidence.lease())).isEmpty();

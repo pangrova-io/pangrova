@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.databuild.api.build.DataBuildLease;
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwner;
-import org.pangrova.databuild.store.jdbc.execution.CurrentDeferredExecutionContext;
+import org.pangrova.databuild.spi.storage.CurrentExecutionAuthority;
 import org.pangrova.observability.sdk.tracing.ExecutionTraceContext;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
 
@@ -44,8 +44,8 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
         public ExecutionTraceContext traceContext() { return session.traceContext(); }
     }
 
-    /** Job-level authority resolved by the same current PG gate used for every exact partition claim. */
-    record Durable(CurrentDeferredExecutionContext authority, Map<Integer, Long> allocationEpochs,
+    /** Job-level authority resolved by the same current checks used for every exact partition claim. */
+    record Durable(CurrentExecutionAuthority authority, Map<Integer, Long> allocationEpochs,
             ExecutionTraceContext traceContext)
             implements StageExecutionContext {
         public Durable {
@@ -57,7 +57,7 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
                 if (entry.getValue() <= 0) throw new IllegalArgumentException("Allocation epoch must be positive");
             }
         }
-        public Durable(CurrentDeferredExecutionContext authority, Map<Integer, Long> allocationEpochs) {
+        public Durable(CurrentExecutionAuthority authority, Map<Integer, Long> allocationEpochs) {
             this(authority, allocationEpochs, ExecutionTraceContext.capture());
         }
         /** Restored exchanges retain their original epoch, independently of the new access owner. */
@@ -74,8 +74,8 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
         }
     }
 
-    /** The private-constructor authority object can only be obtained from the current same-transaction PG resolver. */
-    record Deferred(CurrentDeferredExecutionContext authority, DataBuildLease lease,
+    /** Current provider-issued authority is preparation evidence and never an authenticated live session. */
+    record Deferred(CurrentExecutionAuthority authority, DataBuildLease lease,
                     ExecutionTraceContext traceContext)
             implements StageExecutionContext {
         public Deferred {
@@ -91,7 +91,7 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
                         "Deferred stage context differs from its actual leased execution owner");
             }
         }
-        public Deferred(CurrentDeferredExecutionContext authority, DataBuildLease lease) {
+        public Deferred(CurrentExecutionAuthority authority, DataBuildLease lease) {
             this(authority, lease, ExecutionTraceContext.capture());
         }
         public String executionId() { return authority.executionAnchor().executionId(); }

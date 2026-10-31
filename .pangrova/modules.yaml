@@ -196,8 +196,8 @@ artifacts:
   pangrova-data-build:
     path: pangrova-data-build
     moduleName: org.pangrova.databuild
-    packageRoots: [org.pangrova.databuild.api, org.pangrova.databuild.protocol, org.pangrova.databuild.assembly, org.pangrova.databuild.core.publication, org.pangrova.databuild.spi.jdbc, org.pangrova.databuild.store.jdbc.query, org.pangrova.databuild.store.jdbc.execution, org.pangrova.databuild.store.jdbc.build, org.pangrova.databuild.store.jdbc.exchange]
-    exports: [org.pangrova.databuild.api, org.pangrova.databuild.protocol, org.pangrova.databuild.assembly, org.pangrova.databuild.spi.jdbc, org.pangrova.databuild.store.jdbc.query, org.pangrova.databuild.store.jdbc.execution, org.pangrova.databuild.store.jdbc.build, org.pangrova.databuild.store.jdbc.exchange]
+    packageRoots: [org.pangrova.databuild.api, org.pangrova.databuild.protocol, org.pangrova.databuild.assembly, org.pangrova.databuild.core.publication, org.pangrova.databuild.spi.jdbc, org.pangrova.databuild.spi.storage, org.pangrova.databuild.store.jdbc.query, org.pangrova.databuild.store.jdbc.execution, org.pangrova.databuild.store.jdbc.build, org.pangrova.databuild.store.jdbc.exchange]
+    exports: [org.pangrova.databuild.api, org.pangrova.databuild.protocol, org.pangrova.databuild.assembly, org.pangrova.databuild.spi.jdbc, org.pangrova.databuild.spi.storage, org.pangrova.databuild.store.jdbc.query, org.pangrova.databuild.store.jdbc.execution, org.pangrova.databuild.store.jdbc.build, org.pangrova.databuild.store.jdbc.exchange]
     allowedImports: [pangrova-common, pangrova-query-api, pangrova-security]
     forbiddenImports: [pangrova-metadata, pangrova-query, pangrova-ai-control, pangrova-indexing-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
     providers: {}

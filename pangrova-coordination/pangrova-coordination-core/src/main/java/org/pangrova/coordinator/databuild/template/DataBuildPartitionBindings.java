@@ -7,7 +7,7 @@ import org.pangrova.databuild.api.build.DataBuildLease;
 import org.pangrova.databuild.api.build.DataBuildOutput;
 import org.pangrova.databuild.api.DataBuildOutputScope;
 import org.pangrova.databuild.api.DataBuildPageKind;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore.PreparedPartition;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PreparedPartition;
 import org.pangrova.coordinator.databuild.DataBuildDispatchProtocolValidator;
 import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.DataBuildPartitionResources;

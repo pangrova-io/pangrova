@@ -1,6 +1,6 @@
 package org.pangrova.metadata.databuild.jdbc;
 
-import org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore;
 
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwnerLostException;
 
@@ -13,7 +13,7 @@ import org.pangrova.databuild.protocol.DataBuildStageGraphCodec;
 
 import org.pangrova.databuild.api.execution.template.DataBuildStageTemplate;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +54,7 @@ class JdbcDataBuildStageExchangeStoreTest {
     private static final Instant NOW = Instant.parse("2026-10-01T00:00:00Z");
     private DataSource dataSource;
     private JdbcDataBuildStore builds;
-    private JdbcDataBuildStageExchangeStore exchanges;
+    private DataBuildStageExchangeStore exchanges;
     private DataBuildExecutionFixtures owners;
     private ExecutionAnchor anchor;
     private DataBuildDispatchSpec spec;
@@ -173,7 +173,7 @@ class JdbcDataBuildStageExchangeStoreTest {
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact immutable page");
         assertThatThrownBy(() -> stages.preparePartition(partitionClaim(1, 1, 0), value -> value.lease()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("immutable stage cohort");
-        assertThatThrownBy(() -> new JdbcDataBuildStageExecutionStore.PartitionClaim(
+        assertThatThrownBy(() -> new DataBuildStageExecutionStore.PartitionClaim(
                 new DataBuildJobKey(KEY.tenantId(), "other-job"), anchor, 1, 0, 0, 8, Duration.ofMinutes(1), NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another durable execution");
     }
@@ -185,7 +185,7 @@ class JdbcDataBuildStageExchangeStoreTest {
         var stages = DataBuildAuthorityFixtures.artifacts().stages(dataSource);
         assertThatThrownBy(() -> stages.preparePartition(original, value -> value.lease()))
                 .isInstanceOf(DataBuildExecutionOwnerLostException.class);
-        var replacement = new JdbcDataBuildStageExecutionStore.PartitionClaim(
+        var replacement = new DataBuildStageExecutionStore.PartitionClaim(
                 KEY, anchor, 1, 0, 0, 9, Duration.ofMinutes(1), NOW);
         assertThat(stages.preparePartition(replacement, value -> value.lease()))
                 .hasValueSatisfying(lease -> assertThat(lease.executionAnchor()).isEqualTo(anchor));
@@ -236,9 +236,9 @@ class JdbcDataBuildStageExchangeStoreTest {
                 assertThat(job.completedPages()).isZero());
     }
 
-    private static JdbcDataBuildStageExecutionStore.ProducerCompletion producerCompletion(
+    private static DataBuildStageExecutionStore.ProducerCompletion producerCompletion(
             org.pangrova.databuild.api.build.DataBuildLease lease, long epoch, byte[] report) {
-        return new JdbcDataBuildStageExecutionStore.ProducerCompletion(KEY,
+        return new DataBuildStageExecutionStore.ProducerCompletion(KEY,
                 DataBuildExecutionOwner.from(lease.executionAnchor()), lease.stageId(), lease.partitionId(), epoch,
                 lease.attemptId(), lease.fencingToken(), lease.ownerEpoch(), report, NOW.plusSeconds(1));
     }
@@ -277,8 +277,8 @@ class JdbcDataBuildStageExchangeStoreTest {
         }
     }
 
-    private JdbcDataBuildStageExecutionStore.PartitionClaim partitionClaim(int stage, int partition, int ordinal) {
-        return new JdbcDataBuildStageExecutionStore.PartitionClaim(
+    private DataBuildStageExecutionStore.PartitionClaim partitionClaim(int stage, int partition, int ordinal) {
+        return new DataBuildStageExecutionStore.PartitionClaim(
                 KEY, anchor, stage, partition, ordinal, 8, Duration.ofMinutes(1), NOW);
     }
 

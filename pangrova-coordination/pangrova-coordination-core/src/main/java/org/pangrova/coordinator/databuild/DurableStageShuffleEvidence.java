@@ -11,7 +11,7 @@ import org.pangrova.databuild.api.build.DataBuildJobKey;
 import org.pangrova.databuild.api.execution.DataBuildExchangeFinalization;
 import org.pangrova.databuild.api.execution.DataBuildExchangeRegistration;
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwner;
-import org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
@@ -29,14 +29,14 @@ import java.util.function.Supplier;
 
 /** Persists capability-free proof from real ordinary-DAG allocation/finalize RPCs. */
 public final class DurableStageShuffleEvidence implements ShuffleLifecycleEvidence {
-    private final JdbcDataBuildStageExchangeStore store;
+    private final DataBuildStageExchangeStore store;
     private final DataBuildDispatchSpec spec;
     private final String sourceSnapshot;
     private final Supplier<DataBuildExecutionOwner> currentOwner;
     private final DataBuildJobKey job;
 
     /** Binds a durable artifact job to its real shuffle allocation and finalization store. */
-    public DurableStageShuffleEvidence(JdbcDataBuildStageExchangeStore store, DataBuildDispatchSpec spec,
+    public DurableStageShuffleEvidence(DataBuildStageExchangeStore store, DataBuildDispatchSpec spec,
             String sourceSnapshot, Supplier<DataBuildExecutionOwner> currentOwner) {
         this.store = java.util.Objects.requireNonNull(store, "store");
         this.spec = java.util.Objects.requireNonNull(spec, "spec");
@@ -126,7 +126,7 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
 
     private Optional<DataBuildExchangeRegistration> persisted(int stageId) {
         return store.load(job, currentOwner.get()).stream()
-                .map(JdbcDataBuildStageExchangeStore.ExchangeEvidence::registration)
+                .map(DataBuildStageExchangeStore.ExchangeEvidence::registration)
                 .filter(value -> value.producerStageId() == stageId).findFirst();
     }
 

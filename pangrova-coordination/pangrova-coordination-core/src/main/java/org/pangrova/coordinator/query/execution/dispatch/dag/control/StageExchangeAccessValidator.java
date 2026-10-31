@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.databuild.api.execution.DataBuildExchangeRegistration;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore.PreparedPartition;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.Checksum;

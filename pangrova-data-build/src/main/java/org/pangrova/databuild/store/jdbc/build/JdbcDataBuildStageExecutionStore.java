@@ -1,6 +1,8 @@
 package org.pangrova.databuild.store.jdbc.build;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore.ExchangeEvidence;
 import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
 import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
 
@@ -11,29 +13,25 @@ import org.pangrova.databuild.api.build.DataBuildJob;
 import org.pangrova.databuild.api.build.DataBuildJobKey;
 import org.pangrova.databuild.api.build.DataBuildLease;
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwner;
-import org.pangrova.databuild.api.manifest.DataBuildGenerationManifest;
 import org.pangrova.databuild.api.build.DataBuildOutput;
 import org.pangrova.databuild.api.build.DataBuildPageCompletion;
 import org.pangrova.databuild.api.DataBuildPageKind;
-import org.pangrova.databuild.api.execution.template.DataBuildStageTemplate.PublicationRead;
 import org.pangrova.databuild.store.jdbc.execution.CurrentDeferredExecutionContext;
 import org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.query.api.coordination.ExecutionAnchor;
 
 import javax.sql.DataSource;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 
 /** Same-authority transaction boundary for preparing one exact partition in the shared stage engine. */
 @Internal
-public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSupport {
+public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSupport
+        implements DataBuildStageExecutionStore {
     private final DataBuildTransactionAuthority transactionAuthority;
     private final JdbcDataBuildExecutionFence executionFence;
     private final CurrentDirectRoleReader currentRoles;
@@ -48,36 +46,8 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
         this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");
     }
 
-    /** Current-authority graph view for the shared DAG runtime; no stored principal becomes a live session. */
-    public record PreparedExecution(CurrentDeferredExecutionContext authority, DataBuildJob job,
-            List<JdbcDataBuildStageExchangeStore.ExchangeEvidence> exchanges) {
-        public PreparedExecution {
-            Objects.requireNonNull(authority, "authority");
-            Objects.requireNonNull(job, "job");
-            exchanges = List.copyOf(exchanges);
-        }
-    }
-
-    /** Original terminal evidence belongs to the issued producer, never to the new replay owner. */
-    public record NativeWinner(String pageId, int attemptId, long fencingToken, long controlTerm,
-            DataBuildExecutionOwner executionOwner, byte[] originalWireBytes, String wireSha256) {
-        public NativeWinner {
-            originalWireBytes = Objects.requireNonNull(originalWireBytes,
-                    "Persisted Native winner is missing original evidence; explicit rebuild required").clone();
-            Objects.requireNonNull(executionOwner, "executionOwner");
-            if (originalWireBytes.length == 0 || originalWireBytes.length > 4 * 1024 * 1024
-                    || !org.pangrova.common.util.DigestUtils.matchesSha256(originalWireBytes, wireSha256)) {
-                throw new IllegalStateException("Persisted Native winner has missing or corrupted original evidence");
-            }
-        }
-        @Override public byte[] originalWireBytes() { return originalWireBytes.clone(); }
-    }
-
-    /** One exact immutable page coordinate, with no loading of source rows or unbounded page enumeration. */
-    public record PartitionProgress(int pageOrdinal, DataBuildPageKind kind, String state,
-            Optional<NativeWinner> winner) {}
-
     /** Reads one partition's progress after current authority and actual owner validation on the same connection. */
+    @Override
     public PartitionProgress inspectPartition(DataBuildJobKey key, ExecutionAnchor anchor,
             int stageId, int partitionId) {
         if (!key.executionId().equals(anchor.executionId())) {
@@ -106,6 +76,7 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
     }
 
     /** Resolves the actual job and immutable exchange evidence through the same current transaction gate. */
+    @Override
     public PreparedExecution prepareExecution(DataBuildJobKey key, ExecutionAnchor anchor) {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(anchor, "anchor");
@@ -123,51 +94,8 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
         });
     }
 
-    /** Exact persisted coordinates and actual backend-issued execution identity; control term is not a page fence. */
-    public record PartitionClaim(DataBuildJobKey job, ExecutionAnchor anchor, int stageId, int partitionId,
-            int pageOrdinal, long controlTerm, Duration leaseDuration, Instant now) {
-        public PartitionClaim {
-            Objects.requireNonNull(job, "job");
-            Objects.requireNonNull(anchor, "anchor");
-            new JdbcDataBuildPageSelection.Coordinates(stageId, partitionId, pageOrdinal);
-            if (!job.executionId().equals(anchor.executionId())) {
-                throw new IllegalArgumentException("Partition claim belongs to another durable execution");
-            }
-            requireLeaseRequest(job.tenantId(), job.jobId(), anchor.ownerId(), controlTerm, leaseDuration, now);
-        }
-    }
-
-    /** Ephemeral current authority and immutable input metadata; no user/session impersonation or data rows. */
-    public record PreparedPartition(CurrentDeferredExecutionContext authority, DataBuildJob job,
-            DataBuildLease lease, Map<PublicationRead, PublishedInput> publications,
-            List<DataBuildOutput> dependencyOutputs,
-            List<JdbcDataBuildStageExchangeStore.ExchangeEvidence> exchanges) {
-        public PreparedPartition {
-            publications = Map.copyOf(publications);
-            dependencyOutputs = List.copyOf(dependencyOutputs);
-            exchanges = List.copyOf(exchanges);
-        }
-    }
-
-    /** Original validated Native producer report and its dispatched attempt, not a fabricated artifact report. */
-    public record ProducerCompletion(DataBuildJobKey job, DataBuildExecutionOwner executionOwner,
-            int stageId, int partitionId, long planEpoch, int attemptId, long fencingToken, long controlTerm,
-            byte[] originalWireBytes, Instant completedAt) {
-        public ProducerCompletion {
-            Objects.requireNonNull(job, "job");
-            Objects.requireNonNull(executionOwner, "executionOwner");
-            Objects.requireNonNull(completedAt, "completedAt");
-            originalWireBytes = originalWireBytes.clone();
-            requireProducerCoordinates(stageId, partitionId, planEpoch, attemptId, fencingToken, controlTerm);
-            if (originalWireBytes.length == 0 || originalWireBytes.length > 4 * 1024 * 1024) {
-                throw new IllegalArgumentException(
-                        "Native producer completion requires bounded original wire evidence");
-            }
-        }
-        @Override public byte[] originalWireBytes() { return originalWireBytes.clone(); }
-    }
-
     /** Commits the exact compute winner before the ordinary DAG observes a terminal task. */
+    @Override
     public boolean completeProducer(ProducerCompletion completion) {
         Objects.requireNonNull(completion, "completion");
         return inTransaction("complete authorized durable Native producer", connection -> {
@@ -183,7 +111,7 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
                         "Native producer report does not belong to a persisted compute stage");
             }
             var allocations = JdbcDataBuildStageExchangeStore.loadValidatedEvidence(connection, context).stream()
-                    .map(JdbcDataBuildStageExchangeStore.ExchangeEvidence::registration)
+                    .map(ExchangeEvidence::registration)
                     .filter(value -> value.producerStageId() == stage.stageId()).toList();
             if (allocations.size() != 1 || allocations.get(0).planEpoch() != completion.planEpoch()) {
                 throw new IllegalStateException("Native producer winner differs from its original external allocation");
@@ -202,13 +130,6 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
         });
     }
 
-    private static void requireProducerCoordinates(int stage, int partition, long epoch,
-            int attempt, long fence, long term) {
-        if (stage < 0 || partition < 0 || epoch <= 0 || attempt < 0 || fence <= 0 || term <= 0) {
-            throw new IllegalArgumentException("Native producer completion requires its exact issued attempt");
-        }
-    }
-
     private static boolean matchesIssuedProducer(JdbcDataBuildStoreMappings.PageRow page,
             ProducerCompletion completion) {
         return page.attemptId() == completion.attemptId() && page.fencingToken() == completion.fencingToken()
@@ -216,19 +137,11 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
                 && completion.executionOwner().equals(page.executionOwner());
     }
 
-    /** Immutable publication evidence already read on the claim connection, not a second pool borrow. */
-    public record PublishedInput(DataBuildGenerationManifest manifest, List<DataBuildOutput> outputs,
-            Set<String> sourceObjectIds) {
-        public PublishedInput {
-            outputs = List.copyOf(outputs);
-            sourceObjectIds = Set.copyOf(sourceObjectIds);
-        }
-    }
-
     /**
      * Prepares local immutable control metadata before the shared authority and owner locks are released.
      * The callback must not perform network I/O. A callback failure rolls back the page claim.
      */
+    @Override
     public <T> Optional<T> preparePartition(PartitionClaim request, Function<PreparedPartition, T> prepare) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(prepare, "prepare");
@@ -266,6 +179,7 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
     }
 
     /** Revalidates an already issued exact lease and prepares local metadata without borrowing a second connection. */
+    @Override
     public <T> T prepareLeasedPartition(DataBuildLease lease, Instant now,
             Function<PreparedPartition, T> prepare) {
         Objects.requireNonNull(lease, "lease");

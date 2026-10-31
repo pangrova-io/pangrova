@@ -4,7 +4,7 @@ import org.pangrova.databuild.api.build.DataBuildOutput;
 import org.pangrova.databuild.api.DataBuildOutputScope;
 import org.pangrova.databuild.api.build.DataBuildStore;
 import org.pangrova.databuild.api.build.DataBuildPageCompletion;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.ArtifactWorkReport;
 import org.pangrova.protocol.v2.Checksum;
@@ -21,14 +21,14 @@ public final class DurableDataBuildWorkReportSink implements DataBuildWorkReport
 
     private final DataBuildStore store;
     private final Clock clock;
-    private final JdbcDataBuildStageExecutionStore stages;
+    private final DataBuildStageExecutionStore stages;
 
     /** Uses the same persistent page engine for artifact outputs and relational producer winners. */
-    public DurableDataBuildWorkReportSink(DataBuildStore store, JdbcDataBuildStageExecutionStore stages) {
+    public DurableDataBuildWorkReportSink(DataBuildStore store, DataBuildStageExecutionStore stages) {
         this(store, stages, Clock.systemUTC());
     }
 
-    DurableDataBuildWorkReportSink(DataBuildStore store, JdbcDataBuildStageExecutionStore stages, Clock clock) {
+    DurableDataBuildWorkReportSink(DataBuildStore store, DataBuildStageExecutionStore stages, Clock clock) {
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.stages = Objects.requireNonNull(stages, "stages");
@@ -81,7 +81,7 @@ public final class DurableDataBuildWorkReportSink implements DataBuildWorkReport
             TaskReport status, byte[] bytes) {
         var attempt = status.getAttempt();
         var owner = attempt.getExecutionOwner();
-        return stages.completeProducer(new JdbcDataBuildStageExecutionStore.ProducerCompletion(job,
+        return stages.completeProducer(new DataBuildStageExecutionStore.ProducerCompletion(job,
                 new org.pangrova.databuild.api.execution.DataBuildExecutionOwner(
                         owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken()),
                 attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(), attempt.getAttemptId(),

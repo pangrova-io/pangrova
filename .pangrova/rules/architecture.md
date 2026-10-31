@@ -135,6 +135,12 @@ factory ports and pass `org.pangrova.databuild.api` contracts to domain consumer
 implementation in `org.pangrova.databuild.core.publication` is not exported.
 The `data-build` module/package name is transitional while its domain and storage
 boundaries are being separated; it is not the accepted final name.
+Stage/exchange consumers use `org.pangrova.databuild.spi.storage` rather than
+JDBC provider types or nested provider records. A returned current-authority view
+is process-local preparation evidence, never a credential accepted by a store.
+Providers establish fresh authority on every operation. Partition preparation
+callbacks run before transaction locks are released and must not perform network
+I/O; callback failure rolls back the claim.
 
 Coordination backends depend on Coordination API, never on the Coordinator process
 or Metadata. The process composition root selects and closes providers; in-memory

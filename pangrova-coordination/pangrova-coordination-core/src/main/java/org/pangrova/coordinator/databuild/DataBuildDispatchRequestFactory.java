@@ -2,7 +2,7 @@ package org.pangrova.coordinator.databuild;
 
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
 import org.pangrova.databuild.api.build.DataBuildLease;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.OperatorBinding;
 
@@ -10,11 +10,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-/** Binds an issued page through the same current-PG preparation and ordinary leaf request path. */
+/** Binds an issued page through current-authority preparation and the ordinary leaf request path. */
 final class DataBuildDispatchRequestFactory {
-    private final JdbcDataBuildStageExecutionStore stages;
+    private final DataBuildStageExecutionStore stages;
 
-    DataBuildDispatchRequestFactory(JdbcDataBuildStageExecutionStore stages) {
+    DataBuildDispatchRequestFactory(DataBuildStageExecutionStore stages) {
         this.stages = Objects.requireNonNull(stages, "stages");
     }
 

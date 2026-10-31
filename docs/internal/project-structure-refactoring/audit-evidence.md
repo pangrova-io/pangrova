@@ -297,3 +297,20 @@ install通过。Integration首次因漏AI镜像参数导致3个类setup失败；
 `/tmp/pangrova-coordination-inmemory-*`。Native沿用匹配库，本批未改其输入或执行ASan。
 用户新增独立存储SPI/PostgreSQL实现及业务归位要求，逐文件设计正在落位；这些目标及R5/R6
 未因编译通过而关闭。用户已授权提交推送阶段检查点。
+
+## 38. 阶段/交换存储 SPI 证据
+
+新增4个主源后当前3,568主源/657包/2,373测试源，64reactor/51Java叶子不变。
+5个stage操作、3个exchange操作及8个record迁入SPI，3getter current-authority view只作provider
+输出；private JDBC context及fresh resolve门禁不变。33个provider方法/构造体核对一致。
+4MiB wire上限为共享私有常量；旧实现嵌套DTO在clean后的JAR中为零残留。
+
+最近隔离/golden11项、owner36项、Metadata46项、Core46项、真实SQL/native13项通过；相应
+static通过。首次owner static暴露8个接口内record冗余public，删除无效修饰符后单独static/install
+通过，未放宽规则。64项目clean install通过（跳过测试）；模块/包/状态枚举12项通过，SCC项
+仍失败且与前批7组成员一致。3个canonical golden SHA不变，Native/proto输入未改，未重做ASan。
+台账657行、51叶子计数逐项对齐，659链接有效。日志为`/tmp/pangrova-storage-spi-*`。
+
+这证明接口分离与原链行为，不能声称当前JAR已物理拆分。最终family采用
+`pangrova-derived-data-jobs`；core/transaction-spi/store-postgresql及Catalog/领域迁移、全文件
+语义审查、7组SCC和最终R5/R6仍待完成。前一完整目录检查点`9d38fbd4`已推送远端。

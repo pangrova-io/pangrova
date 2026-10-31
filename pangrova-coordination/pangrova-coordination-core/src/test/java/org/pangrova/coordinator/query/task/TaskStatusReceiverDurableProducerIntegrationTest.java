@@ -50,7 +50,7 @@ import org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy;
 import org.pangrova.databuild.api.DataBuildExecutionKind;
 import org.pangrova.databuild.api.DataBuildOutputTypeIds;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
 import org.pangrova.observability.api.noop.NoOpTracingProvider;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
@@ -87,7 +87,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     private static final String TASK = "producer-task";
     private DataSource dataSource;
     private JdbcDataBuildStore builds;
-    private JdbcDataBuildStageExecutionStore stages;
+    private DataBuildStageExecutionStore stages;
     private CoordinatorDataBuildExecutionFixtures executions;
     private ExecutionAnchor anchor;
     private DataBuildLease lease;
@@ -308,8 +308,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 null, null, null, 1, System.currentTimeMillis(), null, null, TaskAttemptDescriptor.from(attempt), bytes);
     }
 
-    private JdbcDataBuildStageExecutionStore.PartitionClaim claim(int stage, int ordinal) {
-        return new JdbcDataBuildStageExecutionStore.PartitionClaim(KEY, anchor, stage, 0, ordinal,
+    private DataBuildStageExecutionStore.PartitionClaim claim(int stage, int ordinal) {
+        return new DataBuildStageExecutionStore.PartitionClaim(KEY, anchor, stage, 0, ordinal,
                 8, Duration.ofMinutes(1), Instant.now());
     }
 

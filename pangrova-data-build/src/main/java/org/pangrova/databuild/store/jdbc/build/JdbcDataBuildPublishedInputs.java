@@ -1,5 +1,7 @@
 package org.pangrova.databuild.store.jdbc.build;
 
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PublishedInput;
+
 import org.pangrova.databuild.api.manifest.DataBuildGenerationManifest;
 import org.pangrova.databuild.api.build.DataBuildOutput;
 import org.pangrova.databuild.api.build.DataBuildSplit;
@@ -73,9 +75,9 @@ final class JdbcDataBuildPublishedInputs {
         }
     }
 
-    static Map<PublicationRead, JdbcDataBuildStageExecutionStore.PublishedInput> load(Connection connection,
+    static Map<PublicationRead, PublishedInput> load(Connection connection,
             String tenantId, List<PublicationRead> reads, List<DataBuildSplit> splits) throws SQLException {
-        Map<PublicationRead, JdbcDataBuildStageExecutionStore.PublishedInput> result = new LinkedHashMap<>();
+        Map<PublicationRead, PublishedInput> result = new LinkedHashMap<>();
         var requested = splits.stream().map(DataBuildSplit::dataObjectId).sorted().distinct().toList();
         for (var read : reads) {
             var manifest = findManifest(connection, tenantId, read.artifactId(), read.generation(),
@@ -91,7 +93,7 @@ final class JdbcDataBuildPublishedInputs {
                     List.copyOf(covered.keySet()), covered)) {
                 throw new IllegalStateException("Pinned artifact source allocation differs from durable task inputs");
             }
-            result.put(read, new JdbcDataBuildStageExecutionStore.PublishedInput(manifest, outputs, covered.keySet()));
+            result.put(read, new PublishedInput(manifest, outputs, covered.keySet()));
         }
         return Collections.unmodifiableMap(result);
     }

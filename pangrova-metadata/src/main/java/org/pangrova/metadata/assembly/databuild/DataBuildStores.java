@@ -12,6 +12,8 @@ import org.pangrova.security.store.jdbc.JdbcCurrentDirectRoleReader;
 
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
+import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore;
 import org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore;
 import org.pangrova.metadata.databuild.jdbc.JdbcIndexGenerationPublicationStore;
 import org.pangrova.metadata.databuild.jdbc.JdbcGeneratedValuePublicationStore;
@@ -53,11 +55,11 @@ public final class DataBuildStores {
                 dataSource, authority, EXECUTION_FENCE, CURRENT_ROLES, PUBLICATION_CANDIDATES);
     }
 
-    public JdbcDataBuildStageExecutionStore stages(DataSource dataSource) {
+    public DataBuildStageExecutionStore stages(DataSource dataSource) {
         return new JdbcDataBuildStageExecutionStore(dataSource, authority, EXECUTION_FENCE, CURRENT_ROLES);
     }
 
-    public JdbcDataBuildStageExchangeStore exchanges(DataSource dataSource) {
+    public DataBuildStageExchangeStore exchanges(DataSource dataSource) {
         return new JdbcDataBuildStageExchangeStore(dataSource, authority, EXECUTION_FENCE, CURRENT_ROLES);
     }
 

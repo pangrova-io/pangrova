@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-10-31，协调 JDBC / InMemory 后端独立后的实施工作区。656 包 / 51 Java 叶子 / 3,564 主源文件 / 2,373 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
+当前台账：2026-10-31，协调后端独立及 S1 业务存储契约分离后的实施工作区。657 包 / 51 Java 叶子 / 3,568 主源文件 / 2,373 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -71,27 +71,30 @@
 
 ## pangrova-data-build
 
-路径：`pangrova-data-build`。主源文件 69，主源包 15，本叶子测试源文件 10（不是测试用例数）。
+路径：`pangrova-data-build`。主源文件 73，主源包 16，本叶子测试源文件 10（不是测试用例数）。
 
-`pangrova-data-build` / `org.pangrova.databuild` 是当前工作区的过渡名称，用户已否决该命名；最终名称须待领域边界确定。本台账记录现有源码及其引用，不表示名称已获确认，也不在此轮再次更名。
+`pangrova-data-build` / `org.pangrova.databuild` 仍是当前源码的过渡名称。最终领域名已确定为派生数据生成任务，目标 family 为 `pangrova-derived-data-jobs`，下分 `pangrova-derived-data-jobs-core`、`pangrova-derived-data-jobs-transaction-spi`、`pangrova-derived-data-jobs-store-postgresql`；目标根包为 `org.pangrova.deriveddata.jobs`。三制品物理迁移与更名尚未落地，以下“当前包”链接保留实际源码路径，“迁移”列表示待实施目标。
+
+S1 已新增 `spi.storage` 的两个 Stage/Exchange 契约、只读 `CurrentExecutionAuthority` 与包说明；8 个 DTO 已从 JDBC 实现迁入契约。当前 73 个主源文件的目标归属为 core 48、transaction-spi 3、store-postgresql 22。业务 storage 契约不暴露 JDBC；同连接 JDBC 端口独立归 transaction-spi，禁止 core 对该制品形成反向依赖。3 个 canonical golden 随合同/codec 测试归 core，保留 `artifact/encoding` 资源路径及字节。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.databuild.api](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api) | 9 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.api` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.api.build](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build) | 11 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.api.build` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.api.execution](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution) | 6 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.api.execution` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.api.execution.template](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/template) | 2 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.api.execution.template` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.api.format](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/format) | 2 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.api.format` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.api.manifest](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/manifest) | 2 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.api.manifest` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.api.publication](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/publication) | 2 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.api.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.assembly](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/assembly) | 4 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.assembly` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.core.publication](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/core/publication) | 2 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.core.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.protocol](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/protocol) | 4 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.protocol` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.spi.jdbc](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/jdbc) | 3 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.spi.jdbc` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.store.jdbc.query](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/query) | 2 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.store.jdbc.query` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.store.jdbc.execution](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution) | 4 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.store.jdbc.execution` | route/fence/context 已迁入；Query 锁端口与 Security 当前角色端口显式注入，context 私有构造 |
-| [org.pangrova.databuild.store.jdbc.build](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build) | 14 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.store.jdbc.build` | 通用 job/page/stage、撤销与输出读取已迁入；真实跨域 PostgreSQL 测试仍在 Metadata，待独立迁移 fixture |
-| [org.pangrova.databuild.store.jdbc.exchange](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/exchange) | 2 | 保留 / P3 | `pangrova-data-build`：`org.pangrova.databuild.store.jdbc.exchange` | exchange 登记/finalize/barrier 的真实实现归 Artifact；同事务 scope/fence/roles 显式注入 |
+| [org.pangrova.databuild.api](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api) | 9 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.api` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.api.build](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build) | 11 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.api.job` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.api.execution](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution) | 6 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.api.execution` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.api.execution.template](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/template) | 2 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.api.execution.template` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.api.format](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/format) | 2 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.api.format` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.api.manifest](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/manifest) | 2 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.api.manifest` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.api.publication](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/publication) | 2 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.api.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.assembly](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/assembly) | 4 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.assembly` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.core.publication](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/core/publication) | 2 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.core.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.protocol](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/protocol) | 4 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.protocol` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.spi.jdbc](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/jdbc) | 3 | 迁移 / P3 | `pangrova-derived-data-jobs-transaction-spi`：`org.pangrova.deriveddata.jobs.spi.jdbc` | 同连接事务端口独立制品；仅依赖 core 合同和 JDK JDBC，core 不反向依赖，调用方保留事务与连接所有权 |
+| [org.pangrova.databuild.spi.storage](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/storage) | 4 | 迁移 / P3 | `pangrova-derived-data-jobs-core`：`org.pangrova.deriveddata.jobs.spi.storage` | S1 已分离两个业务 storage 契约、只读当前权限视图与8个DTO；无 JDBC/provider 类型泄漏，受限加载与真实回调回滚验证分别保留 |
+| [org.pangrova.databuild.store.jdbc.query](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/query) | 2 | 迁移 / P3 | `pangrova-derived-data-jobs-store-postgresql`：`org.pangrova.deriveddata.jobs.store.postgresql.query` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.databuild.store.jdbc.execution](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution) | 4 | 迁移 / P3 | `pangrova-derived-data-jobs-store-postgresql`：`org.pangrova.deriveddata.jobs.store.postgresql.execution` | route/fence/context 已迁入；Query 锁端口与 Security 当前角色端口显式注入，context 私有构造 |
+| [org.pangrova.databuild.store.jdbc.build](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build) | 14 | 迁移 / P3 | `pangrova-derived-data-jobs-store-postgresql`：`org.pangrova.deriveddata.jobs.store.postgresql.job` | 通用 job/page/stage、撤销与输出读取已迁入；真实跨域 PostgreSQL 测试仍在 Metadata，待独立迁移 fixture |
+| [org.pangrova.databuild.store.jdbc.exchange](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/exchange) | 2 | 迁移 / P3 | `pangrova-derived-data-jobs-store-postgresql`：`org.pangrova.deriveddata.jobs.store.postgresql.exchange` | exchange 登记/finalize/barrier 的 PostgreSQL 实现归 provider；同事务 scope/fence/roles 显式注入，消费者只依赖业务 storage 契约 |
 
 
 ## pangrova-client-cli
@@ -1042,6 +1045,6 @@
 
 ## 台账覆盖核对
 
-共 656 行，动作分布：保留 466；按类拆分 74；改依赖 4；迁移 112。51 个 Java 叶子合计 3,564 个主源文件、2,373 个测试源文件；逐叶子统计与各包文件数之和一致。
+共 657 行，动作分布：保留 451；按类拆分 74；改依赖 4；迁移 128。51 个当前 Java 叶子合计 3,568 个主源文件、2,373 个测试源文件；逐叶子统计与各包文件数之和一致。派生数据生成任务的三个目标制品尚未落地，不提前计入当前叶子数。
 
 当前 Java 叶子已包含 serialization-json、coordination-api、coordination-jdbc 和 coordination-inmemory；六种协调实现已在新 provider 包登记，旧 Core 实现包不再占行。schema-migrations 仅承接 SQL 资源，不计入 Java 叶子或主源包。新增窄 SPI、assembly package 和 package-info 随具体批次补入事实清单。

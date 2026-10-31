@@ -68,7 +68,7 @@ lineage uses its durable outbox. Future integration requires an explicit identit
 authority and atomicity design. Historical V9 schema and checksums remain intact.
 
 Artifact stores now consume `DataBuildTransactionAuthority` from
-`artifact.spi.jdbc`. This is explicitly a caller-owned JDBC transaction port,
+`databuild.spi.jdbc`. This is explicitly a caller-owned JDBC transaction port,
 not a data-source container or an authorization snapshot. The real
 `MetadataDataBuildTransactionAuthority` adapter retains the current tenant and
 table-policy checks and delegates model validation through Security's
@@ -99,7 +99,7 @@ and SQL triggers are separate ownership concerns; this provider migration does
 not change them or the optional Indexing activation path.
 
 Immutable dispatch/dependency/page/split reads are owned by
-`artifact.store.jdbc.query.JdbcArtifactBuildQueries`. They retain the caller's
+`databuild.store.jdbc.query.JdbcDataBuildQueries`. They retain the caller's
 connection and do not begin, commit or close its transaction. The canonical historical SQL sequence is now owned by the resource-only
 `pangrova-schema-migrations` artifact, consumed by Metadata as a runtime dependency.
 Its `db/migration` location, filenames, versions and bytes are unchanged;
@@ -119,7 +119,7 @@ the anchor row lock. Absent/replaced/expired ownership is a typed rejection;
 SQL failures and corrupt rows are not stale-owner results.
 
 Artifact owns exact durable route reads/writes and publication-owner lookup in
-`artifact.store.jdbc.execution`. Its injected fence verifies the route, delegates
+`databuild.store.jdbc.execution`. Its injected fence verifies the route, delegates
 anchor authority to Query, and exposes `DataBuildExecutionOwnerLostException` to
 consumers without leaking a Metadata implementation type. Metadata composition
 wires this real fence into build, stage, exchange and publication stores.
@@ -131,24 +131,33 @@ two publication fence checks around blocking job/descriptor work retain their
 existing order and transaction.
 
 Generic job/page/stage state, revocation and exchange writers now live in
-`artifact.store.jdbc.build` and `artifact.store.jdbc.exchange`. Execution context
-resolution lives in `artifact.store.jdbc.execution` and receives Security's
+`databuild.store.jdbc.build` and `databuild.store.jdbc.exchange`. Execution context
+resolution lives in `databuild.store.jdbc.execution` and receives Security's
 `security.spi.jdbc.CurrentDirectRoleReader`; the real JDBC provider reads current
 direct roles on the same connection after current authorization and execution
 fencing. It never owns the caller's transaction or substitutes IdP groups.
 
-Publication candidate selection uses `artifact.spi.jdbc.ArtifactPublicationCandidates`,
+Publication candidate selection uses `databuild.spi.jdbc.DataBuildPublicationCandidates`,
 implemented by Metadata's shared-database projection. The SQL filters live owners
 before sorting/limiting candidates and reads persisted publication ownership without
 acquiring an anchor lock after the job lock. This read projection is not an execution
 ownership authority. Generic storage failures use `DataBuildStorageException` while
 retaining the existing persistence error code, original cause and rollback failures.
 
-Domain publication, generated-model authority/submission, cross-domain composition
-remain in Metadata pending their owner migration. Historical SQL resources have their
+Domain publication, generated-value submission and cross-domain composition
+remain in Metadata pending their owner migration. Current model authority is already
+implemented by AI Control through the Security-owned transaction port. Historical SQL resources have their
 separate schema-migrations owner; their location does not make Metadata the writer
 for every domain table.
-The generic runtime move does not complete the entire Artifact/domain separation.
+Stage/exchange consumers now depend on `databuild.spi.storage` contracts and their
+immutable records rather than nested JDBC implementation types. The JDBC providers
+retain fresh checks and the same transaction-scoped preparation callbacks. Their
+private current-authority context implements a read-only view; that view is not an
+authorization credential and is never accepted as a JDBC authorization input.
+
+The generic runtime move does not complete the generation-job/domain separation.
+The current data-build name is transitional; the target family is
+`pangrova-derived-data-jobs`, with core, transaction-spi and store-postgresql artifacts.
 
 ## 1. Design Background and Goals
 

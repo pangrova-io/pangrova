@@ -65,8 +65,8 @@ public final class DurableDataBuildDispatcher implements AutoCloseable {
             String coordinatorId,
             LongSupplier epochSupplier,
             DataBuildExecutionOwnership executionOwnership,
-            org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStageExecutionStore stages,
-            org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore exchanges,
+            org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore stages,
+            org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore exchanges,
             org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine) {}
 
     /** Bounded lease and concurrency settings for durable artifact dispatch. */
