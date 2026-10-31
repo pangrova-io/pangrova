@@ -13,7 +13,6 @@ public final class JdbcTransactions {
     /** Runs one unit of work in an explicit transaction, rolling back on failure. */
     public static <T> T transaction(DataSource dataSource, SqlWork<T> work) {
         try (Connection connection = dataSource.getConnection()) {
-            boolean originalAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try {
                 T result = work.execute(connection);
@@ -22,8 +21,9 @@ public final class JdbcTransactions {
             } catch (Exception failure) {
                 rollback(connection, failure);
                 throw propagate(failure);
-            } finally {
-                connection.setAutoCommit(originalAutoCommit);
+            } catch (Error failure) {
+                rollback(connection, failure);
+                throw failure;
             }
         } catch (SQLException failure) {
             throw new IllegalStateException("PostgreSQL shuffle transaction failed", failure);
@@ -39,7 +39,7 @@ public final class JdbcTransactions {
         }
     }
 
-    private static void rollback(Connection connection, Exception failure) {
+    private static void rollback(Connection connection, Throwable failure) {
         try {
             connection.rollback();
         } catch (SQLException rollbackFailure) {

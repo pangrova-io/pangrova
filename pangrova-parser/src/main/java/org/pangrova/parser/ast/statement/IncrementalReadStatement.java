@@ -7,6 +7,7 @@ import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.SelectItem;
 import org.pangrova.parser.ast.SortItem;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents a {@code SELECT ... FROM table CHANGES BETWEEN SNAPSHOT x AND y} statement.
@@ -37,5 +38,10 @@ public record IncrementalReadStatement(
         selectItems = List.copyOf(selectItems);
         tableName = List.copyOf(tableName);
         orderBy = List.copyOf(orderBy);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.INCREMENTAL_READ;
     }
 }

@@ -22,12 +22,12 @@ import org.apache.paimon.utils.FileSystemBranchManager;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 
 /** Pins local branch directory identities; row values are read by Worker Native. */
 final class PaimonBranchReadBindings {

@@ -4,6 +4,7 @@ import java.util.Map;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code CREATE STREAM [IF NOT EXISTS] name FROM KAFKA (...)
@@ -28,5 +29,10 @@ public record CreateStreamStatement(
     public CreateStreamStatement {
         sourceProperties = Map.copyOf(sourceProperties);
         withProperties = Map.copyOf(withProperties);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_STREAM;
     }
 }

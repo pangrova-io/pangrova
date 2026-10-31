@@ -5,9 +5,6 @@ import org.pangrova.protocol.rest.config.OutputConfig;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.protocol.rest.data.DataFile;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
-import org.pangrova.protocol.rest.error.ErrorDetail;
-import org.pangrova.protocol.rest.query.SubmitQueryRequest;
-import org.pangrova.protocol.rest.query.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
@@ -85,44 +82,6 @@ class RestDtoImmutabilityTest {
     }
 
     @Test
-    void submitQueryRequestSessionPropertiesIsDefensivelyCopied() {
-        Map<String, String> mutable = new HashMap<>(Map.of("k", "v"));
-        SubmitQueryRequest req = new SubmitQueryRequest("SELECT 1", mutable);
-
-        mutable.put("injected", "bad");
-
-        assertThat(req.sessionProperties()).hasSize(1);
-        assertThatThrownBy(() -> req.sessionProperties().put("x", "y"))
-                .isInstanceOf(UnsupportedOperationException.class);
-    }
-
-    @Test
-    void submitQueryRequestNullSessionPropertiesBecomesEmptyMap() {
-        SubmitQueryRequest req = new SubmitQueryRequest("SELECT 1", null);
-        assertThat(req.sessionProperties()).isEmpty();
-    }
-
-    @Test
-    void submitQueryResponseColumnNamesIsDefensivelyCopied() {
-        List<String> mutable = new ArrayList<>(List.of("col1", "col2"));
-        SubmitQueryResponse resp = new SubmitQueryResponse(
-                "q-1", "RUNNING", null, mutable);
-
-        mutable.add("injected");
-
-        assertThat(resp.columnNames()).hasSize(2);
-        assertThatThrownBy(() -> resp.columnNames().add("x"))
-                .isInstanceOf(UnsupportedOperationException.class);
-    }
-
-    @Test
-    void submitQueryResponseNullColumnNamesBecomesEmptyList() {
-        SubmitQueryResponse resp = new SubmitQueryResponse(
-                "q-1", "RUNNING", null, null);
-        assertThat(resp.columnNames()).isEmpty();
-    }
-
-    @Test
     void submitTaskRequestReturnsDefensiveCanonicalByteCopies() {
         SubmitTaskRequest req = SubmitTaskRequest.from(
                 CanonicalTaskRequestTestFixture.builder(
@@ -156,7 +115,7 @@ class RestDtoImmutabilityTest {
                 "w-1", "localhost", 8080, 9090, 0, 2,
                 null, mutable, null,
                 org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture
-                        .encodedInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
+                        .encodedInventory(), new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
 
         mutable.add("injected");
 
@@ -168,7 +127,6 @@ class RestDtoImmutabilityTest {
     @Test
     void allRestDtosAreRecords() {
         assertThat(DataFile.class.isRecord()).isTrue();
-        assertThat(ErrorDetail.class.isRecord()).isTrue();
         assertThat(OutputConfig.class.isRecord()).isTrue();
         assertThat(WorkerRegistrationRequest.class.isRecord()).isTrue();
         assertThat(WriteConfig.class.isRecord()).isTrue();

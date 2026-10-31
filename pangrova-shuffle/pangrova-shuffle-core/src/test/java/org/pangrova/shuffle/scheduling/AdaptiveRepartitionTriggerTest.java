@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.shuffle.scheduling.AdaptiveRepartitionTrigger.RepartitionDecision;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

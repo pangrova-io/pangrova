@@ -46,7 +46,7 @@ class VectorTypeSyntaxTest {
         CreateTableStatement create = (CreateTableStatement) stmt;
         assertThat(create.columns().get(1).type()).isEqualTo(
                 new DataTypeSpec.VectorType(384, DistanceMetric.COSINE,
-                        org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE));
+                        org.pangrova.connector.spi.data.type.VectorType.ElementType.DOUBLE));
     }
 
     @Test
@@ -76,7 +76,7 @@ class VectorTypeSyntaxTest {
         AlterTableStatement.ChangeColumnType change = (AlterTableStatement.ChangeColumnType) stmt;
         assertThat(change.newType()).isEqualTo(
                 new DataTypeSpec.VectorType(512, DistanceMetric.COSINE,
-                        org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE));
+                        org.pangrova.connector.spi.data.type.VectorType.ElementType.DOUBLE));
     }
 
     @Test

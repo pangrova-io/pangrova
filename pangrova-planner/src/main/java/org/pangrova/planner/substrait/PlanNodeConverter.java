@@ -1,7 +1,6 @@
 package org.pangrova.planner.substrait;
 
 import org.pangrova.planner.PlanTable;
-
 import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
 import org.pangrova.planner.extension.GenerateSeriesRelDetail;
 

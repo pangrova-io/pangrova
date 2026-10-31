@@ -1,12 +1,13 @@
 package org.pangrova.metadata.file;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.exception.MetastoreException;
+import org.pangrova.file.core.FileStorageException;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.storage.file.FileSpace;
-import org.pangrova.spi.storage.file.FileSpaceDefinition;
-import org.pangrova.spi.storage.file.FileSpaceMutation;
-import org.pangrova.spi.storage.file.FileSpaceType;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.common.file.FileSpaceType;
 
 import java.util.List;
 
@@ -29,7 +30,7 @@ class JdbcFileSpaceRegistryTest {
         assertThat(created.createdAt()).isEqualTo(created.updatedAt());
 
         assertThatThrownBy(() -> registry.create(managed, false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("VOLUME already exists");
 
         FileSpace repeated = registry.create(new FileSpaceDefinition(FileSpaceType.VOLUME,
@@ -57,17 +58,17 @@ class JdbcFileSpaceRegistryTest {
         assertThatThrownBy(() -> registry.create(new FileSpaceDefinition(FileSpaceType.VOLUME,
                 "media", "raw", "no-location", true, "prod-s3", "", false, "", "owner"),
                 false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("requires LOCATION/URL");
         assertThatThrownBy(() -> registry.create(new FileSpaceDefinition(FileSpaceType.VOLUME,
                 "media", "raw", "no-profile", true, "", "s3://acme/raw", false, "", "owner"),
                 false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("requires a storage profile");
         assertThatThrownBy(() -> registry.create(new FileSpaceDefinition(FileSpaceType.VOLUME,
                 "media", "raw", "managed-with-location", false, "", "s3://acme/raw",
                 false, "", "owner"), false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("cannot declare a location");
 
         FileSpace external = registry.create(externalVolume("landing", "s3://acme/raw/"),
@@ -83,16 +84,16 @@ class JdbcFileSpaceRegistryTest {
                 "s3://acme/raw /data", "s3://acme/raw/..", "acme/raw", "s3://")) {
             assertThatThrownBy(() -> registry.create(externalVolume("bad", bad), false))
                     .as(bad)
-                    .isInstanceOf(MetastoreException.class);
+                    .isInstanceOf(FileStorageException.class);
         }
 
         registry.create(externalVolume("landing", "s3://acme/raw"), false);
         assertThatThrownBy(() -> registry.create(externalVolume("nested", "s3://acme/raw/data"),
                 false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("overlaps");
         assertThatThrownBy(() -> registry.create(externalStage("parent", "s3://acme"), false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("overlaps");
         assertThat(registry.create(externalStage("sibling", "s3://acme/other"), false).name())
                 .isEqualTo("sibling");
@@ -103,7 +104,7 @@ class JdbcFileSpaceRegistryTest {
         var registry = registry("space_directory");
         assertThatThrownBy(() -> registry.create(new FileSpaceDefinition(FileSpaceType.VOLUME,
                 "media", "raw", "landing", false, "", "", true, "", "owner"), false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("Only stages");
 
         FileSpace stage = registry.create(new FileSpaceDefinition(FileSpaceType.STAGE,
@@ -112,7 +113,7 @@ class JdbcFileSpaceRegistryTest {
         assertThat(stage.directoryEnabled()).isTrue();
         assertThatThrownBy(() -> registry.mutate(FileSpaceType.VOLUME, "media", "raw",
                 "missing-volume", new FileSpaceMutation.SetDirectoryEnabled(true)))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("does not exist");
     }
 
@@ -139,11 +140,11 @@ class JdbcFileSpaceRegistryTest {
 
         assertThatThrownBy(() -> registry.mutate(FileSpaceType.VOLUME, "media", "raw",
                 "landing", new FileSpaceMutation.SetLocation("s3://acme/raw")))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("cannot declare a location");
         assertThatThrownBy(() -> registry.mutate(FileSpaceType.VOLUME, "media", "raw",
                 "landing", new FileSpaceMutation.SetDirectoryEnabled(true)))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("Only stages");
 
         assertThat(registry.find(FileSpaceType.VOLUME, "media", "raw", "landing"))
@@ -162,7 +163,7 @@ class JdbcFileSpaceRegistryTest {
 
         assertThatThrownBy(() -> registry.mutate(FileSpaceType.VOLUME, "media", "raw", "second",
                 new FileSpaceMutation.SetLocation("s3://acme/first/nested")))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("overlaps");
 
         assertThat(registry.mutate(FileSpaceType.VOLUME, "media", "raw", "second",
@@ -185,11 +186,11 @@ class JdbcFileSpaceRegistryTest {
                 .contains(renamed);
         assertThatThrownBy(() -> registry.rename(FileSpaceType.VOLUME, "media", "raw",
                 "landed", "staging"))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("already exists");
         assertThatThrownBy(() -> registry.rename(FileSpaceType.VOLUME, "media", "raw",
                 "missing", "other"))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("does not exist");
     }
 
@@ -207,7 +208,7 @@ class JdbcFileSpaceRegistryTest {
                 .isFalse();
         assertThatThrownBy(() -> registry.drop(FileSpaceType.VOLUME, "media", "raw", "landing",
                 false))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(FileStorageException.class)
                 .hasMessageContaining("VOLUME does not exist");
     }
 

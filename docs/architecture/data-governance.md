@@ -388,9 +388,12 @@ RUN DATA QUALITY CHECK ON iceberg.sales.orders;
 
 ### 4.3 Quality Rule Storage
 
-`JdbcQualityRuleStore` owns the PostgreSQL `quality_rules` and
-`quality_check_results` tables. V53 converges the old CDC-prefixed tables into
-this authority. Rule definitions may be updated; execution results append history.
+`org.pangrova.governance.store.jdbc.JdbcQualityRuleStore` owns the
+PostgreSQL `quality_rules` and `quality_check_results` tables; governance is the
+single owner of the store, while metadata decorates it with the stable
+table-identity projection (`metadata.adapter.governance`). V53 converges the old
+CDC-prefixed tables into this authority. Rule definitions may be updated;
+execution results append history.
 
 A producer's `resultId=0` requests a new database-issued identity, including
 across processes and store restarts. Existing explicit result IDs are preserved;
@@ -647,7 +650,7 @@ namespace is reserved for classification and cannot be written or deleted throug
 authored-mask API.
 
 The accepted PII values, VARCHAR requirement, NULL/short-string behavior and migration
-rules are specified in [column tag SQL](../sql-reference/ddl.md#set--unset-column-tag).
+rules are specified in [column tag SQL](../sql-reference/ddl.md#alter-table).
 Table-level tags, tag catalog DDL, tag search SQL and automatic classification examples
 in §5.2 remain target design; they are not implemented by this column-tag path.
 

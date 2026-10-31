@@ -15,7 +15,7 @@ The legacy source kits compile with explicit `-std=gnu89 -fcommon` compatibility
 flags. `build.json` records the command, GCC version and platform; generated-data
 provenance includes that record when built by this bootstrap.
 
-From `pangrova-testing/pangrova-test-benchmark`:
+From `pangrova-testing/pangrova-testing-benchmark`:
 
 ```bash
 python3.12 -m venv /absolute/path/tpc-venv
@@ -48,7 +48,7 @@ From the repository root:
 docker pull ollama/ollama:0.6.2
 python3.12 .pangrova/scripts/prepare-e2e-ai-image.py --receipt /tmp/pangrova-ai-fixture.json
 ai_fixture_id=$(python3.12 -c 'import json; print(json.load(open("/tmp/pangrova-ai-fixture.json"))["imageId"])')
-mvn -q -pl pangrova-testing/pangrova-test-e2e -am -Pnative-runtime,full-regression \
+mvn -q -pl pangrova-testing/pangrova-testing-integration-tests -am -Pnative-runtime,full-regression \
   '-Dtest=SqlLatencyBaselineTest$TpcHQ9,CboJoinEligibilityE2ETest,ActivationSmokeE2ETest' \
   -Dsurefire.failIfNoSpecifiedTests=false -Dpangrova.e2e.ai.image-id="$ai_fixture_id" test
 ```

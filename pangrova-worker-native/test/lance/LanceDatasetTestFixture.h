@@ -24,13 +24,13 @@
 #include <arrow/ipc/writer.h>
 #include <openssl/evp.h>
 
-#include "../TestMemoryHelper.h"
+#include "TestMemoryHelper.h"
 #include "lance/LanceBatchReader.h"
 #include "LanceTestDataset.h"
 #include "lance/LanceBatchWriter.h"
-#include "delete/PaimonSnapshotDeletionFilter.h"
-#include "velox/connector/PangrovaVeloxConnector.h"
-#include "velox/connector/PangrovaTableHandle.h"
+#include "engine/delete/PaimonSnapshotDeletionFilter.h"
+#include "engine/velox/connector/PangrovaVeloxConnector.h"
+#include "engine/velox/connector/PangrovaTableHandle.h"
 
 #include "lance_c_ffi.h"
 #include "pangrova/protocol/v2/result.pb.h"

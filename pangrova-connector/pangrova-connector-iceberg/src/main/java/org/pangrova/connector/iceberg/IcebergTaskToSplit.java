@@ -3,7 +3,7 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.connector.iceberg.handle.IcebergDeleteFile;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
+import org.pangrova.connector.spi.metadata.table.ColumnMapping;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionField;
@@ -45,7 +45,7 @@ final class IcebergTaskToSplit {
             if (delete.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES
                     && !org.pangrova.connector.iceberg.handle.IcebergTableHandle.CAPABILITIES
                             .supportsEqualityDeleteRead()) {
-                throw new org.pangrova.spi.connector.base.ConnectorException(
+                throw new org.pangrova.connector.spi.base.ConnectorException(
                         org.pangrova.common.exception.PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
                         "Cannot read Iceberg table " + qualifiedTableName + " at snapshot " + snapshotId
                                 + ": equality deletes are not supported (delete file " + delete.path()

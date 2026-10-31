@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <unordered_set>
 
-#include "artifact/ParsedArtifactCache.h"
+#include "capabilities/artifact/ParsedArtifactCache.h"
 #include "vector/VectorDistance.h"
 #include "vector/ann/BinaryIndexIo.h"
 

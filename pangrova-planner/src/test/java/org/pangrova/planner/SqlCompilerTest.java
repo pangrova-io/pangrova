@@ -6,8 +6,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.planner.PlanResult;
 
 /**
  * Unit tests for the end-to-end SQL compilation pipeline.

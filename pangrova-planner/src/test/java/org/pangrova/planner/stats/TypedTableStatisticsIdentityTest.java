@@ -2,7 +2,7 @@ package org.pangrova.planner.stats;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.planner.cost.StatisticsBasedCostEstimator;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 
 import java.time.Instant;
 import java.util.Map;

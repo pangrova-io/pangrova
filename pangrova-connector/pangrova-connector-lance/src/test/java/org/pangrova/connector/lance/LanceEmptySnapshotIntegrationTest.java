@@ -3,11 +3,11 @@ package org.pangrova.connector.lance;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -43,18 +43,18 @@ class LanceEmptySnapshotIntegrationTest extends ContainerTestBase {
         metadata.validateReadBinding(session, selected);
         assertThat(metadata.getTableStatistics(session, selected.handle()).rowCount()).isZero();
         assertThat(metadata.getTableMetadata(session, selected.handle()).columns()).containsExactly("id");
-        var source = splits.getSplits(ConnectorTransactionHandle.EMPTY, session, selected.handle(),
+        var source = splits.getSplits(ConnectorTransactionHandle.empty(), session, selected.handle(),
                 DynamicFilter.ALL, Constraint.EMPTY);
         try {
             assertThat(source.isFinished()).isTrue();
             assertThat(source.getNextBatch(1)).isEmpty();
         } finally { source.close(); }
-        assertThatThrownBy(() -> splits.getSplits(ConnectorTransactionHandle.EMPTY,
+        assertThatThrownBy(() -> splits.getSplits(ConnectorTransactionHandle.empty(),
                 LanceSplitManagerTest.session("tenant-b"), selected.handle(), DynamicFilter.ALL, Constraint.EMPTY))
                 .isInstanceOf(SecurityException.class);
         var current = store.load(initial.catalog(), initial.tenantId(), initial.table());
         store.drop(current);
-        assertThatThrownBy(() -> splits.getSplits(ConnectorTransactionHandle.EMPTY, session, selected.handle(),
+        assertThatThrownBy(() -> splits.getSplits(ConnectorTransactionHandle.empty(), session, selected.handle(),
                 DynamicFilter.ALL, Constraint.EMPTY)).hasMessageContaining("incarnation");
         store.create(new LanceTableHandle(initial.catalog(), initial.tenantId(), initial.table(), UUID.randomUUID().toString(),
                 initial.datasetUri(), initial.columns(), Map.of(), initial.schemaFence(), 0, 1, 0));

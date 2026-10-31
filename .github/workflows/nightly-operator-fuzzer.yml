@@ -37,7 +37,7 @@ jobs:
 
       - name: Build fuzzer
         run: |
-          cd pangrova-testing/pangrova-test-fuzzer/src/main/cpp
+          cd pangrova-testing/pangrova-testing-fuzzer/src/main/cpp
           cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build
 
@@ -52,7 +52,7 @@ jobs:
 
       - name: Run operator fuzzer
         run: |
-          pangrova-testing/pangrova-test-fuzzer/src/main/cpp/build/pangrova_fuzzer_runner \
+          pangrova-testing/pangrova-testing-fuzzer/src/main/cpp/build/pangrova_fuzzer_runner \
             --mode ${{ env.FUZZER_MODE }} \
             --iterations ${{ env.FUZZER_ITERATIONS }} \
             --seed ${{ steps.seed.outputs.value }} \
@@ -74,7 +74,7 @@ jobs:
           name: operator-fuzzer-crash-${{ github.run_number }}
           path: |
             fuzzer-results.json
-            pangrova-testing/pangrova-test-fuzzer/src/main/cpp/build/
+            pangrova-testing/pangrova-testing-fuzzer/src/main/cpp/build/
           retention-days: 30
 
       - name: Post summary

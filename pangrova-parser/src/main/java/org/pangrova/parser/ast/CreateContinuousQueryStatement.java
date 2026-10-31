@@ -13,4 +13,9 @@ public record CreateContinuousQueryStatement(
         Query query,
         Duration refreshInterval
 ) implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_CONTINUOUS_QUERY;
+    }
 }

@@ -9,7 +9,7 @@
 
 #include <google/protobuf/message.h>
 
-#include "capability/FunctionPlanBindings.h"
+#include "capabilities/capability/FunctionPlanBindings.h"
 #include "CanonicalTestRewrite.h"
 #include "substrait/plan.pb.h"
 

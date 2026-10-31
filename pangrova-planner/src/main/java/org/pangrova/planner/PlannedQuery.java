@@ -20,15 +20,11 @@ import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.planner.stability.PlanHasher;
-import org.pangrova.planner.vector.VectorSearchNode;
-import org.pangrova.planner.vector.VectorSearchRewriter;
-import org.pangrova.spi.index.IndexDescriptor;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.UserIdentity;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableModify;
 import org.apache.calcite.rel.core.TableScan;
-import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.rex.RexSubQuery;
@@ -39,7 +35,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiFunction;
 
 /**
  * Opaque result of SQL compilation. Wraps the Calcite {@link RelNode} tree internally
@@ -390,27 +385,6 @@ public final class PlannedQuery {
             }
         }
         return Optional.empty();
-    }
-
-    // ── Vector search detection (Calcite-free API for coordinator) ──
-
-    /**
-     * Detects whether this query plan contains a vector search pattern (ORDER BY
-     * distance(column, vector) LIMIT K backed by a VECTOR index). Returns the
-     * rewritten VectorSearchNode if detected, empty otherwise.
-     *
-     * <p>This method encapsulates the Calcite-internal instanceof-LogicalSort
-     * check so that coordinator code never imports Calcite types.</p>
-     *
-     * @param indexLookup function: (tableName, columnName) → matching VECTOR IndexDescriptors
-     * @return the vector search node if pattern matched, empty otherwise
-     */
-    public Optional<VectorSearchNode> tryDetectVectorSearch(
-            BiFunction<String, String, List<IndexDescriptor>> indexLookup) {
-        if (!(plan instanceof LogicalSort sortNode)) {
-            return Optional.empty();
-        }
-        return VectorSearchRewriter.tryRewrite(sortNode, indexLookup);
     }
 
     // ── Plan fragmentation ──

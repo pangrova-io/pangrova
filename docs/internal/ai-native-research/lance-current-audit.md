@@ -516,8 +516,8 @@ AuthorizationTransactionGate事务级shared advisory lock，授权变更必须�
 - `ArtifactExecutionFence.java`：FOR SHARE仅读取原始owner/incarnation/token/时间字段；
   取得exact行后，用独立SQL `SELECT clock_timestamp()`比较严格`expiresAt > actualNow`。
   durable tenant/job route和exact owner仍必需；同一Connection的行锁保持到COMMIT/ROLLBACK。
-- `JdbcIndexArtifactPublicationStore.java`、
-  `JdbcGeneratedValueArtifactPublicationStore.java`、
+- `JdbcIndexGenerationPublicationStore.java`、
+  `JdbcGeneratedValuePublicationStore.java`、
   `JdbcTabularExportPublicationStore.java`：所有publication写入完成后、COMMIT之前，
   同连接再次requirePublication。此时job和anchor都已锁定；后续过期会抛LostOwnerException，
   原有catch整体ROLLBACK generation、descriptor pointer/epoch与PUBLISHED job。
@@ -530,10 +530,10 @@ AuthorizationTransactionGate事务级shared advisory lock，授权变更必须�
 ### 12.3 真实PG回归与边界
 
 新增两个test文件，不改旧测试断言，不加mock/fake clock/provider/store：
-- `ArtifactExecutionFenceLockIntegrationTest`：生产requireCurrent在纯anchor FOR UPDATE
+- `DataBuildExecutionFenceLockIntegrationTest`：生产requireCurrent在纯anchor FOR UPDATE
   等待跨期后拒绝；同样等锁但未过期返回exact anchor；旧incarnation/跨tenant route拒绝。
   独立旧SQL oracle真实证明PG16目标投影live=true而取得锁后的actual clock已超期。
-- `ArtifactPublicationFenceLockIntegrationTest`：参数化运行三正式production publisher；
+- `DataBuildPublicationFenceLockIntegrationTest`：参数化运行三正式production publisher；
   实际artifact_build_jobs FOR UPDATE等待跨期后generation、job与index/generated指针
   全回滚；未跨期相同等待正式发布成功；Index/Generated另有真实descriptor锁等待跨期。
 
@@ -544,8 +544,8 @@ execution token；source allocations/output角色与覆盖真实持久化到PG�
 pg_stat_activity.xact_start证明worker已在租约尚未过期时进入等待；阻塞连接用PG实际
 clock_timestamp/pg_sleep等待截止，再确认actual clock超期并释放行锁。无Thread.sleep。
 
-尚未扩展到其他初始-only调用：JdbcArtifactBuildCompletion(job/page)、JdbcArtifactBuildStore
-(claim/renew/retry/fail/markPublished/deferPublication)、JdbcArtifactStageExecutionStore
+尚未扩展到其他初始-only调用：JdbcDataBuildCompletion(job/page)、JdbcDataBuildStore
+(claim/renew/retry/fail/markPublished/deferPublication)、JdbcDataBuildStageExecutionStore
 (prepare/claim/issued lease)及JdbcArtifactStageExchangeStore(register/finalize/load)。它们
 经共同helper获得锁后clock修复，但仍需分别在后续等待后最终复验，不能据此宣称整个
 artifact DAG的所有接受点已经关闭。JdbcWriteCommitJournal是另一条普通source写入
@@ -557,8 +557,8 @@ journal；本单元不把该journal的独立事务变为第10节managed SDK auth
 root首次运行12 cases得到10 PASS、2 FAIL、0 errors/skipped；两处正向失败仅是
 GeneratedValues/Tabular publisher返回值URI与实际PUBLISHED job读出的URI不同。
 这不是允许忽略字段的type view：ArtifactGenerationManifest声明为每个consumer共享
-的canonical immutable publication view；PublishedArtifactBindingContract:134严格比较
-URI，PublishedArtifactBindingResolver:77/186和同连接JdbcArtifactPublishedInputs读取
+的canonical immutable publication view；PublishedGenerationBindingContract:134严格比较
+URI，PublishedGenerationBindingResolver:77/186和同连接JdbcArtifactPublishedInputs读取
 同一个publication identity。URI为metadata逻辑digest identity，真实对象经output
 opaqueUri读取，但逻辑URI仍参与pinned binding的不可变校验。
 

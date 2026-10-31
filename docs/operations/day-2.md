@@ -1182,7 +1182,7 @@ echo "Infrastructure ready."
 
 echo "=== Phase B: Start Coordinators ==="
 for host in $COORDINATOR_HOSTS; do
-    ssh $host "nohup java -jar pangrova-coordinator.jar &"
+    ssh $host "nohup java -jar pangrova-coordination-core.jar &"
 done
 # Wait for Coordinators to be ready
 for host in $COORDINATOR_HOSTS; do
@@ -1192,7 +1192,7 @@ echo "Coordinators ready."
 
 echo "=== Phase C: Start Workers ==="
 for host in $WORKER_HOSTS; do
-    ssh $host "nohup java -jar pangrova-worker.jar &"
+    ssh $host "nohup java -jar pangrova-worker-core.jar &"
 done
 # Wait for Workers to register
 for host in $WORKER_HOSTS; do

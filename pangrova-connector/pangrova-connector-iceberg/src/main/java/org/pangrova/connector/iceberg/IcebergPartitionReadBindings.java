@@ -15,7 +15,7 @@ import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
-import org.pangrova.spi.connector.metadata.table.ConnectorDerivedQuery;
+import org.pangrova.connector.spi.metadata.table.ConnectorDerivedQuery;
 
 /** Declares SDK partition statistics as Native relational work over frozen metadata scans. */
 final class IcebergPartitionReadBindings {

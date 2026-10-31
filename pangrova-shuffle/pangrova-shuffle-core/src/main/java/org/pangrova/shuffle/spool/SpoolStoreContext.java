@@ -3,14 +3,14 @@ package org.pangrova.shuffle.spool;
 import java.util.Map;
 import java.util.Optional;
 
-import org.pangrova.spi.annotation.Experimental;
+import org.pangrova.common.api.annotation.Experimental;
 
 /**
  * Construction context handed to {@link SpoolStoreFactory#create(SpoolStoreContext)} (ADR-002 D6).
  *
  * <p>Carries the selected store name and the resolved {@code spool.*} configuration so a backend can
  * read its own settings (base directory, bucket, min-object-bytes, ...) without coupling the SPI to a
- * concrete config type. Mirrors {@link org.pangrova.shuffle.ShuffleContext}.
+ * concrete config type used by spool-backed implementations.
  */
 @Experimental(reason = "ADR-002 D6 persistent-plane spool SPI; evolving alongside D4 providers")
 public final class SpoolStoreContext {

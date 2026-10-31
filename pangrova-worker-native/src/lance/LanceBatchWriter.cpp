@@ -22,7 +22,7 @@
 
 #include "lance_c_ffi.h"
 #include "lance/LanceStorageContext.h"
-#include "observability/PangrovaLog.h"
+#include "engine/observability/PangrovaLog.h"
 
 namespace pangrova::lance {
 

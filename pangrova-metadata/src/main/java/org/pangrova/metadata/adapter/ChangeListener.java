@@ -1,6 +1,6 @@
 package org.pangrova.metadata.adapter;
 
-import org.pangrova.metadata.sync.MetadataChange;
+import org.pangrova.metadata.api.catalog.MetadataChange;
 
 /**
  * Functional interface for push-based metadata change notifications.

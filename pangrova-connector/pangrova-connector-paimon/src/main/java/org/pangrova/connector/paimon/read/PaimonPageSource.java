@@ -1,15 +1,15 @@
 package org.pangrova.connector.paimon.read;
 
-import org.pangrova.connector.paimon.PaimonSplitRegistry.ReadLease;
+import java.io.Closeable;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.spi.base.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.PageOutputFormat;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
+import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.connector.spi.data.PageOutputFormat;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.data.page.NativePage;
+import org.pangrova.connector.spi.data.page.NativePageConverter;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.types.DataField;
@@ -33,7 +33,7 @@ public final class PaimonPageSource implements ConnectorPageSource {
     public static final int DEFAULT_BATCH_SIZE = 1024;
 
     private final RecordReader<InternalRow> reader;
-    private final ReadLease lease;
+    private final Closeable lease;
     private final List<PaimonColumnHandle> projectedColumns;
     private final RowType rowType;
     private final Map<Integer, Integer> fieldIdToOrdinal;
@@ -47,7 +47,7 @@ public final class PaimonPageSource implements ConnectorPageSource {
             List<PaimonColumnHandle> projectedColumns,
             RowType rowType,
             int batchSize,
-            ReadLease lease) {
+            Closeable lease) {
         this.reader = reader;
         this.lease = java.util.Objects.requireNonNull(lease, "lease");
         this.projectedColumns = List.copyOf(projectedColumns);

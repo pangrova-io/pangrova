@@ -55,7 +55,7 @@ public interface ConnectorPushdownTable {
      * @return present if the connector accepted the aggregation; empty if not supported
      */
     default java.util.Optional<PushdownResult> pushAggregate(
-            org.pangrova.spi.connector.metadata.AggregationApplication aggregation) {
+            org.pangrova.connector.spi.metadata.AggregationApplication aggregation) {
         return java.util.Optional.empty();
     }
 
@@ -67,7 +67,7 @@ public interface ConnectorPushdownTable {
      * @return present if the connector accepted the sample; empty if not supported
      */
     default java.util.Optional<PushdownResult> pushSample(
-            double percentage, org.pangrova.spi.connector.metadata.SampleInfo.SampleMethod method) {
+            double percentage, org.pangrova.connector.spi.metadata.SampleInfo.SampleMethod method) {
         return java.util.Optional.empty();
     }
 }

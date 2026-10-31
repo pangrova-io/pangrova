@@ -82,7 +82,7 @@ def needs_native_checks(paths):
         if not needs_runtime([name]):
             continue
         if name.startswith(('pangrova-worker/', 'pangrova-worker-native/',
-                            'pangrova-native-bundle/', 'pangrova-protocol/', 'pangrova-spi/')):
+                            'pangrova-native-bundle/', 'pangrova-protocol/')):
             return True
         # Other Java leaves do not own JNI. Production-image E2E still verifies
         # their behavior against fresh Linux JNI; unchanged standalone C++ tests
@@ -102,9 +102,9 @@ def needs_performance(paths):
             return True
         if is_documentation(name):
             continue
-        if name.startswith(("pangrova-testing/pangrova-test-benchmark/",
-                            "pangrova-testing/pangrova-test-e2e/src/test/java/"
-                            "org/pangrova/testing/e2e/performance/")):
+        if name.startswith(("pangrova-testing/pangrova-testing-benchmark/",
+                            "pangrova-testing/pangrova-testing-integration-tests/src/test/java/"
+                            "org/pangrova/testing/integration/e2e/performance/")):
             return True
         if name in {".pangrova/scripts/ci_change_scope.py",
                     ".pangrova/scripts/build-iceberg-sdk-candidate.sh"}:

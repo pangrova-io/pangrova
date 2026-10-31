@@ -9,8 +9,8 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.SortField;
 import io.substrait.proto.SimpleExtensionDeclaration;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 import org.pangrova.protocol.v2.ScoreDirection;
 import org.pangrova.protocol.v2.ArtifactBinding;
@@ -167,7 +167,7 @@ class RetrievalTopKPlanBinderTest {
         RetrievalTopKBinding binding = RetrievalTopKBinding.artifact(
                 1, 10, ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
                 List.of(0), schema.toByteArray(),
-                new RetrievalTopKBinding.ArtifactInput(
+                new RetrievalTopKBinding.PublishedGenerationInput(
                         "items", BuiltInCapabilityCatalog.bm25RetrievalPlanRef(),
                         bm25Options(), ArtifactBinding.newBuilder()
                                 .setArtifactId("text-index")
@@ -204,7 +204,7 @@ class RetrievalTopKPlanBinderTest {
         RetrievalTopKBinding binding = RetrievalTopKBinding.artifact(
                 1, 10, ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
                 List.of(0), schema.toByteArray(),
-                new RetrievalTopKBinding.ArtifactInput(
+                new RetrievalTopKBinding.PublishedGenerationInput(
                         "items", BuiltInCapabilityCatalog.bm25RetrievalPlanRef(),
                         bm25Options(), ArtifactBinding.newBuilder()
                                 .setArtifactId("text-index")
@@ -258,7 +258,7 @@ class RetrievalTopKPlanBinderTest {
                 .setFetch(fetch.toBuilder().setInput(Rel.newBuilder().setSort(updatedSort))));
         Plan remapped = original.toBuilder().setRelations(0, original.getRelations(0).toBuilder().setRoot(updatedRoot)).build();
         var binding = RetrievalTopKBinding.artifact(1, 10, ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
-                List.of(0), candidateSchema().toByteArray(), new RetrievalTopKBinding.ArtifactInput("items",
+                List.of(0), candidateSchema().toByteArray(), new RetrievalTopKBinding.PublishedGenerationInput("items",
                         BuiltInCapabilityCatalog.bm25RetrievalPlanRef(), bm25Options(),
                         ArtifactBinding.newBuilder().setArtifactId("text-index").build(), "bm25-shard-exact", 10, 1.0, 10));
         var bound = RetrievalTopKPlanBinder.bind(remapped.toByteArray(), List.of(binding), "remapped-bm25");

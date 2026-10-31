@@ -6,11 +6,10 @@ import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.protocol.v2.ConnectorWriteBinding;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
 
 import java.util.List;
 import java.util.UUID;
@@ -35,7 +34,7 @@ public final class PaimonCommitTestSupport {
         String table = handle.targetTable().orElseThrow().toString();
         byte[] writeBinding = writeBinding(handle);
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
                         executionId,
                         tenantId,
                         metadata.getCatalogName(),

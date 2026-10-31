@@ -14,14 +14,31 @@
     <name>Pangrova Standalone</name>
     <description>Single-JVM entry point running both Coordinator and Worker for dev/test use</description>
 
+    <properties>
+        <module.name>org.pangrova.standalone</module.name>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordinator</artifactId>
+            <artifactId>pangrova-config</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-worker</artifactId>
+            <artifactId>pangrova-coordination-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-coordination-zookeeper</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-worker-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai-worker</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>

@@ -1,17 +1,15 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
-
 import org.pangrova.connector.paimon.scan.PaimonDataFileExtractor;
-
 import org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.index.statistics.DataFileStatistics;
-import org.pangrova.spi.index.statistics.FileColumnStatistics;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexType;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
-import org.pangrova.spi.connector.index.SnapshotDataFile;
+import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
+import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.connector.spi.index.NativeIndexCapability;
+import org.pangrova.connector.spi.index.NativeIndexType;
+import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
+import org.pangrova.connector.spi.index.SnapshotDataFile;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalArray;

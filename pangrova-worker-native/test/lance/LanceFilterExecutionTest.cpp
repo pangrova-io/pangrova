@@ -2,7 +2,7 @@
 // production connector -> real Velox Task. This is not JNI or SQL E2E evidence.
 #include "CanonicalTestAttempt.h"
 #include "LanceDatasetTestFixture.h"
-#include "../CanonicalTestPlan.h"
+#include "CanonicalTestPlan.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <atomic>
@@ -11,12 +11,12 @@
 
 #include <arrow/c/bridge.h>
 #include <folly/ScopeGuard.h>
-#include "columnar/ColumnarImportLayout.h"
-#include "executor/driver/TaskExecutor.h"
-#include "jni/command/StatusSerializer.h"
-#include "observability/ColumnarReadMetrics.h"
-#include "velox/runner/VeloxTaskRunner.h"
-#include "velox/plan/VeloxPlanConverter.h"
+#include "engine/columnar/ColumnarImportLayout.h"
+#include "engine/executor/driver/TaskExecutor.h"
+#include "bridge/command/StatusSerializer.h"
+#include "engine/observability/ColumnarReadMetrics.h"
+#include "engine/velox/runner/VeloxTaskRunner.h"
+#include "engine/velox/plan/VeloxPlanConverter.h"
 #include "substrait/plan.pb.h"
 #include "velox/core/PlanFragment.h"
 #include "velox/core/QueryCtx.h"

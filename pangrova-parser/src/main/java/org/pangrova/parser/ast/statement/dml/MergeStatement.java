@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 import org.pangrova.parser.ast.TableRef;
 
 /**
@@ -45,5 +46,10 @@ public record MergeStatement(
                 values = List.copyOf(values);
             }
         }
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.MERGE;
     }
 }

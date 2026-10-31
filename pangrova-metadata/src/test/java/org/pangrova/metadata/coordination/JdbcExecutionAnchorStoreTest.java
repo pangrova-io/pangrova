@@ -1,9 +1,10 @@
 package org.pangrova.metadata.coordination;
+import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.coordination.ExecutionAnchor;
+import org.pangrova.query.api.coordination.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

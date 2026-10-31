@@ -22,14 +22,14 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.spi.materialization.ChangeProof;
-import org.pangrova.spi.materialization.ChangeSetMode;
-import org.pangrova.spi.materialization.ChangeSetPlan;
-import org.pangrova.spi.materialization.MaterializationCapabilities;
-import org.pangrova.spi.materialization.MaterializationSourceException;
-import org.pangrova.spi.materialization.PinnedSource;
-import org.pangrova.spi.materialization.SourceRef;
-import org.pangrova.spi.materialization.SourceSnapshotRef;
+import org.pangrova.connector.spi.materialization.ChangeProof;
+import org.pangrova.connector.spi.materialization.ChangeSetMode;
+import org.pangrova.connector.spi.materialization.ChangeSetPlan;
+import org.pangrova.connector.spi.materialization.MaterializationCapabilities;
+import org.pangrova.connector.spi.materialization.MaterializationSourceException;
+import org.pangrova.connector.spi.materialization.PinnedSource;
+import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
 
 class PaimonMaterializationSourceProviderTest {
 

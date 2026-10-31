@@ -22,20 +22,20 @@ spec.loader.exec_module(scope)
 class PerformanceScopeTest(unittest.TestCase):
     def test_docs_and_unrelated_tests_do_not_trigger_performance(self):
         paths = ['README.md', 'pangrova-worker-native/README.md',
-                 'pangrova-worker/src/test/java/example/WorkerTest.java',
+                 'pangrova-worker/pangrova-worker-core/src/test/java/example/WorkerTest.java',
                  '.pangrova/scripts/tests/test_gate_policy.py']
         self.assertFalse(scope.needs_performance(paths))
 
     def test_runtime_dependency_and_benchmark_inputs_trigger_performance(self):
         paths = ['pangrova-parser/src/main/java/example/Parser.java',
-                 'pangrova-worker/src/main/resources/worker.yml',
-                 'pangrova-worker/src/main/resources/docs/template.md',
-                 'pangrova-worker/src/main/java/org/pangrova/docs/DocRenderer.java',
+                 'pangrova-worker/pangrova-worker-core/src/main/resources/worker.yml',
+                 'pangrova-worker/pangrova-worker-core/src/main/resources/docs/template.md',
+                 'pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/docs/DocRenderer.java',
                  'pangrova-worker-native/test/ExampleTest.cpp',
                  'pangrova-client/pangrova-client-cli/pom.xml',
-                 'pangrova-testing/pangrova-test-benchmark/baseline/jmh.json',
-                 'pangrova-testing/pangrova-test-e2e/src/test/java/'
-                 'org/pangrova/testing/e2e/performance/SqlLatencyBaselineTest.java',
+                 'pangrova-testing/pangrova-testing-benchmark/baseline/jmh.json',
+                 'pangrova-testing/pangrova-testing-integration-tests/src/test/java/'
+                 'org/pangrova/testing/integration/e2e/performance/SqlLatencyBaselineTest.java',
                  '.github/workflows/ci.yml', '.pangrova/modules.yaml']
         for path in paths:
             with self.subTest(path=path):
@@ -82,15 +82,15 @@ class GitGateTest(unittest.TestCase):
         return {name: outputs[name] for name in ['runtime', 'performance']}
 
     def test_doc_only_diff_skips_runtime_and_performance(self):
-        self.commit_file('pangrova-coordinator/README.md')
+        self.commit_file('pangrova-coordination/pangrova-coordination-core/README.md')
         self.assertEqual(self.selected(), {'runtime': 'false', 'performance': 'false'})
 
     def test_test_only_diff_retains_correctness(self):
-        self.commit_file('pangrova-worker/src/test/java/example/WorkerTest.java')
+        self.commit_file('pangrova-worker/pangrova-worker-core/src/test/java/example/WorkerTest.java')
         self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'false'})
 
     def test_production_diff_requires_both(self):
-        self.commit_file('pangrova-worker/src/main/java/example/Worker.java')
+        self.commit_file('pangrova-worker/pangrova-worker-core/src/main/java/example/Worker.java')
         self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
 
     def test_deleted_runtime_path_still_requires_checks(self):
@@ -102,7 +102,7 @@ class GitGateTest(unittest.TestCase):
         self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
 
     def test_rename_from_runtime_to_docs_still_requires_checks(self):
-        name = 'pangrova-worker/src/main/java/example/Worker.java'
+        name = 'pangrova-worker/pangrova-worker-core/src/main/java/example/Worker.java'
         self.commit_file(name)
         self.base = self.git('rev-parse', 'HEAD').strip()
         (self.root / 'docs').mkdir()
@@ -111,7 +111,7 @@ class GitGateTest(unittest.TestCase):
         self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
 
     def test_space_in_runtime_path_is_not_split(self):
-        self.commit_file('pangrova-worker/src/main/resources/data files/template.md')
+        self.commit_file('pangrova-worker/pangrova-worker-core/src/main/resources/data files/template.md')
         self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
 
     def test_missing_base_fails_instead_of_reporting_no_changes(self):
@@ -119,6 +119,19 @@ class GitGateTest(unittest.TestCase):
 
 
 class StructuralPolicyTest(unittest.TestCase):
+    def test_lightweight_module_checks_always_have_jdk_before_source_parsing(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        lint = workflow.split('  lint:\n', 1)[1].split('\n  static-analysis:', 1)[0]
+        steps = lint.split('      - ')
+        java = next(step for step in steps if 'actions/setup-java@' in step)
+        manifest = next(step for step in steps if 'check-module-manifest.sh' in step)
+        tests = next(step for step in steps if 'unittest discover' in step)
+        self.assertIn("java-version: '17'", java)
+        self.assertNotIn('if:', java)
+        self.assertNotIn('if:', manifest)
+        self.assertLess(steps.index(java), steps.index(tests))
+        self.assertLess(steps.index(java), steps.index(manifest))
+
     def test_structural_diagnostics_remain_visible_without_blocking_correctness(self):
         config = ET.parse(ROOT / 'config/checkstyle/checkstyle.xml')
         policy = (ROOT / '.pangrova/rules/code-standards.md').read_text()
@@ -190,9 +203,8 @@ class StructuralPolicyTest(unittest.TestCase):
 class RuntimeScopeTest(unittest.TestCase):
     def test_native_checks_follow_native_inputs_and_java_boundary_owners(self):
         for path in ['pangrova-worker-native/src/executor/Executor.cpp',
-                     'pangrova-worker/src/main/java/example/NativeRuntime.java',
+                     'pangrova-worker/pangrova-worker-core/src/main/java/example/NativeRuntime.java',
                      'pangrova-protocol/src/main/proto/task.proto',
-                     'pangrova-spi/src/main/java/example/Contract.java',
                      'pangrova-native-bundle/pom.xml', 'pom.xml',
                      '.github/workflows/ci.yml', 'unknown-build-input.lock']:
             with self.subTest(path=path):
@@ -200,6 +212,7 @@ class RuntimeScopeTest(unittest.TestCase):
         for path in ['docs/architecture/overview.md',
                      'pangrova-planner/src/main/java/example/Planner.java',
                      'pangrova-parser/src/test/java/example/ParserTest.java',
+                     'pangrova-indexing/pangrova-indexing-api/src/main/java/example/Contract.java',
                      'pangrova-client/client-cli/src/main/java/example/Cli.java']:
             with self.subTest(path=path):
                 self.assertFalse(scope.needs_native_checks([path]))
@@ -230,8 +243,8 @@ class RuntimeScopeTest(unittest.TestCase):
 
     def test_runtime_tests_resources_dependencies_and_unknown_inputs_are_conservative(self):
         paths = ['pangrova-worker-native/test/ExampleTest.cpp',
-                 'pangrova-worker/src/main/resources/docs/template.md',
-                 'pangrova-worker/src/test/resources/docs/fixture.md',
+                 'pangrova-worker/pangrova-worker-core/src/main/resources/docs/template.md',
+                 'pangrova-worker/pangrova-worker-core/src/test/resources/docs/fixture.md',
                  'pangrova-client/pangrova-client-cli/pom.xml',
                  '.pangrova/scripts/proto-descriptors/canonical-v2.descriptor',
                  '.pangrova/scripts/stage-production-regression-native.sh',
@@ -264,13 +277,13 @@ class WorkflowPolicyTest(unittest.TestCase):
             self.assertIn('.isRegularFile()', source)
             self.assertIn('.isEqualTo(expectedPlan)', source)
         for name in ['SpiWiringVerificationTest', 'BootstrapReachabilityTest']:
-            source = (ROOT / 'pangrova-testing/pangrova-test-e2e/src/test/java/'
-                      'org/pangrova/testing/e2e/arch' / f'{name}.java').read_text()
+            source = (ROOT / 'pangrova-testing/pangrova-testing-integration-tests/src/test/java/'
+                      'org/pangrova/testing/integration/e2e/arch' / f'{name}.java').read_text()
             self.assertNotIn('@Tag(', source)
-        e2e = (ROOT / 'pangrova-testing/pangrova-test-e2e/pom.xml').read_text()
+        e2e = (ROOT / 'pangrova-testing/pangrova-testing-integration-tests/pom.xml').read_text()
         self.assertNotIn('<exclude>', e2e)
-        smoke = ROOT / ('pangrova-testing/pangrova-test-e2e/src/test/java/'
-                        'org/pangrova/testing/e2e/smoke/ActivationSmokeE2ETest.java')
+        smoke = ROOT / ('pangrova-testing/pangrova-testing-integration-tests/src/test/java/'
+                        'org/pangrova/testing/integration/e2e/smoke/ActivationSmokeE2ETest.java')
         self.assertTrue(smoke.is_file())
         self.assertNotIn('Run full E2E and real activation smoke', self.workflow)
 

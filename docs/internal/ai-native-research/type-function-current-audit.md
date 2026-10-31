@@ -40,7 +40,7 @@ canonical VectorLogicalType declaration and Native Arrow interoperability.
 | Connector declaration to SQL | Production `MetadataResolvedTable.getRowType` calls the single `ConnectorColumnTypeMapper.rowType`; `CompiledWriteDeclaration.metadata` also uses this mapper to compare frozen write identity. Before this correction UNKNOWN became VARCHAR, absent ARRAY/VECTOR parameters became ARRAY<DOUBLE>, and mismatched structural parameter classes could slip through. |
 | Dataset declaration to canonical schema | `NativeDatasetSchemaCompiler.compile` uses the same mapper, TypeMapper and Substrait serializer. Its original top-level FLOAT64 VECTOR branch manually constructed LogicalType instead of using VectorLogicalType; this duplicated the declaration and did not assert exact equality with the physical schema. |
 | Storage VECTOR to optimized SQL type | Before correction the mapper used unbounded ArraySqlType. The current independent unit now retains a StorageVectorRelDataType carrying the canonical LogicalType, with factory copy/nullability protection. Core Substrait LIST and actual scalar-call/task contracts still lack storage-vector dimension authority; the marker alone does not close these boundaries. |
-| Final result binding | Initial inspection found only exact model intents. The current coordinated unit adds static canonical types to final PlanFragment output, StagePlanAccess, SerializedStage and graph identity, and merges them through the same DAGStagePlanBinder. Durable replay reads the existing ArtifactStageTemplate result-type bytes. |
+| Final result binding | Initial inspection found only exact model intents. The current coordinated unit adds static canonical types to final PlanFragment output, StagePlanAccess, SerializedStage and graph identity, and merges them through the same DAGStagePlanBinder. Durable replay reads the existing DataBuildStageTemplate result-type bytes. |
 | FLOAT64 Native result | Initial inspection found strict FP32-only result admission, index/dimension-only state, FP32-only Flight annotation and client decoding. The coordinated unit now retains the same complete canonical LogicalType in that state; storage validation accepts exact FP32/FP64. Root owns the dirty runner/Flight/reader integration. Client ArrowBatchDecoder returns float[]/double[] according to actual typed Arrow schema, SPI preserves that width, and JDBC/CLI expose actual coordinates. AI validation remains separate and strict FP32. |
 | Actual function registration | FunctionCatalogAssembler seals an actual owned registry snapshot; explicit startup finalize/read supplies that inventory to Worker registration. This implementation already exists and must be retained. |
 | Actual function planning | `FunctionCatalogView` has no Planner/Coordinator main-source consumer. SqlCompiler still installs NativeCapabilityRegistry.defaults, a separately maintained name list. Actual SQL signature authority is not query-frozen. |
@@ -98,10 +98,10 @@ or skipped test is introduced.
    semantic conversions and exact-model vector binding as separate authorities.
 2. Extract exact static output contracts from the final optimized row type.
    StagePlanAccess, AuthorizedStageGraph serialized stages, canonical graph
-   fingerprint and exchange rewrites must retain those contracts. ArtifactStageGraph
+   fingerprint and exchange rewrites must retain those contracts. DataBuildStageGraph
    persistence must encode them so restart/replay cannot consult newer catalogue
-   information. Existing ArtifactStageTemplate already retains canonical result
-   type bytes, and ArtifactStageGraph owns that template. Reuse these fields and
+   information. Existing DataBuildStageTemplate already retains canonical result
+   type bytes, and DataBuildStageGraph owns that template. Reuse these fields and
    their established producers/consumers rather than creating another graph
    format. This work intersects already modified metadata and requires
    coordinated ownership, not an overwrite of existing changes.
@@ -361,7 +361,7 @@ This table records source state, not execution acceptance.
   rewrites and OperatorBinding attempt preparation. BoundExecutionPlan/LeafTask/
   DmlWriteTask/CanonicalTaskSpec carry the retained authority/provenance rather
   than re-read WorkerManager. Collect after overlay/retrieval/generated-column/
-  AQE/ArtifactPartitionBindings changes and bind field18 checksum to exactly the
+  AQE/DataBuildPartitionBindings changes and bind field18 checksum to exactly the
   bytes written in field2. Recollect after plan changes; retries that change only
   attempt fields retain the same checksum/call authority. Admission requires
   the explicit envelope, including the zero-call case, in Java and Native.
@@ -375,7 +375,7 @@ This table records source state, not execution acceptance.
   registry snapshot in QueryConfig; preserve it and avoid global registry
   fallback. Validation must ensure actual SDK factory selection equals the
   admitted selected entry, not merely equal resolved result types.
-* Durable ArtifactStageGraph/ArtifactStageTemplate format2 currently stores
+* Durable DataBuildStageGraph/DataBuildStageTemplate format2 currently stores
   bindings/result types/publication/model authority, not function catalogue
   authority or raw aggregate provenance. Use their existing canonical graph
   codec/store with a single explicit format bump to retain original catalogue
@@ -1277,7 +1277,7 @@ Execution entry after the changed protocol/declaration/Native cohort has been ge
   task_file_capability_key="$(python3 -c 'import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())')"
   PANGROVA_E2E_FILE_CAPABILITY_KEY="$task_file_capability_key" \
     mvn -B -ntp -Dmaven.repo.local="${PANGROVA_MAVEN_REPO:?set an isolated Maven repository}" \
-      -pl pangrova-testing/pangrova-test-e2e -am \
+      -pl pangrova-testing/pangrova-testing-integration-tests -am \
       -Dtest=GovernedFileSqlE2ETest,OllamaAiSqlE2ETest \
       -Dsurefire.failIfNoSpecifiedTests=false test
   unset task_file_capability_key

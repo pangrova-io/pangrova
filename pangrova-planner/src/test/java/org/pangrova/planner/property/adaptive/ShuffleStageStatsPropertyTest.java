@@ -4,7 +4,7 @@ import org.pangrova.planner.adaptive.ShuffleStageStats;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Label;

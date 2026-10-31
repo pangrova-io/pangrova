@@ -1,5 +1,7 @@
 package org.pangrova.protocol.rest.copy;
 
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -52,7 +54,7 @@ public final class PrepareCopySourceRequest {
     public org.pangrova.protocol.v2.TaskAdmissionSealRequest admissionSeal() {
         return org.pangrova.protocol.v2.TaskAdmissionSealRequest.newBuilder().setProtocol(preparation.getProtocol())
                 .setAttempt(preparation.getAttempt()).setDeadlineEpochMs(preparation.getDeadlineEpochMs())
-                .setCanonicalRequestChecksum(CanonicalTaskRequests.sha256(canonicalBytes)).build();
+                .setCanonicalRequestChecksum(ProtocolChecksums.sha256(canonicalBytes)).build();
     }
 
     @Override public String toString() { return "PrepareCopySourceRequest[REDACTED]"; }

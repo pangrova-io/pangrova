@@ -1,5 +1,7 @@
 package org.pangrova.protocol.task;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import org.pangrova.common.util.DigestUtils;
@@ -72,7 +74,7 @@ public final class CanonicalTaskAdmissionSeals {
                 || request.getDeadlineEpochMs() <= 0 || !request.getAttempt().getTaskId().equals(pathTaskId)) {
             throw new IllegalArgumentException("Admission seal is missing its exact control authority");
         }
-        CanonicalTaskRequests.validateProtocol(request.getProtocol());
+        CanonicalProtocolIdentity.validate(request.getProtocol());
         CanonicalTaskRequests.validateAttempt(request.getAttempt());
         var checksum = request.getCanonicalRequestChecksum();
         if (!checksum.getUnknownFields().asMap().isEmpty()

@@ -4,7 +4,7 @@
 
 ## 已实现的边界
 
-`EvaluationStore` 有实际 PostgreSQL 实现。`AiInfrastructureStores.jdbc()` 构造
+`EvaluationStore` 有实际 PostgreSQL 实现。`AiInfrastructureStores.jdbc(dataSource, authority)` 构造
 `JdbcEvaluationStore`，Coordinator bootstrap 构造这组 stores。当前生产
 Coordinator、Planner、Worker 和 Native 源码中没有调用 `.evaluations()` 的评估任务入口，
 也没有连接此存储的指标计算执行器；本次找到的直接消费者是 metadata 集成测试。
@@ -75,10 +75,10 @@ baseline 指标单位、缺失 baseline 指标、重复指标事务回滚、data
 ## 可核查源码
 
 - `pangrova-metadata/src/main/java/org/pangrova/metadata/evaluation/`
-- `pangrova-metadata/src/main/java/org/pangrova/metadata/ai/AiInfrastructureStores.java`
-- `pangrova-coordinator/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrap.java`
-- `pangrova-indexing/src/main/java/org/pangrova/indexing/eval/IndexEvaluationService.java`
-- `pangrova-metadata/src/main/resources/db/migration/V26__semantic_view_and_evaluation_metadata.sql`
+- `pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/assembly/AiInfrastructureStores.java`
+- `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/CoordinatorBootstrap.java`
+- `pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/eval/IndexEvaluationService.java`
+- `pangrova-schema-migrations/src/main/resources/db/migration/V26__semantic_view_and_evaluation_metadata.sql`
 - `pangrova-metadata/src/test/java/org/pangrova/metadata/evaluation/`
 
 

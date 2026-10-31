@@ -14,6 +14,7 @@
 package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code DROP STORAGE PROFILE [IF EXISTS] name}.
@@ -21,4 +22,9 @@ import org.pangrova.parser.ast.Statement;
 public record DropStorageProfileStatement(
         String profileName,
         boolean ifExists) implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.DROP_STORAGE_PROFILE;
+    }
 }

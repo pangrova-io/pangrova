@@ -4,7 +4,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.SnapshotUtil;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
 
 import java.util.HashSet;
 import java.util.Set;

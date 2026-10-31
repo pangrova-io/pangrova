@@ -1,6 +1,6 @@
 package org.pangrova.metadata.adapter;
 
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
 
 /**
  * Lightweight table handle for federation catalogs.

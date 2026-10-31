@@ -3,6 +3,7 @@ package org.pangrova.parser.ast.statement;
 import java.util.Optional;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Lists durable dependency edges, optionally restricted to one object.
@@ -14,5 +15,10 @@ public record ShowMaterializationDependenciesStatement(Optional<Identifier> obje
 
     public ShowMaterializationDependenciesStatement {
         object = object == null ? Optional.empty() : object;
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.SHOW_MATERIALIZATION_DEPENDENCIES;
     }
 }

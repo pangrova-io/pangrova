@@ -343,80 +343,123 @@ endif()
 # No separate STATIC target — eliminates double compilation.
 # C++ tests link directly against this SHARED library.
 # ==============================================================================
-file(GLOB_RECURSE PANGROVA_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-
 # Result streaming and remote exchange are mandatory execution dependencies.
 add_compile_definitions(PANGROVA_HAS_FLIGHT=1)
 
-if(PANGROVA_SOURCES)
-  # OBJECT library: compiles sources once, shared by both SHARED lib and tests.
-  # This avoids double compilation while allowing different visibility settings.
-  add_library(pangrova_native_objects OBJECT ${PANGROVA_SOURCES})
-  target_include_directories(pangrova_native_objects PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${JNI_INCLUDE_DIRS}
-  )
+# ==============================================================================
+# M13a: one SHARED library assembled from responsibility-scoped OBJECT targets.
+# Directories do not move in this step; the split proves the include/link DAG
+# before M13b relocates sources. The bridge target is the only JNI boundary;
+# the execution core does not include AI/index capability implementations.
+# ==============================================================================
+add_library(pangrova_native_headers INTERFACE)
+target_include_directories(pangrova_native_headers INTERFACE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${JNI_INCLUDE_DIRS}
+)
 
-  # ============================================================================
-  # Task 27.3: Strict warnings for first-party (src/) code only.
-  # Velox / folly / arrow headers trigger many warnings we cannot fix, so we
-  # apply these flags via target_compile_options on our OBJECT library rather
-  # than add_compile_options (which would leak into FetchContent deps).
-  # ============================================================================
+# Aggregates every first-party OBJECT target for the SHARED library and tests.
+add_library(pangrova_native_objects INTERFACE)
+
+function(pangrova_add_object_target target)
+  file(GLOB_RECURSE _sources CONFIGURE_DEPENDS ${ARGN})
+  add_library(${target} OBJECT ${_sources})
+  target_link_libraries(${target} PUBLIC
+    pangrova_native_headers
+    pangrova_native_deps
+  )
+  target_link_libraries(pangrova_native_objects INTERFACE ${target})
+
+  # Strict warnings for first-party (src/) code only. Velox / folly / arrow
+  # headers trigger warnings we cannot fix, so the flags live on the OBJECT
+  # targets rather than add_compile_options (which would leak into deps).
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(pangrova_native_objects PRIVATE
+    target_compile_options(${target} PRIVATE
       -Wall
       -Wextra
       -fstack-protector-strong
-      # Silence noise from generated protobuf code + Velox public headers
-      # included from first-party translation units.
       -Wno-unused-parameter
       -Wno-deprecated-declarations
     )
     if(PANGROVA_WERROR)
-      target_compile_options(pangrova_native_objects PRIVATE -Werror)
+      target_compile_options(${target} PRIVATE -Werror)
     endif()
   endif()
+  if(APPLE)
+    target_compile_options(${target} PRIVATE -fvisibility=hidden)
+    set_target_properties(${target} PROPERTIES VISIBILITY_INLINES_HIDDEN YES)
+  endif()
+endfunction()
 
-  # --- Core dependencies on OBJECT library ---
-  target_link_libraries(pangrova_native_objects PUBLIC
-    ${PANGROVA_ARROW_TARGET}
-    roaring
-    roaring-headers-cpp
-    simdjson
+pangrova_add_object_target(pangrova_native_bridge_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/bridge/*.cpp)
+pangrova_add_object_target(pangrova_native_core_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.cpp)
+pangrova_add_object_target(pangrova_native_capability_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/capabilities/*.cpp)
+pangrova_add_object_target(pangrova_native_index_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/indexing/*.cpp)
+pangrova_add_object_target(pangrova_native_vector_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/vector/*.cpp)
+pangrova_add_object_target(pangrova_native_udf_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/udf/*.cpp)
+pangrova_add_object_target(pangrova_native_lance_objects
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/lance/*.cpp)
+
+set(PANGROVA_OBJECT_TARGETS
+  pangrova_native_bridge_objects
+  pangrova_native_core_objects
+  pangrova_native_capability_objects
+  pangrova_native_index_objects
+  pangrova_native_vector_objects
+  pangrova_native_udf_objects
+  pangrova_native_lance_objects)
+
+# Third-party dependencies are shared by every first-party OBJECT target.
+add_library(pangrova_native_deps INTERFACE)
+target_link_libraries(pangrova_native_deps INTERFACE
+  ${PANGROVA_ARROW_TARGET}
+  roaring
+  roaring-headers-cpp
+  simdjson
+  arrow_flight_imported
+)
+target_link_libraries(pangrova_native_objects INTERFACE pangrova_native_deps)
+if(Parquet_FOUND)
+  target_link_libraries(pangrova_native_deps INTERFACE ${PANGROVA_PARQUET_TARGET})
+endif()
+if(TARGET pangrova_proto)
+  target_link_libraries(pangrova_native_deps INTERFACE pangrova_proto)
+endif()
+if(PANGROVA_HAS_OTEL)
+  target_compile_definitions(pangrova_native_deps INTERFACE HAS_OTEL_CPP=1)
+  target_link_libraries(pangrova_native_deps INTERFACE
+    opentelemetry_trace
+    opentelemetry_exporter_otlp_grpc
+    opentelemetry_resources
+    opentelemetry_common
   )
-  target_link_libraries(pangrova_native_objects PUBLIC arrow_flight_imported)
-  if(Parquet_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC ${PANGROVA_PARQUET_TARGET})
-  endif()
-  if(TARGET pangrova_proto)
-    target_link_libraries(pangrova_native_objects PUBLIC pangrova_proto)
-  endif()
-  if(PANGROVA_HAS_OTEL)
-    target_compile_definitions(pangrova_native_objects PUBLIC HAS_OTEL_CPP=1)
-    target_link_libraries(pangrova_native_objects PUBLIC
-      opentelemetry_trace
-      opentelemetry_exporter_otlp_grpc
-      opentelemetry_resources
-      opentelemetry_common
-    )
-  endif()
-  if(VELOX_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC velox_imported)
-  endif()
-  target_link_libraries(pangrova_native_objects PUBLIC lance_c_ffi)
+endif()
+if(VELOX_FOUND)
+  target_link_libraries(pangrova_native_deps INTERFACE velox_imported)
+endif()
+target_link_libraries(pangrova_native_deps INTERFACE lance_c_ffi)
 
-  include(PangrovaFunctionCatalog)
+include(PangrovaFunctionCatalog)
 
-  # SHARED library: uses OBJECT library + adds visibility hidden + Velox force-load.
-  add_library(pangrova_native SHARED)
+  # SHARED library: uses the OBJECT targets + adds visibility hidden + Velox force-load.
+  set(_pangrova_object_files)
+  foreach(_pangrova_object_target IN LISTS PANGROVA_OBJECT_TARGETS)
+    list(APPEND _pangrova_object_files $<TARGET_OBJECTS:${_pangrova_object_target}>)
+  endforeach()
+  add_library(pangrova_native SHARED ${_pangrova_object_files})
   target_include_directories(pangrova_native PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${JNI_INCLUDE_DIRS}
   )
-  # Link the OBJECT library — this pulls in both .o files and transitive deps.
-  target_link_libraries(pangrova_native PUBLIC pangrova_native_objects)
+  # Object files arrive as sources above; only usage requirements and link
+  # libraries are needed here.
+  target_link_libraries(pangrova_native PUBLIC pangrova_native_deps)
   if(PANGROVA_PRODUCTION_BUILD)
     target_link_options(pangrova_native PRIVATE "-Wl,-z,defs")
   endif()
@@ -460,11 +503,9 @@ if(PANGROVA_SOURCES)
     # - gflags symbols (fLB::FLAGS_*) from libvelox.a are force-loaded into the
     #   dylib. They're hidden but internally resolvable — Velox code within the
     #   same dylib can reference them without external lookup.
-    # Sources are compiled in the OBJECT target; setting the option only on the
+    # Sources are compiled in the OBJECT targets; the visibility flags are
+    # applied by pangrova_add_object_target, since setting them only on the
     # source-less SHARED target does not change their visibility.
-    target_compile_options(pangrova_native_objects PRIVATE -fvisibility=hidden)
-    set_target_properties(pangrova_native_objects PROPERTIES
-      VISIBILITY_INLINES_HIDDEN YES)
 
     # Static Velox/Arrow dependencies are built with default visibility, so a
     # compile flag alone cannot prevent their symbols from being re-exported.
@@ -547,7 +588,6 @@ if(PANGROVA_SOURCES)
     OUTPUT_NAME "pangrova_native"
     PREFIX "lib"
   )
-endif()
 
 # ==============================================================================
 # Tests
@@ -594,7 +634,7 @@ if(PANGROVA_BUILD_TESTS)
       # Explicit template instantiations lost during ar x (filename collision in
       # strip-velox-optional-deps.sh). Compiled directly into test binary since
       # the dylib uses -fvisibility=hidden and cannot export these symbols.
-      ${CMAKE_CURRENT_SOURCE_DIR}/src/compat/ExceptionCheckInstantiations.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/compat/ExceptionCheckInstantiations.cpp
     )
     target_include_directories(pangrova_native_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -606,8 +646,11 @@ if(PANGROVA_BUILD_TESTS)
     target_link_libraries(pangrova_native_tests PRIVATE
       GTest::gtest
       GTest::gmock
-      pangrova_native_objects
     )
+    foreach(_pangrova_object_target IN LISTS PANGROVA_OBJECT_TARGETS)
+      target_link_libraries(pangrova_native_tests PRIVATE ${_pangrova_object_target})
+    endforeach()
+    target_link_libraries(pangrova_native_tests PRIVATE pangrova_native_deps)
     if(VELOX_FOUND AND VELOX_MONO_LIB)
       if(APPLE)
         target_link_options(pangrova_native_tests PRIVATE

@@ -29,4 +29,9 @@ public record SetQuery(List<Query> queries, List<SetOperatorType> operators) imp
         INTERSECT,
         EXCEPT
     }
+
+    @Override
+    public StatementType type() {
+        return StatementType.SET_QUERY;
+    }
 }

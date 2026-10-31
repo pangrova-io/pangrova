@@ -2,12 +2,12 @@ package org.pangrova.parser;
 
 import org.pangrova.parser.ast.*;
 import org.pangrova.parser.ast.TimeTravelSpec.Type;
-import org.pangrova.parser.ast.expression.RerankClause;
-import org.pangrova.parser.ast.expression.RerankClause.CascadeStrategy;
-import org.pangrova.parser.ast.expression.RerankClause.CrossEncoderStrategy;
-import org.pangrova.parser.ast.expression.RerankClause.LinearCombinationStrategy;
-import org.pangrova.parser.ast.expression.RerankClause.RerankStrategy;
-import org.pangrova.parser.ast.expression.RerankClause.RrfStrategy;
+import org.pangrova.parser.ast.RerankClause;
+import org.pangrova.parser.ast.RerankClause.CascadeStrategy;
+import org.pangrova.parser.ast.RerankClause.CrossEncoderStrategy;
+import org.pangrova.parser.ast.RerankClause.LinearCombinationStrategy;
+import org.pangrova.parser.ast.RerankClause.RerankStrategy;
+import org.pangrova.parser.ast.RerankClause.RrfStrategy;
 import org.pangrova.parser.ast.statement.AlterCatalogStatement;
 import org.pangrova.parser.ast.statement.AlterDynamicTableStatement;
 import org.pangrova.parser.ast.statement.AlterMaterializedViewStatement;

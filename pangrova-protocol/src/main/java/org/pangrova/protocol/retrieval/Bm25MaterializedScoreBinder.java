@@ -5,9 +5,9 @@ import java.util.Map;
 import io.substrait.proto.Expression;
 import io.substrait.proto.Rel;
 import io.substrait.proto.Type;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Rewrites a BM25 Top-K input to consume its materialized Native score. */
 @Internal

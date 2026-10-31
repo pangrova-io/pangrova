@@ -14,14 +14,19 @@
     <name>Pangrova Security</name>
     <description>Authentication, authorization, RLS, column masking, audit, and secret management for Pangrova</description>
 
+    <properties>
+        <module.name>org.pangrova.security</module.name>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-common</artifactId>
+            <artifactId>pangrova-connector-spi</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-common</artifactId>
         </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -62,7 +67,7 @@
         <!-- Test dependencies -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -2,7 +2,7 @@ package org.pangrova.metadata.checkpoint;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.metadata.exception.MetastoreException;
-import org.pangrova.spi.resilience.CheckpointStore;
+import org.pangrova.common.resilience.api.CheckpointStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -37,7 +37,8 @@ public record CapabilityScope(
 
     private static void validateWorkerIdentity(TaskAttemptId taskAttempt) {
         if (taskAttempt != null) {
-            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(taskAttempt.getWorkerExecutionIdentity());
+            org.pangrova.protocol.execution.identity.WorkerExecutionIdentity.from(
+                    taskAttempt.getWorkerExecutionIdentity());
         }
     }
 

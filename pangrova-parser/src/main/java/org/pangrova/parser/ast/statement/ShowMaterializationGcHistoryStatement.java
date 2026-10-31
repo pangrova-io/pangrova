@@ -3,6 +3,7 @@ package org.pangrova.parser.ast.statement;
 import java.util.Optional;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Lists durable GC decisions, optionally restricted to one materialization.
@@ -14,5 +15,10 @@ public record ShowMaterializationGcHistoryStatement(Optional<Identifier> object)
 
     public ShowMaterializationGcHistoryStatement {
         object = object == null ? Optional.empty() : object;
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.SHOW_MATERIALIZATION_GC_HISTORY;
     }
 }

@@ -1,10 +1,9 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
-
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.data.value.TypedRow;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;

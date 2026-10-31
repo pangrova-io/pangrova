@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg.system;
 
 import org.pangrova.connector.iceberg.HadoopTestGuard;
-import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.connector.spi.data.value.TypedRow;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;

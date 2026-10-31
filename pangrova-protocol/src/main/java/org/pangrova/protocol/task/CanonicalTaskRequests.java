@@ -1,17 +1,15 @@
 package org.pangrova.protocol.task;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import org.pangrova.protocol.resource.StageResourceGrants;
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
-import com.google.protobuf.ByteString;
-
-import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.protocol.v2.ProtocolVersion;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -22,37 +20,10 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 /** Canonical v2 task construction and Worker-admission validation. */
 public final class CanonicalTaskRequests {
 
-    public static final int PROTOCOL_MAJOR = 2;
-    public static final int PROTOCOL_MINOR = 0;
-    public static final String ROLLOUT_EPOCH = "ai-native-function-resource-r3";
     public static final int MAX_COVERAGE_IDENTITIES = 4_096;
     private static final int SHA256_BYTES = 32;
 
     private CanonicalTaskRequests() {}
-
-    /** Returns the exact protocol identity embedded in every task request. */
-    public static ProtocolVersion protocolVersion() {
-        return ProtocolVersion.newBuilder()
-                .setMajor(PROTOCOL_MAJOR)
-                .setMinor(PROTOCOL_MINOR)
-                .setDescriptorSetSha256(ByteString.copyFrom(
-                        CanonicalProtocolDescriptors.sha256()))
-                .setRolloutEpoch(ROLLOUT_EPOCH)
-                .build();
-    }
-
-    /** Returns a SHA-256 checksum for immutable task payload bytes. */
-    public static Checksum sha256(byte[] bytes) {
-        try {
-            return Checksum.newBuilder()
-                    .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
-                    .setDigest(ByteString.copyFrom(
-                            MessageDigest.getInstance("SHA-256").digest(bytes)))
-                    .build();
-        } catch (NoSuchAlgorithmException failure) {
-            throw new IllegalStateException("SHA-256 is unavailable", failure);
-        }
-    }
 
     /** Validates canonical usage against its exact grant in Java's representable accounting domain. */
     public static boolean usageWithinGrant(ResourceUsage usage, StageResourceGrant grant) {
@@ -110,11 +81,11 @@ public final class CanonicalTaskRequests {
                 || !context.hasResourceGrant()) {
             throw new IllegalArgumentException("Callback task authority is absent or contains unknown fields");
         }
-        validateProtocol(context.getProtocol());
+        CanonicalProtocolIdentity.validate(context.getProtocol());
         validateAttempt(context.getAttempt());
         requireSecurityContext(context.getSecurity());
         requireDeadline(context.getDeadlineEpochMs());
-        requireResourceGrant(context.getResourceGrant());
+        StageResourceGrants.validate(context.getResourceGrant());
         if (!context.getTraceContext().getUnknownFields().asMap().isEmpty()) {
             throw new IllegalArgumentException("Callback trace context contains unknown fields");
         }
@@ -127,40 +98,16 @@ public final class CanonicalTaskRequests {
                 || !request.hasResourceGrant() || !request.hasSourceCommandSha256()) {
             throw new IllegalArgumentException("Source preparation authority is incomplete");
         }
-        validateProtocol(request.getProtocol());
+        CanonicalProtocolIdentity.validate(request.getProtocol());
         validateAttempt(request.getAttempt());
         requireSecurityContext(request.getSecurity());
-        requireResourceGrantFields(request.getResourceGrant());
-        if (request.getResourceGrant().getJvmHeapBytes() <= 0) {
-            throw new IllegalArgumentException("Source preparation requires a JVM memory grant");
-        }
+        StageResourceGrants.validateSourcePreparation(request.getResourceGrant());
         requireDeadline(request.getDeadlineEpochMs());
         if (!request.getTraceContext().getUnknownFields().asMap().isEmpty()
                 || !request.getSourceCommandSha256().getUnknownFields().asMap().isEmpty()
                 || request.getSourceCommandSha256().getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
                 || request.getSourceCommandSha256().getDigest().size() != SHA256_BYTES) {
             throw new IllegalArgumentException("Source preparation trace or command digest is invalid");
-        }
-    }
-
-    private static void requireResourceGrant(StageResourceGrant grant) {
-        requireResourceGrantFields(grant);
-        if (grant.getNativeMemoryBytes() <= 0) {
-            throw new IllegalArgumentException("Canonical task resource grant is incomplete");
-        }
-    }
-
-    private static void requireResourceGrantFields(StageResourceGrant grant) {
-        if (grant.getGrantId().isBlank() || grant.getCpuSlots() <= 0
-                || !grant.getUnknownFields().asMap().isEmpty()) {
-            throw new IllegalArgumentException("Canonical task resource grant is incomplete");
-        }
-        for (var field : grant.getDescriptorForType().getFields()) {
-            Object value = grant.getField(field);
-            if ((value instanceof Long longValue && longValue < 0)
-                    || (value instanceof Integer integerValue && integerValue < 0)) {
-                throw new IllegalArgumentException("Resource grant exceeds Java accounting domain: " + field.getName());
-            }
         }
     }
 
@@ -175,14 +122,14 @@ public final class CanonicalTaskRequests {
         if (request.getWorkerLocalStorageBindingsCount() != 0 || request.hasWorkerLocalCopyInput()) {
             throw new IllegalArgumentException("Network tasks must not contain Worker-local storage bindings");
         }
-        validateProtocol(request.getProtocol());
+        CanonicalProtocolIdentity.validate(request.getProtocol());
         validateAttempt(request.getAttempt());
         requireTaskKind(request);
         validateCopySourceStagingCommand(request);
         requireSecurityContext(request.getSecurity());
         requireValidPlanChecksum(request);
         requireDeadline(request.getDeadlineEpochMs());
-        requireResourceGrant(request.getResourceGrant());
+        StageResourceGrants.validate(request.getResourceGrant());
         validateSerializedOutputGrant(request);
         validateShuffleExecution(request);
         validateUniqueBindings(request);
@@ -270,7 +217,7 @@ public final class CanonicalTaskRequests {
 
     private static boolean hasMatchingPlanDigest(TaskRequest request) {
         return Arrays.equals(
-                sha256(request.getSubstraitPlan().toByteArray()).getDigest().toByteArray(),
+                ProtocolChecksums.sha256(request.getSubstraitPlan().toByteArray()).getDigest().toByteArray(),
                 request.getSubstraitPlanChecksum().getDigest().toByteArray());
     }
 
@@ -329,18 +276,6 @@ public final class CanonicalTaskRequests {
                 "TaskRequest shuffle execution binding is incomplete or inconsistent");
     }
 
-    static void validateProtocol(ProtocolVersion protocol) {
-        if (!protocol.getUnknownFields().asMap().isEmpty()
-                || protocol.getMajor() != PROTOCOL_MAJOR
-                || protocol.getMinor() != PROTOCOL_MINOR
-                || !ROLLOUT_EPOCH.equals(protocol.getRolloutEpoch())
-                || !Arrays.equals(CanonicalProtocolDescriptors.sha256(),
-                        protocol.getDescriptorSetSha256().toByteArray())) {
-            throw new IllegalArgumentException(
-                    "TaskRequest protocol identity does not match canonical v2");
-        }
-    }
-
     static void validateAttempt(TaskAttemptId attempt) {
         if (attempt.getQueryOrJobId().isBlank()
                 || attempt.getTaskId().isBlank()
@@ -353,7 +288,7 @@ public final class CanonicalTaskRequests {
         }
         validateExecutionOwner(attempt);
         if (attempt.hasWorkerExecutionIdentity()) {
-            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(attempt.getWorkerExecutionIdentity());
+            org.pangrova.protocol.execution.identity.WorkerExecutionIdentity.from(attempt.getWorkerExecutionIdentity());
         }
     }
 

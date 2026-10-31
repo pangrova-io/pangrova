@@ -1,6 +1,6 @@
 package org.pangrova.planner.security;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 
 import java.util.Optional;
 

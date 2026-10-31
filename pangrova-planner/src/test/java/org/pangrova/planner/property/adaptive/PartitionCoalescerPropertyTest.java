@@ -10,7 +10,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;

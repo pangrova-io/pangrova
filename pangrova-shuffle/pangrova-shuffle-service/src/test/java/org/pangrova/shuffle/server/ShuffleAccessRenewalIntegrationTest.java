@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
 import java.net.URI;
@@ -16,18 +18,17 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
-import org.pangrova.shuffle.ShuffleProducerSetChecksum;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.core.ShuffleProducerSetChecksum;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.security.CapabilityOperation;
 import org.pangrova.shuffle.security.CapabilityScope;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.testkit.ContainerTestBase;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -272,7 +273,7 @@ class ShuffleAccessRenewalIntegrationTest extends ContainerTestBase {
     private RegisterShuffleRequest registration() {
         return RegisterShuffleRequest.newBuilder().setQueryId(queryId).setStageId(1)
                 .setNumPartitions(1).setShuffleId(shuffleId)
-                .setProtocol(CanonicalTaskRequests.protocolVersion()).setPlanEpoch(2)
+                .setProtocol(CanonicalProtocolIdentity.current()).setPlanEpoch(2)
                 .setExecutionOwner(owner()).setExpectedProducerPartitions(1)
                 .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(
                         ShuffleProducerSetChecksum.forContiguousPartitions(queryId, 1, 2, 1)))

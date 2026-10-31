@@ -3,6 +3,7 @@ package org.pangrova.parser.ast.statement;
 import java.util.List;
 
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents SHOW SNAPSHOTS/FILES/MANIFESTS/PARTITIONS FROM/OF table.
@@ -38,5 +39,10 @@ public sealed interface ShowMetadataStatement extends Statement {
         public ShowPartitions {
             tableName = List.copyOf(tableName);
         }
+    }
+
+    @Override
+    default StatementType type() {
+        return StatementType.SHOW_METADATA;
     }
 }

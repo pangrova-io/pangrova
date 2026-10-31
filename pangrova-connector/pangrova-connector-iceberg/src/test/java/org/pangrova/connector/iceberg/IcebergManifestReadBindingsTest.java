@@ -24,16 +24,16 @@ import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.type.ArrayType;
+import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,7 +46,7 @@ class IcebergManifestReadBindingsTest {
             Types.NestedField.required(1, "id", Types.LongType.get()));
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
-        @Override public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
+        @Override public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority>
                 getQueryAuthority() { return java.util.Optional.empty(); }
         @Override public String getUser() { return "manifest-test"; }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of("bound"); }
@@ -66,7 +66,7 @@ class IcebergManifestReadBindingsTest {
             assertThat(empty.empty()).isTrue();
             var emptyBinding = metadata.bindRead(SESSION, empty);
             metadata.validateReadBinding(SESSION, emptyBinding);
-            var emptySource = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+            var emptySource = manager.getSplits(ConnectorTransactionHandle.empty(), SESSION,
                     emptyBinding.handle(), DynamicFilter.ALL, Constraint.EMPTY);
             try {
                 assertThat(emptySource.getNextBatch(10)).isEmpty();
@@ -80,7 +80,7 @@ class IcebergManifestReadBindingsTest {
                     .containsExactlyElementsOf(selected.typedColumns());
             var binding = metadata.bindRead(SESSION, selected);
             metadata.validateReadBinding(SESSION, binding);
-            var source = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+            var source = manager.getSplits(ConnectorTransactionHandle.empty(), SESSION,
                     binding.handle(), DynamicFilter.ALL, Constraint.EMPTY);
             try {
                 var splits = source.getNextBatch(10);

@@ -1,6 +1,8 @@
 package org.pangrova.protocol;
 
-import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
+import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.google.protobuf.ByteString;
 
@@ -18,7 +20,7 @@ public final class CanonicalTaskRequestTestFixture {
     public static TaskRequest.Builder builder(
             String taskId, String queryId, TaskKind taskKind, byte[] plan) {
         return TaskRequest.newBuilder()
-                .setProtocol(CanonicalTaskRequests.protocolVersion())
+                .setProtocol(CanonicalProtocolIdentity.current())
                 .setAttempt(TaskAttemptId.newBuilder()
                         .setQueryOrJobId(queryId)
                         .setTaskId(taskId)
@@ -34,7 +36,7 @@ public final class CanonicalTaskRequestTestFixture {
                         .setTenantId("tenant")
                         .setPrincipal("test-user"))
                 .setSubstraitPlan(ByteString.copyFrom(plan))
-                .setSubstraitPlanChecksum(CanonicalTaskRequests.sha256(plan))
+                .setSubstraitPlanChecksum(ProtocolChecksums.sha256(plan))
                 .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
                         .setGrantId(taskId + ":grant").setCpuSlots(2).setNativeMemoryBytes(1_048_576))
                 .setDeadlineEpochMs(4_102_444_800_000L);

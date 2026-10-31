@@ -3,7 +3,7 @@ package org.pangrova.protocol.retrieval;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ScoreDirection;
 
@@ -53,7 +53,7 @@ class RetrievalFanOutScoreContractTest {
                 List.of(0), schema.toByteArray());
         var second = bm25 ? RetrievalTopKBinding.artifact(ordinal, 10,
                 ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER, List.of(0), schema.toByteArray(),
-                new RetrievalTopKBinding.ArtifactInput("table", BuiltInCapabilityCatalog.bm25RetrievalPlanRef(),
+                new RetrievalTopKBinding.PublishedGenerationInput("table", BuiltInCapabilityCatalog.bm25RetrievalPlanRef(),
                         List.of(), ArtifactBinding.getDefaultInstance(), "profile", 10, 1.0, 10)) : first;
         return new RetrievalFanOutBinding(List.of(new RetrievalFanOutBinding.Source("first", first),
                 new RetrievalFanOutBinding.Source("second", second)));

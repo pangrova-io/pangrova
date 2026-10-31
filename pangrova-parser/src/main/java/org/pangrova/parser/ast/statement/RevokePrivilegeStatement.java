@@ -2,6 +2,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.Objects;
 
@@ -10,8 +11,8 @@ import java.util.Objects;
  *
  * <p>Part of the RBAC DDL surface (G-SEC-03 fix). The coordinator's
  * security statement handler routes this to
- * {@link org.pangrova.security.authz.GrantStore#revokeGrants} and publishes a
- * {@link org.pangrova.security.event.SecurityPolicyChangeEvent.GrantChanged}.
+ * {@link org.pangrova.security.api.policy.GrantStore#revokeGrants} and publishes a
+ * {@link org.pangrova.security.api.event.SecurityPolicyChangeEvent.GrantChanged}.
  *
  * @param privilege  privilege keyword (SELECT, INSERT, ALL, etc.)
  * @param objectType TABLE, SCHEMA, or CATALOG
@@ -32,5 +33,10 @@ public record RevokePrivilegeStatement(
         Objects.requireNonNull(objectType, "objectType must not be null");
         Objects.requireNonNull(objectName, "objectName must not be null");
         Objects.requireNonNull(roleName, "roleName must not be null");
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.REVOKE_PRIVILEGE;
     }
 }

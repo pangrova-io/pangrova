@@ -86,7 +86,7 @@ Each scenario has a corresponding runbook for live incident response. Runbooks a
 ## Tools
 
 - **Recovery Time Measurement**: [`tools/measure-recovery-time.sh`](tools/measure-recovery-time.sh) — baseline, measure, report, and watch subcommands; computes p50/p95/p99 latency; RTO assessment
-- **Fault Injection**: Pangrova chaos testing framework (`pangrova-testing/pangrova-test-chaos/`)
+- **Fault Injection**: Pangrova chaos testing framework (`pangrova-testing/pangrova-testing-integration-tests/`)
 - **Monitoring**: Grafana dashboards (staging environment)
 
 ### measure-recovery-time.sh Quick Reference

@@ -25,15 +25,15 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergFileTableSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.data.type.RowType;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.connector.spi.data.type.RowType;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,7 +45,7 @@ class IcebergFileReadBindingsTest {
             Types.NestedField.required(1, "id", Types.LongType.get()));
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
-        @Override public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
+        @Override public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority>
                 getQueryAuthority() { return java.util.Optional.empty(); }
         @Override public String getUser() { return "files-test"; }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of("bound"); }
@@ -81,7 +81,7 @@ class IcebergFileReadBindingsTest {
                     .isInstanceOf(UnsupportedOperationException.class)
                     .hasMessageContaining("value_counts");
 
-            var emptySource = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+            var emptySource = manager.getSplits(ConnectorTransactionHandle.empty(), SESSION,
                     empty, DynamicFilter.ALL, Constraint.EMPTY);
             try {
                 assertThat(emptySource.getNextBatch(10)).isEmpty();
@@ -94,7 +94,7 @@ class IcebergFileReadBindingsTest {
             assertThat(selected.manifests()).hasSize(1);
             var binding = metadata.bindRead(SESSION, selected);
             metadata.validateReadBinding(SESSION, binding);
-            var source = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+            var source = manager.getSplits(ConnectorTransactionHandle.empty(), SESSION,
                     binding.handle(), DynamicFilter.ALL, Constraint.EMPTY);
             try {
                 var splits = source.getNextBatch(10);
@@ -131,7 +131,7 @@ class IcebergFileReadBindingsTest {
             assertThat(metadata.getSystemTable(SESSION, base, "entries")).isEmpty();
             var empty = metadata.getTableHandle(SESSION,
                     new SchemaTableName("db", "lineage$entries"));
-            var emptySource = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+            var emptySource = manager.getSplits(ConnectorTransactionHandle.empty(), SESSION,
                     empty, DynamicFilter.ALL, Constraint.EMPTY);
             try {
                 assertThat(emptySource.getNextBatch(10)).isEmpty();
@@ -167,7 +167,7 @@ class IcebergFileReadBindingsTest {
                     new SchemaTableName("db", "lineage$files"));
             assertThat(binding.sourceIdentity())
                     .isNotEqualTo(metadata.bindRead(SESSION, fileSelection).sourceIdentity());
-            var source = manager.getSplits(ConnectorTransactionHandle.EMPTY, SESSION,
+            var source = manager.getSplits(ConnectorTransactionHandle.empty(), SESSION,
                     binding.handle(), DynamicFilter.ALL, Constraint.EMPTY);
             try {
                 var splits = source.getNextBatch(10);

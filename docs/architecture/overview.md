@@ -151,10 +151,12 @@ See [JNI Bridge](jni-bridge.md), [Native Execution](native-execution.md), and
 
 ### 5.1 Core SPIs
 
-`pangrova-spi` contains contracts for connectors, security, resources, indexing,
-streaming, transport, and provider integration. Production callers and bootstrap
-wiring determine which providers are active. Not every contract is discovered
-through `ServiceLoader`.
+Contracts live in the artifact that owns the domain boundary: connectors in
+`pangrova-connector-spi`, observability in `pangrova-observability-api`, indexing
+in `pangrova-indexing-api`, AI in `pangrova-ai-api`, and admission/placement in
+`pangrova-scheduler`'s `api` packages. Production callers and bootstrap wiring
+determine which providers are active. Not every contract is discovered through
+`ServiceLoader`; `.pangrova/modules.yaml` records the registered providers.
 
 Use the actual source declarations and subsystem references for signatures:
 [connectors](connectors.md), [streaming and maintenance](streaming.md),
@@ -194,12 +196,13 @@ This is a selected ownership map, not a fixed count of Maven reactor modules.
 
 | Area | Source roots |
 |---|---|
-| Shared contracts/configuration | `pangrova-spi`, `pangrova-protocol`, `pangrova-common`, `pangrova-config` |
+| Shared contracts/configuration | `pangrova-protocol`, `pangrova-common`, `pangrova-config` |
 | Parsing and planning | `pangrova-parser`, `pangrova-planner` |
-| Coordination and metadata | `pangrova-coordinator`, `pangrova-metadata` |
-| Execution | `pangrova-worker`, `pangrova-worker-native`, `pangrova-shuffle`, `pangrova-transport` |
+| Coordination and metadata | `pangrova-coordination/pangrova-coordination-core`, `pangrova-metadata` |
+| Query and durable artifact contracts/runtime | `pangrova-query-api`, `pangrova-query`, `pangrova-data-build` (artifact JDBC adapters still reside in Metadata) |
+| Execution | `pangrova-worker/pangrova-worker-core`, `pangrova-worker-native`, `pangrova-shuffle`, `pangrova-transport` |
 | Connectors | `pangrova-connector/pangrova-connector-iceberg`, `pangrova-connector/pangrova-connector-paimon` |
-| Platform services | Security, resource, resilience, observability, operations, governance, streaming, and indexing modules |
+| Platform services | `pangrova-security`, `pangrova-operations`, `pangrova-governance`, `pangrova-streaming`, `pangrova-observability`, `pangrova-indexing` |
 | Clients and packaging | `pangrova-client`, `pangrova-standalone`, `pangrova-native-bundle` |
 | Validation | `pangrova-testing` and module-local test sources |
 | Documentation | `docs/`, `website/`; proposals and historical audits in `docs/internal/` |

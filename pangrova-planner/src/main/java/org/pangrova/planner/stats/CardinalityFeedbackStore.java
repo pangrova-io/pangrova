@@ -1,6 +1,6 @@
 package org.pangrova.planner.stats;
 
-import org.pangrova.spi.annotation.ThreadSafe;
+import org.pangrova.common.api.annotation.ThreadSafe;
 
 import java.util.Objects;
 import java.util.Optional;

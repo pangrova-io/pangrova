@@ -1,8 +1,8 @@
 package org.pangrova.metadata.adapter;
 
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.sync.MetadataChange;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.metadata.api.catalog.MetadataChange;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 
 import java.time.Instant;
 import java.util.List;

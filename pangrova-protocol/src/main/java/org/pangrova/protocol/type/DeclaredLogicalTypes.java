@@ -3,8 +3,8 @@ package org.pangrova.protocol.type;
 import io.substrait.proto.Type;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.TypeConstraint;
-import org.pangrova.spi.connector.data.type.TypeSignature;
-import org.pangrova.spi.connector.data.type.DeclaredType;
+import org.pangrova.connector.spi.data.type.TypeSignature;
+import org.pangrova.connector.spi.data.type.DeclaredType;
 
 import java.util.ArrayList;
 import java.util.List;

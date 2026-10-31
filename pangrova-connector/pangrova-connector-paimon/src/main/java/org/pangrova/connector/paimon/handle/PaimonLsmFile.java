@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.handle;
 
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
-import org.pangrova.spi.connector.metadata.table.TypePromotion;
+import org.pangrova.connector.spi.metadata.table.ColumnMapping;
+import org.pangrova.connector.spi.metadata.table.TypePromotion;
 
 import java.util.List;
 

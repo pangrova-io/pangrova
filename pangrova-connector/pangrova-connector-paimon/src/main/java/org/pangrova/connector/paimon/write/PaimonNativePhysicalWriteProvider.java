@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
+import org.pangrova.connector.paimon.schema.PaimonPhysicalSchemas;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -8,17 +9,17 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
-import org.pangrova.protocol.PhysicalFileWriteBindings;
-import org.pangrova.protocol.NativeWriteBindings;
+import org.pangrova.protocol.write.PhysicalFileWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBindings;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.NativePhysicalFileAllocation;
-import org.pangrova.spi.connector.metadata.NativePhysicalFileReceipt;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteProvider;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.NativePhysicalFileAllocation;
+import org.pangrova.connector.spi.metadata.NativePhysicalFileReceipt;
+import org.pangrova.connector.spi.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.connector.spi.metadata.NativePhysicalWriteProvider;
 
 import java.util.Arrays;
 import java.util.HashSet;

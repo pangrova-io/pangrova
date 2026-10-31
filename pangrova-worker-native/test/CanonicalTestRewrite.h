@@ -10,7 +10,7 @@
 
 #include <google/protobuf/message.h>
 
-#include "capability/FunctionPlanBindings.h"
+#include "capabilities/capability/FunctionPlanBindings.h"
 #include "substrait/plan.pb.h"
 
 namespace pangrova::test::canonical_plan_detail {

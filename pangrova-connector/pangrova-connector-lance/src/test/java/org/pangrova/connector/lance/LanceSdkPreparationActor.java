@@ -1,7 +1,8 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.protocol.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.PrepareDistributedWriteResult;
 
@@ -62,7 +63,7 @@ final class LanceSdkPreparationActor implements AutoCloseable {
     static void requireListeningActor(Path socket, String nonce, PrepareDistributedWriteRequest bare)
             throws IOException {
         var actual = exchange(socket, nonce, PROBE, bare.toByteArray());
-        var expected = CatalogDeploymentFingerprint.sha256(bare.toByteArray()).getDigest().toByteArray();
+        var expected = ProtocolChecksums.sha256(bare.toByteArray()).getDigest().toByteArray();
         if (!MessageDigest.isEqual(expected, actual)) {
             throw new IOException("Listening SDK actor did not confirm the exact preparation request");
         }
@@ -108,7 +109,7 @@ final class LanceSdkPreparationActor implements AutoCloseable {
             byte[] result;
             if (operation == PROBE && request.getInvocationId().isEmpty()) {
                 probedRequest = bytes;
-                result = CatalogDeploymentFingerprint.sha256(bytes).getDigest().toByteArray();
+                result = ProtocolChecksums.sha256(bytes).getDigest().toByteArray();
             } else if (operation == PREPARE && preparation != null && !request.getInvocationId().isEmpty()
                     && MessageDigest.isEqual(probedRequest,
                             request.toBuilder().clearInvocationId().build().toByteArray())) {

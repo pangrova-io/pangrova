@@ -3,7 +3,7 @@ package org.pangrova.connector.iceberg;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.spi.base.ConnectorException;
 
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;

@@ -3,6 +3,7 @@ package org.pangrova.parser.ast.statement;
 import java.util.List;
 
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code SHOW TABLE CONTROLS [FROM|IN catalog[.schema[.table]]]}.
@@ -17,5 +18,10 @@ public record ShowTableControlsStatement(List<String> scope) implements Statemen
         if (scope.size() > 3) {
             throw new IllegalArgumentException("Table control scope has at most three parts");
         }
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.SHOW_TABLE_CONTROLS;
     }
 }

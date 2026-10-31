@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code LIST @stage[/path] [PATTERN = 'regex']}.
@@ -18,5 +19,10 @@ public record ListStageStatement(Identifier name, Optional<String> path,
     public ListStageStatement {
         path = path == null ? Optional.empty() : path;
         pattern = pattern == null ? Optional.empty() : pattern;
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.LIST_STAGE;
     }
 }

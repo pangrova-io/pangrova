@@ -1,8 +1,8 @@
 package org.pangrova.client.cli;
 
-import org.pangrova.client.rest.PangrovaRestClient;
-import org.pangrova.client.rest.auth.ClientAuthentication;
-import org.pangrova.client.rest.PangrovaRestClientConfig.TlsSettings;
+import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.client.transport.security.ClientAuthentication;
+import org.pangrova.client.transport.http.PangrovaRestClientConfig.TlsSettings;
 import org.pangrova.transport.security.ResultTransportSecurity;
 
 import java.io.BufferedReader;
@@ -92,7 +92,8 @@ public final class PangrovaCli {
                 }
             }
             if (parsed.batch.receipt() != null) {
-                String receipt = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(
+                String receipt = org.pangrova.common.json.provider.jackson.JsonMapperFactory
+                        .writer().writeValueAsString(
                         java.util.Map.of("queryId", queryId, "state", "FINISHED", "sqlSha256",
                                 org.pangrova.common.util.DigestUtils.sha256Hex(sql), "resultConsumed", true));
                 Files.writeString(parsed.batch.receipt(), receipt, StandardCharsets.UTF_8,

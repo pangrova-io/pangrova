@@ -1,6 +1,6 @@
 package org.pangrova.planner.stats;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.pangrova.spi.connector.metadata.table.TableStatistics.ColumnStatistics;
+import org.pangrova.connector.spi.metadata.table.TableStatistics.ColumnStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,7 +46,7 @@ public class StatisticsCollector {
         Map<String, org.pangrova.planner.stats.ColumnStatistics> colStats = new HashMap<>();
         // Try real connector statistics first
         if (connectorProvider != null) {
-            org.pangrova.spi.connector.metadata.table.TableStatistics spiStats =
+            org.pangrova.connector.spi.metadata.table.TableStatistics spiStats =
                     connectorProvider.getTableStatistics(tableName);
             if (spiStats != null && spiStats.rowCount() >= 0) {
                 for (String col : columns) {
@@ -127,7 +127,7 @@ public class StatisticsCollector {
         // Lazy load from connector provider when stats are not in store
         if (connectorProvider != null) {
             try {
-                org.pangrova.spi.connector.metadata.table.TableStatistics spiStats =
+                org.pangrova.connector.spi.metadata.table.TableStatistics spiStats =
                         connectorProvider.getTableStatistics(tableName);
                 if (spiStats != null && spiStats.rowCount() >= 0) {
                     Map<String, org.pangrova.planner.stats.ColumnStatistics> colStats = new HashMap<>();
@@ -333,6 +333,6 @@ public class StatisticsCollector {
      */
     @FunctionalInterface
     public interface ConnectorStatisticsProvider {
-        org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(QualifiedTableName tableName);
+        org.pangrova.connector.spi.metadata.table.TableStatistics getTableStatistics(QualifiedTableName tableName);
     }
 }

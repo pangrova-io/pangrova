@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg.handle;
 
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
-import org.pangrova.protocol.GeneratedColumnMetadataCodec;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.common.api.annotation.Internal;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

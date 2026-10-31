@@ -175,7 +175,7 @@ suite is skipped and does not count as REST catalog validation.
 
 ```cpp
 // ExpressionFuzzer.h - Expression fuzzer
-// Actual path: pangrova-testing/pangrova-test-fuzzer/src/main/cpp/ExpressionFuzzer.h
+// Actual path: pangrova-testing/pangrova-testing-fuzzer/src/main/cpp/ExpressionFuzzer.h
 #pragma once
 
 #include <velox/expression/Expr.h>
@@ -704,7 +704,7 @@ public class PerformanceBenchmark {
 
 ```java
 // E2ETestFramework.java - end-to-end testing framework
-package org.pangrova.testing.e2e;
+package org.pangrova.testing.integration.e2e;
 
 /**
  * End-to-end testing framework
@@ -819,7 +819,7 @@ public class E2ETestFramework {
 
 ```java
 // ChaosTestFramework.java - chaos testing framework
-package org.pangrova.testing.chaos;
+package org.pangrova.testing.integration.chaos;
 
 /**
  * Chaos testing framework
@@ -1142,53 +1142,29 @@ jobs:
 
 ```
 pangrova-testing/
-├── pangrova-test-common/              # Common test library
-│   ├── src/main/java/
-│   │   ├── data/                    # Test data generation
-│   │   ├── cluster/                 # Test cluster management
-│   │   ├── validation/              # Result validation
-│   │   └── utils/                   # Test utilities
-│   └── pom.xml
+├── pangrova-testing-kit/                  # Test-only fixtures shared across modules
+│   ├── src/main/java/org/pangrova/testing/testkit/
+│   │   ├── ...                        # cluster, transport, TLS, result, lineage, function fakes
+│   └── src/test/java/                 # Fixture self-tests
 │
-├── pangrova-test-unit/                # Unit tests
-│   ├── src/test/java/
-│   │   ├── parser/                  # SQL parsing tests
-│   │   ├── planner/                 # Optimizer tests
-│   │   ├── connector/               # Connector tests
-│   │   └── execution/               # Execution-layer tests
-│   └── pom.xml
+├── pangrova-testing-integration-tests/        # End-to-end, smoke and chaos suites (one artifact)
+│   ├── src/main/java/org/pangrova/testing/integration/
+│   │   ├── e2e/                       # E2E framework: config, generators, runner, setup
+│   │   └── chaos/                     # Fault injection and linearizability checkers
+│   ├── src/test/java/org/pangrova/testing/integration/
+│   │   ├── e2e/                       # E2E scenarios (@E2ETest, @Tag("e2e"))
+│   │   ├── smoke/                     # Activation smoke suite (@SmokeTest, @Tag("smoke"))
+│   │   └── chaos/                     # Chaos scenarios (@Tag("chaos"))
+│   └── src/test/resources/            # logback, TPC-H/TPC-DS references, TLS fixtures
 │
-├── pangrova-test-integration/         # Integration tests
-│   ├── src/test/java/
-│   │   ├── distributed/             # Distributed tests
-│   │   ├── iceberg/                 # Iceberg integration tests
-│   │   └── ha/                      # High-availability tests
-│   └── pom.xml
-│
-├── pangrova-test-fuzzer/              # Fuzzer tests (C++)
-│   ├── expression_fuzzer.cpp
-│   ├── join_fuzzer.cpp
-│   ├── aggregation_fuzzer.cpp
-│   ├── window_fuzzer.cpp
-│   ├── memory_fuzzer.cpp
-│   └── CMakeLists.txt
-│
-├── pangrova-test-benchmark/           # Performance benchmarks
-│   ├── src/main/java/
-│   │   ├── tpch/                    # TPC-H benchmarks
-│   │   ├── tpcds/                   # TPC-DS benchmarks
-│   │   └── micro/                   # Micro-benchmarks
-│   └── pom.xml
-│
-├── pangrova-test-e2e/                 # End-to-end tests
-│   ├── src/test/java/
-│   │   ├── scenarios/               # Test scenarios
-│   │   └── chaos/                   # Chaos tests (co-located with E2E for shared cluster infrastructure; see §7 for ChaosTestFramework details)
-│   └── pom.xml
-
-│
+├── pangrova-testing-fuzzer/              # Operator fuzzer with an independent C++ toolchain
+├── pangrova-testing-benchmark/           # JMH benchmarks and TPC-H/TPC-DS harnesses
 └── pom.xml
 ```
+
+Suite selection is preserved after the merge: E2E runs through `-Pe2e`/`full-regression`,
+the smoke suite through `-Dgroups=smoke`, and the chaos suite through `-Dgroups=chaos`
+or its class names. No suite is selected by module identity any more.
 
 ---
 
@@ -1319,7 +1295,7 @@ This section defines the formal execution rules for TPC-H and TPC-DS benchmarks,
 #### 12.3.4 Baseline Management
 
 - Baseline is recorded from the latest release tag (e.g., `v1.2.0`)
-- Baseline is stored in `pangrova-test-benchmark/baselines/{version}.json`
+- Baseline is stored in `pangrova-testing-benchmark/baselines/{version}.json`
 - Format: `{ "tpch_sf100": { "Q1": { "p50_ms": 4200, "p95_ms": 4800 }, ... } }`
 - Baseline is updated only on release, never on feature branches
 
@@ -1793,7 +1769,7 @@ See [14 §7](../architecture/observability.md) for structured logging format.
 
 | Check | Command | Expected |
 |-------|---------|----------|
-| Total wall-clock | `time mvn test` (in pangrova-test-e2e) | < 5 min |
+| Total wall-clock | `time mvn test` (in pangrova-testing-integration-tests) | < 5 min |
 | Single fork | `grep -c "Forking command line" log` | 1 |
 | No SIGSEGV | `grep -i "SIGSEGV\|signal 11" log` | No matches |
 | No OOM | `grep -i "OutOfMemoryError" log` | No matches |

@@ -2,9 +2,9 @@ package org.pangrova.connector.paimon;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.index.CommitEventType;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.index.CommitEventType;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.io.DataFileMeta;

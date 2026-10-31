@@ -11,7 +11,7 @@ sidebar_label: "Dynamic Filter Lifecycle"
 > take precedence.
 
 > **Status**: Reference documentation  
-> **Related modules**: `pangrova-spi` (contract), `pangrova-planner` (generation), `pangrova-coordinator` (orchestration), `pangrova-connector-*` (consumption)
+> **Related modules**: `pangrova-connector-spi` (contract), `pangrova-planner` (generation), `pangrova-coordinator` (orchestration), `pangrova-connector-*` (consumption)
 > **Related docs**: [query-execution.md](./query-execution.md), [query-optimization.md](./query-optimization.md)
 
 ## 1. Overview
@@ -188,7 +188,7 @@ READY --> APPLIED
 The `ConnectorSplitManager.getSplits()` method receives the `DynamicFilter` as a parameter:
 
 ```java
-// pangrova-spi: ConnectorSplitManager.java
+// pangrova-connector-spi: ConnectorSplitManager.java
 ConnectorSplitSource getSplits(
     ConnectorTransactionHandle transaction,
     ConnectorSession session,
@@ -206,7 +206,7 @@ ConnectorSplitSource getSplits(
 The `ConnectorPageSourceProvider.createPageSource()` method also receives the filter:
 
 ```java
-// pangrova-spi: ConnectorPageSourceProvider.java
+// pangrova-connector-spi: ConnectorPageSourceProvider.java
 ConnectorPageSource createPageSource(
     ConnectorTransactionHandle transaction,
     ConnectorSession session,
@@ -296,10 +296,10 @@ All `DynamicFilter` implementations must be thread-safe. The SPI contract docume
 
 | File | Role |
 |------|------|
-| `pangrova-spi/.../connector/metadata/DynamicFilter.java` | SPI contract with lifecycle state machine |
-| `pangrova-coordinator/.../adaptive/SettableDynamicFilter.java` | Mutable coordinator-side implementation |
-| `pangrova-coordinator/.../adaptive/DynamicFilterBinder.java` | Serializes filters into protocol messages |
-| `pangrova-coordinator/.../handler/RuntimeFilterStageHandler.java` | Generates filters from build-side results |
+| `pangrova-connector-spi/.../metadata/DynamicFilter.java` | SPI contract with lifecycle state machine |
+| `pangrova-coordination/pangrova-coordination-core/.../adaptive/SettableDynamicFilter.java` | Mutable coordinator-side implementation |
+| `pangrova-coordination/pangrova-coordination-core/.../adaptive/DynamicFilterBinder.java` | Serializes filters into protocol messages |
+| `pangrova-coordination/pangrova-coordination-core/.../handler/RuntimeFilterStageHandler.java` | Generates filters from build-side results |
 | `pangrova-planner/.../runtimefilter/RuntimeFilterGenerator.java` | Min/max and bloom filter construction |
 | `pangrova-planner/.../runtimefilter/RuntimeFilterRegistry.java` | Per-query filter storage |
 | `pangrova-connector-iceberg/.../IcebergSplitManager.java` | Iceberg split-level pruning |

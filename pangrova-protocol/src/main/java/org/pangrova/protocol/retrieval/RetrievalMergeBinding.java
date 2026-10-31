@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Objects;
 
 import org.pangrova.protocol.v2.ScoreDirection;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Wire-neutral input used to bind a Native retrieval merge at a singleton stage. */
 @Internal

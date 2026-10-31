@@ -19,6 +19,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.Objects;
 import java.util.OptionalLong;
@@ -37,5 +38,10 @@ public record PublishSemanticViewStatement(
                 && expectedPublicationEpoch.getAsLong() <= 0)) {
             throw new IllegalArgumentException("version and publication epoch must be positive");
         }
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.PUBLISH_SEMANTIC_VIEW;
     }
 }

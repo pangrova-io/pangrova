@@ -198,7 +198,7 @@ Triton 的取消检测有边界，进入 backend 后是否早停取决于 backen
 | Native `SubstraitFunctionConversion`, `GovernedBindingArguments`, `RegisteredFunctionBinding`, capability catalog/registry、计划 converter/bootstrap | AI 改为唯一 RPC binding/translator；删除 AI hidden-JNI args append，保留其他 governed operators 的布局；capability signature/cohort 与新 SDK 一起固定 |
 | `pangrova-protocol` canonical authority/type/function declarations、生成工具、runtime/task report，SPI AI/provider | 正式扩展 generated proto，改 producer+consumer+validation+identity 一次接入；不得手改 generated sources，旧 AI 注册协议在切换点不再执行 |
 
-`worker.ai.text.Bm25NativeScorer` 是本地 Native 文本评分，不是模型 provider，不迁入 serving。
+`ai.worker.text.Bm25NativeScorer` 是本地 Native 文本评分，不是模型 provider，不迁入 serving；M12 起随 AI native adapter 落在 ai-worker，只依赖 native-bridge。
 现有声明/签名/版本文件的 hash 不能沿用旧实现而只改 endpoint；新部署须重新生成完整 cohort 并在调度前
 验证所有 Worker 一致。启动配置、provider ServiceLoader、测试配置与打包入口均跟 module 迁移同步更改。
 在新路径真实正常/故障验收通过后一次切换并删除旧 AI JVM path；没有兼容 fallback 或两套同时可执行路由。

@@ -1233,7 +1233,7 @@ not a sparse-file or mocked byte-count check and does not qualify S3 large objec
 or 100 GiB multipart.
 
 ```bash
-mvn -pl pangrova-worker -am -Pfull-regression \
+mvn -pl pangrova-worker/pangrova-worker-core -am -Pfull-regression \
   -Dtest=FileSpaceLargeObjectIntegrationTest \
   -Dsurefire.failIfNoSpecifiedTests=false test
 ```

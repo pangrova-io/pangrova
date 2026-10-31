@@ -71,4 +71,9 @@ public record Literal(LiteralValue value, LiteralType literalType) implements Ex
     public boolean isNull() {
         return value instanceof LiteralValue.NullValue;
     }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.LITERAL;
+    }
 }

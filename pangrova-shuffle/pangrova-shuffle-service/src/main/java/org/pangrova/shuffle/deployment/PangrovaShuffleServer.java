@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.deployment;
 
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
+
 import java.nio.file.Path;
 
 import org.pangrova.shuffle.server.ShuffleServerRuntime;

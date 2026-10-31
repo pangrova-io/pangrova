@@ -3,7 +3,7 @@ package org.pangrova.connector.paimon.handle;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.junit.jupiter.api.Test;
 

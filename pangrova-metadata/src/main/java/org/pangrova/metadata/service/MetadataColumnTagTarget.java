@@ -1,12 +1,12 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.table.api.control.TableControlRecord;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.security.api.AccessDeniedException;
 
 import java.util.Objects;
 import java.util.Optional;

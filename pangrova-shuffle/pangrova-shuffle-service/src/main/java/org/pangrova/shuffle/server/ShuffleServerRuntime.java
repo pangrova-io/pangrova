@@ -13,8 +13,8 @@ import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
 
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
-import org.pangrova.shuffle.deployment.CoordinatorPeerInterceptor;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
+import org.pangrova.shuffle.security.CoordinatorPeerInterceptor;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -4,11 +4,11 @@ import org.pangrova.planner.PlanTable;
 
 import org.apache.calcite.rel.core.TableModify;
 import org.pangrova.planner.type.ConnectorColumnTypeMapper;
-import org.pangrova.protocol.GeneratedColumnMetadataCodec;
-import org.pangrova.spi.annotation.Internal;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
+import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
 
 import java.util.Objects;
 import java.util.Optional;

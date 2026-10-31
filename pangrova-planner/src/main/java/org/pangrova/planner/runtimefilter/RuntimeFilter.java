@@ -1,8 +1,8 @@
 package org.pangrova.planner.runtimefilter;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.connector.spi.data.type.PangrovaType;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;

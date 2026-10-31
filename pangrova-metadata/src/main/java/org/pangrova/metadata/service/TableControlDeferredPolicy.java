@@ -1,10 +1,11 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore;
-import org.pangrova.security.authz.AuthorizationDeniedException;
-import org.pangrova.security.authz.DeferredAuthorizationScope;
-import org.pangrova.security.store.DeferredPolicyReader;
-import org.pangrova.security.store.PersistentDeferredAuthorization;
+import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
+import org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore;
+import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.security.store.jdbc.DeferredPolicyReader;
+import org.pangrova.security.store.jdbc.PersistentDeferredAuthorization;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -26,12 +27,12 @@ public final class TableControlDeferredPolicy {
             Set<String> roles, DeferredAuthorizationScope.TablePermission permission) throws SQLException {
         var table = permission.table();
         UUID tableId = identity(connection, permission);
-        var bindings = tableId == null ? List.<org.pangrova.metadata.control.GovernanceBinding>of()
+        var bindings = tableId == null ? List.<org.pangrova.table.api.governancebinding.GovernanceBinding>of()
                 : JdbcTableControlGovernanceBindingStore.list(connection, tableId);
         return DeferredPolicyReader.observe(connection, principal, roles, permission,
                 rows -> TableControlRowPolicyStore.project(tableId, table.catalog(), table.schema(), table.table(),
                         rows, tableId == null ? List.of()
-                                : org.pangrova.security.store.PersistentRowPolicyStore.list(connection, tableId)),
+                                : org.pangrova.security.store.jdbc.PersistentRowPolicyStore.list(connection, tableId)),
                 (column, masks) ->
                 TableControlColumnMaskStore.project(tableId, table.catalog(), table.schema(), table.table(),
                         masks, bindings).stream().filter(mask -> mask.columnName().equals(column)).toList());

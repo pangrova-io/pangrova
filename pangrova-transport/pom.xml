@@ -12,21 +12,37 @@
 
     <artifactId>pangrova-transport</artifactId>
     <name>Pangrova Transport</name>
+    <properties>
+        <module.name>org.pangrova.transport</module.name>
+    </properties>
     <description>Arrow IPC decoding and Arrow Flight result fetching for Pangrova clients.
         All Arrow and Arrow Flight imports are confined to this module; client-* modules
         remain Arrow-free and depend only on the type-erased ResultBatch API.</description>
 
     <dependencies>
-        <!-- SPI types: Page, TypedRow, NativePage, PangrovaType (used by BatchSerializer) -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-connector-spi</artifactId>
         </dependency>
+
+        <!-- SPI types: Page, TypedRow, NativePage, PangrovaType (used by BatchSerializer) -->
 
         <!-- Protocol DTOs (ResultEndpoint) -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-protocol</artifactId>
+        </dependency>
+
+        <!-- Shared utilities used directly by the transport layer -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
+
+        <!-- Public client wire values (ResultEndpoint, ResultProtocol) -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-client-core</artifactId>
         </dependency>
 
         <!-- Arrow Flight client for result streaming -->
@@ -54,10 +70,16 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
+        <!-- JSON mapping for the lightweight REST client implementation -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- Test dependencies -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

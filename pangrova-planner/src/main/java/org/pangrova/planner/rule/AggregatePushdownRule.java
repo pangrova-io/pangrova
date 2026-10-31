@@ -13,8 +13,8 @@ import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.sql.SqlKind;
-import org.pangrova.spi.connector.metadata.AggregationApplication;
-import org.pangrova.spi.connector.metadata.AggregationApplication.AggregateFunction;
+import org.pangrova.connector.spi.metadata.AggregationApplication;
+import org.pangrova.connector.spi.metadata.AggregationApplication.AggregateFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -2,6 +2,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code DROP MATERIALIZED VIEW [IF EXISTS] <name> [CASCADE]}.
@@ -18,5 +19,10 @@ public record DropMaterializedViewStatement(
 
     public DropMaterializedViewStatement(Identifier name, boolean cascade) {
         this(name, cascade, false);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.DROP_MATERIALIZED_VIEW;
     }
 }

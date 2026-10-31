@@ -14,12 +14,21 @@
     <name>Pangrova Connector Iceberg</name>
     <description>Apache Iceberg connector for Pangrova distributed query engine</description>
 
+    <properties>
+        <module.name>org.pangrova.connector.iceberg</module.name>
+    </properties>
+
     <dependencies>
-        <!-- Internal modules -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-connector-spi</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-indexing-api</artifactId>
+        </dependency>
+
+        <!-- Internal modules -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
@@ -125,7 +134,12 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-file</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

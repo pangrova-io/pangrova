@@ -3,7 +3,7 @@ package org.pangrova.protocol.retrieval;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Type;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 /** Validates declared score types before independently bound branches share an exchange. */
 final class RetrievalFanOutScoreContract {

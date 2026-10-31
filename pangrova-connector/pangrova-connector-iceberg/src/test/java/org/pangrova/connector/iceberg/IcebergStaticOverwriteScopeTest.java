@@ -3,11 +3,11 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
@@ -53,7 +53,7 @@ class IcebergStaticOverwriteScopeTest {
             Types.NestedField.optional(4, "payload", Types.StringType.get()));
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

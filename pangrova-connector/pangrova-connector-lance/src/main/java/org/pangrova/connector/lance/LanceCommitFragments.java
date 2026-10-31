@@ -1,15 +1,16 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.pangrova.protocol.CatalogDeploymentFingerprint;
-import org.pangrova.protocol.NativeWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBindings;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.LanceWriteFragment;
 import org.pangrova.protocol.v2.LanceTransactionReference;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.NativeWriteAllocation;
 import java.security.MessageDigest;
 import java.util.HashSet;
 import java.util.List;
@@ -65,7 +66,7 @@ final class LanceCommitFragments {
             SerializedConnectorOutputHandle handle) {
         if (!codec.typeUrl().equals(handle.getTypeUrl()) || codec.codecVersion() != handle.getCodecVersion()
                 || !MessageDigest.isEqual(bytes, handle.getPayload().toByteArray())
-                || !CatalogDeploymentFingerprint.sha256(bytes).equals(handle.getPayloadChecksum())) {
+                || !ProtocolChecksums.sha256(bytes).equals(handle.getPayloadChecksum())) {
             throw new IllegalArgumentException("Lance output handle differs from durable intent");
         }
     }

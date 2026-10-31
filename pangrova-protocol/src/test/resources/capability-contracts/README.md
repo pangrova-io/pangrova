@@ -96,7 +96,7 @@ and a FILE capability key so the deployed model and FILE descriptors are retaine
 
 ```bash
 export PANGROVA_E2E_FILE_CAPABILITY_KEY="$(openssl rand -base64 32)"
-mvn -q -pl pangrova-testing/pangrova-test-e2e -Pfull-regression \
+mvn -q -pl pangrova-testing/pangrova-testing-integration-tests -Pfull-regression \
   -Dtest=NativeCapabilityHandshakeE2ETest \
   -Dpangrova.e2e.ai.image-id="${PANGROVA_E2E_AI_IMAGE_ID:?set the verified local model image digest}" \
   -Dpangrova.e2e.native-inventory-output="$PWD/pangrova-protocol/src/test/resources/capability-contracts/actual-native-capability-inventory.bin" \

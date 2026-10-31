@@ -1,14 +1,14 @@
 package org.pangrova.metadata.adapter;
 
-import org.pangrova.metadata.model.ColumnMetadata;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.api.object.ColumnMetadata;
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.metadata.table.ColumnHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 
 import java.util.LinkedHashMap;
 import java.util.List;

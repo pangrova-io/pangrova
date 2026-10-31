@@ -1,6 +1,7 @@
 package org.pangrova.parser.ast.expression;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 
 /**
  * Represents a binary expression (e.g., a + b, x = y, p AND q).
@@ -22,5 +23,10 @@ public record BinaryExpression(Expression left, Operator operator, Expression ri
         GREATER_THAN_OR_EQUAL,
         AND,
         OR
+    }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.BINARY;
     }
 }

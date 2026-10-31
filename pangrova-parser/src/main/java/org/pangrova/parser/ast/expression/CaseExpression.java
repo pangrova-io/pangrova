@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 
 /**
  * Represents CASE expressions (simple and searched).
@@ -20,4 +21,9 @@ public record CaseExpression(
     }
 
     public record WhenClause(Expression condition, Expression result) {}
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.CASE;
+    }
 }

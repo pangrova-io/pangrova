@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.grpc.Status;
 import org.junit.jupiter.api.Test;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

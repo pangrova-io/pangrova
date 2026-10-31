@@ -1,15 +1,15 @@
 package org.pangrova.protocol.index;
 
-import org.pangrova.spi.index.predicate.ContainsElement;
-import org.pangrova.spi.index.predicate.EqualTo;
-import org.pangrova.spi.index.predicate.InList;
-import org.pangrova.spi.index.predicate.IndexPredicate;
-import org.pangrova.spi.index.predicate.IsNotNull;
-import org.pangrova.spi.index.predicate.IsNull;
-import org.pangrova.spi.index.predicate.LikePattern;
-import org.pangrova.spi.index.predicate.RangeQuery;
-import org.pangrova.spi.index.predicate.SpatialQuery;
-import org.pangrova.spi.index.predicate.TextMatch;
+import org.pangrova.connector.spi.index.predicate.ContainsElement;
+import org.pangrova.connector.spi.index.predicate.EqualTo;
+import org.pangrova.connector.spi.index.predicate.InList;
+import org.pangrova.connector.spi.index.predicate.IndexPredicate;
+import org.pangrova.connector.spi.index.predicate.IsNotNull;
+import org.pangrova.connector.spi.index.predicate.IsNull;
+import org.pangrova.connector.spi.index.predicate.LikePattern;
+import org.pangrova.connector.spi.index.predicate.RangeQuery;
+import org.pangrova.connector.spi.index.predicate.SpatialQuery;
+import org.pangrova.connector.spi.index.predicate.TextMatch;
 
 import java.util.List;
 

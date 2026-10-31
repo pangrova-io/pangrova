@@ -3,7 +3,7 @@ package org.pangrova.connector.iceberg;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

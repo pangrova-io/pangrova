@@ -18,8 +18,8 @@
 
 #include "lance_c_ffi.h"
 #include "lance/LanceStorageContext.h"
-#include "columnar/ColumnarImportLayout.h"
-#include "observability/ColumnarReadMetrics.h"
+#include "engine/columnar/ColumnarImportLayout.h"
+#include "engine/observability/ColumnarReadMetrics.h"
 #include "velox/common/base/RuntimeMetrics.h"
 
 namespace pangrova::lance {

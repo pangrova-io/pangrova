@@ -1,11 +1,12 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
 
 import java.util.Arrays;
 
@@ -22,7 +23,7 @@ final class IcebergWriteBinding {
             if (!binding.hasConnector() || !serialized.getTypeUrl().equals(codec.typeUrl())
                     || serialized.getCodecVersion() != codec.codecVersion()
                     || !Arrays.equals(serialized.getPayload().toByteArray(), payload)
-                    || !serialized.getPayloadChecksum().equals(CanonicalTaskRequests.sha256(payload))
+                    || !serialized.getPayloadChecksum().equals(ProtocolChecksums.sha256(payload))
                     || !serialized.getWriteColumnNamesList().equals(codec.writeColumnNames(handle))) {
                 throw new IllegalArgumentException("Iceberg commit handle differs from durable write binding");
             }

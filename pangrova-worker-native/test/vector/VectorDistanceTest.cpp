@@ -18,7 +18,7 @@
 
 #include "vector/VectorDistance.h"
 #include "vector/VectorDistanceFunctions.h"
-#include "../TestMemoryHelper.h"
+#include "TestMemoryHelper.h"
 #include "velox/core/QueryCtx.h"
 #include "velox/expression/EvalCtx.h"
 #include "velox/expression/VectorFunction.h"

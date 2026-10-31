@@ -1,0 +1,23 @@
+package org.pangrova.coordinator.testinfra;
+
+import org.pangrova.ai.control.store.jdbc.embedding.JdbcCurrentModelAuthority;
+import org.pangrova.metadata.assembly.databuild.DataBuildStores;
+import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
+import org.pangrova.security.store.jdbc.JdbcCurrentDirectRoleReader;
+
+/** Composes real model and artifact authorities for cross-domain consumer tests. */
+public final class ModelAuthorityFixtures {
+    private static final CurrentModelAuthority MODELS =
+            new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
+    private static final DataBuildStores ARTIFACTS = new DataBuildStores(MODELS);
+
+    private ModelAuthorityFixtures() {}
+
+    public static CurrentModelAuthority models() {
+        return MODELS;
+    }
+
+    public static DataBuildStores artifacts() {
+        return ARTIFACTS;
+    }
+}

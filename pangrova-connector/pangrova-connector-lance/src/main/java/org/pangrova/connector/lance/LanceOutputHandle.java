@@ -1,14 +1,14 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.NativeWriteAllocation;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 import java.util.Optional;
 import java.util.OptionalLong;
 
 /** Connector allocation pinned to the table incarnation, tenant, schema and visible version. */
 public record LanceOutputHandle(LanceTableHandle table, NativeWriteAllocation allocation, String mode,
-        org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot acceptedBase)
+        org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot acceptedBase)
         implements ConnectorOutputTableHandle {
     public LanceOutputHandle {
         if (!table.datasetUri().equals(allocation.datasetUri()) || table.version() != allocation.readVersion()
@@ -33,7 +33,7 @@ public record LanceOutputHandle(LanceTableHandle table, NativeWriteAllocation al
     @Override public OptionalLong writeBaseSnapshotId() { return OptionalLong.of(table.version()); }
     @Override public Optional<NativeWriteAllocation> nativeWriteAllocation() { return Optional.of(allocation); }
 
-    @Override public Optional<org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot> acceptedWriteBaseSnapshot() {
+    @Override public Optional<org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot> acceptedWriteBaseSnapshot() {
         return Optional.ofNullable(acceptedBase);
     }
 

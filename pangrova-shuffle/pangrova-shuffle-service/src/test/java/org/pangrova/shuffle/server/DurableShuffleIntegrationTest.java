@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
 import java.net.URI;
@@ -18,7 +20,6 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.CleanupRequest;
@@ -27,12 +28,12 @@ import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
-import org.pangrova.shuffle.ShufflePartitionManifestChecksum;
-import org.pangrova.shuffle.ShuffleProducerSetChecksum;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.core.ShufflePartitionManifestChecksum;
+import org.pangrova.shuffle.core.ShuffleProducerSetChecksum;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
 import org.pangrova.shuffle.transport.CompleteWriteBatch;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.testkit.ContainerTestBase;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -380,7 +381,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         Harness first = openHarness();
         var registration = first.engine.register(RegisterShuffleRequest.newBuilder()
                 .setQueryId(queryId).setShuffleId(shuffleId).setStageId(1)
-                .setNumPartitions(1).setProtocol(CanonicalTaskRequests.protocolVersion())
+                .setNumPartitions(1).setProtocol(CanonicalProtocolIdentity.current())
                 .setPlanEpoch(2).setExecutionOwner(owner())
                 .setExpectedProducerPartitions(1)
                 .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(
@@ -730,7 +731,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     private static RegisterShuffleRequest registration() {
         return RegisterShuffleRequest.newBuilder().setQueryId("query-1").setStageId(1)
                 .setNumPartitions(1).setShuffleId("restart-fence-shuffle")
-                .setProtocol(CanonicalTaskRequests.protocolVersion()).setPlanEpoch(2)
+                .setProtocol(CanonicalProtocolIdentity.current()).setPlanEpoch(2)
                 .setExecutionOwner(owner()).setExpectedProducerPartitions(1)
                 .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(producerChecksum()))
                 .build();

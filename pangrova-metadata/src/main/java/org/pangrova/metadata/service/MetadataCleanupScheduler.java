@@ -2,7 +2,7 @@ package org.pangrova.metadata.service;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.metadata.cache.JdbcInvalidationPoller;
+import org.pangrova.metadata.store.jdbc.cache.JdbcInvalidationPoller;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

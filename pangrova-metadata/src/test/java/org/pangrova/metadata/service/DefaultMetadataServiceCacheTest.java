@@ -1,29 +1,29 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.cache.TieredMetadataCache;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
-import org.pangrova.metadata.catalog.ConnectorHandleFactory;
-import org.pangrova.metadata.event.MetadataEventDispatcher;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.schema.SchemaEvolutionValidator;
-import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.sync.SyncResult;
-import org.pangrova.spi.connector.Connector;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
+import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
+import org.pangrova.metadata.core.event.MetadataEventDispatcher;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
+import org.pangrova.metadata.api.catalog.MetadataStore;
+import org.pangrova.metadata.api.catalog.SyncResult;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.spi.metadata.table.ColumnHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.data.type.PangrovaType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -175,10 +175,10 @@ class DefaultMetadataServiceCacheTest {
         }
 
         @Override
-        public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
+        public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) { }
 
         @Override
-        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
+        public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) { }
 
         @Override
         public List<String> listSchemaNames(ConnectorSession session) {

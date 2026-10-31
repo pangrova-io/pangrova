@@ -2,6 +2,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents USE BRANCH name ON table or USE BRANCH MAIN ON table.
@@ -12,4 +13,9 @@ import org.pangrova.parser.ast.Statement;
 public record UseBranchStatement(
         String branchName,
         Identifier tableName) implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.USE_BRANCH;
+    }
 }

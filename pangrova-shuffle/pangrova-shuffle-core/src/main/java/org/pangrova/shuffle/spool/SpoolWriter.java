@@ -2,7 +2,7 @@ package org.pangrova.shuffle.spool;
 
 import java.nio.ByteBuffer;
 
-import org.pangrova.spi.annotation.Experimental;
+import org.pangrova.common.api.annotation.Experimental;
 
 /**
  * Writes one producer attempt's output for a single partition into a {@link SpoolStore} (ADR-002 D6).

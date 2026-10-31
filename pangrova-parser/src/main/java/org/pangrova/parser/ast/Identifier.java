@@ -14,4 +14,9 @@ public record Identifier(List<String> parts) implements Expression {
     public static Identifier of(String... parts) {
         return new Identifier(List.of(parts));
     }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.IDENTIFIER;
+    }
 }

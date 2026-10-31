@@ -6,7 +6,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlOperandTypeChecker;
 import org.apache.calcite.sql.type.SqlReturnTypeInference;
 import org.apache.calcite.sql.type.SqlTypeTransforms;
-import org.pangrova.spi.function.FunctionMetadata;
+import org.pangrova.function.api.metadata.FunctionMetadata;
 
 /** Projects the existing callback declaration's execution stability into SQL optimization. */
 class DeclaredCallbackSqlFunction extends SqlFunction {

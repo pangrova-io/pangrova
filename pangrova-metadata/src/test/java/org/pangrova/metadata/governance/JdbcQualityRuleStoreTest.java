@@ -1,13 +1,14 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
+import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.governance.quality.QualityCheckResult;
-import org.pangrova.governance.quality.alert.Severity;
-import org.pangrova.governance.quality.rule.DataQualityRule;
+import org.pangrova.governance.api.quality.QualityCheckResult;
+import org.pangrova.governance.api.quality.Severity;
+import org.pangrova.governance.api.quality.DataQualityRule;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;

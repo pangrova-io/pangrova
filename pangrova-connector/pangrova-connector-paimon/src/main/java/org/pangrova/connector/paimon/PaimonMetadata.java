@@ -1,10 +1,9 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
-
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.spi.base.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
@@ -13,22 +12,22 @@ import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.MetadataTableKind;
-import org.pangrova.spi.connector.metadata.MetadataTableListing;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.metadata.MetadataTableKind;
+import org.pangrova.connector.spi.metadata.MetadataTableListing;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.table.ColumnHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableIdentity;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.metadata.table.TableVersionToken;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
@@ -71,7 +70,7 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     /** Opens the actual query scope; snapshots are selected separately for each accessed table. */
     @Override
-    public synchronized void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+    public synchronized void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
         splitRegistry.beginQuery(authority);
     }
 
@@ -80,7 +79,7 @@ public class PaimonMetadata implements ConnectorMetadata {
      * to release memory held for file-level statistics.
      */
     @Override
-    public synchronized void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+    public synchronized void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
         splitRegistry.releaseQuery(authority);
         String queryId = authority.queryId();
         nativeIndexEvaluator.clearCache();
@@ -129,11 +128,11 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
+    public org.pangrova.connector.spi.metadata.table.TableCapabilities getTableCapabilities(
             ConnectorSession session, ConnectorTableHandle table) {
         return table instanceof PaimonTableHandle
                 ? PaimonTableHandle.CAPABILITIES
-                : org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
+                : org.pangrova.connector.spi.metadata.table.TableCapabilities.UNSUPPORTED;
     }
 
     private FileStoreTable loadFileStore(PaimonTableHandle handle) {
@@ -344,7 +343,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public void deleteByFilter(ConnectorSession session,
                                 ConnectorTableHandle table,
-                                org.pangrova.spi.connector.metadata.DeleteFilter filter) {
+                                org.pangrova.connector.spi.metadata.DeleteFilter filter) {
         writes.deleteByFilter((PaimonTableHandle) table, filter);
     }
 
@@ -385,7 +384,7 @@ public class PaimonMetadata implements ConnectorMetadata {
         return writes.reconstruct(tableName, writeMode, baseSnapshotId);
     }
 
-    org.pangrova.spi.connector.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
+    org.pangrova.connector.spi.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
         return writes.physical();
     }
 
@@ -441,7 +440,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.metadata.ConnectorSystemTable> getSystemTable(
+    public java.util.Optional<org.pangrova.connector.spi.metadata.ConnectorSystemTable> getSystemTable(
             ConnectorSession session, ConnectorTableHandle table, String systemTableName) {
         PaimonTableHandle handle = (PaimonTableHandle) table;
         Table paimonTable = loadFreshTable(handle.schemaName(), handle.tableName());
@@ -475,7 +474,7 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public void changeColumnType(ConnectorSession session, ConnectorTableHandle table,
-                                 String columnName, org.pangrova.spi.connector.data.type.PangrovaType newType) {
+                                 String columnName, org.pangrova.connector.spi.data.type.PangrovaType newType) {
         PaimonDdlOperations.changeColumnType(catalog, (PaimonTableHandle) table, columnName, newType.name());
     }
 
@@ -498,12 +497,12 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.List<org.pangrova.spi.connector.metadata.TableProcedure> listTableProcedures() {
+    public java.util.List<org.pangrova.connector.spi.metadata.TableProcedure> listTableProcedures() {
         return PaimonTableProcedures.list();
     }
 
     @Override
-    public java.util.List<org.pangrova.spi.connector.data.TypedRow> executeProcedure(
+    public java.util.List<org.pangrova.connector.spi.data.value.TypedRow> executeProcedure(
             ConnectorSession session, String procedureName,
             java.util.Map<String, String> arguments) {
         return procedures.execute(procedureName, arguments);
@@ -529,7 +528,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     // --- Index SPI overrides ---
 
     @Override
-    public Optional<org.pangrova.spi.connector.index.FileSystemAccessor> getFileSystemAccessor() {
+    public Optional<org.pangrova.connector.spi.index.FileSystemAccessor> getFileSystemAccessor() {
         Catalog underlying = catalog;
         while (underlying instanceof org.apache.paimon.catalog.DelegateCatalog delegate) {
             underlying = delegate.wrapped();
@@ -542,12 +541,12 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public Optional<org.pangrova.spi.connector.index.ColumnValueReader> getColumnValueReader() {
+    public Optional<org.pangrova.connector.spi.index.ColumnValueReader> getColumnValueReader() {
         return Optional.of(new PaimonCatalogColumnValueReader(catalog));
     }
 
     @Override
-    public java.util.List<org.pangrova.spi.connector.index.NativeIndexCapability> nativeIndexCapabilities() {
+    public java.util.List<org.pangrova.connector.spi.index.NativeIndexCapability> nativeIndexCapabilities() {
         return PaimonIndexAccessors.nativeIndexCapabilities();
     }
 
@@ -558,28 +557,28 @@ public class PaimonMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.index.NativeIndexEvaluator> getNativeIndexEvaluator() {
+    public java.util.Optional<org.pangrova.connector.spi.index.NativeIndexEvaluator> getNativeIndexEvaluator() {
         return java.util.Optional.of(nativeIndexEvaluator);
     }
 
     /** Registers the connector's internal lifecycle callback without a data session. */
-    public void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
+    public void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
         commitNotifier.register(listener);
     }
 
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.index.SnapshotAwareMetadata> getSnapshotAwareMetadata(
+    public java.util.Optional<org.pangrova.connector.spi.index.SnapshotAwareMetadata> getSnapshotAwareMetadata(
             String schemaName, String tableName) {
         return PaimonIndexAccessors.getSnapshotAwareMetadata(catalog, schemaName, tableName);
     }
 
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.index.ConnectorIndexSupport> getIndexSupport() {
+    public java.util.Optional<org.pangrova.connector.spi.index.ConnectorIndexSupport> getIndexSupport() {
         return java.util.Optional.of(new PaimonConnectorIndexSupport(this, catalog));
     }
 
     @Override
-    public java.util.List<org.pangrova.spi.index.statistics.DataFileStatistics> getFileStatistics(
+    public java.util.List<org.pangrova.connector.spi.index.statistics.DataFileStatistics> getFileStatistics(
             String targetCatalogName, String schemaName, String tableName,
             java.util.List<String> dataFilePaths) {
         return PaimonIndexAccessors.getFileStatistics(catalog, schemaName, tableName, dataFilePaths);
@@ -596,7 +595,7 @@ public class PaimonMetadata implements ConnectorMetadata {
             java.util.List<String> addedFiles,
             java.util.List<String> removedFiles,
             String snapshotId,
-            org.pangrova.spi.connector.index.CommitEventType eventType) {
+            org.pangrova.connector.spi.index.CommitEventType eventType) {
         commitNotifier.notify(
                 tenantId, schemaName, tableName,
                 addedFiles, removedFiles, snapshotId, eventType);
@@ -618,7 +617,7 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName,
-            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
+            org.pangrova.connector.spi.metadata.BranchCreationOptions options) {
         PaimonTableHandle handle = (PaimonTableHandle) table;
         PaimonBranchTagOperations.createBranch(
                 loadFreshTable(handle.schemaName(), handle.tableName()), handle, branchName, options);
@@ -648,7 +647,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> applyFilter(
             ConnectorSession session, ConnectorTableHandle table,
-            org.pangrova.spi.connector.metadata.Constraint constraint) {
+            org.pangrova.connector.spi.metadata.Constraint constraint) {
         if (constraint.getDomains().isEmpty()) {
             return Optional.empty();
         }
@@ -674,7 +673,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> applyTopN(
             ConnectorSession session, ConnectorTableHandle table,
-            org.pangrova.spi.connector.metadata.TopNInfo topN) {
+            org.pangrova.connector.spi.metadata.TopNInfo topN) {
         // Paimon does not support sorted scans at the storage layer, so the engine
         // must still perform the sort. However, the limit portion of the top-N can be
         // absorbed to reduce the number of rows read from the source.

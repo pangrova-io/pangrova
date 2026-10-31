@@ -39,7 +39,7 @@ import org.pangrova.parser.ast.expression.MapConstructor;
 import org.pangrova.parser.ast.expression.NotExpression;
 import org.pangrova.parser.ast.expression.NotInExpression;
 import org.pangrova.parser.ast.expression.NotInSubqueryExpression;
-import org.pangrova.parser.ast.expression.RerankClause;
+import org.pangrova.parser.ast.RerankClause;
 import org.pangrova.parser.ast.expression.StarFunctionCall;
 import org.pangrova.parser.ast.expression.StructConstructor;
 import org.pangrova.parser.ast.expression.SubqueryExpression;
@@ -55,7 +55,7 @@ import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 
 import java.util.ArrayList;
 import java.util.HashMap;

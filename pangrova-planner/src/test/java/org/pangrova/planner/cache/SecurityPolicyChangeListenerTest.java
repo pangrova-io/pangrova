@@ -1,8 +1,8 @@
 package org.pangrova.planner.cache;
 
-import org.pangrova.security.event.SecurityPolicyChangeEvent.ColumnMaskChanged;
-import org.pangrova.security.event.SecurityPolicyChangeEvent.RlsPolicyChanged;
-import org.pangrova.security.event.SecurityPolicyChangeEvent.RoleAssignmentChanged;
+import org.pangrova.security.api.event.SecurityPolicyChangeEvent.ColumnMaskChanged;
+import org.pangrova.security.api.event.SecurityPolicyChangeEvent.RlsPolicyChanged;
+import org.pangrova.security.api.event.SecurityPolicyChangeEvent.RoleAssignmentChanged;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

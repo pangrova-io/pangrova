@@ -14,4 +14,9 @@ public record InsertStatement(
     public InsertStatement {
         values = values.stream().map(List::copyOf).toList();
     }
+
+    @Override
+    public StatementType type() {
+        return StatementType.INSERT;
+    }
 }

@@ -18,8 +18,8 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
-import org.pangrova.shuffle.deployment.CoordinatorPeerInterceptor;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.security.CoordinatorPeerInterceptor;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

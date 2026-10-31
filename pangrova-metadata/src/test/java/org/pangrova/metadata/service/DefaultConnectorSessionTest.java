@@ -1,7 +1,7 @@
 package org.pangrova.metadata.service;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.model.QualifiedTableRef;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
 
 import java.util.Map;
 

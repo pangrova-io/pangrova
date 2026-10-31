@@ -19,6 +19,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.Objects;
 
@@ -37,5 +38,10 @@ public record CreateSemanticViewStatement(
         if (definitionJson == null || definitionJson.isBlank()) {
             throw new IllegalArgumentException("definitionJson must not be blank");
         }
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_SEMANTIC_VIEW;
     }
 }

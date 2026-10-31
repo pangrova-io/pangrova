@@ -28,4 +28,4 @@ native-lib
 output
 logs
 **/logs
-pangrova-worker/src/main/resources/META-INF/native
+pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native

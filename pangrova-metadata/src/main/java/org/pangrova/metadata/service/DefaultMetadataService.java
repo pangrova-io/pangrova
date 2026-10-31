@@ -3,32 +3,31 @@ package org.pangrova.metadata.service;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
-import org.pangrova.governance.classification.ColumnTagService;
-import org.pangrova.metadata.cache.MetadataCache;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogHandle;
-import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.governance.core.classification.ColumnTagService;
+import org.pangrova.metadata.api.cache.MetadataCache;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogHandle;
+import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.metadata.event.MetadataEvent;
-import org.pangrova.metadata.event.MetadataEventDispatcher;
+import org.pangrova.metadata.core.event.MetadataEvent;
+import org.pangrova.metadata.core.event.MetadataEventDispatcher;
 import org.pangrova.metadata.exception.MetadataException;
 import org.pangrova.metadata.exception.MetadataResolutionException;
-import org.pangrova.metadata.model.ColumnMetadata;
-import org.pangrova.metadata.model.ColumnType;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.schema.SchemaChange;
-import org.pangrova.metadata.schema.SchemaEvolutionValidator;
-import org.pangrova.metadata.schema.SchemaValidationResult;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
-import org.pangrova.spi.connector.metadata.table.TableVersionToken;
-import org.pangrova.spi.execution.QueryLifecycleListener;
+import org.pangrova.metadata.api.object.ColumnMetadata;
+import org.pangrova.metadata.api.object.ColumnType;
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.core.schema.SchemaChange;
+import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
+import org.pangrova.metadata.core.schema.SchemaValidationResult;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.metadata.table.TableVersionToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +53,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * and exposed via metrics counters. {@code beginQuery} throws on partial failure;
  * failed cleanup remains owned and throws so the actual lifecycle owner can retry.</p>
  */
-public class DefaultMetadataService implements MetadataService, QueryLifecycleListener {
+public class DefaultMetadataService implements MetadataService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DefaultMetadataService.class);
     // F-META-01: a TTL of 0 makes the resolved-table cache permanently inert,
@@ -117,7 +116,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
                     public long expireAfterCreate(MetadataResolutionCacheKey key,
                             ResolvedTable table, long currentTime) {
                         return table.ownershipMode()
-                                == org.pangrova.metadata.control.OwnershipMode.OBSERVED
+                                == org.pangrova.table.api.control.OwnershipMode.OBSERVED
                                 ? observedTtlNanos : controlledTtlNanos;
                     }
 
@@ -232,9 +231,9 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
                     .ifPresent(record -> control.requireCurrentCatalog(record, "Table resolution"));
         }
         if (control.enabled() && control.find(tableRef.catalog(), tableRef.schema(), tableRef.table())
-                .filter(record -> record.state() == org.pangrova.metadata.control.TableControlState.RENAMING)
+                .filter(record -> record.state() == org.pangrova.table.api.control.TableControlState.RENAMING)
                 .isPresent()) {
-            throw new org.pangrova.spi.security.AccessDeniedException(
+            throw new org.pangrova.security.api.AccessDeniedException(
                     "Table rename is incomplete for " + tableRef
                             + "; wait for completion or reconcile the DDL before querying");
         }
@@ -263,7 +262,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     private boolean isCacheEntryCurrent(QualifiedTableRef tableRef, ResolvedTable cached) {
         var record = catalogRegistry.tableControl()
                 .find(tableRef.catalog(), tableRef.schema(), tableRef.table());
-        if (cached.ownershipMode() == org.pangrova.metadata.control.OwnershipMode.OBSERVED) {
+        if (cached.ownershipMode() == org.pangrova.table.api.control.OwnershipMode.OBSERVED) {
             return record.isEmpty();
         }
         return record.isPresent()
@@ -430,7 +429,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     @Override
-    public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+    public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
         QueryLifecycleReport report = queryLifecycles.cleanup(authority);
         recordCleanupQueryMetrics(report);
         if (report.hasFailures()) {
@@ -455,18 +454,15 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         return cleanupQueryFailureTotal.get();
     }
 
-    @Override
     public void onQueryStarted(String queryId, String sql) {
         LOG.debug("event=query_lifecycle_started queryId={}", queryId);
     }
 
-    @Override
     public void onQueryCompleted(String queryId) {
         onQueryEnd(queryId);
         LOG.debug("event=query_lifecycle_completed queryId={}", queryId);
     }
 
-    @Override
     public void onQueryFailed(String queryId, Throwable error) {
         onQueryEnd(queryId);
         LOG.debug("event=query_lifecycle_failed queryId={}", queryId);
@@ -475,7 +471,6 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     /**
      * Looks up the actual retained lifetime; a listener cannot issue a new query authority.
      */
-    @Override
     public void onQueryEnd(String queryId) {
         var authority = queryLifecycles.retainedAuthority(queryId);
         if (authority != null) cleanupQuery(authority);
@@ -488,7 +483,6 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     public int activeQueryCount() {
         return queryLifecycles.size();
     }
-
 
     private void recordBeginQueryMetrics(QueryLifecycleReport report) {
         beginQuerySuccessTotal.addAndGet(report.succeededCount());
@@ -522,7 +516,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         // no persisted version, so capture the live one for diagnostics while the
         // short TTL keeps the cached resolution honest.
         java.util.Optional<String> versionToken = control.versionToken();
-        if (control.ownershipMode() == org.pangrova.metadata.control.OwnershipMode.OBSERVED) {
+        if (control.ownershipMode() == org.pangrova.table.api.control.OwnershipMode.OBSERVED) {
             versionToken = connMetadata.observeVersion(connSession, tableHandle)
                     .map(TableVersionToken::token);
         }

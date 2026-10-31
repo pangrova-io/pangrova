@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon.type;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.VectorType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
@@ -137,9 +137,9 @@ class PaimonTypeMapperTest {
         assertColumn(columns.get(0), "amount", PangrovaType.DECIMAL, 17);
         assertColumn(columns.get(1), "wide", PangrovaType.DECIMAL, 29);
         assertThat(columns.get(0).parameterizedType())
-                .isEqualTo(new org.pangrova.spi.connector.data.type.primitive.DecimalType(12, 3));
+                .isEqualTo(new org.pangrova.connector.spi.data.type.primitive.DecimalType(12, 3));
         assertThat(columns.get(1).parameterizedType())
-                .isEqualTo(new org.pangrova.spi.connector.data.type.primitive.DecimalType(38, 18));
+                .isEqualTo(new org.pangrova.connector.spi.data.type.primitive.DecimalType(38, 18));
     }
 
     @ParameterizedTest
@@ -150,16 +150,16 @@ class PaimonTypeMapperTest {
                 new DataField(11, "prices", new MapType(new VarCharType(27), new DecimalType(12, 4))),
                 new DataField(15, "code", new CharType(7))));
         var schema = new RowType(List.of(new DataField(31, "details", nested)));
-        var expected = new org.pangrova.spi.connector.data.type.RowType(List.of(
-                new org.pangrova.spi.connector.data.type.RowField("history",
-                        new org.pangrova.spi.connector.data.type.ArrayType(
-                                new org.pangrova.spi.connector.data.type.primitive.DecimalType(21, 7))),
-                new org.pangrova.spi.connector.data.type.RowField("prices",
-                        new org.pangrova.spi.connector.data.type.MapType(
-                                new org.pangrova.spi.connector.data.type.primitive.VarcharType(27),
-                                new org.pangrova.spi.connector.data.type.primitive.DecimalType(12, 4))),
-                new org.pangrova.spi.connector.data.type.RowField("code",
-                        new org.pangrova.spi.connector.data.type.primitive.CharType(7))));
+        var expected = new org.pangrova.connector.spi.data.type.RowType(List.of(
+                new org.pangrova.connector.spi.data.type.RowField("history",
+                        new org.pangrova.connector.spi.data.type.ArrayType(
+                                new org.pangrova.connector.spi.data.type.primitive.DecimalType(21, 7))),
+                new org.pangrova.connector.spi.data.type.RowField("prices",
+                        new org.pangrova.connector.spi.data.type.MapType(
+                                new org.pangrova.connector.spi.data.type.primitive.VarcharType(27),
+                                new org.pangrova.connector.spi.data.type.primitive.DecimalType(12, 4))),
+                new org.pangrova.connector.spi.data.type.RowField("code",
+                        new org.pangrova.connector.spi.data.type.primitive.CharType(7))));
 
         var columns = columns(schema, withProperties);
 
@@ -185,8 +185,8 @@ class PaimonTypeMapperTest {
         assertColumn(columns.get(2), "integers", PangrovaType.ARRAY, 13);
         assertThat(columns.get(0).parameterizedType()).isEqualTo(new VectorType(3, VectorType.ElementType.FLOAT));
         assertThat(columns.get(1).parameterizedType()).isEqualTo(new VectorType(9, VectorType.ElementType.DOUBLE));
-        assertThat(columns.get(2).parameterizedType()).isEqualTo(new org.pangrova.spi.connector.data.type.ArrayType(
-                org.pangrova.spi.connector.data.type.primitive.IntegerType.INSTANCE));
+        assertThat(columns.get(2).parameterizedType()).isEqualTo(new org.pangrova.connector.spi.data.type.ArrayType(
+                org.pangrova.connector.spi.data.type.primitive.IntegerType.INSTANCE));
     }
 
     @Test
@@ -222,7 +222,7 @@ class PaimonTypeMapperTest {
         var properties = Map.of(PaimonTypeMapper.VARIANT_COLUMN_KEY_PREFIX + "document", "true");
         var schema = new RowType(List.of(new DataField(23, "document", storage),
                 new DataField(31, "plain", new VarCharType(41))));
-        var expected = org.pangrova.spi.connector.data.type.primitive.VarcharType.UNBOUNDED;
+        var expected = org.pangrova.connector.spi.data.type.primitive.VarcharType.UNBOUNDED;
 
         assertThat(PaimonTypeMapper.toPangrovaType(storage, "document", properties)).isEqualTo(PangrovaType.VARIANT);
         assertThat(PaimonTypeMapper.toParameterizedType(storage, "document", properties)).isEqualTo(expected);
@@ -233,7 +233,7 @@ class PaimonTypeMapperTest {
         assertThat(columns.get(0).parameterizedType()).isEqualTo(expected);
         assertColumn(columns.get(1), "plain", PangrovaType.VARCHAR, 31);
         assertThat(columns.get(1).parameterizedType())
-                .isEqualTo(new org.pangrova.spi.connector.data.type.primitive.VarcharType(41));
+                .isEqualTo(new org.pangrova.connector.spi.data.type.primitive.VarcharType(41));
     }
 
     @ParameterizedTest
@@ -241,7 +241,7 @@ class PaimonTypeMapperTest {
     void ordinaryVarcharRetainsItsSdkLengthWithoutAVariantMarker(boolean withProperties) {
         var storage = new VarCharType(123);
         var schema = new RowType(List.of(new DataField(23, "document", storage)));
-        var expected = new org.pangrova.spi.connector.data.type.primitive.VarcharType(123);
+        var expected = new org.pangrova.connector.spi.data.type.primitive.VarcharType(123);
 
         assertThat(PaimonTypeMapper.toParameterizedType(storage)).isEqualTo(expected);
         assertThat(PaimonTypeMapper.toParameterizedType(storage, "document", Map.of())).isEqualTo(expected);
@@ -256,7 +256,7 @@ class PaimonTypeMapperTest {
         var storage = new VarCharType(123);
         var properties = Map.of(PaimonTypeMapper.VARIANT_COLUMN_KEY_PREFIX + "document", marker);
         var schema = new RowType(List.of(new DataField(23, "document", storage)));
-        var expected = new org.pangrova.spi.connector.data.type.primitive.VarcharType(123);
+        var expected = new org.pangrova.connector.spi.data.type.primitive.VarcharType(123);
 
         assertThat(PaimonTypeMapper.toPangrovaType(storage, "document", properties)).isEqualTo(PangrovaType.VARCHAR);
         assertThat(PaimonTypeMapper.toParameterizedType(storage, "document", properties)).isEqualTo(expected);
@@ -390,7 +390,7 @@ class PaimonTypeMapperTest {
         DataType arrayFloat = new ArrayType(new FloatType());
         Map<String, String> props = Map.of("pangrova.vector.dimension.embedding", "768");
 
-        org.pangrova.spi.connector.data.type.Type result =
+        org.pangrova.connector.spi.data.type.Type result =
                 PaimonTypeMapper.toParameterizedType(arrayFloat, "embedding", props);
 
         assertThat(result).isInstanceOf(VectorType.class);
@@ -404,7 +404,7 @@ class PaimonTypeMapperTest {
         DataType arrayDouble = new ArrayType(new DoubleType());
         Map<String, String> props = Map.of("pangrova.vector.dimension.emb", "384");
 
-        org.pangrova.spi.connector.data.type.Type result =
+        org.pangrova.connector.spi.data.type.Type result =
                 PaimonTypeMapper.toParameterizedType(arrayDouble, "emb", props);
 
         assertThat(result).isInstanceOf(VectorType.class);

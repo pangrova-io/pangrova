@@ -1,11 +1,11 @@
 package org.pangrova.metadata.tenant;
 
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.tenant.model.ResourceQuota;
-import org.pangrova.security.tenant.model.Tenant;
-import org.pangrova.security.tenant.model.TenantRole;
-import org.pangrova.security.tenant.model.TenantStatus;
-import org.pangrova.security.tenant.store.ResolvedTenantContext;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

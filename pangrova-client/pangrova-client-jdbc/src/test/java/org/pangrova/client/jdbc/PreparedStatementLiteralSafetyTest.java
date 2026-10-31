@@ -4,7 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.client.rest.PangrovaRestClient;
+import org.pangrova.client.transport.http.PangrovaRestClient;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;

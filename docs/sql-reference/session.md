@@ -31,5 +31,5 @@ and the [JDBC driver](../getting-started/clients/jdbc.md) for connection configu
 Only properties consumed by the relevant planner or connector have an effect; a
 property being passed through is not evidence that it is implemented.
 
-Source evidence: [DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java).
+Source evidence: [DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java).
 See [Current Capability Status](../getting-started/capability-status.md).

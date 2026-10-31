@@ -5,7 +5,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import java.util.Set;
 import java.util.Collection;
 import java.util.HashSet;
-import org.pangrova.protocol.CapabilityInventoryCodec;
+import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 
 /**

@@ -9,7 +9,7 @@ import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
 import java.sql.Connection;

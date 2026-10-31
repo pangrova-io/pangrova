@@ -1,4 +1,5 @@
 package org.pangrova.metadata.coordination;
+import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -16,7 +17,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ExecutorDrain;
-import org.pangrova.metadata.store.PooledDataSourceFactory;
+import org.pangrova.metadata.store.jdbc.catalog.PooledDataSourceFactory;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.postgresql.ds.PGSimpleDataSource;
 

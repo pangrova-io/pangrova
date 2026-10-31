@@ -9,12 +9,12 @@ import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.VectorType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.ai.api.embedding.EmbeddingPurpose;
 
 import java.util.ArrayList;
 import java.util.List;

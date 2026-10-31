@@ -2,7 +2,7 @@ package org.pangrova.metadata.service;
 
 import java.util.Map;
 import java.util.Optional;
-import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.connector.spi.ConnectorQueryAuthority;
 
 /**
  * Engine-level session representation carrying user identity, scope, and properties.

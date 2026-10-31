@@ -9,56 +9,74 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 |--------|---------------|
 | `pangrova-common` | Shared utilities and base types |
 | `pangrova-config` | Configuration management |
-| `pangrova-spi` | SPI extension interfaces |
-| `pangrova-materialization` | Unified Dynamic Table / Materialized View domain kernel: definitions, generations, attempts, publication protocol, scheduling, and extension ports |
+| `pangrova-connector/pangrova-connector-spi` | Connector contract surface: catalog, metadata, split, page/type, write, index eval, materialization source |
+| `pangrova-materialization/pangrova-materialization-core` | Unified Dynamic Table / Materialized View domain kernel: definitions, generations, attempts, publication protocol, scheduling, and extension ports |
+| `pangrova-materialization/pangrova-materialization-store-jdbc` | Relational materialization repositories for deployments that externalize state; never imported by the kernel |
 | `pangrova-shuffle/pangrova-shuffle-core` | Shuffle contract and engine-side exchange orchestration |
 | `pangrova-shuffle/pangrova-shuffle-service` | Deployable remote shuffle transport and durable spool service |
 | `pangrova-parser` | SQL parsing (Calcite dialect extensions) |
 | `pangrova-planner` | Calcite logical plan → physical plan conversion |
 | `pangrova-protocol` | Network protocol layer (gRPC / Arrow Flight) |
-| `pangrova-observability` | Metrics and tracing |
-| `pangrova-resilience` | Fault tolerance, retry, circuit breaker |
+| `pangrova-observability/pangrova-observability-api` | Metrics/tracing/logging contracts and API-owned no-op implementations (no SDK dependency) |
+| `pangrova-observability/pangrova-observability-sdk` | OpenTelemetry providers, SDK configuration, and transport adapters |
+| `pangrova-query-api` | Query-owned execution anchors, journal/lineage facts, audit and recovery ports; never depends on Query runtime/store implementations |
+| `pangrova-data-build` | Durable artifact contracts, canonical graph/exchange codecs, submission factories, publication routing and generic JDBC build/stage/exchange state; current authority and cross-domain publication reads use injected transaction ports |
+| `pangrova-query` | Query runtime services, profiling/audit orchestration, journal factories and JDBC/in-memory state stores; implements `pangrova-query-api` |
 | `pangrova-operations` | DDL/DML operation execution |
-| `pangrova-resource` | Resource management and scheduling |
-| `pangrova-coordinator` | Control plane only: parse, bind, authorize, admit, schedule, fence, validate terminal metadata and audit |
-| `pangrova-worker` | Worker node process, JNI loading entry, task scheduling |
-| `pangrova-metadata` | Metadata storage and Catalog management |
-| `pangrova-connector-*` | Data source connectors (Iceberg / Paimon) |
+| `pangrova-coordination/pangrova-coordination-api` | SDK-free lease, coordinator/worker registry and immutable topology contracts for applications and independent providers |
+| `pangrova-coordination/pangrova-coordination-jdbc` | Independent PostgreSQL-backed lease and registry implementations over Coordination API; no Coordinator or Metadata dependency |
+| `pangrova-coordination/pangrova-coordination-inmemory` | Process-local lease and registry implementations over Coordination API; suitable for single-process use and tests |
+| `pangrova-coordination/pangrova-coordination-core` | Control plane only: parse, bind, authorize, admit, schedule, fence, validate terminal metadata and audit |
+| `pangrova-coordination/pangrova-coordination-zookeeper` | Optional quorum provider over coordination-api; never depends on the Coordinator process artifact |
+| `pangrova-worker/pangrova-worker-core` | Worker node process, JNI loading entry, task scheduling |
+| `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migration sequence; preserves historical names, versions and bytes; no Java code or runtime providers |
+| `pangrova-metadata` | Metadata storage and Catalog management; adapters over the Table owner |
+| `pangrova-table` | Table control, maintenance, statistics and governance-binding owner; acyclic foundation for metadata/coordinator adapters |
+| `pangrova-file` | Volume/Stage, directory generation, upload, storage profile and COPY claim/publication owner; Worker keeps only execution adapters |
+| `pangrova-storage` | Content-addressed blob publication backends (filesystem, managed S3) shared by Worker COPY and the AI FILE layer |
+| `pangrova-ai/pangrova-ai-api` | Shared AI model, capability, invocation, embedding descriptors and the Worker↔AI runtime ports |
+| `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Artifact contracts without exposing this dependency through AI API |
+| `pangrova-ai/pangrova-ai-worker` | Optional Worker-side AI execution plane: governed provider invocation, AI SQL functions and ServiceLoader runtime adapters |
+| `pangrova-connector-*` | Data source connector providers (Iceberg / Paimon / Lance) |
 | `pangrova-standalone` | Single-node standalone deployment |
 | `pangrova-security` | Authentication and authorization |
-| `pangrova-streaming` | Streaming query support |
-| `pangrova-governance` | Data governance and lineage |
-| `pangrova-indexing` | Index management and build orchestration |
-| `pangrova-transport` | Transport layer abstraction |
-| `pangrova-client` | Client libraries (CLI / REST / JDBC) |
+| `pangrova-streaming` | Streaming query support, CDC formats/writers, JDBC checkpoint/offset/watermark stores and the `adapter.coordinator` stream scheduler/DDL/Kafka adapter |
+| `pangrova-governance` | Catalog/tag/classification, lineage providers, quality store/executors and the commit-blocking quality gate |
+| `pangrova-indexing/pangrova-indexing-api` | Index descriptors, lifecycle state, evaluation/pruning contracts and publication ports shared by Coordinator, Worker and connectors |
+| `pangrova-indexing/pangrova-indexing-core` | Index metadata/store, generation/publication/GC persistence, engine providers, planner extension and build orchestration; the Coordinator only adapts it under `coordinator.adapter.indexing` |
+| `pangrova-transport` | Transport layer abstraction; also hosts the client REST/HTTP and Arrow/Flight result transport (`org.pangrova.client.transport`) |
+| `pangrova-client/pangrova-client-core` | Framework-free public client contract: query/catalog DTOs, errors, session configuration, result consumer |
+| `pangrova-client/pangrova-client-cli` | Command-line client |
+| `pangrova-client/pangrova-client-jdbc` | JDBC driver (`java.sql.Driver` provider) |
 | `pangrova-testing` | Test infrastructure (e2e, benchmark, chaos, smoke) |
 | `pangrova-native-bundle` | Native library packaging for distribution |
 
 ## C++ Side (CMake, C++20) — `pangrova-worker-native/`
 
-| Component | Responsibility |
-|-----------|---------------|
-| `src/jni/` | JNI entry — Java→C++ bridge, lifecycle management |
-| `src/velox/` | Velox-based vectorized execution engine, plan conversion |
-| `src/executor/` | Task execution driver, pipeline orchestration |
-| `src/shuffle/` | Arrow Flight distributed data exchange |
-| `src/memory/` | Velox memory allocator + JVM memory coordination |
-| `src/columnar/` | Canonical Arrow stream interoperability and explicit buffer ownership |
-| `src/index/` | Bloom filter, vector index native implementation |
-| `src/merge/` | Merge-on-Read multi-version merge |
-| `src/delete/` | Deletion vector reading and row filtering |
-| `src/split/` | Split reading (Iceberg/Paimon data file readers) |
-| `src/result/` | Query result streaming and serialization |
-| `src/lance/` | Lance format batch reader |
-| `src/vector/` | Vector distance computation |
-| `src/udf/` | Native UDF registry and execution |
-| `src/variant/` | Semi-structured variant column reader |
-| `src/text/` | Text processing (tokenization, stemming) |
-| `src/write/` | Native write path |
-| `src/compat/` | Build-time platform/ABI adapters only; never protocol, semantic or execution fallback |
-| `src/observability/` | OpenTelemetry C++ SDK integration |
-| `lance-ffi/` | Rust→C FFI for Lance vector storage |
-| `proto/` | Empty/non-authoritative; C++ generates the canonical v2 sources from `pangrova-protocol` |
+Sources are grouped by CMake OBJECT target; one `libpangrova_native` shared
+library is assembled from them.
+
+| Target | Directory | Responsibility |
+|--------|-----------|---------------|
+| `pangrova_native_bridge_objects` | `src/bridge/` | JNI entry (`Java_*`, `JNI_OnLoad`), lifecycle, task creation/command dispatch, handle registry; the only JNI export boundary |
+| `pangrova_native_core_objects` | `src/engine/` | Velox vectorized execution and plan conversion, task driver, shuffle/Flight, memory, columnar, result streaming, write, split, merge/delete, cache, variant, compat, observability |
+| `pangrova_native_capability_objects` | `src/capabilities/` | Canonical capability catalog, function registry/bindings and artifact retrieval planners/builders |
+| `pangrova_native_index_objects` | `src/indexing/` | Bloom/hint pruning, BM25 text indexing and retrieval fusion |
+| `pangrova_native_vector_objects` | `src/vector/` | Vector distance functions and ANN index implementations (HNSW, IVF-PQ, DiskANN) |
+| `pangrova_native_udf_objects` | `src/udf/` | Native UDF registry and JVM scalar-function callbacks |
+| `pangrova_native_lance_objects` | `src/lance/` | Lance format batch reader/writer |
+| — | `lance-ffi/` | Rust→C FFI for Lance vector storage |
+| — | `proto/` | Empty/non-authoritative; C++ generates the canonical v2 sources from `pangrova-protocol` |
+
+Include paths are rooted at `src/`, so headers are addressed as
+`engine/velox/...`, `capabilities/capability/...`, `indexing/text/...`,
+`bridge/JniBridge.h`, `vector/...`, `udf/...` and `lance/...`. Tests mirror the
+same grouping under `test/`, with shared fixtures at `test/` root.
+
+JNI entry points are defined only in `src/bridge/`; the macOS/Linux export maps
+contain exactly those symbols. Native→Java upcalls (allocation listener,
+shuffle egress, write executor, JVM scalar functions) remain engine-side
+adapters and are the only other units that include `jni.h`.
 
 ## Interaction Boundary
 
@@ -105,57 +123,70 @@ pangrova-worker (Java)
                     └── simdjson (JSON parsing)
 ```
 
-## Module Dependency Matrix
+## Module Dependency Policy
 
-| Module | Allowed dependencies |
-|--------|---------------------|
-| `common` | (none) |
-| `spi` | common |
-| `materialization` | spi, common |
-| `protocol` | spi, common |
-| `config` | common |
-| `parser` | spi, common |
-| `planner` | parser, spi, common, security, shuffle |
-| `metadata` | spi, common, governance, security, materialization |
-| `indexing` | spi, common |
-| `observability` | spi, common |
-| `governance` | spi, common, security |
-| `security` | spi, common |
-| `resilience` | spi, common |
-| `streaming` | spi, common |
-| `operations` | spi, common, shuffle |
-| `resource` | spi, common |
-| `shuffle` | spi, common |
-| `worker` | spi, protocol, common, resilience, resource, observability, operations, shuffle, native-bundle |
-| `coordinator` | spi, protocol, common, metadata, planner, parser, security, observability, resilience, resource, operations, governance, streaming, indexing, worker, shuffle, client-rest, connector-*, materialization |
-| `connector-*` | spi, common, protocol only |
-| `client-*` | protocol, common |
-| `worker-native` | protocol only (JNI/Protobuf) |
-| `native-bundle` | (packaging only) |
-| `testing` | all (test scope) |
+The authoritative per-artifact allow-list (`packageRoots`, `exports`,
+`allowedImports`, `forbiddenImports`, `friendExports`, declared `providers`) lives
+in `.pangrova/modules.yaml`; `.pangrova/module-baseline.yaml` records generated
+facts. Do not restate the matrix here — a duplicated table drifts from policy.
 
-### Dependency Red Lines
+Generation-job composition roots currently use the exported `org.pangrova.databuild.assembly`
+factory ports and pass `org.pangrova.databuild.api` contracts to domain consumers. The routing
+implementation in `org.pangrova.databuild.core.publication` is not exported.
+The `data-build` module/package name is transitional while its domain and storage
+boundaries are being separated; it is not the accepted final name.
 
-- `spi` and `protocol`: MUST NOT depend on any implementation module.
-- `materialization`: only `spi`, `common` — NO Calcite, JDBC, protobuf, planner,
-  metadata, coordinator, connector, worker, or runtime imports. Within the module,
-  `domain` MUST NOT depend on `port` or `extension`, and `port`/`extension` MUST
-  NOT depend on each other. ArchUnit enforces these rules in
-  `MaterializationArchitectureTest`.
-- `connector-*`: only `spi`, `common`, `protocol` — NO worker/coordinator/materialization imports.
-- `planner`: NO `materialization`, `metadata`, or `coordinator` imports; it receives
-  materialization DTOs through coordinator-owned bridges only.
-- `observability`, `governance`, `security`, `resilience`: NO business execution module imports.
-- `operations`, `resource`, `config`: NO coordinator/worker internal imports.
-- `coordinator` → `worker`: compile-scope restricted to `org.pangrova.worker.transport.*` only.
-- Java ↔ C++: only via `protocol` + JNI bridge.
-- The Coordinator MUST NOT transport rows/candidates, merge Top-K, fuse scores,
-  rerank, scan source data, or execute background data transformations. Those
-  operations run in the Native Worker data plane and exchange data through
-  signed Arrow Flight endpoints.
-- The execution boundary supports exactly one canonical
-  `pangrova.protocol.v2` descriptor/capability epoch. No v1 parser, feature-specific
-  task proto, dual execution path, negotiation or silent downgrade is allowed.
+Coordination backends depend on Coordination API, never on the Coordinator process
+or Metadata. The process composition root selects and closes providers; in-memory
+leases do not provide inter-process exclusion. JDBC provider owner tests use the
+Testing Kit migration fixture without importing Core or Metadata fixtures.
+
+AI Control's `assembly.AiInfrastructureStores` requires the process root to supply
+the real `DataBuildTransactionAuthority`. AI Control has no production or test-jar
+dependency on Metadata. Cross-domain catalog-export and deferred-model authority
+tests live in Testing Integration; owner tests use the canonical migration fixture.
+Do not restore a default factory that discovers Metadata or bypasses authority.
+
+Security owns the `CurrentModelAuthority` JDBC cooperation port and its deferred
+receipt snapshots. AI Control implements current model/role validation on the
+caller connection. Metadata consumes this explicit port without importing AI
+Control; the process composition root supplies the real provider to Artifact,
+managed-source and generated-write consumers. No provider may acquire or finish
+the caller transaction, and no static authority setter or permissive default is
+allowed.
+
+Resource-only JARs are explicit `resourceOnly` owners with `resourceRoots` in the
+manifest. They cannot declare Java package roots, exports or providers, and cannot
+contain Java sources or packaged bytecode. Their resources must exist under the
+declared roots. Historical database migrations live only in `pangrova-schema-migrations`
+at the unchanged `db/migration` classpath location; Metadata bootstrap consumes that
+runtime dependency, and owner tests use the Testing Kit migration fixture. Do not
+copy SQL into another module to restore a missing classpath dependency.
+
+Hard gates:
+
+- `ModuleDependencyPropertyTest` fails on any undeclared import, forbidden import,
+  export violation, provider/descriptor mismatch, split package or stale baseline.
+  Both main and test source facts come from Testing Kit's `JavaSourceReferences`
+  JDK parser, also source-launched by the Python baseline generator. Facts include
+  wildcard/static/nested imports and explicit qualified references in code and
+  annotations; comments, string literals and package declarations are not edges.
+  Malformed Java and invalid UTF-8 fail the scan. Dependency checks read current
+  POMs, not the saved baseline; export failures include source file/line witnesses.
+- `PackageDependencyAcyclicityPropertyTest` parses main Java sources from every
+  default-reactor module and rejects all strongly connected package components,
+  without sibling restrictions or exemptions. Imports (including wildcards and
+  static/nested types) and explicit qualified type references form its source
+  graph; comments and string literals do not. Its deterministic source witnesses
+  are written to Testing Kit's `target/package-dependency-cycles.txt`. Generated
+  bytecode and reflective runtime edges still require their own connectivity
+  checks. Artifact cycles are also impossible to build in Maven.
+- `.pangrova/scripts/check-module-manifest.sh` fails when the committed baseline
+  is stale or an artifact has no ownership entry. It requires JDK 17 and Python,
+  but no prior Maven build; the lightweight CI lint job always provisions both.
+
+Java ↔ C++ boundaries: `worker-native` is the JNI bridge; it depends on the
+protocol only. Native code never imports Java-side services.
 
 ## DML Execution Routing Table
 
@@ -193,28 +224,56 @@ Within `pangrova-worker-native/src/`, C++ components follow layered dependencies
 
 | Component | Allowed dependencies |
 |-----------|---------------------|
-| `jni/` | `compat/` only — JNI layer must be THIN |
-| `jni/bridge/` | `executor/`, `result/`, `shuffle/`, `write/`, `lance/`, `vector/` |
-| `jni/command/` | `executor/`, `jni/bridge/`, `jni/registry/`, `compat/` |
-| `velox/` | Velox SDK, Arrow, Protobuf, `columnar/`; `velox/runner/` may invoke `index/` for validated pre-scan split pruning — NO direct JNI includes |
-| `executor/` | `velox/`, `memory/`, `shuffle/`, `result/`, `observability/` |
-| `shuffle/` | Arrow Flight, `velox/serde/` public VectorSerde boundary only, `columnar/`, `memory/`, `observability/` |
-| `memory/` | Velox memory SDK, Arrow allocation API, `observability/` |
-| `columnar/` | Arrow, `memory/` only — no SQL type decoder, executor or JNI |
-| `merge/`, `delete/`, `index/`, `split/` | `velox/connector/`, `memory/` |
-| `result/` | Arrow Flight, Velox output-buffer SDK, Protocol, `columnar/`, `memory/`; `shuffle/` ticket-security APIs only (no shuffle buffers or executor ownership) |
-| `observability/` | OpenTelemetry SDK only (no business logic) |
-| `lance/` | Lance C FFI, Arrow |
-| `vector/` | Arrow, `memory/` |
-| `write/` | `velox/`, `memory/` |
+| `bridge/` | Protocol, `engine/`, `capabilities/`, `indexing/`, `vector/`, `udf/`, `lance/`; JNI layer must stay THIN |
+| `engine/velox/` | Velox SDK, Arrow, Protobuf, `engine/columnar/`, capability/index/vector registries; `engine/velox/runner/` may invoke `indexing/` for validated pre-scan split pruning; `capabilities/artifact/` and `indexing/` only from artifact/retrieval operators and their Substrait conversions |
+| `engine/executor/` | `engine/velox/`, `engine/memory/`, `engine/shuffle/`, `engine/result/`, `engine/observability/`, `engine/write/`, `engine/lance/`; `capabilities/artifact/ArtifactWorkReportState.h` only as task-local report state |
+| `engine/shuffle/` | Arrow Flight, `engine/velox/serde/` public VectorSerde boundary only, `engine/columnar/`, `engine/memory/`, `engine/observability/` |
+| `engine/memory/` | Velox memory SDK, Arrow allocation API, `engine/observability/`, JVM allocation upcall |
+| `engine/columnar/` | Arrow, `engine/memory/` only — no SQL type decoder, executor or JNI |
+| `engine/merge/`, `engine/delete/`, `engine/split/` | `engine/velox/connector/`, `engine/memory/` |
+| `engine/result/` | Arrow Flight, Velox output-buffer SDK, Protocol, `engine/columnar/`, `engine/memory/`; `engine/shuffle/` ticket-security APIs only (no shuffle buffers or executor ownership) |
+| `engine/observability/` | OpenTelemetry SDK only (no business logic) |
+| `engine/compat/` | Build-time platform/ABI adapters only; never protocol, semantic or execution fallback |
+| `capabilities/` | Velox SDK, Protocol, `engine/velox/`, `indexing/`, `vector/` |
+| `indexing/` | Velox SDK, `engine/observability/`, `engine/split/`, `capabilities/artifact/` |
+| `vector/` | Arrow, `engine/memory/`, `engine/velox/`, `capabilities/artifact/` |
+| `udf/` | Velox SDK, `bridge/` handle registry, `engine/` |
+| `lance/` | Lance C FFI, Arrow, `engine/observability/`, `capabilities/` |
+
+The in-process engine registers capability, indexing and vector implementations
+directly, so include-level edges between `engine/`, `capabilities/`,
+`indexing/` and `vector/` exist in both directions. The OBJECT-target split
+defines ownership and build isolation, not an acyclic include graph; the single
+shared library links them together by design.
+
+The engine→capability edges are confined to named seams, all of them inside
+capability-specific execution rather than the generic SELECT/DDL/DML path:
+`engine/velox/plan/ArtifactBuildOperator`, `FilteredArtifactRetrievalOperator`,
+`GeneratedValuesOverlayOperator`, the `Substrait*Artifact*`/`SubstraitRetrieval*`/
+`SubstraitGeneratedValues*` conversions, `engine/velox/plan/RetrievalMergeOperator`
+(`indexing/retrieval/`) and `engine/velox/plan/ArtifactBuildOperator`
+(`indexing/text/bm25/`). Two seams reach into generic code:
+`engine/velox/runner/VeloxTaskRunner` calls `indexing/index/IndexHintFilter` for
+typed-split pruning, `engine/velox/filter/DynamicFilterConverter` calls
+`indexing/index/FileIndexFilter` for Bloom probes, and
+`engine/executor/driver/{TaskExecutor,PlanExecutionState}.h` hold artifact report
+state. Making the execution core link-independent of capability implementations
+requires inverting exactly those five seams behind engine-owned ports; until then
+no new edge from `engine/` into `capabilities/artifact/` or `indexing/` is
+allowed outside the list above.
 
 ### C++ Dependency Red Lines
 
-- `jni/` headers MUST NOT include Velox headers (abstraction boundary)
-- `velox/` MUST NOT include JNI headers (direction: JNI→Velox, never Velox→JNI)
-- `observability/` MUST NOT include business logic headers
-- `memory/` MUST NOT include executor or shuffle headers (direction: they depend on memory)
-- No circular includes between C++ components
+- Only `src/bridge/` defines `Java_*`/`JNI_OnLoad` entry points; export maps list exactly those
+- `jni.h` is included only by `src/bridge/` and the Native→Java upcall adapters
+  (`engine/memory/PangrovaAllocationListener.h`, `engine/shuffle/ShuffleEgressExecutor.h`,
+  `engine/write/NativeWriteExecutor.h`, `engine/velox/runtime/NativeEngineLifecycle.h`,
+  `udf/JvmScalarFunction.h`)
+- `engine/observability/` MUST NOT include business logic headers
+- `engine/memory/` MUST NOT include executor or shuffle headers (direction: they depend on memory)
+- `engine/columnar/` MUST NOT include SQL decoder, executor or JNI headers
+- No new circular includes between C++ components outside the documented
+  engine/capability/index/vector composition above
 
 ## Full-Chain Connectivity Requirements
 

@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 import org.pangrova.parser.ast.type.DataTypeSpec;
 
 /**
@@ -70,5 +71,10 @@ public record CreateTableStatement(
         public String typeAsString() {
             return type.toCanonicalString();
         }
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_TABLE;
     }
 }

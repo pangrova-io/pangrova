@@ -73,7 +73,7 @@ Pangrova 已经具备一个现代湖仓查询引擎所需的大部分“零件�
 当前最严重的读一致性问题是上下文断裂：
 
 1. `StatementConnectorSession` 的属性恒为 `Map.of()`，用户恒为 `system`；
-2. `SplitFetcher` 使用该 session 解析 handle 并调用 split manager，同时传入 `ConnectorTransactionHandle.EMPTY`；
+2. `SplitFetcher` 使用该 session 解析 handle 并调用 split manager，同时传入 `ConnectorTransactionHandle.empty()`；
 3. Iceberg split manager 从 `session.properties["queryId"]` 获取查询 ID，并据此读取/写入快照 pin；
 4. Paimon 的 pin 逻辑也使用相同属性；其代码注释已明确说明 SPI 未把 queryId 传播到连接器；
 5. `DefaultConnectorSession.fromSessionContext` 还显式排除了 `tenantId`、`securityToken` 和 `queryId`，只在生命周期专用 session 中加入 queryId。
@@ -533,8 +533,8 @@ TableVersionToken { opaqueValue, optionalSnapshotId, optionalSequence, schemaId,
 | name-only resolved cache | `pangrova-metadata/.../service/DefaultMetadataService.java:212-225` |
 | createTable 丢 typed columns | `pangrova-metadata/.../service/DefaultMetadataService.java:228-237` |
 | session 显式不传播 queryId/tenant | `pangrova-metadata/.../service/DefaultConnectorSession.java:9-12,27-71` |
-| split session 属性恒为空 | `pangrova-coordinator/.../statement/StatementConnectorSession.java:11-35` |
-| split 使用 EMPTY transaction | `pangrova-coordinator/.../split/SplitFetcher.java:236-260,296` |
+| split session 属性恒为空 | `pangrova-coordination/pangrova-coordination-core/.../statement/StatementConnectorSession.java:11-35` |
+| split 使用 EMPTY transaction | `pangrova-coordination/pangrova-coordination-core/.../split/SplitFetcher.java:236-260,296` |
 | Iceberg 使用 query-level snapshot API | `pangrova-connector/.../iceberg/IcebergSplitManager.java:241-286` |
 | Paimon 每 query 只有一个 snapshot | `pangrova-connector/.../paimon/PaimonSnapshotPins.java:23-77` |
 | Paimon 注释承认 queryId 未传播 | `pangrova-connector/.../paimon/PaimonSplitManager.java:110-121` |
@@ -549,7 +549,7 @@ TableVersionToken { opaqueValue, optionalSnapshotId, optionalSequence, schemaId,
 | Iceberg 超时后异步 commit 仍可能运行 | `pangrova-connector/.../iceberg/IcebergWriteCommitter.java:250-268` |
 | Iceberg 幂等组件仅测试引用 | `pangrova-connector/.../iceberg/IdempotentCommitController.java`; `CommitStatusVerifier.java` |
 | Paimon commit 未接 operation identity | `pangrova-connector/.../paimon/PaimonDistributedWriteFinisher.java:131-160` |
-| WAL 成功即 purge / failure 也可 purge | `pangrova-coordinator/.../task/TaskStatusReceiver.java:571-635,663-682` |
+| WAL 成功即 purge / failure 也可 purge | `pangrova-coordination/pangrova-coordination-core/.../task/TaskStatusReceiver.java:571-635,663-682` |
 | WAL 更新不校验状态/fence | `pangrova-metadata/.../coordination/JdbcWriteCommitJournal.java:69-91,111-158` |
 | Paimon handle 自制 RowType JSON 有损 | `pangrova-connector/.../paimon/handle/PaimonTableHandleFactory.java:177-229` |
 | Paimon 对外 table properties 为空 | `pangrova-connector/.../paimon/PaimonMetadata.java:117-125` |

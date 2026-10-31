@@ -11,7 +11,7 @@
 #include <folly/init/Init.h>
 #include <google/protobuf/stubs/common.h>
 
-#include "jni/RuntimeInitializer.h"
+#include "bridge/RuntimeInitializer.h"
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

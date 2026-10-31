@@ -16,19 +16,27 @@
     <modules>
         <module>pangrova-common</module>
         <module>pangrova-config</module>
-        <module>pangrova-spi</module>
+        <module>pangrova-function</module>
         <module>pangrova-materialization</module>
         <module>pangrova-shuffle</module>
         <module>pangrova-parser</module>
         <module>pangrova-planner</module>
         <module>pangrova-protocol</module>
         <module>pangrova-observability</module>
-        <module>pangrova-resilience</module>
+        <module>pangrova-query-api</module>
+        <module>pangrova-data-build</module>
+        <module>pangrova-query</module>
+        <module>pangrova-scheduler</module>
         <module>pangrova-operations</module>
-        <module>pangrova-resource</module>
-        <module>pangrova-coordinator</module>
+        <module>pangrova-coordination</module>
+        <module>pangrova-storage</module>
         <module>pangrova-worker</module>
+        <module>pangrova-table</module>
+        <module>pangrova-file</module>
+        <module>pangrova-schema-migrations</module>
         <module>pangrova-metadata</module>
+        <module>pangrova-semantic</module>
+        <module>pangrova-ai</module>
         <module>pangrova-connector</module>
         <module>pangrova-standalone</module>
         <module>pangrova-security</module>
@@ -426,17 +434,37 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-coordinator</artifactId>
+                <artifactId>pangrova-coordination-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-spi</artifactId>
+                <artifactId>pangrova-coordination-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-materialization</artifactId>
+                <artifactId>pangrova-coordination-inmemory</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-coordination-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-function</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-materialization-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-materialization-store-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -456,7 +484,47 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-observability</artifactId>
+                <artifactId>pangrova-observability-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-observability-sdk</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-data-build</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-query-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-query</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-scheduler</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-table</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-file</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-coordination-zookeeper</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -471,12 +539,57 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-worker</artifactId>
+                <artifactId>pangrova-worker-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-schema-migrations</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-metadata</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-semantic</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-worker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-worker-native-bridge</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-storage</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-ai-control</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-connector-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-connector-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -610,20 +723,9 @@
                 <version>${paimon.version}</version>
             </dependency>
 
-
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-resilience</artifactId>
-                <version>${project.version}</version>
-            </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-operations</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-resource</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -644,7 +746,12 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-indexing</artifactId>
+                <artifactId>pangrova-indexing-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-indexing-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -654,7 +761,7 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-client-rest</artifactId>
+                <artifactId>pangrova-client-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -669,7 +776,7 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-common</artifactId>
+                <artifactId>pangrova-testing-kit</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -680,22 +787,17 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-benchmark</artifactId>
+                <artifactId>pangrova-testing-benchmark</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-e2e</artifactId>
+                <artifactId>pangrova-testing-integration-tests</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-fuzzer</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-test-chaos</artifactId>
+                <artifactId>pangrova-testing-fuzzer</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -999,6 +1101,19 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>${module.name}</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
     </build>
 
     <profiles>
@@ -1083,8 +1198,8 @@
 
             Usage:
               mvn -pl pangrova-planner     -Pmutation org.pitest:pitest-maven:mutationCoverage
-              mvn -pl pangrova-coordinator -Pmutation org.pitest:pitest-maven:mutationCoverage
-              mvn -pl pangrova-resource    -Pmutation org.pitest:pitest-maven:mutationCoverage
+              mvn -pl pangrova-coordination/pangrova-coordination-core -Pmutation org.pitest:pitest-maven:mutationCoverage
+              mvn -pl pangrova-scheduler   -Pmutation org.pitest:pitest-maven:mutationCoverage
 
             Reports land in target/pit-reports/ (HTML + XML). Aim for >=60% mutation
             score on core decision-heavy code (planner rules, coordinator state

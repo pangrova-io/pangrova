@@ -3,7 +3,7 @@ package org.pangrova.protocol.function.catalog;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture;
-import org.pangrova.protocol.CapabilityInventoryCodec;
+import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.FunctionAvailability;
 import org.pangrova.protocol.v2.FunctionCatalogManifest;

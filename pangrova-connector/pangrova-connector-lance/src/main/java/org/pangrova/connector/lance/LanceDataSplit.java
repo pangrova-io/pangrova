@@ -2,20 +2,20 @@ package org.pangrova.connector.lance;
 
 import java.security.MessageDigest;
 
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ScanPartitionDetail;
-import org.pangrova.spi.connector.metadata.NativeDatasetScanPage;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.NativeDatasetScanPage;
+import org.pangrova.connector.spi.metadata.ConnectorSplit;
 import java.util.Map;
 
 /** Canonical dataset split pinned to the catalog-visible Lance version. */
 public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Partition partition,
         byte[] serializedCatalogBinding, byte[] manifestSha256,
-        org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot) implements ConnectorSplit {
+        org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot snapshot) implements ConnectorSplit {
     public LanceDataSplit {
         if (table.version() <= 0) throw new IllegalArgumentException("Lance scan requires a published version");
         if (snapshot.version() != table.version() || !snapshot.tableId().equals(table.tableId())
@@ -36,7 +36,7 @@ public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Parti
                 FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_LANCE)
                         .setScanPartition(ScanPartitionDetail.newBuilder().setPartitionId(partition.id())
                                 .setPhysicalRows(partition.physicalRows()).setManifestSha256(checksum(manifestSha256))
-                                .setAcceptedSnapshot(org.pangrova.protocol.SourceSnapshotBindings.encode(
+                                .setAcceptedSnapshot(org.pangrova.protocol.source.SourceSnapshotBindings.encode(
                                         snapshot, catalogBinding()))
                                 .setPhysicalSchemaSha256(checksum(table.schemaFence()))).build()))
                 .toBuilder().setCatalog(catalogBinding()).build().toByteArray();

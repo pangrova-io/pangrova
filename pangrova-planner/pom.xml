@@ -14,7 +14,16 @@
     <name>Pangrova Planner</name>
     <description>Calcite-based query planner with custom optimization rules</description>
 
+    <properties>
+        <module.name>org.pangrova.planner</module.name>
+    </properties>
+
     <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-spi</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-shuffle-core</artifactId>
@@ -25,11 +34,15 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-function</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-ai-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -66,7 +79,7 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

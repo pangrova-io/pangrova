@@ -56,7 +56,7 @@ public record ExchangeChannelContext(
         return taskAttempt.controlEpoch();
     }
 
-    public org.pangrova.shuffle.ShuffleExecutionOwner executionOwner() {
+    public org.pangrova.shuffle.api.ShuffleExecutionOwner executionOwner() {
         return taskAttempt.executionOwner();
     }
 }

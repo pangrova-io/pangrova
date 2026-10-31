@@ -6,10 +6,10 @@
 #include "CanonicalTypeDescriptorExport.h"
 #include "FunctionResolverOracle.h"
 #include "RegisteredFunctionExport.h"
-#include "capability/BuiltinFunctionRegistration.h"
-#include "capability/FunctionCatalogAssembler.h"
-#include "capability/FunctionContractEncoding.h"
-#include "capability/NativeCapabilityInventory.h"
+#include "capabilities/capability/BuiltinFunctionRegistration.h"
+#include "capabilities/capability/FunctionCatalogAssembler.h"
+#include "capabilities/capability/FunctionContractEncoding.h"
+#include "capabilities/capability/NativeCapabilityInventory.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
 int main(int argc, char** argv) {

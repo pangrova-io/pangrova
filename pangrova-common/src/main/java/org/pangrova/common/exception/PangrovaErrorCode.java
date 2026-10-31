@@ -102,6 +102,9 @@ public enum PangrovaErrorCode {
     METADATA_FILE_SPACE_NOT_FOUND("METADATA-0019", "Volume or stage not found"),
     METADATA_FILE_SPACE_ALREADY_EXISTS("METADATA-0020", "Volume or stage already exists"),
 
+    TABLE_CONTROL_PERSISTENCE_FAILED("TABLE-0001", "Table control persistence failed"),
+    TABLE_CONTROL_STALE_WRITE("TABLE-0002", "Table control write rejected by optimistic concurrency"),
+
     FILE_OBJECT_NOT_FOUND("FILE-0001", "File object not found"),
     FILE_OBJECT_PRECONDITION_FAILED("FILE-0002", "File object version does not match the request"),
     FILE_PATH_INVALID("FILE-0003", "File path is not valid for this volume or stage"),
@@ -193,11 +196,14 @@ public enum PangrovaErrorCode {
     STREAMING_MAINTENANCE_TIMEOUT("STREAMING-0003", "Maintenance task timeout"),
     STREAMING_WATERMARK_FAILED("STREAMING-0004", "Watermark tracker failed"),
     STREAMING_CDC_STALE_FENCE("STREAMING-0005", "CDC pipeline fencing token is stale"),
+    STREAMING_STORE_ERROR("STREAMING-0006", "Streaming state store persistence error"),
 
     STREAM_SOURCE_UNAVAILABLE("STREAM-0001", "Stream source is unavailable"),
     STREAM_NOT_FOUND("STREAM-0002", "Stream not found"),
     STREAM_ALREADY_EXISTS("STREAM-0003", "Stream already exists"),
     STREAM_QUOTA_EXCEEDED("STREAM-0004", "Stream quota exceeded"),
+
+    SEMANTIC_STORE_ERROR("SEMANTIC-0001", "Semantic View store persistence failure"),
 
     GOVERNANCE_LINEAGE_EMISSION_FAILED("GOVERNANCE-0001", "Lineage event emission failed"),
     GOVERNANCE_QUALITY_CHECK_FAILED("GOVERNANCE-0002", "Data quality check failed"),
@@ -228,6 +234,7 @@ public enum PangrovaErrorCode {
     AI_EMBEDDING_ACCESS_DENIED("AI-0006", "Insufficient privilege for embedding model operation"),
     AI_EMBEDDING_MODEL_DROP_UNAVAILABLE(
             "AI-0007", "Embedding model drop requires durable dependency coordination"),
+    AI_CONTROL_STORE_ERROR("AI-0008", "AI control-plane store persistence failure"),
     AI_EMBEDDING_PROVIDER_UNAVAILABLE("AI-3003", "Embedding provider unavailable"),
     AI_BRANCH_NOT_FOUND("AI-3008", "Branch does not exist"),
     AI_BRANCH_ALREADY_EXISTS("AI-3011", "Branch already exists"),

@@ -36,7 +36,7 @@ Run one method to qualify startup, then select only the remaining methods for th
 incremental pass. The full class remains the final matrix selector:
 
 ```bash
-mvn -pl pangrova-testing/pangrova-test-e2e test \
+mvn -pl pangrova-testing/pangrova-testing-integration-tests test \
   -Dtest=IndependentSpeculativeExecutionE2ETest \
   -Dpangrova.e2e.local.lib-dir="$runtime_dir/lib" \
   -Dpangrova.e2e.local.jar-manifest="$runtime_dir/runtime.sha256" \

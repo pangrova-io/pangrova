@@ -1,6 +1,7 @@
 package org.pangrova.parser.ast.expression;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 
 import java.util.List;
 import java.util.Objects;
@@ -49,5 +50,10 @@ public record StructConstructor(List<Field> fields) implements Expression {
             Objects.requireNonNull(name, "field name must not be null");
             return new Field(Optional.of(name), value);
         }
+    }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.STRUCT_CONSTRUCTOR;
     }
 }

@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
         -am install; \
     mkdir -p /dist/lib /dist/cli /dist/bin /dist/config/catalog; \
     mvn -B -q -Pnative-runtime \
-        -pl pangrova-standalone,pangrova-coordinator,pangrova-worker,pangrova-client/pangrova-client-cli,pangrova-connector/pangrova-connector-iceberg,pangrova-connector/pangrova-connector-paimon,pangrova-connector/pangrova-connector-lance \
+        -pl pangrova-standalone,pangrova-coordination/pangrova-coordination-core,pangrova-worker/pangrova-worker-core,pangrova-client/pangrova-client-cli,pangrova-connector/pangrova-connector-iceberg,pangrova-connector/pangrova-connector-paimon,pangrova-connector/pangrova-connector-lance \
         dependency:copy-dependencies -DincludeScope=runtime \
         -DexcludeArtifactIds=slf4j-log4j12,slf4j-reload4j \
         -DoutputDirectory=/dist/lib; \
@@ -58,7 +58,10 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
         META-INF/services/org.slf4j.spi.SLF4JServiceProvider; \
     test ! -e /dist/lib/slf4j-log4j12-*.jar; \
     test ! -e /dist/lib/slf4j-reload4j-*.jar; \
-    for module in pangrova-standalone pangrova-coordinator pangrova-worker \
+    test ! -e /dist/lib/pangrova-testing-kit-*.jar; \
+    test ! -e /dist/lib/pangrova-testing-integration-tests-*.jar; \
+    for module in pangrova-standalone pangrova-coordination/pangrova-coordination-core \
+        pangrova-worker/pangrova-worker-core pangrova-ai/pangrova-ai-worker pangrova-storage \
         pangrova-client/pangrova-client-cli pangrova-connector/pangrova-connector-iceberg \
         pangrova-connector/pangrova-connector-paimon pangrova-connector/pangrova-connector-lance; do \
         properties="$module/target/maven-archiver/pom.properties"; test -f "$properties"; \
@@ -68,6 +71,26 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
         main_jar="$module/target/$artifact_id-$artifact_version.jar"; \
         test -f "$main_jar"; cp "$main_jar" /dist/lib/; \
     done; \
+    ai_worker_jars=(/dist/lib/pangrova-ai-worker-*.jar); \
+    test "${#ai_worker_jars[@]}" -eq 1; \
+    provider_check="$(mktemp -d)"; \
+    (cd "$provider_check"; jar --extract --file "${ai_worker_jars[0]}" \
+        META-INF/services/org.pangrova.function.api.registry.FunctionFactory \
+        META-INF/services/org.pangrova.function.api.runtime.FunctionCallbackScope \
+        META-INF/services/org.pangrova.function.api.runtime.FunctionFailureProjector \
+        META-INF/services/org.pangrova.ai.api.runtime.AiTaskLifecycle \
+        META-INF/services/org.pangrova.ai.api.runtime.AiModelCatalog; \
+        grep -Fx org.pangrova.ai.worker.function.AiFunctionFactory \
+            META-INF/services/org.pangrova.function.api.registry.FunctionFactory; \
+        grep -Fx org.pangrova.ai.worker.context.WorkerAiCallbackScope \
+            META-INF/services/org.pangrova.function.api.runtime.FunctionCallbackScope; \
+        grep -Fx org.pangrova.ai.worker.function.AiFunctionFailureProjector \
+            META-INF/services/org.pangrova.function.api.runtime.FunctionFailureProjector; \
+        grep -Fx org.pangrova.ai.worker.invocation.WorkerAiTaskLifecycle \
+            META-INF/services/org.pangrova.ai.api.runtime.AiTaskLifecycle; \
+        grep -Fx org.pangrova.ai.worker.provider.WorkerAiModelCatalog \
+            META-INF/services/org.pangrova.ai.api.runtime.AiModelCatalog); \
+    rm -r "$provider_check"; \
     cli_exec=(pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar); \
     test "${#cli_exec[@]}" -eq 1; test -f "${cli_exec[0]}"; cp "${cli_exec[0]}" /dist/cli/; \
     test -f "/dist/lib/$(basename "$bundle")"; \

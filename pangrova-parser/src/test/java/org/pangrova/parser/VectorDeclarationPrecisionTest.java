@@ -7,7 +7,7 @@ import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.type.DataTypeSpec;
 import org.pangrova.parser.ast.type.DataTypeSpecParser;
 import org.pangrova.parser.ast.type.DistanceMetric;
-import org.pangrova.spi.connector.data.type.VectorType.ElementType;
+import org.pangrova.connector.spi.data.type.VectorType.ElementType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

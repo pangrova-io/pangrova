@@ -17,12 +17,12 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 
 import java.math.BigDecimal;
 import java.util.List;

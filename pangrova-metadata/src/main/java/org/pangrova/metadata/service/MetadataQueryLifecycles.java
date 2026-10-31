@@ -1,8 +1,8 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.spi.connector.ConnectorQueryAuthority;
-
+import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.connector.spi.ConnectorQueryAuthority;
+import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
 import org.pangrova.common.concurrent.ThreadSafe;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,8 +22,8 @@ final class MetadataQueryLifecycles {
     }
 
     QueryLifecycleReport begin(MetadataSessionContext session) {
-        var authority = session.queryAuthority().orElseThrow(
-                () -> new IllegalArgumentException("Metadata begin requires the issued query lifetime"));
+        var authority = ConnectorMetadataScope.require(session.queryAuthority().orElseThrow(
+                () -> new IllegalArgumentException("Metadata begin requires the issued query lifetime")));
         try (var permit = authority.enterOperation()) {
             Owner candidate = new Owner(authority);
             Owner previous = owners.putIfAbsent(authority.queryId(), candidate);
@@ -66,7 +66,7 @@ final class MetadataQueryLifecycles {
         }
         owner.claimCleanup(authority);
         try {
-            var outcome = authority.cleanupMetadata();
+            var outcome = owner.authority.cleanupMetadata();
             if (outcome.failures().isEmpty()) owners.remove(authority.queryId(), owner);
             Map<String, Exception> failed = new LinkedHashMap<>(outcome.failures());
             return report(authority.queryId(), QueryLifecycleReport.Operation.CLEANUP,
@@ -89,12 +89,12 @@ final class MetadataQueryLifecycles {
     }
 
     private static final class Owner {
-        private final ConnectorQueryAuthority authority;
+        private final ConnectorMetadataScope authority;
         private boolean beginning = true;
         private boolean beganSuccessfully;
         private boolean cleaning;
 
-        Owner(ConnectorQueryAuthority authority) { this.authority = authority; }
+        Owner(ConnectorMetadataScope authority) { this.authority = authority; }
 
         synchronized void requireCompletedBegin(ConnectorQueryAuthority requested) {
             requireSame(requested);

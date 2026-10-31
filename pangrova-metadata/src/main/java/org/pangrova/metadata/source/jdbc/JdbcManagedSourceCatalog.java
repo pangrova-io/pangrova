@@ -1,20 +1,20 @@
 package org.pangrova.metadata.source.jdbc;
 
-import org.pangrova.metadata.artifact.jdbc.GeneratedModelCurrentAuthority;
-import org.pangrova.metadata.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
+import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
+import org.pangrova.query.api.coordination.jdbc.ExecutionTransactionFence;
+import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.store.AuthorizationTransactionGate;
-import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
-import org.pangrova.spi.connector.metadata.NativeWriteFinalization;
-import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
-import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.coordination.ExecutionAnchor;
-import org.pangrova.spi.coordination.WriteCommitEntry;
+import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
+import org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.spi.coordination.NativeWriteFinalization;
+import org.pangrova.connector.spi.metadata.PreparedSourcePublication;
+import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.connector.spi.coordination.WriteCommitEntry;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -47,13 +47,23 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
     private final DataSource dataSource;
     private final Deployment deployment;
     private final Function<String, ExecutionAnchor> currentOwner;
+    private final ExecutionTransactionFence executionFence;
+    private final CurrentModelAuthority modelAuthority;
 
     /** Borrows the assembly-owned source; transactions close connections, never the shared source. */
     public JdbcManagedSourceCatalog(DataSource dataSource, Deployment deployment,
-        Function<String, ExecutionAnchor> currentOwner) {
+        Function<String, ExecutionAnchor> currentOwner, ExecutionTransactionFence executionFence,
+        CurrentModelAuthority modelAuthority) {
         this.dataSource = Objects.requireNonNull(dataSource);
         this.deployment = Objects.requireNonNull(deployment);
         this.currentOwner = Objects.requireNonNull(currentOwner);
+        this.executionFence = Objects.requireNonNull(executionFence, "executionFence");
+        this.modelAuthority = Objects.requireNonNull(modelAuthority, "modelAuthority");
+    }
+
+    private void requireExecutionOwner(Connection connection, ExecutionAnchor expected) throws SQLException {
+        executionFence.requireCurrent(connection, expected.executionId(), expected.ownerId(),
+                expected.ownerIncarnation(), expected.fencingToken());
     }
 
     @Override public Deployment deployment() { return deployment; }
@@ -158,7 +168,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         ExecutionAnchor expected = currentOwner.apply(context.executionId());
         return transaction(connection -> {
             AuthorizationTransactionGate.lockPublication(connection);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             var intent = JdbcWriteCommitJournal.lockIntent(connection, context.executionId());
             requireIntent(intent, base, context, fragments);
             if (intent.state() == WriteCommitEntry.State.ABORTED) {
@@ -176,12 +186,12 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                 "_pangrova/prepared/" + context.commitFingerprint() + ".manifest", baseSnapshot);
             insertReservation(connection, reservation, intent);
             requireReservation(connection, reservation, false);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             return reservation;
         });
     }
 
-    @Override public org.pangrova.spi.connector.metadata.SourcePrepareInvocation issuePreparation(
+    @Override public org.pangrova.connector.spi.metadata.SourcePrepareInvocation issuePreparation(
         SourcePublicationReservation reservation, int pageIndex, String afterPath, String workerEndpoint,
         byte[] requestSha256) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
@@ -196,7 +206,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
     }
 
     @Override public void acknowledgePreparation(SourcePublicationReservation reservation,
-        org.pangrova.spi.connector.metadata.SourcePrepareInvocation invocation, byte[] responseSha256) {
+        org.pangrova.connector.spi.metadata.SourcePrepareInvocation invocation, byte[] responseSha256) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         preparationTransaction(reservation, expected, connection -> {
             requireReservation(connection, reservation, true);
@@ -209,7 +219,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         SqlOperation<T> work) {
         return transaction(connection -> {
             AuthorizationTransactionGate.lockPublication(connection);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             var intent = JdbcWriteCommitJournal.lockIntent(connection, reservation.executionId());
             requireReservationIntent(reservation, intent);
             requireProvenanceOwner(intent, expected);
@@ -218,19 +228,19 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             head(connection, reservation.base().key(), true);
             JdbcSourceNamespace.requireCurrent(connection, deployment, reservation.base().datasetUri());
             T value = work.execute(connection);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             return value;
         });
     }
 
     @Override public void registerObjects(SourcePublicationReservation reservation,
         PreparedSourcePublication publication,
-        org.pangrova.spi.connector.metadata.SourceObjectPage page) {
+        org.pangrova.connector.spi.metadata.SourceObjectPage page) {
         requireCandidateReference(reservation, publication);
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         transaction(connection -> {
             AuthorizationTransactionGate.lockPublication(connection);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             var intent = JdbcWriteCommitJournal.lockIntent(connection, reservation.executionId());
             requireReservationIntent(reservation, intent);
             requireProvenanceOwner(intent, expected);
@@ -244,7 +254,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             }
             JdbcSourcePreparationInvocations.requireJoinedPage(connection, reservation, page);
             JdbcSourceObjectRegistration.register(connection, deployment, reservation, publication, page);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             return null;
         });
     }
@@ -255,7 +265,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         return transaction(connection -> {
             AuthorizationTransactionGate.lockPublication(connection);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             var intent = JdbcWriteCommitJournal.lockIntent(connection, reservation.executionId());
             requireReservationIntent(reservation, intent);
             requireProvenanceOwner(intent, expected);
@@ -270,7 +280,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                     .orElseThrow();
                 requireSameSnapshot(accepted, publication, next);
                 JdbcWriteCommitJournal.commitPublication(connection, intent, finalization(accepted));
-                JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+                requireExecutionOwner(connection, expected);
                 return accepted;
             }
             requireBase(current, reservation.base());
@@ -284,7 +294,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             JdbcWriteCommitJournal.commitPublication(connection, intent, finalization(accepted));
             // All possibly waiting catalog, candidate, object and journal writes have completed.
             // The exact anchor remains locked; this final independent wall-clock sample is followed by COMMIT only.
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             return accepted;
         });
     }
@@ -294,7 +304,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         ExecutionAnchor expected = currentOwner.apply(context.executionId());
         return transaction(connection -> {
             AuthorizationTransactionGate.lockPublication(connection);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             var intent = JdbcWriteCommitJournal.lockIntent(connection, context.executionId());
             requireIntent(intent, base, context, fragments);
             requireProvenanceOwner(intent, expected);
@@ -316,12 +326,12 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             } else if (intent.state() != WriteCommitEntry.State.PENDING || intent.publication() != null) {
                 throw new IllegalStateException("Source intent state has no matching accepted publication");
             }
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             return accepted;
         });
     }
 
-    @Override public Optional<org.pangrova.spi.connector.metadata.SourceCleanupBatch> reserveCleanup(
+    @Override public Optional<org.pangrova.connector.spi.metadata.SourceCleanupBatch> reserveCleanup(
         SourcePublicationReservation reservation) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         return preparationTransaction(reservation, expected, connection -> {
@@ -332,7 +342,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
     }
 
     @Override public void completeCleanup(SourcePublicationReservation reservation,
-        org.pangrova.spi.connector.metadata.SourceCleanupBatch batch) {
+        org.pangrova.connector.spi.metadata.SourceCleanupBatch batch) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         preparationTransaction(reservation, expected, connection -> {
             String state = requireReservation(connection, reservation, true);
@@ -344,12 +354,12 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         });
     }
 
-    @Override public org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abort(
+    @Override public org.pangrova.connector.spi.metadata.DistributedWriteAbortReceipt abort(
         SourcePublicationReservation reservation) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         return transaction(connection -> {
             AuthorizationTransactionGate.lockPublication(connection);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
+            requireExecutionOwner(connection, expected);
             var intent = JdbcWriteCommitJournal.lockIntent(connection, reservation.executionId());
             requireReservationIntent(reservation, intent);
             requireProvenanceOwner(intent, expected);
@@ -380,8 +390,8 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
                 }
             }
             JdbcWriteCommitJournal.abortIntent(connection, intent);
-            JdbcExecutionAnchorStore.requireCurrent(connection, expected);
-            return new org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt(
+            requireExecutionOwner(connection, expected);
+            return new org.pangrova.connector.spi.metadata.DistributedWriteAbortReceipt(
                 reservation.executionId(), reservation.fingerprint());
         });
     }
@@ -403,7 +413,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         }
     }
 
-    private static void requireWriteAuthority(Connection connection, WriteCommitEntry intent) throws SQLException {
+    private void requireWriteAuthority(Connection connection, WriteCommitEntry intent) throws SQLException {
         var scope = DeferredAuthorizationScopeCodec.decode(intent.authorizationReceipt().authorizationScope());
         if (!DeferredAuthorizationScopeCodec.decodeWriteReceipt(intent.authorizationReceipt().authorizationScope())
             .equals(intent.authorizationReceipt())) {
@@ -419,7 +429,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             }
         });
         if (scope.definitionSnapshot().isPresent()) {
-            GeneratedModelCurrentAuthority.requireCurrent(connection, intent.principal(),
+            modelAuthority.requireCurrent(connection, intent.principal(),
                 scope.definitionSnapshot().orElseThrow().models());
         }
     }
@@ -691,7 +701,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         if (current == null || !current.key().equals(expected.key()) || !current.tableId().equals(expected.tableId())
             || !current.datasetUri().equals(expected.datasetUri()) || current.generation() != expected.generation()
             || !Arrays.equals(current.schemaSha256(), expected.schemaSha256())) {
-            throw new org.pangrova.spi.connector.metadata
+            throw new org.pangrova.connector.spi.metadata
                 .SourceTableUnavailableException("Source table was dropped, replaced or changed generation");
         }
     }

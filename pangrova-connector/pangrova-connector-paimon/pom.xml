@@ -14,11 +14,16 @@
     <name>Pangrova Connector Paimon</name>
     <description>Apache Paimon connector for Pangrova — lakehouse table format integration</description>
 
+    <properties>
+        <module.name>org.pangrova.connector.paimon</module.name>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-connector-spi</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>

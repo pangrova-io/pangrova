@@ -114,13 +114,13 @@ These design references are grouped under the **Operations** and **Contributing*
 4. **Write publication.** Workers produce fragments for one fenced connector catalog commit.
    Recovery ambiguity and incomplete paths remain explicit in [Distributed Write](distributed-writes.md);
    this design does not establish complete distributed-write qualification.
-5. **Extensibility via SPIs.** Stable contracts live in `pangrova-spi` or their owning
-   modules. Plugin-capable contracts may be discovered via `ServiceLoader`; not every
+5. **Extensibility via SPIs.** Stable contracts live in the owning `-api`/`-spi`
+   artifact (for example `pangrova-connector-spi`, `pangrova-observability-api`). Plugin-capable contracts may be discovered via `ServiceLoader`; not every
    SPI uses service loading. Core SPIs include
    `ConnectorFactory`, `ConnectorMetadata`, `ConnectorSplitManager`, `ConnectorPageSourceProvider`,
    `ConnectorPageSinkProvider`, `TableWriter`, `TableMaintenanceSpi`,
-   `DistributedCacheStore`, `TracingProvider`,
-   and `MetricsProvider`. Use source declarations and the owning subsystem document for signatures.
+   `TracingProvider`, and `MetricsProvider`. Use source declarations and the owning
+   subsystem document for signatures.
 6. **Verifiable operation.** Resource management, caching, resilience, and observability behavior
    must be backed by production wiring and tests before the documentation calls it supported.
 
@@ -140,7 +140,7 @@ For the complete, authoritative protocol-mapping table, see the
 | Module | Responsibility | Shared across |
 |---|---|---|
 | `pangrova-protocol` | Protobuf definitions, Arrow schemas | Java ↔ Native |
-| `pangrova-spi` | Connector / Cache / Serializer SPIs + connector base abstractions + Flight contracts | Global |
+| `pangrova-connector-spi` | Connector / Cache / Serializer SPIs + connector base abstractions | Global |
 | `pangrova-common` | Utilities, constants, exception definitions | Global |
 
 ## Platform baseline

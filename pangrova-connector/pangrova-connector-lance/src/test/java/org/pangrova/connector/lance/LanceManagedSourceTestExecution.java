@@ -5,10 +5,10 @@ import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.PrepareDistributedWriteResult;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
-import org.pangrova.spi.coordination.ExecutionAnchor;
-import org.pangrova.spi.coordination.WriteCommitEntry;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
+import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.connector.spi.coordination.WriteCommitEntry;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,7 +43,7 @@ public final class LanceManagedSourceTestExecution {
     }
 
     /** Production connector and exact codec over this same actual PG authority; no simulated provider. */
-    public org.pangrova.spi.connector.Connector connector() { return fixture.connector(); }
+    public org.pangrova.connector.spi.plugin.Connector connector() { return fixture.connector(); }
     public CatalogExecutionBinding catalog() { return fixture.catalog(); }
     public ConnectorOutputTableHandle output() { return prepared.allocation().output(); }
     public WriteCommitEntry intent() { return fixture.journal().getEntry(prepared.allocation().executionId()).orElseThrow(); }

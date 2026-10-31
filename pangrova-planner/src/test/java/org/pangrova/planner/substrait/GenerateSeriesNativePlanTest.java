@@ -9,7 +9,7 @@ import org.pangrova.planner.lineage.ColumnDerivation;
 import org.pangrova.planner.validation.NativeCapabilityRegistry;
 import org.pangrova.planner.validation.SubstraitPlanValidator;
 import org.pangrova.planner.validation.ValidationStatus;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 
 import static org.assertj.core.api.Assertions.assertThat;

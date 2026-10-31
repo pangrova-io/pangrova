@@ -1,6 +1,7 @@
 package org.pangrova.parser.ast.expression;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 
 import java.util.Objects;
 
@@ -12,4 +13,9 @@ public record TruthTestExpression(Expression operand, TruthValue value, boolean 
     }
 
     public enum TruthValue { TRUE, FALSE, UNKNOWN }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.TRUTH_TEST;
+    }
 }

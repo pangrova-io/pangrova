@@ -1,12 +1,13 @@
 package org.pangrova.metadata.coordination;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.exception.MetastoreException;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.testing.testkit.PostgresCommitWireFault;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import java.net.InetAddress;
@@ -25,7 +26,7 @@ class JdbcMetadataMutationCommitIntegrationTest {
         var primary = (PGSimpleDataSource) SharedPostgresContainer.migratedDataSource("metadata_commit_ack");
         var descriptor = new CatalogDescriptor("commit_ack", CatalogType.FEDERATION, "inventory",
                 CatalogState.ACTIVE, Map.of("version", "one"), "", Set.of());
-        try (var wire = new JournalCommitWireFault(primary.getServerNames()[0], primary.getPortNumbers()[0])) {
+        try (var wire = new PostgresCommitWireFault(primary.getServerNames()[0], primary.getPortNumbers()[0])) {
             var relayed = new PGSimpleDataSource();
             relayed.setURL(primary.getURL());
             relayed.setServerNames(new String[] {InetAddress.getLoopbackAddress().getHostAddress()});

@@ -245,7 +245,7 @@ public final class AstToSqlNodeConverter {
         }
         Identifier tableName = ref.systemTableRef().map(systemTable -> {
             String kind = systemTable.systemTableName();
-            if (org.pangrova.spi.connector.metadata.MetadataTableKind.fromSuffix(kind).isEmpty()) {
+            if (org.pangrova.connector.spi.metadata.MetadataTableKind.fromSuffix(kind).isEmpty()) {
                 throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                         "System table has no Native reader: " + kind);
             }

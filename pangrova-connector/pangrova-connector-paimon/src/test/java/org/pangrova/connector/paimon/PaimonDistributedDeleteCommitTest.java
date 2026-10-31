@@ -1,14 +1,13 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
-
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -58,7 +57,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
 
         assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, fragments, context,
                 (schema, name, added, removed, snapshot, event, fingerprint) -> notifications.incrementAndGet()))
-                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
+                .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
                 .hasStackTraceContaining("Exception occurs when committing snapshot");
         assertThat(publications).hasValue(1);
         assertThat(notifications).hasValue(0);
@@ -130,7 +129,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         writeRows(DELETED);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginInsert(SESSION, handle(metadata));
-        ConnectorPageSink sink = provider().createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, output);
+        ConnectorPageSink sink = provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, output);
         byte[] fragment = finish(sink, SURVIVOR);
 
         PaimonCommitTestSupport.finish(metadata, SESSION, output, List.of(fragment));
@@ -144,7 +143,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginInsert(SESSION, handle(metadata));
         ConnectorPageSink sink = provider().createPageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, output);
+                ConnectorTransactionHandle.empty(), SESSION, output);
         List<byte[]> fragments = List.of(finish(sink, SURVIVOR));
         var context = PaimonCommitTestSupport.context(metadata, SESSION, output, fragments);
 
@@ -182,7 +181,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         var insert = metadata.beginInsert(SESSION, handle(metadata));
         var overwrite = metadata.beginOverwrite(SESSION, handle(metadata));
         ConnectorPageSink insertSink = provider().createPageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, insert);
+                ConnectorTransactionHandle.empty(), SESSION, insert);
         byte[] insertFragment = finish(insertSink, SURVIVOR);
         byte[] overwriteFragment = prepare(overwrite, OTHER_SURVIVOR);
         List<byte[]> fragments = List.of(insertFragment, overwriteFragment);
@@ -195,13 +194,13 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         assertThat(snapshotId()).isEqualTo(-1L);
     }
 
-    private org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
+    private org.pangrova.connector.spi.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
         return metadata.getTableHandle(SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
     }
 
     private byte[] prepare(ConnectorOutputTableHandle output, StoredRow... survivors) {
         ConnectorPageSink sink = provider().createOverwritePageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, output);
+                ConnectorTransactionHandle.empty(), SESSION, output);
         return finish(sink, survivors);
     }
 

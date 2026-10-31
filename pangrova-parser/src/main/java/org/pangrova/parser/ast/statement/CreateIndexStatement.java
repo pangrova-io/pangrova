@@ -2,6 +2,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.List;
 import java.util.Map;
@@ -34,5 +35,10 @@ public record CreateIndexStatement(
             boolean ifNotExists,
             Map<String, String> properties) {
         this(indexName, tableName, columnNames, indexType, ifNotExists, properties, false);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_INDEX;
     }
 }

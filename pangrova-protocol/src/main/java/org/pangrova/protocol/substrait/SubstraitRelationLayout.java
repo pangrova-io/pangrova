@@ -8,7 +8,7 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 import io.substrait.proto.RelRoot;
 import io.substrait.proto.Type;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;

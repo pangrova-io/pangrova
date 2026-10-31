@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.type;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.PangrovaTypeMapping;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.mapping.PangrovaTypeMapping;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
@@ -140,142 +140,142 @@ final class PaimonToPangrovaTypeVisitors {
      * Preserves full parameter information for DECIMAL, ARRAY, MAP, and ROW.
      */
     static final class ParameterizedTypeVisitor
-            implements DataTypeVisitor<org.pangrova.spi.connector.data.type.Type> {
+            implements DataTypeVisitor<org.pangrova.connector.spi.data.type.Type> {
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(BooleanType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(BooleanType t) {
             return PangrovaTypeMapping.toType(PangrovaType.BOOLEAN);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(TinyIntType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(TinyIntType t) {
             return PangrovaTypeMapping.toType(PangrovaType.TINYINT);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(SmallIntType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(SmallIntType t) {
             return PangrovaTypeMapping.toType(PangrovaType.SMALLINT);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(IntType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(IntType t) {
             return PangrovaTypeMapping.toType(PangrovaType.INTEGER);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(BigIntType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(BigIntType t) {
             return PangrovaTypeMapping.toType(PangrovaType.BIGINT);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(FloatType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(FloatType t) {
             return PangrovaTypeMapping.toType(PangrovaType.FLOAT);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(DoubleType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(DoubleType t) {
             return PangrovaTypeMapping.toType(PangrovaType.DOUBLE);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(DecimalType dt) {
-            return new org.pangrova.spi.connector.data.type.primitive.DecimalType(
+        public org.pangrova.connector.spi.data.type.Type visit(DecimalType dt) {
+            return new org.pangrova.connector.spi.data.type.primitive.DecimalType(
                     dt.getPrecision(), dt.getScale());
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(CharType t) {
-            return new org.pangrova.spi.connector.data.type.primitive.CharType(t.getLength());
+        public org.pangrova.connector.spi.data.type.Type visit(CharType t) {
+            return new org.pangrova.connector.spi.data.type.primitive.CharType(t.getLength());
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(VarCharType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(VarCharType t) {
             int len = t.getLength();
             if (len == VarCharType.MAX_LENGTH) {
-                return org.pangrova.spi.connector.data.type.primitive.VarcharType.UNBOUNDED;
+                return org.pangrova.connector.spi.data.type.primitive.VarcharType.UNBOUNDED;
             }
-            return new org.pangrova.spi.connector.data.type.primitive.VarcharType(len);
+            return new org.pangrova.connector.spi.data.type.primitive.VarcharType(len);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(BinaryType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(BinaryType t) {
             return PangrovaTypeMapping.toType(PangrovaType.VARBINARY);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(VarBinaryType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(VarBinaryType t) {
             return PangrovaTypeMapping.toType(PangrovaType.VARBINARY);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(DateType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(DateType t) {
             return PangrovaTypeMapping.toType(PangrovaType.DATE);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(TimeType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(TimeType t) {
             return PangrovaTypeMapping.toType(PangrovaType.TIME);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(TimestampType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(TimestampType t) {
             return PangrovaTypeMapping.toType(PangrovaType.TIMESTAMP);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(LocalZonedTimestampType t) {
+        public org.pangrova.connector.spi.data.type.Type visit(LocalZonedTimestampType t) {
             return PangrovaTypeMapping.toType(PangrovaType.TIMESTAMP_TZ);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(ArrayType at) {
-            return new org.pangrova.spi.connector.data.type.ArrayType(
+        public org.pangrova.connector.spi.data.type.Type visit(ArrayType at) {
+            return new org.pangrova.connector.spi.data.type.ArrayType(
                     at.getElementType().accept(this));
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(MapType mt) {
-            return new org.pangrova.spi.connector.data.type.MapType(
+        public org.pangrova.connector.spi.data.type.Type visit(MapType mt) {
+            return new org.pangrova.connector.spi.data.type.MapType(
                     mt.getKeyType().accept(this),
                     mt.getValueType().accept(this));
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(MultisetType mt) {
-            return new org.pangrova.spi.connector.data.type.MapType(
+        public org.pangrova.connector.spi.data.type.Type visit(MultisetType mt) {
+            return new org.pangrova.connector.spi.data.type.MapType(
                     mt.getElementType().accept(this),
                     PangrovaTypeMapping.toType(PangrovaType.INTEGER));
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(RowType rt) {
+        public org.pangrova.connector.spi.data.type.Type visit(RowType rt) {
             var fields = rt.getFields().stream()
-                    .map(f -> new org.pangrova.spi.connector.data.type.RowField(
+                    .map(f -> new org.pangrova.connector.spi.data.type.RowField(
                             f.name(), f.type().accept(this)))
                     .toList();
-            return new org.pangrova.spi.connector.data.type.RowType(fields);
+            return new org.pangrova.connector.spi.data.type.RowType(fields);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(VariantType variantType) {
+        public org.pangrova.connector.spi.data.type.Type visit(VariantType variantType) {
             return PangrovaTypeMapping.toType(PangrovaType.VARIANT);
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(org.apache.paimon.types.VectorType vectorType) {
+        public org.pangrova.connector.spi.data.type.Type visit(org.apache.paimon.types.VectorType vectorType) {
             if (vectorType.getElementType() instanceof FloatType
                     || vectorType.getElementType() instanceof DoubleType) {
-                return new org.pangrova.spi.connector.data.type.VectorType(vectorType.getLength(),
+                return new org.pangrova.connector.spi.data.type.VectorType(vectorType.getLength(),
                         vectorType.getElementType() instanceof DoubleType
-                                ? org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE
-                                : org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT);
+                                ? org.pangrova.connector.spi.data.type.VectorType.ElementType.DOUBLE
+                                : org.pangrova.connector.spi.data.type.VectorType.ElementType.FLOAT);
             }
-            return new org.pangrova.spi.connector.data.type.ArrayType(
+            return new org.pangrova.connector.spi.data.type.ArrayType(
                     vectorType.getElementType().accept(this));
         }
 
         @Override
-        public org.pangrova.spi.connector.data.type.Type visit(org.apache.paimon.types.BlobType blobType) {
+        public org.pangrova.connector.spi.data.type.Type visit(org.apache.paimon.types.BlobType blobType) {
             return PangrovaTypeMapping.toType(PangrovaType.VARBINARY);
         }
     }

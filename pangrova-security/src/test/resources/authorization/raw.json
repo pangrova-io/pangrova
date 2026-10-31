@@ -1,0 +1,1 @@
+{"permissions":[{"catalog":"lake","schema":"sales","table":"facts","columns":["a","b"],"privilege":"SELECT","readMode":"RAW_READ","rowFilter":null,"columnMasks":{}},{"catalog":"lake","schema":"sales","table":"facts","columns":[],"privilege":"ALTER","readMode":"NONE","rowFilter":null,"columnMasks":{}}],"definition":null}

@@ -1,9 +1,10 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.task.CanonicalTaskRequests;
-import org.pangrova.protocol.NativeWriteBindings;
+import org.pangrova.protocol.write.NativeWriteBindings;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.LanceTransactionReference;
 import org.pangrova.protocol.v2.LanceWriteBinding;
@@ -12,7 +13,7 @@ import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -78,7 +79,7 @@ class LanceCommitFragmentsTest {
                         .setCatalogName(output.table().catalog()))
                 .setOutputHandle(SerializedConnectorOutputHandle.newBuilder().setTypeUrl(codec.typeUrl())
                         .setCodecVersion(codec.codecVersion()).setPayload(ByteString.copyFrom(bytes))
-                        .setPayloadChecksum(CanonicalTaskRequests.sha256(bytes)))).build();
+                        .setPayloadChecksum(ProtocolChecksums.sha256(bytes)))).build();
     }
 
     private DistributedWriteCommitContext context(WriteOutputBinding binding) {
@@ -97,7 +98,7 @@ class LanceCommitFragmentsTest {
                 .setStageId(1).setPartitionId(partition).setPlanEpoch(2).setControlEpoch(3).setFencingToken(4)
                 .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId("owner")
                         .setOwnerIncarnation("incarnation").setFencingToken(5)).build();
-        var digest = CanonicalTaskRequests.sha256(new byte[] {1, 2, 3});
+        var digest = ProtocolChecksums.sha256(new byte[] {1, 2, 3});
         String key = NativeWriteBindings.attemptPrefix(output.allocation().stagingPrefix(), attempt)
                 + "/transaction-" + HexFormat.of().formatHex(digest.getDigest().toByteArray()) + ".pb";
         return LanceWriteFragment.newBuilder().setContractVersion(2).setDatasetUri(output.allocation().datasetUri())

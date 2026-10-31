@@ -1,7 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
-import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import com.google.protobuf.Any;
@@ -26,7 +26,7 @@ import org.pangrova.protocol.v2.RetrievalMergeDetail;
 import org.pangrova.protocol.v2.RetryClass;
 import org.pangrova.protocol.v2.ScoreDirection;
 import org.pangrova.protocol.v2.TypedValue;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Binds a typed retrieval merge directly above a complete singleton exchange. */
 @Internal

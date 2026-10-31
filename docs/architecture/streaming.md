@@ -23,6 +23,21 @@ sidebar_label: "Streaming & CDC"
 
 > **Summary.** CDC ingestion, incremental queries, streaming writes, and watermark tracking.
 
+> **Code ownership.** The `pangrova-streaming` artifact owns the full slice:
+> `api.{source,cdc,checkpoint,watermark,aggregation,query}`, `core.*`,
+> `store.jdbc.*`, `provider.cdcformat.*`, `provider.writer.*` and
+> `adapter.coordinator` (stream DDL, scheduling, Kafka readers and the
+> connector page-sink CDC writer). The Coordinator only constructs the adapter
+> during bootstrap; it does not own a second CDC registration, scheduler or
+> offset/watermark store.
+
+The JDBC offset batch store owns one connection and commits the complete batch
+only after all writes succeed. SQL exceptions, runtime exceptions, and Errors
+trigger rollback; a rollback exception is suppressed on the original failure.
+The store closes its connection without restoring auto-commit in a failure path,
+which could otherwise commit pending offsets. This is local database atomicity;
+it does not make source acknowledgement and lake publication one transaction.
+
 ## 0. Product Positioning
 
 The Pangrova streaming module is a **declarative incremental data transformation** engine.

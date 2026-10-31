@@ -56,6 +56,12 @@ def main():
         'PublicHttpsApi': 'com.sun.net.httpserver.HttpsServer',
         'PublicHttpWildcard': 'com.sun.net.httpserver.*',
         'PublicHttpProvider': 'com.sun.net.httpserver.spi.HttpServerProvider',
+        'PublicCompilerTree': 'com.sun.source.tree.Tree',
+        'PublicCompilerUtil': 'com.sun.source.util.JavacTask',
+        'PublicCompilerWildcard': 'com.sun.source.tree.*',
+        'InternalJavac': 'com.sun.tools.javac.api.JavacTool',
+        'LookalikeCompilerPrefix': 'com.sun.source.treeextra.Tree',
+        'LookalikeCompilerPackage': 'com.sun.source.internal.Tree',
         'InternalSun': 'sun.misc.Unsafe',
         'InternalComSun': 'com.sun.crypto.provider.SunJCE',
         'LookalikeHttpPrefix': 'com.sun.net.httpserverx.HttpsServer',
@@ -68,7 +74,7 @@ def main():
         root = Path(directory)
         sources = root / 'src/main/java'
         sources.mkdir(parents=True)
-        jdbc = sources / 'org/pangrova/metadata/materialization/JdbcMaterializationRepository.java'
+        jdbc = sources / 'org/pangrova/materialization/store/jdbc/JdbcMaterializationRepository.java'
         jdbc.parent.mkdir(parents=True)
         jdbc.write_text('''class JdbcMaterializationRepository {
     void bind(java.sql.PreparedStatement statement) throws java.sql.SQLException {

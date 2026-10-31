@@ -2,16 +2,16 @@ package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.Connector;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.HealthCheckResult;
-import org.pangrova.spi.connector.metadata.IncrementalScanCapability;
-import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.spi.metadata.HealthCheckResult;
+import org.pangrova.connector.spi.metadata.IncrementalScanCapability;
+import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.apache.paimon.catalog.Catalog;
 
@@ -52,7 +52,7 @@ public class PaimonConnector implements Connector {
     }
 
     @Override
-    public Optional<org.pangrova.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
+    public Optional<org.pangrova.connector.spi.materialization.SourceProvider> getMaterializationSourceProvider() {
         return Optional.of(materializationSourceProvider);
     }
 
@@ -65,7 +65,7 @@ public class PaimonConnector implements Connector {
     }
 
     @Override
-    public void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
+    public void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
         metadata.registerCommitListener(listener);
     }
 
@@ -90,7 +90,7 @@ public class PaimonConnector implements Connector {
     }
 
     @Override
-    public Optional<org.pangrova.spi.connector.metadata.NativePhysicalWriteProvider> getNativePhysicalWriteProvider() {
+    public Optional<org.pangrova.connector.spi.metadata.NativePhysicalWriteProvider> getNativePhysicalWriteProvider() {
         return Optional.of(metadata.physicalWriteProvider());
     }
 

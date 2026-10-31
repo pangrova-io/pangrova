@@ -5,8 +5,8 @@ import java.util.List;
 
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.CapabilityLimits;
-import org.pangrova.protocol.ModelResourceEnvelopes;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.protocol.resource.ModelResourceEnvelopes;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Wire-neutral contract for a bounded, version-exact model rerank stage. */
 @Internal

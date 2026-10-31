@@ -6,7 +6,7 @@ import io.substrait.relation.Extension;
 import io.substrait.relation.RelProtoConverter;
 import io.substrait.type.NamedStruct;
 import io.substrait.type.Type;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityInvocation;
 import org.pangrova.protocol.v2.NamedExpressionArgument;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;

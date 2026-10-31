@@ -21,7 +21,7 @@ Run after the latest JNI package and Java reactor install, using the repository
 build pipeline's E2E environment and fail-on-no-tests settings:
 
 ```sh
-mvn -pl pangrova-testing/pangrova-test-e2e -Pe2e test \
+mvn -pl pangrova-testing/pangrova-testing-integration-tests -Pe2e test \
   -Dtest=DmlCopyOnWritePolicyE2ETest -DfailIfNoTests=true \
   -Dsurefire.failIfNoSpecifiedTests=true
 ```
@@ -68,7 +68,7 @@ negative pre-allocation cases.
 The central closest-test command, after reactor test compilation, is:
 
 ```sh
-mvn -pl pangrova-coordinator -am test \
+mvn -pl pangrova-coordination/pangrova-coordination-core -am test \
   -Dtest=QuerySchedulingEngineWriteAdmissionTest,QueryWriteReservationConcurrencyTest,WriteAllocationIntentTest,WritePolicyObservationTest \
   -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=false
 ```

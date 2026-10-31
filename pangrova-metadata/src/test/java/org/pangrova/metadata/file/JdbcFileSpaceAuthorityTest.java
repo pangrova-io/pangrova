@@ -4,15 +4,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.store.AuthorizationTransactionGate;
-import org.pangrova.security.tenant.model.ResourceQuota;
-import org.pangrova.security.tenant.model.Tenant;
-import org.pangrova.security.tenant.model.TenantRole;
-import org.pangrova.security.tenant.model.TenantStatus;
-import org.pangrova.spi.security.AccessDeniedException;
-import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.spi.storage.file.FileSpace;
-import org.pangrova.spi.storage.file.FileSpaceType;
+import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.security.api.UserIdentity;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceAuthority;
+import org.pangrova.file.store.jdbc.space.JdbcFileSpaceAuthority;
+import org.pangrova.common.file.FileSpaceType;
 
 import javax.sql.DataSource;
 import java.time.Duration;
@@ -43,7 +45,7 @@ class JdbcFileSpaceAuthorityTest {
         tenants.initSchema();
         tenants.createTenant(tenant(TenantStatus.ACTIVE, List.of("cat"), List.of("db")));
         tenants.addUserToTenant("tenant-a", "alice", TenantRole.MEMBER);
-        authority = new JdbcFileSpaceAuthority(source);
+        authority = new JdbcFileSpaceAuthority(source, tenants);
     }
 
     @Test

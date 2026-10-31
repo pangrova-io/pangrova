@@ -1,14 +1,15 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
-import org.pangrova.governance.quality.rule.DataQualityRule;
-import org.pangrova.metadata.exception.MetastoreException;
+import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.governance.api.quality.QualityExecutionIdentity;
+import org.pangrova.governance.api.quality.DataQualityRule;
+import org.pangrova.governance.api.quality.QualityRuleStoreException;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.pangrova.governance.quality.QualityCheckResult;
-import org.pangrova.governance.quality.alert.Severity;
+import org.pangrova.governance.api.quality.QualityCheckResult;
+import org.pangrova.governance.api.quality.Severity;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -82,13 +83,13 @@ class JdbcQualityRuleStoreRecoveryIntegrationTest {
             statement.execute("DROP TABLE quality_check_results");
         }
         try {
-            assertThatThrownBy(() -> store.getRule(1)).isInstanceOf(MetastoreException.class);
+            assertThatThrownBy(() -> store.getRule(1)).isInstanceOf(QualityRuleStoreException.class);
             assertThatThrownBy(() -> store.getRulesForTable("c", "s", "t"))
-                    .isInstanceOf(MetastoreException.class);
-            assertThatThrownBy(store::getAllEnabledRules).isInstanceOf(MetastoreException.class);
+                    .isInstanceOf(QualityRuleStoreException.class);
+            assertThatThrownBy(store::getAllEnabledRules).isInstanceOf(QualityRuleStoreException.class);
             assertThatThrownBy(() -> store.saveResult(new QualityCheckResult(2, 1, "r", "t",
                     Severity.ERROR, Instant.now(), false, 1, 1, 1, "failure", null)))
-                    .isInstanceOf(MetastoreException.class);
+                    .isInstanceOf(QualityRuleStoreException.class);
         } finally {
             initializedStore(dataSource);
         }
@@ -107,7 +108,7 @@ class JdbcQualityRuleStoreRecoveryIntegrationTest {
         restricted.setPassword("quality_readonly");
         restricted.setCurrentSchema("denied_quality");
         assertThatThrownBy(() -> initializedStore(restricted))
-                .isInstanceOf(MetastoreException.class)
+                .isInstanceOf(QualityRuleStoreException.class)
                 .hasMessageContaining("initialize quality rule schema")
                 .hasRootCauseInstanceOf(java.sql.SQLException.class);
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();

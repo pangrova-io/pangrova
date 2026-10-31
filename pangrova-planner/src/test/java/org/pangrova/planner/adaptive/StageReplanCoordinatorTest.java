@@ -1,11 +1,11 @@
 package org.pangrova.planner.adaptive;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 
 import java.util.Map;
 
 import org.pangrova.planner.stats.StatisticsCollector;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

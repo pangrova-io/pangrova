@@ -1,16 +1,17 @@
 package org.pangrova.metadata.storage;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.exception.MetastoreException;
+import org.pangrova.file.core.FileStorageException;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.authz.Privilege;
-import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.Role;
-import org.pangrova.security.store.AuthorizationTransactionGate;
-import org.pangrova.security.store.PersistentGrantStore;
-import org.pangrova.security.store.PersistentRoleStore;
-import org.pangrova.spi.storage.StorageProfile;
-import org.pangrova.spi.storage.StorageType;
+import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
+import org.pangrova.security.store.jdbc.PersistentGrantStore;
+import org.pangrova.security.store.jdbc.PersistentRoleStore;
+import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry;
+import org.pangrova.common.storage.StorageType;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -112,14 +113,14 @@ class JdbcStorageProfileRegistryTest {
         assertThat(registry.createIfAbsent(profile("one", "bucket-a", "data/"))).isTrue();
         assertThat(registry.createIfAbsent(profile("two", "bucket-a", "data/"))).isTrue();
         assertThatThrownBy(() -> registry.resolveByUrl("s3://bucket-a/data/file.parquet"))
-                .isInstanceOf(MetastoreException.class).hasMessageContaining("Ambiguous");
+                .isInstanceOf(FileStorageException.class).hasMessageContaining("Ambiguous");
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             statement.execute("ALTER TABLE storage_profile_definitions RENAME TO unavailable_profiles");
         }
-        assertThatThrownBy(registry::list).isInstanceOf(MetastoreException.class);
-        assertThatThrownBy(() -> registry.get("one")).isInstanceOf(MetastoreException.class);
+        assertThatThrownBy(registry::list).isInstanceOf(FileStorageException.class);
+        assertThatThrownBy(() -> registry.get("one")).isInstanceOf(FileStorageException.class);
         assertThatThrownBy(() -> registry.createIfAbsent(profile("new", "bucket-a", "")))
-                .isInstanceOf(MetastoreException.class);
+                .isInstanceOf(FileStorageException.class);
     }
 
     @Test

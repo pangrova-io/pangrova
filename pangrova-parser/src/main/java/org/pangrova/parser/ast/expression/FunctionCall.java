@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 import org.pangrova.parser.ast.Identifier;
 
 /**
@@ -27,5 +28,10 @@ public record FunctionCall(Identifier name, List<Expression> arguments, boolean 
     /** Convenience constructor without distinct flag (backward compatible). */
     public FunctionCall(Identifier name, List<Expression> arguments) {
         this(name, arguments, false, Optional.empty());
+    }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.FUNCTION_CALL;
     }
 }

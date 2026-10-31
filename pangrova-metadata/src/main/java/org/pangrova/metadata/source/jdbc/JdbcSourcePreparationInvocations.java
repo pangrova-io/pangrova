@@ -1,8 +1,8 @@
 package org.pangrova.metadata.source.jdbc;
 
-import org.pangrova.spi.connector.metadata.SourcePrepareInvocation;
-import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
-import org.pangrova.spi.coordination.ExecutionAnchor;
+import org.pangrova.connector.spi.metadata.SourcePrepareInvocation;
+import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
+import org.pangrova.query.api.coordination.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -86,7 +86,7 @@ final class JdbcSourcePreparationInvocations {
     }
 
     static void requireJoinedPage(Connection connection, SourcePublicationReservation reservation,
-        org.pangrova.spi.connector.metadata.SourceObjectPage page) throws SQLException {
+        org.pangrova.connector.spi.metadata.SourceObjectPage page) throws SQLException {
         try (var statement = connection.prepareStatement("SELECT 1 FROM managed_source_prepare_invocations "
             + "WHERE fingerprint=? AND execution_id=? AND page_index=? AND after_path=? AND "
             + "state='DRAINED' LIMIT 1")) {

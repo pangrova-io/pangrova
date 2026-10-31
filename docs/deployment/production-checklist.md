@@ -342,7 +342,7 @@ endpoints serve plain HTTP on `coordinator.port` / `worker.port` internally.
   ```bash
   /opt/pangrova/bin/pangrova-cli.sh --host coordinator --port 8080 \
       --catalog <catalog> --schema <schema>
-  # paste each query from pangrova-testing/pangrova-test-benchmark/queries/tpch/ and record runtimes
+  # paste each query from pangrova-testing/pangrova-testing-benchmark/queries/tpch/ and record runtimes
   ```
 - [ ] Coordinator heap usage under sustained load stays below 80% of `-Xmx`
 - [ ] Worker heap usage stays below 80% of `-Xmx`; GC pause P99 < 500 ms

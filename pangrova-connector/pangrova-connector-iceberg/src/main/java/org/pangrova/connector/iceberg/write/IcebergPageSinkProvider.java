@@ -2,11 +2,11 @@ package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;

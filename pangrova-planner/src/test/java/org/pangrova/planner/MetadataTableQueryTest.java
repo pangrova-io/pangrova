@@ -18,8 +18,8 @@ import org.apache.calcite.schema.impl.AbstractSchema;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.metadata.MetadataTableKind;
-import org.pangrova.spi.connector.metadata.MetadataTableListing;
+import org.pangrova.connector.spi.metadata.MetadataTableKind;
+import org.pangrova.connector.spi.metadata.MetadataTableListing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

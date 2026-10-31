@@ -6,7 +6,7 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataField;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.spi.base.ConnectorException;
 
 /**
  * Stable physical identity of a Paimon table.

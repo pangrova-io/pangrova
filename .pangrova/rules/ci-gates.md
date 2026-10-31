@@ -7,7 +7,7 @@ Do not run every gate locally or reread every rule for each task.
 
 | Change/event | Checks |
 |---|---|
-| Documentation, canonical rules, website, ordinary gate tooling PR | Layout, tooling tests/syntax, environment paths, SPI annotations, E2E truthfulness, doc references |
+| Documentation, canonical rules, website, ordinary gate tooling PR | Layout, tooling tests/syntax, environment paths, module manifest, SPI annotations, E2E truthfulness, doc references |
 | Java runtime/tests PR outside JNI/protocol/SPI owners | Above + Linux native, JDK 17/21 filtered tests, static analysis, same-source production full regression |
 | Native, Worker/JNI, protocol/SPI, packaging, build/config or unknown input PR | Above + all four native platforms and ASan/UBSan |
 | Production/dependency/benchmark inputs PR | Above + complete TPC workload/evidence/production-client transport contracts and JMH performance comparison |
@@ -32,6 +32,8 @@ publishing. Release artifacts have distinct names from validation artifacts.
 
 | Check | Owner / trigger |
 |---|---|
+| Module ownership and dependency policy | `check-module-manifest.sh` (baseline freshness, artifact declared; unconditional lightweight lint with JDK 17) + `ModuleDependencyPropertyTest` (reactor, main/test AST references, current POMs, exports, providers, baseline) and `ModuleBoundaryReferenceTest` (equivalent reference forms cannot bypass policy); ordinary Maven tests for source/POM changes |
+| Main-source package cycles | `PackageDependencyAcyclicityPropertyTest` (default-reactor AST imports/qualified references, complete SCC check) + `PackageDependencyGraphTest` (discovery, parsing, cycle and diagnostic regressions); ordinary Maven tests, no separate CI job |
 | SPI stability annotation presence | `check-spi-annotations.sh`, once in lightweight lint |
 | Proto descriptor/source ownership | `proto-descriptor-diff.sh`, once for runtime CI; exact drift, not semantic compatibility proof |
 | E2E pattern sanity | `check-e2e-truthfulness.sh`, once in lightweight lint; does not prove all tests are meaningful |
@@ -112,7 +114,7 @@ fixture or zero-valued baseline qualifies. See `docs/testing/tpc-benchmark-metho
 | AddressSanitizer | `cmake --preset dev-asan && cmake --build build-asan`; Native runner with `--build-dir pangrova-worker-native/build-asan` | 0 findings |
 | UBSan (on demand) | `cmake --preset dev-ubsan && cmake --build build-ubsan`; Native runner with `--build-dir pangrova-worker-native/build-ubsan` | 0 findings |
 | Native lib package | `package-native-lib.sh` | Successfully staged to Java resources |
-| JNI integration | `mvn -q -pl pangrova-worker -am test` | 100% pass |
+| JNI integration | `mvn -q -pl pangrova-worker/pangrova-worker-core -am test` | 100% pass |
 | Symbol visibility | Only `Java_*` and `JNI_On*` in `.dylib` exports | `nm -gU` verification |
 
 ## Connectivity Gates

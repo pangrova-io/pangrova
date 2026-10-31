@@ -9,12 +9,12 @@ import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
 
 import java.io.ByteArrayInputStream;
@@ -44,7 +44,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         recreateTable();
 
         assertThatThrownBy(() -> provider().createPageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, output))
+                ConnectorTransactionHandle.empty(), SESSION, output))
                 .hasMessageContaining("identity changed");
     }
 
@@ -57,10 +57,10 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
             peer.getTable(IDENTIFIER); // Warm a separate real SDK catalog's name cache.
             catalog.alterTable(IDENTIFIER, SchemaChange.addColumn("extra", DataTypes.STRING()), false);
             var sinks = new PaimonPageSinkProvider(peer, warehouse.resolve("peer-spill").toString());
-            assertThatThrownBy(() -> sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, planned))
+            assertThatThrownBy(() -> sinks.createPageSink(ConnectorTransactionHandle.empty(), SESSION, planned))
                     .hasMessageContaining("schema changed");
             var current = metadata.beginInsert(SESSION, handle(metadata));
-            try (var sink = sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, current)) {
+            try (var sink = sinks.createPageSink(ConnectorTransactionHandle.empty(), SESSION, current)) {
                 sink.abort();
             }
         }
@@ -78,9 +78,9 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
                     .option("bucket", "1").build());
             var current = metadata.beginInsert(SESSION, handle(metadata));
             var sinks = new PaimonPageSinkProvider(peer, warehouse.resolve("peer-spill").toString());
-            assertThatThrownBy(() -> sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, original))
+            assertThatThrownBy(() -> sinks.createPageSink(ConnectorTransactionHandle.empty(), SESSION, original))
                     .hasMessageContaining("identity changed");
-            try (var sink = sinks.createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, current)) {
+            try (var sink = sinks.createPageSink(ConnectorTransactionHandle.empty(), SESSION, current)) {
                 sink.abort();
             }
         }
@@ -100,7 +100,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         var metadata = metadata();
         ConnectorOutputTableHandle output = metadata.beginInsert(SESSION, handle(metadata));
         byte[] fragment = prepare(provider().createPageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, output), ROW);
+                ConnectorTransactionHandle.empty(), SESSION, output), ROW);
         var context = PaimonCommitTestSupport.context(metadata, SESSION, output, List.of(fragment));
 
         recreateTable();
@@ -120,7 +120,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         catalog.alterTable(IDENTIFIER, SchemaChange.addColumn("extra", DataTypes.STRING()), false);
 
         assertThatThrownBy(() -> provider().createPageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, output))
+                ConnectorTransactionHandle.empty(), SESSION, output))
                 .hasMessageContaining("schema changed");
     }
 
@@ -130,7 +130,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         var metadata = metadata();
         ConnectorOutputTableHandle output = metadata.beginInsert(SESSION, handle(metadata));
         byte[] fragment = prepare(provider().createPageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, output), ROW);
+                ConnectorTransactionHandle.empty(), SESSION, output), ROW);
         List<Path> staged = stagedDataFiles((FileStoreTable) freshTable(), fragment);
         assertThat(staged).isNotEmpty().allMatch(Files::exists);
 
@@ -146,7 +146,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         var metadata = metadata();
         ConnectorOutputTableHandle output = metadata.beginInsert(SESSION, handle(metadata));
         byte[] fragment = prepare(provider().createPageSink(
-                ConnectorTransactionHandle.EMPTY, SESSION, output), ROW);
+                ConnectorTransactionHandle.empty(), SESSION, output), ROW);
         List<Path> staged = stagedDataFiles((FileStoreTable) freshTable(), fragment);
         writeRows(new StoredRow(2, "west", "two", "committed"));
 
@@ -177,7 +177,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         createTable(false, false);
     }
 
-    private org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
+    private org.pangrova.connector.spi.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
         return metadata.getTableHandle(SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
     }
 

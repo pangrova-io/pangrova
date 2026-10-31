@@ -6,7 +6,7 @@ import org.apache.calcite.rel.core.TableModify;
 import org.apache.calcite.rel.core.TableScan;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Validates compiled table identity before metadata, policy, rewrite or serialization access. */
 @Internal

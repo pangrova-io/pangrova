@@ -4,8 +4,8 @@ import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.pangrova.spi.connector.index.SnapshotExpiredException;
-import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.connector.spi.index.SnapshotExpiredException;
+import org.pangrova.connector.spi.index.SnapshotPinProvider;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

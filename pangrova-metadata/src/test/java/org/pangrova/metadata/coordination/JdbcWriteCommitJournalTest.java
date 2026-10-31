@@ -1,12 +1,12 @@
 package org.pangrova.metadata.coordination;
-
-import org.pangrova.spi.coordination.JournalWriteException;
-import org.pangrova.spi.coordination.WriteCommitEntry;
-import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.connector.spi.coordination.JournalWriteException;
+import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -89,7 +89,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         java.util.List<byte[]> fragments = java.util.List.of(
                 new byte[]{1, 2, 3}, new byte[]{4, 5, 6, 7});
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
                         "q-replay",
                         "tenant-a",
                         "iceberg",
@@ -323,7 +323,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         String mode = "INSERT";
         String tenant = "tenant-a";
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
                         queryId,
                         tenant,
                         catalog,

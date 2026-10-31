@@ -1,7 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
 import io.substrait.proto.Expression;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Shared direct-field expression utilities for retrieval plan binding. */
 @Internal

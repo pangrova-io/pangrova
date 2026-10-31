@@ -204,7 +204,7 @@ Qualification Spec
        └─ resource/failure invariants
 ```
 
-推荐在 `pangrova-testing` 下增加独立的 `pangrova-test-qualification` 模块，并保留现有 `pangrova-test-benchmark` 作为微基准和兼容入口。核心 runner 使用结构化结果模型；shell 只负责环境启动，不负责拼 JSON 或计算 percentile。
+推荐在 `pangrova-testing` 下增加独立的 `pangrova-test-qualification` 模块，并保留现有 `pangrova-testing-benchmark` 作为微基准和兼容入口。核心 runner 使用结构化结果模型；shell 只负责环境启动，不负责拼 JSON 或计算 percentile。
 
 ### 6.1 Engine adapter 合同
 
@@ -654,7 +654,7 @@ pangrova-testing/
       result.schema.json
       environments/
       workloads/
-  pangrova-test-benchmark/
+  pangrova-testing-benchmark/
     queries/                 # 仅存许可允许的内容
     scripts/                 # legacy wrapper，调用统一 runner
     baseline/                # 仅存 qualified 非零 baseline

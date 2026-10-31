@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code CREATE [INTERNAL | EXTERNAL] STAGE [IF NOT EXISTS] name ...}.
@@ -16,4 +17,9 @@ public record CreateStageStatement(
         Optional<String> storageProfile,
         boolean directoryEnabled,
         Optional<String> comment) implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_STAGE;
+    }
 }

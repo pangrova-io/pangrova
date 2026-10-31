@@ -2,7 +2,7 @@ package org.pangrova.shuffle.exchange;
 
 import static java.util.Objects.requireNonNull;
 
-import org.pangrova.shuffle.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 
 /** Runtime-neutral identity for one exchange producer or consumer attempt. */
 public record ExchangeTaskAttempt(

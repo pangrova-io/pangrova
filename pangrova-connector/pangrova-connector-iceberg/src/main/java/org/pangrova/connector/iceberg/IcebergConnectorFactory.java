@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.Connector;
-import org.pangrova.spi.connector.ConnectorContext;
-import org.pangrova.spi.connector.ConnectorFactory;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.spi.plugin.ConnectorContext;
+import org.pangrova.connector.spi.plugin.ConnectorFactory;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.rest.RESTCatalog;

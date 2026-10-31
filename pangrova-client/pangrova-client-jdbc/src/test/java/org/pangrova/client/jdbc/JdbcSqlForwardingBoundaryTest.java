@@ -3,11 +3,11 @@ package org.pangrova.client.jdbc;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.pangrova.client.rest.PangrovaRestClient;
-import org.pangrova.client.rest.RetryPolicy;
-import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.protocol.rest.error.ErrorDetail;
-import org.pangrova.protocol.rest.query.SubmitQueryRequest;
+import org.pangrova.client.transport.http.PangrovaRestClient;
+import org.pangrova.client.core.session.RetryPolicy;
+import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
+import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.core.protocol.SubmitQueryRequest;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

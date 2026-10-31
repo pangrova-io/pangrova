@@ -66,4 +66,9 @@ public record CteQuery(boolean recursive, List<CteDefinition> ctes, Statement bo
             cycleColumns = List.copyOf(cycleColumns);
         }
     }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CTE_QUERY;
+    }
 }

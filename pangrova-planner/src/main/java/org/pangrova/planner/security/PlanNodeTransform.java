@@ -14,8 +14,7 @@
 package org.pangrova.planner.security;
 
 import org.pangrova.planner.PlanTable;
-
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
 

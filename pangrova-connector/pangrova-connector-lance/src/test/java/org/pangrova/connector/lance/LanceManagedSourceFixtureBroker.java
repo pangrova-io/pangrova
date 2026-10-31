@@ -147,7 +147,7 @@ public final class LanceManagedSourceFixtureBroker {
                 .put("attempt", encode(allocation.attempt().toByteArray())).put("prefix", allocation.attemptPrefix())
                 .put("binding", encode(allocation.binding().toByteArray()));
         allocation.output().acceptedWriteBaseSnapshot().ifPresent(reference -> result.put("base", encode(
-                org.pangrova.protocol.SourceSnapshotBindings.encode(reference, fixture.catalog()).toByteArray())));
+                org.pangrova.protocol.source.SourceSnapshotBindings.encode(reference, fixture.catalog()).toByteArray())));
         return result;
     }
 

@@ -1,20 +1,20 @@
 package org.pangrova.connector.lance;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
-import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
-import org.pangrova.spi.connector.metadata.NativeWriteFinalization;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.spi.metadata.NativeWriteAllocation;
+import org.pangrova.connector.spi.coordination.NativeWriteFinalization;
+import org.pangrova.connector.spi.metadata.table.ColumnHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,10 +30,10 @@ public final class LanceMetadata implements ConnectorMetadata {
     private final Supplier<LanceCatalogStore> store;
     private final Optional<NativeDatasetControlPlane> controlPlane;
     private final LanceSnapshotResolver snapshots;
-    private volatile org.pangrova.spi.connector.index.CommitListener commitListener;
+    private volatile org.pangrova.connector.spi.index.CommitListener commitListener;
 
     /** Registers only the durable event append callback, not a source-row processor. */
-    void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
+    void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
         commitListener = java.util.Objects.requireNonNull(listener, "listener");
     }
 
@@ -65,27 +65,27 @@ public final class LanceMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.metadata.table.TableIdentity> getTableIdentity(
+    public java.util.Optional<org.pangrova.connector.spi.metadata.table.TableIdentity> getTableIdentity(
             ConnectorSession session, ConnectorTableHandle table) {
         var live = requireTable(session, table);
-        return java.util.Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
+        return java.util.Optional.of(new org.pangrova.connector.spi.metadata.table.TableIdentity(
                 "LANCE", live.tableId(), live.datasetUri(), LanceTableHandle.hex(live.schemaFence())));
     }
 
     @Override
-    public java.util.Optional<org.pangrova.spi.connector.metadata.table.TableVersionToken> observeVersion(
+    public java.util.Optional<org.pangrova.connector.spi.metadata.table.TableVersionToken> observeVersion(
             ConnectorSession session, ConnectorTableHandle table) {
         var live = requireTable(session, table);
-        return java.util.Optional.of(org.pangrova.spi.connector.metadata.table.TableVersionToken.of(
+        return java.util.Optional.of(org.pangrova.connector.spi.metadata.table.TableVersionToken.of(
                 "LANCE", live.tableId(), Long.toString(live.version()), Long.toString(live.revision())));
     }
 
     @Override
-    public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
+    public org.pangrova.connector.spi.metadata.table.TableCapabilities getTableCapabilities(
             ConnectorSession session, ConnectorTableHandle table) {
         return table instanceof LanceTableHandle
                 ? LanceTableHandle.CAPABILITIES
-                : org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
+                : org.pangrova.connector.spi.metadata.table.TableCapabilities.UNSUPPORTED;
     }
     @Override public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
         var pinned = snapshots.resolve(session, requireTable(session, table));
@@ -106,21 +106,21 @@ public final class LanceMetadata implements ConnectorMetadata {
         return new TableStatistics(snapshots.resolve(session, requireTable(session, table)).rowCount(),
                 -1, -1, java.util.Map.of());
     }
-    @Override public org.pangrova.spi.connector.metadata.table.ConnectorReadBinding bindRead(
+    @Override public org.pangrova.connector.spi.metadata.table.ConnectorReadBinding bindRead(
             ConnectorSession session, ConnectorTableHandle table) {
         var selected = snapshots.resolve(session, requireTable(session, table));
-        return new org.pangrova.spi.connector.metadata.table.ConnectorReadBinding(selected,
+        return new org.pangrova.connector.spi.metadata.table.ConnectorReadBinding(selected,
                 getTableReadMetadata(session, selected),
                 new TableStatistics(selected.rowCount(), -1, -1, java.util.Map.of()),
                 selected.version() == 0
-                        ? org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY
-                        : org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                        ? org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY
+                        : org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT,
                 selected.version() == 0 ? java.util.OptionalLong.empty()
                         : java.util.OptionalLong.of(selected.version()),
                 selected.tableId() + ":" + selected.version(), java.util.Optional.empty());
     }
     @Override public void validateReadBinding(ConnectorSession session,
-            org.pangrova.spi.connector.metadata.table.ConnectorReadBinding binding) {
+            org.pangrova.connector.spi.metadata.table.ConnectorReadBinding binding) {
         var selected = requireTable(session, binding.handle());
         LanceSessionIdentity.requireTenant(session, selected.tenantId());
         if (!binding.sourceIdentity().equals(selected.tableId() + ":" + selected.version())) {
@@ -131,7 +131,7 @@ public final class LanceMetadata implements ConnectorMetadata {
                 || !current.datasetUri().equals(selected.datasetUri())) {
             throw new IllegalStateException("Selected dataset was dropped or replaced");
         }
-        if (binding.state() != org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
+        if (binding.state() != org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
             snapshots.resolve(session, selected);
         }
     }
@@ -180,7 +180,7 @@ public final class LanceMetadata implements ConnectorMetadata {
         if (accepted.isEmpty()) {
             var reservation = store.get().reserve(lance, fragments, context);
             var preparation = nativeControl().prepareWrite(session, output, fragments, context, reservation);
-            if (preparation.outcome() != org.pangrova.spi.connector.metadata.NativeWritePreparation.Outcome.PREPARED) {
+            if (preparation.outcome() != org.pangrova.connector.spi.metadata.NativeWritePreparation.Outcome.PREPARED) {
                 throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                         "Native dataset preparation is UNKNOWN; reserved objects remain held for replay");
             }
@@ -194,7 +194,7 @@ public final class LanceMetadata implements ConnectorMetadata {
         notifyCommitted(lance, context, publication);
     }
 
-    @Override public org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abortDistributedWrite(
+    @Override public org.pangrova.connector.spi.metadata.DistributedWriteAbortReceipt abortDistributedWrite(
             ConnectorSession session, ConnectorOutputTableHandle output,
             List<byte[]> fragments, DistributedWriteCommitContext context) {
         if (!(output instanceof LanceOutputHandle lance)) {
@@ -236,10 +236,10 @@ public final class LanceMetadata implements ConnectorMetadata {
             return;
         }
         var type = output.allocation().operation() == NativeWriteAllocation.Operation.OVERWRITE
-                ? org.pangrova.spi.connector.index.CommitEventType.OVERWRITE
-                : org.pangrova.spi.connector.index.CommitEventType.APPEND;
+                ? org.pangrova.connector.spi.index.CommitEventType.OVERWRITE
+                : org.pangrova.connector.spi.index.CommitEventType.APPEND;
         // Dataset partitions are not file paths. Preserve their exact version without inventing FileSplits.
-        listener.onCommit(new org.pangrova.spi.connector.index.CommitEvent(context.tenantId(), catalog,
+        listener.onCommit(new org.pangrova.connector.spi.index.CommitEvent(context.tenantId(), catalog,
                 output.table().table().schema(), output.table().table().table(), List.of(), List.of(),
                 java.time.Instant.now(), Long.toString(publication.publishedVersion()), type,
                 context.commitFingerprint()));

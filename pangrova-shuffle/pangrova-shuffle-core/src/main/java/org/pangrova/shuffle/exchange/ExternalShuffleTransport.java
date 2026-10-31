@@ -4,10 +4,10 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
-import org.pangrova.shuffle.ShuffleAccess;
-import org.pangrova.shuffle.ShuffleExecutionOwner;
-import org.pangrova.shuffle.ShuffleServiceAddress;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.ShuffleAccess;
+import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+import org.pangrova.shuffle.api.ShuffleServiceAddress;
+import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 
 /** External shuffle service binding consumed directly by a Worker. */
 public record ExternalShuffleTransport(

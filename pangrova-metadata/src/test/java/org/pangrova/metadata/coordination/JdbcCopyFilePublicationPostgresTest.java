@@ -1,13 +1,15 @@
 package org.pangrova.metadata.coordination;
+import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.coordination.CopyFileClaim;
-import org.pangrova.spi.coordination.CopyFileClaimStore;
-import org.pangrova.spi.coordination.CopyFilePublication;
-import org.pangrova.spi.coordination.WriteCommitEntry;
-import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.file.api.claim.CopyFileClaim;
+import org.pangrova.file.api.claim.CopyFileClaimStore;
+import org.pangrova.file.store.jdbc.claim.JdbcCopyFileClaimStore;
+import org.pangrova.common.file.CopyFilePublication;
+import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

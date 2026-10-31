@@ -3,7 +3,7 @@ package org.pangrova.protocol.function.declaration;
 import com.google.protobuf.ByteString;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 import java.nio.ReadOnlyBufferException;
 import java.security.MessageDigest;

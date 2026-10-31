@@ -14,15 +14,20 @@
     <name>Pangrova Parser</name>
     <description>ANTLR4-based SQL parser with Pangrova custom extensions</description>
 
+    <properties>
+        <module.name>org.pangrova.parser</module.name>
+    </properties>
+
     <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-spi</artifactId>
+        </dependency>
+
         <!-- Internal module dependencies (versions inherited from parent) -->
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
         </dependency>
 
         <!-- ANTLR4 runtime -->

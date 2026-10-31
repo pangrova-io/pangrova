@@ -1,13 +1,13 @@
 package org.pangrova.connector.paimon.scan;
 
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.spi.base.ConnectorException;
 
 import java.util.Set;
 

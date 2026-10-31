@@ -14,7 +14,7 @@
 #include "velox/exec/WindowFunction.h"
 #include "velox/expression/FunctionSignature.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
-#include "velox/window/DistinctAggregateWindow.h"
+#include "engine/velox/window/DistinctAggregateWindow.h"
 
 namespace pangrova::capability {
 namespace {

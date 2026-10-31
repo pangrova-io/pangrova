@@ -1,0 +1,23 @@
+package org.pangrova.connector.runtime.lifecycle;
+
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.spi.plugin.ConnectorContext;
+import org.pangrova.connector.spi.plugin.ConnectorFactory;
+
+import java.util.Map;
+
+/**
+ * Stand-in provider packaged into a temporary plugin JAR by {@link PluginManagerTest}.
+ */
+public final class TestConnectorFactory implements ConnectorFactory {
+
+    @Override
+    public String getName() {
+        return "test-plugin";
+    }
+
+    @Override
+    public Connector create(String catalogName, Map<String, String> config, ConnectorContext context) {
+        throw new UnsupportedOperationException("not used");
+    }
+}

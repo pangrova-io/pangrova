@@ -2,7 +2,7 @@ package org.pangrova.planner.validation;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.pangrova.spi.annotation.ThreadSafe;
+import org.pangrova.common.api.annotation.ThreadSafe;
 
 /**
  * Tracks the ratio of plans that required native fallback (partial or full

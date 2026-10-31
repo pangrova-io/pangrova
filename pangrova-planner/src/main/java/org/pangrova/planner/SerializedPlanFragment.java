@@ -2,7 +2,7 @@ package org.pangrova.planner;
 
 import java.util.List;
 
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Serialized Substrait fragment plus typed relation intents to bind before dispatch. */
 @Internal

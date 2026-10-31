@@ -8,6 +8,7 @@ import java.util.OptionalLong;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 import org.pangrova.parser.ast.type.DataTypeSpec;
 
 /**
@@ -198,5 +199,10 @@ public sealed interface AlterTableStatement extends Statement {
         public boolean isIdentity() {
             return functionName == null;
         }
+    }
+
+    @Override
+    default StatementType type() {
+        return StatementType.ALTER_TABLE;
     }
 }

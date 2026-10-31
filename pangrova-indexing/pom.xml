@@ -11,46 +11,12 @@
     </parent>
 
     <artifactId>pangrova-indexing</artifactId>
+    <packaging>pom</packaging>
     <name>Pangrova Indexing</name>
-    <description>Independent index module following Snowflake storage model: build, evaluate, cache, GC</description>
+    <description>Indexing parent for Pangrova: indexing contracts and implementation</description>
 
-    <dependencies>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-        <!-- Caffeine for IndexCache (version managed by parent BOM) -->
-        <dependency>
-            <groupId>com.github.ben-manes.caffeine</groupId>
-            <artifactId>caffeine</artifactId>
-        </dependency>
-        <!-- Official RoaringBitmap library (version managed by parent BOM) -->
-        <dependency>
-            <groupId>org.roaringbitmap</groupId>
-            <artifactId>RoaringBitmap</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.assertj</groupId>
-            <artifactId>assertj-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.jqwik</groupId>
-            <artifactId>jqwik</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <modules>
+        <module>pangrova-indexing-api</module>
+        <module>pangrova-indexing-core</module>
+    </modules>
 </project>

@@ -13,12 +13,12 @@
  */
 package org.pangrova.transport;
 
-import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.value.ColumnValue;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.data.page.BatchFormat;
+import org.pangrova.connector.spi.data.page.NativePage;
+import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.connector.spi.data.type.PangrovaType;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
@@ -52,7 +52,7 @@ import java.util.List;
  *
  * <p>This class lives in {@code pangrova-transport} where Arrow imports are permitted.
  * Connector modules must not depend on this class directly — they should use
- * {@link org.pangrova.spi.connector.data.page.NativePageConverter} instead, which
+ * {@link org.pangrova.connector.spi.data.page.NativePageConverter} instead, which
  * produces {@link BatchFormat#CUSTOM_BINARY} without requiring Arrow on the connector
  * classpath.</p>
  *

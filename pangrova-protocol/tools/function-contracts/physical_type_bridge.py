@@ -171,7 +171,7 @@ def render_factory(projection, prefix):
 def render_bridge(value):
     validate_bridge(value)
     lines = ["// Generated from the sole canonical physical type bridge. Do not edit.", "#pragma once",
-             '#include "capability/FunctionTypeFormulaOps.h"', '#include "substrait/type.pb.h"',
+             '#include "capabilities/capability/FunctionTypeFormulaOps.h"', '#include "substrait/type.pb.h"',
              '#include "pangrova/protocol/v2/capability.pb.h"', '#include "google/protobuf/descriptor.h"',
              '#include "velox/type/Type.h"', "#include <string>", "#include <vector>",
              "namespace pangrova::capability::generated {",

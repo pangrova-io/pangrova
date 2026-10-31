@@ -41,4 +41,9 @@ public record CreateMaterializedViewStatement(
             Optional<RefreshMode> refreshMode) {
         this(name, query, targetLag, refreshMode, false, false, Optional.empty());
     }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_MATERIALIZED_VIEW;
+    }
 }

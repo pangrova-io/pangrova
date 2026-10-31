@@ -1,5 +1,7 @@
 package org.pangrova.protocol.rest.copy;
 
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -80,7 +82,7 @@ public final class PrepareCopySourceResponse {
     /** Confirms exact issuance and grant before the Coordinator consumes proof or usage. */
     public SourcePreparationResult resultFor(PrepareCopySourceRequest request) {
         if (!result.getAttempt().equals(request.preparation().getAttempt())
-                || !result.getRequestSha256().equals(CanonicalTaskRequests.sha256(request.canonicalBytes()))
+                || !result.getRequestSha256().equals(ProtocolChecksums.sha256(request.canonicalBytes()))
                 || !CanonicalTaskRequests.usageWithinGrant(result.getUsage(),
                         request.preparation().getResourceGrant())) {
             throw new IllegalArgumentException("Source preparation receipt differs from its exact issued request");

@@ -1,5 +1,6 @@
 package org.pangrova.metadata.governance;
 
+import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
 import org.flywaydb.core.Flyway;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.junit.jupiter.api.BeforeEach;

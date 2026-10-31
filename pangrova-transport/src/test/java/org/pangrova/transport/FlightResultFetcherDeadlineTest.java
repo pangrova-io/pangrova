@@ -24,8 +24,8 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.ResultProtocol;
+import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.core.protocol.ResultProtocol;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;

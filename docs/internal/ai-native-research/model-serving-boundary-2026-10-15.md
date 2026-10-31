@@ -21,8 +21,8 @@ SQL / Calcite 表达式
   → JNI / Velox / Flight 查询结果
 ```
 
-- `pangrova-coordinator/.../AiInvocationOperatorBinder.java` 把 `serviceId` 写为 `worker-local-governed-provider`；`ExactModelResolver` 从活跃 Worker inventory 解析同名精确模型。Embedding 有持久 catalog revision/角色 fence；通用 text/multimodal 尚未因此自动获得等价的持久模型权限权威。
-- Worker 的 `META-INF/services/org.pangrova.spi.function.FunctionFactory` 注册 `AiFunctionFactory`；`NativeFunctionBootstrap` 注册 Java scalar callbacks。`NativeFunctionBridge.evaluateBatch` 接受 Native 的选行数组并建立可信 task context；`AiInvocationService` 在 Worker 内验证、准入和调用 provider；`AiHttpTransport` 负责真正的 HTTP entity send。模型与 provider 的生命周期目前属于 Worker。
+- `pangrova-coordination/pangrova-coordination-core/.../AiInvocationOperatorBinder.java` 把 `serviceId` 写为 `worker-local-governed-provider`；`ExactModelResolver` 从活跃 Worker inventory 解析同名精确模型。Embedding 有持久 catalog revision/角色 fence；通用 text/multimodal 尚未因此自动获得等价的持久模型权限权威。
+- Worker 的 `META-INF/services/org.pangrova.function.api.registry.FunctionFactory` 注册 `AiFunctionFactory`；`NativeFunctionBootstrap` 注册 Java scalar callbacks。`NativeFunctionBridge.evaluateBatch` 接受 Native 的选行数组并建立可信 task context；`AiInvocationService` 在 Worker 内验证、准入和调用 provider；`AiHttpTransport` 负责真正的 HTTP entity send。模型与 provider 的生命周期目前属于 Worker。
 - `pangrova-protocol/.../plan_extension.proto` 已定义 `AiInvokeDetail`，Native `CanonicalRelationSchema` 能读它的输出 schema；但 Planner 没有生成该关系，Native `SubstraitRelConversion` 没有 `ai_invoke` 执行分支，且仓库没有独立 inference-service 模块或 Native RPCNode 注册。因此声明和 schema reader 不是执行闭环。
 - `OllamaAiSqlE2ETest` 使用真实 SQL、Native/JNI 和真实 Ollama HTTP 请求计数，证明上述**旧调用链**；Worker 的三个缓存模型集成类 13/13 通过，只证明真实 Ollama 组件调用。两者均不证明独立 Serving、Native 异步 RPC、服务侧资源 drain 或整套生产验收。最新滚动结果及失效范围见 [validation-current.md](validation-current.md)。
 - 当前 OpenAI-compatible text batch 会对每个 prompt 发一个 HTTP 请求并 `allOf().join()`；数据库逻辑批次不能因此记作一次物理 provider batch。现有 POST 传输失败保守报告 `PROVIDER_OUTCOME_UNCERTAIN`、不可自动重发，详见 [AI provider POST outcomes](../../architecture/ai-provider-post-outcomes.md)。

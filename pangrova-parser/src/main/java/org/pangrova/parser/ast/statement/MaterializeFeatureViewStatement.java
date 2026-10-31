@@ -19,6 +19,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.Objects;
 
@@ -36,5 +37,10 @@ public record MaterializeFeatureViewStatement(
         if (sourceSnapshot == null || sourceSnapshot.isBlank()) {
             throw new IllegalArgumentException("sourceSnapshot must not be blank");
         }
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.MATERIALIZE_FEATURE_VIEW;
     }
 }

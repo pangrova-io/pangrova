@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
+
 import org.pangrova.protocol.v2.CapabilityInventory;
 
 import java.io.IOException;

@@ -147,7 +147,7 @@ prior_blobs=(\
   650df1062c638a358291060fc634c2ace82af533
   f8d7e9600c182955a9b13fff2845348072c4d28b
   26ca432896b1aa049be643062d49cb65994964b2
-  92fb113e97222aa5fc31c59443d8486652d78604
+  53d51844e9b1f8097ef5cc197fba2191c4f823bb
   ae843dcab73e3918ef9f8820c979b238710b2f61
   2585c367f6da90bc4bb232da48fa31da0da3ab85
   be770ab32470268a7d803becd4a6b6d1324dca25
@@ -207,14 +207,14 @@ prior_blobs=(\
   6e8bc195e5bfaf39af9a9151d6dd1c796dece931
   a73329db62f250a96866865bce653bc8a373b8d7
   24150367534e6636e7cb56dcd23cca44b1188e21
-  c6bd305434a5dd78322fab7d646aea6c25f7f47b
-  39797eeef29429ab0976a8b35299822b497283f2)
+  0d622555a73c5c587c6253e5714d592031780e50
+  820e77cbcc4abe8236ec0ba7e028a45880eece23)
 patched_blobs=(\
   08c31f1bd17085dd98c8a986ff046a660b6893db
   650df1062c638a358291060fc634c2ace82af533
   f8d7e9600c182955a9b13fff2845348072c4d28b
   26ca432896b1aa049be643062d49cb65994964b2
-  53d51844e9b1f8097ef5cc197fba2191c4f823bb
+  919d2c73025eb535124c1c9a4c7895ee9a151bcc
   ae843dcab73e3918ef9f8820c979b238710b2f61
   2585c367f6da90bc4bb232da48fa31da0da3ab85
   be770ab32470268a7d803becd4a6b6d1324dca25
@@ -329,164 +329,33 @@ verify_source() {
 
 prior_upgrade_patch() {
   # Upgrade only the complete, reviewed source checkpoint immediately preceding
-  # the canonical Arrow UUID bridge. Reject partial or unknown drift.
+  # the current canonical patch. Reject partial or unknown drift.
   cat <<'PANGROVA_PRIOR_UPGRADE'
+diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
+index 53d5184..919d2c7 100644
 --- a/velox/vector/arrow/Bridge.cpp
 +++ b/velox/vector/arrow/Bridge.cpp
-@@ -22,0 +23,2 @@
-+#include "velox/functions/prestosql/types/UuidType.h"
-+#include "velox/type/DecimalUtil.h"
-@@ -29,0 +32 @@
-+#include <cstring>
-@@ -37,0 +41,62 @@
-+
-+// Arrow C Data Interface metadata is a native-endian length-prefixed map.
-+// This immutable canonical declaration outlives every exported schema.
-+const std::string& uuidExtensionMetadata() {
-+  static const std::string metadata = [] {
-+    std::string result;
-+    const auto integer = [&](int32_t value) {
-+      result.append(reinterpret_cast<const char*>(&value), sizeof(value));
-+    };
-+    const auto text = [&](std::string_view value) {
-+      integer(static_cast<int32_t>(value.size()));
-+      result.append(value);
-+    };
-+    integer(2);
-+    text("ARROW:extension:name");
-+    text("arrow.uuid");
-+    text("ARROW:extension:metadata");
-+    text("");
-+    return result;
-+  }();
-+  return metadata;
+@@ -548,0 +549,14 @@ void gatherFromTimeBuffer(
++// Signed seconds may overflow int64 before the positive subsecond remainder
++// brings the result back into range (for example, INT64_MIN nanoseconds).
++int64_t timestampNanosForArrow(const Timestamp& timestamp) {
++  const __int128_t nanos = static_cast<__int128_t>(timestamp.getSeconds()) *
++          1'000'000'000 +
++      timestamp.getNanos();
++  VELOX_USER_CHECK(
++      nanos >= INT64_MIN && nanos <= INT64_MAX,
++      "Timestamp({}, {}) is outside the Arrow nanosecond range",
++      timestamp.getSeconds(),
++      timestamp.getNanos());
++  return static_cast<int64_t>(nanos);
 +}
 +
-+bool isArrowUuid(const ArrowSchema& schema) {
-+  if (!schema.metadata) return false;
-+  const char* cursor = schema.metadata;
-+  // The C Data Interface passes a valid producer-owned metadata buffer without
-+  // its length. Preserve its standard int32 framing; do not impose private
-+  // limits on otherwise valid schemas.
-+  const auto integer = [&]() {
-+    int32_t value;
-+    std::memcpy(&value, cursor, sizeof(value));
-+    cursor += sizeof(value);
-+    return value;
-+  };
-+  const auto text = [&]() {
-+    const auto size = integer();
-+    VELOX_USER_CHECK_GE(size, 0, "Invalid Arrow metadata length");
-+    std::string_view value(cursor, size);
-+    cursor += size;
-+    return value;
-+  };
-+  const auto count = integer();
-+  VELOX_USER_CHECK_GE(count, 0, "Invalid Arrow metadata pair count");
-+  std::optional<std::string_view> name, payload;
-+  for (int32_t i = 0; i < count; ++i) {
-+    const auto key = text();
-+    const auto value = text();
-+    if (key == "ARROW:extension:name") {
-+      VELOX_USER_CHECK(!name.has_value(), "Duplicate Arrow extension name");
-+      name = value;
-+    } else if (key == "ARROW:extension:metadata") {
-+      VELOX_USER_CHECK(!payload.has_value(), "Duplicate Arrow extension metadata");
-+      payload = value;
-+    }
-+  }
-+  if (name != "arrow.uuid") return false;
-+  VELOX_USER_CHECK(schema.format && std::string_view(schema.format) == "w:16",
-+      "Arrow UUID requires fixed-size binary(16)");
-+  VELOX_USER_CHECK(!payload || payload->empty(), "Arrow UUID metadata must be empty");
-+  return true;
-+}
-@@ -280,0 +346 @@
-+  if (isUuidType(type)) return "w:16";
-@@ -797,3 +863,3 @@
--  // Timestamp needs layout conversion. Millisecond TIME narrows int64_t to
--  // Arrow time32; microsecond TIME already has Arrow time64's exact layout.
--  const bool narrowsTime = type->equivalent(*TIME());
-+  // UUID converts to big-endian bytes. Millisecond TIME narrows to time32;
-+  // microsecond TIME already has Arrow time64's exact layout.
-+  const bool convertsLayout = type->equivalent(*TIME()) || isUuidType(type);
-@@ -801,3 +867,3 @@
--    return !type->isTimestamp() && !narrowsTime;
--  }
--  return !type->isShortDecimal() && !type->isTimestamp() && !narrowsTime;
-+    return !type->isTimestamp() && !convertsLayout;
-+  }
-+  return !type->isShortDecimal() && !type->isTimestamp() && !convertsLayout;
-@@ -844 +910,9 @@
--  if (type->kind() == TypeKind::TIMESTAMP) {
-+  if (isUuidType(type)) {
-+    const auto* input = vec.as<FlatVector<int128_t>>();
-+    auto* output = values->asMutable<int128_t>();
-+    vector_size_t ordinal = 0;
-+    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
-+      output[ordinal++] = hidden || input->isNullAt(row)
-+          ? 0 : DecimalUtil::bigEndian(input->valueAt(row));
-+    });
-+  } else if (type->kind() == TypeKind::TIMESTAMP) {
-@@ -1509,0 +1584 @@
-+  if (isArrowUuid(arrowSchema)) return UUID();
-@@ -1701,0 +1777 @@
-+      if (isUuidType(type)) valuesChild->metadata = uuidExtensionMetadata().data();
-@@ -1794,0 +1871,3 @@
-+  if (isUuidType(type) && std::string_view(arrowSchema.format) == "w:16") {
-+    arrowSchema.metadata = uuidExtensionMetadata().data();
-+  }
-@@ -2395,0 +2475,22 @@
-+  if (isUuidType(type)) {
-+    VELOX_USER_CHECK_EQ(arrowArray.n_buffers, 2, "Arrow UUID requires validity and value buffers");
-+    VELOX_USER_CHECK_LE(arrowArray.length, std::numeric_limits<vector_size_t>::max(),
-+        "Arrow UUID exceeds vector row bound");
-+    const auto length = static_cast<vector_size_t>(arrowArray.length);
-+    auto values = AlignedBuffer::allocate<int128_t>(length, pool);
-+    auto* output = values->asMutable<int128_t>();
-+    const auto* input = static_cast<const uint8_t*>(arrowArray.buffers[1]);
-+    VELOX_USER_CHECK(input || length == 0 || arrowArray.null_count == length,
-+        "Arrow UUID values buffer is missing");
-+    for (vector_size_t row = 0; row < length; ++row) {
-+      if (nulls && bits::isBitNull(nulls->as<uint64_t>(), row)) {
-+        output[row] = 0;
-+        continue;
-+      }
-+      int128_t encoded;
-+      std::memcpy(&encoded, input + row * sizeof(encoded), sizeof(encoded));
-+      output[row] = DecimalUtil::bigEndian(encoded);
-+    }
-+    return createFlatVector<TypeKind::HUGEINT>(pool, type, std::move(nulls), length,
-+        std::move(values), arrowArray.null_count);
-+  }
-diff --git a/velox/functions/prestosql/types/UuidType.h b/velox/functions/prestosql/types/UuidType.h
-index c6bd305..0d62255 100644
---- a/velox/functions/prestosql/types/UuidType.h
-+++ b/velox/functions/prestosql/types/UuidType.h
-@@ -28 +28 @@ class UuidType final : public HugeintType {
--  UuidType() = default;
-+  constexpr UuidType() : HugeintType{ProvideCustomComparison{}} {}
-@@ -35,0 +36,12 @@ class UuidType final : public HugeintType {
-+  // Match the unsigned comparisons implemented by UUID scalar functions.
-+  // Sorting and aggregate selection must use the same ordering of all 128 bits.
-+  int32_t compare(const int128_t& left, const int128_t& right) const override {
-+    const auto a = static_cast<uint128_t>(left);
-+    const auto b = static_cast<uint128_t>(right);
-+    return a < b ? -1 : a > b ? 1 : 0;
-+  }
-+
-+  uint64_t hash(const int128_t& value) const override {
-+    return folly::hasher<int128_t>()(value);
-+  }
-+
-diff --git a/velox/functions/prestosql/types/UuidRegistration.cpp b/velox/functions/prestosql/types/UuidRegistration.cpp
-index 39797ee..820e77c 100644
---- a/velox/functions/prestosql/types/UuidRegistration.cpp
-+++ b/velox/functions/prestosql/types/UuidRegistration.cpp
-@@ -46,0 +47,2 @@ struct UuidParser<TypeKind::VARBINARY> {
-+    VELOX_USER_CHECK_EQ(
-+        uuidValue.size(), 16, "UUID requires exactly 16 binary bytes");
-
+@@ -570 +584 @@ void gatherFromTimestampBuffer(
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toNanos(); });
++        rows.apply([&](vector_size_t i) { dst[j++] = timestampNanosForArrow(src[i]); });
+@@ -605 +619 @@ void gatherFromTimestampBuffer(
+-          dst[j] = src[i].toNanos();
++          dst[j] = timestampNanosForArrow(src[i]);
 PANGROVA_PRIOR_UPGRADE
 }
 

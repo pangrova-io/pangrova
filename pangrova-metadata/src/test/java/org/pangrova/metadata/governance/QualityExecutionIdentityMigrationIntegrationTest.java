@@ -1,10 +1,11 @@
 package org.pangrova.metadata.governance;
 
+import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.pangrova.governance.quality.alert.Severity;
-import org.pangrova.governance.quality.rule.DataQualityRule;
-import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
+import org.pangrova.governance.api.quality.Severity;
+import org.pangrova.governance.api.quality.DataQualityRule;
+import org.pangrova.governance.api.quality.QualityExecutionIdentity;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 
 import java.time.Instant;

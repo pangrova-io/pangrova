@@ -1,0 +1,37 @@
+package org.pangrova.databuild.core.publication;
+
+import org.pangrova.databuild.api.manifest.DataBuildGenerationManifest;
+import org.pangrova.databuild.api.publication.DataBuildPublicationStore;
+
+import org.pangrova.databuild.api.build.DataBuildJob;
+
+import java.time.Instant;
+import java.util.Map;
+
+/** Strict artifact-type router for independent atomic publication adapters. */
+public final class DataBuildPublicationRouter implements DataBuildPublicationStore {
+
+    private final Map<String, DataBuildPublicationStore> routes;
+
+    /** Freezes the complete, non-empty artifact-type publication routing table. */
+    public DataBuildPublicationRouter(Map<String, DataBuildPublicationStore> routes) {
+        this.routes = Map.copyOf(routes);
+        if (this.routes.isEmpty()
+                || this.routes.entrySet().stream().anyMatch(entry ->
+                entry.getKey() == null || entry.getKey().isBlank() || entry.getValue() == null)) {
+            throw new IllegalArgumentException("publication routes must be non-empty and complete");
+        }
+    }
+
+    @Override
+    public DataBuildGenerationManifest publishClaimed(
+            DataBuildJob claimedJob, String owner, long ownerEpoch, Instant now) {
+        DataBuildPublicationStore route = routes.get(claimedJob.artifactType());
+        if (route == null) {
+            throw new IllegalStateException(
+                    "No atomic publication adapter for artifact type "
+                            + claimedJob.artifactType());
+        }
+        return route.publishClaimed(claimedJob, owner, ownerEpoch, now);
+    }
+}

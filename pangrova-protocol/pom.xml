@@ -14,7 +14,20 @@
     <name>Pangrova Protocol</name>
     <description>Protobuf message definitions and REST API JSON schemas for Pangrova inter-process communication</description>
 
+    <properties>
+        <module.name>org.pangrova.protocol</module.name>
+    </properties>
+
     <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-indexing-api</artifactId>
+        </dependency>
+
         <!-- Internal module dependencies (versions inherited from parent) -->
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -22,7 +35,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-function</artifactId>
         </dependency>
 
         <!-- Synchronous columnar write batches shared by workers and connectors. -->
@@ -73,6 +86,13 @@
             <artifactId>annotations-api</artifactId>
             <version>${tomcat-annotations-api.version}</version>
             <scope>provided</scope>
+        </dependency>
+
+        <!-- Public client-owned wire values (error envelope, result endpoint, query DTOs).
+             client-core is framework-free: common + Jackson annotations only. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-client-core</artifactId>
         </dependency>
 
         <!-- Jackson for REST DTOs (optional: modules needing JSON declare their own dependency) -->

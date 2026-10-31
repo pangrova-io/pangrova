@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.metadata.IncrementalScanCapability;
+import org.pangrova.connector.spi.metadata.IncrementalScanCapability;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;

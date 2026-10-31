@@ -217,11 +217,11 @@
   <logger name="org.pangrova.security"           level="INFO" />
 
   <!-- AI / embedding pipeline -->
-  <logger name="org.pangrova.worker.ai"          level="INFO" />
-  <!-- <logger name="org.pangrova.worker.ai"      level="DEBUG" /> -->
+  <logger name="org.pangrova.ai.worker"          level="INFO" />
+  <!-- <logger name="org.pangrova.ai.worker"      level="DEBUG" /> -->
 
   <!-- JNI bridge: WARN in production; DEBUG for native crash diagnosis -->
-  <logger name="org.pangrova.worker.jni"         level="WARN" />
+  <logger name="org.pangrova.worker.nativebridge.jni"         level="WARN" />
 
   <!-- ── Root Logger ────────────────────────────────────── -->
   <root level="INFO">

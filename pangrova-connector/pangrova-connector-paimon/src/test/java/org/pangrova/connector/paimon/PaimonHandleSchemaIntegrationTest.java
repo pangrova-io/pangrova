@@ -22,7 +22,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
-import org.pangrova.connector.paimon.write.PaimonPhysicalSchemas;
+import org.pangrova.connector.paimon.schema.PaimonPhysicalSchemas;
 import org.pangrova.protocol.type.DeclaredLogicalTypes;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.apache.arrow.vector.ipc.ReadChannel;
@@ -128,9 +128,9 @@ class PaimonHandleSchemaIntegrationTest {
         assertThat(physical.schemaId()).isEqualTo(table.schema().id());
         assertThat(column.fieldId()).isEqualTo(table.schema().fields().get(1).id());
         assertThat(column.name()).isEqualTo("embedding");
-        assertThat(column.logicalType()).isEqualTo(new org.pangrova.spi.connector.data.type.VectorType(7,
-                doubled ? org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE
-                        : org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT).getTypeSignature());
+        assertThat(column.logicalType()).isEqualTo(new org.pangrova.connector.spi.data.type.VectorType(7,
+                doubled ? org.pangrova.connector.spi.data.type.VectorType.ElementType.DOUBLE
+                        : org.pangrova.connector.spi.data.type.VectorType.ElementType.FLOAT).getTypeSignature());
         assertThat(column.nullable()).isEqualTo(nullable);
         assertThat(column.declaredType().children()).singleElement().satisfies(child -> {
             assertThat(child.nullable()).isEqualTo(elementNullable);
@@ -147,7 +147,7 @@ class PaimonHandleSchemaIntegrationTest {
     }
 
     private static void assertPropertyVectorArrowList(FileStoreTable table,
-            org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation.Schema physical,
+            org.pangrova.connector.spi.metadata.NativePhysicalWriteAllocation.Schema physical,
             boolean doubled) throws Exception {
         var storage = (org.apache.paimon.types.ArrayType) table.schema().fields().get(1).type();
         try (var channel = new ReadChannel(Channels.newChannel(new ByteArrayInputStream(physical.physicalSchema())))) {
@@ -231,7 +231,7 @@ class PaimonHandleSchemaIntegrationTest {
         }
     }
 
-    private static void assertMapTypes(org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation.Schema schema,
+    private static void assertMapTypes(org.pangrova.connector.spi.metadata.NativePhysicalWriteAllocation.Schema schema,
                                        org.apache.arrow.vector.types.pojo.Schema physical) {
         var key = physical.getFields().get(4).getChildren().get(0).getChildren().get(0);
         assertThat(key.isNullable()).isFalse();

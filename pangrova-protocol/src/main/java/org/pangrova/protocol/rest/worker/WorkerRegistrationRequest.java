@@ -1,12 +1,15 @@
 package org.pangrova.protocol.rest.worker;
 
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
+
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
-import org.pangrova.protocol.task.CanonicalTaskRequests;
-import org.pangrova.protocol.CapabilityInventoryCodec;
+import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 
 import java.util.List;
 
@@ -54,14 +57,11 @@ public record WorkerRegistrationRequest(
         java.util.Objects.requireNonNull(workerExecutionIdentity, "workerExecutionIdentity");
         requireNonBlank(workerId, "workerId");
         requireNonBlank(httpHost, "httpHost");
-        requireNonNegative(httpPort, "httpPort");
-        requireNonNegative(transportPort, "transportPort");
-        requireNonNegative(resultServerPort, "resultServerPort");
-        requireNonNegative(copyTaskTlsPort, "copyTaskTlsPort");
-        if (copyTaskTlsPort > MAX_TCP_PORT) {
-            throw new IllegalArgumentException("copyTaskTlsPort must be <= 65535");
-        }
-        if (protocolVersion != CanonicalTaskRequests.PROTOCOL_MAJOR) {
+        requireTcpPort(httpPort, "httpPort");
+        requireTcpPort(transportPort, "transportPort");
+        requireTcpPort(resultServerPort, "resultServerPort");
+        requireTcpPort(copyTaskTlsPort, "copyTaskTlsPort");
+        if (protocolVersion != CanonicalProtocolIdentity.PROTOCOL_MAJOR) {
             throw new IllegalArgumentException(
                     "protocolVersion must equal canonical v2");
         }
@@ -89,9 +89,9 @@ public record WorkerRegistrationRequest(
         }
     }
 
-    private static void requireNonNegative(int value, String name) {
-        if (value < 0) {
-            throw new IllegalArgumentException(name + " must be >= 0");
+    private static void requireTcpPort(int value, String name) {
+        if (value < 0 || value > MAX_TCP_PORT) {
+            throw new IllegalArgumentException(name + " must be between 0 and 65535");
         }
     }
 

@@ -23,21 +23,21 @@ configured SDK source root. Line numbers identify this audit snapshot.
 | Boundary | Inspected evidence | Current state |
 |---|---|---|
 | Actual Native publication | `pangrova-worker-native/src/capability/FunctionCatalogAssembler.cpp:147–165` assembles the owned snapshot and seals its manifest. `src/jni/command/NativeCommandDispatcher.cpp:515–542` finalizes and returns the same published inventory. | Implemented source path; not a new acceptance result. |
-| Worker advertisement | `pangrova-worker/src/main/java/org/pangrova/worker/jni/NativeCapabilityLoader.java:21–78` performs finalize/read/validation. `bootstrap/WorkerBootstrap.java:151` preserves encoded inventory; `bootstrap/phase/WorkerHeartbeatBootstrap.java:100` sends it. | Actual inventory wired, not a static function-name list. |
-| Authenticated registration | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/http/endpoint/WorkerResource.java:103–152,288–295` authenticates registration, decodes inventory and creates WorkerInfo. `worker/WorkerInfo.java:36,53–55` and `WorkerManager.java:398,429` retain the complete inventory. | Implemented. A content digest is not authentication or an incarnation fence. |
+| Worker advertisement | `pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/NativeCapabilityLoader.java:21–80` performs finalize/read/validation. `bootstrap/WorkerBootstrap.java:151` preserves encoded inventory; `bootstrap/phase/WorkerHeartbeatBootstrap.java:100` sends it. | Actual inventory wired, not a static function-name list. |
+| Authenticated registration | `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/WorkerResource.java:103–152,288–295` authenticates registration, decodes inventory and creates WorkerInfo. `worker/WorkerInfo.java:36,53–55` and `WorkerManager.java:398,429` retain the complete inventory. | Implemented. A content digest is not authentication or an incarnation fence. |
 | Frozen query authority | `query/execution/dispatch/dag/DefaultWorkerSelector.java:56,104,115,162,197,235` reads current active workers for selection/model/retry. | Missing query-local catalogue/cohort. |
 | Planner actual consumer | `pangrova-planner/src/main/java/org/pangrova/planner/SqlCompiler.java:43,49` installs static defaults; `forSession:96–106` captures metadata but no function catalogue. `pangrova-protocol/src/main/java/org/pangrova/protocol/function/catalog/FunctionCatalogView.java:38–140` already has immutable actual binding APIs. | No Planner/Coordinator production consumer of FunctionCatalogView. |
-| Final fragment requirements | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java:46–76` overlays/retrieval/model-binds after serialization. `dispatch/dag/TaskRequestFactory.java:238–269` writes plan/checksum, not requirements. | No field18 writer. |
+| Final fragment requirements | `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java:46–76` overlays/retrieval/model-binds after serialization. `dispatch/dag/TaskRequestFactory.java:238–269` writes plan/checksum, not requirements. | No field18 writer. |
 | Native requirement admission | `pangrova-worker-native/src/jni/command/TaskRequestParser.cpp:1556–1717` parses canonical requests but never reads function_requirements. | No field18 reader or exact call-coverage comparison. |
 | Actual Native call binding | `src/capability/RegisteredFunctionBinding.cpp:54–86` binds scalar/raw aggregate/window through the owned snapshot. | Actual binding exists; it does not supply the missing query/task contract. |
 
 Reproduce the missing-consumer observation with source-only searches:
 
 ```sh
-rg -n 'FunctionCatalogView' pangrova-planner/src/main pangrova-coordinator/src/main
+rg -n 'FunctionCatalogView' pangrova-planner/src/main pangrova-coordination/pangrova-coordination-core/src/main
 rg -n 'function_requirements|getFunctionRequirements|setFunctionRequirements' \
-  pangrova-protocol/src/main pangrova-planner/src/main pangrova-coordinator/src/main \
-  pangrova-worker/src/main pangrova-worker-native/src
+  pangrova-protocol/src/main pangrova-planner/src/main pangrova-coordination/pangrova-coordination-core/src/main \
+  pangrova-worker/pangrova-worker-core/src/main pangrova-worker-native/src
 rg -n 'TaskRequest\.newBuilder' --glob '*.java' --glob '!**/target/**' .
 ```
 
@@ -153,12 +153,12 @@ edits. Absence of requirements is never a compatibility mode.
    cross-language golden tests supplies field13; two independently handwritten
    digest formulas or name-level hashes are not sufficient.
 6. **One final task writer.** Collect after overlay, retrieval, governed binding,
-   AQE, and ArtifactPartitionBindings rewrites. BoundExecutionPlan and
+   AQE, and DataBuildPartitionBindings rewrites. BoundExecutionPlan and
    LeafTask/DmlWriteTask/CanonicalTaskSpec carry the bound requirements.
    TaskRequestFactory.canonicalRequest writes field18 for ordinary leaf,
    intermediate/root and DML. DurablePartitionRequest.prepare uses that same
    factory. Zero-function fragments still have an explicit complete envelope.
-7. **Durable authority survives replay.** ArtifactStageGraph canonical storage,
+7. **Durable authority survives replay.** DataBuildStageGraph canonical storage,
    its codec/store and all artifact/export/generated-value submitters persist
    the catalogue identity and original provenance with immutable graph templates.
    A partition rewrite recomputes requirements against that retained authority,

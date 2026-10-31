@@ -16,7 +16,7 @@ package org.pangrova.transport;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

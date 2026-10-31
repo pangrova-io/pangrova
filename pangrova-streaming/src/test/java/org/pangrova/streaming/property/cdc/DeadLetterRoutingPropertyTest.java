@@ -2,11 +2,11 @@ package org.pangrova.streaming.property.cdc;
 
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.spi.streaming.CdcEnvelope;
-import org.pangrova.spi.streaming.CdcOperation;
-import org.pangrova.spi.streaming.CdcRecordConversionException;
-import org.pangrova.spi.streaming.CdcRecordConverter;
-import org.pangrova.spi.streaming.CdcRow;
+import org.pangrova.streaming.api.cdc.CdcEnvelope;
+import org.pangrova.streaming.api.cdc.CdcOperation;
+import org.pangrova.streaming.api.cdc.CdcRecordConversionException;
+import org.pangrova.streaming.api.cdc.CdcRecordConverter;
+import org.pangrova.streaming.api.cdc.CdcRow;
 
 import java.time.Instant;
 import java.util.ArrayList;

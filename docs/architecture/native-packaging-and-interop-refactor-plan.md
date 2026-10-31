@@ -81,7 +81,7 @@ The following Velox4J choices must not be copied directly:
 |---|---|---|---|
 | PKG-01 | P0 | The checked-in macOS JNI library links `libarrow`, `libarrow_flight`, `libglog`, and `libgflags`, but the classifier workflow copies only `libpangrova_native` | A clean host cannot load the published JAR |
 | PKG-02 | P0 | The checked-in dylib contains absolute RPATH entries under a developer home directory | The artifact is machine-specific and non-reproducible |
-| PKG-03 | P0 | `package-native-lib.sh` stages into `pangrova-worker/src/main/resources`, while CI/release stages into `pangrova-native-bundle` | Development and release exercise different artifacts |
+| PKG-03 | P0 | `package-native-lib.sh` stages into `pangrova-worker/pangrova-worker-core/src/main/resources`, while CI/release stages into `pangrova-native-bundle` | Development and release exercise different artifacts |
 | PKG-04 | P0 | `release.yml` references `docker/Dockerfile.native-build`, but the file is under `deploy/docker/` | Linux release builds fail before compilation |
 | PKG-05 | P0 | CI installs the classifier JAR but Java tests load the raw build directory through `java.library.path` and `LD_LIBRARY_PATH` | CI can pass while the shipped JAR is unloadable |
 | PKG-06 | P1 | The Worker test-resource copy includes only `.dylib`, and `${os.detected.arch}` can produce `aarch_64` while the loader expects `aarch64` | Local Linux and ARM classpath loading are inconsistent |
@@ -136,7 +136,7 @@ pangrova-parent/                    private build parent and plugin policy
 pangrova-bom/                       published dependencyManagement only
 pangrova-protocol/                  canonical IDL + generated Java + codecs
 pangrova-native-runtime/            Java loader, JNI ABI, handles, callbacks
-pangrova-worker/                    worker orchestration; no native declarations
+pangrova-worker/pangrova-worker-core/                    worker orchestration; no native declarations
 pangrova-worker-native/             C++20 engine and JNI implementation
 pangrova-native-bundle/             packaging-only classifier JAR producer
 pangrova-distribution/              platform server tar/zip/container assembly

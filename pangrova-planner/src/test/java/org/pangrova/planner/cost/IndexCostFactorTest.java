@@ -1,6 +1,6 @@
 package org.pangrova.planner.cost;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 
 import org.junit.jupiter.api.Test;
 

@@ -87,7 +87,7 @@ is_test_code() {
 # Check if a file is an SPI interface (default methods are intentional contracts)
 is_spi_interface() {
     local file="$1"
-    [[ "$file" == *pangrova-spi/* ]]
+    [[ "$file" == *-api/* || "$file" == *-spi/* ]]
 }
 
 # Check if a file is in an excluded directory

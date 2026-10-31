@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.apache.iceberg.BlobMetadata;
 import org.apache.iceberg.Schema;

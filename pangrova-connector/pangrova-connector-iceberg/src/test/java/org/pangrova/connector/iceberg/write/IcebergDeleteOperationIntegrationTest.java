@@ -5,20 +5,21 @@ import org.pangrova.connector.iceberg.IcebergSplitManager;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -45,6 +46,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration tests for Iceberg v2 delete operations (position + equality deletes).
@@ -63,13 +65,13 @@ class IcebergDeleteOperationIntegrationTest {
     private static final String CATALOG_NAME = "delete_test_catalog";
     private static final String NAMESPACE = "delete_db";
 
-    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.EMPTY;
+    private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.empty();
     private static final DynamicFilter NO_FILTER = DynamicFilter.ALL;
     private static final Constraint NO_CONSTRAINT = Constraint.EMPTY;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -132,17 +134,21 @@ class IcebergDeleteOperationIntegrationTest {
                 table, new int[]{idFieldId}, deleteSchema, deleteRecords);
         table.newRowDelta().addDeletes(eqDeleteFile).commit();
 
-        // Verify delete files are associated with the data file split
-        List<IcebergSplit> splits = findSplits("eq_delete_table");
-        assertThat(splits).hasSize(1);
-        assertThat(splits.get(0).deleteFiles()).hasSize(1);
+        // Verify the equality delete file is committed to the table
+        List<DeleteFile> deleteFiles = new ArrayList<>();
+        table.currentSnapshot().addedDeleteFiles(table.io()).forEach(deleteFiles::add);
+        assertThat(deleteFiles).hasSize(1);
 
         // Verify equality delete file content: id values 1 and 3
-        String deleteFilePath = splits.get(0).deleteFiles().get(0).filePath();
-        List<Record> readBack = readEqualityDeleteFile(table, deleteFilePath);
+        List<Record> readBack = readEqualityDeleteFile(table, deleteFiles.get(0).path().toString());
         assertThat(readBack).hasSize(2);
         assertThat(readBack.get(0).getField("id")).isEqualTo(1L);
         assertThat(readBack.get(1).getField("id")).isEqualTo(3L);
+
+        // Reads fail closed instead of silently ignoring unqualified equality deletes
+        assertThatThrownBy(() -> findSplits("eq_delete_table"))
+                .isInstanceOf(ConnectorException.class)
+                .hasMessageContaining("equality deletes are not supported");
     }
 
     // -- catalog setup --

@@ -1,6 +1,6 @@
 package org.pangrova.shuffle.exchange;
 
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
 

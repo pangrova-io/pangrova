@@ -1,7 +1,7 @@
 package org.pangrova.client.jdbc;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.testing.testkit.result.TestResultEndpoint;
 
 import java.sql.SQLException;

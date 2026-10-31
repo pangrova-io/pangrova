@@ -10,7 +10,7 @@ import org.pangrova.connector.paimon.handle.PaimonLsmLevel;
 import org.pangrova.connector.paimon.handle.PaimonPhysicalFile;
 import org.pangrova.connector.paimon.handle.PaimonLsmFile;
 import org.pangrova.connector.paimon.handle.PaimonSplit;
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 
 import java.util.List;

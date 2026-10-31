@@ -17,10 +17,10 @@
  */
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -54,7 +54,7 @@ class PaimonRenameTableTest {
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

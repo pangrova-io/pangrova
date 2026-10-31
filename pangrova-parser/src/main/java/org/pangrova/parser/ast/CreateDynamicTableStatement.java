@@ -36,4 +36,9 @@ public record CreateDynamicTableStatement(
             Map<String, String> properties) {
         this(name, query, targetLag, refreshMode, warehouse, properties, Optional.empty());
     }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_DYNAMIC_TABLE;
+    }
 }

@@ -2,11 +2,11 @@ package org.pangrova.connector.paimon.type;
 
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.data.type.primitive.BooleanType;
-import org.pangrova.spi.connector.data.type.primitive.IntegerType;
+import org.pangrova.connector.spi.data.type.ArrayType;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.VectorType;
+import org.pangrova.connector.spi.data.type.primitive.BooleanType;
+import org.pangrova.connector.spi.data.type.primitive.IntegerType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

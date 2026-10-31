@@ -3,8 +3,8 @@ package org.pangrova.connector.paimon.index;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.index.SnapshotDataFile;
-import org.pangrova.spi.connector.index.SnapshotFileDelta;
+import org.pangrova.connector.spi.index.SnapshotDataFile;
+import org.pangrova.connector.spi.index.SnapshotFileDelta;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;

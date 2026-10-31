@@ -1,6 +1,6 @@
 package org.pangrova.protocol.retrieval;
 
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 import java.util.List;
 
@@ -8,7 +8,7 @@ import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.ScoreDirection;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Wire-binding input for one planner-recognized local retrieval/Top-K relation. */
 @Internal
@@ -39,7 +39,7 @@ public record RetrievalTopKBinding(
      * @param requiredRecallAtK required recall threshold
      * @param recallK recall measurement K
      */
-    public record ArtifactInput(
+    public record PublishedGenerationInput(
             String sourceId,
             CapabilityRef capability,
             List<NamedValue> invocationOptions,
@@ -214,7 +214,7 @@ public record RetrievalTopKBinding(
             ScoreDirection scoreDirection,
             List<Integer> stableKeyFieldIndexes,
             byte[] candidateSchema,
-            ArtifactInput input) {
+            PublishedGenerationInput input) {
         return artifact(scoreFieldIndex, candidateLimit, candidateLimit, scoreDirection,
                 stableKeyFieldIndexes, candidateSchema, input);
     }
@@ -223,7 +223,7 @@ public record RetrievalTopKBinding(
     public static RetrievalTopKBinding artifact(
             int scoreFieldIndex, int outputLimit, int candidateLimit,
             ScoreDirection scoreDirection, List<Integer> stableKeyFieldIndexes,
-            byte[] candidateSchema, ArtifactInput input) {
+            byte[] candidateSchema, PublishedGenerationInput input) {
         if (outputLimit != input.recallK()) {
             throw new IllegalArgumentException("retrieval visible K differs from its recall measurement K");
         }

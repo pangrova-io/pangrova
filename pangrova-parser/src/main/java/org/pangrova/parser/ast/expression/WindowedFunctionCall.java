@@ -3,6 +3,7 @@ package org.pangrova.parser.ast.expression;
 import java.util.List;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.WindowSpec;
 
@@ -22,5 +23,10 @@ public record WindowedFunctionCall(
     /** Convenience constructor without distinct flag (backward compatible). */
     public WindowedFunctionCall(Identifier name, List<Expression> arguments, WindowSpec window) {
         this(name, arguments, false, window);
+    }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.WINDOWED_FUNCTION_CALL;
     }
 }

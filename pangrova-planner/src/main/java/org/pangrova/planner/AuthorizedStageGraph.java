@@ -1,7 +1,7 @@
 package org.pangrova.planner;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ResultColumnLogicalType;
 

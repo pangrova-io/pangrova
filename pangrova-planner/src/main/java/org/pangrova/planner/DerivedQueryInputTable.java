@@ -14,7 +14,7 @@ import org.apache.calcite.schema.Statistics;
 import org.apache.calcite.schema.TranslatableTable;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.pangrova.planner.type.ConnectorColumnTypeMapper;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
 
 /** A definition-local alias becomes an ordinary scan of its exact physical identity. */
 final class DerivedQueryInputTable extends AbstractTable implements TranslatableTable {

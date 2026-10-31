@@ -9,18 +9,18 @@ import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePageConverter;
-import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.data.page.NativePage;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.ConnectorPageSource;
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.data.page.BatchFormat;
+import org.pangrova.connector.spi.data.page.NativePageConverter;
+import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.connector.spi.data.page.NativePage;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.ConnectorPageSource;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.connector.spi.metadata.table.ColumnHandle;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
@@ -67,7 +67,7 @@ class IcebergPageSourceProviderTest {
     private static final DynamicFilter NO_FILTER = DynamicFilter.ALL;
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

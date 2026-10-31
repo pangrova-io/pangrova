@@ -18,6 +18,7 @@
 package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.List;
 
@@ -34,5 +35,10 @@ public record ShowSemanticViewsStatement(List<String> scope) implements Statemen
             throw new IllegalArgumentException(
                     "SHOW SEMANTIC VIEWS scope parts must not be blank");
         }
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.SHOW_SEMANTIC_VIEWS;
     }
 }

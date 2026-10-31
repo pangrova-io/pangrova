@@ -417,7 +417,7 @@ final class PostgresShuffleRecords {
         TaskAttemptId attempt;
         try {
             attempt = TaskAttemptId.parseFrom(canonical);
-            org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(attempt.getWorkerExecutionIdentity());
+            org.pangrova.protocol.execution.identity.WorkerExecutionIdentity.from(attempt.getWorkerExecutionIdentity());
         } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException failure) {
             throw new IllegalStateException("Durable shuffle attempt identity is invalid", failure);
         }

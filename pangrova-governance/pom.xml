@@ -14,10 +14,23 @@
     <name>Pangrova Governance</name>
     <description>Data lineage, quality rules, tag-based security policy</description>
 
+    <properties>
+        <module.name>org.pangrova.governance</module.name>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-observability-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-spi</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-query-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -48,6 +61,10 @@
             <groupId>com.cronutils</groupId>
             <artifactId>cron-utils</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-security</artifactId>
+        </dependency>
 
         <!-- Test -->
         <dependency>
@@ -57,17 +74,12 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

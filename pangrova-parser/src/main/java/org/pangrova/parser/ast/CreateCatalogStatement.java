@@ -14,4 +14,9 @@ public record CreateCatalogStatement(
     public CreateCatalogStatement {
         properties = Map.copyOf(properties);
     }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_CATALOG;
+    }
 }

@@ -4,7 +4,7 @@ import io.substrait.proto.ExtendedExpression;
 import io.substrait.proto.ExpressionReference;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.SplitConstraint;
 import org.apache.iceberg.Schema;

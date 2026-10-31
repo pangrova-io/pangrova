@@ -1,6 +1,7 @@
 package org.pangrova.parser.ast.expression;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 
 import java.util.List;
 import java.util.Objects;
@@ -41,5 +42,10 @@ public record MapConstructor(List<Expression> entries) implements Expression {
      */
     public Expression value(int index) {
         return entries.get(index * 2 + 1);
+    }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.MAP_CONSTRUCTOR;
     }
 }

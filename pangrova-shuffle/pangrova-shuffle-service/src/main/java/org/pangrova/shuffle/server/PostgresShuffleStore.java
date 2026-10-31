@@ -14,7 +14,7 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
 
 import static org.pangrova.shuffle.server.persistence.JdbcTransactions.read;

@@ -1,9 +1,10 @@
 package org.pangrova.metadata.migration;
 
+import org.pangrova.table.api.governancebinding.GovernanceBinding;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.control.GovernanceBindingType;
-import org.pangrova.metadata.control.JdbcTableControlGovernanceBindingStore;
+import org.pangrova.table.api.governancebinding.GovernanceBindingType;
+import org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 
 import javax.sql.DataSource;
@@ -98,7 +99,7 @@ class StableColumnTagMigrationTest {
 
     private static java.util.UUID historicalBinding(DataSource source, java.util.UUID tableId, String value) {
         var id = java.util.UUID.randomUUID();
-        new JdbcTableControlGovernanceBindingStore(source).save(new org.pangrova.metadata.control.GovernanceBinding(
+        new JdbcTableControlGovernanceBindingStore(source).save(new org.pangrova.table.api.governancebinding.GovernanceBinding(
                 id, tableId, GovernanceBindingType.COLUMN_TAG, "email:pii_type", Map.of("value", value), "alice",
                 java.time.Instant.now(), java.time.Instant.now()));
         return id;

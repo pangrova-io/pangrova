@@ -12,11 +12,11 @@ import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 
 import java.util.LinkedHashMap;
 import java.util.Optional;
@@ -53,11 +53,11 @@ final class PaimonReadBindings {
                 snapshot == null ? ConnectorReadBinding.SnapshotState.EMPTY
                         : ConnectorReadBinding.SnapshotState.SNAPSHOT,
                 snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.id()), identity,
-                Optional.of(new org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity(
-                        new org.pangrova.spi.connector.metadata.table.TableIdentity("PAIMON", table.uuid(),
+                Optional.of(new org.pangrova.connector.spi.metadata.table.ConnectorReadSchemaIdentity(
+                        new org.pangrova.connector.spi.metadata.table.TableIdentity("PAIMON", table.uuid(),
                                 table.location().toString(), schema.schemaFingerprint()),
                         "paimon.branch-fields.v1:" + table.snapshotManager().branch(), columns,
-                        org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                        org.pangrova.connector.spi.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
                                 .SELECTED_SOURCE)));
     }
 

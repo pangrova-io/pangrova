@@ -34,5 +34,6 @@ public enum ExpressionType {
     SUBSTRING,
     UNARY_MINUS,
     WINDOWED_FUNCTION_CALL,
-    PARAMETER_MARKER
+    PARAMETER_MARKER,
+    SUBSCRIPT
 }

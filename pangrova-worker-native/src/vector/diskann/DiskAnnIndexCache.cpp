@@ -3,7 +3,7 @@
 
 #include "vector/diskann/DiskAnnIndexCache.h"
 
-#include "artifact/ParsedArtifactCache.h"
+#include "capabilities/artifact/ParsedArtifactCache.h"
 
 namespace pangrova::vector::diskann {
 namespace {

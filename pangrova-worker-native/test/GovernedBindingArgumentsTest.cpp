@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "capability/GovernedBindingArguments.h"
+#include "capabilities/capability/GovernedBindingArguments.h"
 #include "StructuralContractIdentities.h"
 
 namespace pangrova::capability {

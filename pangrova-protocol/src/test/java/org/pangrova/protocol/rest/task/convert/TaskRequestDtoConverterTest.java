@@ -14,8 +14,8 @@ import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
-import org.pangrova.spi.execution.TaskDescriptor;
-import org.pangrova.spi.execution.TaskResourceLimit;
+import org.pangrova.protocol.execution.TaskDescriptor;
+import org.pangrova.protocol.execution.TaskResourceLimit;
 
 /** Verifies canonical v2 task-to-SPI projections shared by coordinator and worker. */
 class TaskRequestDtoConverterTest {

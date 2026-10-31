@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "../TestMemoryHelper.h"
+#include "TestMemoryHelper.h"
 #include "StructuralContractIdentities.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "udf/JvmScalarFunction.h"

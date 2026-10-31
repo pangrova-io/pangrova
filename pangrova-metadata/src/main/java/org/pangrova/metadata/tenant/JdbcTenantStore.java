@@ -5,12 +5,12 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.metadata.exception.MetastoreException;
-import org.pangrova.security.tenant.model.ResourceQuota;
-import org.pangrova.security.tenant.model.Tenant;
-import org.pangrova.security.tenant.model.TenantRole;
-import org.pangrova.security.tenant.model.TenantStatus;
-import org.pangrova.security.tenant.store.ResolvedTenantContext;
-import org.pangrova.security.tenant.store.TenantStore;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.security.api.tenant.ResolvedTenantContext;
+import org.pangrova.security.api.tenant.TenantStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -162,10 +162,10 @@ public final class JdbcTenantStore implements TenantStore {
         try (Connection conn = dataSource.getConnection();
              var stmt = conn.createStatement()) {
             conn.setAutoCommit(false);
-            org.pangrova.security.store.AuthorizationTransactionGate.lockMutation(conn);
+            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.lockMutation(conn);
             stmt.execute(DDL_TENANTS);
             stmt.execute(DDL_MEMBERSHIPS);
-            org.pangrova.security.store.AuthorizationTransactionGate.initialize(conn);
+            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.initialize(conn);
             conn.commit();
             LOG.info("event=tenant_schema_initialized");
         } catch (SQLException e) {
@@ -176,7 +176,7 @@ public final class JdbcTenantStore implements TenantStore {
     /** Validates the exact current tenant membership and namespace on the publication connection. */
     public static void requireDeferredTenant(
             Connection connection, String principal, String tenantId,
-            org.pangrova.security.authz.DeferredAuthorizationScope scope) throws SQLException {
+            org.pangrova.security.api.authz.DeferredAuthorizationScope scope) throws SQLException {
         requireDeferredTenant(connection, principal, tenantId, scope, table -> false);
     }
 
@@ -193,9 +193,9 @@ public final class JdbcTenantStore implements TenantStore {
      */
     public static void requireDeferredTenant(
             Connection connection, String principal, String tenantId,
-            org.pangrova.security.authz.DeferredAuthorizationScope scope,
+            org.pangrova.security.api.authz.DeferredAuthorizationScope scope,
             java.util.function.Predicate<
-                    org.pangrova.spi.connector.metadata.table.QualifiedTableName>
+                    org.pangrova.connector.spi.metadata.table.QualifiedTableName>
                     engineOwnedResource) throws SQLException {
         try (var statement = connection.prepareStatement(
                 "SELECT t.* FROM tenants t JOIN tenant_user_memberships m ON m.tenant_id=t.tenant_id "
@@ -204,7 +204,7 @@ public final class JdbcTenantStore implements TenantStore {
             statement.setString(2, principal);
             try (var result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw new org.pangrova.security.authz.AuthorizationDeniedException(
+                    throw new org.pangrova.security.api.AuthorizationDeniedException(
                             "Deferred subject no longer belongs to the exact active tenant");
                 }
                 Tenant tenant = mapTenant(result);
@@ -216,7 +216,7 @@ public final class JdbcTenantStore implements TenantStore {
                     if ((!tenant.allowedCatalogs().isEmpty() && !tenant.allowedCatalogs().contains(table.catalog()))
                             || (!tenant.allowedSchemas().isEmpty()
                             && !tenant.allowedSchemas().contains(table.schema()))) {
-                        throw new org.pangrova.security.authz.AuthorizationDeniedException(
+                        throw new org.pangrova.security.api.AuthorizationDeniedException(
                                 "Deferred resource is outside the current tenant namespace");
                     }
                 }

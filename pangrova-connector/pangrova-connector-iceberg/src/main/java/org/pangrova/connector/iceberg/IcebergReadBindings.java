@@ -10,12 +10,12 @@ import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -80,11 +80,11 @@ final class IcebergReadBindings {
         var declaration = IcebergCatalogTables.readDeclaration(handle, readSchema);
         var schema = readSchema.schema();
         var schemaIdentity = declaration.declarationEvidence() == ConnectorTableReadMetadata.DeclarationEvidence.EXACT
-                ? Optional.of(new org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity(
+                ? Optional.of(new org.pangrova.connector.spi.metadata.table.ConnectorReadSchemaIdentity(
                         readSchema.tableIdentity(), "iceberg.table-fields.v1", declaration.metadata().typedColumns(),
-                        org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
+                        org.pangrova.connector.spi.metadata.table.ConnectorReadSchemaIdentity.FieldIdStability
                                 .NON_REUSABLE_NAMESPACE))
-                : Optional.<org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity>empty();
+                : Optional.<org.pangrova.connector.spi.metadata.table.ConnectorReadSchemaIdentity>empty();
         var fresh = IcebergTableHandleFactory.fromTable(handle.schemaName(), handle.tableName(), table);
         var bound = new IcebergTableHandle(fresh.schemaName(), fresh.tableName(), fresh.tableLocation(),
                 snapshot == null ? Optional.empty() : Optional.of(snapshot.snapshotId()),

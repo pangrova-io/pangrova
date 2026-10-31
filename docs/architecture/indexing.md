@@ -16,6 +16,24 @@ Native capability, pins a source snapshot, creates durable work pages and
 dispatches ordinary canonical v2 tasks. It never builds, loads or searches an
 ANN graph in the JVM.
 
+## Code ownership
+
+Index state and index orchestration have separate owners:
+
+- `pangrova-indexing` owns index persistence and evaluation:
+  `org.pangrova.indexing.store` and `org.pangrova.indexing.store.jdbc` hold the
+  descriptor, commit queue, generation, publication-fencing and GC persistence;
+  `org.pangrova.indexing.core.*`, `org.pangrova.indexing.engine.*` and
+  `org.pangrova.indexing.eval.*` hold build/evaluation logic and the per-engine
+  providers. `pangrova-metadata` does not own index storage.
+- `pangrova-coordinator` owns only the control-plane adapter under
+  `org.pangrova.coordinator.adapter.indexing` (DDL, filter, lifecycle/GC and the
+  AI retrieval-index lifecycle). It depends on indexing contracts and store
+  ports; it never owns a second index metadata store.
+- Index generation has exactly one owner: the indexing store allocates and
+  fences generations, and the coordinator adapter may only advance them through
+  that store.
+
 ## Canonical retrieval contract
 
 Every retrieval algorithm is identified by the existing generic protocol
@@ -43,8 +61,8 @@ names are rejected before dispatch.
    declared algorithm to a canonical build `CapabilityRef` and
    `ArtifactFormatRef`.
 3. The service pins an immutable table snapshot, enumerates source splits and
-   persists source-map, reduction and finalization pages in `ArtifactBuildStore`.
-4. `DurableArtifactBuildDispatcher` leases pages and dispatches normal v2
+   persists source-map, reduction and finalization pages in `DataBuildStore`.
+4. `DurableDataBuildDispatcher` leases pages and dispatches normal v2
    `TaskRequest` objects with an `ArtifactWriteBinding`.
 5. A Native worker verifies capability, format, fencing token and resource
    grant before building an immutable artifact object.
@@ -62,7 +80,7 @@ advance. No in-memory build state is authoritative.
 2. The plan carries the canonical Native retrieval `CapabilityRef`, a bounded
    search budget and the index generation identity.
 3. The Coordinator resolves that generation through
-   `PublishedArtifactBindingResolver`, checks source-snapshot coverage and
+   `PublishedGenerationBindingResolver`, checks source-snapshot coverage and
    materializes source-object-scoped `ArtifactBinding` objects for each task.
 4. Normal distributed task routing selects workers advertising the exact
    capability and compatible artifact format.
@@ -93,8 +111,11 @@ matching a human-readable algorithm name is insufficient.
 
 `IndexStrategyProvider` is intentionally limited to build/evaluate operations
 for JVM file-pruning metadata. It has no vector-search method. The default
-`TypeSerializerRegistry` likewise has no `VECTOR` serializer because Native
-retrieval artifacts are not embedded in the JVM index-file envelope.
+registry assembled by `assembly.serde.DefaultTypeSerializers.createRegistry()`
+likewise has no `VECTOR` serializer because Native retrieval artifacts are not
+embedded in the JVM index-file envelope. `core.serde.TypeSerializerRegistry`
+only owns registration and lookup; it does not import concrete engine serializers.
+Duplicate registration fails without replacing the existing serializer.
 
 This boundary prevents accidental ServiceLoader registration from creating a
 second ANN implementation with different distance, row-identity, filtering or

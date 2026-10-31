@@ -11,18 +11,18 @@ import org.pangrova.protocol.v2.LikePatternPredicate;
 import org.pangrova.protocol.v2.RangeQueryPredicate;
 import org.pangrova.protocol.v2.SpatialQueryPredicate;
 import org.pangrova.protocol.v2.TextMatchPredicate;
-import org.pangrova.spi.index.predicate.ContainmentMode;
-import org.pangrova.spi.index.predicate.ContainsElement;
-import org.pangrova.spi.index.predicate.EqualTo;
-import org.pangrova.spi.index.predicate.InList;
-import org.pangrova.spi.index.predicate.IsNotNull;
-import org.pangrova.spi.index.predicate.IsNull;
-import org.pangrova.spi.index.predicate.LikePattern;
-import org.pangrova.spi.index.predicate.RangeQuery;
-import org.pangrova.spi.index.predicate.SpatialOp;
-import org.pangrova.spi.index.predicate.SpatialQuery;
-import org.pangrova.spi.index.predicate.TextMatch;
-import org.pangrova.spi.index.predicate.TextMatchMode;
+import org.pangrova.connector.spi.index.predicate.ContainmentMode;
+import org.pangrova.connector.spi.index.predicate.ContainsElement;
+import org.pangrova.connector.spi.index.predicate.EqualTo;
+import org.pangrova.connector.spi.index.predicate.InList;
+import org.pangrova.connector.spi.index.predicate.IsNotNull;
+import org.pangrova.connector.spi.index.predicate.IsNull;
+import org.pangrova.connector.spi.index.predicate.LikePattern;
+import org.pangrova.connector.spi.index.predicate.RangeQuery;
+import org.pangrova.connector.spi.index.predicate.SpatialOp;
+import org.pangrova.connector.spi.index.predicate.SpatialQuery;
+import org.pangrova.connector.spi.index.predicate.TextMatch;
+import org.pangrova.connector.spi.index.predicate.TextMatchMode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,7 +43,7 @@ public final class IndexPredicateProtoConverter {
      * Converts an SPI IndexPredicate to a proto IndexPredicateInfo message.
      */
     public static org.pangrova.protocol.v2.IndexPredicate toProto(
-            org.pangrova.spi.index.predicate.IndexPredicate predicate) {
+            org.pangrova.connector.spi.index.predicate.IndexPredicate predicate) {
         org.pangrova.protocol.v2.IndexPredicate.Builder builder =
                 org.pangrova.protocol.v2.IndexPredicate.newBuilder()
                 .setColumn(predicate.column());
@@ -55,7 +55,7 @@ public final class IndexPredicateProtoConverter {
 
     private static boolean applyCorePredicate(
             org.pangrova.protocol.v2.IndexPredicate.Builder builder,
-            org.pangrova.spi.index.predicate.IndexPredicate predicate) {
+            org.pangrova.connector.spi.index.predicate.IndexPredicate predicate) {
         if (predicate instanceof EqualTo eq) {
             builder.setEqualTo(EqualToPredicate.newBuilder()
                     .setValue(toComparableValue(eq.value())));
@@ -85,7 +85,7 @@ public final class IndexPredicateProtoConverter {
 
     private static boolean applyExtendedPredicate(
             org.pangrova.protocol.v2.IndexPredicate.Builder builder,
-            org.pangrova.spi.index.predicate.IndexPredicate predicate) {
+            org.pangrova.connector.spi.index.predicate.IndexPredicate predicate) {
         if (predicate instanceof IsNull) {
             builder.setIsNull(IsNullPredicate.getDefaultInstance());
             return true;
@@ -141,7 +141,7 @@ public final class IndexPredicateProtoConverter {
     /**
      * Converts a proto IndexPredicateInfo message back to an SPI IndexPredicate.
      */
-    public static org.pangrova.spi.index.predicate.IndexPredicate fromProto(
+    public static org.pangrova.connector.spi.index.predicate.IndexPredicate fromProto(
             org.pangrova.protocol.v2.IndexPredicate proto) {
         String column = proto.getColumn();
 

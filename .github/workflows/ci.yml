@@ -99,6 +99,12 @@ jobs:
         run: cmake --build build --target all
         working-directory: pangrova-worker-native
 
+      - name: Enforce native layout and JNI boundary
+        run: ./.pangrova/scripts/check-native-boundaries.sh
+
+      - name: Verify JNI symbol symmetry
+        run: ./.pangrova/scripts/jni-symbol-symmetry.sh
+
       - name: Run native tests (GTest via CTest)
         run: |
           python3 bin/run-native-tests.py -- --output-junit test-results.xml
@@ -132,7 +138,7 @@ jobs:
       # Stage and build classifier JAR for downstream java-build job
       - name: Stage native library for classifier JAR
         run: |
-          RESOURCE_DIR=pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
+          RESOURCE_DIR=pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
           mkdir -p "${RESOURCE_DIR}"
           cp pangrova-worker-native/build/libpangrova_native.${{ matrix.platform.lib-ext }} "${RESOURCE_DIR}/"
 
@@ -147,10 +153,10 @@ jobs:
         run: |
           mvn -B install -pl pangrova-native-bundle \
             -Dnative.platform.classifier=${{ matrix.platform.classifier }} \
-            -Dnative.resource.dir=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }} \
+            -Dnative.resource.dir=${{ github.workspace }}/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }} \
             -Dnative.resource.os=${{ matrix.platform.os }} \
             -Dnative.resource.arch=${{ matrix.platform.arch }} \
-            -Dnative.library.path=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}/libpangrova_native.${{ matrix.platform.lib-ext }} \
+            -Dnative.library.path=${{ github.workspace }}/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}/libpangrova_native.${{ matrix.platform.lib-ext }} \
             -DskipTests
 
       - name: Upload native library
@@ -320,7 +326,7 @@ jobs:
                        WorkerShuffleChannelAdmissionIntegrationTest \
                        'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes'; do
             mvn -B -Pnative-runtime,full-regression \
-              -pl pangrova-testing/pangrova-test-e2e \
+              -pl pangrova-testing/pangrova-testing-integration-tests \
               -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test \
               -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
               -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
@@ -362,9 +368,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned benchmark tooling
-        run: python -m pip install -r pangrova-testing/pangrova-test-benchmark/requirements.txt
+        run: python -m pip install -r pangrova-testing/pangrova-testing-benchmark/requirements.txt
       - name: Verify complete workloads, real Parquet conversion, runner and comparison contracts
-        run: python -m unittest discover -s pangrova-testing/pangrova-test-benchmark/scripts/tests -v
+        run: python -m unittest discover -s pangrova-testing/pangrova-testing-benchmark/scripts/tests -v
       - uses: actions/setup-java@v5
         with:
           java-version: '17'
@@ -375,7 +381,7 @@ jobs:
           path: tpc-client
       - name: Verify persistent production client over real HTTP and Flight transport
         run: >-
-          python pangrova-testing/pangrova-test-benchmark/scripts/integration/test_persistent_transport.py
+          python pangrova-testing/pangrova-testing-benchmark/scripts/integration/test_persistent_transport.py
           --classpath tpc-client/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar
       # Actual SF100/1000 comparisons run on exclusive hardware in nightly-tpc-benchmark.yml.
       # Short E2E latency samples are never submitted to a P99 calibration comparator.
@@ -508,13 +514,13 @@ jobs:
 
       - name: Build benchmark JAR
         run: |
-          mvn -B package -pl pangrova-testing/pangrova-test-benchmark -am \
+          mvn -B package -pl pangrova-testing/pangrova-testing-benchmark -am \
             -DskipTests -Dmaven.test.skip=true
 
       - name: Run JMH benchmarks (short mode for CI)
         run: |
           java --add-opens=java.base/java.nio=ALL-UNNAMED \
-            -jar pangrova-testing/pangrova-test-benchmark/target/pangrova-benchmarks.jar \
+            -jar pangrova-testing/pangrova-testing-benchmark/target/pangrova-benchmarks.jar \
             -f 1 -wi 2 -i 3 -t 1 \
             -rf json -rff target/jmh-results.json
         env:
@@ -522,10 +528,10 @@ jobs:
 
       - name: Check for regressions (>10% = fail)
         run: |
-          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/jmh-regression-check.sh
-          pangrova-testing/pangrova-test-benchmark/scripts/jmh-regression-check.sh \
+          chmod +x pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh
+          pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh \
             target/jmh-results.json \
-            pangrova-testing/pangrova-test-benchmark/baseline/jmh-baseline.json \
+            pangrova-testing/pangrova-testing-benchmark/baseline/jmh-baseline.json \
             0.10
 
       - name: Upload JMH results
@@ -570,6 +576,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Set up JDK 17 for source and descriptor verification
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
       - name: Guard against root-level build artifacts
         run: |
           VIOLATIONS=""
@@ -598,6 +611,9 @@ jobs:
       - name: Test gate selection and stub detection
         run: python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_*.py' -v
 
+      - name: Verify module manifest and source baseline
+        run: bash .pangrova/scripts/check-module-manifest.sh
+
       - name: Verify canonical instructions
         run: bash .pangrova/setup.sh --check
 
@@ -612,14 +628,6 @@ jobs:
 
       - name: E2E truthfulness gate
         run: bash .pangrova/scripts/check-e2e-truthfulness.sh
-
-      - name: Set up JDK 17 for descriptor verification
-        if: needs.change-scope.outputs.runtime == 'true'
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: maven
 
       - name: Proto descriptor diff gate
         if: needs.change-scope.outputs.runtime == 'true'

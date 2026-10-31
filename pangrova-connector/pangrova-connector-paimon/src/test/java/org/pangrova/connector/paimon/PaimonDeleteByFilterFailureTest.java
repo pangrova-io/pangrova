@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.metadata.DeleteFilter;
 import org.apache.paimon.metrics.MetricRegistry;
 import org.apache.paimon.stats.Statistics;
 import org.apache.paimon.table.Table;

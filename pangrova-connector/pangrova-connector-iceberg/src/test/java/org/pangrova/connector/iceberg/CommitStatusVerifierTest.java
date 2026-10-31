@@ -27,7 +27,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
 
 import java.util.List;
 import java.util.Map;

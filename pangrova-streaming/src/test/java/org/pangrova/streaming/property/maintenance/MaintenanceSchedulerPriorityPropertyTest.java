@@ -2,9 +2,9 @@ package org.pangrova.streaming.property.maintenance;
 
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.spi.connector.data.write.model.WriteResult;
-import org.pangrova.streaming.maintenance.*;
-import org.pangrova.streaming.maintenance.policy.TriggerPriority;
+import org.pangrova.connector.spi.data.write.model.WriteResult;
+import org.pangrova.streaming.core.maintenance.*;
+import org.pangrova.streaming.core.maintenance.TriggerPriority;
 
 import java.time.Duration;
 import java.time.Instant;

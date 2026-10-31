@@ -1,14 +1,14 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
-import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
 import java.util.Optional;
-import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
+import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
 
 /** Enumerates bounded physical manifest partitions from an immutable table handle. */
 public final class LanceSplitManager implements ConnectorSplitManager {

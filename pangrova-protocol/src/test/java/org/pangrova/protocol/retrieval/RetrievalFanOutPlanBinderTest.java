@@ -16,8 +16,8 @@ import io.substrait.proto.SortField;
 import io.substrait.proto.SortRel;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
@@ -38,7 +38,7 @@ class RetrievalFanOutPlanBinderTest {
         RetrievalTopKBinding text = RetrievalTopKBinding.artifact(
                 1, 10, 80, ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
                 List.of(0), schema.toByteArray(),
-                new RetrievalTopKBinding.ArtifactInput(
+                new RetrievalTopKBinding.PublishedGenerationInput(
                         "catalog.schema.docs",
                         BuiltInCapabilityCatalog.bm25RetrievalPlanRef(),
                         bm25Options(), ArtifactBinding.getDefaultInstance(),

@@ -3,7 +3,7 @@ package org.pangrova.protocol.retrieval;
 import java.util.Arrays;
 import java.util.List;
 
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Canonical Native candidate fan-out from one SQL Top-K into independent sources. */
 @Internal

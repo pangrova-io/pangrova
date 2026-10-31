@@ -1,6 +1,6 @@
 package org.pangrova.parser.ast.type;
 
-import org.pangrova.spi.connector.data.type.VectorType.ElementType;
+import org.pangrova.connector.spi.data.type.VectorType.ElementType;
 
 import java.util.List;
 import java.util.Objects;
@@ -309,7 +309,7 @@ public sealed interface DataTypeSpec permits
             Objects.requireNonNull(metric, "metric must not be null");
             Objects.requireNonNull(elementType, "elementType must not be null");
             // The SPI parameterized type owns the storage dimension bounds.
-            new org.pangrova.spi.connector.data.type.VectorType(dimension, elementType);
+            new org.pangrova.connector.spi.data.type.VectorType(dimension, elementType);
         }
 
         @Override

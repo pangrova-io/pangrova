@@ -6,6 +6,7 @@ import java.util.OptionalInt;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents ALTER TABLE ... BACKFILL COLUMN ... [WHERE ...] [BATCH_SIZE n] [CONCURRENCY c].
@@ -18,4 +19,9 @@ public record BackfillColumnStatement(
         Optional<Expression> whereClause,
         OptionalInt batchSize,
         OptionalInt concurrency) implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.BACKFILL_COLUMN;
+    }
 }

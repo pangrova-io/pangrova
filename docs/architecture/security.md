@@ -12,6 +12,32 @@ sidebar_label: "Security"
 
 > **Summary.** Authentication, authorization, row/column-level access control, data masking, and audit logging.
 
+## Public policy contracts
+
+`org.pangrova.security.api.AuthorizationDeniedException` is the shared authorization
+failure, retaining the `AccessDeniedException` hierarchy and `ACCESS_DENIED` error code.
+Consumers must not import this exception from the former `security.core.authz` package.
+`security.api.policy.SqlIdentifierValidator` owns lexical identifier/policy checks used
+by both row-filter and column-mask API constructors and the grant/revoke handler.
+These contracts can load without Security Core or JDBC implementations.
+
+Policy expressions reject standalone DROP, ALTER, CREATE, TRUNCATE, GRANT and REVOKE
+keywords, including a later keyword following an identifier that contains the same
+text. Underscores and dollar signs remain identifier characters, so `drop_count`
+and `can_drop` do not count as standalone DROP. Case normalization is locale independent.
+This conservative precheck also rejects keywords in quoted text; it is not a SQL parser
+or an authorization decision. Planning and authorization remain mandatory downstream.
+
+## Audit composition
+
+`security.assembly.audit.AuditWriterFactory` owns backend selection; audit contracts,
+Core emitters and JDBC writers do not depend on this assembly. A null/blank backend
+token defaults to LOG, while an unknown token is rejected. Explicit JDBC or COMPOSITE
+selection requires a DataSource and fails if it is absent, preserving the requested
+durability contract. Coordinator composition selects COMPOSITE when it has a metadata
+DataSource and explicitly selects LOG for an in-memory deployment. COMPOSITE writes
+to both structured logging and the JDBC audit store.
+
 ## 1. Security Architecture Overview
 
 ```
@@ -305,6 +331,14 @@ predicate to the metadata schema. This restriction also covers aggregate-only
 queries and SHOW statements routed through these relations. Ordinary base
 queries continue through the existing row-filter and mask transformations.
 
+Tenant creation and update persist the tenant, quota, and properties on one JDBC
+connection. Role deletion removes the role, grants, and user/group bindings in
+one transaction. These owned transactions roll back SQL exceptions, runtime
+exceptions, and Errors, preserving rollback failures as suppressed exceptions.
+They close the connection without restoring auto-commit after a failure; cleanup
+must not commit a partial tenant update or partially revoke a surviving role.
+The SQL exception wrappers and authorization-version triggers remain unchanged.
+
 The metadata check resolves roles once for both grants and policy applicability;
 revoking a role during the check cannot erase an applicable mask after the
 SELECT check succeeds. `EnrichedColumnMaskStore.getTableMasks` enumerates table
@@ -504,6 +538,22 @@ non-exempt column masks reject policies requiring ephemeral groups or attributes
 they do not substitute missing claims with empty values. The publication-time
 policy reader uses the same guard. Stable principal expressions such as
 `current_user()` remain available.
+
+The immutable deferred permission, connector-definition and model observations
+are owned by `org.pangrova.security.api.authz.DeferredAuthorizationScope`.
+They describe previously admitted work and do not confer current authority.
+The Security-owned persistence contract,
+`org.pangrova.security.protocol.DeferredAuthorizationScopeCodec`, handles
+encoding, decoding, write receipts and canonical SHA-256 digests. API values do
+not depend on the codec or Jackson; callers that need a persisted identity use
+`DeferredAuthorizationScopeCodec.sha256(scope)`.
+
+The codec preserves the existing JSON fields, ordering and digests. It rejects
+duplicate fields, invalid or oversized scopes, and trailing JSON values or
+garbage after a complete scope. Trailing whitespace remains valid for ordinary
+scope decoding; write receipts still require the exact canonical bytes. Artifact
+replay and publication revalidate restored observations against current durable
+authority within the existing transaction gate.
 
 ```java
 

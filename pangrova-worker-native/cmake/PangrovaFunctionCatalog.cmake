@@ -50,9 +50,11 @@ add_custom_command(OUTPUT "${PANGROVA_STRUCTURAL_CONTRACT_HEADER}" "${PANGROVA_P
 add_custom_target(pangrova_structural_contracts
   DEPENDS "${PANGROVA_STRUCTURAL_CONTRACT_HEADER}" "${PANGROVA_EXECUTION_SELECTION_HEADER}"
     "${PANGROVA_PHYSICAL_TYPE_BRIDGE_HEADER}")
-add_dependencies(pangrova_native_objects pangrova_structural_contracts)
-target_include_directories(pangrova_native_objects PUBLIC
-  "${CMAKE_CURRENT_BINARY_DIR}/generated-function-contracts")
+foreach(_pangrova_object_target IN LISTS PANGROVA_OBJECT_TARGETS)
+  add_dependencies(${_pangrova_object_target} pangrova_structural_contracts)
+  target_include_directories(${_pangrova_object_target} PUBLIC
+    "${CMAKE_CURRENT_BINARY_DIR}/generated-function-contracts")
+endforeach()
 
 add_executable(pangrova_function_export
   "${CMAKE_CURRENT_SOURCE_DIR}/tools/function-contracts/FunctionExportMain.cpp"
@@ -61,8 +63,12 @@ add_executable(pangrova_function_export
   "${CMAKE_CURRENT_SOURCE_DIR}/tools/function-contracts/FunctionResolverOracle.cpp")
 target_include_directories(pangrova_function_export PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
-  "${CMAKE_CURRENT_SOURCE_DIR}/tools/function-contracts")
-target_link_libraries(pangrova_function_export PRIVATE pangrova_native_objects)
+  "${CMAKE_CURRENT_SOURCE_DIR}/tools/function-contracts"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated-function-contracts")
+foreach(_pangrova_object_target IN LISTS PANGROVA_OBJECT_TARGETS)
+  target_link_libraries(pangrova_function_export PRIVATE ${_pangrova_object_target})
+endforeach()
+target_link_libraries(pangrova_function_export PRIVATE pangrova_native_deps)
 if(VELOX_FOUND AND VELOX_MONO_LIB)
   if(APPLE)
     target_link_options(pangrova_function_export PRIVATE "-Wl,-force_load,${VELOX_MONO_LIB}")

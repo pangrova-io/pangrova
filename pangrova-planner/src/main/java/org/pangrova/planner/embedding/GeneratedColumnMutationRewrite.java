@@ -16,11 +16,11 @@ import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlUpdate;
 import org.pangrova.planner.declaration.CompiledWriteDeclaration;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
-import org.pangrova.protocol.GeneratedColumnMetadataCodec;
+import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
-import org.pangrova.spi.annotation.Internal;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
 
 import java.util.ArrayList;
 import java.util.HashMap;

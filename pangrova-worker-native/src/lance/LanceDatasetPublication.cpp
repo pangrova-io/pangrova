@@ -20,7 +20,7 @@
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/unknown_field_set.h"
 #include "lance_c_ffi.h"
-#include "observability/PangrovaLog.h"
+#include "engine/observability/PangrovaLog.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 
 namespace pangrova::lance {

@@ -3,7 +3,6 @@ package org.pangrova.parser.ast;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.parser.ast.expression.RerankClause;
 
 /**
  * Represents a SELECT query with optional DISTINCT modifier.
@@ -77,5 +76,10 @@ public record Query(
             Optional<Expression> offset) {
         this(distinct, selectItems, from, joins, where, groupBy, having,
                 qualify, List.of(), orderBy, rerankBy, limit, offset);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.QUERY;
     }
 }

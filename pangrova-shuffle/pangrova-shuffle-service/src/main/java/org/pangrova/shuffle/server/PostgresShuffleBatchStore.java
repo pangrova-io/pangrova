@@ -242,7 +242,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             Allocation allocation,
             TaskAttemptId attempt,
             BatchIdentity identity) {
-        org.pangrova.protocol.rest.worker.WorkerExecutionIdentity.from(
+        org.pangrova.protocol.execution.identity.WorkerExecutionIdentity.from(
                 attempt.getWorkerExecutionIdentity());
         requireOwner(allocation, attempt.getExecutionOwner());
         if (!matchesAllocation(allocation, attempt)

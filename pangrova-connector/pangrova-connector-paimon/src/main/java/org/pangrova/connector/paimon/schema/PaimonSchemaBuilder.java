@@ -5,9 +5,9 @@ import java.util.Map;
 import org.apache.paimon.schema.Schema;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
 import org.pangrova.connector.paimon.type.PaimonDeclaredTypes;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.VectorType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
 
 /**
  * Extracts Paimon schema construction from PaimonMetadata.

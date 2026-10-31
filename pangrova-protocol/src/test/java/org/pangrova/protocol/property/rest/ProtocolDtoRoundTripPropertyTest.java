@@ -14,12 +14,12 @@ import org.pangrova.protocol.rest.config.OutputConfig;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.protocol.rest.data.DataFile;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
-import org.pangrova.protocol.rest.error.ErrorDetail;
-import org.pangrova.protocol.rest.query.QueryStats;
-import org.pangrova.protocol.rest.query.QueryStatusResponse;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.SubmitQueryRequest;
-import org.pangrova.protocol.rest.query.SubmitQueryResponse;
+import org.pangrova.client.core.error.ErrorDetail;
+import org.pangrova.client.core.protocol.QueryStats;
+import org.pangrova.client.core.protocol.QueryStatusResponse;
+import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.core.protocol.SubmitQueryRequest;
+import org.pangrova.client.core.protocol.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 import org.pangrova.protocol.rest.task.OperatorStats;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -484,7 +484,7 @@ class ProtocolDtoRoundTripPropertyTest {
                         tuple.transportPort, tuple.resultServerPort,
                         2, rackId, dataLocality, null,
                         org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture
-                                .encodedInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"))));
+                                .encodedInventory(), new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"))));
     }
 
     // ========== Intermediate tuple records for flatMap ==========

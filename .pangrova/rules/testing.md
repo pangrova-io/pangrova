@@ -6,12 +6,12 @@
 |----------|----------|-----|--------|
 | Unit | `src/test/java/` per module | (default) | JUnit 5 + jqwik |
 | Integration | `src/test/java/` per module | `@Tag("integration")` | JUnit 5 + TestContainers |
-| Routing integration | `pangrova-testing/pangrova-test-e2e` | `@Tag("routing-integration")` | JUnit 5 + one real worker endpoint |
+| Routing integration | `pangrova-testing/pangrova-testing-integration-tests` | `@Tag("routing-integration")` | JUnit 5 + one real worker endpoint |
 | Property | `src/test/java/**/property/` | (default) | jqwik |
-| E2E | `pangrova-testing/pangrova-test-e2e` | — | JUnit 5 + TestContainers |
-| Smoke | `pangrova-testing/pangrova-test-e2e/.../smoke/ActivationSmokeE2ETest` | `@E2ETest` | JUnit 5 + packaged JNI |
-| Chaos | `pangrova-testing/pangrova-test-chaos` | — | JUnit 5 + Toxiproxy |
-| Benchmark | `pangrova-testing/pangrova-test-benchmark` | — | JMH |
+| E2E | `pangrova-testing/pangrova-testing-integration-tests` (`integration.e2e`) | `@E2ETest` | JUnit 5 + TestContainers |
+| Smoke | `pangrova-testing/pangrova-testing-integration-tests` (`integration.smoke`, `@SmokeTest`) | `@Tag("smoke")` | JUnit 5 + packaged JNI |
+| Chaos | `pangrova-testing/pangrova-testing-integration-tests` (`integration.chaos`) | `@Tag("chaos")` | JUnit 5 + Toxiproxy |
+| Benchmark | `pangrova-testing/pangrova-testing-benchmark` | — | JMH |
 | C++ Unit | `pangrova-worker-native/test/` | — | GoogleTest |
 
 ## Banned Frameworks
@@ -84,7 +84,7 @@ inputs are unchanged; rebuild/repackage after native runtime or packaging change
 cmake --preset dev-release -S pangrova-worker-native
 cmake --build pangrova-worker-native/build --parallel
 ./pangrova-worker-native/bin/package-native-lib.sh
-java -version && mvn -version && mvn -q -pl pangrova-worker -am test -Dtest="*NativeLoader*" -Dsurefire.failIfNoSpecifiedTests=false
+java -version && mvn -version && mvn -q -pl pangrova-worker/pangrova-worker-core -am test -Dtest="*NativeLoader*" -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
 Treat `UnsatisfiedLinkError` as a real failure: diagnose the library, symbols, and
@@ -166,7 +166,7 @@ movement, network partition behavior, or worker-level failure recovery.
 
 | File | Purpose |
 |------|---------|
-| `pangrova-testing/pangrova-test-e2e/.../SharedTestContainers.java` | PG singleton |
-| `pangrova-testing/pangrova-test-e2e/.../SqlE2ETestBase.java` | Base class |
-| `pangrova-testing/pangrova-test-common/.../ContainerTestBase.java` | Docker guard |
-| `pangrova-testing/pangrova-test-common/.../PangrovaClusterContainer.java` | Cluster TC |
+| `pangrova-testing/pangrova-testing-integration-tests/.../SharedTestContainers.java` | PG singleton |
+| `pangrova-testing/pangrova-testing-integration-tests/.../SqlE2ETestBase.java` | Base class |
+| `pangrova-testing/pangrova-testing-kit/.../ContainerTestBase.java` | Docker guard |
+| `pangrova-testing/pangrova-testing-kit/.../PangrovaClusterContainer.java` | Cluster TC |

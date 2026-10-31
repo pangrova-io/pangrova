@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-#include "resource/OwnerMemoryResource.h"
+#include "engine/resource/OwnerMemoryResource.h"
 
 namespace pangrova::vector::diskann {
 

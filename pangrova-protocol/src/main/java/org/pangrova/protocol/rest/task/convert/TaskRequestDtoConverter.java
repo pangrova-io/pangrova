@@ -8,12 +8,12 @@ import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.spi.execution.PlanFragment;
-import org.pangrova.spi.execution.PlanNodeId;
-import org.pangrova.spi.execution.QueryId;
-import org.pangrova.spi.execution.Split;
-import org.pangrova.spi.execution.TaskDescriptor;
-import org.pangrova.spi.execution.TaskResourceLimit;
+import org.pangrova.protocol.execution.PlanFragment;
+import org.pangrova.protocol.execution.PlanNodeId;
+import org.pangrova.protocol.execution.QueryId;
+import org.pangrova.protocol.execution.Split;
+import org.pangrova.protocol.execution.TaskDescriptor;
+import org.pangrova.protocol.execution.TaskResourceLimit;
 
 /**
  * Shared converter from canonical task protocol to SPI scheduling types.

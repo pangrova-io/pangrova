@@ -5,7 +5,7 @@ import java.util.List;
 import io.substrait.proto.Plan;
 import io.substrait.proto.ProjectRel;
 import io.substrait.proto.Rel;
-import org.pangrova.protocol.BoundExecutionPlan;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 /** Retains the final SQL-only ordinal projection while binding internal candidate operators. */

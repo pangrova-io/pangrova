@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon.handle;
 
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 
 import java.util.List;
 import java.util.Map;

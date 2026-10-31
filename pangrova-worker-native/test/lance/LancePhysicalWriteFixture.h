@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../TestMemoryHelper.h"
+#include "TestMemoryHelper.h"
 #include "LanceTestDataset.h"
 #include "lance/LancePhysicalBatchWriter.h"
 

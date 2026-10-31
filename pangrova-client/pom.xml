@@ -16,7 +16,7 @@
     <description>Client parent for Pangrova: REST SDK, JDBC driver, and CLI client</description>
 
     <modules>
-        <module>pangrova-client-rest</module>
+        <module>pangrova-client-core</module>
         <module>pangrova-client-jdbc</module>
         <module>pangrova-client-cli</module>
     </modules>

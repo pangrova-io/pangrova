@@ -1,9 +1,9 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.schema.SchemaChange;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.metadata.core.schema.SchemaChange;
 
 import java.util.List;
 import java.util.Map;
@@ -68,7 +68,7 @@ public interface MetadataService {
      *
      * @param authority the same closed query lifetime retained during begin
      */
-    void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority);
+    void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority);
 
     // ── Column governance tags (delegated to ColumnTagService) ──
 

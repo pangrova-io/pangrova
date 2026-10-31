@@ -2,9 +2,9 @@ package org.pangrova.metadata.migration;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.governance.JdbcQualityRuleStore;
+import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.store.PersistentGrantStore;
+import org.pangrova.security.store.jdbc.PersistentGrantStore;
 
 import javax.sql.DataSource;
 

@@ -318,7 +318,7 @@ public class QueryExecutor {
 │     └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                                  │
 │  3. Register SPI                                                                 │
-│     META-INF/services/org.pangrova.spi.connector.ConnectorFactory                │
+│     META-INF/services/org.pangrova.connector.spi.ConnectorFactory                │
 │                                                                                  │
 │  4. Write tests                                                                 │
 │     Use TestContainers for integration testing                                 │
@@ -555,11 +555,11 @@ mkdir -p pangrova-connector-mydb/src/test/java/org/pangrova/connector/mydb
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-connector-spi</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -620,7 +620,7 @@ Refer to the CSV Connector example in §3.2 for implementation patterns.
 ```bash
 # Create SPI registration file
 echo "org.pangrova.connector.mydb.MyDbConnectorFactory" > \
-  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.spi.connector.ConnectorFactory
+  pangrova-connector-mydb/src/main/resources/META-INF/services/org.pangrova.connector.spi.ConnectorFactory
 ```
 
 ### Step 6: Write Integration Test
@@ -781,11 +781,11 @@ Closes #123
 ```bash
 # Start Coordinator (debug mode)
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 \
-     -jar pangrova-coordinator/target/pangrova-coordinator.jar
+     -jar pangrova-coordination/pangrova-coordination-core/target/pangrova-coordination-core-0.1.0-SNAPSHOT.jar
 
 # Start Worker (debug mode)
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5006 \
-     -jar pangrova-worker/target/pangrova-worker.jar
+     -jar pangrova-worker/pangrova-worker-core/target/pangrova-worker-core-0.1.0-SNAPSHOT.jar
 
 # Native debugging (GDB)
 gdb --args ./pangrova-worker-native/build/pangrova_worker_native
@@ -874,17 +874,17 @@ Use a fresh receipt path when building another artifact. See the
 for offline model imports, fixture integrity checks and the focused Q9 command.
 
 ```bash
-mvn test -pl pangrova-coordinator -am                  # Unit tests
-mvn test -pl pangrova-testing/pangrova-test-e2e -am -Pnative-runtime \
+mvn test -pl pangrova-coordination/pangrova-coordination-core -am                  # Unit tests
+mvn test -pl pangrova-testing/pangrova-testing-integration-tests -am -Pnative-runtime \
   -Dpangrova.e2e.ai.image-id="$ai_fixture_id"           # Real E2E tests
-mvn test -pl pangrova-testing/pangrova-test-benchmark -am # TPC-H benchmark
+mvn test -pl pangrova-testing/pangrova-testing-benchmark -am # TPC-H benchmark
 ```
 
 ### Code Conventions
 
 - **Style**: Checkstyle at `config/checkstyle/`
 - **Bugs**: SpotBugs at `config/spotbugs/`
-- **SPI**: All public interfaces under `pangrova-spi` must have `@Stable`/`@Experimental`/`@Internal`
+- **SPI**: All public interfaces under an `-api`/`-spi` contract artifact must have `@Stable`/`@Experimental`/`@Internal`
 - **License**: All new Java files require Apache 2.0 header
 
 ### Native (C++) Build

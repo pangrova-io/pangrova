@@ -48,8 +48,8 @@ setup, builds Lance and packages JNI resources. If the build fails, check:
 
 ```bash
 # Check that key JARs were produced
-ls pangrova-coordinator/target/pangrova-coordinator-*.jar
-ls pangrova-worker/target/pangrova-worker-*.jar
+ls pangrova-coordination/pangrova-coordination-core/target/pangrova-coordinator-*.jar
+ls pangrova-worker/pangrova-worker-core/target/pangrova-worker-*.jar
 ls pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar
 ```
 

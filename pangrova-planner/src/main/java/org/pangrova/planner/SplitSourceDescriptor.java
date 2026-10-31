@@ -1,7 +1,7 @@
 package org.pangrova.planner;
 
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
 
 import java.util.List;
 import java.util.Optional;

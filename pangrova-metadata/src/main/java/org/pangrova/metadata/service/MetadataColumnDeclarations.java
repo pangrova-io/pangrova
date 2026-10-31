@@ -1,12 +1,12 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.model.ColumnMetadata;
-import org.pangrova.metadata.model.ColumnType;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.Type;
-import org.pangrova.spi.connector.data.type.primitive.DecimalType;
-import org.pangrova.spi.connector.data.type.primitive.VarcharType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.metadata.api.object.ColumnMetadata;
+import org.pangrova.metadata.api.object.ColumnType;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.Type;
+import org.pangrova.connector.spi.data.type.primitive.DecimalType;
+import org.pangrova.connector.spi.data.type.primitive.VarcharType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
 
 import java.util.Locale;
 import java.util.OptionalInt;

@@ -2,7 +2,7 @@ package org.pangrova.planner.runtimefilter;
 
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.PlannerContext;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.PangrovaType;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.plan.ConventionTraitDef;
 import org.apache.calcite.plan.RelOptCluster;

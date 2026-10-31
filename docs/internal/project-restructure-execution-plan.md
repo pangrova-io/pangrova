@@ -1,0 +1,2065 @@
+# 项目目录、模块与内部包重构执行计划
+
+当前整体设计与待执行顺序见 [全项目目录与包重构计划](project-structure-refactoring-plan.md)，附全部 649 个起点包的迁移台账和本次结构检查证据。本文继续保留各历史实施批次，不以历史通过记录覆盖新的失败或未完成项。
+
+状态：执行中，尚未完成全模块语义审查和全链验证。审计起点：2026-10-31 当前工作区（包括既有暂存和未暂存迁移）。本文是执行清单；长期蓝图中的历史数量、M 编号和“done”不能代替当前验收证据。
+
+**最新源码快照（第 35 节模型当前权限显式事务接线）**：62 个 Maven reactor 项目、49 个 Java 代码叶子、1 个纯资源 JAR、3,561 个 Java 主源文件、656 个主源包。AST 包环由起点 9 组逐批降为 7 组 SCC；全图 gate 仍失败。第 1、4、6–9 节中的数量与验证是各批次起点/历史记录，不能覆盖本行和后续最新验证。第 2 节给出全部模块的职责目标，第 5 节逐叶子列出包覆盖范围，第 12 节将剩余结构问题拆为有前置条件、迁移边界和验收条件的任务。
+
+## 1. 已核实的现状和设计判断
+
+- 起点根 POM 有 30 个直接 entry，完整 reactor 为 59 个项目。删除空 Observability Core 后为 58 个项目；基线生成器报告 46 个代码叶子和 12 个聚合/打包项目（含根）。不以长期蓝图中的 24/36 数量作为硬目标。
+- `coordination-core` 有 596 个 Java 主源文件，包含 QueryManager、QueryDispatcher、PlanExecutionFactory、调度、materialization 和 artifact 实现；`query` 只有 35 个。领域迁移尚未结束，不能把新建 owner 目录视为边界落地。
+- Metadata 的 `artifact.build`、`artifact.jdbc`、`artifact.jdbc.build` 仍拥有构建及持久化实现；`service` 仍有 16 个主源文件。应按事实归属迁入 Indexing 或 Metadata 的具体能力，而不是统一改成 `core.service`。
+- Common 声明 SnakeYAML 编译依赖、Jetty/Jackson provided 依赖，且仍包含 Jackson/Jetty 实现。provided 只改变传递性，不意味着 Common 已经框架无关。SnakeYAML 当前无 Common 源码引用，需核验测试和下游依赖后删除。
+- Semantic 已有 View API/Core/JDBC store，但测试通过 Metadata 获得 migration。包迁移与数据库迁移所有权必须分开审查，不能挪动已发布 SQL 后破坏 Flyway 校验。
+- 模块清单检查通过；现有 10 项模块/包测试通过。但包环测试只遍历硬编码旧目录，只检测同父包的二元环，吞掉读取错误并包含豁免；不能证明全图无环。Planner、Indexing 的 protocol 边仍在 manifest 债务清单中。
+- `observability-core` 只有 package-info 和测试日志配置；没有实现、资源迁移或 provider。已删除该空制品、reactor 项、依赖管理、消费者依赖与清单项，保留 API/SDK 两个真实边界。
+
+结论：保留 Java 协调规划 / C++ 执行和 Coordinator / Worker 两个主要进程；按领域所有权收敛内部代码，不机械拆微服务，不为目录对称创建 API/Core/Store 空制品。跨域只消费明确导出的契约；基础设施实现由装配层注入。
+
+## 2. 全模块目标与内部包处理表
+
+下列每行均需完成生产入口、调用者、实现、注册、持久化、测试的闭环审查。表中是目标和待办，除明确标为已完成外均不表示已实现。API/core/store 是逻辑边界，仅在实际存在代码时创建包。
+
+| 模块或产品族（覆盖所有叶子） | 目标内部结构及代码审查重点 | 验收证据 |
+|---|---|---|
+| common | 保留 exception/lifecycle/concurrent/value 等真正共享原语；删除无用 YAML 依赖；HTTP 服务实现迁 Transport，Jackson 实现迁 wire/serde owner；逐个核验 util、双 annotation 家族的语义再合并或更名 | 最小 classpath 加载、所有消费者编译、零框架实现依赖 |
+| config | 配置定义、加载、校验分包；YAML adapter 归此处；配置键与读取者一一对应 | 默认值、无效值、覆盖顺序测试 |
+| function | API registry/runtime 与执行 provider 分离；函数描述符、回调失败投影使用唯一契约 | provider discovery、函数注册和 JNI 回调测试 |
+| connector-spi | catalog/metadata/read/write/type/index/materialization 能力分包；拆解混合消费者的大接口，保持 connector-facing 契约 | 三种 connector 的契约测试、无框架泄漏 |
+| connector-runtime | discovery/classloader/lifecycle；校验共享包策略、重复 provider 拒绝、关闭资源 | 隔离 classloader 和真实 ServiceLoader 测试 |
+| connector-iceberg/paimon/lance | 各自 catalog/read/write/type/index adapter；公共逻辑仅在语义相同时提取；不共享 SDK 类型 | 各格式读写、提交幂等、故障恢复及映射测试 |
+| parser | 按 statement 能力归类 AST/parser/validation；不引入领域服务或运行时 provider | SQL 正反例和 round-trip |
+| planner | logical/physical/binding/optimization 与 substrait adapter 分离；将 protocol DTO 转换限制在序列化出口；审查缓存键和权限版本 | 计划契约、TPC 规划、Java/native golden tests |
+| protocol | 按 control/task/result/capability wire 边界归类；生成源码只由 canonical proto/声明生成 | N/N-1、字段稳定性、生成器与 JNI 编解码 |
+| transport | HTTP/REST/Flight/TLS adapter；承接 Common 的 HTTP server 实现；Client 公共 DTO 留 client-core | transport 契约、TLS、分页/流式结果和异常关闭 |
+| observability-api/sdk | API 只含契约及 API-owned no-op；SDK 只含采集器和适配器；领域指标定义迁领域 owner；空 core 已删除 | API 最小 classpath、上下文传播、指标注册 |
+| query-api / query | 独立 API 制品已提取 coordination/state/lineage/transaction/audit 契约；runtime 保留 core/store/adapter。后续迁入 Coordinator 的 QueryManager 和 query execution 领域逻辑，HTTP DTO 在 endpoint 映射；当前契约不需要 runtime JDBC/Security 实现 | API 最小 classpath、无重复 class、single writer、取消/重试/迟到报告、journal/recovery/fencing |
+| artifact（第 20 节已建立，尚未迁完运行时） | 通用 durable build 的 api/build/execution/publication、protocol、core、store.jdbc；消费 Query API，禁止依赖 Query runtime/Metadata/AI Control/Indexing Core。领域 publication 与 authority 通过窄端口装配，见第 18 节 | 生产及测试依赖图无环、原子发布、撤权/租约/fence/恢复、关闭 Indexing 的启动链路 |
+| scheduler | api.admission/placement/resource；core 对应能力和 strategy；迁 Coordinator 的通用 task/stage/split 调度；SQL 编译留 Planner/Query adapter | 公平性、资源释放、speculation、故障及竞争测试 |
+| coordination-core/zookeeper | core 收敛为应用装配、server/endpoint、embedding、集群协调；ZK 是 coordination port 的 provider；领域实现全部迁 owner | 两种启动模式、leader/fence、无跨域 core 导入 |
+| worker-core/native-bridge | Worker task/resource/exchange/result 生命周期；COPY/file 仅执行 adapter；native-bridge 独占 JNI 声明、加载、handle 和序列化；根包需非重叠 ownership | Worker 生命周期、JNI symbol 对称、native loader、任务取消关闭 |
+| storage | content-addressed publication API 与 filesystem/S3 adapter；确认不是 File/AI 权限 authority | 原子发布、内容校验、失败清理 |
+| file | api volume/stage/directory/upload/copy；core publication/claim；store.jdbc；将 Worker/Coordinator 中事实管理归回 File | COPY 幂等、claim、fence、过期回收 |
+| table | api identity/maintenance/statistics/policy；core 与 store 分离；不依赖 Metadata implementation | table 生命周期、维护恢复、policy binding |
+| metadata | api catalog/object/schema/version；core 对应能力；adapter connector/governance/security；store.jdbc。拆 service 内聚职责；索引专属 artifact 迁 Indexing，通用构建迁入第 18 节确定的 Artifact owner，跨域原子 publication 先解开 authority/契约耦合 | catalog/version/cache/outbox、migration 升级兼容 |
+| semantic | api/core view 等现有能力，compiler/projection/adapter 按真实实现建立；JDBC store 归自己；不把长期 ontology 新功能当本次目录重构前置条件 | View 生命周期、编译、权限绑定、原 migration 升级 |
+| ai-api/control/worker | API 仅 model/capability/invocation/embedding/runtime port；Control 拥有 evaluation/feature/model state；Worker 拥有 provider adapter 和受控执行，不持久化语义 authority | 无 AI 基础 SQL、provider 契约、评估与释放失败路径 |
+| security | api authn/authz/tenant/secret/mask；core 策略；provider adapter；store.jdbc。审查重复 tenant schema 与权威写入者，不按类名强行合并 | 权限拒绝、版本变更、租户隔离、secret 解析 |
+| governance | catalog/classification/lineage/quality 按能力组织；同步链仅保留 commit correctness gate；adapter 与核心规则隔离 | lineage 发布、quality 拒绝及事务一致性 |
+| indexing-api/core | API 保留插件稳定边界；Core 按 generation/build/publication/GC/provider；承接 Metadata 的索引专属 artifact 与 Coordinator 索引编排。通用构建、生成列与导出不能因类名含 artifact 就归入可选 Indexing，详见第 16 节 | generation fencing、发布/回收、关闭 indexing 后基础 SQL |
+| streaming | api checkpoint/offset/watermark/state；core lifecycle；provider CDC；store.jdbc；Coordinator adapter 只做绑定和启动 | checkpoint/offset 恢复、CDC 提交一致性 |
+| materialization-core/store-jdbc | Core 的 definition/generation/attempt/publication/scheduling 与 extension；JDBC 单向实现端口；逐一核验零实现 SPI | refresh/retry/publication、持久化恢复、实现注册 |
+| shuffle-core/service | Core 管 exchange 契约与编排；Service 管网络和 durable spool；审查内存/磁盘实现是否实际可达 | shuffle ticket、spill/recovery、remote exchange |
+| operations | 按 upgrade/scaling/recovery/diagnostics 组织；移出 DDL、bootstrap 和核心 query 行为；诊断不获得变更权限 | 各运维入口、副作用与恢复测试 |
+| client-core/cli/jdbc | Core 无框架公开契约；CLI/JDBC 分别拥有输入/展示和 JDBC 状态机；wire adapter 不泄漏进公共模型 | JDBC 契约、Driver discovery、CLI、结果消费关闭 |
+| standalone | 仅调用 Coordinator/Worker embedding 装配入口；删除 server 内部依赖和重复生命周期管理 | 单机启动、关闭、同 SQL 结果一致性 |
+| testing-kit/integration-tests/benchmark/fuzzer | 独占 testing 根；架构检查从 reactor 发现叶子；fixtures 不产生 split package；性能/模糊测试不充当 correctness 替代 | discovery 自测、真实 native E2E、seed 可重放 |
+| native-bundle | 只做平台资源发布与来源验证，不拥有业务代码 | 包中平台/架构/ABI/JNI 库一致性 |
+| worker-native（C++/Rust） | bridge/engine/capabilities/indexing/vector/udf/lance 以 target 明确所有权；审查已记录的双向 include seam；需要反转时由 engine 持有窄 port，不宣称 OBJECT target 天然无环；Lance FFI ABI 保持稳定 | Release 编译、native tests、ASan、重新打包和 Java E2E |
+
+## 3. 执行顺序与迁移协议
+
+1. **R0 事实与构建闭环（进行中）**：记录 POM、所有包、import、provider、migration；保留原工作区；删除空制品；建立 JDK17/Python3.10+ 可复现基线。恢复架构检查真实性：动态 reactor discovery、确定性全图 SCC、嵌套类型和 static import 正确解析、读取失败直接报错；用三节点环、非同级环和新增叶子回归测试证明检查有效。不扩大豁免来得到绿灯。
+2. **R1 基础依赖清理**：Common/Config/Transport/Observability/Client。先确认调用者并迁框架 adapter，再改 POM、manifest exports 和 optional/provided 依赖。用最小 classpath 测试验证公开 API 可加载。
+3. **R2 契约与数据权威**：Metadata/Table/File/Security/Governance/Semantic/AI Control/Indexing/Streaming/Materialization。每张表列唯一 owner、writer、migration、恢复路径。仅资源归属改变时保留既有 migration 内容和版本；需要 schema 改变时新增向前 migration，禁止篡改历史 checksum。
+4. **R3 控制面瘦身**：Query 生命周期/事务 → Scheduler task/stage placement → Coordinator adapter/assembly。先抽 producer-owned port，迁实现及测试，再切所有调用者；移除临时 façade。不得让 Query/Scheduler 反向依赖 Coordinator，或用泛化 Context 包隐藏依赖。
+5. **R4 执行与交付边界**：Worker/Native/Shuffle/Connector/AI Worker/Standalone。逐个切 runtime 装配和服务描述符，再进行 native build/test/package 与 Java 消费者验证。目录搬迁不得改变 JNI ABI、wire 编号或 SQL 语义。
+6. **R5 内部代码收敛**：每个叶子逐包审查职责、可见性、重复逻辑、异常处理、状态机、并发和资源所有权；死实现必须有无调用/无注册证据；有真实问题才拆类。代码规模和接口方法数只用于定位，不为指标增加转发类。移动包同步测试、反射类名、ServiceLoader、配置、Docker、脚本和文档。
+7. **R6 最终验收**：全 reactor 编译、owner suites、全图架构 gate、数据库升级、native 与共享/独立 JVM E2E 全通过；人工检查未解决债务和旧路径；逐行关闭本表。编译成功、目录已存在或旧台账 done 均不足以关闭审查项。
+
+每一批只在具体行为测试通过后继续依赖该批的迁移。公共 Java FQN 调整视为源码兼容变更，所有仓内消费者同批迁移；不保留永久旧包 alias。外部兼容要求若被发现，记录受影响消费者并明确迁移版本。数据库和协议兼容不随 Java 重命名自动放弃。
+
+## 4. 验证矩阵与起点结果
+
+- 已通过：模块事实生成与 `check-module-manifest.sh`；JDK17/Python3.12 全 reactor `mvn -B -DskipTests install`（58 项，2026-10-31）；Testing Kit 的 ModuleDependency/PackageStructure/PackageDependencyAcyclicity 共 10 个测试，零失败/跳过。
+- 首轮失败原因：系统 Python3 为 3.9.6，协议生成器要求 3.10+。使用已安装的 Python3.12 后通过，未修改版本检查。默认 JDK21 不用于本次验收。
+- 待验：完整模块内部审查、无环检查修复、逐 owner 测试、静态分析、native 源码一致性编译/测试、ASan、打包、完整 Java/native 回归。本次 `skipTests` 不构成运行时证明。
+- 每次变更先最近测试，再 owner suite；共享 API/POM/跨模块改动运行完整 reactor；JNI/protocol/native/执行路径按 build-pipeline 完整链条；最后 `full-regression verify` 加四个独立 native-owner 选择，不能遗漏被共享 JVM 排除的测试。
+- 本次删除空制品不修改 native runtime；后续 native 验证必须核实源码/库一致性，不能仅复用历史日志。
+
+## 5. 逐叶子包盘点（源码事实，不是完成声明）
+
+以下是主源包分布，用于逐项审查防漏，随本轮迁移刷新。计数含 package-info，不含 target 生成源码；生成/shaded/runtime artifact 的 split package 仍需在 R0/R6 单独验证。包名清单是覆盖范围，不表示每个包的行为与资源所有权已验收。
+
+### pangrova-ai/pangrova-ai-api
+
+审查状态：待逐包闭环；33 个主源文件，6 个包。
+
+`org.pangrova.ai.api.capability` (4); `org.pangrova.ai.api.embedding` (7); `org.pangrova.ai.api.error` (2); `org.pangrova.ai.api.invocation` (11); `org.pangrova.ai.api.model` (6); `org.pangrova.ai.api.runtime` (3)。
+
+### pangrova-ai/pangrova-ai-control
+
+审查状态：catalog export 请求与原子事务适配器已归位；其他包待逐项闭环；37 个主源文件，8 个包。
+
+`org.pangrova.ai.control` (2); `org.pangrova.ai.control.api` (1); `org.pangrova.ai.control.embedding` (11); `org.pangrova.ai.control.evaluation` (12); `org.pangrova.ai.control.feature` (3); `org.pangrova.ai.control.store.jdbc.embedding` (2); `org.pangrova.ai.control.store.jdbc.evaluation` (3); `org.pangrova.ai.control.store.jdbc.feature` (3)。
+
+### pangrova-ai/pangrova-ai-worker
+
+审查状态：待逐包闭环；93 个主源文件，17 个包。
+
+`org.pangrova.ai.worker` (1); `org.pangrova.ai.worker.blob` (6); `org.pangrova.ai.worker.config` (2); `org.pangrova.ai.worker.context` (10); `org.pangrova.ai.worker.embedding` (3); `org.pangrova.ai.worker.embedding.provider.openai` (2); `org.pangrova.ai.worker.function` (20); `org.pangrova.ai.worker.function.file` (4); `org.pangrova.ai.worker.governance` (4); `org.pangrova.ai.worker.governance.observer` (4); `org.pangrova.ai.worker.inference.provider.openai` (10); `org.pangrova.ai.worker.invocation` (15); `org.pangrova.ai.worker.provider` (4); `org.pangrova.ai.worker.provider.env` (1); `org.pangrova.ai.worker.provider.governed` (4); `org.pangrova.ai.worker.rerank.provider.openai` (1); `org.pangrova.ai.worker.text` (2)。
+
+### pangrova-data-build
+
+审查状态：契约、编码、发布路由、JDBC 事务权限端口和共享查询已迁入；执行 route/fence 已迁入，generic state 与领域 publication runtime 尚待迁入；50 个主源文件，13 个包。
+
+`org.pangrova.databuild.api` (8); `org.pangrova.databuild.api.build` (11); `org.pangrova.databuild.api.execution` (6); `org.pangrova.databuild.api.execution.template` (2); `org.pangrova.databuild.api.format` (2); `org.pangrova.databuild.api.manifest` (2); `org.pangrova.databuild.api.publication` (2); `org.pangrova.databuild.assembly` (4); `org.pangrova.databuild.core.publication` (2); `org.pangrova.databuild.protocol` (4); `org.pangrova.databuild.spi.jdbc` (2); `org.pangrova.databuild.store.jdbc.query` (2); `org.pangrova.databuild.store.jdbc.execution` (3)。
+
+### pangrova-client/pangrova-client-cli
+
+审查状态：待逐包闭环；8 个主源文件，1 个包。
+
+`org.pangrova.client.cli` (8)。
+
+### pangrova-client/pangrova-client-core
+
+审查状态：待逐包闭环；19 个主源文件，5 个包。
+
+`org.pangrova.client.core` (1); `org.pangrova.client.core.api` (4); `org.pangrova.client.core.error` (5); `org.pangrova.client.core.protocol` (7); `org.pangrova.client.core.session` (2)。
+
+### pangrova-client/pangrova-client-jdbc
+
+审查状态：待逐包闭环；17 个主源文件，2 个包。
+
+`org.pangrova.client.jdbc` (16); `org.pangrova.client.jdbc.value` (1)。
+
+### pangrova-common
+
+审查状态：待逐包闭环；75 个主源文件，21 个包。
+
+`org.pangrova.common` (2); `org.pangrova.common.activation` (2); `org.pangrova.common.annotation` (2); `org.pangrova.common.api.annotation` (4); `org.pangrova.common.bloom` (1); `org.pangrova.common.concurrent` (8); `org.pangrova.common.exception` (12); `org.pangrova.common.file` (5); `org.pangrova.common.http` (6); `org.pangrova.common.http.adapter.jetty` (1); `org.pangrova.common.jdbc` (1); `org.pangrova.common.json` (2); `org.pangrova.common.json.provider.jackson` (1); `org.pangrova.common.lifecycle` (11); `org.pangrova.common.resilience` (2); `org.pangrova.common.resilience.api` (2); `org.pangrova.common.resilience.policy` (4); `org.pangrova.common.session` (1); `org.pangrova.common.storage` (1); `org.pangrova.common.util` (5); `org.pangrova.common.value` (2)。
+
+### pangrova-config
+
+审查状态：待逐包闭环；15 个主源文件，1 个包。
+
+`org.pangrova.config` (15)。
+
+### pangrova-connector/pangrova-connector-iceberg
+
+审查状态：待逐包闭环；97 个主源文件，9 个包。
+
+`org.pangrova.connector.iceberg` (53); `org.pangrova.connector.iceberg.fs` (3); `org.pangrova.connector.iceberg.handle` (16); `org.pangrova.connector.iceberg.index` (2); `org.pangrova.connector.iceberg.read` (5); `org.pangrova.connector.iceberg.schema` (1); `org.pangrova.connector.iceberg.system` (4); `org.pangrova.connector.iceberg.type` (1); `org.pangrova.connector.iceberg.write` (12)。
+
+### pangrova-connector/pangrova-connector-lance
+
+审查状态：待逐包闭环；16 个主源文件，1 个包。
+
+`org.pangrova.connector.lance` (16)。
+
+### pangrova-connector/pangrova-connector-paimon
+
+审查状态：待逐包闭环；86 个主源文件，10 个包。
+
+`org.pangrova.connector.paimon` (30); `org.pangrova.connector.paimon.fs` (2); `org.pangrova.connector.paimon.handle` (19); `org.pangrova.connector.paimon.index` (2); `org.pangrova.connector.paimon.read` (2); `org.pangrova.connector.paimon.scan` (5); `org.pangrova.connector.paimon.schema` (4); `org.pangrova.connector.paimon.system` (8); `org.pangrova.connector.paimon.type` (3); `org.pangrova.connector.paimon.write` (11)。
+
+### pangrova-connector/pangrova-connector-runtime
+
+审查状态：待逐包闭环；7 个主源文件，4 个包。
+
+`org.pangrova.connector.runtime` (1); `org.pangrova.connector.runtime.classloader` (4); `org.pangrova.connector.runtime.discovery` (1); `org.pangrova.connector.runtime.lifecycle` (1)。
+
+### pangrova-connector/pangrova-connector-spi
+
+审查状态：待逐包闭环；221 个主源文件，23 个包。
+
+`org.pangrova.connector.spi` (8); `org.pangrova.connector.spi.base` (2); `org.pangrova.connector.spi.base.protocol` (1); `org.pangrova.connector.spi.base.split` (1); `org.pangrova.connector.spi.clustering` (10); `org.pangrova.connector.spi.coordination` (9); `org.pangrova.connector.spi.data` (5); `org.pangrova.connector.spi.data.block` (10); `org.pangrova.connector.spi.data.page` (6); `org.pangrova.connector.spi.data.type` (12); `org.pangrova.connector.spi.data.type.mapping` (2); `org.pangrova.connector.spi.data.type.primitive` (12); `org.pangrova.connector.spi.data.type.primitive.temporal` (5); `org.pangrova.connector.spi.data.value` (3); `org.pangrova.connector.spi.data.write` (2); `org.pangrova.connector.spi.data.write.model` (5); `org.pangrova.connector.spi.index` (16); `org.pangrova.connector.spi.index.predicate` (15); `org.pangrova.connector.spi.index.statistics` (2); `org.pangrova.connector.spi.materialization` (13); `org.pangrova.connector.spi.metadata` (60); `org.pangrova.connector.spi.metadata.table` (18); `org.pangrova.connector.spi.plugin` (4)。
+
+### pangrova-coordination/pangrova-coordination-api
+
+审查状态：契约提取与最小classpath已验证；12 个主源文件，1 个包。
+
+`org.pangrova.coordination.api` (12)。
+
+### pangrova-coordination/pangrova-coordination-core
+
+审查状态：Worker JDBC 注册事务已核验，领域迁出及其他包待逐包闭环；596 个主源文件，99 个包。
+
+`org.pangrova.coordinator` (2); `org.pangrova.coordinator.adapter.indexing` (9); `org.pangrova.coordinator.adapter.indexing.ai.lifecycle` (4); `org.pangrova.coordinator.adapter.indexing.ddl` (11); `org.pangrova.coordinator.adapter.indexing.filter` (9); `org.pangrova.coordinator.adapter.indexing.lifecycle` (13); `org.pangrova.coordinator.adapter.indexing.lifecycle.gc` (3); `org.pangrova.coordinator.adapter.scheduler` (6); `org.pangrova.coordinator.ai.branch` (4); `org.pangrova.coordinator.ai.embedding` (9); `org.pangrova.coordinator.ai.layout` (1); `org.pangrova.coordinator.ai.model` (1); `org.pangrova.coordinator.databuild` (15); `org.pangrova.coordinator.databuild.runtime` (1); `org.pangrova.coordinator.databuild.template` (4); `org.pangrova.coordinator.bootstrap` (33); `org.pangrova.coordinator.bootstrap.lifecycle` (5); `org.pangrova.coordinator.bootstrap.module` (7); `org.pangrova.coordinator.cache` (1); `org.pangrova.coordinator.clustering` (9); `org.pangrova.coordinator.coordination` (9); `org.pangrova.coordinator.coordination.api` (11); `org.pangrova.coordinator.coordination.provider.memory` (3); `org.pangrova.coordinator.coordination.store.jdbc` (3); `org.pangrova.coordinator.dynamictable` (1); `org.pangrova.coordinator.embedding` (1); `org.pangrova.coordinator.feature` (6); `org.pangrova.coordinator.file` (1); `org.pangrova.coordinator.governance` (1); `org.pangrova.coordinator.http` (5); `org.pangrova.coordinator.http.endpoint` (16); `org.pangrova.coordinator.http.endpoint.catalog` (11); `org.pangrova.coordinator.http.endpoint.copy` (3); `org.pangrova.coordinator.http.endpoint.file` (1); `org.pangrova.coordinator.http.jdbc` (7); `org.pangrova.coordinator.maintenance` (2); `org.pangrova.coordinator.materialization` (20); `org.pangrova.coordinator.metadata` (9); `org.pangrova.coordinator.metadata.nativecontrol` (2); `org.pangrova.coordinator.metadata.read` (9); `org.pangrova.coordinator.query` (12); `org.pangrova.coordinator.query.admission` (1); `org.pangrova.coordinator.query.audit` (5); `org.pangrova.coordinator.query.cache` (4); `org.pangrova.coordinator.query.execution` (20); `org.pangrova.coordinator.query.execution.dispatch` (19); `org.pangrova.coordinator.query.execution.dispatch.adaptive` (6); `org.pangrova.coordinator.query.execution.dispatch.dag` (14); `org.pangrova.coordinator.query.execution.dispatch.dag.binding` (6); `org.pangrova.coordinator.query.execution.dispatch.dag.control` (7); `org.pangrova.coordinator.query.execution.dispatch.dag.handler` (15); `org.pangrova.coordinator.query.execution.dispatch.dag.retrieval` (5); `org.pangrova.coordinator.query.execution.dispatch.dag.runtime` (5); `org.pangrova.coordinator.query.execution.dispatch.dag.split` (1); `org.pangrova.coordinator.query.execution.dispatch.listener` (3); `org.pangrova.coordinator.query.execution.dispatch.shuffle` (8); `org.pangrova.coordinator.query.execution.dispatch.shuffle.databuild` (3); `org.pangrova.coordinator.query.execution.dispatch.shuffle.lifecycle` (2); `org.pangrova.coordinator.query.execution.dispatch.task` (29); `org.pangrova.coordinator.query.execution.dispatch.task.branch` (4); `org.pangrova.coordinator.query.execution.dispatch.task.catalog` (5); `org.pangrova.coordinator.query.execution.dispatch.task.file` (5); `org.pangrova.coordinator.query.execution.dispatch.task.semantic` (3); `org.pangrova.coordinator.query.execution.dispatch.task.storage` (3); `org.pangrova.coordinator.query.execution.dispatch.task.stream` (5); `org.pangrova.coordinator.query.execution.phase` (8); `org.pangrova.coordinator.query.execution.result` (2); `org.pangrova.coordinator.query.execution.retrieval` (1); `org.pangrova.coordinator.query.execution.security` (3); `org.pangrova.coordinator.query.execution.split` (13); `org.pangrova.coordinator.query.lifecycle` (2); `org.pangrova.coordinator.query.resourcegroup` (5); `org.pangrova.coordinator.query.security` (3); `org.pangrova.coordinator.query.session` (5); `org.pangrova.coordinator.query.stage` (7); `org.pangrova.coordinator.query.state` (1); `org.pangrova.coordinator.query.statement` (13); `org.pangrova.coordinator.query.statement.dml` (5); `org.pangrova.coordinator.query.task` (9); `org.pangrova.coordinator.query.task.report` (6); `org.pangrova.coordinator.query.task.write` (6); `org.pangrova.coordinator.query.tenant` (1); `org.pangrova.coordinator.resilience.breaker` (1); `org.pangrova.coordinator.resilience.checkpoint` (3); `org.pangrova.coordinator.resilience.config` (1); `org.pangrova.coordinator.resilience.degradation` (3); `org.pangrova.coordinator.resilience.idempotency` (1); `org.pangrova.coordinator.resilience.lineage` (1); `org.pangrova.coordinator.resilience.provider.resilience4j` (2); `org.pangrova.coordinator.resilience.retry` (2); `org.pangrova.coordinator.result` (4); `org.pangrova.coordinator.scheduler` (6); `org.pangrova.coordinator.scheduler.ft` (1); `org.pangrova.coordinator.semantic` (1); `org.pangrova.coordinator.speculation` (1); `org.pangrova.coordinator.storage` (1); `org.pangrova.coordinator.task` (11); `org.pangrova.coordinator.transport` (2); `org.pangrova.coordinator.worker` (7)。
+
+### pangrova-coordination/pangrova-coordination-zookeeper
+
+审查状态：待逐包闭环；4 个主源文件，1 个包。
+
+`org.pangrova.coordination.zookeeper` (4)。
+
+### pangrova-file
+
+审查状态：待逐包闭环；38 个主源文件，17 个包。
+
+`org.pangrova.file` (1); `org.pangrova.file.adapter.worker` (1); `org.pangrova.file.api.access` (5); `org.pangrova.file.api.claim` (2); `org.pangrova.file.api.copy` (1); `org.pangrova.file.api.directory` (3); `org.pangrova.file.api.profile` (3); `org.pangrova.file.api.space` (8); `org.pangrova.file.api.upload` (4); `org.pangrova.file.core` (1); `org.pangrova.file.core.directory` (1); `org.pangrova.file.core.space` (2); `org.pangrova.file.store.jdbc.claim` (1); `org.pangrova.file.store.jdbc.copy` (1); `org.pangrova.file.store.jdbc.directory` (1); `org.pangrova.file.store.jdbc.profile` (1); `org.pangrova.file.store.jdbc.space` (2)。
+
+### pangrova-function
+
+审查状态：待逐包闭环；17 个主源文件，6 个包。
+
+`org.pangrova.function.api.aggregate` (2); `org.pangrova.function.api.metadata` (2); `org.pangrova.function.api.registry` (2); `org.pangrova.function.api.runtime` (3); `org.pangrova.function.api.scalar` (3); `org.pangrova.function.api.table` (5)。
+
+### pangrova-governance
+
+审查状态：待逐包闭环；62 个主源文件，16 个包。
+
+`org.pangrova.governance` (1); `org.pangrova.governance.api.audit` (3); `org.pangrova.governance.api.catalog` (1); `org.pangrova.governance.api.classification` (4); `org.pangrova.governance.api.lineage` (5); `org.pangrova.governance.api.quality` (15); `org.pangrova.governance.core` (2); `org.pangrova.governance.core.audit` (1); `org.pangrova.governance.core.classification` (7); `org.pangrova.governance.core.lineage` (6); `org.pangrova.governance.core.quality` (9); `org.pangrova.governance.lineage.provider.log` (1); `org.pangrova.governance.lineage.provider.openlineage` (1); `org.pangrova.governance.quality.executor.sql` (1); `org.pangrova.governance.quality.executor.unconfigured` (1); `org.pangrova.governance.store.jdbc` (4)。
+
+### pangrova-indexing/pangrova-indexing-api
+
+审查状态：待逐包闭环；42 个主源文件，12 个包。
+
+`org.pangrova.indexing.api` (2); `org.pangrova.indexing.api.data` (5); `org.pangrova.indexing.api.data.bitmap` (1); `org.pangrova.indexing.api.data.spatial` (5); `org.pangrova.indexing.api.data.text` (4); `org.pangrova.indexing.api.descriptor` (5); `org.pangrova.indexing.api.eval` (6); `org.pangrova.indexing.api.pruning` (6); `org.pangrova.indexing.api.publish` (1); `org.pangrova.indexing.api.state` (1); `org.pangrova.indexing.api.statistics` (3); `org.pangrova.indexing.api.vector` (3)。
+
+### pangrova-indexing/pangrova-indexing-core
+
+审查状态：待逐包闭环；103 个主源文件，36 个包。
+
+`org.pangrova.indexing` (1); `org.pangrova.indexing.adapter.fs` (1); `org.pangrova.indexing.assembly.serde` (2); `org.pangrova.indexing.core.build` (8); `org.pangrova.indexing.core.config` (9); `org.pangrova.indexing.core.eval` (5); `org.pangrova.indexing.core.eval.defaults` (2); `org.pangrova.indexing.core.lifecycle` (1); `org.pangrova.indexing.core.metrics` (2); `org.pangrova.indexing.core.normalize` (1); `org.pangrova.indexing.core.planner` (3); `org.pangrova.indexing.core.planner.vector` (6); `org.pangrova.indexing.core.registry` (1); `org.pangrova.indexing.core.serde` (4); `org.pangrova.indexing.core.storage` (5); `org.pangrova.indexing.engine.bitmap.provider` (1); `org.pangrova.indexing.engine.bitmap.serializer` (3); `org.pangrova.indexing.engine.bloom.provider` (1); `org.pangrova.indexing.engine.bloom.serializer` (1); `org.pangrova.indexing.engine.btree.evaluator` (2); `org.pangrova.indexing.engine.btree.provider` (1); `org.pangrova.indexing.engine.btree.serializer` (1); `org.pangrova.indexing.engine.gin.provider` (1); `org.pangrova.indexing.engine.gin.serializer` (2); `org.pangrova.indexing.engine.hash.provider` (1); `org.pangrova.indexing.engine.hash.serializer` (1); `org.pangrova.indexing.engine.ngram.provider` (1); `org.pangrova.indexing.engine.ngram.serializer` (2); `org.pangrova.indexing.engine.prefix.provider` (1); `org.pangrova.indexing.engine.prefix.serializer` (1); `org.pangrova.indexing.engine.rtree.provider` (1); `org.pangrova.indexing.engine.rtree.serializer` (2); `org.pangrova.indexing.engine.sparse.provider` (1); `org.pangrova.indexing.engine.sparse.serializer` (1); `org.pangrova.indexing.store` (14); `org.pangrova.indexing.store.jdbc` (13)。
+
+### pangrova-materialization/pangrova-materialization-core
+
+审查状态：待逐包闭环；114 个主源文件，6 个包。
+
+`org.pangrova.materialization` (1); `org.pangrova.materialization.domain` (46); `org.pangrova.materialization.extension` (10); `org.pangrova.materialization.port` (28); `org.pangrova.materialization.strategy` (4); `org.pangrova.materialization.usecase` (25)。
+
+### pangrova-materialization/pangrova-materialization-store-jdbc
+
+审查状态：待逐包闭环；10 个主源文件，1 个包。
+
+`org.pangrova.materialization.store.jdbc` (10)。
+
+### pangrova-metadata
+
+审查状态：关系图已分包并修复已定位语义缺陷；Artifact 当前权限归 adapter、工厂显式装配，通用查询及 execution route/fence 已迁出；其余 runtime 与领域存储仍待闭环；149 个主源文件，35 个包。
+
+`org.pangrova.metadata` (1); `org.pangrova.metadata.adapter` (7); `org.pangrova.metadata.adapter.databuild` (1); `org.pangrova.metadata.adapter.governance` (2); `org.pangrova.metadata.adapter.security` (1); `org.pangrova.metadata.api.cache` (6); `org.pangrova.metadata.api.catalog` (8); `org.pangrova.metadata.api.object` (12); `org.pangrova.metadata.api.relation` (7); `org.pangrova.metadata.databuild` (5); `org.pangrova.metadata.databuild.jdbc` (11); `org.pangrova.metadata.databuild.jdbc.build` (13); `org.pangrova.metadata.databuild.jdbc.submission` (1); `org.pangrova.metadata.assembly.databuild` (2); `org.pangrova.metadata.assembly.security` (2); `org.pangrova.metadata.checkpoint` (1); `org.pangrova.metadata.core.cache` (4); `org.pangrova.metadata.core.catalog.handle.connector` (2); `org.pangrova.metadata.core.catalog.handle.federation` (2); `org.pangrova.metadata.core.catalog.handle.internal` (1); `org.pangrova.metadata.core.catalog.registry` (2); `org.pangrova.metadata.core.event` (3); `org.pangrova.metadata.core.object` (1); `org.pangrova.metadata.core.outbox` (4); `org.pangrova.metadata.core.relation` (3); `org.pangrova.metadata.core.schema` (4); `org.pangrova.metadata.exception` (7); `org.pangrova.metadata.exception.catalog` (6); `org.pangrova.metadata.provider.memory.relation` (1); `org.pangrova.metadata.service` (16); `org.pangrova.metadata.source.jdbc` (5); `org.pangrova.metadata.store.jdbc.cache` (1); `org.pangrova.metadata.store.jdbc.catalog` (5); `org.pangrova.metadata.store.jdbc.object` (1); `org.pangrova.metadata.tenant` (1)。
+
+### pangrova-observability/pangrova-observability-api
+
+审查状态：待逐包闭环；37 个主源文件，4 个包。
+
+`org.pangrova.observability.api` (18); `org.pangrova.observability.api.event` (8); `org.pangrova.observability.api.noop` (10); `org.pangrova.observability.api.profiling` (1)。
+
+### pangrova-observability/pangrova-observability-sdk
+
+审查状态：待逐包闭环；47 个主源文件，16 个包。
+
+`org.pangrova.observability.sdk` (1); `org.pangrova.observability.sdk.alerting` (5); `org.pangrova.observability.sdk.config` (2); `org.pangrova.observability.sdk.logging` (1); `org.pangrova.observability.sdk.logging.provider.mdc` (5); `org.pangrova.observability.sdk.logging.provider.otel` (1); `org.pangrova.observability.sdk.metrics` (8); `org.pangrova.observability.sdk.metrics.jvm` (2); `org.pangrova.observability.sdk.metrics.nativebridge` (3); `org.pangrova.observability.sdk.metrics.provider.otel` (6); `org.pangrova.observability.sdk.profiling` (1); `org.pangrova.observability.sdk.tracing` (2); `org.pangrova.observability.sdk.tracing.adapter.grpc` (2); `org.pangrova.observability.sdk.tracing.adapter.http` (1); `org.pangrova.observability.sdk.tracing.adapter.nativebridge` (2); `org.pangrova.observability.sdk.tracing.provider.otel` (5)。
+
+### pangrova-operations
+
+审查状态：待逐包闭环；44 个主源文件，8 个包。
+
+`org.pangrova.operations` (2); `org.pangrova.operations.config` (2); `org.pangrova.operations.ddl` (3); `org.pangrova.operations.diagnostics` (13); `org.pangrova.operations.dr` (2); `org.pangrova.operations.recovery` (3); `org.pangrova.operations.scaling` (10); `org.pangrova.operations.upgrade` (9)。
+
+### pangrova-parser
+
+审查状态：待逐包闭环；201 个主源文件，8 个包。
+
+`org.pangrova.parser` (26); `org.pangrova.parser.ast` (46); `org.pangrova.parser.ast.expression` (25); `org.pangrova.parser.ast.statement` (82); `org.pangrova.parser.ast.statement.dml` (5); `org.pangrova.parser.ast.statement.maintenance` (5); `org.pangrova.parser.ast.statement.stream` (6); `org.pangrova.parser.ast.type` (6)。
+
+### pangrova-planner
+
+审查状态：待逐包闭环；281 个主源文件，35 个包。
+
+`org.pangrova.planner` (40); `org.pangrova.planner.adaptive` (15); `org.pangrova.planner.advisor` (1); `org.pangrova.planner.databuild` (7); `org.pangrova.planner.branch` (2); `org.pangrova.planner.cache` (12); `org.pangrova.planner.cost` (17); `org.pangrova.planner.cost.aggregate` (1); `org.pangrova.planner.cost.convention` (2); `org.pangrova.planner.cost.distribution` (6); `org.pangrova.planner.cost.join` (11); `org.pangrova.planner.cost.sort` (1); `org.pangrova.planner.declaration` (2); `org.pangrova.planner.embedding` (7); `org.pangrova.planner.exchange` (1); `org.pangrova.planner.extension` (2); `org.pangrova.planner.incremental` (4); `org.pangrova.planner.lineage` (8); `org.pangrova.planner.metadata` (2); `org.pangrova.planner.mv` (6); `org.pangrova.planner.optimization` (7); `org.pangrova.planner.parse` (8); `org.pangrova.planner.rerank` (5); `org.pangrova.planner.retrieval` (2); `org.pangrova.planner.rewrite` (2); `org.pangrova.planner.rule` (10); `org.pangrova.planner.runtimefilter` (8); `org.pangrova.planner.security` (7); `org.pangrova.planner.security.expression` (2); `org.pangrova.planner.stability` (6); `org.pangrova.planner.stats` (11); `org.pangrova.planner.substrait` (33); `org.pangrova.planner.throttle` (9); `org.pangrova.planner.type` (10); `org.pangrova.planner.validation` (14)。
+
+### pangrova-protocol
+
+审查状态：根包与循环边界已梳理，其他能力仍待逐包闭环；165 个主源文件，38 个包。
+
+`org.pangrova.protocol` (1); `org.pangrova.protocol.databuild` (3); `org.pangrova.protocol.batch` (4); `org.pangrova.protocol.capability` (2); `org.pangrova.protocol.capability.inventory` (2); `org.pangrova.protocol.catalog` (2); `org.pangrova.protocol.checksum` (2); `org.pangrova.protocol.descriptor` (3); `org.pangrova.protocol.execution` (10); `org.pangrova.protocol.execution.identity` (2); `org.pangrova.protocol.function` (12); `org.pangrova.protocol.function.catalog` (6); `org.pangrova.protocol.function.declaration` (11); `org.pangrova.protocol.function.formula` (2); `org.pangrova.protocol.function.selection` (3); `org.pangrova.protocol.index` (3); `org.pangrova.protocol.metadata` (2); `org.pangrova.protocol.resource` (4); `org.pangrova.protocol.rest.catalog` (1); `org.pangrova.protocol.rest.config` (3); `org.pangrova.protocol.rest.copy` (3); `org.pangrova.protocol.rest.data` (2); `org.pangrova.protocol.rest.filter` (1); `org.pangrova.protocol.rest.shuffle` (2); `org.pangrova.protocol.rest.task` (14); `org.pangrova.protocol.rest.task.convert` (1); `org.pangrova.protocol.rest.task.exchange` (3); `org.pangrova.protocol.rest.version` (2); `org.pangrova.protocol.rest.worker` (4); `org.pangrova.protocol.retrieval` (16); `org.pangrova.protocol.source` (4); `org.pangrova.protocol.substrait` (10); `org.pangrova.protocol.substrait.generated` (1); `org.pangrova.protocol.task` (5); `org.pangrova.protocol.transport` (8); `org.pangrova.protocol.type` (3); `org.pangrova.protocol.validation` (4); `org.pangrova.protocol.write` (4)。
+
+### pangrova-query
+
+审查状态：审计服务/存储端口已分层，其他 runtime 包及 Coordinator 领域迁入待闭环；25 个主源文件，14 个包。
+
+`org.pangrova.query.adapter` (1); `org.pangrova.query.adapter.audit` (1); `org.pangrova.query.core` (1); `org.pangrova.query.core.audit` (2); `org.pangrova.query.core.profiling` (1); `org.pangrova.query.core.state` (1); `org.pangrova.query.store` (1); `org.pangrova.query.store.jdbc.anchor` (2); `org.pangrova.query.store.jdbc.audit` (1); `org.pangrova.query.store.jdbc.event` (1); `org.pangrova.query.store.jdbc.journal` (5); `org.pangrova.query.store.jdbc.lineage` (2); `org.pangrova.query.store.jdbc.transaction` (2); `org.pangrova.query.store.memory` (4)。
+
+### pangrova-query-api
+
+审查状态：契约制品及最小 classpath 已验证，后续领域 API 随实现迁入继续审查；20 个主源文件，7 个包。
+
+`org.pangrova.query.api` (1); `org.pangrova.query.api.audit` (3); `org.pangrova.query.api.coordination` (3); `org.pangrova.query.api.coordination.jdbc` (2); `org.pangrova.query.api.lineage` (2); `org.pangrova.query.api.state` (7); `org.pangrova.query.api.transaction` (2)。
+
+### pangrova-scheduler
+
+审查状态：待逐包闭环；55 个主源文件，14 个包。
+
+`org.pangrova.scheduler` (1); `org.pangrova.scheduler.api.placement` (15); `org.pangrova.scheduler.api.quota` (1); `org.pangrova.scheduler.api.resource` (5); `org.pangrova.scheduler.core.admission` (7); `org.pangrova.scheduler.core.failure` (5); `org.pangrova.scheduler.core.placement` (2); `org.pangrova.scheduler.core.resource` (1); `org.pangrova.scheduler.core.scoring` (2); `org.pangrova.scheduler.core.speculation` (12); `org.pangrova.scheduler.core.strategy.fair` (1); `org.pangrova.scheduler.core.strategy.loadbalanced` (1); `org.pangrova.scheduler.resource` (1); `org.pangrova.scheduler.store.jdbc.admission` (1)。
+
+### pangrova-security
+
+审查状态：API 授权快照与协议编码归属已切换，租户/角色 JDBC 事务已核验，其他包待逐包闭环；133 个主源文件，32 个包。
+
+`org.pangrova.security` (1); `org.pangrova.security.adapter.kms` (1); `org.pangrova.security.api` (14); `org.pangrova.security.api.audit` (6); `org.pangrova.security.api.authn` (5); `org.pangrova.security.api.authz` (2); `org.pangrova.security.api.event` (2); `org.pangrova.security.api.mask` (5); `org.pangrova.security.api.policy` (9); `org.pangrova.security.api.rowfilter` (5); `org.pangrova.security.api.secret` (5); `org.pangrova.security.api.session` (1); `org.pangrova.security.api.tenant` (8); `org.pangrova.security.assembly.audit` (3); `org.pangrova.security.core.audit` (4); `org.pangrova.security.core.authn` (4); `org.pangrova.security.core.authn.provider.bypass` (1); `org.pangrova.security.core.authn.provider.ldap` (1); `org.pangrova.security.core.authn.provider.oauth2` (9); `org.pangrova.security.core.authz` (6); `org.pangrova.security.core.crypto` (4); `org.pangrova.security.core.mask` (2); `org.pangrova.security.core.mask.provider.empty` (1); `org.pangrova.security.core.mask.provider.memory` (1); `org.pangrova.security.core.rowfilter` (2); `org.pangrova.security.core.secret` (1); `org.pangrova.security.core.secret.provider.env` (1); `org.pangrova.security.core.secret.provider.file` (1); `org.pangrova.security.core.session` (1); `org.pangrova.security.core.tenant` (15); `org.pangrova.security.protocol` (2); `org.pangrova.security.store.jdbc` (10)。
+
+### pangrova-semantic
+
+审查状态：待逐包闭环；11 个主源文件，4 个包。
+
+`org.pangrova.semantic` (1); `org.pangrova.semantic.api.view` (8); `org.pangrova.semantic.core.view` (1); `org.pangrova.semantic.store.jdbc` (1)。
+
+### pangrova-shuffle/pangrova-shuffle-core
+
+审查状态：待逐包闭环；61 个主源文件，8 个包。
+
+`org.pangrova.shuffle.api` (26); `org.pangrova.shuffle.core` (4); `org.pangrova.shuffle.exchange` (15); `org.pangrova.shuffle.provider` (1); `org.pangrova.shuffle.provider.spool` (2); `org.pangrova.shuffle.scheduling` (2); `org.pangrova.shuffle.spool` (6); `org.pangrova.shuffle.spool.localfs` (5)。
+
+### pangrova-shuffle/pangrova-shuffle-service
+
+审查状态：待逐包闭环；34 个主源文件，9 个包。
+
+`org.pangrova.shuffle.checksum` (1); `org.pangrova.shuffle.config` (2); `org.pangrova.shuffle.deployment` (2); `org.pangrova.shuffle.security` (4); `org.pangrova.shuffle.server` (16); `org.pangrova.shuffle.server.authority` (1); `org.pangrova.shuffle.server.error` (2); `org.pangrova.shuffle.server.persistence` (1); `org.pangrova.shuffle.transport` (5)。
+
+### pangrova-standalone
+
+审查状态：待逐包闭环；2 个主源文件，1 个包。
+
+`org.pangrova.standalone` (2)。
+
+### pangrova-storage
+
+审查状态：待逐包闭环；6 个主源文件，1 个包。
+
+`org.pangrova.storage.blob` (6)。
+
+### pangrova-streaming
+
+审查状态：待逐包闭环；120 个主源文件，25 个包。
+
+`org.pangrova.streaming` (1); `org.pangrova.streaming.adapter.coordinator` (9); `org.pangrova.streaming.api.aggregation` (5); `org.pangrova.streaming.api.cdc` (12); `org.pangrova.streaming.api.checkpoint` (6); `org.pangrova.streaming.api.source` (2); `org.pangrova.streaming.api.watermark` (1); `org.pangrova.streaming.core.aggregation` (4); `org.pangrova.streaming.core.cdc` (27); `org.pangrova.streaming.core.commit` (9); `org.pangrova.streaming.core.maintenance` (16); `org.pangrova.streaming.core.pipeline` (4); `org.pangrova.streaming.core.query` (2); `org.pangrova.streaming.core.watermark` (8); `org.pangrova.streaming.provider.cdcformat.canal` (1); `org.pangrova.streaming.provider.cdcformat.debezium` (1); `org.pangrova.streaming.provider.cdcformat.maxwell` (1); `org.pangrova.streaming.provider.writer.incremental` (2); `org.pangrova.streaming.provider.writer.lake` (1); `org.pangrova.streaming.provider.writer.mergetree` (1); `org.pangrova.streaming.store.jdbc.cdc` (1); `org.pangrova.streaming.store.jdbc.checkpoint` (1); `org.pangrova.streaming.store.jdbc.offset` (1); `org.pangrova.streaming.store.jdbc.watermark` (2); `org.pangrova.streaming.store.memory` (2)。
+
+### pangrova-table
+
+审查状态：待逐包闭环；37 个主源文件，11 个包。
+
+`org.pangrova.table` (1); `org.pangrova.table.api.control` (11); `org.pangrova.table.api.governancebinding` (3); `org.pangrova.table.api.maintenance` (5); `org.pangrova.table.api.policy` (1); `org.pangrova.table.api.statistics` (2); `org.pangrova.table.core.control` (4); `org.pangrova.table.core.maintenance` (1); `org.pangrova.table.core.statistics` (1); `org.pangrova.table.store.jdbc.control` (4); `org.pangrova.table.store.memory.control` (4)。
+
+### pangrova-testing/pangrova-testing-benchmark
+
+审查状态：待逐包闭环；7 个主源文件，2 个包。
+
+`org.pangrova.testing.benchmark` (2); `org.pangrova.testing.benchmark.jmh` (5)。
+
+### pangrova-testing/pangrova-testing-fuzzer
+
+审查状态：待逐包闭环；1 个主源文件，1 个包。
+
+`org.pangrova.testing.fuzzer` (1)。
+
+### pangrova-testing/pangrova-testing-integration-tests
+
+审查状态：待逐包闭环；22 个主源文件，7 个包。
+
+`org.pangrova.testing.integration.chaos.fault` (4); `org.pangrova.testing.integration.chaos.linearizability` (3); `org.pangrova.testing.integration.e2e` (3); `org.pangrova.testing.integration.e2e.config` (1); `org.pangrova.testing.integration.e2e.generator` (5); `org.pangrova.testing.integration.e2e.runner` (3); `org.pangrova.testing.integration.e2e.setup` (3)。
+
+### pangrova-testing/pangrova-testing-kit
+
+审查状态：模块引用事实已统一为 JDK AST，增加真实 JDBC 写后故障 fixture，其他能力待逐包闭环；25 个主源文件，7 个包。
+
+`org.pangrova.testing.testkit.architecture` (1); `org.pangrova.testing.testkit` (14); `org.pangrova.testing.testkit.function` (2); `org.pangrova.testing.testkit.lineage` (1); `org.pangrova.testing.testkit.postgres` (2); `org.pangrova.testing.testkit.result` (2); `org.pangrova.testing.testkit.security` (3)。
+
+### pangrova-transport
+
+审查状态：待逐包闭环；27 个主源文件，5 个包。
+
+`org.pangrova.client.transport` (1); `org.pangrova.client.transport.http` (10); `org.pangrova.client.transport.security` (2); `org.pangrova.transport` (12); `org.pangrova.transport.security` (2)。
+
+### pangrova-worker/pangrova-worker-core
+
+审查状态：待逐包闭环；242 个主源文件，37 个包。
+
+`org.pangrova.worker` (3); `org.pangrova.worker.bootstrap` (10); `org.pangrova.worker.bootstrap.lifecycle` (5); `org.pangrova.worker.bootstrap.phase` (8); `org.pangrova.worker.buffer` (9); `org.pangrova.worker.cache` (3); `org.pangrova.worker.clustering` (1); `org.pangrova.worker.copy` (9); `org.pangrova.worker.dataset` (5); `org.pangrova.worker.embedding` (1); `org.pangrova.worker.exchange` (8); `org.pangrova.worker.exchange.remote` (15); `org.pangrova.worker.exchange.remote.security` (3); `org.pangrova.worker.exchange.source` (4); `org.pangrova.worker.exchange.transport` (2); `org.pangrova.worker.execution` (9); `org.pangrova.worker.execution.filter` (5); `org.pangrova.worker.file` (12); `org.pangrova.worker.heartbeat` (6); `org.pangrova.worker.http` (2); `org.pangrova.worker.http.endpoint` (8); `org.pangrova.worker.memory` (4); `org.pangrova.worker.resource` (3); `org.pangrova.worker.resource.guard` (4); `org.pangrova.worker.resource.memory` (25); `org.pangrova.worker.resource.spill` (4); `org.pangrova.worker.resource.tenant` (2); `org.pangrova.worker.resource.thread` (1); `org.pangrova.worker.result` (7); `org.pangrova.worker.shuffle` (5); `org.pangrova.worker.split` (1); `org.pangrova.worker.task` (42); `org.pangrova.worker.task.index` (2); `org.pangrova.worker.task.memory` (3); `org.pangrova.worker.task.report` (2); `org.pangrova.worker.task.state` (1); `org.pangrova.worker.transport` (8)。
+
+### pangrova-worker/pangrova-worker-native-bridge
+
+审查状态：待逐包闭环；38 个主源文件，9 个包。
+
+`org.pangrova.worker.nativebridge` (1); `org.pangrova.worker.nativebridge.connector.session` (2); `org.pangrova.worker.nativebridge.connector.spi` (2); `org.pangrova.worker.nativebridge.jni` (10); `org.pangrova.worker.nativebridge.jni.write` (10); `org.pangrova.worker.nativebridge.jni.write.catalog` (10); `org.pangrova.worker.nativebridge.jni.write.secret` (1); `org.pangrova.worker.nativebridge.jni.write.secret.env` (1); `org.pangrova.worker.nativebridge.memory` (1)。
+
+## 6. 包依赖环初筛
+
+显式 import 初筛（按源码顶层类型归属解析 static/嵌套类型前缀；不覆盖全限定名引用、生成代码或运行时反射，因此只是审查线索，不替代 Java AST/字节码验证）起点发现 26 个多包强连通分量。既有包环 gate 通过不能作为无环证据。每个分量需按实际类型依赖裁定同职责合包或抽 owner port，禁止新增豁免掩盖。
+
+1. 25 包：`org.pangrova.coordinator.adapter.indexing`, `org.pangrova.coordinator.adapter.indexing.ddl`, `org.pangrova.coordinator.adapter.indexing.filter`, `org.pangrova.coordinator.ai.embedding`, `org.pangrova.coordinator.databuild`, `org.pangrova.coordinator.databuild.template`, `org.pangrova.coordinator.query`, `org.pangrova.coordinator.query.audit`, `org.pangrova.coordinator.query.execution`, `org.pangrova.coordinator.query.execution.dispatch`, `org.pangrova.coordinator.query.execution.dispatch.adaptive`, `org.pangrova.coordinator.query.execution.dispatch.dag`, `org.pangrova.coordinator.query.execution.dispatch.dag.binding`, `org.pangrova.coordinator.query.execution.dispatch.dag.control`, `org.pangrova.coordinator.query.execution.dispatch.dag.handler`, `org.pangrova.coordinator.query.execution.dispatch.dag.retrieval`, `org.pangrova.coordinator.query.execution.dispatch.dag.runtime`, `org.pangrova.coordinator.query.execution.dispatch.task`, `org.pangrova.coordinator.query.execution.phase`, `org.pangrova.coordinator.query.execution.retrieval`, `org.pangrova.coordinator.query.execution.split`, `org.pangrova.coordinator.query.lifecycle`, `org.pangrova.coordinator.query.stage`, `org.pangrova.coordinator.scheduler`, `org.pangrova.coordinator.task`。
+
+2. 15 包：`org.pangrova.planner`, `org.pangrova.planner.cost`, `org.pangrova.planner.cost.distribution`, `org.pangrova.planner.cost.join`, `org.pangrova.planner.cost.sort`, `org.pangrova.planner.exchange`, `org.pangrova.planner.lineage`, `org.pangrova.planner.metadata`, `org.pangrova.planner.optimization`, `org.pangrova.planner.parse`, `org.pangrova.planner.rewrite`, `org.pangrova.planner.security`, `org.pangrova.planner.security.expression`, `org.pangrova.planner.substrait`, `org.pangrova.planner.validation`。
+
+3. 10 包：`org.pangrova.indexing.core.serde`, `org.pangrova.indexing.engine.bitmap.serializer`, `org.pangrova.indexing.engine.bloom.serializer`, `org.pangrova.indexing.engine.btree.serializer`, `org.pangrova.indexing.engine.gin.serializer`, `org.pangrova.indexing.engine.hash.serializer`, `org.pangrova.indexing.engine.ngram.serializer`, `org.pangrova.indexing.engine.prefix.serializer`, `org.pangrova.indexing.engine.rtree.serializer`, `org.pangrova.indexing.engine.sparse.serializer`。
+
+4. 6 包：`org.pangrova.parser.ast`, `org.pangrova.parser.ast.expression`, `org.pangrova.parser.ast.statement`, `org.pangrova.parser.ast.statement.dml`, `org.pangrova.parser.ast.statement.maintenance`, `org.pangrova.parser.ast.statement.stream`。
+
+5. 5 包：`org.pangrova.connector.spi`, `org.pangrova.connector.spi.data`, `org.pangrova.connector.spi.data.block`, `org.pangrova.connector.spi.data.page`, `org.pangrova.connector.spi.metadata`。
+
+6. 4 包：`org.pangrova.ai.api.capability`, `org.pangrova.ai.api.embedding`, `org.pangrova.ai.api.invocation`, `org.pangrova.ai.api.model`。
+
+7. 4 包：`org.pangrova.coordinator.http`, `org.pangrova.coordinator.http.endpoint`, `org.pangrova.coordinator.http.endpoint.catalog`, `org.pangrova.coordinator.http.endpoint.copy`。
+
+8. 4 包：`org.pangrova.governance.api.catalog`, `org.pangrova.governance.api.classification`, `org.pangrova.governance.core.classification`, `org.pangrova.governance.store.jdbc`。
+
+9. 3 包：`org.pangrova.connector.spi.data.type`, `org.pangrova.connector.spi.data.type.primitive`, `org.pangrova.connector.spi.data.type.primitive.temporal`。
+
+10. 3 包：`org.pangrova.scheduler.core.placement`, `org.pangrova.scheduler.core.strategy.fair`, `org.pangrova.scheduler.core.strategy.loadbalanced`。
+
+11. 3 包：`org.pangrova.security.api.audit`, `org.pangrova.security.core.audit`, `org.pangrova.security.store.jdbc`。
+
+12. 3 包：`org.pangrova.worker.bootstrap`, `org.pangrova.worker.bootstrap.lifecycle`, `org.pangrova.worker.bootstrap.phase`。
+
+13. 3 包：`org.pangrova.worker.exchange`, `org.pangrova.worker.exchange.remote`, `org.pangrova.worker.execution`。
+
+14. 3 包：`org.pangrova.worker.task`, `org.pangrova.worker.task.memory`, `org.pangrova.worker.task.state`。
+
+15. 2 包：`org.pangrova.ai.worker.function`, `org.pangrova.ai.worker.provider`。
+
+16. 2 包：`org.pangrova.connector.paimon`, `org.pangrova.connector.paimon.read`。
+
+17. 2 包：`org.pangrova.connector.paimon.handle`, `org.pangrova.connector.paimon.write`。
+
+18. 2 包：`org.pangrova.coordinator.bootstrap`, `org.pangrova.coordinator.bootstrap.module`。
+
+19. 2 包：`org.pangrova.file.adapter.worker`, `org.pangrova.file.core.space`。
+
+20. 2 包：`org.pangrova.metadata.adapter.security`, `org.pangrova.metadata.service`。
+
+21. 2 包：`org.pangrova.metadata.api.cache`, `org.pangrova.metadata.store.jdbc.cache`。
+
+22. 2 包：`org.pangrova.metadata.databuild`, `org.pangrova.metadata.databuild.build`。
+
+23. 2 包：`org.pangrova.metadata.databuild.jdbc`, `org.pangrova.metadata.databuild.jdbc.build`。
+
+24. 2 包：`org.pangrova.metadata.core.relation`, `org.pangrova.metadata.store.jdbc.object`。
+
+25. 2 包：`org.pangrova.shuffle.deployment`, `org.pangrova.shuffle.server`。
+
+26. 2 包：`org.pangrova.worker.nativebridge.jni.write`, `org.pangrova.worker.nativebridge.jni.write.catalog`。
+
+### 首批源码核验修正
+
+Metadata `TableInvalidationListener`、Security 两个 audit API、Governance `ColumnTagStore` 对实现包的反向 import 仅服务于 Javadoc。已改为描述契约职责，删除对具体 JDBC/Core 实现的源码依赖，没有修改行为或签名。复查后多包强连通分量从 26 降至 24；上方列表保留起点事实用于对照。此结果也说明必须逐条审查：import 环不等于运行时循环，不能据此直接拆模块。
+
+当前剩余分量：
+- `org.pangrova.coordinator.adapter.indexing`, `org.pangrova.coordinator.adapter.indexing.ddl`, `org.pangrova.coordinator.adapter.indexing.filter`, `org.pangrova.coordinator.ai.embedding`, `org.pangrova.coordinator.databuild`, `org.pangrova.coordinator.databuild.template`, `org.pangrova.coordinator.query`, `org.pangrova.coordinator.query.audit`, `org.pangrova.coordinator.query.execution`, `org.pangrova.coordinator.query.execution.dispatch`, `org.pangrova.coordinator.query.execution.dispatch.adaptive`, `org.pangrova.coordinator.query.execution.dispatch.dag`, `org.pangrova.coordinator.query.execution.dispatch.dag.binding`, `org.pangrova.coordinator.query.execution.dispatch.dag.control`, `org.pangrova.coordinator.query.execution.dispatch.dag.handler`, `org.pangrova.coordinator.query.execution.dispatch.dag.retrieval`, `org.pangrova.coordinator.query.execution.dispatch.dag.runtime`, `org.pangrova.coordinator.query.execution.dispatch.task`, `org.pangrova.coordinator.query.execution.phase`, `org.pangrova.coordinator.query.execution.retrieval`, `org.pangrova.coordinator.query.execution.split`, `org.pangrova.coordinator.query.lifecycle`, `org.pangrova.coordinator.query.stage`, `org.pangrova.coordinator.scheduler`, `org.pangrova.coordinator.task`
+- `org.pangrova.planner`, `org.pangrova.planner.cost`, `org.pangrova.planner.cost.distribution`, `org.pangrova.planner.cost.join`, `org.pangrova.planner.cost.sort`, `org.pangrova.planner.exchange`, `org.pangrova.planner.lineage`, `org.pangrova.planner.metadata`, `org.pangrova.planner.optimization`, `org.pangrova.planner.parse`, `org.pangrova.planner.rewrite`, `org.pangrova.planner.security`, `org.pangrova.planner.security.expression`, `org.pangrova.planner.substrait`, `org.pangrova.planner.validation`
+- `org.pangrova.indexing.core.serde`, `org.pangrova.indexing.engine.bitmap.serializer`, `org.pangrova.indexing.engine.bloom.serializer`, `org.pangrova.indexing.engine.btree.serializer`, `org.pangrova.indexing.engine.gin.serializer`, `org.pangrova.indexing.engine.hash.serializer`, `org.pangrova.indexing.engine.ngram.serializer`, `org.pangrova.indexing.engine.prefix.serializer`, `org.pangrova.indexing.engine.rtree.serializer`, `org.pangrova.indexing.engine.sparse.serializer`
+- `org.pangrova.parser.ast`, `org.pangrova.parser.ast.expression`, `org.pangrova.parser.ast.statement`, `org.pangrova.parser.ast.statement.dml`, `org.pangrova.parser.ast.statement.maintenance`, `org.pangrova.parser.ast.statement.stream`
+- `org.pangrova.connector.spi`, `org.pangrova.connector.spi.data`, `org.pangrova.connector.spi.data.block`, `org.pangrova.connector.spi.data.page`, `org.pangrova.connector.spi.metadata`
+- `org.pangrova.ai.api.capability`, `org.pangrova.ai.api.embedding`, `org.pangrova.ai.api.invocation`, `org.pangrova.ai.api.model`
+- `org.pangrova.coordinator.http`, `org.pangrova.coordinator.http.endpoint`, `org.pangrova.coordinator.http.endpoint.catalog`, `org.pangrova.coordinator.http.endpoint.copy`
+- `org.pangrova.connector.spi.data.type`, `org.pangrova.connector.spi.data.type.primitive`, `org.pangrova.connector.spi.data.type.primitive.temporal`
+- `org.pangrova.scheduler.core.placement`, `org.pangrova.scheduler.core.strategy.fair`, `org.pangrova.scheduler.core.strategy.loadbalanced`
+- `org.pangrova.worker.bootstrap`, `org.pangrova.worker.bootstrap.lifecycle`, `org.pangrova.worker.bootstrap.phase`
+- `org.pangrova.worker.exchange`, `org.pangrova.worker.exchange.remote`, `org.pangrova.worker.execution`
+- `org.pangrova.worker.task`, `org.pangrova.worker.task.memory`, `org.pangrova.worker.task.state`
+- `org.pangrova.ai.worker.function`, `org.pangrova.ai.worker.provider`
+- `org.pangrova.connector.paimon`, `org.pangrova.connector.paimon.read`
+- `org.pangrova.connector.paimon.handle`, `org.pangrova.connector.paimon.write`
+- `org.pangrova.coordinator.bootstrap`, `org.pangrova.coordinator.bootstrap.module`
+- `org.pangrova.file.adapter.worker`, `org.pangrova.file.core.space`
+- `org.pangrova.metadata.adapter.security`, `org.pangrova.metadata.service`
+- `org.pangrova.metadata.databuild`, `org.pangrova.metadata.databuild.build`
+- `org.pangrova.metadata.databuild.jdbc`, `org.pangrova.metadata.databuild.jdbc.build`
+- `org.pangrova.metadata.core.relation`, `org.pangrova.metadata.store.jdbc.object`
+- `org.pangrova.security.core.audit`, `org.pangrova.security.store.jdbc`
+- `org.pangrova.shuffle.deployment`, `org.pangrova.shuffle.server`
+- `org.pangrova.worker.nativebridge.jni.write`, `org.pangrova.worker.nativebridge.jni.write.catalog`
+
+### 下一批已定位的实际代码依赖
+
+Security `api.rowfilter.RowPolicy` 和 `api.mask.ColumnMask` 的构造器通过全限定名调用 `core.authz.SqlIdentifierValidator`，属于实际 API → Core 反向依赖，未被 import 初筛覆盖。该校验器还依赖同 Core 中的 `AuthorizationDeniedException`。下一批须将契约校验及其异常一并按消费者归属审查，覆盖 SecurityStatementHandler 和所有异常 catch 的调用方；不能只移动 validator 留下异常反向依赖。校验器当前使用默认 locale 转大写，并且词搜索只检查第一次出现；需补多次出现、标识符边界及 locale 不变性回归测试，明确这种词法预检与真正 SQL 解析/授权的职责，不能把关键词筛查当 SQL 安全授权。
+
+### 首批最终验证
+
+删除空制品并清理上述 API 文档依赖后，完整 reactor `install` 配合仅选择三组架构测试再次通过（2026-10-31，58 项，1 分 6 秒）。该命令编译全部主源与测试源码，但只执行 ModuleDependencyPropertyTest、PackageStructurePropertyTest、PackageDependencyAcyclicityPropertyTest；不得解读为全部业务测试通过。模块 manifest gate、dead-stub gate 均通过。日志保留于本次执行环境的 `/tmp/pangrova-restructure-final-batch.log` 与 `/tmp/pangrova-restructure-dead-stubs.log`，不是仓库长期证据；最终验收仍需重新执行 R6。
+
+
+## 7. Security 契约闭环（2026-10-31）
+
+- 已将 `AuthorizationDeniedException` 从 `core.authz` 迁到既有 `security.api`，保留原继承链、错误码和消息；将 `SqlIdentifierValidator` 迁到 `api.policy`，同批更新生产和测试调用者（含全限定名、catch 和断言）。不存在旧包兼容 alias。
+- 修复关键词扫描仅检查首次匹配而漏掉后续独立关键词的问题；标识符下划线和美元符不再被误判为关键词边界；使用 Locale.ROOT。保留对引号内关键词的保守拒绝，不新增 SQL parser 或放宽授权。
+- 先在旧实现上运行新增用例，确实出现 2 个回归失败；修复后 47 项定向测试通过。补充 locale/quoted-text 用例后，Security `clean test` 362 项通过，零失败、错误或跳过，包括 PostgreSQL 测试。
+- 新增 PolicyContractIsolationTest：仅允许 Security API 和 Common 的隔离 classloader 中执行 RowPolicy/ColumnMask 构造及拒绝路径，保证验证不会加载 Core/Store 实现。源码检查之外，jdeps 检查当前 Security 编译产物的 API 也未发现到本模块 Core/Store/Provider 的字节码依赖。
+- `api.policy` 新增包职责文档，修正 `api/package-info` 把 package 误写成独立 module 的描述。生成模块事实基线后 manifest gate 通过。
+- 此阶段尚未全面收敛：audit backend 工厂当时仍在 core，JDBC 实现通过文档 import 反向指向工厂，工厂还会在 JDBC/COMPOSITE 缺 DataSource 时退到日志。这部分装配归属、显式配置失败语义、Coordinator 默认审计选择与 fixture 生命周期随后已按第 8 节处理。
+
+
+## 8. Audit 装配与 Common 依赖清理（2026-10-31）
+
+- AuditWriterFactory/Config 及其测试迁到 `security.assembly.audit`，包文档明确仅应用装配消费；JdbcAuditEventWriter 删除指向工厂/Core writer 的文档 import，解开 Core Audit / JDBC Store 环的这一组引用。
+- 显式 JDBC/COMPOSITE 没有 DataSource 时抛出配置错误，未知非空 backend token 同样报错；空配置仍默认为 LOG。Coordinator 无数据库时明确选择 LOG，有数据库时选择 COMPOSITE，因此保留现有部署模式而不由工厂隐式降级。
+- 在旧行为上新增三项配置断言，三项均先失败；修复后 AuditWriterFactoryTest 9 项通过。测试容器改用 ContainerTestBase + SharedPostgres 的 JVM 单例及隔离 schema，删除每类手动创建/关闭 PostgreSQL。
+- QueryBootstrapAuditWriterWiringTest 原来只构造配置对象，不能证明审计接通；现改为调用实际 QueryRuntimeWiring、发出事件、关闭 emitter 等待落盘，并分别检查无数据库的日志输出和有数据库时日志/数据库双写。
+- Common 无生产/测试代码使用 SnakeYAML，移除其编译依赖；Config、Coordinator 和 Shuffle Service 的 YAML 实现已有自己依赖，Testing Kit 的架构 manifest 测试增加显式 test 依赖，避免借用 Common 的传递依赖。Jetty/Jackson adapter 仍待后续迁移，不声称 Common 已完全纯净。
+- 本批 Security `clean install`：363 项测试通过，Common `clean install`：294 项通过，均零失败/错误/跳过。完整 reactor 和应用装配回归结果在本节后续记录。
+
+
+### 本轮最终验证和继续入口
+
+- JDK17/Python3.12 完整 58 项 reactor `install` 通过（1 分 20 秒）；选择执行的架构检查 10 项、Coordinator 应用回归 20 项全部通过。后者覆盖真实双审计输出、OIDC 启动、授权 grants、deferred authority 和 HTTP 安全异常映射。未选择执行所有业务测试，不能据此宣布全项目行为验收完成。
+- 模块清单/基线 gate、dead-stub gate、本批 diff 空白检查均通过。Security/Common 的 owner suite 结果保留为 363/294 项，不用重复的局部回归替代或夸大全链结果。
+- 下一优先级仍是 R0 架构检查真实性：现有包环测试遗漏全限定名调用、三节点环、非同父包环及部分 reactor 叶子；先建立可验证的依赖采集和环诊断，再逐个消解实际 SCC，不能通过扩大豁免得到绿灯。Common 的 HTTP/Jackson 实现迁移、各领域 owner 收敛和最终 native/full-regression 仍未完成。
+
+
+## 9. 可执行包图检查与三组解环（2026-10-31）
+
+### 检查器修复
+
+- PackageDependencyAcyclicityPropertyTest 不再使用硬编码模块清单、同父包判断、二元环限制、随机抽样或 EXEMPT_PAIRS。递归读取根 POM 的默认 reactor，以 JDK 17 语法树提取显式 import（包括 wildcard/static/nested type）及全限定类型引用，Tarjan 算法确定性枚举全部多包强连通分量。每条内部依赖保留文件、行号和类型引用证据。
+- 发现不到源文件、重复 reactor 模块、重复类型、POM/Java 解析失败和读取失败均直接失败，不吞异常。文本、注释和 Javadoc 内容本身不是代码依赖；为文档额外写的真实 import 仍是源码依赖。
+- PackageDependencyGraphTest 11 项自测通过，覆盖新增深层叶子、缺失模块、重复模块/类型、无环图、跨模块三节点环、非同级二元环、嵌套/静态/wildcard import、全限定引用、文本块/注释及确定性诊断。macOS 临时目录别名统一为 real path，报告使用仓库相对路径。
+- 模块依赖 gate 原先用正则读取 import，会把文本块中的测试示例当成真实跨模块引用；已改为 AST import 解析。三组非循环 gate 合计 20 项通过（11 个检查器自测 + 7 个模块检查 + 2 个包结构检查）。
+- `check-module-manifest.sh` 曾在 Python 遍历并发删除的 target/surefire 目录失败后仍打印 OK。现复用生成器的 POM 发现逻辑，进入遍历前剪枝 target/.git/node_modules，读取错误直接抛出；用命令替换捕获发现阶段的非零状态，消除 process substitution 隐藏失败的问题。4 项 Python 回归、shell 语法检查及真实 manifest gate 均通过。
+- 范围说明：这是默认 reactor 的手写主源码显式依赖图，不是反射、方法返回类型推断或生成字节码的完整运行时图。当前仓库没有 profile-only module；若将来新增，需要把 profile reactor 覆盖作为显式扩展处理，不能默认声称已覆盖。
+
+### 已处理的三个强连通分量
+
+1. **File**：FileAccessGrant 从 FileSpaceAccessService 内嵌 record 抽至 `file.api.access`，FileListingClient/FileDeletionClient/FileUrlClient 三个端口迁入同一 API 能力包；HTTP WorkerFileClient 留 adapter.worker。Core 现在只消费 API 端口，不再依赖 HTTP 实现包；所有调用方、测试及原 SpotBugs 字段类型引用同步迁移。record 字段、有效期换算、HTTP JSON 结构和接口行为不变。
+2. **Scheduler**：WorkerPerformanceScorer 及测试迁到 `scheduler.core.scoring`。TaskScheduler 和 fair/loadbalanced 策略均单向依赖该纯计算能力，评分逻辑不再反向依附 TaskScheduler 所在包；没有为消环新建空接口或转发类，计算公式保持不变。
+3. **Metadata relation**：InMemoryObjectDependencyStore 仅因 Javadoc import 引用 JdbcObjectDependencyStore，造成内存实现与 JDBC store 双向源依赖。删除该实现链接，文档直接说明需要 durable provider，保留存储契约与所有运行行为。
+
+### 验证与未完成状态
+
+- File/Scheduler owner suites 分别 8/128 项通过；Coordinator 的 WorkerFileClient、FileSpaceAccessService、FileUrlService、StageDirectoryRefreshService、FileSpaceTaskIntegration、ListStageTask、RemoveStageTask 共 41 项通过，覆盖实际 HTTP 与 PostgreSQL 路径。
+- 完整 58 项 reactor `install -DskipTests` 已通过（1 分 2 秒），包括所有主源及测试源码编译。新的 Java gate/工具修改随后通过最近范围编译测试。
+- **包循环 gate 仍失败，且必须保持失败直到剩余问题修复。** 增强检查最初发现 24 个 SCC，三组解环后为 21 个。没有新增豁免、基线放行或跳过条件；编译通过和另外 20 项 gate 通过不能代替这一失败。
+- 完整源码证据生成在 Testing Kit `target/package-dependency-cycles.txt`；后续通过同一测试重新生成，不能以旧的正则扫描数量作为验收依据。完整业务回归/native 验证和全模块职责审查仍未完成。
+
+当前待处理 SCC（以本次 AST 扫描为准）：
+- `org.pangrova.ai.api.capability`, `org.pangrova.ai.api.embedding`, `org.pangrova.ai.api.invocation`, `org.pangrova.ai.api.model`
+- `org.pangrova.ai.worker.function`, `org.pangrova.ai.worker.provider`
+- `org.pangrova.connector.paimon`, `org.pangrova.connector.paimon.read`
+- `org.pangrova.connector.paimon.handle`, `org.pangrova.connector.paimon.write`
+- `org.pangrova.connector.spi`, `org.pangrova.connector.spi.coordination`, `org.pangrova.connector.spi.data`, `org.pangrova.connector.spi.data.block`, `org.pangrova.connector.spi.data.page`, `org.pangrova.connector.spi.metadata`, `org.pangrova.connector.spi.noop`
+- `org.pangrova.connector.spi.data.type`, `org.pangrova.connector.spi.data.type.primitive`, `org.pangrova.connector.spi.data.type.primitive.temporal`
+- `org.pangrova.coordinator.adapter.indexing`, `org.pangrova.coordinator.adapter.indexing.ddl`, `org.pangrova.coordinator.adapter.indexing.filter`, `org.pangrova.coordinator.ai.embedding`, `org.pangrova.coordinator.databuild`, `org.pangrova.coordinator.databuild.runtime`, `org.pangrova.coordinator.databuild.template`, `org.pangrova.coordinator.clustering`, `org.pangrova.coordinator.query`, `org.pangrova.coordinator.query.audit`, `org.pangrova.coordinator.query.execution`, `org.pangrova.coordinator.query.execution.dispatch`, `org.pangrova.coordinator.query.execution.dispatch.adaptive`, `org.pangrova.coordinator.query.execution.dispatch.dag`, `org.pangrova.coordinator.query.execution.dispatch.dag.binding`, `org.pangrova.coordinator.query.execution.dispatch.dag.control`, `org.pangrova.coordinator.query.execution.dispatch.dag.handler`, `org.pangrova.coordinator.query.execution.dispatch.dag.retrieval`, `org.pangrova.coordinator.query.execution.dispatch.dag.runtime`, `org.pangrova.coordinator.query.execution.dispatch.task`, `org.pangrova.coordinator.query.execution.phase`, `org.pangrova.coordinator.query.execution.retrieval`, `org.pangrova.coordinator.query.execution.split`, `org.pangrova.coordinator.query.lifecycle`, `org.pangrova.coordinator.query.stage`, `org.pangrova.coordinator.query.statement`, `org.pangrova.coordinator.query.statement.dml`, `org.pangrova.coordinator.scheduler`, `org.pangrova.coordinator.task`
+- `org.pangrova.coordinator.bootstrap`, `org.pangrova.coordinator.bootstrap.module`
+- `org.pangrova.coordinator.http`, `org.pangrova.coordinator.http.endpoint`, `org.pangrova.coordinator.http.endpoint.catalog`, `org.pangrova.coordinator.http.endpoint.copy`, `org.pangrova.coordinator.http.endpoint.file`
+- `org.pangrova.indexing.core.serde`, `org.pangrova.indexing.engine.bitmap.serializer`, `org.pangrova.indexing.engine.bloom.serializer`, `org.pangrova.indexing.engine.btree.serializer`, `org.pangrova.indexing.engine.gin.serializer`, `org.pangrova.indexing.engine.hash.serializer`, `org.pangrova.indexing.engine.ngram.serializer`, `org.pangrova.indexing.engine.prefix.serializer`, `org.pangrova.indexing.engine.rtree.serializer`, `org.pangrova.indexing.engine.sparse.serializer`
+- `org.pangrova.metadata.adapter.security`, `org.pangrova.metadata.service`
+- `org.pangrova.metadata.databuild`, `org.pangrova.metadata.databuild.build`
+- `org.pangrova.metadata.databuild.jdbc`, `org.pangrova.metadata.databuild.jdbc.build`
+- `org.pangrova.parser.ast`, `org.pangrova.parser.ast.expression`, `org.pangrova.parser.ast.statement`, `org.pangrova.parser.ast.statement.dml`, `org.pangrova.parser.ast.statement.maintenance`, `org.pangrova.parser.ast.statement.stream`
+- `org.pangrova.planner`, `org.pangrova.planner.cost`, `org.pangrova.planner.cost.distribution`, `org.pangrova.planner.cost.join`, `org.pangrova.planner.cost.sort`, `org.pangrova.planner.declaration`, `org.pangrova.planner.embedding`, `org.pangrova.planner.exchange`, `org.pangrova.planner.lineage`, `org.pangrova.planner.metadata`, `org.pangrova.planner.optimization`, `org.pangrova.planner.parse`, `org.pangrova.planner.rewrite`, `org.pangrova.planner.rule`, `org.pangrova.planner.security`, `org.pangrova.planner.security.expression`, `org.pangrova.planner.substrait`, `org.pangrova.planner.validation`
+- `org.pangrova.protocol`, `org.pangrova.protocol.function.catalog`, `org.pangrova.protocol.rest.worker`, `org.pangrova.protocol.retrieval`, `org.pangrova.protocol.task`
+- `org.pangrova.shuffle.deployment`, `org.pangrova.shuffle.server`
+- `org.pangrova.worker.bootstrap`, `org.pangrova.worker.bootstrap.lifecycle`, `org.pangrova.worker.bootstrap.phase`
+- `org.pangrova.worker.exchange`, `org.pangrova.worker.exchange.remote`, `org.pangrova.worker.execution`
+- `org.pangrova.worker.nativebridge.jni.write`, `org.pangrova.worker.nativebridge.jni.write.catalog`
+- `org.pangrova.worker.task`, `org.pangrova.worker.task.memory`, `org.pangrova.worker.task.state`
+
+### Testing Kit 完整模块复核
+
+完整 `test` 实际执行 100 项：97 通过，包循环 gate 失败，另两项 native Docker bootstrap 生成器契约测试因本次命令使用系统 Python3.9 而失败。保留该失败记录；修正 PATH 为已安装 Python3.12 后，仅复测这两项，均通过。没有修改生成器版本检查、跳过测试或重复碰运气。当前已知未解决的模块验证失败为包循环 gate 的 21 组 SCC；尚未有全模块统一绿灯。另执行 CI gate-policy 26 项 Python 测试，全部通过；新 manifest 测试会被已有 CI 的 `test_*.py` 自动发现，无需新增重复 job。
+
+## 10. AI、Paimon、Metadata 装配和 Shuffle 包边界（2026-10-31）
+
+以下六组 SCC 已按真实消费者职责解开，没有新增 Maven 制品或放行规则。
+
+| 原位置与问题 | 最终位置与依赖方向 | 同步检查 |
+|---|---|---|
+| AI `capability/model/invocation/embedding` 互相依赖 | 公共异常到 `api.error`；AiRequestConstraints/Modality 到 `api.capability`；EmbeddingProvider 到 `api.invocation`。model 单向依赖 capability，embedding 值对象依赖 model，invocation 消费模型与 embedding 值对象 | 所有仓内调用者、包文档、API exports；runtime factory 的 ServiceLoader 名称不变 |
+| AI Worker `function/provider` 相互依赖 | AiFunctionActivation 到 `worker.config`，两方消费同一配置定义 | 工厂、实际 provider 选择、activation 测试 |
+| Paimon 根包与 `read` 相互依赖 | PageSource 只消费 `java.io.Closeable` lease；SplitRegistry.ReadLease 实现该契约，registry 保留资源与 reader 所有权 | Closeable 保留 IOException 关闭语义，真实 SDK 读取、pin、shutdown 和 admission 关闭测试 |
+| Paimon `handle/write` 相互依赖 | PaimonPhysicalSchemas 与内部 PaimonDeclaredMetadata 迁到已有 `schema` 能力包，codec 与 writer 单向消费 | schema ID、字段分配、handle round-trip、声明 metadata |
+| Metadata `adapter.security/service` 相互依赖 | ColumnMaskStoreWiring 迁至 `assembly.security`；具体 adapter 与门面不再互相负责构造 | Coordinator 装配调用者、metadata 模块编译与测试 |
+| Shuffle `deployment/server` 相互依赖 | ShuffleServiceConfig 到 `config`，CoordinatorPeerInterceptor 到 `security`；deployment 只拥有进程装配 | 所有消费者及配置 ownership/exports，TLS、renewal、durable storage 集成 |
+
+AI API 56 项通过；AI Worker 默认测试 210 项、Paimon 默认测试 357 项、Shuffle 默认测试 26 项、Metadata 默认测试 463 项通过，均零失败/错误/跳过。默认命令会排除部分 `*IntegrationTest`，这些数字不能写成整个模块的所有测试通过。已另行运行 Paimon 六组 IntegrationTest 共 39 项、Coordinator 七组 Paimon 消费者测试 50 项、Shuffle 三组 IntegrationTest 20 项，均通过。AI 三组真实 Ollama 模型/HTTP/provider/function 集成测试 15 项也全部通过；首次下载模型计入该次约四分钟的测试时间，没有用 fake provider 替代。
+
+本批 58 项 reactor `install -DskipTests` 通过，包含主源与测试源码编译；AST 包环从 21 组降至 15 组。随后开始的 Indexing 装配修复及其后续验证见下一节。SPI 注解 gate 通过，84 个契约已标注，未标注基线为零。Java API 包迁移不改变 canonical proto 字段或 JNI ABI；这不免除最终源码一致的 native/Java 全链验收。
+
+## 11. Indexing 序列化装配与重复注册（2026-10-31）
+
+`core.serde.TypeSerializerRegistry.createDefault()` 直接构造九种 engine serializer；每种 serializer 又依赖 `core.serde.TypeSerializer/SerdeCodec`，形成十包 SCC。只移动整个 Registry 会让 IndexSerializer 继续反向依赖装配层，因此没有采用整类搬迁。
+
+- Registry 保留在 `core.serde`，只负责契约注册和查找；默认九种实现的选择移至 `assembly.serde.DefaultTypeSerializers.createRegistry()`。
+- 10 个调用文件同批更新，包括 Coordinator IndexingBootstrap、默认 evaluator factory、生命周期测试和 golden/property tests；没有保留旧的反向委托方法，也没有增加兼容 façade。serializer 实现、stable ID、编码字节和 checksum 算法均未修改。
+- 深审发现 Builder 用 `put` 后才检查重复，抛异常时已经替换原 serializer。新增测试在旧代码上实际失败，改为 `putIfAbsent` 后拒绝重复且原注册保持不变。
+- 最近范围 14 项通过，包括重复注册回归、stable ID、golden bytes 和 round-trip；Indexing 默认模块测试 202 项通过。该默认命令不等于最终 native 跨语言验收。
+- 刷新 baseline 后，模块 manifest、模块依赖 7 项、包结构 2 项和图检查器自测 11 项通过；全图包环仍失败，剩余 14 组。没有修改 gate 接受条件、增加豁免或把失败移到非阻断作业。
+
+### 本批最终验证
+
+包含 Indexing 修改的完整 58 项 reactor `install -DskipTests` 再次通过（1 分 4 秒），主源和测试源码均编译；Coordinator 的五组 Indexing 消费者回归 38 项通过，覆盖默认 serializer 的实际使用、持久化提交重试、leader gate 和过滤权威。10 个迁移类型家族的最终 owner JAR 已逐项核对：新类存在，旧 FQN 及其嵌套类不残留。仓内非文档源码/配置没有发现这些旧 FQN 或旧 `TypeSerializerRegistry.createDefault()` 调用。
+
+模块 manifest、SPI 注解、dead-stub gate 与本批空白检查通过。Java 包图依旧有 14 组 SCC，因此全架构验收未通过；完整逐包审查、其余模块运行测试、静态分析及源码一致的 native/full-regression 仍未完成。日志在本机 `/tmp/pangrova-ownership-batch-final-reactor.log`、`/tmp/pangrova-indexing-registry-consumers.log` 等，仅作为本次执行证据，不代替最终可复现的 R6。
+
+## 12. 剩余重构的具体批次与完成条件
+
+### 12.1 目录决策
+
+当前有 48 个代码叶子，Query API 与 Artifact 已因真实独立消费者与依赖反转需要提取；Artifact JDBC 运行时尚待迁入。不以历史蓝图或当前 module 数量作为目标。下列形态是每个现有领域 module 的内部职责模式，并非要求每个 module 创建全部目录：
+
+```text
+pangrova-<domain>/
+  pom.xml                         # 领域所有权，不以数据库/框架分割业务事实
+  src/main/java/org/pangrova/<domain>/
+    api/<capability>/             # 跨域输入、输出、端口；不引用 core/store/assembly
+    core/<capability>/            # 不依赖进程入口的规则、状态机、编排
+    adapter/<external-system>/    # 消费其他领域契约的转换；不拥有对方的事实
+    provider/<implementation>/    # SPI 可替换实现；有实际注册才建立
+    store/jdbc/<capability>/      # 事务、映射、恢复；单向实现领域端口
+    assembly/<capability>/        # 选择实现、工厂、装配与生命周期归属
+  src/main/resources/             # 仅本模块实际拥有的 descriptor/schema/config
+  src/test/java/                  # 跟随被测 owner；跨域场景留明确集成位置
+```
+
+Parser/Planner 保留语法/规划专用组织，不套用通用 CRUD 分层；Connector 保留 catalog、read、write、schema、handle、type；Worker 保留 task、resource、exchange、result 与 process assembly。`spi` 仅表示可替换扩展契约，不作为所有 interface 的收纳目录。native 的 `src`/`test` 继续按现有 CMake target 分组，最终仍是一个共享库；Rust FFI 不与 Java 包结构强行对齐。
+
+根目录也纳入迁移闭环：`.pangrova/rules` 保留唯一政策源，`.pangrova/scripts` 保留可执行 gate；`config` 保留工具配置，业务配置定义归各模块；`deploy` 保留 Docker/发布装配；`docs/architecture` 描述当前边界，`docs/internal` 记录执行证据。ServiceLoader descriptor、反射类名、日志分类、shaded jar 服务合并、Docker classpath、native resource 路径均随拥有者迁移。禁止把模块源码挪入通用 `scripts`、`shared` 或新的无所有者 `utils` 树。
+
+### 12.2 起点 14 组依赖环的迁移单元
+
+B1–B4 的源码迁移现已落实，验证状态见第 13–15 节；第 20、22 节依次消除 Artifact API 和 JDBC 环后剩余 8 组 SCC。以下保留批次依赖关系；B5/B6 的事务和契约前置条件在第 16–18 节进一步细化。
+
+以下目标来自源码依赖证据；具体类的最终可见性须在该批次读完全部调用者后确定。不能用一次全仓替换代替这一检查。B 编号是本轮执行依赖，不替换 R0–R6 总阶段。
+
+| 批次 / 优先级 | 当前问题与迁移边界 | 前置条件及必须通过的证据 |
+|---|---|---|
+| G1 / P0：模块引用扫描完整性（已修复，见第 21 节） | main/test 共用 JDK AST 事实，覆盖全限定名、wildcard、static/nested；修复 Integration tests 缺失 Parser 直接依赖与 CI 漏接基线校验 | 等价引用边界回归、源码/POM/exports/baseline 一致；未扩大模块 allow-list 或 baselineViolations；9 组既有 SCC 仍阻断全图验收 |
+| G2 / P0：已定位的 autoCommit 收尾入口已修复（第 22–24 节） | Artifact、Materialization、Streaming、Shuffle、Security、Worker 注册和 Object Dependency 共 11 个入口已修复；全仓主源码直接恢复 autoCommit 的业务收尾已清除 | 各 owner 真实数据库故障回归、异常因果链、默认 owner/静态检查、编译和受影响实际运行链已验收；其他事务关闭、锁和 caller-owned 语义继续归 R5，不据此宣布所有存储审查完成 |
+| G3 / P1：对象依赖图排序与分包（第 25 节） | 反转 BFS 的错误级联顺序已修复；七个契约迁 API、内存实现迁 provider，明确现有 SQL 删除权威；没有直接注册缺少 tenant/incarnation 的旧图 | 两种存储的交叉边/共享后代/循环/失败级联及深链回归；全模块、实际 SQL 消费链及旧 FQN 检查。自然键/kind、通知快照和 WARN 时序已按第 26–27 节修复；同 child 并发写已按第 28 节修复；跨进程交付及全图/DDL 事务边界保持明确，不将分包验收等同于全部方法已正确 |
+| B1 / P0：Connector SPI 生命周期与数据契约（1 SCC） | 根 Connector 是聚合入口，ConnectorSession/handle 是底层值；将聚合入口与 session/transaction 值分离。Page/Block 的共享契约下沉；协调 commit 值对象不能反向依赖整个 Metadata 门面；no-op 由契约所有者提供，取消根契约对独立 noop 实现包的反向引用 | 逐个签名追踪三个 connector、metadata、worker、JNI writer；保留事务/no-op 语义；Connector SPI owner suite、插件隔离与实际读写提交 |
+| B2 / P0：Connector Type（1 SCC） | PangrovaTypeMapping 与 Type 基础契约同包，映射依赖 concrete primitive、primitive 又依赖 Type。把映射/解析/具体类型选择放到单向依赖基础类型的能力包；检查 Type 工厂及 constants 是否还有实现回指 | B1 的共享 data 契约稳定；三个格式的类型 round-trip、decimal/timestamp 精度、Java/native type golden bytes |
+| B3 / P0：Parser AST（1 SCC） | 实查 Expression/Statement 是开放契约，反向边来自默认方法中的具体类分派/注册；由内置节点自己声明 type，基础接口不再登记实现。RerankClause 是 Query 子句，归共享 ast。保留 AlterTable/ShowMetadata/SelectItem/GroupBy 等既有 sealed 家族和扩展语句行为，详见第 14 节 | 全语句 parser 正反例、AST 类型完整性/SQL round-trip、Planner 编译；确认维护/stream/DML 节点无业务执行依赖 |
+| B4 / P0：Protocol（1 SCC） | 根包混合 CapabilityInventoryCodec、NativeWriteBindings 与底层 wire 值，task/retrieval/function/worker DTO 又回引根包。把共同版本/identity/描述值、领域 codec、启动聚合校验分层；CanonicalTaskRequests 不成为新通用工具包 | B1/B2 的 Java 契约稳定；只改手写代码，proto/生成源码保持唯一来源；描述符比较、N/N-1、JNI 编解码和全链回归 |
+| B5 / P1：Artifact 领域（API SCC 已消除，运行时待迁） | DataBuildPublicationRouter/Store 消费 DataBuildJob，BuildStore 返回 DataBuildGenerationManifest。先分离共享值、构建端口、publication adapter 和运行编排；索引专属实现归 Indexing，生成列与导出仍按其领域 authority 装配，共用的 durable build 不获得这些领域的写入权威。目标为第 18 节的独立 Artifact owner；不能整包搬入 indexing-api 或只在 Metadata 内换一层包名 | 先证明没有 Indexing→Metadata→Indexing 新模块环；解除契约对 Security core、Metadata JDBC codec 的依赖；迁接口、实现、调用者、装配与测试；generation fencing、publish/abort/recovery |
+| B6 / P1：Artifact JDBC（包环已消除，制品迁移待完成） | 第 22 节已提取真实共享查询、独立 generated submission 端口及事务 adapter；下一步是 tenant/table/model 当前权限和 published-input 事实的事务端口，再迁 generic runtime 到 Artifact | 当前锁顺序与单 Connection 原子性已保留；跨制品迁移仍需真实 PostgreSQL 并发/租约/过期/撤权及 SQL/native 验证；历史 Flyway checksum 保持可升级 |
+| B7 / P1：Worker task（1 SCC） | TaskInfo/TaskManager.TaskState 被 memory/state 使用，而 TaskManager 又依赖它们。TaskState 与不可变快照归 task API 值；状态转换单独拥有规则；allocator 不依赖 TaskManager 实现 | 先核查状态唯一写者；取消/终止/迟到报告、内存归还、并发关停；禁止把可变 manager 字段直接暴露为共享 Context |
+| B8 / P1：Worker bootstrap（1 SCC） | WorkerComponentRefs、ShutdownContext、phase 和 lifecycle 相互回指。先区分 owned resource、初始化阶段结果和关闭序列，装配器消费它们；phase 不向上依赖整个 bootstrap | B7 生命周期边界明确；每一启动阶段失败注入、反向关闭顺序、重复关闭与 registration rollback；Standalone/Worker 启动 |
+| B9 / P1：Worker exchange（1 SCC） | NativeExchangeTransport 消费 TaskExecutor，execution 又创建 remote egress；通用 batch chunks 与 remote 实现混放。共享 wire/流控值归低层，executor 只消费明确的 exchange port，由装配创建 remote 实现 | B4 wire、B7 资源所有权稳定；local/remote shuffle、backpressure、取消、buffer/lease 释放与真实 native 执行 |
+| B10 / P1：Native write Java bridge（1 SCC） | NativeWriteExecutor 依赖 catalog runtime，catalog runtime 依赖 TaskConnectorSession。共享 session 值下沉到独立能力包，catalog 资源解析与 JNI 入口单向分离；不改变 native 可见签名 | B1 session 契约稳定；扫描 C++ FindClass/签名/注册与 JNI symbols；真实 connector 写入、commit fragment、关闭失败及打包 |
+| B11 / P1：Coordinator bootstrap（1 SCC） | QueryBootstrap 消费 DefaultModuleContext，IndexingModule 反向调用 IndexingBootstrap。模块装配契约/上下文与具体 bootstrap 实现分离；如果只是同一职责拆散则合包，避免再造泛化服务定位器 | 领域工厂接口稳定；两种部署模式、可选能力关闭、失败释放；不得以空默认实现隐藏漏装配 |
+| B12 / P1：Coordinator HTTP（1 SCC） | Server/Context 聚合 endpoint，而 QueryResource 回引 IdempotencyKeyRegistry 等 server 包能力。HTTP 公共错误/认证/idempotency 值与服务端装配分开；endpoint 只拿领域端口与窄请求能力 | 认证/租户/错误映射、幂等并发、catalog/file/copy 端点、连接关闭；不能因移动包扩大 endpoint 对 core 的 imports |
+| B13 / P1：Planner（1 SCC） | PlannedQuery/PlanFragment 等跨阶段产物与 PangrovaPlanner 装配同根包，cost/rewrite/substrait 等因此互相回指。先建立不可变计划产物和 binding 契约，再拆阶段职责，最后收窄 protocol 依赖到编码出口 | B2/B3/B4；TPC 规划、缓存与权限版本、security rewrite、Substrait golden；保留同一 SQL/native 语义 |
+| B14 / P1：Coordinator 领域大环（1 SCC） | 按 Query 生命周期 → execution/split/dispatch → Scheduler placement → Indexing/artifact/clustering 的顺序迁 owner；IndexAwareSplitFetcher 等留薄 adapter，SplitFetcher 等消费端口随 Query；QueryManager/PlanExecutionFactory 不再承担其他领域实现 | B5–B13 已提供稳定边界；先核验完整调用链再迁类；query recovery/fencing、调度竞争、DML write/commit、端到端结果与故障恢复 |
+
+环数下降只是结构证据；如果一个 SCC 拆成多个较小 SCC，数量可能暂时增加，应按已消除的反向边与剩余源码证据验收，不能只追求数量。每批成功后都重新生成全图，不预先保证上表一次迁移即可解开所有隐含边。
+
+### 12.3 无环之后仍必须做的逐包审查
+
+第 5 节每个包都要得到明确处理结论：保留、移动、合并、拆分或删除，并记录调用者、生产装配、测试位置及理由。不能把“没有循环”写成“职责合理”。重点包括 Common 的 Jetty/Jackson 依赖、Config 单包的加载/校验职责、Operations 名义职责与实际 DDL/DML 代码、Metadata service 和存储权威、Query/Scheduler 的未迁入实现、测试仍留在旧 owner 的情况，以及 AI/Indexing/Streaming 可选能力关闭后的基础 SQL。
+
+具体代码审查逐项覆盖：公开 API 必要性、契约实现与注册是否可达、重复类型/转换、异常投影与隐式降级、mutable 状态单一写者、线程与取消边界、资源获取/释放顺序、超时/重试/幂等与 fencing、序列化稳定性。只在发现证据后改代码；不为减少文件数、方法数或包数制造转发层。
+
+每个 durable state 另列 owner/writer/reader/migration/recovery 五元组。一次源码迁移不移动混合领域的历史 SQL；新 owner 通过装配继续执行已发布的 migration，待独立的向前迁移设计就绪再调整资源归属。保留 schema/checksum 与版本升级测试，不以全新空库测试代替旧库升级。
+
+### 12.4 批次切换与回滚
+
+每批先保存该批受影响路径的起点差异，再执行源包、调用者、装配、descriptor、配置、测试和文档的完整切换；最近测试、owner suite、消费者编译和架构检查通过后才启动依赖它的下一批。工作区原有暂存/未暂存迁移不作为可丢弃基线，禁止使用全仓 reset/checkout 回滚。
+
+纯 Java 包迁移可在单批内连同调用者反向迁回；部署时必须使用同一构建的所有 Java 制品，不能混用新旧 FQN。涉及持久化和 wire 的批次须先证明旧数据/旧节点兼容；数据库改动只做向前修复，不编辑已发布 migration。最终关闭条件仍是 R6：全部包有审查结论，全部架构 gate 通过，全部相关测试及源码一致的 native/full-regression 通过，未解决项为零。
+
+## 13. Connector SPI 的契约分层与代码审查
+
+B1/B2 已完成源码切换；跨语言和消费者验证仍按下表逐项收口。这一批未新增 Maven 制品，未修改 canonical proto 或 native 可见的 JNI 签名。
+
+| 原位置 / 反向依赖 | 本批处理及理由 | 迁移连带范围 |
+|---|---|---|
+| 根包 Connector/ConnectorFactory/ConnectorContext 聚合高层能力，session/handle 又被这些能力消费 | 三个聚合入口迁 `spi.plugin`；根包只保留共享生命周期、session、handle 契约 | 三种 connector 的服务描述符、runtime discovery、消费者和 manifest provider 声明同批切换 |
+| 根 ConnectorQueryAuthority 直接引用 Metadata 类型 | 基础 authority 只管理准入、操作与 drain；`metadata.ConnectorMetadataScope` 扩展它并拥有 metadata begin/cleanup | QueryStateMachine 绑定的同一个对象实现 scope；原始任务 issuance 不再声称拥有 metadata；不得按 query ID 重取替代对象 |
+| data 值、metadata 提交值与 page/write 消费者形成互引 | ColumnValue/TypedRow 归 `data.value`；DistributedWriteCommitContext/NativeWriteFinalization 归 `coordination` | 三个格式、Worker、Coordinator、Protocol、测试夹具、SpotBugs 精确类型名 |
+| Type 基础契约与具体 primitive 映射同包 | PangrovaTypeMapping 迁 `data.type.mapping`，单向消费基础及具体类型 | 各格式类型转换、Planner 类型系统、native write 消费者 |
+| 根契约依赖单独的 noop 实现包 | NoopTransactionHandle 回到契约所在根包并收窄为包私有；`ConnectorTransactionHandle.empty()` 保持唯一入口 | 所有直接引用核查；不新增对外实现 API |
+| ArrayBlock/NativePage 的 Javadoc import 产生不必要的包边 | 改用不引入源依赖的文字说明，并纠正 NativePage 构造复制输入的文档 | 无运行时行为变化；不是忽略真实 import 的 gate 豁免 |
+
+Metadata scope 的拆分保留已绑定 owner 的对象身份、操作未排空时拒绝清理、失败 cleanup 留存重试以及同名 query ID 的隔离。`ConnectorMetadataScope.require` 对不具备 metadata 所有权的原始 issuance 明确报错，不创建空 scope 或重新查询一个 owner。
+
+深审同时发现并修复两个行为问题：类型解析会接受 `VECTOR_EXTRA(128)` 和 `VECTOR(128) trailing`，并受土耳其语默认 Locale 影响；Block 的 `offset + length` 校验会发生整数溢出，RLE 能接受越界区域。新回归均先在旧实现上验证失败，再验证修复：类型解析使用精确名称/尾部校验与 Locale.ROOT，七种直接实现采用无加法溢出的范围判定，LazyBlock 继续委托同一检查。错误消息中的范围终点使用 long 计算，不改变合法空区域语义。
+
+| 验证范围 | 当前结果与证明边界 |
+|---|---|
+| SPI owner | 285 项通过，零失败/错误/跳过；包括类型解析、值、Page/Block、事务和提交契约 |
+| 公共 scope 及真实插件装配 | 40 项通过，包含生命周期失败聚合、事务、清理重试和三个真实服务描述符发现 |
+| 完整 Java reactor | 58 项 `install` 成功，全部主源/测试源码编译；只运行了上行指定测试，不能等同全测试通过 |
+| Planner 类型消费者 | 54 项通过，覆盖 ConnectorColumnTypeMapper、TypeSystemConsistency 和 TypeSystemProperty |
+| 包与模块 gate | 模块依赖 7 项通过；最新图覆盖 620 包，12 组 SCC，SPI 的两组环已消除；全图 gate 仍失败 |
+| 制品与资源 | 三个 connector 新 ConnectorFactory descriptor 存在，旧 descriptor 不残留；迁移 Java FQN 需要同版本插件重新构建 |
+| Native | Release 构建和平台库打包完成；首次 fixture 因旧 Docker API 设置失败；修正调用环境后 4,337 项 native 测试全部通过，用时 350 秒 |
+| Runtime / Lance / Paimon | Runtime 28 项、Lance 47 项、Paimon 396 项通过；connector 命令显式选择 `*Test`，包含相应 IntegrationTest |
+| Iceberg | 486 项中 485 项通过，1 项因本机 C locale 的子进程编码失败；将调用环境改为 UTF-8 后，该集成类 7 项全部通过，没有删除 Unicode/引号/空格断言 |
+| Native Bridge / Worker / Coordinator | Bridge 默认测试 350 项、Worker 默认测试 1,076 项、Coordinator 的提交与读取绑定消费者 48 项通过；默认测试仍有 native-required 排除规则，不替代专门的 E2E |
+| SPI 注解与 manifest | 85 个公开契约已标注，未标注基线为零；manifest 与源码事实一致 |
+
+本批起点/失败日志保留用于定位，不以最终成功日志覆盖失败经历。native runner 独立启动 Java fixture，不经过 Surefire 的 Docker API 属性；本机 Docker 29 与旧 API 设置不匹配，验证命令显式传入可用 socket 和 `JAVA_TOOL_OPTIONS=-Dapi.version=1.44`。Unicode 路径测试使用主机提供的 UTF-8 locale；个人 socket 路径不写入仓库。Activation smoke 首次因缺少已准备的真实 AI 镜像失败；镜像准备后又遇到后续 Parser 包移动与旧 Planner 制品混用，这两次失败均保留。完整 reactor 统一重编译、安装后，最终 101 项真实 Java/native 集成测试全部通过（见第 14 节），没有复用混合制品作为通过证据。
+
+## 14. Parser 的内置节点类型归属
+
+B3 的实际根因与最初假设不同：Expression 和 Statement 本身不是 sealed，基础接口通过 instanceof/类注册表依赖全部实现。把所有节点合并到一个大包会牺牲现有能力分组，故选择由节点提供类型判别值；已有 sealed 子家族保持原样。
+
+- 102 个直接 Statement 类型拥有者和 27 个 Expression 类型拥有者逐一核对；各内置节点或封闭子家族声明自身的枚举值。基础接口只保留契约与未声明类型的显式异常，不再集中注册具体类。
+- 现有 GrantPrivilegeStatement、RevokePrivilegeStatement、Create/Drop/ShowStorageProfile、ShowTableControlsStatement 和 SubscriptExpression 缺少类型登记。新增 7 项回归在旧代码中全部报 Unknown type；修复后全部通过。新增枚举项追加到尾部，现有项顺序未调整；枚举完整 switch 测试逐个增加 case，没有 default 兜底。
+- RerankClause 不实现 Expression，是 Query 的组成子句；迁到 `org.pangrova.parser.ast`，随同 AstBuilder、AstPrinter、Planner rerank/rewrite 和测试更新，保留其 sealed strategy 家族。
+- 外部 StatementParser 扩展可继续定义自己的 Statement；没有内置判别值时调用 type 仍明确报错。类型名称不表示 SQL 执行已受支持，验证与执行准入职责不变。
+- 最近范围 26 项通过（包括上述 7 项、类型完整性和扩展 parser）；Parser 默认 owner 640 项通过；Planner 的转换、重写、rerank 消费者 49 项通过。完整 58 项 reactor 重新编译、安装通过；模块依赖 7 项和包结构 2 项通过。包环 gate 确认 Parser SCC 已消除，全图剩余 11 组，仍然失败。Parser JAR 已确认新 RerankClause 及 5 个嵌套类型齐全，旧包类和 StatementTypeRegistry 均无残留；使用同批制品的真实 E2E 已通过，结果如下。
+
+本批源码只迁一个 AST 子句包，不迁业务执行、不修改 SQL grammar、数据库 migration 或生成协议。第 5 节文件/包总数不变，ast 与 ast.expression 的归属计数已刷新。
+
+### 本批最终链路验证与剩余范围
+
+完整 reactor 安装后，在已准备的真实 Ollama 镜像、真实 PostgreSQL 和重新打包的 native 库上运行六组测试，共 101 项通过，零失败/错误/跳过：NativeWriteExecutor 13、NativeWriteCleanupFailureIntegration 75、ActivationSmoke 3、LanceSqlDdlSession 2、IcebergReadWrite 的 MERGE 场景 1、PaimonLanceNativeRead 7。该选择只证明对应链路，不能称整个 integration-tests 或全部 Connector SQL 用例通过。最终日志为 `/tmp/pangrova-spi-parser-chain.log`。
+
+本轮 native Release 全测试 4,337 项通过；Java 58 项 reactor 编译/安装通过；Parser JAR 的旧 RerankClause/StatementTypeRegistry 和 SPI JAR 的 9 个旧迁移类型家族均无残留。manifest、模块依赖、包结构、SPI 注解及本批空白检查通过。此前 Iceberg Unicode 路径失败由 UTF-8 调用环境修正并通过最近范围，不改 Hadoop 行为或测试断言。
+
+全图 gate 仍明确失败，剩余 11 组是 Coordinator 领域大环/装配/HTTP、Metadata artifact/JDBC、Planner、Protocol、Worker task/bootstrap/exchange 和 Native Bridge write/catalog。B4–B14、无环包的职责/状态/资源审查、静态分析、数据库升级及最终 full-regression 仍未完成；没有将本批通过扩大为 R6 完成或全项目合理性已经验收。
+
+## 15. Protocol 按 wire 能力归属，任务准入不再依赖 REST
+
+B4 的源码审查追踪了根包全部 14 个手写类型、任务校验、启动契约、注册 envelope 及仓内调用者。根包原先将高层 inventory 聚合校验与底层能力标识混放；CanonicalTaskRequests 又直接调用 REST 包内的 WorkerExecutionIdentity，形成根包、function.catalog、retrieval、task、rest.worker 的循环。调整没有增加 Maven 制品或依赖豁免。
+
+| 起点类型或职责 | 最终 owner / 处理 | 不变量 |
+|---|---|---|
+| BuiltInCapabilityCatalog | `capability` | capability ID、签名、artifact format 版本不变 |
+| CapabilityInventoryCodec | `capability.inventory` | 单向消费 capability、function、retrieval、resource；Base64 与 protobuf payload 不变 |
+| PublishedGenerationBindingChecksum / BoundExecutionPlan | `artifact` / `execution` | 原序列化、checksum 和不可变复制行为保留 |
+| DataSplitProtoCodec / RowLocatorContractValidator / SourceSnapshotBindings | `source` | split identity、row locator、授权 catalog 与已接受 snapshot 的等值校验保留 |
+| NativeWriteBindings / PhysicalFileWriteBindings / PhysicalFileWriteReceipts | `write` | allocation、attempt staging、winning receipt 与 commit 校验不变，不迁提交权威 |
+| GeneratedColumnMetadataCodec | `metadata` | 仍为 connector 属性中的 wire 声明，不迁 Metadata 领域实现 |
+| CatalogDeploymentFingerprint | `catalog` | unresolved catalog 的规范化顺序和 fingerprint 字节不变 |
+| ModelResourceEnvelopes / StageResourceGrantCodec | `resource` | 模型限额、任务授权和 transport codec 同属资源契约，不负责发放授权 |
+| WorkerExecutionIdentity | `execution.identity` | task、Worker 注册与恢复共同消费；JSON 字段和 protobuf 消息名不变；执行身份 UUID 校验保留 |
+| CanonicalTaskRequests 中的版本、descriptor、rollout | `descriptor.CanonicalProtocolIdentity` | 启动与任务准入直接消费同一身份；值仍为 2.0 / 原 rollout epoch |
+| CanonicalTaskRequests 与 CatalogDeploymentFingerprint 的公共 SHA-256 工厂 | `checksum.ProtocolChecksums` | 只计算调用方所选字节的 checksum，不决定领域序列化或授予执行权限 |
+
+15 个生产类型和 18 个测试文件迁到实际 owner；三项共享职责分别落到 CanonicalProtocolIdentity、ProtocolChecksums 和 StageResourceGrants。所有仓内消费者、精确类型配置、包说明同步更新；不保留旧包 alias 或任务工具类的转发方法。重新生成 canonical protobuf 仍使用唯一源；未手改 generated source、schema、descriptor golden 或 JNI 签名。
+
+### 行为缺口与回归
+
+资源传输 codec 原先仅检查 cpu/native 数量不等于零，允许 18 个整数字段的无符号溢出值及未知字段；任务准入已有更严格检查。现由 `StageResourceGrants` 共享字段校验，传输与准入一致拒绝非法值。关系执行要求正 native memory，source preparation 要求正 JVM memory；保留两者的资源需求差异，以及 optional absent 与 present-invalid 的区别。
+
+Worker 注册原先只有 copyTaskTlsPort 校验上界，其余三个端口可大于 65535。四个端口现在都校验 0–65535，不改变原有 0 值可表示性。最近回归在修改前共 34 项、25 项失败（18 个资源数量、未知字段、6 个越界端口），修改后最近范围 64 项通过；另增加 source-preparation 不得冒充关系执行授权的回归。
+
+首次 owner suite 的两个失败揭示 DTO 不可变性扫描只识别旧 REST 包；新 `execution.identity` 同时加入 discovery 和字段检查范围，迁移类型继续接受全部三项检查，没有仅将其列为免检类型。
+
+| 本批验证 | 结果与覆盖范围 |
+|---|---|
+| Protocol owner / 全 reactor | Protocol 默认 602 项通过；58 项 reactor 编译、测试源码编译及安装成功。后续改动仅删除多余空行，没有改变受测逻辑 |
+| Worker / Native Bridge | 默认 owner 分别 1,076 / 350 项通过；不能代替默认排除的 native-required 集成测试 |
+| Coordinator 消费者 | 38 项通过，覆盖 Worker 注册版本/能力、原生 dataset 控制、任务资源授权、memory fit 与 embedding admission |
+| 真实 Java/native | 90 项通过：NativeCapabilityHandshakeE2E、ActivationSmokeE2E、NativeResourceLifecycle、ResourceGovernanceE2E、PaimonLanceNativeWriteE2E、NativeWriteCleanupFailureIntegration；使用同批 Java 制品、真实 PostgreSQL/AI 镜像及重打包 native 库 |
+| Native 全测试 | Release 构建及打包通过；独立 runner 的 4,337 项全部通过，349.84 秒 |
+| 协议及制品 | Canonical descriptor 与既有 golden 一致；15 个迁移类型的新 class 均在 JAR 中；根包只剩 package-info，旧 WorkerExecutionIdentity class 不残留 |
+| 静态分析 | Protocol `-Pstatic-analysis -DskipTests verify` 通过：Checkstyle 0 error，保留两项非阻断复杂度/参数数量提示；SpotBugs 0 bug / 0 error。首次失败的三处多余空行已修复，没有扩大过滤规则 |
+| 结构 gate | 模块依赖 7 项、包结构 2 项、manifest 与 dead-stub 扫描通过；629 包中仍有 10 组 SCC，Protocol SCC 已消除，全图无环 gate 仍失败 |
+
+日志分别为 `/tmp/pangrova-protocol-owner-final.log`、`/tmp/pangrova-protocol-ownership-reactor.log`、`/tmp/pangrova-protocol-worker.log`、`/tmp/pangrova-protocol-nativebridge.log`、`/tmp/pangrova-protocol-coordinator.log`、`/tmp/pangrova-protocol-e2e.log`、`/tmp/pangrova-protocol-native-tests.log` 和 `/tmp/pangrova-protocol-static-analysis-final.log`。ResourceGovernanceE2E 的选择只证明其实际断言的 SQL/并发场景，不扩大为租户公平性或所有配额耗尽路径均已验收。
+
+本批只关闭已追踪的包边与明确行为缺口；Protocol 的 function、retrieval、transport 等其余包仍需逐项语义审查。完整项目验收仍受剩余 SCC、逐包审查和 R6 验证约束。
+
+## 16. Artifact 迁移前置审查：通用构建、领域发布与事务权威
+
+本节记录 B5/B6 的审查起点和细化任务；其中 Security 授权快照前置依赖已按第 17 节切换，Artifact 物理 owner 迁移尚未完成。它修正“Metadata artifact 整体迁 Indexing”的过粗表述。索引、生成列和关系导出共享 durable job，但不共享各自领域的写入权威。现有 `DataBuildPublicationRouter` 正是通过不同 publication adapter 保持这个区别；它不是将任意 artifact 注册成 Index 的理由。
+
+### 16.1 已确认的耦合与处理决定
+
+| 当前源码证据 | 处理决定与迁移单位 | 迁移时必须保留 |
+|---|---|---|
+| DataBuildGenerationManifest 只依赖 artifact.contract 的不可变值；DataBuildStore 返回它，而根 DataBuildPublicationStore 消费 DataBuildJob | manifest 与 dependency/format 值进入共享契约层；publication port、router 实现和 build port 分开。不能通过把所有类型合成一个包隐藏职责差异 | manifest 的 source snapshot 约束、format/version、checksum、计数及 publication 时间校验 |
+| DataBuildDispatchSpec 持有 `security.core.authz.DeferredAuthorizationScope`；StageGraph 持有其 ModelSnapshot | 先把跨域授权快照识别为 Security 所有的公开契约，生产授权判断与 store 仍留 Security；同步审查 scope 的 sha256/codec 调用，不能只改 import | principal/tenant/observed policy/model identity 的精确匹配，撤权后拒绝继续执行 |
+| DataBuildStageGraph 直接调用 `metadata.store.jdbc.catalog.MetadataJsonMapper`；其模板也参与持久化编码 | 图/模板不可变值与持久化 codec 分开；codec 由 durable graph owner 持有，不能让契约引用 JDBC 实现工具。迁移前记录 canonical bytes/hash 的 golden | formatVersion、排序、base64/digest、重放字节不变；不能因换 mapper 默认值改变已有任务身份 |
+| DataBuildStore 的 claim/publication 签名消费 Query ExecutionAnchor；DataBuildExecutionOwner.from 做转换 | ExecutionAnchor 仍由 Query 签发。跨域共享值不负责生成 anchor；映射归执行 adapter，并检查未来 Query→Artifact 依赖方向 | backend-issued owner、incarnation、fencing token；禁止新造可绕过 issuance 的身份工厂 |
+| ArtifactCurrentAuthority 向下调用 JdbcDataBuildStoreMappings.findDispatchSpec，build completion 反向调用 authority | JDBC 层拆共享 scoped-dispatch 查询与 authority 校验；build/publication 编排单向消费窄能力，不再引用整套 build store 的继承基类 | 使用原 Connection；锁、授权检查和数据写入仍在同一事务 |
+| JdbcGeneratedWriteOutbox 同时调用 build insertion、descriptor insertion，并更新 Query write_commit_journal | 保留跨域事务 adapter。Query 提供带既有 Connection 的精确 COMMITTED acknowledgment 能力，build/descriptor owner 提供同事务写入能力，由装配组合 | 原始 authorization receipt、commit fingerprint、全部 build 原子写入；不能拆成三个各自 commit 的服务调用 |
+| GeneratedModelCurrentAuthority 查询 AI 模型表，且 JdbcManagedSourceCatalog 也消费它 | 模型当前事实与角色检查归 AI/Security 的窄能力，Metadata 消费事务 adapter；不能直接令 Metadata 依赖已有反向依赖的 AI Control | 当前 incarnation、部署版本和签名重查；没有模型时仍明确拒绝 |
+| QueryMaterializationWiring 将生成值与 Feature View 创建绑定到 IndexingBootstrap 是否存在 | 审查并分离通用 durable runtime 启用条件与可选索引 provider 开关。只有确实缺失所需能力时拒绝该功能 | 关闭索引仍能执行无索引基础 SQL；生成列/导出按真实能力准入，不能静默缺少必要处理器 |
+
+模块落位不能跳过依赖证明：当前 `metadata → indexing-api`、`indexing-core → metadata` 已存在；直接增加 `metadata → indexing-core` 会形成 Maven 环。把整个 build 包放进 indexing-api 又会引入 Security core、Query 和 JDBC codec。第 18 节已确定独立 `pangrova-data-build` 作为目标物理 owner，并先提取 Query API 以消除未来 Query↔Artifact 环。第 20 节已先迁入独立的契约、编码和路由；剩余 authority/事务反向边解除后再迁 JDBC 运行时，不把内核提取写成完整运行时迁移。该 owner 必须同时允许 Query、AI、Indexing 单向消费，并在 Indexing 关闭时独立存在；不为守住历史数量把跨域状态机塞回 Common。
+
+### 16.2 持久化事实与迁移边界
+
+以下是本次已追踪的事实集合；migration 列是关键创建版本，不表示此后没有 ALTER。执行前须对全部版本计算资源清单/checksum 并追踪后续修改。
+
+| 事实与 owner 目标 | 当前 writer / reader | migration 起点 | 恢复与迁移约束 |
+|---|---|---|---|
+| 通用 job/page/source/output/dependency/dispatch spec：durable build owner | JdbcDataBuildStore、其 insertion/claim/completion/reader helpers；Coordinator dispatcher/publisher 读取 | V19、V21、V27 | job/page 租约、completion 幂等、依赖 barrier；移动 store 不移动或改写已发布 SQL |
+| execution route 与 stage exchange 证据：durable execution owner；Query 保留 anchor authority | ArtifactExecutionFence、JdbcDataBuildStageExecutionStore、JdbcDataBuildStageExchangeStore；任务报告/dispatch 消费 | V23、V46、V47 | 保留 owner/fence 与 registration/finalization 精确 proof；恢复不能合成缺失 owner |
+| index descriptor / generation / active publication：Indexing | JdbcIndexGenerationPublicationStore 与 Indexing 已有 JDBC stores；index retrieval/read binding 消费 | V1、V17、V18 | generation、expected pointer 与 generic job PUBLISHED 必须同事务更新 |
+| generated-column descriptor / immutable generation：生成值领域 adapter，共享 build 仅负责执行状态 | JdbcGeneratedValueDescriptorStore、JdbcGeneratedValuePublicationStore；GeneratedValueReadResolver 消费 | V25 | 按 tenant/source/column/snapshot 精确选择，不能借用 Index descriptor 替代 identity |
+| catalog export request / tabular generation：Feature/Export owner | JdbcCatalogExportJobInsertion、JdbcTabularExportPublicationStore；AI FeatureCatalogStore 和 evaluation evidence 读取 | V29 | request、generation、job 的关联和 publication 同事务；AI evaluation 中直接 SQL JOIN 也需登记消费者，不能只搜 Java import |
+| COMMITTED write redo/outbox：Query | Query journal 保存 commit；JdbcGeneratedWriteOutbox 在同事务 acknowledgment；恢复处理器读取 | V24，及后续 journal 升级 | fingerprint/receipt 精确校验、所有 build 落库后才 ack；重试不重复提交 |
+| embedding model current authority：AI；角色准入：Security | AI model stores 写；GeneratedModelCurrentAuthority 读取并核验角色 | V10，及后续模型身份升级 | 读取当前 incarnation/deployment/version，不以缓存或历史快照授予权限 |
+
+已有 V46/V47 明确拒绝存在旧 artifact job 的升级，要求显式 rebuild；V46 的拒绝且不删除旧状态已有 DataBuildExecutionFenceMigrationTest。不能把目录重构描述成“任意旧库自动无损升级”，也不能为迁移方便删除这两道保护。需要区分：同一 schema 下更换 Java owner 的兼容性、历史受保护版本的预期拒绝、以及另行设计的重建/恢复流程。B5/B6 不擅自修改历史迁移的语义。
+
+### 16.3 可执行子批次与退出条件
+
+1. **B5.1 契约前置**：枚举所有 artifact 主源类型及仓内消费者，分类为不可变值、port、codec、领域 adapter、事务 adapter、装配。解除 Security core / Metadata JDBC mapper 对契约的泄漏，记录旧编码 golden；检查 Query anchor 的转换边。退出：契约不引用实现包，原授权拒绝和二进制重放仍成立。
+2. **B5.2 模块决策及依赖模拟**：把拟移动类型的 imports、完整限定名、签名和测试资源映射到目标 module，先验证生产和 test-jar 两张图。确定通用构建物理 owner，并记录 Indexing 关闭时的装配路径。退出：无反向模块边，API 不获得数据库/框架实现依赖，全部现有能力有真实 provider。
+3. **B5.3 值与 port 迁移**：按 manifest/contract、build、publication 分批切换全部调用者；测试随 owner 移动，历史 migration 暂留原资源位置。退出：全 reactor 编译，契约测试和数据库恢复场景通过，旧 FQN/descriptor 无残留；不以局部 SCC 消失关闭整个 B5。
+4. **B6.1 JDBC 共享能力**：先抽 scoped dispatch 查询和 authority/fence，再迁 build、publication、export 等 store；明确谁开始/提交/回滚事务。将继承基类对外开放的静态查询改为窄的 store 能力，不复制 SQL。退出：无 JDBC 包反向边，授权锁、job/page 锁顺序和同一 Connection 保持一致。
+5. **B5.4/B6.2 装配与真实发布**：Coordinator 只组合 router、各领域 publisher 和 durable runtime；索引专属 store/构建实现迁 Indexing，生成值和导出接各自 adapter。覆盖 CoordinatorBootstrap、QueryBootstrap、HighAvailabilityBootstrap、QueryMaterializationWiring 四个入口。退出：基础 SQL、三类 artifact 发布、leader 切换/过期、取消与启动失败释放通过。
+6. **B6.3 资源与升级验收**：比对 migration 文件名/内容/checksum；测试当前 schema 既有任务的恢复与历史受保护升级的拒绝。仅在部署 migration ownership 另有完整向前方案时迁资源。退出：旧库测试、模块/包 gate、静态分析、源码一致 native 与 artifact E2E 均通过，目标制品没有旧 class。
+
+最近测试从 DataBuildContractTest、DataBuildStageGraphTest、DataBuildStageTemplateTest、DataBuildDependencySetTest、DataBuildExchangeEvidenceTest 开始；数据库层至少包含 JdbcDataBuildStoreTest、ArtifactCurrentAuthorityIntegrationTest、DataBuildCancellationLockIntegrationTest、JdbcDataBuildStageExchangeStoreTest、JdbcTabularExportPublicationStoreTest，以及 Indexing 的 JdbcIndexGenerationPublicationStoreTest、DataBuildExecutionFenceLockIntegrationTest、DataBuildPublicationFenceLockIntegrationTest。消费者覆盖 DurableDataBuildPublisherTest、DurableGeneratedValueBuildServiceTest、GeneratedValuePublicationIntegrationTest、GeneratedValueReadResolverIntegrationTest 和 DataBuildDispatchDeadlineIntegrationTest。它们是已找到的验证入口，不代表所有升级、可选能力和故障路径已经有测试；缺口须在对应子批次补齐，不能用空库初始化替代。
+
+## 17. B5.1 授权快照契约与持久化编码解耦
+
+已完成两个生产类型的源码迁移和所有仓内消费者切换：`security.core.authz.DeferredAuthorizationScope` 归 `security.api.authz`；`DeferredAuthorizationScopeCodec` 归 Security 自己的 `security.protocol`，不迁入 native Protocol 模块。API 值描述曾经观察到的权限、connector definition 和 model identity；当前准入、撤权与同事务 publication gate 仍由原有 Security/领域实现负责。
+
+快照原来的 `sha256()` 方法会回调 Jackson codec，无法形成独立 API。现在摘要由 `DeferredAuthorizationScopeCodec.sha256(scope)` 计算，API 不引用协议包；列数上限作为同一契约的公开常量供边界解码前置校验使用。Feature export、generated values 和 StageExecutionContext 均消费同一编码摘要；不保留旧方法或旧包 alias。首次全 reactor 编译找到 StageExecutionContext 两处链式旧调用，修复后完整 reactor 重新通过。SpotBugs 中不可变 ModelSnapshot 列表的精确类名同步迁移，未增加免检范围。
+
+### 编码兼容与实际行为修复
+
+- 固定了迁移前两种完整持久化样本：raw scope（321 bytes，SHA-256 `187a40a6ce1cf430e8d3387bb3490f396bfe4632b85568e5f491e0e761dafd60`）与 generated write scope（785 bytes，SHA-256 `00d4ef38da346154aa9c2e919389e276b681e9648bfd1ad8c250d105ba4eaa63`）。两个 golden 在旧实现和新实现都通过；字段、排序、权限内容、connector declaration、模型版本及摘要未变化。
+- 旧 decoder 的 `readTree` 会忽略合法 JSON 后面的第二个值或垃圾。六个新回归在旧实现全部失败；启用 `FAIL_ON_TRAILING_TOKENS` 后全部通过。合法尾随空白仍允许，write receipt 原有精确 canonical bytes 要求保留；不是把所有历史 scope 强行改为另一种编码。
+- 真实 PostgreSQL 新回归把已存在任务的 `authorization_scope_bytes` 追加第二个 JSON 对象，验证 authorized replay 与 publication 均抛 AuthorizationDeniedException，job 保持 READY_TO_PUBLISH 且没有生成 publication。校验没有改数据库 schema、事务边界或自动清理已有任务。
+- 隔离 classloader 仅提供 Security、Connector SPI、Common 的位置并禁止 Security 实现/协议类，且没有 Jackson JAR；新 API 的构造、嵌套类型链接及权限读取通过。此证据只证明这些契约不需要实现类，不代表整个 Security POM 的 SDK 传递依赖审查已完成。
+
+| 验证 | 结果与范围 |
+|---|---|
+| 最近范围与 Security owner | 最近 19 项通过（含 100 次 property 尝试）；Security 全 owner 373 项通过 |
+| 最终 reactor 与清单 | 删除重复 POM 依赖后，58 项完整 reactor 再次编译/安装通过，1 分 7 秒；manifest 与第 5 节全部 46 叶子的文件/包清单一致，无 Maven 重复依赖模型警告 |
+| Security 静态分析与制品 | Checkstyle 0 violation、SpotBugs 0 bug / 0 error；JAR 有 API 的 6 个类型文件与新 codec，旧类型家族为零 |
+| 数据库准入 | ArtifactCurrentAuthorityIntegrationTest 的 6 项通过，含损坏 scope、撤权、tenant、policy 与发布并发顺序 |
+| Metadata Artifact 消费者 | 56 项通过，覆盖图/模板/依赖/格式、build store、exchange、取消锁、导出发布与 V46 升级保护 |
+| Indexing owner | 默认完整 owner 202 项通过 |
+| Coordinator / Query journal 消费者 | Coordinator 39 项通过，覆盖 generated values、Feature View、durable task report 与 stage 契约；Query journal 的两个 PostgreSQL 类共 27 项通过，覆盖持久化 receipt、redo、commit、recovery 与 publication |
+| 真实 SQL / Java-native | 7 项通过：真实异步生成列及 NULL 源 publication 2 项、Feature View 导出与当前策略重编译 2 项、Activation smoke 3 项；复用上一批已验证且 native 输入未变的构建库，没有声称本批重跑 C++ 全测试 |
+| 模块 / 包 gate | 7 项模块依赖、2 项包结构通过；631 包仍有原来 10 组 SCC，无新增 Security 环；全图 gate 继续失败 |
+
+相关日志为 `/tmp/pangrova-artifact-authority-before.log`、`/tmp/pangrova-artifact-authority-after.log`、`/tmp/pangrova-artifact-security-owner.log`、`/tmp/pangrova-artifact-security-static.log`、`/tmp/pangrova-artifact-authority-pg.log`、`/tmp/pangrova-artifact-metadata-consumers.log`、`/tmp/pangrova-artifact-indexing-owner.log`、`/tmp/pangrova-artifact-coordinator-consumers.log`、`/tmp/pangrova-artifact-query-journal.log`、`/tmp/pangrova-artifact-authority-e2e.log`、`/tmp/pangrova-artifact-authority-final-install.log`。这些是本批范围的证据，不代替 R6 的完整回归。
+
+同轮 Maven 验证还发现 integration-tests POM 重复声明完全相同的 test-scope pangrova-transport。已删除第二条；所有 reactor POM 的同一 dependencies 列表中未发现其他重复坐标。依赖版本、scope 和有效依赖边不变，不以增加 suppression 隐藏 Maven 模型警告。
+
+本节完成时剩余 B5.1 包括 DataBuildStageGraph/ExchangeRegistration 对 MetadataJsonMapper 的依赖、图/证据的序列化边界与 Query ExecutionAnchor 转换归属；Query 契约与 B5.2 的物理 module 决策已在第 18 节进一步推进。Security 的其他实现包、实现依赖的传递性与全项目逐包语义审查也仍需继续。
+
+
+## 18. Query 契约制品与 Artifact 目标依赖图
+
+### 18.1 问题、决策和已完成边界
+
+Artifact 的 claim、执行路由和恢复依赖 Query 签发的 `ExecutionAnchor`，File 的 COPY 和 Governance 的 lineage 也消费 Query 契约。原 `pangrova-query` 同时打包这些契约、审计/缓存服务及 JDBC store；未来 Query 编排若反过来消费独立 Artifact，便会产生 Query→Artifact→Query 的制品环。仅保持 `api` 包名不能解决 Maven 依赖，因此本批提取有真实消费者的 `pangrova-query-api`，保留 `pangrova-query` 作为运行时制品。两者分别拥有 `org.pangrova.query.api` 与互不重叠的 `query.core`、`query.store`、`query.adapter` 根。
+
+| 类型/调用点 | 当前落位及处理 | 保留的语义 |
+|---|---|---|
+| ExecutionAnchor/Store、JournalEventContext、Query/TaskStateEvent、Journal/Reader/Config、QueryLifecycle、QueryLineageFact/Outbox、QuarantinedWriteCommit/Store、QueryAuditRecord | 原有 14 个 API 生产类全部迁 Query API 制品，Java FQN 保持不变 | owner/incarnation/fence、时间与 journal/recovery 契约不变；构造值不代表 backend 已签发 |
+| QueryAuditService 与其嵌套 AuditStore | service 归 `query.core.audit`；嵌套存储接口提取为 API 的 QueryAuditStore；JdbcAuditStore/LogAuditStore 直接实现 | save/findById/retention 语义、异常投影、异步 admission 与 durable flush 区别不变 |
+| QueryManagerContext、QueryAuditEmitter、QueryAuditDispatcher | 消费新增 API QueryAuditSink；runtime service 实现该窄端口 | 调用者只提交终态记录，不能因此获得存储查询/保留期接口；成功 admission 不承诺事务已提交 |
+| HttpBootstrap、QueryRuntimeWiring | 启动装配显式构造 runtime service，再以端口注入领域消费者 | 唯一实现选择与生命周期仍在装配；不引入默认静默丢弃实现 |
+| File、Governance POM 与 manifest | 编译依赖由 Query runtime 改为 Query API | effective dependency tree 两者均无 Query runtime；COPY 与 lineage 不拉入审计 JDBC 实现 |
+| Metadata、Coordinator、Lance/Indexing/Integration 测试 | 前两者保留需要的 runtime 并直接声明 API；后三者按实际用途增加 test-scope API | 不用 transitive dependency 偶然提供编译类型，也不扩大生产依赖 |
+
+API 当前直接生产依赖为 Common、Observability API、Protocol：QueryLifecycle 仍使用 Protocol QueryId；本批没有宣称完成其进一步低层身份归属审查。隔离 classloader 遍历并链接该制品全部类型，classpath 没有 Query runtime、Security、Jackson 或 Caffeine。此测试证明契约加载独立性，不证明 Protocol 的所有外部传递依赖都已清理。
+
+构建产物检查：API JAR 有 19 个 class，runtime 有 42 个 class 且 API 路径下为零；二者没有重复 class，旧 `api.audit.QueryAuditService` 类型族为零。该 service 的 FQN 变更属于仓内源码迁移，所有消费者同批切换；不支持混装新旧版本。模块 manifest、生成 baseline、SpotBugs 原有精确类名、架构与可观测性文档同步更新，没有扩大静态检查豁免。
+
+### 18.2 Artifact 的目标物理目录（第 20 节已迁入独立内核）
+
+确定新增一个包含真实通用构建实现的 `pangrova-data-build`；本阶段不再拆 artifact-api/artifact-core/artifact-jdbc 三个制品。只在实现实际迁入时创建以下包，命名可在逐类签名审查中收敛，职责和依赖方向是本计划的约束：
+
+```text
+pangrova-data-build/
+  pom.xml
+  src/main/java/org/pangrova/databuild/
+    api/                   # 共享 dependency、kind、type 等基础值，不能反向依赖细分包
+    api/format/            # format/version/role 契约
+    api/manifest/          # immutable generation
+    api/execution/template/ # 阶段绑定与发布读取快照
+    api/build/             # request、job/page state、build/claim/recovery ports
+    api/execution/         # graph、stage、exchange 证据及执行存储端口
+    api/publication/       # publication request/result、领域 publisher/authority ports
+    protocol/              # versioned canonical graph/template/exchange codec
+    core/build/            # 通用 durable job 编排，不拥有 AI/索引业务规则
+    core/publication/      # publication router，单向消费各领域端口
+    store/jdbc/            # 通用状态、映射、锁、执行 fence 与恢复
+    assembly/              # 仅必要工厂，不创建服务定位器
+  src/test/java/           # 契约/codec/state/store owner 测试；不依赖 Metadata test-jar
+```
+
+概念上的生产依赖图如下；箭头表示“消费”，不是进程间 RPC。Artifact 不替代 Storage 的 blob publication，也不接管 Query 的 anchor 签发权。
+
+```mermaid
+flowchart LR
+  Coordinator[Coordinator assembly] --> Query[Query runtime]
+  Coordinator --> AI[AI Control]
+  Coordinator --> Indexing[Indexing Core]
+  Coordinator --> Metadata
+  Query --> Artifact
+  AI --> Artifact
+  Indexing --> Artifact
+  Metadata --> Artifact
+  Artifact --> QueryAPI[Query API]
+  Artifact --> Security[Security 契约/编码]
+  Artifact --> Common
+  File --> QueryAPI
+  Governance --> QueryAPI
+  Query --> QueryAPI
+  QueryAPI --> Common
+  QueryAPI --> Observability[Observability API]
+  QueryAPI --> Protocol
+```
+
+基于当前 59 个 reactor POM 对“生产边”和“含测试边”分别模拟：新增 Artifact→Common/QueryAPI/Security，以及 Query/Metadata/AIControl/IndexingCore/Coordinator/Integration→Artifact，两张图均无环；反例 Artifact→Query runtime 与 Query→Artifact 会立即形成二元环。此为目标边集可行性证明，不是尚未迁入代码已经满足这些边的证明。Security 尚为单制品，Artifact 消费其契约不等于 Security 实现 SDK 的传递性已经消除；后续必须分别审查源码依赖与有效 POM 依赖。
+
+### 18.3 完整运行时迁入前必须关闭的反向边
+
+1. **图与编码**：本项已按第 19 节解除：DataBuildStageGraph/Template 和 exchange evidence 的 canonical bytes/hash 由专属 codec 持有，契约不回调 store/codec。生产提交工厂保留编码准入，所有持久化入口补充 mutation 前预算校验，精确历史字节样本已冻结；第 20 节已迁入物理模块。
+2. **Query 身份转换**：DataBuildExecutionOwner.from(ExecutionAnchor) 只是投影 Query 签发事实，可以通过 Query API 形成单向依赖；不得新增绕过 backend 当前 owner/expiry 校验的签发入口。不为回避类型依赖复制另一个 anchor 模型。
+3. **当前 authority 与事务**：ArtifactCurrentAuthority 对 Metadata tenant、table/model 读取及 JdbcDataBuildStoreMappings 的回指须改为窄事务能力。通用 store 负责 job/fence，租户、表、模型授权各自拥有当前事实；adapter 继续使用调用方同一 Connection 和既有锁顺序。不得令 Artifact 反向依赖 Metadata、AI Control 或 Query runtime。
+4. **业务请求与发布**：DataBuildStore.createCatalogExportJob 原本消费 Feature View/Training Dataset 请求并写领域关联；第 20 节已拆为 AI Control 的业务事务 adapter 与通用 build insertion。索引 publisher 归 Indexing，Feature/Export 身份和模型事实归 AI 领域 adapter，generated-value descriptor/publication 按现有 authority 边界迁移；泛化 build store 不拥有这些领域的授权判断。
+5. **Query journal 原子性**：generated write outbox 的 build/descriptor insertion 与 COMMITTED acknowledgment 保持单事务；Query 暴露精确事务能力，由跨域 adapter 组合，不把三个自动提交服务拼成表面上的原子操作。
+6. **测试图与 migration**：Metadata 主制品将消费 Artifact，因此 Artifact 测试不能再依赖 Metadata test-jar（Maven 测试边同样会成环）。纯 owner 测试随 Artifact 移动，组合 PostgreSQL/迁移/权限/原子发布场景进入现有 integration-tests，通用容器 fixture 归 Testing Kit。历史 SQL 留 Metadata 原位置且 checksum 不变；不能挪走 SQL 或复制 fixture 来绕过测试依赖环。
+7. **真实装配**：四个 Coordinator/Query/HA/materialization 入口分别组合 generic runtime 和 domain publisher，通用 build 启用不取决于可选 Indexing 开关。先补足可选关闭证据，再迁 Coordinator durable dispatcher；不能在 build 模块已创建后就宣称 R3 瘦身完成。
+
+退出条件沿用第 16.3 节，并额外要求：源/测试两张模块图无环、没有旧 artifact class 或双重 owner、历史任务重放字节一致、三类 publication 同事务、失效授权与 fence 明确拒绝、关闭 Indexing 不破坏基础 SQL。除上文标明已完成的契约/编码项外，其余条目仍待实施，B5/B6 和 R6 未关闭。
+
+### 18.4 本批验证记录
+
+| 验证 | 结果与范围 |
+|---|---|
+| Query API / runtime | API 5 项、runtime 默认 owner 74 项通过；新增 audit sink 后 API 5 项与 audit service 5 项再次通过 |
+| 完整 reactor | 最终 59 项编译/安装通过，1 分 8 秒；同轮运行 Coordinator 两个审计类共 12 项通过 |
+| File / Governance | 默认 owner 分别 8 / 120 项通过；effective dependency tree 仅保留 Query API |
+| Coordinator 持久化/审计消费者 | 25 项通过，含 audit、durable recovery wiring、generated publication、durable task status；窄 audit sink 切换后相关 12 项已重验 |
+| 静态分析 / 制品 | API 与 runtime Checkstyle、SpotBugs 通过；JAR class 集无重叠且旧 service 类型族为零 |
+| 数据库 anchor / lineage | 28 项 PostgreSQL/HTTP 恢复测试通过：anchor store 10、ordering 5、lineage outbox 9、HTTP recovery 4 |
+| 实际 SQL / Java-native | 7 项通过：真实异步生成列/NULL 源 publication 2、Feature View 导出/策略重编译 2、Activation smoke 3；native/JNI/proto 输入未改，使用前批已验证且一致的 native 库，本批未重跑 C++ 全测试 |
+| 模块 / 包 gate | manifest 与生成 baseline 一致；模块依赖 7 项、包结构 2 项通过；635 个主源包仍有原有 10 组 SCC，无新增 Query 环，全图 gate 继续失败 |
+
+日志：`/tmp/pangrova-query-api-final-reactor.log`、`/tmp/pangrova-query-api-owners.log`、`/tmp/pangrova-query-api-file-owner.log`、`/tmp/pangrova-query-api-governance-owner.log`、`/tmp/pangrova-query-api-coordinator.log`、`/tmp/pangrova-query-api-static-final.log`、`/tmp/pangrova-query-api-consumer-tree.log`、`/tmp/pangrova-query-api-anchor-lineage.log`、`/tmp/pangrova-query-api-e2e.log`、`/tmp/pangrova-query-api-gates-complete.log`。全项目逐包语义审查与 10 组既有包环仍待继续，不能以此次 API 提取代替完整完成声明。
+
+
+## 19. Artifact 图、证据与编码边界及写入可恢复性
+
+### 19.1 已完成的源码边界
+
+- DataBuildStageGraph、DataBuildExchangeRegistration、DataBuildExchangeFinalization 保留不可变值、结构约束、拓扑/分区检查和二进制字段的 Base64 校验；移除 canonicalBytes/sha256/decode 等实现方法。DataBuildStageTemplate 本来不依赖 JSON，继续作为纯契约。
+- `artifact.protocol.ArtifactStageGraphCodec` 拥有图的持久化编码/解码/摘要；`DataBuildExchangeEvidenceCodec` 拥有注册与完成证据的编码、摘要和 `requireRegistration` 精确绑定校验。API 不再反向引用 MetadataJsonMapper、codec 或 Jackson。共同的包私有 DataBuildCanonicalJson 使用 Common 的固定 JsonMapperFactory 配置；没有复制可变 mapper、改默认字段顺序或开放配置。
+- `artifact.assembly.ArtifactBuildDispatchSpecFactory` 在生产提交返回 spec 前验证编码预算；Index、generated value、Feature export 三类提交者同批切换。原 `DataBuildDispatchSpec.of` 删除；record 构造只验证领域值和资源，不序列化。数据库读取先通过有界 canonical decoder，再构造 record。
+- 直接构造 record 的调用者也不能绕过准入：JdbcArtifactBuildPageLoader.validateNewJob 在任何 SQL mutation 前验证图大小，覆盖普通 create、catalog export 和 caller-owned transaction；store 最终编码端仍有同一上限。新增 PostgreSQL 回归故意捕获拒绝后提交外部事务，验证 job、dispatch、page、dependency、route、exchange 六张表均无残留。
+- JDBC 插入使用同一份 encoded bytes 计算摘要；graph-edge 批量插入仅计算一次图摘要，避免每条边重复序列化。原授权顺序、锁、Connection、事务提交归属未变。
+
+隔离 classloader 明确拒绝 Metadata 实现/codec、Security 实现且不提供 Jackson，仍能链接 graph/template/evidence/spec 的公开成员，并构造包含真实 Security API scope 的 graph/spec。最终 Metadata JAR 中这四个顶层值类也没有 JDBC、JSON 或 codec 的 class 引用，三个新 codec 已包含在同一制品中。这些证据证明本批契约独立，不表示其余 DataBuildStore 与 manifest 的包环已经消失。
+
+### 19.2 兼容性样本与行为修复
+
+迁移前通过旧 writer 固定以下 UTF-8 样本；含 Unicode identity、stage/endpoint/partition 排序、模板发布指针、模型 incarnation、执行 owner 和 response Base64。样本是 codec 元数据测试，不冒充真实 Native/shuffle RPC；后者仍由 E2E 验证。
+
+| 持久化样本 | 精确字节数 | SHA-256 |
+|---|---:|---|
+| stage-graph-v2.json | 1,711 | `8373d039d72a8da44581c45f520e3b9bce59d1bcd4d488bb139a0ef388b00e80` |
+| exchange-registration.json | 838 | `426efd918bd7cd87eb29db74efbbc3fba906b754b7a6ef8ae328268d358d15cd` |
+| exchange-finalization.json | 818 | `46a7d1f615466499981917adc591450164b80c31ac6dead9b7fbbd3697a39d1e` |
+
+旧 writer 不限总 JSON 大小，但 decoder 拒绝超过 16 MiB 的 envelope；特别是 12 MiB 原始 finalize response 经 Base64 扩展后，连同其他字段必然超过读取上限。三个写入预算回归在旧实现失败、在新实现通过；旧图仅在 dispatch spec 构造检查总长，原 exchange 写入没有同等保护。
+
+新 writer 通过有界 OutputStream 在超过 16 MiB 前停止缓冲并拒绝写入，计算的是实际 UTF-8 JSON 字节（包括 escaping/Base64/字段），不估计 Java 字符数或只限制 raw response。恰好 16 MiB 的证据仍能编码并恢复。decoder 保留大小、严格小写 digest、完整 canonical 重编码比较；未知字段、非规范排序、尾随字节都不能因摘要匹配而被接受。format 2 与旧格式显式 rebuild 要求、历史 SQL/migration 不变。
+
+### 19.3 本批验证与后续
+
+最近契约范围 31 项通过；随后新增 factory/隔离加载/外部事务拒绝证据的 10 项通过，其中与前一选择重叠的测试不重复累计为独立覆盖。最终验证记录如下：
+
+| 验证范围 | 结果 |
+|---|---|
+| Metadata 默认 owner | 473 项通过，零失败/跳过；包含真实 PostgreSQL build/exchange store 和 migration，不仅是纯单元测试 |
+| 最终 codec 契约/加载 | 10 项通过；包含额外的正确摘要下 null root、未知字段和尾随值拒绝，以及最小 classpath |
+| Metadata 授权/取消/升级补验 | 显式取消 integration 分组排除，11 项通过：当前 authority 6、取消锁 3、execution fence 升级保护 2 |
+| Coordinator 消费者 | 35 项通过：stage exchange、Index/生成列/Feature View、durable producer、publication、deadline 与装配 |
+| Indexing 默认 owner | 202 项通过 |
+| 静态检查 | Metadata 与 Coordinator 的 Checkstyle / SpotBugs 全部通过，未增加豁免 |
+| 完整 reactor | 最终 59 项编译/安装通过，1 分 2 秒；`skipTests` 不代替上列已执行的 owner/消费者测试 |
+| 实际 SQL / Java-native | 同一最终制品集的 7 项通过：真实异步生成列/NULL 源 publication 2、Feature View 导出/当前策略重编译 2、Activation smoke 3。native/JNI/proto 输入未变，复用前批已验证且一致的 native 库，本批未重跑 C++ 全测试 |
+| 模块 / 包 gate | manifest 与全部 47 个叶子的包清单一致；模块依赖 7 项、包结构 2 项通过；637 包仍有原有 10 组 SCC，全图 gate 失败，没有新增 codec/assembly 环 |
+
+首次消费者编译发现 Feature export 的 `compiled.stageGraph()` 实际是 Planner AuthorizedStageGraph，其摘要属于已授权计划身份；该调用已保留原算法，仅 DataBuildStageGraph 切换 codec。两种图不是可互换类型。静态检查发现的 Metadata 三处换行问题已修正；Coordinator 还暴露此前迁移遗留的两处长行和一处 lambda 缩进，本批仅调整这些格式/类型 import，不改变控制逻辑或扩大豁免。
+
+日志为 `/tmp/pangrova-artifact-encoding-before-corrected.log`（旧实现三个预算回归失败）、`/tmp/pangrova-artifact-codec-focused.log`、`/tmp/pangrova-artifact-codec-admission.log`、`/tmp/pangrova-artifact-codec-owner.log`、`/tmp/pangrova-artifact-codec-authority.log`、`/tmp/pangrova-artifact-codec-coordinator.log`、`/tmp/pangrova-artifact-codec-indexing.log`、`/tmp/pangrova-artifact-codec-static-final.log`。另见 `/tmp/pangrova-artifact-codec-reactor-final.log`、`/tmp/pangrova-artifact-codec-coordinator-static-final.log`、`/tmp/pangrova-artifact-codec-gates-final.log`；真实 SQL 记录使用 `/tmp/pangrova-artifact-codec-e2e.log`。
+
+剩余 B5/B6 的主路径是 ArtifactCurrentAuthority 与 build mappings 回指（共享查询包括 findDispatchSpec、三个 publication store 消费的 loadArtifactDependencies，以及 output validator 消费的 loadPages）、当前 tenant/table/model 事务端口、catalog export 业务关联、generated write outbox 原子 acknowledgment；第 20 节随后先迁入了无这些反向边的契约、编码和路由；这些剩余依赖关闭后才能迁完 JDBC 运行时。本批没有新建空 Artifact 制品，也没有宣布整个 Metadata 或全项目完成。
+
+
+## 20. Artifact 独立内核与 catalog export 事务归属
+
+### 20.1 物理落位及包内依赖
+
+本批建立真实 `pangrova-data-build` 制品，迁入并建立 42 个主源文件（含 package-info），没有创建空的 API/Core/Store 三层制品。它直接生产依赖 Common、Query API、Security、Jackson；禁止引用 Metadata、AI Control、Indexing Core、Query runtime、Coordinator、Worker、Planner。Security 和 Query API 的有效依赖仍需后续审查，本批只证明 API 加载与源码方向，不宣称整个传递 classpath 已轻量化。
+
+| 原 owner / 类型族 | 当前 owner / 包 | 依赖约束与处理 |
+|---|---|---|
+| Metadata artifact.contract 基础值 | Artifact `api` / `api.format` | kind、type、dependency、empty policy 等为底层值；根包不放回调子包的大接口 |
+| build request/job/page/lease/result/store port | Artifact `api.build` | 单向消费 execution、manifest 和基础值 |
+| graph、execution owner、exchange evidence、stage template | Artifact `api.execution` / `.template` | ExecutionAnchor 仍由 Query 签发；graph 不再消费 build pages |
+| generation manifest | Artifact `api.manifest` | 只消费基础值，不回调 build store |
+| publication port / router | Artifact `api.publication` / `core.publication` | port 消费 build 值，router 选择领域 publisher，不接管领域事实写入 |
+| canonical JSON、graph/evidence codec | Artifact `protocol` | API 不引用 codec；旧 UTF-8 golden 样本随 owner 原字节移动 |
+| dispatch admission / page-to-stage graph construction | Artifact `assembly` | `DataBuildStageGraphFactory.forArtifactPages` 组合 build/execution，消除 execution→build 回边；工厂不获得持久化权限 |
+| CatalogExportRequest 与业务创建端口 | AI Control `feature` | `CatalogExportBuildStore` 持有 Feature View/Training Dataset 的关联语义；不放进 Worker 共享 AI API |
+| catalog export insertion 与原子事务 adapter | AI Control `store.jdbc.feature` | 新 `JdbcCatalogExportBuildStore` 在同一 Connection 中调用通用 insertion 并写业务关联；内部 insertion helper 不再公开 |
+
+Metadata、AI Control、Indexing Core、Coordinator 直接声明 Artifact 生产依赖；Integration tests 按实际使用声明测试依赖。Artifact 纯契约测试不依赖 Metadata test-jar；AI Control 的 PostgreSQL 组合测试消费现有 Metadata fixture，方向为 AI Control→Metadata→Artifact，没有反向测试边。最终安装前清理旧 Metadata 编译输出，避免旧 FQN class 留在 JAR。
+
+发布路由保留在未导出的 `core.publication`，三个装配入口调用 `assembly.ArtifactPublicationFactory.route` 并只持有 publication 接口；不让调用者直接依赖内部路由类。
+
+旧 `metadata.artifact` / `.build` 的 API 包环已消除；新 Artifact 所有包无环。Metadata `.artifact.jdbc` 与 `.artifact.jdbc.build` 的环仍然存在，不能靠把两个包合并或扩大 gate 豁免掩盖。
+
+### 20.2 事务与兼容性
+
+Coordinator 的 DurableFeatureExportService 改为消费业务端口，正常启动装配、Feature SQL integration 和真实 SQL E2E 三处通过既有 `AiInfrastructureStores.jdbc(...).catalogExports()` 获取适配器；JDBC 实现选择留在 AI Control，调用方不直接引用新 store 类。唯一 record 构造点和全部工厂消费者同批更新，没有保留缺省为空的旧构造器。泛化 DataBuildStore 删除 catalog export 专属方法；普通 Index/生成列 createJob 不因此依赖 AI Control。
+
+适配器在开连接前验证 request/job/dispatch 的 tenant、job、principal、artifact、generation、dependency，以及 TABULAR_EXPORT/EXPORT 类型。事务中继续使用原通用 insertion 的当前授权、幂等比较、锁和路由写入；随后写业务关联，全部成功才 commit。SQL/runtime/Error 失败时回滚；回滚本身失败保留原异常并附带 suppressed 异常，不返回成功。没有新增 schema、修改历史 migration 或把两个自动提交操作拼在一起。
+
+新 PostgreSQL 测试覆盖两个业务对象族的重复提交、关联冲突后完整回滚、tenant/principal/job 错配、非导出类型、撤销当前 SELECT 权限。冲突用不同 artifact identity、相同 catalog object/version/generation，确保失败发生在业务关联阶段，真正覆盖“通用 job 已插入之后再回滚”。最初夹具共用了 artifact/generation，会先触发通用唯一约束；已修正夹具，未放宽生产约束。
+
+隔离 classloader 遍历 Artifact 全部 API 类型及公开签名，拒绝 Metadata、Artifact assembly/protocol/core、Security 实现且不提供 Jackson；仍能构造 graph/template/scope/dispatch。源码 FQN 改名属于仓内同步迁移，不能混装新旧 JAR。持久化 format 2、canonical bytes/hash、SQL 表和历史升级保护保持不变。
+
+### 20.3 验证记录与下一阶段
+
+| 验证范围 | 本批结果 |
+|---|---|
+| 默认 owner suite | Artifact 32、Metadata 442、AI Control 44、Indexing Core 202 项通过，均零失败/跳过；AI Control 包含新增 5 项真实 PostgreSQL 事务回归 |
+| Metadata authority / cancel / migration | 显式启用 integration 分组，当前权限、取消锁、execution fence 升级保护 11 项通过 |
+| Coordinator 消费者 | 49 项通过，覆盖 stage exchange、Index/生成列/Feature View、publication、durable producer、deadline、binding 与真实装配；收紧 publication factory 和 AI factory 端口后，相关 7 项再次通过（不重复累计为独立覆盖） |
+| 全 reactor | 最终 60 项编译/安装通过，1 分 3 秒；包括收紧 publication factory 与 AI factory 端口后的完整制品集 |
+| 静态分析 | Artifact、Metadata、AI Control、Indexing Core、Coordinator 的 Checkstyle / SpotBugs 通过；原精确不可变字段分类仅改 FQN，边界反例测试通过，没有扩大豁免 |
+| 真实 SQL / Java-native | 最终完整制品集的 7 项通过：异步生成列/NULL 源 publication 2、Feature View 导出/当前策略重编译 2、Activation smoke 3。native/JNI/proto 输入未改，复用前批已验证且一致的 native 库，本批未重跑 C++ 全测试 |
+| 制品与目录 | 33 个迁移顶层类型及其 nested class 无旧 FQN 残留；Artifact/Metadata/AI Control JAR 无重复 class。模块 manifest/baseline 一致，模块依赖 7 项与包结构 2 项按当前扫描范围通过（全限定名盲区见第 20.4 节），225 个架构文档类名引用通过 |
+| 全图包环 | 641 个包剩余 9 组 SCC；Artifact 包无环，完整包环 gate 继续失败；完整生产回归 R6 未关闭 |
+
+owner/authority/消费者日志：`/tmp/pangrova-artifact-module-owners.log`、`/tmp/pangrova-artifact-module-export-test.log`、`/tmp/pangrova-artifact-module-authority.log`、`/tmp/pangrova-artifact-module-coordinator.log`。静态/边界与文档日志：`/tmp/pangrova-artifact-module-static.log`、`/tmp/pangrova-artifact-module-core-boundary.log`、`/tmp/pangrova-artifact-module-filter.log`、`/tmp/pangrova-artifact-module-docrefs.log`。最终 reactor 日志为 `/tmp/pangrova-artifact-module-cohort-final.log`，最终真实 SQL 日志为 `/tmp/pangrova-artifact-module-e2e-final.log`；最终模块/包检查见 `/tmp/pangrova-artifact-module-gates-complete.log`（唯一失败为已列出的 9 组 SCC）。验证只对应本批作用域，不表示全项目已完成。
+
+最终装配复验曾因 Docker 随机映射端口与本机已有 HTTP 服务冲突，导致 Ryuk 初始化失败；容器日志显示其内部正常监听，宿主端口返回 HTTP 404，故障发生在测试执行前。失败容器退出后，新分配端口的同一组 7 项测试与静态检查通过；没有关闭 Ryuk、放宽等待或修改测试来绕过失败。记录分别为 `/tmp/pangrova-artifact-module-wiring-final.log` 和 `/tmp/pangrova-artifact-module-wiring-retry.log`。AI Control 的最终工厂 owner 44 项及静态检查见 `/tmp/pangrova-artifact-module-ai-final.log`；Indexing 静态检查见 `/tmp/pangrova-artifact-module-indexing-static.log`。
+
+下一阶段先修复第 20.4 节的模块引用扫描缺口，再按以下顺序处理，避免提前移动带反向依赖的 JDBC 实现：
+
+1. 抽取 scoped dispatch、artifact dependencies、pages/splits/dependency 查询能力；不能只加一个转调旧 build 基类的门面。CurrentAuthority 与 publication validator 直接消费共享查询。具体入口是 `JdbcDataBuildStoreMappings.findDispatchSpec/loadArtifactDependencies`、`JdbcArtifactBuildPageLoader.loadPages` 和 `JdbcDataBuildStoreSupport.loadSplits/loadDependencies`；page 查询必须连同后两项迁移，避免保留隐藏的继承回指。
+2. 明确当前 tenant/table/model 权限和 published-input 事实的窄事务端口，适配器复用调用方 Connection 与原锁顺序；generic store 不反向消费 Metadata/AI/Indexing 的实现。
+3. generated write outbox 的 descriptor/build insertion 与 COMMITTED acknowledgment 保留同事务；将业务组合与通用 build insertion 分离，再迁通用 JDBC 状态机和领域 publication adapter。当前 `JdbcGeneratedValuePublicationStore.submitCommittedBuilds`→`JdbcGeneratedWriteOutbox`→build store 是共享查询提取后仍会保留的回边；不能只移动 outbox 私有 helper 而让根 publication class 回调它，必须同步确定业务提交端口与事务 owner。
+4. 解除启动对可选 Indexing 的隐式前置条件，验证关闭 Indexing 的基础 SQL/导出路径后，迁 Coordinator 的通用 durable dispatcher。新建 Artifact 模块不等于 Coordinator 已完成瘦身。
+5. 继续 Planner、Coordinator、Worker/Native Bridge 剩余 9 组包环及全部无环包的职责、状态、资源释放审查，最终再关闭 R6。
+
+
+### 20.4 模块边界检查的剩余扫描缺口（G1 / P0）
+
+最后装配审查区分了两个不同的 gate：全图包环扫描会读取显式全限定类型引用；模块 manifest 校验使用的 `PackageDependencyGraph.imports(Path)` 只遍历 `CompilationUnitTree.getImports()`，并跳过 wildcard import。Python baseline 的 `collect_imports` 同样只记录显式 import。因此，7 项模块测试通过不能证明方法体里 `new org.pangrova.someowner.internal.Type(...)` 或 wildcard 引用满足模块 exports/friendExports。当前 Artifact 的新调用点已手工核查并收敛到工厂/端口，内部路由没有仓外包引用；这一局部核查不能代替全仓 gate 的修复。
+
+**下一批优先执行 G1：** 复用完整 Java AST/source-owner 索引，为 main/test 同时解析 import、static/nested、wildcard 和显式全限定类型引用；baseline 生成器与 Java 校验消费同一引用事实或交叉验证等价结果，不能一个按文本、一个按 AST 却称为同一事实。注释、字符串和反射配置不能伪装成直接编译依赖；反射/provider 连通性仍单独验证。
+
+先加入能在旧实现失败的回归：在方法体绕过未导出 core、跨模块 wildcard、嵌套/静态成员、测试作用域依赖，以及注释/字符串反例。随后生成真实违规清单，按契约归属、导出工厂与窄 friend port 修复调用和 POM；不能把新发现的违规全量加进 allow-list/baseline 取得绿灯。验收要求 main/test 源码证据、baseline、POM 和 exports 一致，且任何一种等价引用写法都无法绕过同一边界。此项先于后续大规模迁移，不增加或隐藏当前已报告的 9 组 SCC。
+
+
+## 21. 模块引用事实统一与 G1 验收
+
+### 21.1 根因、扫描语义与实际违规
+
+原 Python 正则与 Java import-only 扫描无法覆盖方法体全限定引用，且跳过 wildcard。两个回归在旧实现失败后，改由 Testing Kit 的 `architecture.JavaSourceReferences` 提供唯一 JDK AST 解析实现。Java 模块策略直接调用它；Python baseline 通过 JDK 17 source launcher 调用同一个源文件，无须先构建 Maven 或安装项目制品。
+
+扫描所有叶子的 main/test source sets，区分 package declaration 与 dependency reference，保留显式 import、static/nested/wildcard、构造器/方法/类型字面量/方法引用和 package annotation 中的全限定名。注释与字符串不产生边，Unicode escape 由 Java 语法处理。文件遍历或解析失败、非法 UTF-8 直接失败，不吞掉错误生成空事实。缺少可选 source set 仍合法。导出与 friend-export 违规保留确定性的源码文件/行号证据；修复了 macOS `/var` 与 `/private/var` 符号路径差异造成的不正确相对路径。
+
+扫描只解析源码，不对全部依赖 classpath 做类型归因；运行时反射、生成 bytecode、provider 的实际可达性仍需各自检查。它不替代全图 SCC 扫描和运行时装配测试，也不把所有测试实现包强行改成生产导出契约。
+
+| 新发现的模块源码边 | 处理 |
+|---|---|
+| Config main → Common | 原 POM 与模块许可已声明；补全事实 |
+| Coordinator test → Connector Runtime | 原测试依赖已声明；补全事实 |
+| Governance main/test → Connector SPI；test → Testing Kit | 原依赖与许可已声明；补全事实 |
+| Integration tests → Materialization JDBC store | 原依赖已声明；补全事实 |
+| Integration tests → Parser | `SqlE2ETestBase` 的 DDL 类型注册直接使用 Parser FQN，原先依赖传递 classpath；补充明确的 `test` 依赖 |
+
+上述共 7 条新增可见边来自已有代码，不是增加新的生产调用。重新生成的 baseline 还补全了实际被引用包的 `exportedPackages` 事实；该字段不等同于 policy 的 `exports`。没有扩大 `.pangrova/modules.yaml` 的 exports、allowedImports、friendExports 或 baselineViolations。模块策略的 POM 作用域校验改为读取当前 POM，过期 baseline 不能成为依赖已声明的替代证据。
+
+### 21.2 CI、静态规则及迁移遗留
+
+轻量 lint 原先没有实际运行文档宣称的 `check-module-manifest.sh`，JDK 安装又晚于工具测试且受 runtime-change 条件限制。现将 JDK 17 前移为无条件步骤，显式加入模块基线校验；回归验证顺序与条件。Proto descriptor 仍按原 runtime 条件执行。
+
+Checkstyle 的旧 `com.sun.*` 禁止规则误伤 `jdk.compiler` 公开导出的 `com.sun.source.tree/util`。已通过本机 JDK 17 的模块描述核实公开导出，只调整公开 API 范围；真实 Checkstyle fixture 验证内部 javac API、相似前缀、`sun.*`、`jdk.internal.*` 继续阻断。该 fixture 同时暴露先前 Materialization 迁移遗留的旧路径，已改为真实 `materialization.store.jdbc` 路径，保留绑定值/业务数字反例。扫描器其余格式与 map iteration 问题直接修复，没有新增文件级忽略。
+
+完整 Testing Kit owner suite 额外发现 Artifact 状态枚举清单仍指向 Metadata。源码唯一类型已在 Artifact，故替换清单中的旧 owner，不保留双重 owner 条目。该测试的正则枚举发现、固定目录深度与吞掉 I/O 错误尚需单独改造；这不是 G1 完成后就自动成立的全面状态权威证明。
+
+
+### 21.3 验证记录与退出边界
+
+| 验证 | 本批结果 |
+|---|---|
+| 扫描/模块/包最近测试 | 26 项通过：Graph 14、Boundary 3、Module policy 7、Package structure 2；两个新增引用覆盖回归先在旧实现失败 |
+| Testing Kit 默认 owner suite | 最终 106 项运行，105 项通过，1 项失败，零 error/skip；唯一失败为全图既有 9 组 SCC。Artifact 状态枚举清单修正后对应 3 项通过 |
+| 仓库工具自测 | 58 项通过，其中 manifest/AST launcher 7 项；覆盖 Unicode、注释/字符串、main/test、缺失可选 source set、畸形 Java 和非法 UTF-8 |
+| 静态规则及检查 | Testing Kit 的 Checkstyle、SpotBugs 通过；真实 Checkstyle 边界 fixture 通过，内部 API 及业务数字反例仍阻断 |
+| 完整 reactor | 60 项编译/安装通过，1 分 2 秒；本批没有修改运行时、JNI、proto 或 native 输入，没有将此前 E2E/C++ 结果记为本批重跑 |
+| 基线、指引与文档 | manifest 与 baseline 一致，指引布局检查通过；226 个架构文档类引用通过；本批修改文件的 whitespace diff 检查通过 |
+| 全图包环 | 642 个主源包，仍为原有 9 组 SCC；未增加豁免、删除失败测试或将全图 gate 记为通过 |
+
+日志：`/tmp/pangrova-module-references-red.log`、`/tmp/pangrova-module-references-final-gates.log`、`/tmp/pangrova-module-references-owner-final.log`、`/tmp/pangrova-module-references-tooling.log`、`/tmp/pangrova-module-references-static.log`、`/tmp/pangrova-module-references-checkstyle-policy.log`、`/tmp/pangrova-module-references-reactor.log`、`/tmp/pangrova-module-references-manifest.log`、`/tmp/pangrova-module-references-docrefs.log`。首次 owner 失败及修复前证据留在 `/tmp/pangrova-module-references-owner.log`。
+
+G1 的模块引用检查修复已经验收，后续按第 20.3 节推进 B6 的真实共享查询、同 Connection 的 authority/publication 端口与业务提交 owner；不以门面转调旧 build 基类消除表面上的包环。第 12.3 节逐包审查还要改造 StateEnumUniquenessPropertyTest 的发现与失败语义，清除已迁移 owner 的过期库存，并验证唯一权威定义。第 5 节其余包的语义审查、9 组包环、完整生产回归 R6 均未完成。
+
+
+## 22. Artifact JDBC 共享查询与生成列提交事务分离
+
+### 22.1 实际依赖消除
+
+第 20.3 节列出的共享读取已从 build 状态机继承链移出：`artifact.jdbc.query.JdbcArtifactBuildQueries` 独占 scoped dispatch、版本依赖、pages、splits 与 page dependencies 的真实 SQL 和行映射。它只消费调用方 Connection、Artifact 契约/codec 和 Security scope codec，不获得 DataSource，不创建连接，不提交事务，不转调原 build 基类。原来的 tenant/job/page 过滤、ordinal 排序、canonical split 检查与 graph/scope 解码保持一致。
+
+CurrentAuthority、三个领域 publication store、publication output validator 和 generic build 的读取/claim/completion/replay 都直接消费该查询能力。`JdbcDataBuildStoreMappings` 收为包内；原 `JdbcArtifactBuildPageLoader` 删除读取职责并更名为包内 `JdbcDataBuildAdmission`，仅处理准入/身份/页 cohort 校验，没有保留旧公开门面。
+
+生成列 COMMITTED 提交是业务事务，不属于发布查询接口：
+
+- `GeneratedValueBuildMetadataStore` 仅保留 descriptor register 与已发布 generation lookup。
+- 新 `GeneratedValueBuildSubmissionStore` 拥有“全部 build/descriptor 创建 + 精确 COMMITTED redo acknowledgment”的单一业务操作。
+- `artifact.jdbc.submission.JdbcGeneratedValueBuildSubmissionStore` 接管原 outbox 的真实 SQL 组合以及连接、commit/rollback 生命周期；原 `JdbcGeneratedWriteOutbox` 删除。它依次获得 authority gate、锁定已提交日志、验证原始和当前权限、创建全部 build、登记全部 descriptor、更新 acknowledgment，仍使用同一个 Connection。
+- Descriptor store 只公开带显式事务检查的内部 `registerWithinTransaction` 入口；其构造、普通注册、锁和 pointer/epoch 更新仍包内。提交 adapter 不获得另一条自动提交的 descriptor 写入链。
+- `assembly.artifact.GeneratedValueArtifactStores.submissions` 为应用装配返回业务端口。DurableGeneratedValueBuildService 只持有该提交端口；生产 wiring、Coordinator PostgreSQL 测试和真实 SQL E2E 三个构造源均已切换，没有缺省空实现或旧构造重载。
+
+这使 `.jdbc` 不再回引 `.jdbc.build`，新 `.jdbc.submission` 单向组合 build 与领域 descriptor/authority，`.jdbc.query` 位于两者之下。完整 AST 图由 9 组降为 8 组 SCC，Metadata 内该包环消失；这一结果没有将 root 与 build 合包，也没有删去全图 gate 或添加豁免。
+
+当前仍是 Metadata 内部的实际解耦，未把 generic JDBC 运行时误报为已迁入 Artifact。tenant/table/model authority、execution fence、domain published-input 查询、Metadata 异常与装配依赖仍是跨制品迁移的前置条件；之后应通过明确的事务适配端口处理，而不能让 Artifact 反向依赖 Metadata/AI Control/Query runtime。
+
+
+### 22.2 发现并修复的事务收尾缺陷
+
+原 `JdbcDataBuildStoreMappings.inTransaction` 只捕获 SQLException/RuntimeException，然后在 finally 中恢复原 autoCommit。真实 PostgreSQL 回归在 job、route 和 dispatch 已写入、pages 尚未写入时注入驱动 Error：旧实现仍抛出该 Error，但 finally 的 `setAutoCommit(true)` 提交了半成品 job。另一条故障回归证明 rollback SQLException 会替换最初的业务/SQL 失败。两项均先在旧实现失败，有数据库残留与异常因果链证据，不是仅凭代码推测。
+
+事务助手现在对 SQL、RuntimeException、Error 都显式回滚；rollback 自身失败作为 suppressed 保留，原异常继续传播。方法拥有并关闭从 DataSource 借出的连接，不在失败收尾恢复自动提交，避免提交未完成事务。生成列提交 adapter 采用同样的失败保留规则；caller-owned `createJobWithinTransaction` 仍不提交、不回滚调用方连接。原 SQL、锁获取顺序、fencing 判定、数据库结构和 Flyway 历史版本保持不变。
+
+验证覆盖实际 PostgreSQL 六类持久化表均无部分残留；SQL/运行时/Error 三类故障下连接回滚后关闭，rollback 失败不覆盖原故障；同一连接读取尚未提交的 dispatch/dependencies/pages，并确认另一租户及另一个连接看不到该 cohort。已有 generated descriptor 故障注入与重试/acknowledgment 测试继续作为跨域原子性的消费者验证。
+
+
+### 22.3 下一批跨制品迁移的精确边界
+
+复查 `JdbcDataBuildPublishedInputs` 与 `JdbcDataBuildOutputQueries` 后，其 manifest/output/split 读取实际只访问通用 Artifact 表，并不读取 generated/index/tabular 领域 publication 表。这部分可随通用存储直接迁移；第 20 节对 published-input 事务端口的泛化要求据此收窄，保留同 Connection 的 published job 锁、source checksum 与 manifest identity 校验即可。
+
+剩余跨领域 seam 已具体定位：
+
+1. `ArtifactCurrentAuthority` 在同一 authority gate 下组合 `JdbcTenantStore.requireDeferredTenant`、`TableControlDeferredPolicy.requireCurrent` 和 `GeneratedModelCurrentAuthority.requireCurrent`。通用 store 需要消费受约束的 JDBC 事务能力；实现保留在实际领域/组合 owner，不能在 Artifact API 中引入 Metadata 实现或把整个 DataSource 服务容器作为 Context 注入。
+2. `CurrentDeferredExecutionContext` 组合原编译 scope、当前 direct roles 与 backend-issued ExecutionAnchor。事实与读取/锁定实现需分离；Query 的执行租约是唯一权威，不能复制或合成新的 owner token。
+3. `ArtifactExecutionFence` 同时访问通用 artifact route/job 和 Query execution_anchor；迁移时明确哪一层负责在调用方事务中锁定并验证 Query 租约。原数据库锁顺序与 publication 前后两次当前租约检查需要真实并发证据。
+4. 三个领域 publisher 都直接更新 `artifact_build_jobs` 的 PUBLISHED、digest、计数与时间。generic job 状态写入需由 Artifact 事务实现统一拥有，领域 generation/active pointer 仍由各领域 adapter 更新，并通过同一 Connection 原子组合；不能把发布拆成两个自动提交调用。
+5. generic JDBC 的 `MetastoreException`、读取/claim/lease/completion 与 stage exchange、revocation 的归属一并核验，接口/实现/工厂/消费者/测试同批迁移。Metadata 历史 SQL 不搬动；Artifact 测试不能反向消费 Metadata test-jar 形成测试依赖环。
+
+Worker B7 的下一次实现也需按状态所有权处理：实查 TaskInfo 包含 native creation、cleanup retry、release receipt、terminal publication 和可变 memory/buffer 计数，不是单纯不可变 DTO。可独立下沉 TaskState 与纯转换规则；memory consumer 需要精确的请求/资源能力，而不能把整个 TaskInfo 改名后放进公开 API。上述只是已核实的后续迁移边界，本批尚未更改 Worker 执行行为。
+
+
+### 22.4 本批最终验证
+
+| 范围 | 结果与限制 |
+|---|---|
+| Metadata 默认 owner | 最终 445 项通过，零失败/错误/跳过；含新增 Error 半提交、rollback 异常保留、生成列事务关闭回归与共享连接未提交读取验证 |
+| Metadata authority / cancel / migration | 显式启用 integration 分组，11 项通过；当前权限、取消锁与 execution fence 升级保护 |
+| AI Control / Indexing | 两个默认 owner suite 分别 44 / 202 项通过，覆盖 catalog export 事务与索引发布消费者 |
+| Coordinator 消费者 | 49 项通过：生成列提交/descriptor 故障回滚/精确重试、发布、Index build、Feature View SQL、stage exchange、durable producer 与 deadline |
+| 静态检查 | Metadata、Coordinator 的 Checkstyle / SpotBugs 均通过，未新增豁免 |
+| 完整 reactor | 60 项编译/安装通过，1 分 2 秒；新端口与所有构造源一起编译 |
+| 实际 SQL / Java-native | 最终制品集 7 项通过：异步生成列 COMMITTED 生命周期与 NULL 源 publication 2、Feature View 导出/当前策略重编译 2、Activation smoke 3。native/JNI/proto 输入未改，复用前批已验证且一致的 native 库，本批未重跑 C++ 全测试 |
+| 制品 / 源码边界 | Metadata JAR 包含新查询、提交和工厂类，无旧 JdbcGeneratedWriteOutbox / JdbcArtifactBuildPageLoader class；Mappings、Admission 收为包内 |
+| 模块 / 全图 | manifest/baseline 一致；模块依赖 7 项、包结构 2 项通过；645 个主源包仍有 8 组 SCC，全图 gate 继续失败，完整 R6 未关闭 |
+
+红灯证据：`/tmp/pangrova-artifact-jdbc-transaction-red.log`（真实 PostgreSQL 留下部分 job，以及 rollback 覆盖原始错误）。修复后的最近 17 项见 `/tmp/pangrova-artifact-jdbc-transaction-green.log`。完整 owner 与静态检查见 `/tmp/pangrova-artifact-jdbc-owner-final.log`；其余为 `/tmp/pangrova-artifact-jdbc-authority.log`、`/tmp/pangrova-artifact-jdbc-domain-owners.log`、`/tmp/pangrova-artifact-jdbc-coordinator.log`、`/tmp/pangrova-artifact-jdbc-reactor-final.log`、`/tmp/pangrova-artifact-jdbc-e2e.log`、`/tmp/pangrova-artifact-jdbc-gates-final.log`。模块基线与 226 个架构文档类引用检查分别见 `/tmp/pangrova-artifact-jdbc-manifest.log`、`/tmp/pangrova-artifact-jdbc-docrefs.log`。
+
+### 22.5 同类事务收尾的跨模块审查项（G2 / P0，发现时未修复；进展见第 23 节）
+
+从本批已复现的根因出发，源码检索并逐一读取发现以下四个入口也在 finally 中恢复自动提交，且未覆盖 Error；其中 Offset 入口只捕获 SQLException，ReaderPins 还会用 rollback SQLException 覆盖原始失败：
+
+- Materialization JDBC：`JdbcMaterializationSql.inTransaction`、`JdbcMaterializationReaderPins.pinReader`。
+- Streaming：`JdbcStreamOffsetStore.executeBatchSave`。
+- Shuffle Service：`JdbcTransactions.transaction`。
+
+这是已确认的同类代码路径，尚未对这四个入口完成独立数据库故障复现和修复，不能把 Artifact 的通过结果外推为全仓事务安全。下一批优先补各 owner 的真实部分写入/回滚失败回归，再按连接所有权统一处理异常与关闭；随后返回第 22.3 节的跨制品边界迁移。禁止只做批量文本替换或只检查异常类型而不检查持久化残留。此项属于原 R5 的状态/资源/失败路径审查，不取代剩余 8 组包环和全项目逐包语义审查。
+
+
+## 23. Materialization、Streaming、Shuffle 的事务收尾与下一批范围
+
+### 23.1 四个入口的独立数据库证据与修复
+
+Testing Kit 新增 `postgres.JdbcMutationFault`，只代理公共 JDBC 接口，不反射访问私有状态。它先执行真实 PreparedStatement 的写入/批量写入，再抛出指定 SQL、RuntimeException 或 Error；可另外阻断 rollback，但 close 仍到达真实 PostgreSQL 连接。三个 owner 共用故障机制，持久化断言仍由各 owner 使用不同连接读取实际领域表，避免只验证代理调用顺序。
+
+| 入口 | 旧实现真实残留 | 具体处理 |
+|---|---|---|
+| `JdbcMaterializationSql.inTransaction` | 在 `materialization.objects` 插入后注入 Error，仍提交没有后续 definition/schedule 的对象；rollback 自身失败时也提交 | SQL/RuntimeException/Error 均显式 rollback；SQL 按原领域异常包装；rollback SQLException suppressed；关闭自己取得的连接，不恢复 autoCommit |
+| `JdbcMaterializationReaderPins.pinReader` | 对实际发布 generation 完成 pin 写入后注入 Error，异常退出仍留下 reader pin；rollback 失败同样残留 | 删除重复事务编排，直接复用既有 `JdbcMaterializationSql`；FOR SHARE 状态检查与 pin upsert 仍在同 Connection、原锁顺序下 |
+| `JdbcStreamOffsetStore.executeBatchSave` | RuntimeException 和 Error 都会留下已经写入的两个 partition offset；SQL 故障叠加 rollback 失败也留下记录 | 批量写入捕获 SQL/RuntimeException/Error；保留原 StreamingStoreException 投影与 rollback 因果链，关闭连接不触发自动提交 |
+| `JdbcTransactions.transaction` | Error 绕过 catch Exception；SQL/RuntimeException 的 rollback 失败后仍提交 probe 行 | 保持 SqlWork 的 checked exception 包装契约，额外处理 Error，rollback 接受 Throwable；不修改只读助手 |
+
+Materialization 回归使用 Metadata 维护的实际历史 migration、真实创建/保留/提交/发布路径，再验证 reader pin 故障与重试成功，未复制简化业务 schema，也未为测试制造 Materialization→Metadata 反向模块依赖。此测试目前仍由 migration owner 承载，最终测试迁移须与历史 migration 装配方案一起处理。Streaming 的 fixture 改用已经存在的隔离 schema API，避免不同测试清空同一张表。
+
+每个入口覆盖三类原始故障与两种 rollback 结果的组合，断言失败后没有持久化残留，并校验原异常身份/包装与 suppressed rollback。正常提交、checked 工作异常、reader pin 重试和释放继续验证。生产 SQL、绑定、schema、历史 Flyway 内容、JNI 与 native 输入均未改变。
+
+### 23.2 扩大检索后必须继续处理的入口
+
+全仓主源码检索 `setAutoCommit(...)` 后逐一读取，发现此前按变量名 `previousAutoCommit/originalAutoCommit` 定位遗漏了以下四个同类入口。它们是已确认的代码风险，本批尚未独立复现和修复，G2 因此保持进行中：
+
+| 所有者 / 入口 | 已核实的事务范围与后续验收 |
+|---|---|
+| Security `PersistentTenantStore.createTenant` | tenant、quota、properties 同事务；仅捕获 SQLException，finally 无条件 autoCommit=true。注入 tenant 写后故障，检查三类表无部分创建，保留原领域异常 |
+| Security `PersistentTenantStore.updateTenant` | tenant 更新、quota 和 properties 替换同事务；同样仅捕获 SQLException。失败后必须保留原有 tenant/quota/properties，不能仅断言没有新行 |
+| Security `PersistentRoleStore.dropRole` | 删除 grants、user/group bindings、role；finally 恢复 `prevAuto`。失败应保留原角色及完整授权关系，避免角色仍在但授权被部分删除 |
+| Coordinator `JdbcWorkerRegistry.registerOnce` | update-then-insert 注册与 incarnation 竞争；仅捕获 SQLException，finally autoCommit=true。通过公开 register 入口验证实际插入/更新回滚，保留原有唯一冲突重试和 Worker incarnation 语义 |
+
+下一批先为这些入口补真实 PostgreSQL 写后失败和 rollback 失败回归，再根据各领域既有事务助手决定最小修复；不将安全领域异常包装搬入 Common，也不把所有 JDBC helper 合成一个跨域万能接口。其他只有 `setAutoCommit(false)` 的方法还需按连接所有权、异常投影、关闭和调用方事务逐项审查；“没有恢复 autoCommit”并不是完整资源正确性证明。
+
+本批同时追踪了 Offset SPI 的生产调用：`StreamingBootstrap` 构造 JDBC store，Scheduler 读取初始 offsets，drop 通过受 epoch 保护的 state 删除和数据库外键 CASCADE 清理缓存 offsets；当前 `saveOffsets` 的直接调用仅在测试。运行中的 `CdcPipelineLoop` 使用 commit coordinator 的完整 durable checkpoint，并优先于启动缓存 offsets 恢复。这是待逐包明确的兼容/恢复职责，不是可凭“没有写调用”直接删除的死代码；本次 JDBC 修复也不能用普通 INSERT/SELECT 的 StreamingCdcE2ETest 冒充该 offset 写入链路验证。后续需以真实旧 checkpoint 数据和恢复优先级决定保留或迁移契约，不能新增双写来补目录表象。
+
+G2 的剩余入口处理后回到第 22.3 节的 Artifact 运行时迁入，再继续 B7–B14。剩余 8 组 SCC、全部无环包的语义审查与 R6 均未关闭。
+
+
+### 23.3 已完成的验证与边界
+
+| 范围 | 本批证据 |
+|---|---|
+| 最近 PostgreSQL 回归 | Materialization 15、Streaming 13、Shuffle 8 项通过；其中四个入口的 24 个故障组合覆盖 SQL/RuntimeException/Error × rollback 成功/失败。旧实现合计 17 个用例失败，均读取到真实持久化残留 |
+| 完整 owner suites | Materialization Core 171、Metadata 默认组 445、Streaming 287、Shuffle Service 34 项通过，零失败/错误/跳过；Materialization JDBC 的 migration 集成用例另行显式启用 integration 分组运行，不混入 Metadata 默认 445 项 |
+| 消费者 | Coordinator 的 StreamScheduler lifecycle/checkpoint/stop-all race/watermark cleanup 16 项通过 |
+| 静态检查 | Testing Kit、Materialization Core/JDBC、Metadata、Streaming、Shuffle Service 的 Checkstyle/SpotBugs 通过；Shuffle 既有 CapabilityScope 全限定名长行仅换行修正，未扩大豁免 |
+| 完整 reactor | 当前 60 项编译/安装通过，1 分 3 秒；3,536 个主源文件、48 个代码叶子、645 个包 |
+| SQL / Java-native | Dynamic Table 的创建/refresh/增量/分区替换/空 generation/权限等 9 项、Materialized View 的发布/DDL/权限等 5 项、Activation smoke 3 项通过，共 17 项 |
+| 独立 JVM Shuffle / Native | `NativeExchangeTransportExternalIntegrationTest` 3 项通过：真实 PostgreSQL/MinIO/mTLS 服务 → JNI ExchangeNode → Flight，覆盖 chunk/terminal、截断损坏、取消与资源释放；显式取消 native-runtime-owner 排除，每项实际执行 |
+| 架构与基线 | manifest 与 baseline 一致；模块依赖 7 项、包结构 2 项通过；全图测试仍因原有 8 组 SCC 失败；没有改 allow-list 或隐藏失败；226 个架构文档类引用通过 |
+
+最近回归及红灯记录：`/tmp/pangrova-g2-metadata-red-real.log`、`/tmp/pangrova-g2-streaming-red.log`、`/tmp/pangrova-g2-shuffle-red.log`；对应 green 日志分别为 metadata/streaming/shuffle-green。Materialization 最初一次试跑修正了测试 lambda 名字遮蔽，下一次因默认排除 integration 实际运行 0 项；上表只采计显式启用分组后的 15 项，不把编译失败或空测试记为行为证据。
+
+owner 和静态日志：`/tmp/pangrova-g2-materialization-metadata-owner.log`、`/tmp/pangrova-g2-streaming-owner.log`、`/tmp/pangrova-g2-shuffle-owner.log`、`/tmp/pangrova-g2-shuffle-static-final.log`、`/tmp/pangrova-transaction-fault-kit.log`。消费者与完整 reactor：`/tmp/pangrova-g2-coordinator.log`、`/tmp/pangrova-g2-reactor.log`。架构检查：`/tmp/pangrova-g2-gates-final.log`、`/tmp/pangrova-g2-manifest.log`。
+
+SQL 测试首次未设置 fixture 镜像参数，在共享设施启动前退出；补上已准备的真实模型镜像参数后执行 17 项通过，未改为跳过或模拟。失败/修正后记录分别是 `/tmp/pangrova-g2-e2e.log`、`/tmp/pangrova-g2-e2e-configured.log`。本批 Java 事务改动不改变 native/JNI/proto 输入，复用前批已经核验一致的 native 库，不将历史 C++ 测试记为本批重新执行。
+
+独立 Native Shuffle 的三项记录为 `/tmp/pangrova-g2-native-shuffle.log`；架构文档类引用记录为 `/tmp/pangrova-g2-docrefs.log`。本批全部验证已结束，G2 四个新增 Security/Worker 注册入口仍待处理，完整生产回归 R6 仍未运行完毕；这些局部成功不关闭全项目目标。
+
+
+## 24. Security、Worker 注册与对象依赖图事务审查
+
+### 24.1 根因修复与持久化边界
+
+第 23.2 节四个入口已分别通过真实数据库写后故障复现。Security 的 create/update tenant 和 drop role 原先只捕获 SQLException：RuntimeException/Error 以及 rollback 自身失败都会经 finally 恢复自动提交，留下半成品。Worker register 的同类收尾也会提交失败插入，或将既有 host/incarnation 替换成失败注册的值。
+
+Security 同包的 `PersistentStoreSupport` 新增包内 rollback 辅助方法，保留原异常并抑制 rollback SQLException；tenant/role 三个操作显式处理 SQL/RuntimeException/Error，保留原领域包装。没有新建跨域事务框架，也没有扩大公开 API。Worker 注册保留原 update-then-insert、SQLSTATE 唯一冲突重试次数、绑定、日志和原始 registeredAt 语义，仅修复自己拥有的事务收尾。
+
+全仓主源码复查所有 `setAutoCommit` 调用，额外发现 Metadata `JdbcObjectDependencyStore.recordDependencies/replaceDependenciesForChild` 使用另一变量名 `priorAutoCommit`，此前未列入四入口清单。两个方法也独立复现：record 失败仍增加新边，replace 失败会丢失旧边并留下替换边。现同样回滚 SQL/RuntimeException/Error、保留原 MetastoreException 包装和 rollback suppressed，关闭连接不恢复自动提交。
+
+本批共六个生产入口、七种操作场景（Worker 插入/更新分别覆盖），42 个故障组合；修复前实际残留/变化断言失败 35 项。测试不只检查抛错：tenant update 比较原有完整 tenant/quota/properties；role drop 验证角色、grants、user/group bindings 全部保留；注册检查失败后原身份或空记录，再验证成功重试；依赖图同时读取 parent/child 两个方向，确认没有新增或丢失的边。所有读取均从独立连接观察。
+
+Worker 回归初稿误将更新的输入 registeredAt 当作应覆盖旧值，修正测试数据后保留原持久化契约；最终红灯是 15 项中 10 项因失败注册仍提交而失败，未为测试修改注册 SQL。Security 49 项与 Worker 28 项、对象依赖图 18 项最近测试已经通过。历史 migration、schema、协议、JNI 和 native 输入均未改。
+
+### 24.2 下一阶段的语义审查项
+
+上述修复覆盖已定位的业务事务 autoCommit 恢复路径。全仓直接调用复查只剩连接池默认配置及客户端 JDBC 的既有 autoCommit API，不因此声称所有事务、连接池异常和 caller-owned 操作已全面正确。第 12.3 节仍需审查其他只设置 autoCommit=false 的事务关闭、锁顺序和异常投影。
+
+对象依赖图还存在独立的契约/装配问题，列为后续 R5 明确任务：
+
+- `ObjectDependencyStore.getTransitiveDependentsOf` 承诺可用于 cascade-drop 的逆拓扑顺序；InMemory/JDBC 两个实现都只反转 BFS。图 A→B、A→C、B→D、D→C 中 C 必须先于 D，但反转 BFS 会把 D 放在 C 前。下一批先对两个实现加入同一有交叉边 DAG 的反例，再决定共享遍历规则，保留明确的 cycle 行为和锁/连接所有权；不能仅将注释从“拓扑”改为“遍历”来弱化契约。
+- 当前生产源码没有构造 `ObjectDependencyService` 或 JDBC dependency store 的入口，BootstrapReachabilityTest 还把 service 列为 baselined orphan。cascade service 消费该顺序，但其存在不证明当前 SQL DROP 已经过它。后续必须审查实际 DROP/materialization/lineage 权威，决定由哪个现有入口消费、与既有权威合并，或按已验证不可达范围移除；不能为了清空 orphan 清单直接把全套旧能力接入启动。
+
+这两项与 Artifact 的 authority/publication 跨制品迁移分别跟踪。剩余 8 组 SCC、645 个包的完整语义审查和 R6 仍未关闭。
+
+
+### 24.3 最终验证记录
+
+- 最近回归：Security 49、Worker Registry 28、Object Dependency Store 18 项通过。红灯日志为 `/tmp/pangrova-g2b-security-red.log`、`/tmp/pangrova-g2b-registry-red-corrected.log`、`/tmp/pangrova-g2b-dependencies-red.log`；对应 green 日志同前缀。
+- 完整默认 owner：Security 391、Metadata 445、Coordinator 3,122 项通过，全部零失败/错误/跳过，Checkstyle/SpotBugs 均通过；分别见 `/tmp/pangrova-g2b-security-owner.log`、`/tmp/pangrova-g2b-metadata-owner.log`、`/tmp/pangrova-g2b-coordinator-owner.log`。Coordinator 完整运行 11 分 23 秒，未中断或用局部选择替代；新增 Object Dependency integration 分组另行显式执行，不计入 Metadata 默认组。
+- 全 reactor：60 项编译/安装通过，1 分 2 秒，见 `/tmp/pangrova-g2b-reactor.log`。
+- 真实 SQL：Metadata Table Authorization 6、Activation smoke 3 项通过，见 `/tmp/pangrova-g2b-e2e.log`。
+- 独立 JVM：WorkerBootstrap 5 项通过，使用真实 PostgreSQL 配置的 Coordinator、Worker HTTP 注册、native 执行器、关闭与重新启动；见 `/tmp/pangrova-g2b-worker-bootstrap.log`。此组显式启用 native-runtime-owner，与共享 SQL JVM 分开。
+- 集群恢复：WorkerRegistry/ClusterRegistry 11 项通过，覆盖跨管理器恢复、并发注册幂等、心跳、过期、DB 不可用及完整恢复；见 `/tmp/pangrova-g2b-cluster-registry.log`。
+- 架构：模块依赖 7 项、包结构 2 项通过，完整包环仍有原 8 组 SCC；见 `/tmp/pangrova-g2b-gates.log`。manifest/baseline 一致，227 个架构文档类引用通过。逐一复核第 5 节 48 个叶子的源文件数、包数及包内数量，与当前文件一致；该盘点不等同于逐包语义验收。
+
+未改 native/JNI/proto 输入，本批只重跑受影响的 Java/native 消费链，未冒充重新执行 C++ 全回归。所有结果对应当前工作区，未提交或覆盖既有迁移。
+
+第 22–24 节已定位的 G2 事务收尾缺陷现已验收。下一批首先处理本节依赖图排序契约的可复现反例与未装配能力的归属判断，再继续 Artifact JDBC authority/publication 边界与 B7–B14。全项目目标仍处于执行中；8 组 SCC、其他包的行为与资源所有权审查、源码一致的完整 R6 验证是尚未完成的必要条件。
+
+
+## 25. 对象依赖图排序与契约/实现分包
+
+### 25.1 真实反例、共享规则与失败边界
+
+旧 InMemory/JDBC 实现反转 BFS，无法满足 API 承诺的 cascade-drop 逆拓扑顺序。共享契约测试构造 A→B、A→C、B→D、D→C：C 必须先于 D，旧结果却先返回 D。通过真实 service/dropper 再验证失败中止时的图状态，两种存储合计四项测试先在旧实现失败，避免只验证一个孤立排序函数。
+
+`core.relation.ObjectDependencyOrder` 现在拥有同一迭代式后序遍历规则。每个可达对象只访问一次，根不返回；无环图中每个 dependent 都先于其父节点，包括共享后代和 shortcut。循环输入保持原有不抛错、有限访问的行为，但明确循环分量不存在拓扑顺序，不伪造这一保证。显式栈避免深链消耗 Java 调用栈；20,000 层的内存图回归通过。
+
+InMemory 仍持有原来的整个读锁；JDBC 仍由读取方法管理连接，不改变写事务、SQL 或历史 migration。JDBC 的多次读取目前不是整个图的数据库快照，这也不等于跨 coordinator 原子 DROP。Cascade 实际删除失败时，仅已经完成的对象被清理；失败及尚未处理对象的边仍保留。共享测试同时运行内存和真实迁移后的 PostgreSQL，实现规则与实际消费者行为一起验证。
+
+### 25.2 包归属与生产装配决定
+
+| 新包 | 实际迁入/保留职责 |
+|---|---|
+| `metadata.api.relation` | 七个契约/值：ObjectRef、ObjectKind、ObjectDependency、ObjectDependencyStore、CascadePolicy、DependencyViolationException、MetadataMaintenanceHook；API 不导入 core 或 store |
+| `metadata.core.relation` | ObjectDependencyService 与 ObjectDependencyOrder；前者组合策略/调用者删除回调，后者只计算顺序，不取得连接或资源 |
+| `metadata.provider.memory.relation` | InMemoryObjectDependencyStore 及最近测试；不再与共享契约混放 |
+| `metadata.store.jdbc.object` | JdbcObjectDependencyStore；单向消费 API 和纯排序规则，持有 SQL、事务及映射 |
+| `coordinator.metadata` | 现有 LineageBridgeMaintenanceHook 改为只消费关系图 API；没有新增生产注册 |
+
+八个移动类型的仓内生产/测试消费者已同步切换，旧 FQN 不保留转发 alias。Metadata clean 构建后检查 JAR：core 仅剩服务、排序规则及其内部 class，八个新 API/provider 类型存在，旧类型无残留。模块数保持 60/48，主源码增加一个排序规则类，总计 3,537 个主源文件、647 个主源包。模块 manifest 的 Metadata 仍导出整个根，这是后续全模块 API 收敛项；本批没有借迁移扩大 exports，也不将分包本身宣称为所有 core 导入已被 gate 阻断。
+
+装配追踪后的决定是保留该契约组件及两种实际实现，明确其适用范围，不把它直接接入 SQL DROP，也不因当前没有生产构造点而删除已有契约。当前路径分别是：
+
+- 普通表：DefaultMetadataService.dropTable → Table Control 的 drop/current-catalog 检查 → ConnectorMetadata.dropTable → markDropped/缓存与事件。
+- View：DropViewTask → ConnectorMetadata.dropView；并未经过通用 dependency service。
+- Materialization：MaterializationService.drop 根据带 tenant 的 MaterializationId，遍历 repository.findLiveDependents，先鉴权全部目标再按依赖顺序 dropOne。
+- Lineage：ModuleIntegrationBootstrap 将 JdbcQueryLineageOutbox 注入 emitter；没有注册 LineageBridgeMaintenanceHook。
+
+通用图 V9 自然键只有 catalog/schema/object，缺 tenant 和 incarnation，也没有与上述 DDL 权威共享提交协议。直接接入会创造不正确的第二权威。修正了 API、内存 provider 和 lineage hook 中“已用于生产/embedded bootstrap”的不实注释；既有 orphan gate 条目保留，不通过新增豁免、Experimental 标记或删测试隐藏未接入事实。后续接入或替代必须先完成身份、并发快照、DDL 事务与历史数据迁移设计。关系图自然键与 kind 元数据的一致性、hook 语义仍属于后续逐方法审查，不能凭排序通过关闭整包的所有语义项。
+
+
+### 25.3 后续方法级审查的具体入口
+
+排序与分包不关闭以下已定位问题：
+
+1. **自然键与 kind**：API 和 PostgreSQL 主键不把 kind 作为身份，而内存双向 Map 和遍历 visited 使用包含 kind 的 ObjectRef。先用同一自然键、不同 kind 的查询/重复写入/替换/删除/自引用用例比较两个后端；明确 kind 是边上描述还是对象当前事实，避免直接改 record 的 equals 或修改历史 V9 主键来掩盖差异。
+2. **通知契约**：ObjectDependencyService.recordDependency 直接调用 store，绕过批量方法的 hook；recordDependencies 为增量写，却把本次输入当作 newParents 通知。MetadataMaintenanceHook 与 LineageBridgeMaintenanceHook 将参数理解为新父集合。修复前需定义增量通知与完整快照的唯一语义、并发及写后读取失败边界；仅补一次 getParentsOf 不能证明通知与写入原子。补单边/增量/替换/空集合/存储失败/多个监听器回归。
+3. **部分级联通知**：applyCascade 清理已成功的 dependent 后没有逐个通知；最终 onObjectDropped(parent, cascadedDependents) 只在调用者完成父删除后触发。先明确成功一半后失败时应交付的事件以及防重复规则；Lineage bridge 当前只输出 parent dataset，不能把 cascaded 列表被记录到日志当作子对象事件已发布。
+
+这些入口当前均没有生产装配；本轮保留组件而非扩大它的运行时权限。若今后需要可靠跨进程通知，应复用实际领域的提交/outbox 边界，不能把同步 best-effort hook 改名成 durable publication。完成这些审查后继续第 22.3 节的 Artifact 事务端口及运行时迁移，再推进 B7–B14；全模块无环和 R6 仍是必要退出条件。
+
+
+### 25.4 本批最终验证
+
+| 范围 | 实际结果 |
+|---|---|
+| 排序反例 | 旧实现 39 项中 4 项失败，分别为两个后端的 shortcut 和失败级联状态；修复后最近 55 项通过（内存 17、service 16、真实 PostgreSQL 22），包括 20,000 层深链 |
+| Metadata 默认完整 owner | 450 项通过，零失败/错误/跳过，4 分 46 秒；显式 integration 分组的 JDBC 22 项单独计数，不能混入默认组 |
+| 静态检查 | Metadata 与 Coordinator Checkstyle/SpotBugs 通过；Coordinator 本批只有关系图 API imports 与 adapter 文档变化，未将第 24 节的 3,122 项测试说成本批重新执行 |
+| 完整 reactor | 60 项编译/安装通过，1 分 2 秒；未变动 native/JNI/proto 输入 |
+| 实际 SQL / Java-native | View CREATE/REPLACE/query/DROP/SHOW 六项、Materialization transitive cascade 一项、Activation smoke 三项通过，共十项；这些验证既有生产删除路径，并不证明未注册的通用图已用于 SQL |
+| 结构与文档 | 模块依赖七项、包结构两项通过；647 个包仍有原八组 SCC，全图 gate 仍失败。manifest/baseline 一致，227 个架构文档类引用通过 |
+| 迁移完整性 | 八个旧 Java FQN 在源码/配置检查范围内无残留；Metadata JAR 新 API/provider 类型存在，旧 class 路径不存在，core 只保留 service/order 及内部 class；本批路径 whitespace 检查通过 |
+
+日志：`/tmp/pangrova-dependency-order-red.log`、`/tmp/pangrova-dependency-order-green.log`、`/tmp/pangrova-dependency-packages-focused-fixed.log`、`/tmp/pangrova-dependency-packages-static.log`、`/tmp/pangrova-dependency-packages-owner.log`、`/tmp/pangrova-dependency-packages-coordinator-static.log`、`/tmp/pangrova-dependency-packages-reactor.log`、`/tmp/pangrova-dependency-packages-e2e.log`、`/tmp/pangrova-dependency-packages-views.log`、`/tmp/pangrova-dependency-packages-gates.log`、`/tmp/pangrova-dependency-packages-manifest.log`、`/tmp/pangrova-dependency-packages-docrefs.log`。
+
+首次混合 E2E 选择只执行四项：精确外层类选择没有包含 View 的 nested suites；随后使用 `ViewDdlE2ETest*` 实际执行六项，未把零执行记为通过。分包中最初一次编译因前缀替换误把 service/order 指向 API 失败，修正准确 FQN 后通过；下一次 55 项行为测试通过但静态检查指出一个遗留 unused import，删除后静态检查与最终 reactor 通过，没有添加豁免。全工作区另有 Connector SPI package-info 的既有末尾空行提示，不属本批路径，保留原修改。
+
+本批排序和契约分层已验证；第 25.3 节、Artifact 运行时迁移、剩余八组 SCC、全包语义验收和完整 R6 仍未关闭，项目重构目标继续执行。
+
+
+## 26. 关系图自然键一致性与无效输入原子性
+
+### 26.1 对照两个存储后的修复
+
+第 25.3 节自然键问题已用同一组契约测试分别运行内存与真实 PostgreSQL。旧实现共 57 项测试中 12 项失败：内存九项涵盖 lookup、重复写、替换、双向删除、自引用、遍历去重/根排除以及 null 输入后的部分变更；JDBC 三项为同名不同 kind 的自引用和两种遍历。不是单凭数据类型名称推断问题。
+
+新增 `core.relation.ObjectDependencyKey` 为内部自然键值（标记 Internal），由两个 provider 和排序规则共同使用；不新增模块，不改变 ObjectRef record 的四字段相等语义，不把 QualifiedTableRef 的 table 身份借作非表对象权威。内存双向邻接表以自然键索引、保留每条边写入的 ObjectRef 描述。单一读写锁继续拥有全部图变更，去掉锁内不必要的 ConcurrentHashMap 与重复录入实现。重复边只刷新该边两端的 kind，其他边的描述不被全图重写，与既有 JDBC upsert 一致。
+
+排序的 visited 与根排除统一按自然键；同一对象有不同边上 kind 时只返回一次，返回首次发现的描述，不假装查询了当前 catalog。两个 provider 都忽略自然自引用，而不是比较四字段 record。写入前复制并验证完整 parents 集合，null 元素在任何图变更前失败；内存不会先删除旧集合或添加部分新边后才抛错。JDBC 原有 SQL、连接、事务 rollback、迁移和主键保持不变。
+
+这不是允许对象在 catalog 内无 DROP 变更类型；图本来就不是 catalog 的存在性/kind authority。契约现在清楚区分自然身份、边上描述与当前目录事实。既有持久化行无需重写；无生产启动入口这一边界仍成立。
+
+主源码变为 3,538 个文件，Metadata 150 个文件、35 个包；全仓 647 个包，60 个 reactor 项目、48 个代码叶子。新增九个共享契约测试在两个后端执行，最近测试 73 项通过（内存 26、service 16、JDBC 31）；红/绿记录分别为 `/tmp/pangrova-dependency-identity-red.log` 与 `/tmp/pangrova-dependency-identity-green.log`。
+
+### 26.2 尚未关闭的边界
+
+第 25.3 节的 hook 完整集合与部分级联通知仍未修复。仓内只有内存/JDBC 两个 ObjectDependencyStore 实现，只有 Coordinator LineageBridgeMaintenanceHook 一个生产 callback 实现（仍未注册）；没有发现第三方实现的仓内 adapter。下一批必须同时验证单边与增量通知、失败后图状态、快照取得时机及监听器隔离，避免仅为拼接完整集合而把写后读失败伪装成写事务失败。之后继续 Artifact authority/publication 端口与 B7–B14，不以本节无新增包环关闭其他领域审查。
+
+
+继续追踪 `applyDropPolicy` 的前后调用协议，还发现 WARN 在 connector 实际 DROP 前就调用 removeAllEdgesFor(parent)。如果之后 DROP 失败，真实对象仍存在而边已消失；目前 warnLogsAndRemovesEdges 测试只断言过早清理，没有覆盖失败场景。下一批须与 onObjectDropped 的“成功之后清理”约定一起纠正：先报告/警告依赖，成功删除后再清理；补 DROP 失败保留图、成功后清理和 callback 的回归，不能只保留现有测试的错误时序。
+
+
+### 26.3 最终验证记录
+
+- 最近两后端及 service 共 73 项通过；红灯中的 12 个失败全部转绿。显式启用 JDBC integration 分组，31 项真实 PostgreSQL 测试没有被默认排除。
+- Metadata 默认完整 owner 459 项通过，零失败/错误/跳过，Checkstyle 0 violation、SpotBugs 0 bug/error，安装成功；耗时 4 分 46 秒，见 `/tmp/pangrova-dependency-identity-owner.log`。
+- 60 项完整 reactor 编译/安装通过，1 分 1 秒，见 `/tmp/pangrova-dependency-identity-reactor.log`。
+- 模块依赖七项、包结构两项通过，647 包仍有八组既有 SCC，全图 gate 继续失败；见 `/tmp/pangrova-dependency-identity-gates.log`。未新增豁免或放宽约束。
+- manifest/baseline 一致，逐一复核第 5 节全部 48 个叶子的包内计数，与 3,538 个主源文件一致；229 个架构文档类引用通过。本批路径 whitespace 检查通过。对应日志为 `/tmp/pangrova-dependency-identity-baseline.log`、`/tmp/pangrova-dependency-identity-manifest.log`、`/tmp/pangrova-dependency-identity-docrefs.log`。
+
+本批只改变未注册通用关系图组件的内部身份与输入校验，没有修改当前 SQL DROP 装配、JNI/native/proto 或 schema；因此以两个真实存储、service、完整 Metadata 和全消费者编译为验证范围，不把上一批 SQL/native 结果重复算作本批执行。后续 hook/WARN 修复仍需完成最近行为与完整 owner 验证；JDBC 并发重复边写入、同一 child 的 replace/record 竞争也须纳入剩余语义审查，不能以单调用原子性代替并发操作的结果定义。整体目标保持执行中。
+
+
+## 27. 关系图通知快照、删除时序与 lineage 消费端
+
+### 27.1 存储返回事实，服务负责通知
+
+仓内两种 store 及全部调用者已经追踪。ObjectDependencyStore 的 recordDependencies/replaceDependenciesForChild 现返回不可变完整父集合；内存由既有写锁覆盖修改与快照，JDBC 在原 Connection 的写事务内读取快照后才 commit，读取/映射失败走同一 rollback 路径。service 使用返回值通知，无额外写后读取。单边 convenience 方法委托批量方法；增量事件包括已有父节点，忽略的自引用不进入事件，替换为空也准确通知。
+
+这是两个公开 Java 方法返回类型的源码/二进制契约变更：仓内只有内存/JDBC 两个实现，直接调用者已同步编译，不保留 void alias；部署必须使用同批构建的制品，外部自定义实现需适配返回快照。输入为空的 store.record 返回现有集合而不写边；service 的空增量仍不触发事件。快照是本次锁/事务内观察，并不承诺并发调用的全局顺序、最新性或持久化交付。数据库 commit acknowledgement/连接 close 失败仍可能有不确定结果，不能把同步 hook 当作 outbox。
+
+新增真实 PostgreSQL 故障测试在写入完成后、准备读取父集合时注入 SQLException，分别验证 add/replace 的新边没有提交、旧边仍在、没有成功 hook。共享契约还验证返回值与后续修改脱离、不可变、两个后端行为一致。未新增 schema、独立通知事务或新的服务装配。
+
+### 27.2 删除确认与 callback 隔离
+
+WARN 现在只报告将被 orphan 的 dependents；connector 尚未成功 DROP 时不删图，调用者通过 onObjectDropped 确认成功后才清理。原先只断言提前清理的测试改为覆盖完整前后协议；两个后端都验证失败前图仍完整、确认后才清理和通知。日志也从“已经 orphaned”改为“请求可能造成 orphaning”。
+
+CASCADE 的每个成功步骤在 connector 删除、边清理之后立即通知。后续步骤失败只保留失败和未处理对象的边，已成功删除的对象仍有通知。最终 parent callback 的 cascadedDependents 是上下文，不重播已发生的 child 事件。调用者 dropper 只拥有 connector 删除，service 拥有图清理和逐对象通知，避免双方各自重复通知。
+
+Drop callback 的级联列表在修改前校验并复制；dependency callback 使用存储的不可变集合。一个 listener 尝试修改集合会按既有 RuntimeException 隔离规则被记录，不会改变调用者数据或后续 listener 看到的事件。无效事件参数不会先删边再报错。未改变既有 RuntimeException 日志隔离策略，也没有吞掉新存储失败。
+
+### 27.3 真实 lineage adapter 的终态信息
+
+LineageBridgeMaintenanceHook 原先先发带数据集的 START，再调用只携带 runId 的 emitCompleteEvent；文档承诺的 COMPLETE 输入/输出实际上为空。三个测试通过真实 LineageEventEmitter 与捕获 backend 先全部失败。adapter 现使用同一 operation/inputs/outputs 发 START 与 emitTerminalEvent(COMPLETE)，保留 runId 配对；覆盖 dependency、DROP、snapshot expiry，DROP 不把父级 cascade 上下文重发为子事件。三项修复后通过，与既有 QueryManagerLineage 三项共六项通过。
+
+这一 adapter 依旧没有生产 bootstrap 注册。它记录完成的操作，不声称 OpenLineage 接收方一定据此删除 catalog 对象，也没有替代当前 query lineage 的 durable outbox。
+
+### 27.4 验证进度与剩余范围
+
+关系图旧实现在 89 项中失败 14 项；完成快照和成功级联补充后，95 项最近测试通过：内存 35、service 18、真实 PostgreSQL 42。日志为 `/tmp/pangrova-dependency-notification-red.log`、`/tmp/pangrova-dependency-notification-green.log`、`/tmp/pangrova-dependency-notification-final-focused.log`。Lineage 三项红灯与六项绿灯分别见 `/tmp/pangrova-dependency-lineage-red.log`、`/tmp/pangrova-dependency-lineage-green.log`。Metadata 静态分析/安装已通过，见 `/tmp/pangrova-dependency-notification-install.log`；完整 Metadata、Coordinator owner 已通过；最终安装与消费者结果统一记录在第 28.4 节。
+
+文件和包数不变：3,538 个主源文件、647 个包、48 个叶子、60 个 reactor 项目。JDBC 并发同边写入和 replace/record 竞争仍需验证；这些新增快照没有赋予操作跨 coordinator 的全图串行化保证。后续回到 Artifact runtime authority/publication 迁移及剩余八组 SCC，R6 尚未关闭。
+
+
+## 28. 关系图并发重复写与整集合替换
+
+### 28.1 实验与正式回归
+
+等待第 27 节 owner suites 时，对当前真实 PostgreSQL store 做了独立双连接实验：在两笔事务各自完成 DELETE 后同时放行。重复 record 一条原先不存在的边时，一笔成功、另一笔以 SQLSTATE 23505 唯一键冲突失败；两个 replace 分别只提交父 A 与父 B 时，两笔都成功，但最终集合却是 A+B。这不是任一完整替换顺序可以产生的结果。实验使用当前编译 classpath、独立 migrated schema，无固定延时竞争；日志为 `/tmp/pangrova-dependency-race-probe.log` 与补齐根因的 `/tmp/pangrova-dependency-race-probe-cause.log`。
+
+正式回归留在 JdbcObjectDependencyStoreIntegrationTest：第一笔在真实 DELETE 后用 latch 暂停，第二笔启动后观测其完成或实际 pg_blocking_pids 阻塞，再释放第一笔。不要求正确实现的两个 writer 同时穿过屏障，因此不会为测试强行破坏串行化。旧实现三项中两项失败：重复 record 的真实 SQL 异常和 replace 的错误双父集合；不同 child 场景通过。新实现三项全部通过，也覆盖两 writer 使用同名不同 kind 的 ref 时仍争用同一自然对象。
+
+### 28.2 事务内、按 child 的锁边界
+
+JDBC 在原 Connection/transaction 开始后、任何边删除前取得 transaction advisory lock，record 与 replace 共用同一 private helper。锁键为实际解析到的 graph table OID 加 catalog/schema/name；PostgreSQL JSON 编码保证段边界不因点号或拼接歧义碰撞，hash 碰撞只会多串行化，不会混合对象身份。使用表 OID 而非 current_schema，避免不同 search_path 指向同一实际表时获得不同锁；不同隔离 schema 的表也不必争用同一锁。
+
+不同 child 不使用全局锁，回归要求第二个 child 在第一个仍暂停时完成。锁由 commit/rollback/connection close 释放，保留原 DELETE+INSERT、kind 刷新、created_at 行为及错误投影，没有新增表、修改 V9 checksum、重试唯一键异常或静默合并失败。写入后父集合快照仍在锁和事务内取得。
+
+范围是同一个 child 的 record/replace 完整父集合；这不赋予 transitive 读取全图快照，也不把 connector 删除与图写入变成共同事务。当前图仍未注册到生产 SQL，不能据此解除第 25 节的 tenant/incarnation/DDL 权威前置条件。
+
+### 28.3 本批验证进度
+
+正式红灯：`/tmp/pangrova-dependency-concurrency-red.log`，三项中一失败、一错误，均是实际并发结果。修复后完整最近 98 项通过：内存 35、service 18、JDBC 45；见 `/tmp/pangrova-dependency-concurrency-green.log`。本次锁改动发生在第 27 节 Coordinator owner 使用的已安装 Metadata 制品之外，未在运行中替换它的依赖 JAR；最终 Metadata owner、安装与消费者编译在本批收尾继续验证。
+
+第 27 节通知改动的完整 Metadata 默认 owner 470 项已通过（5 分 7 秒），见 `/tmp/pangrova-dependency-notification-owner.log`。第 28 节锁改动后仍需重新完成 Metadata owner/静态检查；不能将前一次结果冒充锁改动后的结果。源码数量保持 3,538/647，剩余八组 SCC、Artifact runtime 跨制品迁移和 R6 均未关闭。
+
+
+### 28.4 最终 owner 与结构验证
+
+- Metadata：锁改动后的完整默认 owner 470 项通过，零失败/错误/跳过；Checkstyle/SpotBugs 通过，5 分 19 秒，见 `/tmp/pangrova-dependency-concurrency-owner.log`。45 项 JDBC integration 由最近 98 项显式执行，未混入默认 470 项。
+- Coordinator：通知/lineage 变更的完整 owner 3,125 项通过，零失败/错误/跳过；Checkstyle/SpotBugs 通过，11 分 23 秒，见 `/tmp/pangrova-dependency-lineage-owner.log`。该运行开始后未替换它的依赖 JAR；后续 Metadata 内部锁由 Metadata 完整 owner 验证，最终安装后再复验消费者。
+- 模块依赖七项、包结构两项通过，全图仍有既有八组 SCC；见 `/tmp/pangrova-dependency-notification-gates.log`。后续锁实现未新增模块或包边。manifest/baseline 一致，229 个架构文档类引用通过，见 `/tmp/pangrova-dependency-notification-final-manifest.log`、`/tmp/pangrova-dependency-notification-final-docrefs.log`。本批路径 whitespace 检查通过，没有新增 allow-list 或静态豁免。
+
+本批未变更 native/JNI/proto 或当前 SQL 删除装配；SQL/native 测试不冒用过去结果。其适用范围是通用依赖组件及明确注册时的 lineage adapter，不代表生产启动已接入这套图。已发现的排序、自然键、无效输入、通知、WARN 时序、终态 lineage payload 和同 child 并发写问题现在都有修复及回归；仍须保留图身份缺 tenant/incarnation、JDBC 全图读取非单一快照、同步 callback 非 durable delivery 的集成限制。下一批回到第 22.3 节 Artifact authority/publication 跨制品边界，不把这些已明确限制伪装为新功能已支持。
+
+
+最终 60 项 reactor 编译/安装通过（1 分 3 秒），见 `/tmp/pangrova-dependency-notification-reactor.log`；使用最终安装的全部制品复验 LineageBridgeMaintenanceHook/QueryManagerLineage 六项通过，见 `/tmp/pangrova-dependency-lineage-final-consumers.log`。第 5 节全部 48 个叶子逐包计数再次与源码核对一致（3,538 文件/647 包）。本批构建和测试进程均已结束；未提交或重置既有迁移。第 27–28 节已发现缺陷的修复与验证闭环已完成，整体重构目标继续执行，不能用本批通过替代剩余八组 SCC、其他模块语义审查及 R6。
+
+
+## 29. Artifact 当前权限端口、显式装配与共享查询迁入
+
+### 29.1 保留安全构造边界，反转真正的实现依赖
+
+CurrentDeferredExecutionContext 同时持有值和 JDBC 解析路径，但私有构造器是现有调用约束的一部分。此次没有将其机械改成任意构造的公共 DTO。先把当前权限校验提取为 Artifact 自己的 `spi.jdbc.ArtifactTransactionAuthority`：仅两个方法，分别校验显式 dispatch spec 或载入/校验精确 tenant/job 的持久化 spec，参数是调用方 Connection，没有 DataSource、服务容器、commit/rollback/close 能力或默认放行实现。
+
+原静态 ArtifactCurrentAuthority 迁到 `metadata.adapter.artifact.MetadataArtifactTransactionAuthority`，实现端口；保持 AuthorizationTransactionGate → tenant → table policy → stage/definition model 的原顺序，scoped 查询也保留原错误投影和门闩获取顺序。其集成测试随 provider 移到 adapter.artifact。旧静态类不保留 alias。
+
+七类存储/adapter 构造器都显式接收该端口：build、stage execution、stage exchange、index publication、generated-value publication、tabular export、generated submission。`metadata.assembly.artifact.ArtifactStores` 统一选择真实 provider；CoordinatorBootstrap、QueryBootstrap、HighAvailabilityBootstrap、QueryMaterializationWiring 以及已有业务工厂和测试同步切换。静态 completion 和 caller-owned job insertion 也显式传递端口，不在内部偷偷选择旧实现。存储没有“省略端口则自动放行/回退”的构造器。
+
+CurrentDeferredExecutionContext 仍先在同一事务校验当前权限，再验证真实 Query execution anchor，之后读取当前 direct roles；不复制 lease，不合成 token，也不把其值公开构造。新增错误装配回归证明，若端口返回另一租户的 spec，缺少边界校验时会与本作业 anchor 拼在一起；现显式校验 tenant/job 一致性，先拒绝再构造对象。此检查不能使任意恶意 provider 成为可信权限来源，生产仍由受控装配选择实际 adapter。
+
+### 29.2 Artifact 现在拥有实际 JDBC 查询
+
+JdbcDataBuildQueries 从 Metadata 迁到 `artifact.store.jdbc.query`，持有 dispatch/dependencies/pages/splits 的原查询和解码。各领域消费者使用新的同一实现，SQL、绑定、排序和 caller-owned Connection 未变。Artifact 仍不依赖 Metadata、Query runtime、AI Control 或 Indexing Core；只在 manifest 增加实际存在的精确 SPI/query package roots 和 exports，没有扩大 allowedImports/豁免。历史 migration 资源不搬动。
+
+该查询属于通用构建事实，不要求再造泛化 port 来隐藏它。OutputQueries、PublishedInputs 仍与原 mappings/嵌套 PublishedInput 值耦合，后续随这些真实所有权迁移，不复制 SQL 或保留长期旧包转发。
+
+### 29.3 当前证据与验证边界
+
+Artifact 完整 33 项与 Checkstyle/SpotBugs 已通过；新增最小 classpath 回归验证 JDBC authority SPI 在没有 Metadata、Security 实现、Jackson 或 PostgreSQL driver 时仍能链接，而原纯 API 隔离测试仍禁止依赖 store/SPI 实现路径。
+
+最近 Metadata 初轮 45 项通过，包括真实撤权、取消、publication 锁、升级拒绝、store/stage/生成提交；静态检查发现新增长行和重复空行，已正常修正，未添加豁免。另一个新回归在调用方事务内撤销 tenant、通过注入 wrapper 确认同一个 Connection 被传入真实 provider，拒绝建任务后由调用方 rollback，再正常创建成功。注入失败回归也验证存储不会绕过端口继续落库。
+
+错误装配回归先失败后增加 tenant/job 校验；最终最近 46 项与静态检查通过，完整 owner、消费者及实际 SQL/native 链路的最终结果见第 29.4 节。日志前缀为 `/tmp/pangrova-artifact-authority-port-`。最初一次编译失败是脚本把 import 插到一个许可证注释的分号后，已恢复许可证原文并把 imports 放到 package 后；不是业务失败，不能计作行为红灯。
+
+源码为 3,540 个主源文件、649 个包、48 个叶子、60 个 reactor 项目。Artifact 44 个主源文件/12 包，Metadata 150 个主源文件/35 包。B6 尚未完成：CurrentDeferredExecutionContext 的生产构造与 execution fence、generic job publication、剩余 JDBC store/mappings/错误归属、测试 migration 装配仍需迁移；八组 SCC 与 R6 仍未关闭。
+
+
+### 29.4 跨域调用补齐与最终验证
+
+继续核对实际构建结果后，确认前一轮 reactor 并未通过：AI Control 的 JdbcCatalogExportBuildStore 仍使用旧的四参数 caller-owned insertion。现将 DataBuildTransactionAuthority 显式注入该 adapter，由 AiInfrastructureStores 装配 DataBuildStores.authority；不存在无端口构造器。随后全 reactor 又定位到 E2E 基类中的跨行全限定旧构造调用，已改为真实 DataBuildStores.builds。已用跨行检索核对同类构造点，不能把普通单行 rg 无结果当作完整调用者证明。
+
+新增 AI 导出回归在注入端口收到的连接上暂时撤销租户，再交真实 provider 校验；当前权限拒绝后，build、dispatch、page、route、catalog link 均无残留。正常装配随后能创建，证明该租户修改也由导出事务回滚。最近 6 项及完整 AI Control 45 项、Checkstyle/SpotBugs 通过。
+
+补齐 Artifact 两个新导出包的 package-info，明确 owner、内部集成用途、调用者连接和禁止事务/权限职责。结构测试目前 9 项通过，仅全图无环项仍因既有 8 组 SCC 失败；未新增豁免。manifest/baseline 与 dead-stub pattern gate 通过，后者不替代运行时可达性证明。源码现在为 3,542 个主源文件/649 包（新增两个包说明，不新增能力包）。第 5 节 Artifact 为 46 文件/12 包，其余叶子数量不变。
+
+60 项 reactor 已编译、测试源码编译并安装通过（1 分钟）；Artifact 完整 33 项及静态检查再次通过。Metadata 最近 46 项及静态检查已在上一批最终运行通过；本批 Metadata 默认 owner 473 项、Indexing 默认 owner 202 项及静态检查、7 项真实 SQL/native 消费者均已通过。Indexing 默认 owner 不发现两个 fence IntegrationTest，已显式补跑 12 项全部通过。Coordinator 默认 owner 3,125 项及 Checkstyle/SpotBugs 已通过（11 分 46 秒）；四个受影响 IntegrationTest 的 18 项补充验证也已通过（1 分 13 秒），单独记录而不以默认 owner 数量替代。制品检查确认 Artifact 持有新 SPI/query class，Metadata 持有 adapter/factory，旧 ArtifactCurrentAuthority 与旧 query package class 均不在 Metadata JAR 中。
+
+本批日志使用 `/tmp/pangrova-artifact-authority-` 前缀；完整 reactor 为 `reactor-final.log`，各次编译失败/修正保留各自日志，不记作测试通过。Native src/CMake/proto 输入自上次成功构建后未修改，打包与构建库 SHA-256 一致（8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3），本批复用已验证匹配库，不重复声称完成 C++/ASan 构建。
+
+
+下一步 B6 的 fence 移交还必须覆盖实际调用语义：ArtifactExecutionFence 同时维护 route、查 publication job owner、锁 Query anchor；Query 的 JdbcExecutionAnchorStore.requireCurrent 还有 Metadata managed-source 消费者，不能由 Artifact 反向依赖 Query runtime，也不能构造假的 ExecutionAnchor 填入不存在的获取/到期时间。build store 的 LIVE_PUBLICATION_ANCHOR 还参与 listReadyForPublication 与 claim 的候选/冲突判断，抽取单个校验方法不会自动消除这条读取边。执行前明确跨域 read projection 与锁校验端口的不同职责，保持同连接及锁后时钟采样。
+
+错误投影必须同步保留：completion 将 LostOwnerException 映射为 false；publisher、DataBuildLeaseRetry 和 TaskStatusReceiver 对 stale owner 有单独分支；授权撤销和数据库故障不能一起吞掉或改成可重试空值。下一批先迁这些契约/分类和真实 provider，再切剩余 store/adapter，现阶段不声称 B6 完成。
+
+
+本批最终验证已闭环，均为实际执行且零失败/跳过（包环 gate 的已知失败另列）：
+
+| 范围 | 结果 | 日志（共同前缀 /tmp/pangrova-artifact-authority-） |
+|---|---|---|
+| 60 项 reactor | 编译、test-compile、安装成功 | reactor-final.log |
+| Artifact 默认 owner + 静态 | 33 项，Checkstyle/SpotBugs 通过 | artifact-final.log |
+| Metadata 默认 owner | 473 项；最近 46 项的静态检查见上一批 focused-final | metadata-owner.log |
+| AI Control 默认 owner + 静态 | 45 项，其中导出权限/事务 6 项 | ai-owner.log |
+| Indexing 默认 owner + 静态 | 202 项 | indexing-owner.log |
+| Indexing fence 补充集成 | 12 项，含锁后时钟与三类 publication | fence-integration.log |
+| Coordinator 默认 owner + 静态 | 3,125 项 | coordinator-owner.log |
+| Coordinator 补充集成 | 18 项：生成列发布 1、deadline 5、Feature SQL 5、producer report 7 | coordinator-integration.log |
+| 真实 SQL/native | 7 项：激活 3、生成列 2、Feature export 2 | e2e.log |
+| 结构 | ModuleDependency 7 + PackageStructure 2 通过；8 SCC 导致剩余 1 项失败 | structure.log |
+| 仓库检查 | manifest/baseline、dead-stub pattern、233 个架构文档类引用通过 | manifest.log / connectivity.log / docrefs.log |
+
+第 5 节所有 48 叶子的逐包计数再次与源码一致。所有本批构建和测试进程已结束；没有提交、重置或覆盖无关既有迁移。本批只关闭 authority/query 所有权这一段及遗漏调用者/包说明问题；Artifact state/fence/publication runtime 迁移、八组 SCC、全模块语义审查和最终 R6 仍未关闭，目标继续。
+
+## 30. Query 事务 fence 与 Artifact 执行路由迁移
+
+### 30.1 实际所有权与调用链
+
+Query API 新增 `coordination.jdbc.ExecutionTransactionFence`，Query 的
+`store.jdbc.anchor.JdbcExecutionTransactionFence` 是真实 PostgreSQL provider。
+请求只包含调用方 Connection 和真实 execution/owner/incarnation/token，不构造虚假的
+ExecutionAnchor 时间。provider 先锁精确 anchor，再用独立数据库时钟语句校验过期；
+不持有 DataSource，不开始/提交/回滚/关闭事务。返回实际数据库 anchor。
+`ExecutionOwnerLostException` 明确区分 ABSENT/REPLACED/EXPIRED；数据库故障与损坏值不属于 owner loss。
+
+Artifact 的 `store.jdbc.execution` 现在拥有 JdbcDataBuildExecutionRoutes 和
+JdbcDataBuildExecutionFence，分别持有 route SQL 和 publication owner/route 检查。
+后者显式注入 Query 事务端口，校对返回 execution 和 owner tuple，拒绝错误装配返回其他执行的证据。
+`DataBuildExecutionOwnerLostException` 归 Artifact API，completion/publisher/retry/task-report
+同步切换，保留 false/终止/retry 分类及既有错误消息。Metadata 原 ArtifactExecutionFence 已删除，
+不是旧实现的转发包装。Artifact 不依赖 Query runtime 或 Metadata；真实 provider 由组合根选择。
+
+Metadata 六个 build/stage/exchange/publication store、CurrentDeferredExecutionContext 和 completion
+接收同一显式 fence。ManagedSource 改消费 Query 端口，原静态 JdbcExecutionAnchorStore.requireCurrent
+删除。完整构建进一步发现两个生产启动方法和 COPY 测试/E2E 使用方法引用而非普通静态调用：
+File 的 JdbcCopySourceReadAdmissions 也统一使用 Query 端口，重复的 File ExecutionAnchorFence
+接口删除，所有装配与调用者一起更新。相关测试直接验证真实 PG，未用无校验默认构造器兜底。
+
+通用 `LIVE_PUBLICATION_ANCHOR` 候选/claim 查询仍在 Metadata，继续作为跨域读模型迁移项；
+当前 role/model authority、通用 state writers、领域 publication store 及其测试归属仍待迁移。
+本批不能关闭 B6。初审八组 SCC 与最终 R5/R6 亦未完成。
+
+### 30.2 直接回归与构建证据
+
+新增 Query provider 的 5 项真实 PostgreSQL 回归：调用方未提交状态、锁保持至事务结束、
+三类 owner loss、auto-commit/非法输入、数据库故障/损坏 anchor 分类。Query API 最小 classpath
+新增类型遍历与 JDBC driver/runtime 缺席检查通过。Artifact 接口/编码原有 33 项通过。
+Metadata build 新增实际同 Connection 注入和错误 evidence/SQL exception 分类回归；
+build 20、exchange 15、tabular publication 1，共 36 项通过。
+
+Query API 5、Artifact 33、Query 默认 owner 74 项及 Checkstyle/SpotBugs 通过。
+SPI gate 发现既有 WriteCommitQuarantineStore 未声明稳定性；其真实用途是内部恢复协作，
+现与 QuarantinedWriteCommit 一起明确标为 Internal，未扩大基线。SPI gate 随后通过，基线缺口 0。
+
+第一次全 reactor 清理构建暴露上述 COPY 方法引用遗漏，修正后第二次 `clean install -DskipTests`
+全部 60 项成功，含生产与测试源码编译（1 分 12 秒）。这不是运行时测试通过声明。
+消费者静态检查定位 FileSpaceAccessService 既有未使用 Instant import，已移除；
+completion 新签名也按长度规范拆行。消费者完整测试与最终静态验证结果见第 30.3 节。
+
+本批日志前缀 `/tmp/pangrova-execution-fence-`，保留失败日志，不覆盖为成功。
+结构检查 ModuleDependency 7、PackageStructure 2 通过；全图无环项仍由原八组 SCC 失败，
+无新增包环豁免。当前源码 3,548 文件/651 包/48 Java 叶子/60 reactor；逐包台账已经按当前
+源码更新，集合、重复和每包文件数逐一核对一致。
+
+Native src/CMake/proto 输入未因本批 Java 迁移变化；匹配构建库与打包库的 SHA-256 均为
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`，复用该库验证真实
+SQL/native 消费者，不声称本批重新完成 C++/ASan 构建。
+
+### 30.3 消费者验证与制品核对
+
+消费者静态检查最终通过：Metadata、Indexing、Lance、Coordinator 的 Checkstyle/SpotBugs
+见 `consumer-static-verified.log`；Query API/File 的通过记录在 `consumer-static-final.log`
+对应成功模块（该次整体因下一模块失败，不记作整体成功）。ManagedSource 的 DataSource 仍是装配层
+所有、store 借用的同一对象；原有精确 SpotBugs 分类仅同步新增事务端口后的构造签名，保持
+class/method/field/type/bug 约束。过滤器真实引擎测试新增新签名命中、旧签名及变形边界不命中的回归，
+全部通过（`filter-test-final.log`），没有扩大通用 store/DataSource 豁免。
+
+| 范围 | 实际结果 | 日志后缀 |
+|---|---|---|
+| Query API / File 默认 owner | 5 / 8 项，零失败/跳过 | api-file-owner.log |
+| Metadata 默认 owner | 475 项，零失败/跳过 | metadata-owner.log |
+| Lance full-regression owner | 47 项，含真实 publication fence | indexing-lance-owner.log |
+| Indexing full-regression owner | 227 项，含 12 项 Artifact fence | indexing-lance-owner.log |
+| fence 并发重复 | 12 项再次通过，零跳过 | lock-repeat.log |
+| 真实 SQL/native | 13 项：激活 3、COPY HTTP 3、生成列 2、Feature export 2、Lance publication 3 | e2e.log |
+| Coordinator 默认 owner | 3,125 项，零失败/跳过（11 分 15 秒） | coordinator-owner.log |
+| Coordinator 默认筛选外的集成 | 19 项，生成发布 1 / deadline 5 / Feature SQL 5 / producer report 7 / Planner 装配 1 | coordinator-integration.log |
+| 结构 | ModuleDependency 7 + PackageStructure 2 通过；八组既有 SCC 导致其余 1 项失败 | structure.log |
+| manifest / SPI / stub pattern | 通过；pattern 检查不作为运行时可达性证明 | manifest.log / spi-final.log / connectivity.log |
+
+JAR 核对：Artifact 包含新的 execution routes/fence/API exception，Query/API 包含新的 provider/port；
+Metadata JAR 不再含旧 ArtifactExecutionFence 及其 nested exception，File JAR 不再含重复的
+ExecutionAnchorFence。执行清单第 5 节全部 48 叶子计数与当前源码一致，迁移表 651 行无遗漏/多余/重复；
+本次校对的 668 个本地文档链接无缺失目标。以上均不代表八组包环或 B6 整体已完成。
+
+### 30.4 剩余 B6 的源码复审结论
+
+1. `CurrentDeferredExecutionContext` 现存唯一直接技术反向依赖是
+   `security.store.jdbc.PersistentDeferredAuthorization.requireCurrentRoles`。角色事实应经 Security
+   所有的窄同事务端口获取；不得把角色快照改成可由调用者任意构造的执行证据。移动 context 时同时
+   保留“当前 scope → 精确 execution fence → 当前 direct roles”的顺序和私有构造。
+2. `JdbcDataBuildPublishedInputs` 实际只读 artifact job/dependency/output/source，未直接读
+   Indexing 或 AI 的领域指针；它与 `JdbcDataBuildOutputQueries` 的剩余关联是通用 mappings
+   和 StageExecutionStore.PublishedInput。应随真实 store/value owner 迁入 Artifact，不凭名称再造
+   一个跨域输入 SPI。
+3. `DataBuildRevocation` 的 writer 全部针对 artifact job/page，仍按 job 后 page 锁顺序；
+   与 generic store 一起迁入 Artifact，保持精确 generation/subject 范围和终态拒绝。
+4. `JdbcDataBuildStoreMappings` 和 exchange store 仍抛 Metadata 的 MetastoreException。
+   迁移前核对实际 catch、REST 错误码和重试分类；Artifact 不反向依赖 Metadata 异常，也不因搬包
+   将数据库不可用变成业务空值。现有 SQL 异常 cause、rollback suppressed exception 必须保留。
+5. `listReadyForPublication` 在数据库中按 live owner 过滤，再按 updated_at/tenant/job 排序并 LIMIT；
+   `claimReadyForPublication` 则先 authority、精确 anchor fence、job lock，再检查原 publication owner
+   的 live 状态。跨域读 adapter 必须分别保留这两种语义，不在 job lock 后额外引入反向 anchor 锁，
+   也不以锁校验端口替代无锁候选读或分页条件。
+
+这些是后续实际迁移的前置核对，不是剩余项已实现的声明。当前批次验证期间未修改正在测试的模块。
+
+
+第 30 节验证已结束，相关构建/测试进程均已退出。额外 19 项 Coordinator 集成零失败/跳过，
+234 个架构文档类引用校验通过。完整 reactor 的清理编译、上述 owner/消费者/真实 SQL/native
+及静态门禁构成本批证据；既有八组 SCC 的 gate 失败保持显式记录。未提交或重置工作区。
+下一步按第 30.4 节处理 current-role/context、generic state 与异常/查询边界；B6、全模块语义梳理、
+八组包环和最终 R6 仍未完成，整体目标继续。
+
+## 31. Artifact 通用 JDBC runtime 与当前角色边界迁移
+
+### 31.1 实际迁移范围
+
+通用 build 包的 13 个源文件连同 DataBuildRevocation、JdbcDataBuildStageExchangeStore、
+CurrentDeferredExecutionContext 迁入 Artifact 的 store.jdbc.build/exchange/execution；原位置删除，
+全部调用方、Metadata 组合根和两个纯单元测试随同迁移。Artifact 未新增 Metadata、Query runtime、
+AI Control、Indexing Core 依赖。PublishedInputs 只读 Artifact 自身表，未凭名称增加跨域 SPI。
+
+Security 提供 CurrentDirectRoleReader 与 JdbcCurrentDirectRoleReader，替代原静态角色读取入口。
+角色读取仍使用调用方连接并与真实角色表 JOIN；无直接角色时拒绝，不将 IdP group 当持久授权。
+context 保持私有构造及 scope→精确 execution fence→当前 roles 顺序。AI embedding 与 Metadata
+model authority 使用同一真实 provider；没有创建脱离当前事务的角色快照。
+
+DataBuildPublicationCandidates 是明确的跨域读端口，MetadataDataBuildPublicationCandidates 保留
+原 SQL：live-anchor 过滤发生于 ORDER BY/LIMIT 之前；claim 在已锁 job 后只做无锁投影读取，
+不反向新增 anchor 锁。它借用同一连接，不 commit/rollback/close。数据库故障保留 SQL cause。
+DataBuildStorageException 取代通用 store 对 Metadata 异常的依赖，保持既有 wire error code，
+原始 RuntimeException/Error 及 rollback suppressed failure 传播不变。
+
+领域 publication、生成列契约/submission/model authority、跨域装配与历史 SQL migrations
+仍在 Metadata。跨域 PostgreSQL 测试继续使用原 fixture，不能据本批关闭整个 B6。
+
+### 31.2 验证记录
+
+最近定向检查：Security 3 项真实 PostgreSQL 测试、Artifact 5 项最小 classpath/事务/page-row 测试通过。
+首次测试源码编译因 fixture 的 SQLException 声明遗漏失败，补齐后通过；不是业务行为红灯。
+全仓 60 项 clean install 已通过；Metadata 最近 41 项通过，包含新的同连接角色/失败回滚、发布候选先筛选再 LIMIT 及未提交 owner 替换回归。最终 owner/消费者结果见第 31.4 节。
+本批日志前缀为 `/tmp/pangrova-artifact-runtime-`。
+
+
+静态检查在迁入 Artifact 后发现原 Metadata 整包 SQL 分类覆盖的 11 项告警。逐个检查拼接来源和
+绑定值：updateLease/SqlBinder 无生产或测试调用者，已删除；其余 10 个方法仅使用固定 boolean
+子句、闭集 registration/finalization 名称或按数量生成的 ? 占位符，未插入业务文本。
+新分类精确到 class/method/参数/返回值/SQL_INJECTION_JDBC，不扩大包级规则。真实 SpotBugs
+Filter API 测试核对 10 个新增方法，逐一拒绝变更 owner、method、signature、bug 的情况。
+Security 394 项及静态检查通过，Artifact 36 项及修正后的静态检查通过；消费者 AI Control、
+Lance、Indexing、Coordinator 静态检查通过。阶段构造器新增参数触发的 Javadoc 缺失已补齐。
+结构 gate 为模块 7 + 包结构 2 通过、原八组 SCC 对应 1 项失败；当前环报告与前批相比只有
+包总数从 651 增至 653，环的成员/边/见证均不变。SPI 基线缺口 0，manifest current，
+235 个架构文档类引用通过。此处不将历史全量消费者测试充作本批结果。
+
+### 31.3 后续迁移的具体约束
+
+本批回归运行期间仅做剩余源码审查，没有修改正在测试的模块。
+
+- AI Control 的生产 Metadata 依赖目前集中在 AiInfrastructureStores 对 DataBuildStores.authority 的
+  装配调用，以及 JdbcCatalogExportBuildStore 对 MetastoreException 的引用。应先改成由真正
+  组合根传入事务端口及 AI-owned 存储错误，再迁 generated 契约；不能为了搬类型新增 Metadata→
+  AI Control 反向边。AI Control 还有 Metadata test-jar 依赖，生产和测试 DAG 必须一起验收。
+- MetadataDataBuildTransactionAuthority 与 JdbcManagedSourceCatalog 都消费 GeneratedModelCurrentAuthority；
+  后者不能随着文件迁入 AI Control 而让 Metadata 直接追随其实现。先确定模型当前态的窄事务消费口，
+  接入真实 AI provider 与两类调用者，保留 scope snapshot、当前 direct roles、authorization gate。
+- Index/Generated/Tabular 三个 publication 实现仍各自锁 Artifact job 并写 PUBLISHED，同时更新
+  各自领域表。下一批应先收回通用 job/output 校验与最终写入，再迁领域 adapter；禁止分两次 commit。
+  DataBuildPublicationJob 当前是包私有，不能只改 public 后当成经过校验的授权证据。
+- DataBuildPublicationManifestDigest 的签名实际依赖 Index publisher.JobRow；另两类 digest/aggregate
+  需要逐字段对照。不能把类名相近当作 wire digest 相同，必须保留既有排序、字段和大小写规则。
+  三个 publisher 目前显式 catch SQL/RuntimeException，需在统一事务 owner 前核查 Error 路径和池化
+  connection.close 的行为，用故障回归决定修复，不能仅据连接关闭推断正确回滚。
+- 八组 SCC 的 Worker 子图也已复查：TaskInfo 是可变执行/释放/缓冲聚合体，不能整体搬进 api 当值对象；
+  state 的反向边是嵌套 TaskManager.TaskState，memory 的反向边涉及真实资源分配与释放，应分别处理。
+  nativebridge write/catalog 的反向边是 TaskConnectorSession；它是 immutable connector 会话，
+  不含 native executor，可移到真实会话能力包并同步所有调用者。不要合并包来隐藏上述环。
+
+
+### 31.4 完整消费者与制品核对
+
+最终全 reactor `clean install -DskipTests` 60 项通过，耗时 1 分 10 秒；这只表示生产/测试源码
+清理编译，不冒充运行测试。Artifact JAR 具有迁入的 build/stage/exchange/context/revocation；
+Metadata JAR 不含原位置通用类，未使用的 SqlBinder 不在 Artifact JAR 中。
+全仓代码/资源/配置扫描没有旧通用类全名引用。
+
+| 范围 | 本批实际结果 | 日志后缀（共同前缀 /tmp/pangrova-artifact-runtime-） |
+|---|---|---|
+| Security owner | 394 项，零失败/跳过；静态通过 | owner-static.log 对应 Security 成功模块 |
+| Artifact owner | 36 项，零失败/跳过；静态通过 | artifact-final.log |
+| Metadata 定向真实 PG | 41 项，包含新增 2 项端口边界回归及 3 项 cancellation lock | metadata-focused.log |
+| Metadata 默认 owner | 474 项，零失败/跳过；最终静态通过 | metadata-owner.log / metadata-static-final.log |
+| Lance full-regression owner | 47 项，零失败/跳过 | domain-owner.log |
+| AI Control full-regression owner | 67 项，零失败/跳过 | domain-owner.log |
+| Indexing full-regression owner | 227 项，包含默认过滤外锁并发，零失败/跳过 | domain-owner.log |
+| 锁并发重复 | execution 4 + publication 8 再次通过，零跳过 | lock-repeat.log |
+| 真实 SQL/native | 13 项：生成列 2、Feature export 2、Lance publication 3、COPY HTTP 3、激活 3 | e2e.log |
+| Coordinator 默认 owner | 3,125 项，零失败/跳过，11 分 40 秒 | coordinator-owner.log |
+| Coordinator 筛选外集成 | 19 项，生成发布 1 / deadline 5 / Feature SQL 5 / producer report 7 / Planner 装配 1，零失败/跳过 | coordinator-integration.log |
+| AI/Lance/Indexing/Coordinator 静态 | Checkstyle/SpotBugs 通过 | consumer-static.log |
+| 精确 SQL 分类测试 | 新增 10 个 Artifact 方法在 isolated 和完整 filter 都拒绝越界变体 | filter-verified.log |
+
+Metadata 默认 owner 执行成功后因 DataBuildStores 构造调用超过 120 字符一列而使整条 verify 失败；
+已只拆行，并单独重跑静态检查。不把该次整体命令记作成功，不无理由重复 474 项测试。
+Filter 边界测试扩充时曾把 JDBC 有意保留的重载当成无效变体；修正测试范围为原 11 个 JDBC
+分类保留既有检查、10 个新 Artifact 分类增加完整 filter 负例，真实引擎最终通过。
+
+Native 输入未在本批修改，构建/打包库 SHA-256 再次核对相同：
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`。
+本批复用该匹配库做 SQL/native 回归，不声称重新完成 C++/ASan 构建。
+Coordinator 筛选外 19 项集成亦已通过，所有本批构建/测试进程均已退出。B6 的领域发布、模型当前权限与装配仍待完成；八组包环、全模块语义收敛和最终 R5/R6 保持未完成。整体目标继续，不因本批通过而关闭。
+
+
+## 32. 统一 migration 资源与 Table/Materialization 测试归属
+
+### 32.1 所有权迁移
+
+落实总体计划 P2：新增 `pangrova-schema-migrations` 纯资源 JAR，93 份历史 SQL 原字节、原文件名、
+原版本移入，旧 Metadata 副本删除。`db/migration` classpath location 不变；资源清单
+`META-INF/pangrova/schema-migrations.tsv` 逐文件记录版本、SHA-256 和路径，保留原版本空缺。
+Metadata 显式声明 runtime 依赖，生产 SchemaMigrationRunner 仍由启动装配调用；Docker 的
+runtime dependency copy 会取得同一 JAR，不复制 SQL 或硬编码源码路径。
+
+Testing Kit 的 MigratedPostgres 使用现有 JVM singleton PostgreSQL 和隔离 schema，直接消费
+资源制品与 Flyway，不依赖 Metadata。Table 的 4 个 JDBC store 测试和 5 个 core 测试迁回真实能力
+包，保留原断言；4 个 JDBC 测试同时接入 ContainerTestBase。跨 Metadata Catalog 的部署集成测试
+留在 Metadata。Materialization 的完整 JdbcMaterializationRepositoryTest 迁回 JDBC owner；
+其显式 qualified materialization schema 的清理仍作用于同一 JVM 的数据库，不改变全局 claim 语义。
+Metadata 对 Materialization 两个制品的 test 依赖及无用允许边删除，没有新建 test-scope 环。
+
+### 32.2 纯资源门禁和直接证据
+
+原门禁要求每个 JAR 至少有 Java 包，无法正确约束资源制品。现在 manifest 显式声明 resourceOnly /
+resourceRoots；纯资源 JAR 必须无 Java package/export/provider，资源目录存在且所有资源落在
+声明范围，Java main/test source、打包 bytecode 和 ServiceLoader 文件均被拒绝。
+基线生成器将无 Java 的 JAR 作为制品记录，而非误列聚合器；当前为 49 个代码/资源制品和 12 个聚合器。
+资源布局正反例 3 项、Python discovery/AST/fail-closed 回归 8 项通过。
+
+资源回归 3 项验证：独立 classpath 不存在 Metadata runtime；全部资源唯一、hash 与清单一致、
+无遗漏或额外 SQL；新库初始化全部 93 份和重复执行 no-op；V60 已有库升级到当前版本，原历史 checksum
+与 catalog 行保留，Flyway validate 通过。第一次旧库用例缺少必填 properties，补齐测试数据后通过，
+未改 SQL。第一次独立 owner 运行因本地旧 BOM 无新增资源版本而失败；安装当前父 POM 后解析正常，
+未补无关依赖或隐藏 ClassNotFound。
+
+Table full-regression 101 项、Materialization JDBC 15 项及 Checkstyle/SpotBugs 全部通过，零跳过。
+Kit 完整 owner 112 项执行，其中 111 通过；唯一失败为原八组 SCC 的无环 gate，报告与前批逐字相同。
+模块依赖 7 项和包结构 2 项通过，未放松 Java 所有权约束。本批日志前缀 `/tmp/pangrova-schema-`。
+
+### 32.3 制品与消费者验证
+
+全 reactor `clean install -DskipTests` 61 项通过，耗时 1 分 10 秒；这表示清理编译及制品构建，
+不表示全仓测试通过。Standalone 用 `dependency:build-classpath -DincludeScope=runtime` 取得
+262 个实际运行时依赖：不含 Testing Kit 或 JUnit。逐个打开依赖 JAR，93 份 SQL 各只有一份、
+均由 schema-migrations 提供且 SHA-256 与清单一致；Metadata JAR 不再含 `db/migration`，
+schema-migrations JAR 不含 `.class`。测试和生产运行时使用同一资源 owner。
+
+真实 SQL/native 回归 13 项通过，零失败、零跳过：生成列 2、Feature export 2、Lance publication 3、
+COPY HTTP 3、Activation 3；本批未改 native 输入，复用前批匹配的打包库，不宣称新做 C++/ASan 构建。
+manifest 检查通过；架构文档的 235 个类引用通过。四份主要计划/证据文档 669 个本地链接目标均存在。
+递归 POM 与源码复核为 61 项目、48 Java 叶子、3,556 主源文件、653 包；逐包表 653 行与真实
+`(module, package, file count)` 完全一致，无遗漏、多余或重复。
+
+Metadata `full-regression,static-analysis verify` 最终通过：579 项，零失败、零错误、零跳过；
+Checkstyle 零违规、SpotBugs 零问题，耗时 9 分 26 秒。包含资源 classpath、新旧 migration、
+真实 PG 事务/锁、治理恢复、OpenLineage HTTP、Catalog 部署和依赖存储；未排除失败测试。
+
+| 验证范围 | 实际结果 | 日志后缀（共同前缀 /tmp/pangrova-schema-） |
+|---|---|---|
+| 全 reactor 清理编译/制品 | 61 项通过，跳过测试 | reactor.log |
+| Table / Materialization JDBC owner | 101 / 15 项通过，静态通过，零跳过 | owner-fixed.log |
+| Testing Kit 定向资源与结构 | 15 项通过 | focused-fixed.log |
+| Testing Kit 完整 owner / 静态 | 112 项中 111 通过、原无环项失败；静态通过 | kit-owner.log / kit-static.log |
+| Metadata full-regression / 静态 | 579 项通过，静态通过，零跳过 | metadata-owner.log |
+| 真实 SQL/native | 13 项通过，零跳过 | e2e.log |
+| 生产 classpath | 262 个运行时依赖、93 份 SQL 唯一/hash 一致，无测试制品 | runtime-only.log / runtime-verification.txt |
+| Manifest / Python / 文档引用 | baseline current、Python 8 项、架构类引用 235 项通过 | manifest.log / tooling.log / docrefs.log |
+
+P2.1/P2.2 的资源、fixture、owner 测试、升级与生产依赖验收在本批完成。新资源清单的 93 个
+hash 同时与 Git 暂存区原 Metadata SQL blob 核对，全部一致。本批构建与测试已结束。
+B6 的领域发布、模型当前权限和装配、八组 SCC、P1/P4/P5/P6/P7/P8 与全项目 R5/R6 仍未关闭，
+整体目标继续。下一批应按第 31.3 节先完成 AI Control 的显式 authority 注入及生产/测试依赖拆分，
+再切 model-current 真实 provider 和两个事务消费者，不能增加 Metadata→AI Control 反向边。
+
+
+## 33. AI Control 显式装配与 Metadata 依赖隔离
+
+### 33.1 生产装配与错误归属
+
+AiInfrastructureStores 从领域根迁入 `ai.control.assembly`，`jdbc` 必须接收非空的真实
+DataBuildTransactionAuthority，直接交给 catalog-export adapter。CoordinatorBootstrap、
+QueryBootstrap、Feature SQL 集成及 SQL E2E 组合根显式传入现有 DataBuildStores.authority；
+没有保留单参数重载、反射发现或无检查的默认 authority。只消费 Evaluation 的 owner 测试直接
+构造其 JDBC owner，不为测试提供虚构跨域权限。
+
+JdbcCatalogExportBuildStore 不再引用 Metadata 的 MetastoreException；AI-owned
+CatalogExportStorageException 保留原 METADATA_METASTORE_ERROR 客户端错误码和 SQLException
+cause。现有 SQL/RuntimeException/Error 回滚及 suppressed rollback failure 路径未改变。
+AI Control 的 Metadata 生产及 test-jar POM 依赖同时删除，manifest 将 Metadata 列为禁止依赖。
+独立 owner 测试证明 Metadata 的 factory、migration runner、authority fixture 均不在其 classpath。
+
+### 33.2 测试与 fixture 的真实归属
+
+原 6 个 catalog-export 跨域测试完整迁入 Integration 的 `integration.control.ai`；原 registry
+测试中同时验证 Metadata deferred model authority 的 1 项也完整迁入，22 项原 registry 测试
+在两个 owner 的并集中无遗漏。Integration 显式依赖 Metadata test-jar 以复用真实权限准备，
+没有将 Metadata fixture 搬入底层 Kit，也没有把真实 current-authority 检查替换成假实现。
+被注入 authority 的同连接/拒绝回滚测试现在经过生产 AiInfrastructureStores 工厂，证明端口
+确实传递到事务执行。新增 catalog link SQL 约束失败用例核对错误码、原始 SQLState 和前序 build
+全部回滚，解除约束后同 job 可正常提交。
+
+AI Control 的重复 PostgreSQL fixture 删除；owner tests 使用 Kit 的 MigratedPostgres 和
+SharedPostgres，历史 V10 升级测试直接使用同一 migration 资源。Evaluation/Feature 两个
+容器测试同时接入 ContainerTestBase。已删除随重复 fixture 失去直接消费者的两个 Testcontainers
+test 依赖，生命周期设施统一由 Kit 提供。原 67 项 owner 测试移出 7 项、增加 2 项装配/classpath
+检查后为 62 项，full-regression 与 Checkstyle/SpotBugs 已通过，零跳过。
+
+### 33.3 验证进度与未完成项
+
+初次结构检查发现 Integration 的新模型测试缺少 AI API 直接 test 依赖；初次清理编译发现
+QueryBootstrap 的跨行 factory 调用未传 authority，并进一步查到 Lance E2E evaluation 的同类
+调用。已补齐依赖和全部跨行调用，不恢复旧重载、不依赖传递依赖掩盖声明缺口。
+本批日志前缀 `/tmp/pangrova-ai-boundary-`，失败与修正后的日志分别保留。
+
+修正后 61 项全仓清理编译通过（1 分 12 秒）；清理无用测试依赖后的最终 POM 又经全 reactor
+install 61 项通过（1 分 4 秒），两次均跳过测试，不冒充全仓运行时回归。跨域 8 项、Coordinator
+启动/Feature SQL 24 项及两者 Checkstyle/SpotBugs 通过；删除重复 fixture 直接依赖后的 AI
+完整 owner 62 项及静态再次通过，均零失败/跳过。真实 SQL/native 13 项通过，包含生成列、Feature
+导出、Lance publication、COPY HTTP 与激活。首次 E2E 命令误传不完整镜像 ID，fixture 按设计
+拒绝初始化，7 项记录中 4 个 class initialization error；核实本地完整 immutable image ID 后
+修正命令，13 项通过。保留初次失败记录，不修改初始化校验或用例断言。
+
+| 验证范围 | 最终结果 | 日志后缀（共同前缀 /tmp/pangrova-ai-boundary-） |
+|---|---|---|
+| 全 reactor 制品 | 61 项清理编译及最终 POM 构建通过，跳过测试 | reactor-fixed.log / reactor-final.log |
+| AI Control full-regression / 静态 | 62 项、Checkstyle/SpotBugs 通过 | owner-final.log |
+| 真实跨域权限与事务 / 静态 | 8 项、Checkstyle/SpotBugs 通过 | cross-domain.log |
+| Coordinator 启动/Metadata/Feature SQL / 静态 | 14 + 5 + 5 = 24 项、Checkstyle/SpotBugs 通过 | consumer.log |
+| 真实 SQL/native | 13 项通过 | e2e-fixed.log |
+| 模块依赖与包结构 | 7 + 2 通过 | structure-final.log |
+| 全图无环 | 1 项仍失败；八 SCC 和全部源码见证不变，只把扫描包数更新至 654 | structure-final.log / package-cycles-final.txt |
+| Manifest / 文档 / stub gate | baseline current；234 类引用；无未批准 stub | manifest.log / docrefs.log / stubs.log |
+
+清理后 AI JAR 含新的 assembly factory 和 owner 异常，不含原根包工厂；classpath isolation
+检查证明没有 Metadata runtime/fixture。当前逐包表 654 行与 3,558 个 Java 主源文件完全一致，
+670 个本地链接目标存在。Native 构建/打包库 SHA-256 保持
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`，本批没有 native 输入变更，
+复用匹配库完成执行链，不声称重新做 C++/ASan 构建。
+
+本批只完成模型当前权限迁移的前置依赖拆分，GeneratedModelCurrentAuthority 的 provider、
+MetadataDataBuildTransactionAuthority 与 ManagedSource 消费者仍须在下一批保持同连接、
+authorization gate、当前角色及 model snapshot 语义后迁移。B6 发布装配、八组 SCC 和总体验收
+仍未关闭。
+
+后续入口已复核：ManagedSource 的生产构造点在 NativeDatasetControlBootstrap；另一个消费点为
+MetadataDataBuildTransactionAuthority。GeneratedModelCurrentAuthority 同时提供 observe 和
+requireCurrent，前者也被 Coordinator 的 GeneratedWriteAuthorityResolver 使用，不能只迁移
+发布时校验而遗漏生成意图的观察路径。当前五字段 ModelSnapshot 是 Security 的授权 receipt 内容；
+EmbeddingModelBindingIdentity/AiModelIdentity 是部署 binding/signature 算法，不能因名称相近
+用它们替换模型 incarnation/configuration version 的当前态证据。下批应先确定事务消费口和真实
+AI provider 的装配路径，再改全部调用者；不重新引入已经删除的 AI↔Metadata 依赖。
+
+## 34. 协调契约提取与 Worker 会话包解环
+
+### 34.1 真实制品边界
+
+将 11 个 lease/registry/snapshot 契约从 Coordinator 迁入 `pangrova-coordination-api`，包为
+`org.pangrova.coordination.api`，仅依赖 Common。根 BOM、family reactor、Coordinator/ZooKeeper/
+Integration 的直接依赖、所有生产和测试调用者、manifest 同步更新。ZooKeeper 明确禁止依赖
+coordination-core。CoordinatorLeaseBootstrap 保留 JDBC 默认值和显式 quorum provider 选择，
+反射加载的 provider 实现类未变；没有新建默认 provider、旧包 façade 或兼容转发。
+
+独立 API 的最小 classloader 仅包含 JDK/Common/API，全部 11 个契约的方法、构造器及 record
+字段可链接；Coordinator/Curator/ZooKeeper 类均不存在。ZooKeeper 独立 owner 证明 Coordinator
+runtime 和旧契约类不存在，真实本地 ZooKeeper 的 lease/registry 测试通过。Snapshot 字段、
+持久化 payload 和 fence 算法未改；Java 包和制品身份改变，外部 provider 需要更新 imports 并重编译。
+API 新纳入 SPI gate，CoordinationProvider 显式为 Internal，其余契约保留原稳定性声明。
+
+### 34.2 按能力解开 JNI write/catalog 环
+
+不可变 TaskConnectorSession 迁入 `nativebridge.connector.session`，CatalogResourceResolver
+迁入 `nativebridge.connector.spi`；write adapter 和 catalog runtime 共同消费底层会话/端口，
+不再互相引用这些类型。切换全部消费者、镜像测试、四条已有 SpotBugs 精确类选择器，未扩宽规则。
+JNI 入口、native 声明/签名、资源绑定、revision pin 和 release 逻辑均未改。
+
+Native bridge full-regression 350 项及静态检查通过；Worker bootstrap/资源/失败清理消费者
+18 项及静态通过，零跳过。JNI 对称 22 方法、既有 filter 边界工具通过；清理后的 JAR 新类存在、
+旧类无残留。AST 确认该两包 SCC 消失：原八组降为七组，未合并包或添加豁免。
+Catalog runtime 的进一步目录归位和其余 Worker 三组环仍在 P6，不把本次端口下沉当作全部完成。
+
+### 34.3 联合验证
+
+当前 62 个 reactor 项目、49 Java 叶子、1 资源制品、3,561 个 Java 主源文件、656 包。
+API 1 项和 ZooKeeper 16 项及静态检查通过；62 项全 reactor clean install（跳过测试）通过。
+模块依赖 7 项、包结构 2 项通过，无环项仍因剩余 7 SCC 失败。清理构建后仅重跑无环项以生成
+需要交付的完整源码见证；不把清理掉的 target 报告当成 SCC 已消失。
+Coordinator 运行时消费者最终 161 项通过，包含真实 JDBC lease/registry、时钟/锁等待、内存
+provider、故障切换、backend 选择、启动及 Worker snapshot property；Checkstyle/SpotBugs 通过。
+Integration 最终 99 项通过：catalog runtime 8、并发写入 2、清理失败 75、session cleanup
+property 1（100 tries）、真实 SQL/native 13；Checkstyle/SpotBugs 通过。均零失败、零跳过。
+本批 root 日志前缀 `/tmp/pangrova-coordination-api-`；Worker 子批为 `/tmp/pangrova-worker-session-`。
+
+| 验证范围 | 结果 | 日志 |
+|---|---|---|
+| 新 API / ZooKeeper owner 与静态 | 1 / 16 项通过 | coordination-api-final-owner.log / coordination-api-owner.log |
+| Native bridge / Worker 消费者与静态 | 350 / 18 项通过 | worker-session-bridge.log / worker-session-core.log |
+| Coordinator 消费者与静态 | 161 项通过 | coordination-api-consumer.log |
+| Catalog/write/SQL/native 与静态 | 99 项通过 | coordination-api-e2e.log |
+| 全 reactor 清理编译 | 62 项通过，跳过测试 | coordination-api-reactor.log |
+| 模块/包结构 / 全图 SCC | 9 项通过；无环项失败，SCC 8→7 | coordination-api-structure.log / coordination-api-cycles-final.log |
+| Manifest / SPI annotation / stability | current；99 个已标注公共类型、0 gap；22 个 Stable 类型有生产实现 | coordination-api-manifest.log / coordination-api-spi.log / coordination-api-stability.log |
+| JNI / filter / docs / stub | 22 JNI 方法对称；精确 filter 边界通过；236 类引用有效；无未批准 stub | worker-session-jni.log / worker-session-filter.log / coordination-api-docrefs.log / coordination-api-stubs.log |
+
+表中日志均位于 `/tmp/pangrova-` 前缀。逐包台账 656 行与 3,561 文件精确匹配，672 个本地链接
+有效。与前批 SCC 成员集合比较，只删除 nativebridge.jni.write/catalog 这一组，其余七组未被
+隐藏。API JAR 有新契约，Coordinator JAR 无旧包；新 Worker session/port 类在 JAR 中，旧类不在。
+Native 输入未改、JNI 名称/签名未变，构建和打包库再次核对 SHA-256 相同：
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`。
+本批复用匹配库，不声称重新执行 C++/ASan 构建。所有本批验证进程已结束。
+
+此处完成的是契约边界和一组包环。ZooKeeper registry 既有若干异常吞为 empty/no-op 的语义、
+Coordinator/Planner/Worker 剩余七 SCC、逐包错误与资源责任、P1/P3/P4/P7/P8/P9 和 R5/R6 仍需
+继续审查，不能用 API 提取宣称协调实现已经全面可靠。
+
+### 34.4 B6 后续闭环的源码复核
+
+模型当前权限端口适合归 Security.spi.jdbc，保留 Security-owned 五字段 ModelSnapshot 授权
+receipt；AI Control JDBC provider 注入 CurrentDirectRoleReader，提供 observe 与 requireCurrent。
+它只使用调用者 Connection，禁止取得/提交/关闭连接。requireCurrent(empty) 当前直接返回，
+observe(empty) 当前仍取 gate/roles，二者不能在抽接口时合并。AI API 无须为此依赖 Security 或
+迁移 47 处 receipt 类型引用。
+
+实际切换范围为 MetadataDataBuildTransactionAuthority（stage graph 与 definition 两组模型）、
+JdbcManagedSourceCatalog（六条写路径的 gate→fence→intent lock→authority 顺序）、
+GeneratedWriteAuthorityResolver（含 query-only write authority）。DataBuildStores static AUTHORITY
+必须改为显式实例/参数装配，87 次 factory 引用分布于 26 文件；生产 14 次/5 文件，容易遗漏
+HighAvailabilityBootstrap。ManagedSource 有 5 个构造点。严禁 static setter、默认发现或 Metadata
+直接 new AI provider。
+
+Metadata 中仅处理空模型 scope 的 owner 测试可注入遇非空立即失败的严格测试端口；真正模型
+撤权、revision/deployment/signature 变化、同连接及锁等待测试保留在 Integration 并注入真实
+AI provider。必须新增两个 Metadata 消费者的参数/同连接/拒绝回归，不能只改直接 provider 测试的
+import。Security 模型表触发器及角色删除清理仍是额外 SQL 所有权工作，迁读取 provider 不代表
+这些写路径已经关闭。
+
+
+## 35. 模型当前权限的 owner 与显式事务接线
+
+### 35.1 端口、实现与实际消费链
+
+Security 新增 `spi.jdbc.CurrentModelAuthority`，继续使用其五字段 ModelSnapshot 授权 receipt。
+AI Control 的 `store.jdbc.embedding.JdbcCurrentModelAuthority` 负责原模型表查询，并强制注入
+CurrentDirectRoleReader。SQL、当前角色、排序、不可变快照、变更拒绝和异常语义保持不变；
+provider 不取得、提交、回滚或关闭调用方连接。requireCurrent(empty) 直接返回，observe(empty)
+仍要求 gate 和当前 direct roles，两条路径没有合并。
+
+MetadataDataBuildTransactionAuthority 显式接收模型端口，按原顺序验证 stage graph 与 definition
+两组 snapshot；JdbcManagedSourceCatalog 强制接收该端口，六条写路径的 gate → execution
+fence → intent lock → authority → mutation 顺序不变。DataBuildStores 改为实例工厂，删除静态
+AUTHORITY、旧 GeneratedModelCurrentAuthority 和仅转发的 GeneratedValueArtifactStores。
+currentRoles、executionFence、publicationCandidates 仍为不持有模型 provider 的静态协作者。
+
+CoordinatorBootstrap 创建真实 AI provider 并传给 Query、HA、NativeDatasetControl、AI store
+及 Indexing publication；GeneratedWriteAuthorityResolver 用该端口观察模型当前态，包括
+query-only 的 receipt 路径。删去 QueryBootstrap 两个无调用重载，保留实际使用的显式装配入口。
+没有增加 Metadata→AI 依赖、全局 setter、默认放行或旧签名兼容入口。
+
+### 35.2 回归与发现的装配问题
+
+AI provider 新增 9 项真实 PG 测试，覆盖四个版本维度变化、角色撤销、同连接未提交状态、
+gate 生命周期、无模型及未绑定模型。Metadata 新增两项消费者回归，核对两类 snapshot、
+同连接和两处拒绝传播；仅空模型的 owner 测试使用遇到非空立即失败的严格测试端口。
+Coordinator/Integration 的真实模型场景继续使用 AI provider。
+
+Lance 新增真实 SDK/PG 发布回归：记录的模型端口与 execution fence 收到同一 Connection，
+拒绝后事务 marker 消失，head/version/rowCount、PENDING intent 和 PREPARED publication 不前移；
+恢复授权后可接受并读取真实数据。该端口使用空模型输入，只证明消费者连接与回滚，不能宣称
+已经覆盖真实非空模型 receipt 在 ManagedSource 的撤权发布链。后者仍须独立扩展真实生成列
+SDK admission fixture；不得通过改写既有不可变 receipt 或 fingerprint 制造测试。
+
+新增 query-only 集成两项：真实 Iceberg 声明和 PG 角色/租户/表权限下，普通写可生成准确
+receipt，并在真实撤销 INSERT 后拒绝；真实生成列声明在 durable owner 缺失时明确拒绝。
+新 fixture 初次漏初始化角色 schema 的失败已保留，修正初始化和部分启动失败资源关闭后通过。
+
+消费者验证先后暴露旧 Lance test JAR 的旧构造签名、以及 Maven test-jar 不传递其 test-scope
+依赖导致的 fixture NoClassDefFoundError。已重新安装 Lance，并在 Lance、Coordinator 显式声明
+Metadata test-jar，未增加生产依赖或恢复旧构造器。失败日志保留；两项受影响生命周期测试复验通过。
+
+### 35.3 验证与剩余范围
+
+| 范围 | 当前证据 |
+|---|---|
+| Security owner + static | 402 项通过，零失败/错误/跳过 |
+| AI Control owner + static | 71 项通过（含新增9项），零失败/错误/跳过 |
+| Metadata owner + static | 581 项通过；另 focused 34 项通过 |
+| Lance owner + static | 48 项通过；另新增 focused 1 项通过 |
+| Indexing publication/锁消费者 + static | 14 项通过 |
+| Coordinator 消费者 + static | 分批共78项通过；最初两次各2项 classpath 错误已定向修正复验 |
+| query-only 新增 Integration + static | 2 项通过 |
+| 全 reactor clean install | 62 项通过；跳过测试，只作为全仓清理编译证据 |
+| 最终模块/包结构 / 全图 SCC | 9项通过；无环项仍因原7组SCC失败 |
+| 跨域 authority / SQL-native + static | 21项通过（跨域8、真实SQL/native13），零失败/错误/跳过 |
+
+本批日志为 `/tmp/pangrova-model-authority-*`，Lance/query-only 日志为
+`/tmp/pangrova-b35-*`。当前仍为 62 个 reactor、49 Java 叶子、1 资源制品、3,561 Java 主源文件、
+656 包；主源码净增为零，不把文件数量不变当作未迁移或已完整审查的证据。
+结构预检9项通过，无环项仍因原7个SCC失败；没有增加豁免。SPI artifact gate 仍覆盖99个已标注
+公共类型，新增Security内部事务端口另明确标为Internal，不能把99误报为全仓接口总数。
+
+用户进一步要求逐文件审查常量、可读性和职责，已纳入总体计划第7.2节与P9退出条件；
+不能因本批迁移、编译或测试通过宣称全部文件已经语义验收。用户要求替换原 pangrova-artifact 与
+内部包名称；随后曾迁为 pangrova-data-build / org.pangrova.databuild，但用户认为该名称不能表达
+职责，已经否决。当前源码名仅是过渡状态，最终命名须随任务内核、领域规则与存储 SPI 边界确定；
+协议/持久化历史标识不做机械替换。B6领域 publication/Indexing激活、真实非空
+ManagedSource模型撤权链、剩余7组SCC、其他逐模块语义工作及R5/R6总验收均未关闭。
+
+本批最终验证进程均已结束。完整clean install为62项；跨域8项、真实SQL/native13项及
+Integration静态检查通过。加上独立query-only两项，Integration本批共23个不同用例通过。
+最终模块/包结构9项通过、无环项仍失败，报告已回填现有7组源码见证；逐包台账与当前
+3,561主源文件/656包保持一致。Native输入与JNI签名未变，构建/打包库SHA-256仍一致：
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`。
+本批复用匹配库，没有重新执行C++/ASan构建。该证据只关闭本批模型端口迁移，不关闭总目标。
+
+## 36. 中间名称迁移及重新划定边界
+
+原 `pangrova-artifact` / `org.pangrova.artifact` 已迁为当前 `pangrova-data-build` /
+`org.pangrova.databuild`；手写类型与消费者同步迁移，已发布读取类型采用 Generation 命名。
+此名称随后被用户明确否决，因此本节记录中间状态，不将其标为最终命名完成。
+生成协议中原有 Artifact 类型、SQL 历史、持久化字段、canonical 字节、Native cache 路径保留。
+
+迁移比对覆盖232个类型映射、178个Java文件迁移、250个Java文件修改；保护清单的1,045个
+SQL/proto/native/golden输入SHA保持不变。实际主源仍为3,561文件/656包，模块69个主源与
+10个测试源未因命名变化增减。AST引用审计确认新声明到位、旧手写声明消失，生成v2引用未误换。
+
+验证：62项reactor clean install通过（跳过测试）；任务内核36项、Protocol602项完整owner
+回归与静态检查通过；Metadata选定57项、Indexing27项消费者及静态检查通过。Planner没有
+进行完整owner回归，不将只读token比较当作回归。Core与Integration的改名后验证接续第37节。
+Protocol静态分析输出过lambda形态的missing-class诊断及既有Checkstyle警告，最终BugInstance/
+Error计数均为零；未扩大过滤规则。详细临时证据为 `/tmp/pangrova-data-build-*`。
+
+后续设计按照业务定义、通用生成任务、语义存储SPI、PostgreSQL provider分开。
+当前内核硬编码4种领域输出和6种格式、Metadata持有跨领域publication writer，均是实际归属
+问题；名称迁移没有修复这些问题。Storage SPI需补StageExecution/Exchange及其DTO，保留
+当前同Connection发布/提交语义。最终目录与逐文件设计见
+[Metadata、Catalog与存储设计](project-structure-refactoring/metadata-catalog-storage-design.md)。
+
+## 37. 独立 JDBC 与 InMemory 协调后端
+
+### 37.1 所有权、消费与行为
+
+新增 `pangrova-coordination-jdbc`、`pangrova-coordination-inmemory`，分别拥有
+`org.pangrova.coordination.jdbc` 与 `.inmemory`。三类JDBC实现与三类内存实现从Core迁出，
+Core负责选择与组装，API不依赖任何provider，两个后端互不依赖，也不依赖Metadata/Core。
+root BOM、family reactor、manifest、Core生产依赖、Integration显式测试依赖和精确SpotBugs
+分类一起迁移；旧六个FQN及转发兼容壳均不存在。
+
+JDBC三类生产主体逐字比对，仅包名与租约存储异常owner改变。新增CoordinationStorageException
+保留PangrovaException的METADATA_METASTORE_ERROR和cause，HTTP状态/错误码语义不变。
+注册表原异常不改；SQL、数据库时钟、锁顺序、重试及事务主体不改。内存三类仅改包名。
+CoordinationProvider仍是可选quorum聚合契约，不为目录对称制造JDBC或内存转发provider。
+
+7类JDBC owner测试迁至新模块，使用Testing Kit真实PG及隔离schema；不借用Metadata/Core
+test JAR。内存单测与属性测试迁入新owner，混合LeaseEpochRenewalTest的8项纯租约用例迁走，
+HA使用epoch的一项留在Core。真实classpath与最小loader验证分别证明后端不借进程实现加载。
+
+### 37.2 验证证据与未完成事项
+
+| 检查 | 结果 |
+|---|---|
+| JDBC最近检查 / 完整owner与static | 10 / 61项通过，零失败/错误/跳过，已install |
+| InMemory最近检查 / 完整owner与static | 10 / 41项通过，零失败/错误/跳过，已install |
+| 全reactor clean install | 64项通过；跳过测试，作为全仓编译证据 |
+| Core协调/HA/Worker/生成任务消费者 | 108项通过；static发现中间改名导致2行超长，已仅换行修正并单独复验 |
+| Integration模型/query-only | 3项通过 |
+| Integration leader/journal failover与activation | 19项通过，包含真实SQL/Native与PG；static通过 |
+| 模块/包结构 + 状态枚举 | 7+2+3项通过 |
+| 全图无环检查 | 仍失败：7组SCC，与中间改名后的预期成员完全相同，无新增豁免 |
+| manifest与精确SpotBugs分类边界 | 通过，后端构造器/字段边界未放宽 |
+
+Integration首次命令漏传已准备的真实AI镜像参数，3个E2E类在setup失败，另3个测试通过；
+补齐不可变镜像ID后仅重跑受影响三类，19项及static通过，不把首次失败记为成功。
+临时日志前缀为 `/tmp/pangrova-coordination-provider-*`，后端owner日志为
+`/tmp/pangrova-coordination-jdbc-*` 和 `/tmp/pangrova-coordination-inmemory-*`。
+
+当前64个reactor＝51个Java叶子＋1个资源制品＋12个聚合；3,564主源、656包、2,373测试源。
+台账每包恰好一行，51叶子与文件数全部对齐。新增3个主源是两个package-info及JDBC异常。
+Native/proto本批没有修改，继续使用此前输入匹配的库，不声称重新构建或执行ASan。
+全项目文件语义审查、存储SPI/PG分拆、Catalog/Metadata归位、最终名称、领域发布原子性、
+7组SCC及最终R5/R6仍未完成。用户已授权随时commit/push；本批提交应明确是可编译的阶段检查点。

@@ -1,18 +1,19 @@
 package org.pangrova.metadata.coordination;
+import org.pangrova.query.store.jdbc.lineage.JdbcQueryLineageOutbox;
 
 import io.openlineage.client.transports.HttpConfig;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.governance.lineage.DatasetRef;
-import org.pangrova.governance.lineage.LineageEvent;
-import org.pangrova.governance.lineage.LineageEventEmitter;
-import org.pangrova.governance.lineage.OpenLineageHttpTransport;
+import org.pangrova.governance.api.lineage.DatasetRef;
+import org.pangrova.governance.api.lineage.LineageEvent;
+import org.pangrova.governance.core.lineage.LineageEventEmitter;
+import org.pangrova.governance.lineage.provider.openlineage.OpenLineageHttpTransport;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.coordination.QueryLineageFact;
-import org.pangrova.spi.execution.eventlistener.QueryLineageMetadata;
-import org.pangrova.testing.lineage.ReferenceLineageBackend;
+import org.pangrova.query.api.lineage.QueryLineageFact;
+import org.pangrova.observability.api.event.QueryLineageMetadata;
+import org.pangrova.testing.testkit.lineage.ReferenceLineageBackend;
 
 import javax.sql.DataSource;
 import java.time.Duration;
@@ -27,7 +28,7 @@ import static org.awaitility.Awaitility.await;
 
 /** Real SDK HTTP, PostgreSQL lock/acknowledgement and successor delivery; no replacement backend. */
 class QueryLineageHttpRecoveryIntegrationTest {
-    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
+    private static final java.util.Map<org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID>
             tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static final int FORMAL_HTTP_TIMEOUT_MS = 5000;
@@ -154,28 +155,23 @@ class QueryLineageHttpRecoveryIntegrationTest {
 
     @Test
     void governanceContextCloseRetainsPendingHttpOwnerUntilRepeatedCloseJoins() throws Exception {
-        closeActualGovernanceOwner(false);
+        closeActualGovernanceOwner();
     }
 
-    @Test
-    void governanceWiringClosePropagatesPendingHttpOwnerUntilRepeatedCloseJoins() throws Exception {
-        closeActualGovernanceOwner(true);
-    }
-
-    private void closeActualGovernanceOwner(boolean legacyWrapper) throws Exception {
+    private void closeActualGovernanceOwner() throws Exception {
         String run = UUID.randomUUID().toString();
         var emitter = new LineageEventEmitter(transport(null, 1000), outbox, reference.namespace(), 100);
-        var store = new org.pangrova.metadata.governance.JdbcQualityRuleStore(dataSource);
+        var store = new org.pangrova.governance.store.jdbc.JdbcQualityRuleStore(dataSource);
         store.initSchema();
-        var handler = new org.pangrova.governance.quality.rule.GovernanceStatementHandler(store,
-                new org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor(),
-                new org.pangrova.governance.quality.alert.DataQualityAlerter(
-                        new org.pangrova.governance.quality.alert.AlertChannelRegistry()));
-        var scheduler = new org.pangrova.governance.quality.schedule.CronScheduler(handler);
-        var context = new org.pangrova.governance.GovernanceContext(
-                new org.pangrova.governance.GovernanceDeps(emitter, handler, null, scheduler, store, new org.pangrova.governance.classification.ColumnTagService(
+        var handler = new org.pangrova.governance.core.quality.GovernanceStatementHandler(store,
+                new org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor(),
+                new org.pangrova.governance.core.quality.DataQualityAlerter(
+                        new org.pangrova.governance.core.quality.AlertChannelRegistry()));
+        var scheduler = new org.pangrova.governance.core.quality.CronScheduler(handler);
+        var context = new org.pangrova.governance.core.GovernanceContext(
+                new org.pangrova.governance.core.GovernanceDeps(emitter, handler, null, scheduler, store, new org.pangrova.governance.core.classification.ColumnTagService(
                         table -> tagTableIdentities.computeIfAbsent(table, ignored -> java.util.UUID.randomUUID()))));
-        AutoCloseable owner = legacyWrapper ? new org.pangrova.governance.GovernanceWiring(context) : context;
+        AutoCloseable owner = context;
         try {
             try (var lock = reference.connection(); var statement = lock.createStatement()) {
                 lock.setAutoCommit(false);

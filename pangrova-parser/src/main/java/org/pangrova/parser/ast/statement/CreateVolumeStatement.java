@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code CREATE [MANAGED | EXTERNAL] VOLUME [IF NOT EXISTS] name ...}.
@@ -15,4 +16,9 @@ public record CreateVolumeStatement(
         Optional<String> location,
         Optional<String> storageProfile,
         Optional<String> comment) implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_VOLUME;
+    }
 }

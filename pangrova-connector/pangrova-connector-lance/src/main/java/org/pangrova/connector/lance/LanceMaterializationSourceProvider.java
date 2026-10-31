@@ -1,16 +1,16 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.materialization.ChangeProof;
-import org.pangrova.spi.materialization.ChangeSetMode;
-import org.pangrova.spi.materialization.ChangeSetPlan;
-import org.pangrova.spi.materialization.MaterializationCapabilities;
-import org.pangrova.spi.materialization.MaterializationSourceException;
-import org.pangrova.spi.materialization.PinnedSource;
-import org.pangrova.spi.materialization.SourceProvider;
-import org.pangrova.spi.materialization.SourceRef;
-import org.pangrova.spi.materialization.SourceSnapshotRef;
+import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.materialization.ChangeProof;
+import org.pangrova.connector.spi.materialization.ChangeSetMode;
+import org.pangrova.connector.spi.materialization.ChangeSetPlan;
+import org.pangrova.connector.spi.materialization.MaterializationCapabilities;
+import org.pangrova.connector.spi.materialization.MaterializationSourceException;
+import org.pangrova.connector.spi.materialization.PinnedSource;
+import org.pangrova.connector.spi.materialization.SourceProvider;
+import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
 
 import java.time.Instant;
 import java.util.HexFormat;

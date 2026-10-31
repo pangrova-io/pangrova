@@ -87,9 +87,9 @@ and native validation:
 
 ```bash
 ./pangrova-worker-native/bin/package-native-lib.sh
-mvn -q -pl pangrova-worker -am test
-mvn -q -pl pangrova-testing/pangrova-test-e2e -am test
-mvn -q -pl pangrova-testing/pangrova-test-e2e \
+mvn -q -pl pangrova-worker/pangrova-worker-core -am test
+mvn -q -pl pangrova-testing/pangrova-testing-integration-tests -am test
+mvn -q -pl pangrova-testing/pangrova-testing-integration-tests \
   -Dtest=ActivationSmokeE2ETest test
 ```
 
@@ -104,10 +104,10 @@ connectivity. They are not required for isolated documentation or tooling edits.
 | Java unit | Module `src/test/java` | JUnit 5, AssertJ |
 | Property | `src/test/java/**/property` | jqwik |
 | Integration | Usually `*IntegrationTest` | JUnit 5, TestContainers |
-| E2E | `pangrova-testing/pangrova-test-e2e` | JUnit 5, TestContainers |
-| Smoke | `pangrova-testing/pangrova-test-e2e/.../smoke/ActivationSmokeE2ETest` | JUnit 5, packaged JNI |
+| E2E | `pangrova-testing/pangrova-testing-integration-tests` | JUnit 5, TestContainers |
+| Smoke | `pangrova-testing/pangrova-testing-integration-tests/.../integration/smoke` | JUnit 5, packaged JNI |
 | Native | `pangrova-worker-native/test` | GoogleTest, CTest |
-| Benchmark | `pangrova-testing/pangrova-test-benchmark` | JMH |
+| Benchmark | `pangrova-testing/pangrova-testing-benchmark` | JMH |
 
 Tests must be deterministic and isolated. Do not use `Thread.sleep`, uncontrolled
 random seeds, shared mutable state, or external public services. Use real

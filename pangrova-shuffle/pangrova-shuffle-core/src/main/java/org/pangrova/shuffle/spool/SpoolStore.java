@@ -1,7 +1,7 @@
 package org.pangrova.shuffle.spool;
 
-import org.pangrova.spi.annotation.Experimental;
-import org.pangrova.shuffle.ShuffleDurability;
+import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.shuffle.api.ShuffleDurability;
 
 /**
  * Persistent-plane storage backend for committed shuffle partitions (ADR-002 D6).

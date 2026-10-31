@@ -4,27 +4,27 @@ import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.schema.IcebergSchemaBuilder;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.CommitListener;
-import org.pangrova.spi.connector.index.ConnectorIndexSupport;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
-import org.pangrova.spi.connector.index.NativeIndexCapability;
-import org.pangrova.spi.connector.index.NativeIndexEvaluator;
-import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.DeleteFilter;
-import org.pangrova.spi.connector.metadata.DeletionMode;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
-import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.coordination.WriteCommitFingerprint;
-import org.pangrova.spi.coordination.CopyFilePublication;
-import org.pangrova.spi.index.statistics.DataFileStatistics;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.index.ColumnValueReader;
+import org.pangrova.connector.spi.index.CommitListener;
+import org.pangrova.connector.spi.index.ConnectorIndexSupport;
+import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.connector.spi.index.NativeIndexCapability;
+import org.pangrova.connector.spi.index.NativeIndexEvaluator;
+import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
+import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.connector.spi.metadata.DeleteFilter;
+import org.pangrova.connector.spi.metadata.DeletionMode;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.CopyFilePublicationMetadata;
+import org.pangrova.connector.spi.metadata.ConditionalBranchDropResult;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.common.file.CopyFilePublication;
+import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -43,7 +43,7 @@ import java.util.function.Consumer;
  * Acts as anti-corruption layer: Iceberg SDK types stay within this module.
  */
 public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePublicationMetadata,
-        org.pangrova.spi.connector.metadata.DistributedWritePublicationMetadata {
+        org.pangrova.connector.spi.metadata.DistributedWritePublicationMetadata {
 
     static final long DEFAULT_PIN_TTL_MS = 1_800_000L; // 30 minutes
     static final long DEFAULT_COMMIT_TIMEOUT_MS = 30_000L; // 30 seconds
@@ -197,7 +197,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
                         "Distributed write handle does not match durable base snapshot");
             }
             String expectedFingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
                         context.executionId(),
                         tenantId,
                         catalogName,
@@ -230,7 +230,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     }
 
     @Override
-    public org.pangrova.spi.connector.metadata.NativeWriteFinalization finishDistributedWriteWithPublication(
+    public org.pangrova.connector.spi.coordination.NativeWriteFinalization finishDistributedWriteWithPublication(
             ConnectorSession session, ConnectorOutputTableHandle outputHandle,
             List<byte[]> fragments, DistributedWriteCommitContext context) {
         java.util.Objects.requireNonNull(context, "Required publication needs its exact commit context");
@@ -250,8 +250,8 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         var manifest = table.io().newInputFile(snapshot.manifestListLocation());
         byte[] checksum = java.util.HexFormat.of().parseHex(
                 IcebergManifestReadBindings.digest(manifest, manifest.getLength()));
-        return new org.pangrova.spi.connector.metadata.NativeWriteFinalization(
-                org.pangrova.spi.connector.metadata.NativeWriteFinalization.Outcome.COMMITTED,
+        return new org.pangrova.connector.spi.coordination.NativeWriteFinalization(
+                org.pangrova.connector.spi.coordination.NativeWriteFinalization.Outcome.COMMITTED,
                 snapshot.snapshotId(), checksum);
     }
 
@@ -448,7 +448,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
 
     @Override
     public void createBranch(ConnectorSession session, ConnectorTableHandle table, String branchName,
-            org.pangrova.spi.connector.metadata.BranchCreationOptions options) {
+            org.pangrova.connector.spi.metadata.BranchCreationOptions options) {
         IcebergTableHandle handle = (IcebergTableHandle) table;
         IcebergRefOperations.createBranch(catalogTables.resolveTable(handle), handle, branchName, options);
     }
@@ -483,7 +483,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     @Override
     public Optional<ConnectorTableHandle> applyFilter(
             ConnectorSession session, ConnectorTableHandle table,
-            org.pangrova.spi.connector.metadata.Constraint constraint) {
+            org.pangrova.connector.spi.metadata.Constraint constraint) {
         if (constraint.getDomains().isEmpty()) {
             return Optional.empty();
         }
@@ -505,7 +505,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     @Override
     public Optional<ConnectorTableHandle> applyTopN(
             ConnectorSession session, ConnectorTableHandle table,
-            org.pangrova.spi.connector.metadata.TopNInfo topN) {
+            org.pangrova.connector.spi.metadata.TopNInfo topN) {
         // Iceberg does not support sorted scans at the storage layer, so the engine
         // must still perform the sort. However, the limit portion of the top-N can be
         // absorbed to reduce the number of rows read from the source.
@@ -533,7 +533,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     }
 
     @Override
-    public List<org.pangrova.spi.connector.data.TypedRow> executeProcedure(
+    public List<org.pangrova.connector.spi.data.value.TypedRow> executeProcedure(
             ConnectorSession session, String procedureName,
             Map<String, String> arguments) {
         return maintenanceProcedures.execute(procedureName, arguments);

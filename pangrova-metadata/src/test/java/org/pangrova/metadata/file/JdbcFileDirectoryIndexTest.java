@@ -4,14 +4,16 @@ import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.exception.MetastoreException;
+import org.pangrova.file.core.FileStorageException;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.storage.file.FileListing;
-import org.pangrova.spi.storage.file.FileSpace;
-import org.pangrova.spi.storage.file.FileSpaceDefinition;
-import org.pangrova.spi.storage.file.FileSpaceMutation;
-import org.pangrova.spi.storage.file.FileSpaceType;
-import org.pangrova.spi.storage.file.FileStat;
+import org.pangrova.file.api.directory.FileListing;
+import org.pangrova.file.store.jdbc.directory.JdbcFileDirectoryIndex;
+import org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry;
+import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.file.api.space.FileSpaceMutation;
+import org.pangrova.common.file.FileSpaceType;
+import org.pangrova.file.api.directory.FileStat;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -111,7 +113,7 @@ class JdbcFileDirectoryIndexTest {
         stage = spaces.mutate(FileSpaceType.STAGE, "media", "raw", "landing",
                 new FileSpaceMutation.SetStorageProfile("other"));
         assertPaths();
-        assertThatThrownBy(() -> index.publish(token)).isInstanceOf(MetastoreException.class);
+        assertThatThrownBy(() -> index.publish(token)).isInstanceOf(FileStorageException.class);
     }
 
     @Test

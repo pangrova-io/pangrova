@@ -1,14 +1,14 @@
 package org.pangrova.connector.iceberg.handle;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.DeleteFileType;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IcebergReadMode;
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
-import org.pangrova.spi.connector.metadata.table.TypePromotion;
+import org.pangrova.connector.spi.metadata.table.ColumnMapping;
+import org.pangrova.connector.spi.metadata.table.TypePromotion;
 
 import java.util.List;
 import java.util.Map;

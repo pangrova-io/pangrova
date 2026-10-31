@@ -1,7 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
-import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import java.util.ArrayList;
@@ -22,7 +22,7 @@ import io.substrait.proto.SortField;
 import io.substrait.proto.Type;
 import org.pangrova.protocol.retrieval.RetrievalFanOutBinding.Source;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Builds independent Native retrieval branches below one shuffle producer. */
 @Internal

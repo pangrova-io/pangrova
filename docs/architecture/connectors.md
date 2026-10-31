@@ -55,12 +55,35 @@ sidebar_label: "Connector Design"
 
 ### 1.2 Core SPI Interfaces
 
+Plugin construction and capability aggregation live in `spi.plugin`:
+`Connector`, `ConnectorFactory` and `ConnectorContext`. Bundled connector JARs
+register the new `org.pangrova.connector.spi.plugin.ConnectorFactory` service name.
+Connector SPI keeps row and cell values in `data.value`; page/block adapters and
+metadata contracts depend on those values without depending on page-source or
+page-sink factories. `coordination` owns `DistributedWriteCommitContext` and
+`NativeWriteFinalization` together with commit journal contracts. The metadata
+facade consumes those commit values; the journal does not depend on the facade.
+
+`ConnectorQueryAuthority` owns operation admission and drain evidence without
+depending on metadata. `metadata.ConnectorMetadataScope` adds retained metadata
+and cleanup to the same state-bound query owner. Metadata consumers require that
+capability from the exact session authority; they cannot derive it from a query ID
+or a raw task-issuance authority. Cleanup retains failed resources for retry and
+continues to require closed admission and physical operation drain.
+
+`data.type` defines type values and signatures. Conversion to concrete primitive
+types lives in `data.type.mapping.PangrovaTypeMapping`. SQL type-name conversion
+uses locale-independent casing; parameterized VECTOR parsing rejects extra type
+name characters and trailing text. These source-package changes require consumers
+to rebuild against the matching SPI artifact; persisted protocol fields are unchanged.
+Block region checks reject overflowing offset/length combinations before copying
+or creating an encoded region; an empty region at the end remains valid.
+
 ```java
 // ConnectorFactory - connector factory
 public interface ConnectorFactory {
     String getName();
     Connector create(String catalogName, Map<String, String> config, ConnectorContext context);
-    default List<PropertyMetadata<?>> getConfigProperties() { return Collections.emptyList(); }
 }
 
 // Connector - main connector interface
@@ -72,7 +95,7 @@ public interface Connector {
         throw new UnsupportedOperationException("Write not supported");
     }
     default ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly) {
-        return new ConnectorTransactionHandle() {};
+        return ConnectorTransactionHandle.empty();
     }
     default void commit(ConnectorTransactionHandle transaction) {}
     default void rollback(ConnectorTransactionHandle transaction) {}
@@ -198,7 +221,7 @@ state so an external drop or recreation is visible immediately.
 │                                │                                             │
 │                    ┌───────────▼─────────────┐                               │
 │                    │   Pangrova Core Loader    │                               │
-│                    │ • pangrova-spi            │                               │
+│                    │ • pangrova-connector-spi   │                               │
 │                    │ • pangrova-common         │                               │
 │                    │ • pangrova-protocol       │                               │
 │                    │ • Shared Dependencies   │                               │
@@ -218,31 +241,33 @@ state so an external drop or recreation is visible immediately.
 
 ### 2.2 PluginClassLoader Implementation
 
+The runtime classes live in `pangrova-connector-runtime`:
+`org.pangrova.connector.runtime.classloader` (`PluginClassLoader`,
+`ConnectorClassLoaderFactory`, `DefaultConnectorClassLoaderFactory`,
+`SharedPackagePolicy`), `.discovery` (`ConnectorFactoryRegistry`), and
+`.lifecycle` (`PluginManager`). `ConnectorFactoryRegistry` is the single
+ServiceLoader entry point used by both the Coordinator catalog factory and the
+Worker catalog runtime.
+
 ```java
 /**
  * Plugin ClassLoader that implements class isolation.
  *
  * Loading order:
- * 1. Check whether it is an SPI package (pangrova-spi) -> delegate to the parent loader
- * 2. Check whether it is a shared package (common, protocol) -> delegate to the parent loader
+ * 1. Check whether it is an SPI package (connector-spi/common/protocol) -> delegate to the parent loader
+ * 2. Check whether it is the resolved shared package set -> try parent, then plugin
  * 3. Try to load from the plugin JAR
  * 4. Delegate to the parent loader
  */
 public class PluginClassLoader extends URLClassLoader {
 
     private static final Set<String> SPI_PACKAGES = Set.of(
-        "org.pangrova.spi", "org.pangrova.common", "org.pangrova.protocol");
+        "org.pangrova.connector.spi", "org.pangrova.spi",
+        "org.pangrova.common", "org.pangrova.protocol");
 
-    //
-    private static final Set<String> SHARED_PACKAGES = Set.of(
-        "org.apache.arrow",          // Arrow columnar format — shared to avoid ClassCastException on IPC buffers
-        "io.substrait",              // Substrait plan protocol — shared for plan serialization
-        "org.slf4j",                 // Logging facade — single binding required
-        "com.google.common",         // Guava utilities — shared to avoid version conflicts
-        "org.apache.hadoop",         // Hadoop FileSystem/Configuration — shared across connectors (DEF-077)
-        "org.apache.parquet",        // Parquet format — shared reader/writer
-        "org.apache.orc",            // ORC format — shared reader/writer
-        "com.fasterxml.jackson");    // Jackson JSON/YAML — shared for REST Catalog, config parsing, metadata serialization
+    // Resolved once by DefaultConnectorClassLoaderFactory from SharedPackagePolicy
+    // (BROAD/NARROW/CUSTOM) instead of being hard-coded here.
+    private final Set<String> sharedPackages;
 
     private final String pluginName;
     private final ClassLoader spiClassLoader;
@@ -288,7 +313,8 @@ public class PluginManager {
 
     private final Path pluginDir;
     private final ClassLoader spiClassLoader;
-    private final Map<String, PluginClassLoader> pluginClassLoaders = new ConcurrentHashMap<>();
+    private final ConnectorClassLoaderFactory classLoaderFactory;
+    private final Map<String, ClassLoader> pluginClassLoaders = new ConcurrentHashMap<>();
     private final Map<String, ConnectorFactory> connectorFactories = new ConcurrentHashMap<>();
 
     public void loadPlugins() {
@@ -302,16 +328,14 @@ public class PluginManager {
     private void loadPlugin(Path pluginPath) {
         String pluginName = pluginPath.getFileName().toString();
 
-        List<URL> urls = collectJars(pluginPath);
-        PluginClassLoader classLoader = new PluginClassLoader(
-            pluginName, urls.toArray(new URL[0]), spiClassLoader);
+        URL[] urls = collectJars(pluginPath);
+        ClassLoader classLoader = classLoaderFactory.createClassLoader(
+            pluginName, urls, spiClassLoader);
         pluginClassLoaders.put(pluginName, classLoader);
 
-        ServiceLoader<ConnectorFactory> serviceLoader =
-            ServiceLoader.load(ConnectorFactory.class, classLoader);
-        for (ConnectorFactory factory : serviceLoader) {
-            connectorFactories.put(factory.getName(), factory);
-        }
+        // Fail-closed discovery: duplicate or blank names are rejected.
+        ConnectorFactoryRegistry.discover(classLoader).factories()
+            .forEach(connectorFactories::putIfAbsent);
     }
 
     public ConnectorFactory getConnectorFactory(String name) {
@@ -639,7 +663,7 @@ pangrova-connector-iceberg/
 │   └── statistics/                      # statistics
 ├── src/main/resources/
 │   └── META-INF/services/
-│       └── org.pangrova.spi.connector.ConnectorFactory
+│       └── org.pangrova.connector.spi.ConnectorFactory
 └── pom.xml
 ```
 

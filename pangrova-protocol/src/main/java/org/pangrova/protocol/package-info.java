@@ -1,8 +1,10 @@
 /**
- * Canonical protocol primitives owned by pangrova-protocol.
+ * Canonical cross-process contracts owned by pangrova-protocol.
  *
- * <p>Engine, connector and client modules may consume these shared wire authorities. Task
- * admission, terminal delivery and execution-drain helpers belong to the task subpackage;
- * this package must not implement scheduling, execution or persistent ownership.
+ * <p>Handwritten Java contracts live under their capability packages: descriptor,
+ * checksum, execution, source, resource, write, metadata, catalog and capability.
+ * Generated v2 messages remain owned by the canonical schema. REST envelopes
+ * consume these contracts; task admission must not depend on REST registration.
+ * No package here owns scheduling, execution or persistent domain authority.</p>
  */
 package org.pangrova.protocol;

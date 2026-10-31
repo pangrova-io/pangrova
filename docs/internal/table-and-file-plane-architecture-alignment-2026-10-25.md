@@ -51,12 +51,12 @@ Native DIRECTORY 接入之前，需要先把以下设计约束落到协议与状
 
 | 当前代码证据 | 结论与需要落实的改造 |
 |---|---|
-| [目录刷新](../../pangrova-coordinator/src/main/java/org/pangrova/coordinator/file/StageDirectoryRefreshService.java)逐页处理、完成后发布；扫描开始只签发一次 list grant，后续只重新检查权限。 | 内存有界是已有基础。grant 到期会安全失败，但没有同根续期与进程恢复；大目录需要持久 checkpoint、owner epoch 和受限续期。不能通过无限延长授权解决。 |
+| [目录刷新](../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/file/StageDirectoryRefreshService.java)逐页处理、完成后发布；扫描开始只签发一次 list grant，后续只重新检查权限。 | 内存有界是已有基础。grant 到期会安全失败，但没有同根续期与进程恢复；大目录需要持久 checkpoint、owner epoch 和受限续期。不能通过无限延长授权解决。 |
 | [目录索引](../../pangrova-metadata/src/main/java/org/pangrova/metadata/file/JdbcFileDirectoryIndex.java)先积累 pending，再在事务中 DELETE 当前范围、INSERT 完整新范围。 | 原子可见性与部分刷新不误删已具备基础；发布写入量随范围大小增长，并非 O(1) 指针切换。亿级范围不应直接沿用这一发布方式。 |
-| [Worker 页读取器](../../pangrova-worker/src/main/java/org/pangrova/worker/file/JdbcFileDirectoryPageSource.java)直连 PostgreSQL，用一个 repeatable-read 事务保持分页快照；当前无生产 SQL 调用点。 | 它是组件基础，不是 Native DIRECTORY。若直接接入查询，将引入数据库连接、旧行版本保留和故障域耦合，且偏离既有“Worker 不直接访问控制数据库”的目标设计。 |
+| [Worker 页读取器](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/JdbcFileDirectoryPageSource.java)直连 PostgreSQL，用一个 repeatable-read 事务保持分页快照；当前无生产 SQL 调用点。 | 它是组件基础，不是 Native DIRECTORY。若直接接入查询，将引入数据库连接、旧行版本保留和故障域耦合，且偏离既有“Worker 不直接访问控制数据库”的目标设计。 |
 | [目录引用](../../pangrova-spi/src/main/java/org/pangrova/spi/storage/file/FileDirectoryReference.java)只有 space ID 与定义修订时间。 | Stage 定义身份不能同时表示目录数据 generation。需要另外固定目录 generation、Manifest 摘要、范围与读保护。不能把时间戳当作单调 fencing epoch。 |
-| [Multipart 端点](../../pangrova-worker/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)支持带绝对期限、绑定存储范围的签名 token；清理所有权留在内存 map，过期清理由新 begin 触发。 | token 可跨 Worker 恢复 provider ID，但不能列出重启前所有待清理会话、提供持久完成结果或保证无人再次上传时也会清理。LOCAL 迁移还依赖实际共享存储。 |
-| [稳定 Stage URL](../../pangrova-coordinator/src/main/java/org/pangrova/coordinator/file/StageFileUrlService.java)每次访问重查权限后换取 Worker ticket；[文件端点](../../pangrova-worker/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)校验期限后打开内容流。 | provider URL 的请求 TTL 限制在原 grant 剩余整秒内；读取流在每次 read 前后检查原交付期限，端点拥有的计时器还会在该期限主动关闭已打开流、abort 未读完的 S3 body，不把到期当 EOF。端点关闭先回收活动流再关闭 provider 客户端。HEAD/open 调用期限、空闲超时和 RBAC 变化后主动撤权仍未完成，也不承诺到期瞬间中断已在途网络字节。 |
+| [Multipart 端点](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)支持带绝对期限、绑定存储范围的签名 token；清理所有权留在内存 map，过期清理由新 begin 触发。 | token 可跨 Worker 恢复 provider ID，但不能列出重启前所有待清理会话、提供持久完成结果或保证无人再次上传时也会清理。LOCAL 迁移还依赖实际共享存储。 |
+| [稳定 Stage URL](../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/file/StageFileUrlService.java)每次访问重查权限后换取 Worker ticket；[文件端点](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file/FileSpaceFileResource.java)校验期限后打开内容流。 | provider URL 的请求 TTL 限制在原 grant 剩余整秒内；读取流在每次 read 前后检查原交付期限，端点拥有的计时器还会在该期限主动关闭已打开流、abort 未读完的 S3 body，不把到期当 EOF。端点关闭先回收活动流再关闭 provider 客户端。HEAD/open 调用期限、空闲超时和 RBAC 变化后主动撤权仍未完成，也不承诺到期瞬间中断已在途网络字节。 |
 | [稳定治理绑定](../../pangrova-metadata/src/main/java/org/pangrova/metadata/control/TableControlPolicyBinder.java)和标签已统一为 table ID 权威；前台与后台掩码直接从该权威读取，手工列掩码携 table ID。重命名持久预留两个名称。 | 本轮已推进分类和列掩码的实际读取路径；手工行策略、质量规则、进程级重启与自动重命名协调仍需独立完成，不能据此关闭全部治理门槛。 |
 
 PostgreSQL repeatable-read 能固定数据库快照，不能固定外部对象；长快照还会扩大旧版本回收的约束。

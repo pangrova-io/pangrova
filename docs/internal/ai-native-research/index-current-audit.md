@@ -30,7 +30,7 @@ PangrovaSql.g4 / AST
  -> PangrovaPlanner + VectorSearchRewriter / RerankerInjectionRule
  -> PlanNodeConverter: RetrievalTopKPlanHint + Substrait
  -> DispatchContextEnricher + RetrievalIntentCollector
- -> RetrievalArtifactResolver / PublishedArtifactBindingResolver
+ -> RetrievalGenerationResolver / PublishedGenerationBindingResolver
  -> RetrievalPlanBinder + RerankPlanBinder + TaskRequestFactory
  -> Worker task admission + Native plan/artifact validation
 ```
@@ -73,12 +73,12 @@ SQL bag semantics。应先补 canonical 身份再扩大混合检索支持范围�
 
 ## 3. 发布索引与 exact 路径的生产边界
 
-`coordinator/artifact/PublishedArtifactBindingResolver.java` 解析实际 DataSplit 的 source、
+`coordinator/artifact/PublishedGenerationBindingResolver.java` 解析实际 DataSplit 的 source、
 snapshot、dataObject，解析唯一 PUBLISHED generation，核对 manifest、格式/role、完整覆盖
 与对象 checksum。它输出未分区模板；真正 task partitioning 再绑定本任务对象并签名。
 分区物化时 publication 不再匹配会失败；不存在吞错后换另一代索引的运行时路径。
 
-`coordinator/query/execution/dispatch/dag/retrieval/RetrievalArtifactResolver.java` 的 nullable
+`coordinator/query/execution/dispatch/dag/retrieval/RetrievalGenerationResolver.java` 的 nullable
 resolver 是真实 optional bootstrap 分支：`bootstrap/module/IndexingModule` 在缺少完整
 IndexingBootstrap 时不绑定 IndexAwareSplitFetcher；`DAGDispatchEngine` 接收 null resolver。
 即使 fetcher 存在，`IndexAwareSplitFetcher` 的 artifactBuildStore 可空，也会使 resolver 为空。
@@ -149,9 +149,9 @@ SYNC 在任何 connector mutation 前明确拒绝，尽管语法与 planner rewr
 `pangrova-streaming/.../cdc/StreamEmbeddingInterceptor.java` 没有生产 wiring，不能用其回调
 单元测试补作 CDC 自动 embedding 证据。
 
-`DurableArtifactBuildDispatcher` 管租约、fence、重新授权、stage DAG 和真实 worker 报告；
-`DurableArtifactPublisher` 取得 publication claim。`JdbcIndexArtifactPublicationStore` 和
-`JdbcGeneratedValueArtifactPublicationStore` 在同一 PG transaction 调用
+`DurableDataBuildDispatcher` 管租约、fence、重新授权、stage DAG 和真实 worker 报告；
+`DurableDataBuildPublisher` 取得 publication claim。`JdbcIndexGenerationPublicationStore` 和
+`JdbcGeneratedValuePublicationStore` 在同一 PG transaction 调用
 `ArtifactCurrentAuthority.requireCurrent`、`ArtifactExecutionFence.requirePublication`，锁定
 owner/epoch/租约，校验完整输出，然后更新 manifest、active generation 和 job=PUBLISHED。
 CurrentAuthority 还锁定并复核当前 tenant、deferred authorization、模型权威。旧 worker 的
@@ -164,7 +164,7 @@ position 连接；缺对象/缺行严格失败，显式 NULL 源则保留其物�
 ASYNC 的可见性延迟和读取基础列行为应明确公开，不能用另一个 snapshot 的 embedding 补洞。
 
 全索引架构仍有一处 Coordinator 数据面：`IndexingBootstrap.initializeBuildServices` 保留
-Java IndexBuildCoordinator，`pangrova-indexing/.../build/IndexFileBuilder.java` 调用
+Java IndexBuildCoordinator，`pangrova-indexing/pangrova-indexing-core/.../build/IndexFileBuilder.java` 调用
 `reader.readColumns` → strategy `build(rows)` → serialize/write，负责普通标量/数据跳过索引。
 所以 vector/BM25 Native 构建成立，并不意味着所有索引构建都已符合 Coordinator 不读行的目标。
 
@@ -177,7 +177,7 @@ Java IndexBuildCoordinator，`pangrova-indexing/.../build/IndexFileBuilder.java`
 | `worker-native/test/artifact/ArtifactRetrievalPlannerTest.cpp` | 真 C++ index 文件、locator/checksum、缓存复用、搜索与 metric/dimension/analyzer fence。 | 不是完整 SQL/auth/跨 worker/真实模型链。测试数据是算法 fixture，不是生产性能样本。 |
 | `worker-native/test/velox/RetrievalMergeExecutionTest.cpp` / `test/retrieval/RetrievalFusionTest.cpp` | 真 Velox operator 与数学融合 oracle。 | 并未验证 SQL 投影唯一身份、真实 ANN、生产 provider 或性能收益。 |
 | `worker/.../AiRerankScoreFunctionTest` | 内部绑定和批量调用断言。 | 匿名 RerankingProvider 返回人为分数，不能算真实模型 rerank E2E。 |
-| `coordinator/.../GeneratedValueArtifactPublicationIntegrationTest` / ReadResolver / CommitLog tests | 真实 PG transaction、租约/授权、绑定与元数据发布；测试自己创建 job/完成报告。 | 合成 output metadata/checksum 不等于 Native 真正计算过向量；不得当真实 provider/物化性能证据。 |
+| `coordinator/.../GeneratedValuePublicationIntegrationTest` / ReadResolver / CommitLog tests | 真实 PG transaction、租约/授权、绑定与元数据发布；测试自己创建 job/完成报告。 | 合成 output metadata/checksum 不等于 Native 真正计算过向量；不得当真实 provider/物化性能证据。 |
 | `worker-native/test/velox/GeneratedValuesOverlayExecutionTest.cpp` | 真 Native sidecar 解码/物理位置 overlay。 | 不包含提交 SQL 到模型、写 commit 再 fenced publish 的全链。 |
 | `testing/e2e/ai/OllamaAiSqlE2ETest` + `GeneratedSqlPublicationAssertions` | 真实 provider 直接 embedding 对照；purpose 与 NULL；真实 INSERT→durable ASYNC→Native sidecar→PG PUBLISHED→SQL 读取向量，断言未授权/不支持目的不产生 provider I/O。 | 这是真 ASYNC 和显式 embedding 链；不证明自动查询 embedding、SYNC、多向量、真实 cross-encoder、变更行复用或全量质量门槛。 |
 
@@ -274,7 +274,7 @@ registry、production runner 及其 Task QueryCtx；提交 raw SDK key 和 appar
 ## 10. 算法选择、优化保守性与终态异常（隔离最小修复，待统一验证）
 
 检索规划的无索引行为与执行失败切换路径必须分开审计。当前
-`VectorSearchRewriter.tryRewrite` / `RetrievalArtifactResolver.resolveOne` 可以在绑定前选择
+`VectorSearchRewriter.tryRewrite` / `RetrievalGenerationResolver.resolveOne` 可以在绑定前选择
 Native exact distance + ORDER BY + LIMIT：没有已发布、满足快照和覆盖条件的 ANN artifact
 时，这仍是唯一 Native 执行计划。`RetrievalPlanBinder.toProtocolBinding` 将有 artifact
 的绑定设为 FALLBACK_FORBID；`ArtifactRetrievalPlanner` 对 checksum、格式、角色、覆盖及

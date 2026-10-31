@@ -25,7 +25,8 @@
       This module is a packaging-only module. It does NOT contain Java source code.
       The release workflow:
         1. Builds libpangrova_native.{so,dylib} on each platform via CMake
-        2. Stages the library into src/main/resources/META-INF/native/{os}/{arch}/
+        2. Stages the library into the bridge-owned resource root
+           pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/{os}/{arch}/
         3. Runs: mvn package -pl pangrova-native-bundle -Dnative.resource.dir=...
         4. Installs/deploys the JAR with classifier matching the build platform
 
@@ -49,7 +50,9 @@
         </plugins>
 
         <!--
-          Native libraries are staged into src/main/resources/ by CI before packaging.
+          Native libraries are staged into the bridge module's resource root by CI
+          before packaging. This keeps one staged copy shared by the loader resource
+          and this classifier JAR, so a stale Native payload cannot pair with new Java.
           Resource path convention: META-INF/native/{os}/{arch}/libpangrova_native.{so,dylib}
           This matches NativeLibraryLoader's classpath extraction path.
         -->

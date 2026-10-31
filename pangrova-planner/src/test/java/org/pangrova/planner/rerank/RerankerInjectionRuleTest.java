@@ -10,7 +10,7 @@ import org.pangrova.parser.ast.Query;
 import org.pangrova.parser.ast.SortItem;
 import org.pangrova.parser.ast.TableRef;
 import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.parser.ast.expression.RerankClause;
+import org.pangrova.parser.ast.RerankClause;
 import org.pangrova.planner.rerank.RerankerPlanNode.FullTextSource;
 import org.pangrova.planner.rerank.RerankerPlanNode.RrfStrategy;
 import org.pangrova.planner.rerank.RerankerPlanNode.VectorSource;

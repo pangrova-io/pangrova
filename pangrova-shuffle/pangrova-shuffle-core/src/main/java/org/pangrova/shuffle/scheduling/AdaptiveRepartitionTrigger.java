@@ -3,8 +3,8 @@ package org.pangrova.shuffle.scheduling;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.spi.annotation.Experimental;
-import org.pangrova.shuffle.ShufflePartitionStats;
+import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 /**
  * SPI callback invoked after a shuffle stage completes with actual partition

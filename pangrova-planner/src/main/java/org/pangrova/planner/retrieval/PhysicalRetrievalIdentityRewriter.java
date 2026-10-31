@@ -13,7 +13,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.pangrova.protocol.retrieval.RetrievalCandidateIdentity;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Adds signed Native virtual identity after SQL validation and policy application. */
 @Internal
@@ -50,10 +50,10 @@ public final class PhysicalRetrievalIdentityRewriter {
             return false;
         }
         var binding = table.unwrap(
-                org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.class);
-        if (binding == null || binding.state() != org.pangrova.spi.connector.metadata.table
+                org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.class);
+        if (binding == null || binding.state() != org.pangrova.connector.spi.metadata.table
                 .ConnectorReadBinding.SnapshotState.SNAPSHOT || binding.sourceIdentity().isBlank()
-                || binding.declaration().declarationEvidence() != org.pangrova.spi.connector.metadata.table
+                || binding.declaration().declarationEvidence() != org.pangrova.connector.spi.metadata.table
                 .ConnectorTableReadMetadata.DeclarationEvidence.EXACT) {
             return false;
         }

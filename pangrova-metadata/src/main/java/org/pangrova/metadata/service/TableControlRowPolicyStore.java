@@ -1,12 +1,12 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.control.TableControlState;
-import org.pangrova.security.rowfilter.IdentityRowPolicyStore;
-import org.pangrova.security.rowfilter.RowPolicy;
-import org.pangrova.security.rowfilter.RowPolicyStore;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.table.api.control.TableControlRecord;
+import org.pangrova.table.api.control.TableControlState;
+import org.pangrova.table.api.policy.TablePolicyAuthority;
+import org.pangrova.security.api.rowfilter.IdentityRowPolicyStore;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.security.api.rowfilter.RowPolicyStore;
+import org.pangrova.security.api.AccessDeniedException;
 
 import java.util.List;
 import java.util.Objects;
@@ -15,20 +15,20 @@ import java.util.stream.Stream;
 
 /** Reads and persists row policies under their stable table identity; names are diagnostic. */
 public final class TableControlRowPolicyStore implements RowPolicyStore {
-    private final CatalogRegistry catalogs;
+    private final TablePolicyAuthority tables;
     private final IdentityRowPolicyStore storage;
 
-    public TableControlRowPolicyStore(CatalogRegistry catalogs, IdentityRowPolicyStore storage) {
-        this.catalogs = Objects.requireNonNull(catalogs, "catalogs");
+    public TableControlRowPolicyStore(TablePolicyAuthority tables, IdentityRowPolicyStore storage) {
+        this.tables = Objects.requireNonNull(tables, "tables");
         this.storage = Objects.requireNonNull(storage, "storage");
     }
 
     @Override
     public List<RowPolicy> getPolicies(String catalog, String schema, String table) {
-        var record = catalogs.tableControl().find(catalog, schema, table);
+        var record = tables.find(catalog, schema, table);
         if (record.isPresent()) {
             var current = record.orElseThrow();
-            catalogs.tableControl().requireCurrentCatalog(current, "Row policy read");
+            tables.requireCurrentCatalog(current, "Row policy read");
             if (current.state() != TableControlState.ACTIVE) {
                 throw new AccessDeniedException("Row policy read requires an ACTIVE controlled table");
             }
@@ -40,7 +40,7 @@ public final class TableControlRowPolicyStore implements RowPolicyStore {
 
     @Override
     public void savePolicy(RowPolicy policy) {
-        var current = catalogs.tableGovernance().requireBindable(
+        var current = tables.requireBindable(
                 policy.catalogName(), policy.schemaName(), policy.tableName());
         if (policy.tableId() != null && !policy.tableId().equals(current.tableId())) {
             throw new AccessDeniedException("Row policy belongs to a replaced table identity");

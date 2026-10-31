@@ -9,11 +9,11 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import org.pangrova.common.exception.StaleEpochException;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.metadata.streaming.JdbcStreamStateStore;
-import org.pangrova.metadata.streaming.StreamLifecycleState;
-import org.pangrova.metadata.streaming.StreamState;
+import org.pangrova.streaming.store.jdbc.checkpoint.JdbcStreamStateStore;
+import org.pangrova.streaming.api.checkpoint.StreamLifecycleState;
+import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.junit.jupiter.api.Tag;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
 import java.time.Instant;

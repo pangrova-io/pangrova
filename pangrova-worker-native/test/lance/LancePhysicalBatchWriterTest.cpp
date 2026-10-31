@@ -8,17 +8,17 @@
 #include <arrow/array/concatenate.h>
 #include <arrow/array/util.h>
 #include <arrow/ipc/reader.h>
-#include "columnar/ColumnarImportLayout.h"
-#include "executor/driver/TaskExecutor.h"
-#include "jni/command/StatusSerializer.h"
+#include "engine/columnar/ColumnarImportLayout.h"
+#include "engine/executor/driver/TaskExecutor.h"
+#include "bridge/command/StatusSerializer.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
-#include "velox/connector/PangrovaVeloxConnector.h"
+#include "engine/velox/connector/PangrovaVeloxConnector.h"
 #include "substrait/plan.pb.h"
 #include "velox/vector/arrow/Bridge.h"
-#include "write/WriteArrowExport.h"
+#include "engine/write/WriteArrowExport.h"
 
 #include "velox/common/base/Exceptions.h"
-#include "velox/memory/VeloxMemoryGovernor.h"
+#include "engine/velox/memory/VeloxMemoryGovernor.h"
 
 namespace pangrova::lance::test {
 namespace {

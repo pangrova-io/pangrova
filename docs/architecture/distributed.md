@@ -5,12 +5,27 @@ sidebar_label: "Distributed Architecture"
 
 # Pangrova — Distributed Architecture
 
+Cluster lease and coordinator/worker registry contracts live in
+`pangrova-coordination-api` under `org.pangrova.coordination.api`. JDBC and memory
+implementations remain in the Coordinator process; the optional ZooKeeper provider
+depends only on the API and its quorum SDK. `CoordinatorLeaseBootstrap` still selects
+the configured backend explicitly, with JDBC as its default. This extraction changes
+Java artifact/package identity and requires provider consumers to recompile; snapshot
+fields, registry payload encoding, fencing values and backend selection are unchanged.
+
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
 
 > **Summary.** The Coordinator–Worker topology, multi-active high availability and leader election, worker registration and health checking, and shuffle durability.
+
+Worker registration in `JdbcWorkerRegistry` uses one transaction for its
+update-then-insert operation. SQL, runtime, and Error failures roll back before
+the connection is closed, and rollback failures remain suppressed on the
+original cause. Failure cleanup does not restore auto-commit. The existing
+unique-key retry rule remains unchanged, so a failed registration cannot become
+a committed replacement of the prior Worker identity merely through cleanup.
 
 ## 1. Coordinator High-Availability Architecture
 
@@ -142,7 +157,7 @@ Terminal states: `FINISH`, `FAILED`, `CANCELLED`. No transitions out of terminal
 ### 1.4 Coordinator Module Structure
 
 ```
-pangrova-coordinator/
+pangrova-coordination/pangrova-coordination-core/
 ├── src/main/java/org/pangrova/coordinator/
 │   ├── PangrovaCoordinator.java           # Main entry point
 │   ├── CoordinatorConfig.java           # Configuration
@@ -254,7 +269,7 @@ Note: On the write path, the Worker-side Java `TableWriter` is responsible for f
 ### 2.3 Worker Module Structure
 
 ```
-pangrova-worker/
+pangrova-worker/pangrova-worker-core/
 ├── src/main/java/org/pangrova/worker/
 │   ├── PangrovaWorker.java                # Main entry point
 │   ├── WorkerConfig.java                # Configuration
@@ -300,7 +315,7 @@ public class PangrovaWorker implements Lifecycle {
 
     private final WorkerConfig config;
     private final NativeRuntime nativeBridge;
-    private final ResourceManager resourceManager;   // pangrova-resource; see 11 §3
+    private final ResourceManager resourceManager;   // pangrova-worker resource module; see 11 §3
     private final ConnectorManager connectorManager;
     private final TaskManager taskManager;
     private final HttpServer httpServer;

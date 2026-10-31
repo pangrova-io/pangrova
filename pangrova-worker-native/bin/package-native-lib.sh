@@ -8,14 +8,14 @@
 # If no argument is given, auto-detects from pangrova-worker-native/build/.
 #
 # Resource layout (sqlite-jdbc / Netty tcnative pattern):
-#   pangrova-worker/src/main/resources/META-INF/native/{os}/{arch}/lib...
+#   pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/{os}/{arch}/lib...
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NATIVE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(cd "$NATIVE_ROOT/.." && pwd)"
-RESOURCE_BASE="$PROJECT_ROOT/pangrova-worker/src/main/resources/META-INF/native"
+RESOURCE_BASE="$PROJECT_ROOT/pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native"
 
 detect_platform() {
     local uname_s uname_m
@@ -42,7 +42,22 @@ find_native_lib() {
         return
     fi
     local build_dir="$NATIVE_ROOT/build"
-    if [[ -f "$build_dir/libpangrova_native.dylib" ]]; then
+    # The build redirects CMAKE_LIBRARY_OUTPUT_DIRECTORY into the SDK cohort, so
+    # honour the configured output directory before falling back to the build root.
+    local lib_dir="$build_dir"
+    if [[ -f "$build_dir/CMakeCache.txt" ]]; then
+        local configured_dir
+        configured_dir="$(sed -n 's/^CMAKE_LIBRARY_OUTPUT_DIRECTORY:[A-Z]*=//p' \
+            "$build_dir/CMakeCache.txt" | head -n 1)"
+        if [[ -n "$configured_dir" ]]; then
+            lib_dir="$configured_dir"
+        fi
+    fi
+    if [[ -f "$lib_dir/libpangrova_native.dylib" ]]; then
+        NATIVE_LIB="$lib_dir/libpangrova_native.dylib"
+    elif [[ -f "$lib_dir/libpangrova_native.so" ]]; then
+        NATIVE_LIB="$lib_dir/libpangrova_native.so"
+    elif [[ -f "$build_dir/libpangrova_native.dylib" ]]; then
         NATIVE_LIB="$build_dir/libpangrova_native.dylib"
     elif [[ -f "$build_dir/libpangrova_native.so" ]]; then
         NATIVE_LIB="$build_dir/libpangrova_native.so"

@@ -12,6 +12,144 @@ sidebar_label: "Metadata Management"
 
 > **Summary.** Unified metadata ownership, catalog federation, tiered metadata caching, and schema evolution.
 
+The generic object-dependency component separates contracts and values in
+`metadata.api.relation`, ordering and policy orchestration in
+`metadata.core.relation`, the in-memory provider in
+`metadata.provider.memory.relation`, and PostgreSQL persistence in
+`metadata.store.jdbc.object`. Both providers use iterative postorder traversal:
+for an acyclic graph, every dependent precedes every reachable parent, including
+shortcut edges and shared descendants. Revisited nodes are skipped; cyclic input
+terminates without duplication but cannot have a topological order. Cascade
+failure leaves the failed and unprocessed objects' edges intact.
+
+Graph identity is the natural `(catalog, schema, name)` key, shared by both
+providers and traversal through the internal `ObjectDependencyKey`. `ObjectRef`
+remains a four-field value; its record equality still includes kind. Kinds are
+edge descriptions rather than current-catalog authority: rewriting an existing
+edge refreshes that edge's descriptions without rewriting other edges. Lookups,
+removal, cycle deduplication and self-edge rejection ignore kind. Traversal returns
+the first discovered description for each natural object. Both providers snapshot
+and validate all parents before mutation, so a null entry cannot leave a partial
+addition or replacement in memory. PostgreSQL write rollback and connection
+ownership remain unchanged.
+
+JDBC additions and replacements of the same child's complete parent set take a
+PostgreSQL transaction advisory lock before any edge deletion. The lock key uses
+the resolved graph table OID and the three name segments, so isolated schemas and
+different children do not share a global graph lock. This prevents concurrent
+DELETE/INSERT from failing a duplicate recording or combining two replacements.
+It does not turn transitive graph reads or connector DDL into one serializable
+transaction; those remain separate integration boundaries.
+
+Dependency writes return an immutable complete parent snapshot acquired under the
+same memory lock or inside the JDBC transaction before commit. The service uses
+that result for both single-edge and batch notifications, so it neither mistakes
+an input delta for the complete graph nor performs a second read after commit.
+A failed JDBC snapshot read rolls back the write and emits no success callback.
+Notifications remain synchronous and best-effort, not a durable outbox: concurrent
+operations can supersede the snapshot or deliver callbacks in a different order.
+Each successfully deleted cascade dependent is cleaned up and notified immediately;
+a later failed drop does not erase earlier success notifications. The parent's
+aggregate cascade list is context, not a request to emit those children again.
+WARN reports prospective orphaning but preserves all edges until the connector's
+successful drop is confirmed through `onObjectDropped`.
+
+The optional lineage adapter carries the operation and datasets in both START
+and COMPLETE events. Its per-object callback does not replay aggregate cascade
+context. This describes explicitly registered component consumers; it does not
+register the graph or adapter as a new SQL lifecycle authority.
+
+This component is not the current SQL dependency authority. DROP TABLE goes
+through Table Control and the connector, DROP VIEW delegates to the connector,
+and materialization DROP uses its own tenant-scoped repository and authorization.
+The generic graph's V9 key lacks tenant and incarnation dimensions. Its service
+and optional lineage adapter are not registered by production bootstrap; query
+lineage uses its durable outbox. Future integration requires an explicit identity,
+authority and atomicity design. Historical V9 schema and checksums remain intact.
+
+Artifact stores now consume `DataBuildTransactionAuthority` from
+`artifact.spi.jdbc`. This is explicitly a caller-owned JDBC transaction port,
+not a data-source container or an authorization snapshot. The real
+`MetadataDataBuildTransactionAuthority` adapter retains the current tenant and
+table-policy checks and delegates model validation through Security's
+`security.spi.jdbc.CurrentModelAuthority` on that same connection. The process
+root constructs AI Control's `store.jdbc.embedding.JdbcCurrentModelAuthority`
+with the real `JdbcCurrentDirectRoleReader`, then explicitly passes it to
+`new DataBuildStores(modelAuthority)` and the managed-source and generated-write
+consumers. The instance factory supplies that adapter to build, stage, exchange,
+publication and generated-submission stores; it has no static current-authority
+singleton, default model provider or mutable global injection point.
+AI Control's catalog-export adapter receives the same port explicitly from
+`ai.control.assembly.AiInfrastructureStores`, whose caller supplies the real
+authority. AI Control no longer imports Metadata runtime or its test-jar;
+cross-domain authority tests belong to Testing Integration. Its build insertion and catalog association remain on
+one connection; an authority failure rolls back the whole export transaction.
+The existing authority gate, execution-owner fence and job/descriptor lock order
+remain unchanged.
+
+The model provider observes the exact incarnation, configuration version,
+deployment version and signature, and rechecks direct invocation roles before
+validating a deferred receipt. It never opens, commits, rolls back or closes the
+caller connection. Empty `requireCurrent` snapshots perform no model check;
+empty `observe` still requires the transaction gate and current direct roles.
+Both stage-graph and definition snapshots are validated. Managed-source writes
+retain gate → execution fence → intent lock → authority ordering, and query-only
+Coordinators keep plain-table write receipt capture active. Model-role cleanup
+and SQL triggers are separate ownership concerns; this provider migration does
+not change them or the optional Indexing activation path.
+
+Immutable dispatch/dependency/page/split reads are owned by
+`artifact.store.jdbc.query.JdbcArtifactBuildQueries`. They retain the caller's
+connection and do not begin, commit or close its transaction. The canonical historical SQL sequence is now owned by the resource-only
+`pangrova-schema-migrations` artifact, consumed by Metadata as a runtime dependency.
+Its `db/migration` location, filenames, versions and bytes are unchanged;
+`META-INF/pangrova/schema-migrations.tsv` records their original hashes.
+Metadata retains bootstrap execution and cross-domain composition. `CurrentDeferredExecutionContext`
+still has a private constructor and is resolved through current authority plus the
+real backend execution anchor. It rejects a port result for a different tenant or
+job before constructing that context.
+
+Execution-anchor locking is owned by Query's
+`query.api.coordination.jdbc.ExecutionTransactionFence`, implemented by
+`query.store.jdbc.anchor.JdbcExecutionTransactionFence`. It takes the caller's
+connection and the issued execution/owner/incarnation/token tuple, returns the
+actual database anchor, and never creates, commits, rolls back or closes a
+transaction. It checks expiry using a separate database-clock statement after
+the anchor row lock. Absent/replaced/expired ownership is a typed rejection;
+SQL failures and corrupt rows are not stale-owner results.
+
+Artifact owns exact durable route reads/writes and publication-owner lookup in
+`artifact.store.jdbc.execution`. Its injected fence verifies the route, delegates
+anchor authority to Query, and exposes `DataBuildExecutionOwnerLostException` to
+consumers without leaking a Metadata implementation type. Metadata composition
+wires this real fence into build, stage, exchange and publication stores.
+Managed-source publication and File's COPY-source read admission also receive the
+Query transaction port explicitly; neither calls a static anchor-store helper.
+The former File-owned duplicate anchor-fence interface has been removed.
+Current authorization and the
+two publication fence checks around blocking job/descriptor work retain their
+existing order and transaction.
+
+Generic job/page/stage state, revocation and exchange writers now live in
+`artifact.store.jdbc.build` and `artifact.store.jdbc.exchange`. Execution context
+resolution lives in `artifact.store.jdbc.execution` and receives Security's
+`security.spi.jdbc.CurrentDirectRoleReader`; the real JDBC provider reads current
+direct roles on the same connection after current authorization and execution
+fencing. It never owns the caller's transaction or substitutes IdP groups.
+
+Publication candidate selection uses `artifact.spi.jdbc.ArtifactPublicationCandidates`,
+implemented by Metadata's shared-database projection. The SQL filters live owners
+before sorting/limiting candidates and reads persisted publication ownership without
+acquiring an anchor lock after the job lock. This read projection is not an execution
+ownership authority. Generic storage failures use `DataBuildStorageException` while
+retaining the existing persistence error code, original cause and rollback failures.
+
+Domain publication, generated-model authority/submission, cross-domain composition
+remain in Metadata pending their owner migration. Historical SQL resources have their
+separate schema-migrations owner; their location does not make Metadata the writer
+for every domain table.
+The generic runtime move does not complete the entire Artifact/domain separation.
+
 ## 1. Design Background and Goals
 
 ### 1.1 Problem Domain

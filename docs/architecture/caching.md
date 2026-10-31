@@ -6,9 +6,10 @@ sidebar_label: "Caching (Target)"
 # Pangrova — Caching Target Architecture
 
 > **Status:** Target architecture. The implemented cache surface currently consists
-> of Velox native caching plus `DistributedCacheStore`, native cache options, and
-> worker cache-eviction/locality wiring. The RAM/SSD manager, prefetch controller,
-> and Java `CacheSpi` described below are design intent, not current class names.
+> of Velox native caching, native cache options, the Java L2 query-result cache
+> (`planner.cache.L2CacheStore`), and worker cache-eviction/locality wiring. The
+> RAM/SSD manager and prefetch controller described below are design intent, not
+> current class names; there is no Java cache SPI.
 
 > **Summary.** Target design for multi-tier caching and smart prefetch.
 
@@ -237,52 +238,18 @@ public:
 } // namespace pangrova
 ```
 
-### 2.1 Java CacheSpi Interface (JNI Bridge)
+### 2.1 Java cache contracts
 
+There is no Java-side cache SPI. The former `org.pangrova.spi.cache` distributed
+cache-store contracts had no implementation and no consumer and were removed
+during the module restructuring; the native cache is reached through the engine
+layer, not through a Java ServiceLoader.
 
-
-```java
-/**
- * Java CacheSpi — JNI bridge to the Native C++ Cache implementation.
- *
- * Discovered via ServiceLoader (META-INF/services/org.pangrova.spi.cache.CacheSpi).
- * All data-path operations delegate to the C++ Cache through NativeRuntime JNI calls.
- * See resource-management.md for memory pressure integration.
- */
-public interface CacheSpi extends AutoCloseable {
-
-    /** Async get — delegates to C++ Cache::get(). Returns empty if miss. */
-    CompletableFuture<Optional<ByteBuffer>> get(CacheKey key);
-
-    /** Async put — delegates to C++ Cache::put(). */
-    CompletableFuture<Boolean> put(CacheKey key, ByteBuffer buffer);
-
-    /** Async remove — delegates to C++ Cache::remove(). */
-    CompletableFuture<Boolean> remove(CacheKey key);
-
-    /** Check existence — delegates to C++ Cache::contains(). */
-    boolean contains(CacheKey key);
-
-    /** Pin/unpin — prevent eviction during active query. */
-    void pin(CacheKey key);
-    void unpin(CacheKey key);
-
-    /** Statistics — delegates to C++ Cache::getStats(). */
-    CacheStats getStats();
-
-    /** Memory pressure mode — called by ResourceManager (06 §3). */
-    void setMemoryPressureMode(MemoryPressure pressure);
-
-    /** Cache name for logging/metrics. */
-    String name();
-}
-```
-
-> **Relationship to C++ Cache**: `CacheSpi` is a thin JNI proxy.  Each method
-> calls the corresponding C++ `Cache` method through `NativeRuntime`.  The C++
-> implementation owns all cache data structures; Java never holds cached data
-> directly.  `setMemoryPressureMode()` triggers the C++ side to adjust eviction
-> aggressiveness (see [resource-management.md §Cache Memory Pool](./resource-management.md)).
+Java owns only its L2 query-result cache: `planner.cache.L2CacheStore` with the
+`planner.cache.InMemoryL2CacheStore`, `metadata.core.cache.*` and
+`coordinator.query.cache.RedisL2CacheStore` implementations. The C++ `Cache`
+contract below is the cross-language data-plane design and is not exposed to
+Java callers.
 
 ## 3. RAM Cache Implementation
 

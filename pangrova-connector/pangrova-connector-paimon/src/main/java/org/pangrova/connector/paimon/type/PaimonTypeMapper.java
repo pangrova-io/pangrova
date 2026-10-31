@@ -1,9 +1,9 @@
 package org.pangrova.connector.paimon.type;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.PangrovaTypeMapping;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.mapping.PangrovaTypeMapping;
+import org.pangrova.connector.spi.data.type.VectorType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
@@ -73,14 +73,14 @@ public final class PaimonTypeMapper {
     }
 
     /**
-     * Converts a Paimon DataType to the parameterized {@link org.pangrova.spi.connector.data.Type}.
+     * Converts a Paimon DataType to the parameterized {@link org.pangrova.connector.spi.data.Type}.
      * For DECIMAL, ARRAY, MAP, and ROW, preserves full parameter information.
      * For simple types, bridges via {@link PangrovaTypeMapping}.
      *
      * @param paimonType the Paimon type to convert
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(DataType paimonType) {
+    public static org.pangrova.connector.spi.data.type.Type toParameterizedType(DataType paimonType) {
         return paimonType.accept(TO_PARAMETERIZED);
     }
 
@@ -134,7 +134,7 @@ public final class PaimonTypeMapper {
     }
 
     /**
-     * Converts a Paimon type to a parameterized Pangrova {@link org.pangrova.spi.connector.data.type.Type},
+     * Converts a Paimon type to a parameterized Pangrova {@link org.pangrova.connector.spi.data.type.Type},
      * using table properties to detect vector columns. A {@code array(float/double)} column
      * with a matching dimension property is mapped to {@link VectorType}.
      * A marked VARCHAR variant uses the same canonical variant storage type as the SDK visitor.
@@ -144,7 +144,7 @@ public final class PaimonTypeMapper {
      * @param tableProperties the table properties
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(
+    public static org.pangrova.connector.spi.data.type.Type toParameterizedType(
             DataType paimonType, String columnName, Map<String, String> tableProperties) {
         if (isVariantColumn(paimonType, columnName, tableProperties)) {
             return PangrovaTypeMapping.toType(PangrovaType.VARIANT);

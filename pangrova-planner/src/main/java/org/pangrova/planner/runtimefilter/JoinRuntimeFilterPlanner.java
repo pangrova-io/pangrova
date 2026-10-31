@@ -1,6 +1,6 @@
 package org.pangrova.planner.runtimefilter;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.PangrovaType;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;

@@ -1,6 +1,6 @@
 package org.pangrova.metadata.source.jdbc;
 
-import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
 
 import java.net.URI;
 import java.nio.file.Path;

@@ -14,14 +14,31 @@
     <name>Pangrova Streaming</name>
     <description>Declarative incremental data transformation: CDC ingestion, table maintenance, incremental query refresh, watermark management</description>
 
+    <properties>
+        <module.name>org.pangrova.streaming</module.name>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
+            <artifactId>pangrova-observability-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-spi</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-parser</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -39,7 +56,7 @@
         <!-- Test -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-test-common</artifactId>
+            <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

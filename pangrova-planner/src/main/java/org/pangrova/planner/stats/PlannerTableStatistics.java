@@ -1,6 +1,6 @@
 package org.pangrova.planner.stats;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 
 import java.time.Instant;
 import java.util.Map;

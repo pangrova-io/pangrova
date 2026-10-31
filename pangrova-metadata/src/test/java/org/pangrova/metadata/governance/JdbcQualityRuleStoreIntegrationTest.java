@@ -1,18 +1,19 @@
 package org.pangrova.metadata.governance;
 
-import org.pangrova.governance.quality.rule.QualityExecutionIdentity;
-import org.pangrova.governance.quality.rule.DataQualityRule;
-import org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor;
+import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
+import org.pangrova.governance.api.quality.QualityExecutionIdentity;
+import org.pangrova.governance.api.quality.DataQualityRule;
+import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.governance.quality.QualityCheckResult;
-import org.pangrova.governance.quality.alert.Severity;
-import org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.governance.api.quality.QualityCheckResult;
+import org.pangrova.governance.api.quality.Severity;
+import org.pangrova.governance.core.quality.RuleBasedWriteQualityGate;
+import org.pangrova.testing.testkit.ContainerTestBase;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import java.sql.Connection;

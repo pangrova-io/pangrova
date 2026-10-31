@@ -1,12 +1,12 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.governance.classification.ColumnTagService;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.control.GovernanceBinding;
-import org.pangrova.metadata.control.GovernanceBindingType;
-import org.pangrova.metadata.control.TableControlRecord;
-import org.pangrova.metadata.control.TableControlState;
-import org.pangrova.metadata.model.QualifiedTableRef;
+import org.pangrova.governance.core.classification.ColumnTagService;
+import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.table.api.governancebinding.GovernanceBinding;
+import org.pangrova.table.api.governancebinding.GovernanceBindingType;
+import org.pangrova.table.api.control.TableControlRecord;
+import org.pangrova.table.api.control.TableControlState;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -28,9 +28,9 @@ final class MetadataTagOperations {
 
     void setTag(TableControlRecord admitted, String column, String tagKey, String value, String actor) {
         Objects.requireNonNull(value, "value");
-        if ("pii_type".equals(tagKey) && org.pangrova.governance.classification.TagBasedSecurityPolicy
+        if ("pii_type".equals(tagKey) && org.pangrova.governance.core.classification.TagBasedSecurityPolicy
                 .piiTypeToMaskExpression(value) == null) {
-            throw new org.pangrova.spi.security.AccessDeniedException("Unknown PII tag value");
+            throw new org.pangrova.security.api.AccessDeniedException("Unknown PII tag value");
         }
         String reference = reference(column, tagKey);
         TableControlRecord record = current(admitted);
@@ -127,7 +127,7 @@ final class MetadataTagOperations {
         var current = catalogs.tableGovernance().requireBindable(
                 admitted.catalog(), admitted.schema(), admitted.table());
         if (!current.tableId().equals(admitted.tableId())) {
-            throw new org.pangrova.spi.security.AccessDeniedException("Column tag target was replaced after admission");
+            throw new org.pangrova.security.api.AccessDeniedException("Column tag target was replaced after admission");
         }
         return admitted;
     }

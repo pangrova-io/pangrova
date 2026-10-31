@@ -15,7 +15,7 @@ import io.grpc.stub.ServerCallStreamObserver;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionTerminal;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;

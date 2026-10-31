@@ -7,7 +7,7 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.SortField;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.BoundExecutionPlan;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.v2.CoveragePolicy;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 import org.pangrova.protocol.v2.RetryClass;

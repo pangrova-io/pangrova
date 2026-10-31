@@ -58,7 +58,7 @@ public final class ImmutableFilterBoundary {
         command(command, runner, "run", "(Ljava/util/List;)Ljava/lang/Process;", "COMMAND_INJECTION", false);
         command(command, runner, "run", "(Ljava/util/List;)V", "OVERLY_PERMISSIVE_FILE_PERMISSION", false);
         Filter jitter = Filter.parseFilter(args[3]);
-        String policy = "org.pangrova.client.rest.RetryPolicy";
+        String policy = "org.pangrova.client.core.session.RetryPolicy";
         command(jitter, policy, "delayForAttemptWithJitter", "(I)Ljava/time/Duration;", "PREDICTABLE_RANDOM", true);
         command(jitter, policy + "Other", "delayForAttemptWithJitter", "(I)Ljava/time/Duration;",
                 "PREDICTABLE_RANDOM", false);
@@ -93,36 +93,57 @@ public final class ImmutableFilterBoundary {
         verifyImmutableAccessors(args[8], args[6]);
         verifyImmutableAccessors(args[9], args[6]);
         verifyIndexingBorrowed(args[6]);
+        verifyManagedSourceBorrowed(args[6]);
+    }
+
+    private static void verifyManagedSourceBorrowed(String fullFilterPath) throws Exception {
+        Filter full = Filter.parseFilter(fullFilterPath);
+        String owner = "org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog";
+        String oldParams = "Ljavax/sql/DataSource;"
+                + "Lorg/pangrova/connector/spi/metadata/ManagedSourceCatalog$Deployment;"
+                + "Ljava/util/function/Function;";
+        String previousParams = oldParams + "Lorg/pangrova/query/api/coordination/jdbc/ExecutionTransactionFence;";
+        String params = previousParams + "Lorg/pangrova/security/spi/jdbc/CurrentModelAuthority;";
+        String sourceType = "Ljavax/sql/DataSource;";
+        check(full, owner, "<init>", params, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", true);
+        check(full, owner, "<init>", oldParams, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
+        check(full, owner, "<init>", previousParams, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
+        check(full, owner, "<init>", params + "I", "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
+        check(full, owner + "Other", "<init>", params, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
+        check(full, owner, "other", params, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", false);
+        check(full, owner, "<init>", params, "V", "executionFence", sourceType, "EI_EXPOSE_REP2", false);
+        check(full, owner, "<init>", params, "V", "dataSource", "[B", "EI_EXPOSE_REP2", false);
+        check(full, owner, "<init>", params, "V", "dataSource", sourceType, "EI_EXPOSE_REP", false);
     }
 
     private static void verifyIndexingBorrowed(String fullFilterPath) throws Exception {
         Filter full = Filter.parseFilter(fullFilterPath);
-        String manager = "org.pangrova.indexing.storage.IndexStorageManager";
-        String context = "org.pangrova.indexing.build.IndexBuildContext";
-        String evaluation = "org.pangrova.indexing.eval.IndexEvaluationService";
-        String cached = "org.pangrova.indexing.storage.CachedBloomFilterIndexData";
+        String manager = "org.pangrova.indexing.core.storage.IndexStorageManager";
+        String context = "org.pangrova.indexing.core.build.IndexBuildContext";
+        String evaluation = "org.pangrova.indexing.core.eval.IndexEvaluationService";
+        String cached = "org.pangrova.indexing.core.storage.CachedBloomFilterIndexData";
         String bloom = "org.pangrova.common.bloom.SplitBlockBloomFilter";
         verifyIndexingMatch(full, context, "storageManager", "", manager,
                 "storageManager", manager, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, context, "<init>",
-                "org.pangrova.indexing.config.IndexingConfig,org.pangrova.indexing.IndexEngineRegistry,"
-                + manager + ",org.pangrova.indexing.serde.IndexSerializer,"
-                + "org.pangrova.indexing.build.BuildClaimHandler,"
-                + "org.pangrova.indexing.build.GenerationChecker,"
-                + "org.pangrova.spi.connector.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
+                "org.pangrova.indexing.core.config.IndexingConfig,org.pangrova.indexing.core.registry.IndexEngineRegistry,"
+                + manager + ",org.pangrova.indexing.core.serde.IndexSerializer,"
+                + "org.pangrova.indexing.core.build.BuildClaimHandler,"
+                + "org.pangrova.indexing.core.build.GenerationChecker,"
+                + "org.pangrova.connector.spi.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
                 "void", "storageManager", manager, "EI_EXPOSE_REP2");
-        String evaluationParams = "org.pangrova.indexing.IndexEngineRegistry,"
-                + "org.pangrova.indexing.storage.IndexCache," + manager + ","
-                + "org.pangrova.indexing.serde.IndexSerializer,"
-                + "org.pangrova.indexing.eval.IndexEvalCircuitBreaker";
+        String evaluationParams = "org.pangrova.indexing.core.registry.IndexEngineRegistry,"
+                + "org.pangrova.indexing.core.storage.IndexCache," + manager + ","
+                + "org.pangrova.indexing.core.serde.IndexSerializer,"
+                + "org.pangrova.indexing.core.eval.IndexEvalCircuitBreaker";
         verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
                 "storageManager", manager, "EI_EXPOSE_REP2");
         verifyIndexingMatch(full, evaluation, "<init>", evaluationParams, "void",
-                "cache", "org.pangrova.indexing.storage.IndexCache", "EI_EXPOSE_REP2");
+                "cache", "org.pangrova.indexing.core.storage.IndexCache", "EI_EXPOSE_REP2");
         verifyIndexingMatch(full, cached, "filter", "", bloom,
                 "deserializedFilter", bloom, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, cached, "<init>",
-                "org.pangrova.spi.index.data.BloomFilterIndexData," + bloom,
+                "org.pangrova.indexing.api.data.BloomFilterIndexData," + bloom,
                 "void", "deserializedFilter", bloom, "EI_EXPOSE_REP2");
     }
 
@@ -184,16 +205,21 @@ public final class ImmutableFilterBoundary {
             String signature = SignatureUtil.createMethodSignature(params, result);
             command(isolated, owner, method, signature, "SQL_INJECTION_JDBC", true);
             command(full, owner, method, signature, "SQL_INJECTION_JDBC", true);
-            command(isolated, owner + "Other", method, signature, "SQL_INJECTION_JDBC", false);
-            command(isolated, owner, method + "Other", signature, "SQL_INJECTION_JDBC", false);
-            command(isolated, owner, method, SignatureUtil.createMethodSignature(params + ",int", result),
-                    "SQL_INJECTION_JDBC", false);
-            command(isolated, owner, method, SignatureUtil.createMethodSignature("java.lang.String", result),
-                    "SQL_INJECTION_JDBC", false);
-            command(isolated, owner, method, SignatureUtil.createMethodSignature(params, "java.lang.Object"),
-                    "SQL_INJECTION_JDBC", false);
-            command(isolated, owner, method, signature, "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING", false);
-            command(isolated, owner, method, signature, "NP_BOOLEAN_RETURN_NULL", false);
+            // Client JDBC intentionally has several approved overloads; the Artifact methods have one each.
+            var boundaries = owner.startsWith("org.pangrova.databuild.")
+                    ? java.util.List.of(isolated, full) : java.util.List.of(isolated);
+            for (Filter boundary : boundaries) {
+                command(boundary, owner + "Other", method, signature, "SQL_INJECTION_JDBC", false);
+                command(boundary, owner, method + "Other", signature, "SQL_INJECTION_JDBC", false);
+                command(boundary, owner, method, SignatureUtil.createMethodSignature(params + ",int", result),
+                        "SQL_INJECTION_JDBC", false);
+                command(boundary, owner, method, SignatureUtil.createMethodSignature("java.lang.String", result),
+                        "SQL_INJECTION_JDBC", false);
+                command(boundary, owner, method, SignatureUtil.createMethodSignature(params, "java.lang.Object"),
+                        "SQL_INJECTION_JDBC", false);
+                command(boundary, owner, method, signature, "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING", false);
+                command(boundary, owner, method, signature, "NP_BOOLEAN_RETURN_NULL", false);
+            }
         }
         String prepared = "org.pangrova.client.jdbc.PangrovaPreparedStatement";
         command(full, prepared, "executeQuery", "()Ljava/sql/ResultSet;", "SQL_INJECTION_JDBC", false);
@@ -297,7 +323,7 @@ def main():
         ET.ElementTree(runner_filter).write(runner_classification, encoding='utf-8', xml_declaration=True)
         jitter_matches = [match for match in full_filter.getroot()
                           if any(child.tag.endswith('Class') and child.get('name') ==
-                                 'org.pangrova.client.rest.RetryPolicy' for child in match)
+                                 'org.pangrova.client.core.session.RetryPolicy' for child in match)
                           and any(child.tag.endswith('Method') and child.get('name') ==
                                   'delayForAttemptWithJitter' for child in match)]
         if len(jitter_matches) != 1:
@@ -333,7 +359,7 @@ def main():
         borrowed_manifest.write_text('\n'.join(borrowed_cases), encoding='utf-8')
         jdbc_matches = [match for match in full_filter.getroot()
                         if any(child.tag.endswith('Class') and child.get('name', '').startswith(
-                            'org.pangrova.client.jdbc.') for child in match)
+                            ('org.pangrova.client.jdbc.', 'org.pangrova.databuild.store.jdbc.')) for child in match)
                         and any(child.tag.endswith('Bug') and child.get('pattern') == 'SQL_INJECTION_JDBC'
                                 for child in match)]
         expected_jdbc = {
@@ -345,8 +371,20 @@ def main():
             for method, result in (('execute', 'boolean'), ('executeUpdate', 'int'))
             for params in ('java.lang.String,int', 'java.lang.String,int[]', 'java.lang.String,java.lang.String[]')
         }
+        expected_jdbc |= {
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadOutputsForPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.List'),
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadPublishedSourceSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List', 'java.util.Map'),
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadSourceOutputs', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List', 'void'),
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadStoredSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map', 'void'),
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.databuild.store.jdbc.build.JdbcDataBuildPageSelection$Selection', 'java.util.Optional'),
+            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.databuild.api.build.DataBuildJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
+            ('org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.databuild.api.build.DataBuildJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
+        }
         if len(jdbc_matches) != len(expected_jdbc):
-            raise RuntimeError('Expected 11 exact JDBC SQL forwarding classifications')
+            raise RuntimeError('Expected 21 exact JDBC forwarding/Artifact SQL classifications')
         jdbc_cases = []
         actual_jdbc = set()
         for index, match in enumerate(jdbc_matches):
@@ -406,17 +444,17 @@ def main():
         identity_manifest = temporary / 'jdbc-identity-cases.txt'
         identity_manifest.write_text('\n'.join(identity_cases), encoding='utf-8')
         expected_metadata = {
-            ('org.pangrova.metadata.artifact.build.ArtifactExchangeFinalization', 'partitions', 'java.util.List'),
-            ('org.pangrova.metadata.artifact.build.ArtifactExchangeRegistration', 'endpoints', 'java.util.List'),
-            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'stages', 'java.util.List'),
-            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'exchanges', 'java.util.List'),
-            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'modelSnapshots', 'java.util.List'),
-            ('org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate', 'publicationReads', 'java.util.List'),
-            ('org.pangrova.metadata.artifact.contract.ArtifactDependencySet', 'dependencies', 'java.util.List'),
-            ('org.pangrova.metadata.model.TableMetadata', 'columns', 'java.util.List'),
-            ('org.pangrova.metadata.model.TableMetadata', 'partitionSpec', 'java.util.Map'),
-            ('org.pangrova.metadata.model.TableMetadata', 'sortOrder', 'java.util.List'),
-            ('org.pangrova.metadata.model.TableMetadata', 'properties', 'java.util.Map'),
+            ('org.pangrova.databuild.api.execution.DataBuildExchangeFinalization', 'partitions', 'java.util.List'),
+            ('org.pangrova.databuild.api.execution.DataBuildExchangeRegistration', 'endpoints', 'java.util.List'),
+            ('org.pangrova.databuild.api.execution.DataBuildStageGraph', 'stages', 'java.util.List'),
+            ('org.pangrova.databuild.api.execution.DataBuildStageGraph', 'exchanges', 'java.util.List'),
+            ('org.pangrova.databuild.api.execution.DataBuildStageGraph', 'modelSnapshots', 'java.util.List'),
+            ('org.pangrova.databuild.api.execution.template.DataBuildStageTemplate', 'publicationReads', 'java.util.List'),
+            ('org.pangrova.databuild.api.DataBuildDependencySet', 'dependencies', 'java.util.List'),
+            ('org.pangrova.metadata.api.object.TableMetadata', 'columns', 'java.util.List'),
+            ('org.pangrova.metadata.api.object.TableMetadata', 'partitionSpec', 'java.util.Map'),
+            ('org.pangrova.metadata.api.object.TableMetadata', 'sortOrder', 'java.util.List'),
+            ('org.pangrova.metadata.api.object.TableMetadata', 'properties', 'java.util.Map'),
         }
         metadata_owners = {owner for owner, _, _ in expected_metadata}
         metadata_matches = [match for match in full_filter.getroot()
@@ -487,13 +525,14 @@ def main():
     print('PASS: exact keytool runner classified; this Match rejects 7 class/method/signature/bug changes.')
     print('PASS: exact non-security retry jitter classified; this Match rejects 7 owner/method/signature/bug changes.')
     print('PASS: 19 exact borrowed Paimon services classified; each Match rejects 9 signature/field/type/bug changes.')
-    print('PASS: 11 exact JDBC overloads classified; each Match rejects 7 owner/method/signature/bug changes.')
+    print('PASS: 21 exact JDBC forwarding/Artifact methods classified; each rejects 7 changed boundaries, Artifact also in full filter.')
     print('PASS: complete filter does not exclude PreparedStatement SQL construction or Boolean-null finding.')
     print('PASS: four JDBC identity getters classified; isolated/full filters each reject 12 changed boundaries.')
     print('PASS: complete filter does not exclude obsolete PreparedStatement identity getter findings.')
     print('PASS: 11 immutable metadata collection getters classified; isolated/full filters each reject 12 changed boundaries.')
     print('PASS: canonical immutable VECTOR getter classified; isolated/full filters reject 12 changed boundaries.')
     print('PASS: six exact indexing ownership classifications each reject changed owner/method/field/type/bug.')
+    print('PASS: managed-source DataSource classification matches only the new constructor; old and altered boundaries remain checked.')
 
 
 if __name__ == '__main__':

@@ -28,9 +28,9 @@
 
 | 边界 | 已观察到的源码 | 不应外推的能力 |
 |---|---|---|
-| FILE 存储 | [BlobStorage](../../pangrova-worker/src/main/java/org/pangrova/worker/ai/blob/BlobStorage.java) 提供 publish/open | 不具备范围 IO、完整目录和安全回收契约 |
-| 受治理内容 | [GovernedBlobStore](../../pangrova-worker/src/main/java/org/pangrova/worker/ai/blob/GovernedBlobStore.java) 提供租户校验、持久化和整流校验 | 不能直接证明资产级撤权；read 会形成 byte[]，close 可能为完成摘要验证继续排空流，不是大文件局部读取契约 |
-| 外部版本 | [S3VersionedCopyStager](../../pangrova-worker/src/main/java/org/pangrova/worker/copy/S3VersionedCopyStager.java) 固定并校验 S3 版本 | 是可复用基础，不等于全量外部文件管理 |
+| FILE 存储 | [BlobStorage](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/blob/BlobStorage.java) 提供 publish/open | 不具备范围 IO、完整目录和安全回收契约 |
+| 受治理内容 | [GovernedBlobStore](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/blob/GovernedBlobStore.java) 提供租户校验、持久化和整流校验 | 不能直接证明资产级撤权；read 会形成 byte[]，close 可能为完成摘要验证继续排空流，不是大文件局部读取契约 |
+| 外部版本 | [S3VersionedCopyStager](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/copy/S3VersionedCopyStager.java) 固定并校验 S3 版本 | 是可复用基础，不等于全量外部文件管理 |
 | Volume | [VolumeAsset](../../pangrova-metadata/src/main/java/org/pangrova/metadata/model/asset/VolumeAsset.java) 是资产模型 | 不等于已实现目录、授权和生命周期服务 |
 | Paimon | [类型映射](../../pangrova-connector/pangrova-connector-paimon/src/main/java/org/pangrova/connector/paimon/type/PaimonToPangrovaTypeVisitors.java) 把 BlobType 映射为 VARBINARY；依赖为 1.4.1 | 不能代表原生 Blob 延迟读取和回收支持 |
 | Lance | [FFI 依赖](../../pangrova-worker-native/lance-ffi/Cargo.toml) 为 0.20；[发布校验](../../pangrova-worker-native/lance-ffi/src/preparation.rs) 拒绝部分 SDK blob 对象 | 不等于支持上游新版本全部 Blob 能力 |

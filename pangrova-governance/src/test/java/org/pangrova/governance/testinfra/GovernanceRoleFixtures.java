@@ -1,9 +1,9 @@
 package org.pangrova.governance.testinfra;
 
-import org.pangrova.security.authz.GroupRoleMapping;
-import org.pangrova.security.authz.InMemoryRoleStore;
-import org.pangrova.security.authz.Role;
-import org.pangrova.security.authz.RoleStore;
+import org.pangrova.security.api.policy.GroupRoleMapping;
+import org.pangrova.security.core.authz.InMemoryRoleStore;
+import org.pangrova.security.api.policy.Role;
+import org.pangrova.security.api.policy.RoleStore;
 
 import java.util.Map;
 

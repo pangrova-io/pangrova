@@ -5,11 +5,11 @@ import java.util.HexFormat;
 
 import com.google.protobuf.ByteString;
 
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.ConnectorSplit;
 
 /** One pinned Paimon snapshot JSON object read by a Native Worker. */
 public record PaimonSystemTableSplit(

@@ -6,8 +6,8 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.CommitStateUnknownException;
 import org.pangrova.common.concurrent.RetryingCommitWrapper;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

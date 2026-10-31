@@ -1198,21 +1198,21 @@ required字段包含实际NULL。Native需在现有IR decoder中并列保留逻�
 | 环节 | 实际生产证据 | 当前判定 |
 |---|---|---|
 | Native publication | `pangrova-worker-native/src/capability/FunctionCatalogAssembler.cpp:149–165` 从真实 owned snapshot 投影、封存 manifest；`src/jni/command/NativeCommandDispatcher.cpp:532–542` 返回同一 publication | 已实现，不能再称 functions 未发布 |
-| Worker 库存 | `pangrova-worker/src/main/java/org/pangrova/worker/jni/NativeCapabilityLoader.java:20–78` finalize→GET_CAPABILITIES→严格解析；`bootstrap/WorkerBootstrap.java:140–159` 保存编码库存，`bootstrap/phase/WorkerHeartbeatBootstrap.java:100` 写入注册请求 | 已实现，不是静态名字表 |
-| 认证注册与持久保留 | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/http/endpoint/WorkerResource.java:103–152,288–295` 校验 internal identity、解码库存；`worker/WorkerInfo.java:36,53–55` 与 `worker/WorkerManager.java:398,429` 保留/编码完整 inventory | 已实现；内容 SHA 不是认证或 Worker incarnation |
-| Query frozen cohort | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DefaultWorkerSelector.java` 的 select/selectForBindings/selectExcluding 动态读取 active workers；binding matcher 只覆盖现有 operator/model/artifact 契约 | **UNIMPLEMENTED**：没有 query-frozen function view 或全 fragment 函数交集 |
-| Planner 消费 | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/bootstrap/PlannerWiring.java:51–59` 使用三参 compiler；`pangrova-planner/src/main/java/org/pangrova/planner/SqlCompiler.java:40–49,203–224` 安装静态 defaults 并据此拒绝计划 | **UNIMPLEMENTED**：`FunctionCatalogView` 无 Planner/Coordinator 生产 consumer |
-| 最终 fragment 需求 | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java:48–76` 在序列化后执行 overlay/retrieval/AI binding；`dispatch/dag/TaskRequestFactory.java:238–268` 写最终 bytes/checksum 等，却不写 function_requirements | **UNIMPLEMENTED**：必须在最后 rewrite 后收集，而非复制早期需求 |
+| Worker 库存 | `pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/NativeCapabilityLoader.java:20–80` finalize→GET_CAPABILITIES→严格解析；`bootstrap/WorkerBootstrap.java:140–159` 保存编码库存，`bootstrap/phase/WorkerHeartbeatBootstrap.java:100` 写入注册请求 | 已实现，不是静态名字表 |
+| 认证注册与持久保留 | `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/WorkerResource.java:103–152,288–295` 校验 internal identity、解码库存；`worker/WorkerInfo.java:36,53–55` 与 `worker/WorkerManager.java:398,429` 保留/编码完整 inventory | 已实现；内容 SHA 不是认证或 Worker incarnation |
+| Query frozen cohort | `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DefaultWorkerSelector.java` 的 select/selectForBindings/selectExcluding 动态读取 active workers；binding matcher 只覆盖现有 operator/model/artifact 契约 | **UNIMPLEMENTED**：没有 query-frozen function view 或全 fragment 函数交集 |
+| Planner 消费 | `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/PlannerWiring.java:51–59` 使用三参 compiler；`pangrova-planner/src/main/java/org/pangrova/planner/SqlCompiler.java:40–49,203–224` 安装静态 defaults 并据此拒绝计划 | **UNIMPLEMENTED**：`FunctionCatalogView` 无 Planner/Coordinator 生产 consumer |
+| 最终 fragment 需求 | `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java:48–76` 在序列化后执行 overlay/retrieval/AI binding；`dispatch/dag/TaskRequestFactory.java:238–268` 写最终 bytes/checksum 等，却不写 function_requirements | **UNIMPLEMENTED**：必须在最后 rewrite 后收集，而非复制早期需求 |
 | Native field18 准入 | `pangrova-worker-native/src/jni/command/TaskRequestParser.cpp:1556–1690` 未读取 field18；`src/jni/bridge/JniBridge.cpp:72–85` 已注入 published registry，但没有需求集合比较 | **UNIMPLEMENTED**：无 path/coverage/checksum/view/selected identity 比较 |
 | Native 实际调用 | `pangrova-worker-native/src/capability/RegisteredFunctionBinding.cpp:54–86`；`src/velox/plan/SubstraitFunctionConversion.cpp:57–61,144–168`；`SubstraitAggregateConversion.cpp:49–76`；`SubstraitWindowConversion.cpp:125–145` | 已消费 actual snapshot 精确绑定；不能退回 global registry 或按 output 换 overload |
 
 可复核缺口的只读检索：
 
 ```sh
-rg -n 'FunctionCatalogView' pangrova-planner/src/main/java pangrova-coordinator/src/main/java
+rg -n 'FunctionCatalogView' pangrova-planner/src/main/java pangrova-coordination/pangrova-coordination-core/src/main/java
 rg -n 'function_requirements|getFunctionRequirements|setFunctionRequirements|FunctionRequirementCollector' \
-  pangrova-protocol/src/main pangrova-planner/src/main pangrova-coordinator/src/main \
-  pangrova-worker/src/main pangrova-worker-native/src \
+  pangrova-protocol/src/main pangrova-planner/src/main pangrova-coordination/pangrova-coordination-core/src/main \
+  pangrova-worker/pangrova-worker-core/src/main pangrova-worker-native/src \
   --glob '*.{java,cpp,h,proto}'
 ```
 

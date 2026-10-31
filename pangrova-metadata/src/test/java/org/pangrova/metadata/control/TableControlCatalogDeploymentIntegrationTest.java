@@ -1,16 +1,23 @@
 package org.pangrova.metadata.control;
 
+import org.pangrova.table.api.control.CatalogDeploymentIdentity;
+import org.pangrova.table.api.control.TableControlRecord;
+import org.pangrova.table.core.control.TableControlService;
+import org.pangrova.table.core.control.TableControlSettings;
+import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
+
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.connector.spi.metadata.table.TableIdentity;
+import org.pangrova.security.api.AccessDeniedException;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

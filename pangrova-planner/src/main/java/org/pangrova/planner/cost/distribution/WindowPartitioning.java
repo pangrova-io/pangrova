@@ -2,7 +2,7 @@ package org.pangrova.planner.cost.distribution;
 
 import org.apache.calcite.rel.core.Window;
 import org.apache.calcite.rel.RelNode;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
 import java.util.function.BiFunction;

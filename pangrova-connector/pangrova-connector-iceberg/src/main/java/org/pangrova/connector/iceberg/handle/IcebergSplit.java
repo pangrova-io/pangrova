@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DeleteFileDetail;
 import org.pangrova.protocol.v2.DeleteFileType;
 import org.pangrova.protocol.v2.FileFormat;
@@ -13,10 +13,10 @@ import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IcebergReadMode;
 import org.pangrova.protocol.v2.IcebergSplitDetail;
 import org.pangrova.protocol.v2.SchemaEvolution;
-import org.pangrova.spi.connector.metadata.ConnectorSplit;
-import org.pangrova.spi.connector.metadata.SplitConstraint;
-import org.pangrova.spi.connector.metadata.table.ColumnMapping;
-import org.pangrova.spi.connector.metadata.table.TypePromotion;
+import org.pangrova.connector.spi.metadata.ConnectorSplit;
+import org.pangrova.connector.spi.metadata.SplitConstraint;
+import org.pangrova.connector.spi.metadata.table.ColumnMapping;
+import org.pangrova.connector.spi.metadata.table.TypePromotion;
 
 /**
  * Split representing a single Iceberg file scan task.

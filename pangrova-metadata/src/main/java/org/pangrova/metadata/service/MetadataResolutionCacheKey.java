@@ -1,7 +1,7 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.metadata.model.QualifiedTableRef;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.metadata.api.object.QualifiedTableRef;
+import org.pangrova.connector.spi.ConnectorSession;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;

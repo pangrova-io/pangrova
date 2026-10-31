@@ -2,10 +2,10 @@ package org.pangrova.metadata.adapter;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.pangrova.metadata.cache.MetadataCache;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.sync.MetadataChange;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.api.cache.MetadataCache;
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.metadata.api.catalog.MetadataChange;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,7 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
-import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 
 import java.util.HashSet;
 import java.util.List;
@@ -21,7 +21,7 @@ import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.NamedExpressionArgument;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 import org.pangrova.protocol.v2.RetrievalSourceDetail;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Binds wire-neutral planner Top-K intents into canonical v2 Substrait relation details. */
 @Internal

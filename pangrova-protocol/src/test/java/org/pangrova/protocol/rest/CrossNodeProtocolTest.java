@@ -69,7 +69,7 @@ class CrossNodeProtocolTest {
             WorkerRegistrationRequest original = new WorkerRegistrationRequest(
                     "worker-1", "10.0.0.1", 8080, 9090, 0, 2,
                     null, null, null,
-                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), 8443, new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), 8443, new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"));
             byte[] bytes = mapper.writeValueAsBytes(original);
             WorkerRegistrationRequest restored = mapper.readValue(bytes, WorkerRegistrationRequest.class);
 
@@ -87,7 +87,7 @@ class CrossNodeProtocolTest {
         void rejectsBlankWorkerId() {
             assertThatThrownBy(() -> new WorkerRegistrationRequest(
                     "", "host", 8080, 9090, 0, 2, null, null, null,
-                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("workerId");
         }
@@ -96,7 +96,7 @@ class CrossNodeProtocolTest {
         void rejectsBlankHost() {
             assertThatThrownBy(() -> new WorkerRegistrationRequest(
                     "w-1", "", 8080, 9090, 0, 2, null, null, null,
-                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("httpHost");
         }
@@ -106,7 +106,7 @@ class CrossNodeProtocolTest {
             assertThatThrownBy(() -> new WorkerRegistrationRequest(
                     "w-1", "host", 8080, 9090, 0, 0,
                     null, null, null,
-                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory(), new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("protocolVersion");
         }
@@ -115,7 +115,7 @@ class CrossNodeProtocolTest {
         void rejectsBlankCanonicalInventory() {
             assertThatThrownBy(() -> new WorkerRegistrationRequest(
                     "w-1", "host", 8080, 9090, 0, 2,
-                    null, null, null, "", new org.pangrova.protocol.rest.worker.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
+                    null, null, null, "", new org.pangrova.protocol.execution.identity.WorkerExecutionIdentity("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("capabilityInventory");
         }

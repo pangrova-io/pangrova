@@ -54,7 +54,7 @@ class StubDetectionTest(unittest.TestCase):
 
     def test_test_spi_and_generated_sources_are_outside_stub_gate(self):
         for name in ['module/src/test/java/example/Test.java',
-                     'pangrova-spi/src/main/java/example/Contract.java',
+                     'pangrova-indexing/pangrova-indexing-api/src/main/java/example/Contract.java',
                      'module/target/generated/src/main/java/example/Generated.java']:
             self.source(name)
         result = self.check()

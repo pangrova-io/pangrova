@@ -3,6 +3,7 @@ package org.pangrova.parser.ast.statement;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.Optional;
 
@@ -15,4 +16,9 @@ import java.util.Optional;
 public record ReclusterTableStatement(
         Identifier tableName,
         Optional<Expression> whereCondition) implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.RECLUSTER_TABLE;
+    }
 }

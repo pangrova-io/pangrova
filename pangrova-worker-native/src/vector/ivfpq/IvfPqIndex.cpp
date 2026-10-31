@@ -8,7 +8,7 @@
 #include <queue>
 #include <stdexcept>
 
-#include "artifact/ParsedArtifactCache.h"
+#include "capabilities/artifact/ParsedArtifactCache.h"
 #include "vector/VectorDistance.h"
 #include "vector/ann/BinaryIndexIo.h"
 

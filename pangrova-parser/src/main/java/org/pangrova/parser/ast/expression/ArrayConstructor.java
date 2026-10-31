@@ -1,6 +1,7 @@
 package org.pangrova.parser.ast.expression;
 
 import org.pangrova.parser.ast.Expression;
+import org.pangrova.parser.ast.ExpressionType;
 
 import java.util.List;
 import java.util.Objects;
@@ -13,5 +14,10 @@ public record ArrayConstructor(List<Expression> elements) implements Expression 
     public ArrayConstructor {
         Objects.requireNonNull(elements, "array elements must not be null");
         elements = List.copyOf(elements);
+    }
+
+    @Override
+    public ExpressionType type() {
+        return ExpressionType.ARRAY_CONSTRUCTOR;
     }
 }

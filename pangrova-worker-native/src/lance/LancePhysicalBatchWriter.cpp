@@ -12,17 +12,17 @@
 #include <stdexcept>
 #include <utility>
 
-#include "capability/CanonicalPhysicalTypes.h"
-#include "capability/LogicalTypeContract.h"
+#include "capabilities/capability/CanonicalPhysicalTypes.h"
+#include "capabilities/capability/LogicalTypeContract.h"
 #include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "lance/LanceStorageContext.h"
 #include "lance_c_ffi.h"
-#include "observability/PangrovaLog.h"
+#include "engine/observability/PangrovaLog.h"
 #include "velox/common/memory/MemoryPool.h"
 #include "velox/vector/arrow/Bridge.h"
-#include "write/PhysicalWriteArrowExport.h"
-#include "write/WriteArrowExport.h"
+#include "engine/write/PhysicalWriteArrowExport.h"
+#include "engine/write/WriteArrowExport.h"
 
 namespace pangrova::lance {
 namespace {

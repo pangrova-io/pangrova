@@ -8,7 +8,7 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessResponse;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.security.CapabilityOperation;
 import org.pangrova.shuffle.security.CapabilityScope;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;

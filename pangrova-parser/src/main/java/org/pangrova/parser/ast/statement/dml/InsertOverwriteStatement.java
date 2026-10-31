@@ -8,6 +8,7 @@ import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents INSERT OVERWRITE table [(columns)] [PARTITION (key=val, ...)] VALUES (...), ...
@@ -27,5 +28,10 @@ public record InsertOverwriteStatement(
                                      Optional<List<String>> columns,
                                      List<List<Expression>> values) {
         this(tableName, columns, Optional.empty(), values);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.INSERT_OVERWRITE;
     }
 }

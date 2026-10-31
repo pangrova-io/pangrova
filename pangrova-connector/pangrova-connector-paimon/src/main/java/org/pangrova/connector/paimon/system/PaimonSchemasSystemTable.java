@@ -3,8 +3,8 @@ package org.pangrova.connector.paimon.system;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;

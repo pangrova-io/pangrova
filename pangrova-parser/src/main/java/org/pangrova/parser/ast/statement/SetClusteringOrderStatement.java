@@ -2,6 +2,7 @@ package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 import java.util.List;
 
@@ -19,5 +20,10 @@ public record SetClusteringOrderStatement(
 
     public SetClusteringOrderStatement {
         columnNames = List.copyOf(columnNames);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.SET_CLUSTERING_ORDER;
     }
 }

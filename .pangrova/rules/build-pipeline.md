@@ -115,7 +115,7 @@ separate release gate and must not be inferred from the macOS result.
 
 ```bash
 ./pangrova-worker-native/bin/package-native-lib.sh
-# Target: pangrova-worker/src/main/resources/META-INF/native/{os}/{arch}/libpangrova_native.*
+# Target: pangrova-worker/pangrova-worker-native-bridge/src/main/resources/META-INF/native/{os}/{arch}/libpangrova_native.*
 ```
 
 ### Lance FFI (Rust → C static library, required)
@@ -207,7 +207,7 @@ Complete Step 7 by running each owner selection in its own Maven invocation/JVM:
 for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
              WorkerShuffleChannelAdmissionIntegrationTest \
              'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes'; do
-  mvn -q -Pfull-regression -pl pangrova-testing/pangrova-test-e2e \
+  mvn -q -Pfull-regression -pl pangrova-testing/pangrova-testing-integration-tests \
     -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test
 done
 ```
@@ -221,7 +221,7 @@ Record discovered test counts and FAIL/SKIPPED/BLOCKED results; a successful Mav
 command that selects no applicable tests is not validation. Use the optional
 `-Pcoverage` profile to inspect JaCoCo reports when it helps identify untested
 behavior; a percentage is not a release gate.
-The `pangrova-test-smoke` harness self-test only proves test discovery; the
+The `pangrova-testing-integration-tests` smoke-harness self-test only proves test discovery; the
 `ActivationSmokeE2ETest` in Step 6 is the real full-chain activation test.
 
 The exact production image staging, provenance properties and commands live in

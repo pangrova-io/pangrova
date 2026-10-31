@@ -111,7 +111,7 @@ public final class ShuffleDrainPolicy {
      * Executes the drain of shuffle data from workers being decommissioned.
      *
      * <p>Implementations coordinate with the worker-side
-     * {@link org.pangrova.shuffle.ShuffleDrainHandler} to flush pending
+     * {@link org.pangrova.shuffle.api.ShuffleDrainHandler} to flush pending
      * shuffle buffers to durable storage or migrate data to peer workers.
      */
     @FunctionalInterface

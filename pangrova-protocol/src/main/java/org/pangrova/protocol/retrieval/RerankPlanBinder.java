@@ -1,7 +1,7 @@
 package org.pangrova.protocol.retrieval;
 
-import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import com.google.protobuf.Any;
@@ -26,7 +26,7 @@ import org.pangrova.protocol.v2.RerankDetail;
 import org.pangrova.protocol.v2.RetryClass;
 import org.pangrova.protocol.v2.ScoreDirection;
 import org.pangrova.protocol.v2.VersionedRef;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Binds a complete bounded candidate stream to a governed Native rerank relation. */
 @Internal
@@ -185,9 +185,9 @@ public final class RerankPlanBinder {
                 .setModel(ModelBinding.newBuilder()
                         .setModel(modelRef)
                         .setOutputType(binding.modelOutputType())
-                        .setRequestLimits(org.pangrova.protocol.ModelResourceEnvelopes
+                        .setRequestLimits(org.pangrova.protocol.resource.ModelResourceEnvelopes
                                 .requestLimits(binding.modelLimits())))
-                .setResources(org.pangrova.protocol.ModelResourceEnvelopes.resources(
+                .setResources(org.pangrova.protocol.resource.ModelResourceEnvelopes.resources(
                         binding.modelLimits(), binding.inputLimit(), false).toBuilder()
                         .setCandidateRows(binding.inputLimit()))
                 .setExecutionPolicy(ExecutionPolicy.newBuilder()

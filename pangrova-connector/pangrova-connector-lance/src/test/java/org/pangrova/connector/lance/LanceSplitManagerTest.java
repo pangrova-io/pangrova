@@ -1,21 +1,21 @@
 package org.pangrova.connector.lance;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileFormat;
-import org.pangrova.spi.connector.metadata.NativeDatasetScanPage;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.ConnectorTransactionHandle;
-import org.pangrova.spi.connector.metadata.Constraint;
-import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.connector.spi.metadata.NativeDatasetScanPage;
+import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorTransactionHandle;
+import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.connector.spi.metadata.DynamicFilter;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class LanceSplitManagerTest extends org.pangrova.testing.ContainerTestBase {
+class LanceSplitManagerTest extends org.pangrova.testing.testkit.ContainerTestBase {
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path warehouse;
 
     @Test
@@ -48,7 +48,7 @@ class LanceSplitManagerTest extends org.pangrova.testing.ContainerTestBase {
         var catalog = fixture.catalog();
         var split = new LanceDataSplit(pinned, new NativeDatasetScanPage.Partition(actualPartition.getPartitionId(), actualPartition.getPhysicalRows()),
                 catalog.toByteArray(), accepted.getManifestSha256().getDigest().toByteArray(),
-                org.pangrova.protocol.SourceSnapshotBindings.decode(accepted, catalog));
+                org.pangrova.protocol.source.SourceSnapshotBindings.decode(accepted, catalog));
         var proto = DataSplit.parseFrom(split.toSplitInfoProto());
         assertThat(proto.getSourceSnapshot()).isEqualTo("7");
         assertThat(proto.getOpaqueLocation()).isEqualTo(pinned.datasetUri());
@@ -59,16 +59,16 @@ class LanceSplitManagerTest extends org.pangrova.testing.ContainerTestBase {
         assertThat(proto.getStartOffset()).isZero(); assertThat(proto.getLength()).isZero();
         assertThat(new LancePartitionSplitSource(empty, session("tenant-a"), Optional.empty(), null).isFinished()).isTrue();
         var manager = new LanceSplitManager(Optional.empty(), () -> fixture.store(), empty.catalog(), warehouse.toString());
-        assertThatThrownBy(() -> manager.getSplits(ConnectorTransactionHandle.EMPTY, session("tenant-b"), pinned,
+        assertThatThrownBy(() -> manager.getSplits(ConnectorTransactionHandle.empty(), session("tenant-b"), pinned,
                 DynamicFilter.ALL, Constraint.EMPTY)).isInstanceOf(SecurityException.class);
-        assertThatThrownBy(() -> manager.getSplits(ConnectorTransactionHandle.EMPTY, session("tenant-a"), pinned,
+        assertThatThrownBy(() -> manager.getSplits(ConnectorTransactionHandle.empty(), session("tenant-a"), pinned,
                 DynamicFilter.ALL, Constraint.EMPTY)).isInstanceOf(IllegalStateException.class).hasMessageContaining("Native control");
     }
 
     static ConnectorSession session(String tenant) {
         return new ConnectorSession() {
             @Override
-            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
                 return java.util.Optional.empty();
             }
 

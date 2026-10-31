@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "capability/CanonicalPhysicalTypes.h"
+#include "capabilities/capability/CanonicalPhysicalTypes.h"
 #include "StructuralContractIdentities.h"
 
 namespace pangrova::capability {

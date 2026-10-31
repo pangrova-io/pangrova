@@ -1,10 +1,13 @@
 package org.pangrova.protocol.rest.copy;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import com.google.protobuf.ByteString;
 import com.google.protobuf.UnknownFieldSet;
 import org.junit.jupiter.api.Test;
-import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.SourcePreparationRequest;
@@ -33,7 +36,7 @@ class PrepareCopySourceRequestTest {
         assertThat(request.preparation().getResourceGrant().getNativeMemoryBytes()).isZero();
         assertThat(request.toString()).doesNotContain(request.sourceRead().nonce());
         assertThat(request.admissionSeal().getCanonicalRequestChecksum())
-                .isEqualTo(CanonicalTaskRequests.sha256(request.canonicalBytes()));
+                .isEqualTo(ProtocolChecksums.sha256(request.canonicalBytes()));
     }
 
     @Test
@@ -61,7 +64,7 @@ class PrepareCopySourceRequestTest {
     void failedReceiptPreservesEnteredUsageButCannotChangeIssuanceOrExceedItsGrant() throws Exception {
         var request = request();
         var result = SourcePreparationResult.newBuilder().setAttempt(request.preparation().getAttempt())
-                .setRequestSha256(CanonicalTaskRequests.sha256(request.canonicalBytes())).setIoJoined(true)
+                .setRequestSha256(ProtocolChecksums.sha256(request.canonicalBytes())).setIoJoined(true)
                 .setUsage(ResourceUsage.newBuilder().setObjectStoreReadBytes(7))
                 .setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_TRANSPORT)
                         .setCode("TEST_SOURCE_FAILURE").setFailedComponent("test-source").setMessage("backend request failed")).build();
@@ -73,7 +76,7 @@ class PrepareCopySourceRequestTest {
                 ResourceUsage.newBuilder().setObjectStoreReadBytes(17)).build());
         assertThatThrownBy(() -> excessive.resultFor(request)).isInstanceOf(IllegalArgumentException.class);
         var wrong = PrepareCopySourceResponse.from(result.toBuilder().setRequestSha256(
-                CanonicalTaskRequests.sha256(new byte[]{1})).build());
+                ProtocolChecksums.sha256(new byte[]{1})).build());
         assertThatThrownBy(() -> wrong.resultFor(request)).isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -81,7 +84,7 @@ class PrepareCopySourceRequestTest {
     void pendingReceiptNeverClaimsThatAnUnfinishedOwnerHasJoined() {
         var request = request();
         var pending = SourcePreparationResult.newBuilder().setAttempt(request.preparation().getAttempt())
-                .setRequestSha256(CanonicalTaskRequests.sha256(request.canonicalBytes())).setUsage(ResourceUsage.getDefaultInstance())
+                .setRequestSha256(ProtocolChecksums.sha256(request.canonicalBytes())).setUsage(ResourceUsage.getDefaultInstance())
                 .setIoJoined(false).setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_DEADLINE)
                         .setCode("COPY_SOURCE_STILL_ACTIVE").setFailedComponent("test-source").setMessage("still active")).build();
         assertThat(PrepareCopySourceResponse.from(pending).resultFor(request).getIoJoined()).isFalse();
@@ -99,7 +102,7 @@ class PrepareCopySourceRequestTest {
                 .setManagedObjectUri("s3://managed/copy/object").setContentSha256("a".repeat(64))
                 .setTenantScope("b".repeat(64)).setContentSize(5).build();
         var result = SourcePreparationResult.newBuilder().setAttempt(request.preparation().getAttempt())
-                .setRequestSha256(CanonicalTaskRequests.sha256(request.canonicalBytes()))
+                .setRequestSha256(ProtocolChecksums.sha256(request.canonicalBytes()))
                 .setUsage(ResourceUsage.getDefaultInstance()).setIoJoined(true).setSource(source).build();
         assertThat(PrepareCopySourceResponse.from(result).resultFor(request)).isEqualTo(result);
         for (var invalid : java.util.List.of(source.toBuilder().setManagedObjectUri("s3://reader:secret@managed/file").build(),
@@ -114,7 +117,7 @@ class PrepareCopySourceRequestTest {
         var scope = new CopySourceReadHttp.Scope("tenant", "test-user", "incoming",
                 "f92e704f-2443-4d3a-a496-cd6507dd97db", 1, "s3://incoming/file.parquet", "s3://managed/copy",
                 "a".repeat(64), "query-7", "prepare-42", "coordinator", "test", 1, 1, 4_102_444_800_000L);
-        var command = SourcePreparationRequest.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
+        var command = SourcePreparationRequest.newBuilder().setProtocol(CanonicalProtocolIdentity.current())
                 .setAttempt(TaskAttemptId.newBuilder().setQueryOrJobId(scope.executionId()).setTaskId(scope.stagingAttemptId())
                         .setPlanEpoch(1).setFencingToken(1L << 32 | 1L).setControlEpoch(scope.controlEpoch())
                         .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId(scope.ownerId())

@@ -1,6 +1,6 @@
 package org.pangrova.metadata.adapter;
 
-import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.connector.spi.metadata.table.ColumnHandle;
 
 /**
  * Lightweight column handle for federation catalogs, carrying the column name and type.

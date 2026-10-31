@@ -14,11 +14,21 @@
     <name>Pangrova Client CLI</name>
     <description>Command-line SQL shell for Pangrova distributed query engine</description>
 
+    <properties>
+        <module.name>org.pangrova.client.cli</module.name>
+    </properties>
+
     <dependencies>
-        <!-- Internal: REST client SDK (PangrovaRestClient) -->
+        <!-- Public client contract -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-client-rest</artifactId>
+            <artifactId>pangrova-client-core</artifactId>
+        </dependency>
+
+        <!-- REST client implementation -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-transport</artifactId>
         </dependency>
 
         <!-- Internal: protocol DTOs (QueryStatusResponse, SubmitQueryResponse, etc.) -->
@@ -27,10 +37,10 @@
             <artifactId>pangrova-protocol</artifactId>
         </dependency>
 
-        <!-- Transport layer: Arrow IPC decoding (Arrow confined to pangrova-transport) -->
+        <!-- Shared concurrency utilities used directly by SqlShell -->
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-transport</artifactId>
+            <artifactId>pangrova-common</artifactId>
         </dependency>
 
         <!-- SLF4J for logging -->

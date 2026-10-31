@@ -55,9 +55,9 @@ The source inventory below identifies the contracts that must change together:
 
 | Boundary | Sources and required change |
 | --- | --- |
-| SPI type and aliases | `pangrova-spi/.../data/type/primitive/temporal/TimestampType.java`, `PangrovaTypeMapping.java`, `PangrovaType.java`: precision-aware construction/signature; enum aliases cannot be the authoritative temporal metadata. |
+| Connector SPI type and aliases | `pangrova-connector-spi/.../data/type/primitive/temporal/TimestampType.java`, `PangrovaTypeMapping.java`, `PangrovaType.java`: precision-aware construction/signature; enum aliases cannot be the authoritative temporal metadata. |
 | Type signature codec | SPI `TypeSignature.java` and planner `type/StandardTypeRegistry.java`: serialize precision with the timezone base and resolve it exactly; reject malformed/out-of-range signatures instead of ignoring parameters. |
-| Direct SPI callers | `PangrovaTypeMapping`, `StandardTypeRegistry`, coordinator `query/statement/DdlTypeMapper`, and the example row in `PangrovaTypeMapping`; update all `WITHOUT_TIMEZONE`/`WITH_TIMEZONE` uses deliberately. |
+| Direct connector-SPI callers | `PangrovaTypeMapping`, `StandardTypeRegistry`, coordinator `query/statement/DdlTypeMapper`, and the example row in `PangrovaTypeMapping`; update all `WITHOUT_TIMEZONE`/`WITH_TIMEZONE` uses deliberately. |
 | SQL DDL/AST | Parser `PangrovaSql.g4`, `ast/type/BaseType.java`, `DataTypeSpec.java`, `DataTypeSpecParser.java`, `AstDdlDmlBuilder.java`; coordinator `DdlTypeMapper`, `DdlExecutor`; carry `TIMESTAMP(p)` and timezone into column metadata. |
 | Literals and casts | Parser `LiteralValue.TimestampWithTimeZoneValue`, planner `parse/ExpressionToSqlNodeConverter`, `substrait/LiteralConverter`: implement timezone literals with explicit instant/session semantics; retain precision rather than formatting through milliseconds. |
 | Planner/CTAS | `PlannerTypeSystem`, planner schema compilation, `PlannedQuery.queryOutputColumnTypeNames`, coordinator `CtasTask`: derive destination types from precision-aware metadata; replace lossy string/enum paths, then remove timezone rejection only after full-chain tests pass. |

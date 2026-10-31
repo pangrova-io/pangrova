@@ -38,11 +38,11 @@ the exact connector, query shape, deployment, and failure scenario still need va
 | Server-side `SET` | Registered handler logs the property and returns an empty result | It does not mutate server session state. Supply supported context in query requests or client connection settings |
 | Catalog YAML auto-registration | Documented format, automatic startup loading remains planned | Use SQL `CREATE CATALOG` for the documented registration path |
 
-Source evidence: [statement bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java),
-[plan dispatch](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java),
-[maintenance executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceExecutor.java),
-[DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java),
-and [Worker connector write bridge](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/src/main/java/org/pangrova/worker/jni/write/NativeWriteExecutor.java).
+Source evidence: [statement bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryExecutionBootstrap.java),
+[plan dispatch](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/dispatch/PlanExecutionFactory.java),
+[maintenance executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/MaintenanceExecutor.java),
+[DDL executor](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/statement/DdlExecutor.java),
+and [Worker connector write bridge](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write/NativeWriteExecutor.java).
 See [DML](../sql-reference/dml.md), [maintenance](../sql-reference/maintenance.md),
 [session context](../sql-reference/session.md), and [catalog management](catalogs/catalog-management.md).
 
@@ -60,8 +60,8 @@ See [DML](../sql-reference/dml.md), [maintenance](../sql-reference/maintenance.m
 | Feature Store / training datasets / embodied workflows | Partial components or product direction | Complete serving, training-export, and operational lifecycles are not established |
 
 Source evidence: [vector rewriter](https://github.com/pangrova/pangrova/blob/main/pangrova-planner/src/main/java/org/pangrova/planner/vector/VectorSearchRewriter.java),
-[retrieval intent collection](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java),
-and [HTTPS importer](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/src/main/java/org/pangrova/worker/ai/blob/HttpsBlobImporter.java).
+[retrieval intent collection](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/retrieval/RetrievalIntentCollector.java),
+and [HTTPS importer](https://github.com/pangrova/pangrova/blob/main/pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/blob/HttpsBlobImporter.java).
 Read the [vector reference](../sql-reference/functions/vector-search.md),
 [AI functions](../sql-reference/functions/ai-functions.md), and [FILE type](../data-types/ai-native/file.md)
 for examples and prerequisites.
@@ -76,8 +76,8 @@ for examples and prerequisites.
 | Dynamic-table lifecycle | Create/alter/drop/show/describe handlers register when durable metadata publication is configured; the planner rewrites published targets | Continuous-query materialization returns unsupported, and automatic refresh scheduling or exactly-once refresh is not established |
 | Complete automatic materialized-view lifecycle | Definitions can be persisted and recovered for query rewriting | No materialized-view DDL/refresh execution path is registered; do not infer an automatic create/refresh/recovery service from rewrite classes or refresh syntax |
 
-Source evidence: [streaming bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/bootstrap/StreamingBootstrap.java),
-[planner wiring](https://github.com/pangrova/pangrova/blob/main/pangrova-coordinator/src/main/java/org/pangrova/coordinator/bootstrap/PlannerWiring.java),
+Source evidence: [streaming bootstrap](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/StreamingBootstrap.java),
+[planner wiring](https://github.com/pangrova/pangrova/blob/main/pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/PlannerWiring.java),
 and the statement bootstrap linked above. See [streaming SQL](../sql-reference/streaming.md)
 and the [current CDC boundary](../architecture/streaming.md).
 
@@ -87,7 +87,7 @@ and the [current CDC boundary](../architecture/streaming.md).
   ZooKeeper is optional. Availability also depends on the durable database, catalog,
   object store, network, and deployment configuration. Multiple Coordinators alone
   do not remove every single point of failure.
-- Native execution uses Velox representations; [Native shuffle serialization](https://github.com/pangrova/pangrova/blob/main/pangrova-worker-native/src/shuffle/ShuffleBatchSerializer.cpp) produces standard
+- Native execution uses Velox representations; [Native shuffle serialization](https://github.com/pangrova/pangrova/blob/main/pangrova-worker-native/src/engine/shuffle/ShuffleBatchSerializer.cpp) produces standard
   Arrow stream batches for Flight. Worker write staging can call Java connector
   page sinks through JNI, including conversion for row-only sinks. Native planning
   does not make every physical I/O operation a pure C++ path. JNI, IPC, conversion,

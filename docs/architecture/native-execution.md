@@ -56,6 +56,26 @@ larger global budget.
 Admission and pressure handling still require bounded, fair scheduling across
 Coordinators; a hard cap alone is not a memory guarantee.
 
+The handwritten Java protocol code is organized by wire capability. Shared
+Worker execution identity lives in `protocol.execution.identity`; both task
+admission and REST registration consume it. `descriptor.CanonicalProtocolIdentity`
+owns the existing exact version, descriptor hash and rollout identity used by
+startup finalization and task admission. `checksum.ProtocolChecksums` hashes
+caller-selected bytes without owning task validation or changing serialization.
+Capability identities, inventory validation, source bindings and write receipts
+live in their respective `capability`, `capability.inventory`, `source` and
+`write` packages. These Java package changes do not rename protobuf messages or
+change JSON fields, canonical descriptors, signatures or JNI exports.
+
+`resource.StageResourceGrants` validates grants at transport and admission
+boundaries. Unknown fields and unsigned quantities outside Java's signed
+accounting range are rejected before they enter accounting. Relational execution
+requires positive native memory; source preparation instead requires positive
+JVM memory. Optional absence in the resource codec remains distinct from a
+present invalid grant. Worker registration bounds every port field to 0–65535;
+the existing zero representation is retained without changing endpoint startup
+rules.
+
 Worker registration carries the unchanged canonical v2 capability inventory in
 its JSON control envelope. Only an authenticated internal service POST to
 `/v1/workers/register` receives the protocol's inclusive 4 MiB encoded-inventory
@@ -340,6 +360,12 @@ Arrow IPC bytes synchronously to Java `NativeWriteExecutor`, which decodes
 them for the connector `ConnectorPageSink`. The borrowed direct buffer must
 not outlive that call. The current code in `NativeRuntime`, `JniBridge` and
 `NativeWriteExecutor` is the authoritative interface and lifetime contract.
+The Java write adapter consumes `nativebridge.connector.spi.CatalogResourceResolver`;
+the Worker-local catalog runtime supplies the exact leased revision and decoded output
+handle. Its immutable `TaskConnectorSession` lives in `nativebridge.connector.session`,
+below both catalog binding and JNI write execution. Neither shared contract imports a
+JNI executor or owns native handles. Moving these Java contracts does not change native
+entry-point names, callback signatures or catalog-lease lifetime.
 Each output-queue pop releases one producer slot. Deferred Velox producers
 are resumed only after their exact batch enters that slot; competing producers
 re-register without blocking the sole write-drain consumer.
@@ -429,7 +455,7 @@ falling back to a different row set.
 ## 13. Project Structure
 
 Authoritative code locations are `pangrova-worker-native/src` for Native
-execution, shuffle and JNI; `pangrova-worker/src/main/java` for Worker
+execution, shuffle and JNI; `pangrova-worker/pangrova-worker-core/src/main/java` for Worker
 admission/lifecycle and connector write callbacks; and
 `pangrova-protocol/src/main/proto/pangrova/protocol/v2` for the shared
 contract. Generated protocol sources are never hand-edited.

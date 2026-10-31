@@ -1,7 +1,6 @@
 package org.pangrova.planner.cost;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 import org.pangrova.planner.stats.ColumnStatistics;
 import org.pangrova.planner.stats.StatisticsCollector;
 import org.pangrova.planner.stats.PlannerTableStatistics;

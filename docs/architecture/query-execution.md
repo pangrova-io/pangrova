@@ -72,6 +72,23 @@ Note: the diagram above shows only the result path. Data from the Compute Worker
 
 ## 2. Calcite Integration
 
+### AST package ownership
+
+`org.pangrova.parser.ast` owns the shared expression/statement contracts, type
+discriminators and query clauses. Built-in nodes declare their own `type()`;
+the base interfaces do not import or register concrete statement/expression
+classes. `ast.expression` and the `ast.statement` capability packages therefore
+depend on shared AST contracts in one direction. `RerankClause` is a query clause
+in `ast`, alongside `Query` and `WindowSpec`, rather than a concrete expression.
+
+The `AlterTableStatement`, `ShowMetadataStatement`, grouping and select-item
+sealed families retain their closed subtype sets. Parser extension statements
+can still implement `Statement`; an extension without a built-in discriminator
+continues to fail explicitly when `type()` is requested. Built-in kinds also cover
+privilege grants/revocations, storage-profile DDL, table-control inspection and
+subscript expressions. This discriminator does not grant execution support or
+replace Planner validation.
+
 ### 2.1 The Role of Calcite in Pangrova
 
 ```
@@ -487,6 +504,41 @@ after the corresponding Coordinator task has entered `SCHEDULED` or `RUNNING`.
 Preparing an issued identity alone cannot commit the page. Exact retransmission
 is acknowledged after publication; a new terminal sequence after completion
 cannot commit the page again.
+
+Durable artifact graph and exchange evidence values are independent of JSON and
+JDBC. `DataBuildStageGraphCodec` and `DataBuildExchangeEvidenceCodec` own their
+canonical persistence bytes and SHA-256 identities. Both writing and replay
+limit the complete encoded envelope to 16 MiB, including JSON escaping and
+Base64 expansion. Encoding stops before buffering excess bytes; oversized
+evidence cannot be persisted and later become unreadable. The submission
+factory validates graph size before returning a dispatch specification, and
+all build insertion paths validate again before SQL mutations, including
+caller-owned transactions. Domain record construction alone is not persistence
+admission. Stored graph format 2, immutable bindings, owner/fence validation
+and canonical replay comparison remain unchanged.
+
+These contracts, codecs, submission factories and publication router belong to
+`pangrova-data-build`. The API separates build, execution, manifest, format and
+publication packages; page-to-stage assembly lives outside the execution values.
+AI Control owns the catalog export request and transaction adapter, exposed by
+`ai.control.assembly.AiInfrastructureStores` as a catalog-export port. The process
+root supplies its real transaction authority explicitly; the AI factory has no
+default Metadata lookup. It inserts
+the generic build and Feature View/Training Dataset association on one connection,
+and rolls back both on failure. Generic build/stage/exchange JDBC state now belongs
+to Artifact, with injected authority, execution fence, current roles and publication
+candidate ports. Current-authority and domain-publication adapters still remain
+in Metadata pending their owner migration. This does not yet remove the startup
+dependency on Indexing.
+
+Materialization lifecycle writes and reader-pin acquisition share the
+materialization JDBC transaction helper. Pin acquisition still locks the generation
+for share and checks its readable state on the same connection as the upsert.
+Materialization and Shuffle transaction owners roll back SQL, runtime, and Error
+failures, retain rollback exceptions as suppressed causes, and close their owned
+connections without restoring auto-commit after a failure. This prevents failure
+cleanup from committing a partial object, pin, or shuffle mutation; it does not
+change publication authority, lock order, or caller-owned transaction boundaries.
 
 Arrow Flight (data plane):
 - Shuffle data pull + Client result pull (gRPC streaming)

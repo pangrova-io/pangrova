@@ -1,5 +1,7 @@
 package org.pangrova.shuffle.server;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
 import java.security.MessageDigest;
@@ -7,7 +9,6 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ShuffleServiceAddress;
 import org.pangrova.protocol.v2.ShuffleServiceEndpoint;
@@ -25,9 +26,9 @@ import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessResponse;
-import org.pangrova.shuffle.ShufflePartitionManifestChecksum;
-import org.pangrova.shuffle.ShuffleProducerSetChecksum;
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.core.ShufflePartitionManifestChecksum;
+import org.pangrova.shuffle.core.ShuffleProducerSetChecksum;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.security.CapabilityOperation;
 import org.pangrova.shuffle.security.CapabilityScope;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
@@ -271,7 +272,7 @@ final class ShuffleServiceEngine implements AutoCloseable {
     }
 
     private static boolean validRegistrationIdentity(RegisterShuffleRequest request) {
-        return request.getProtocol().equals(CanonicalTaskRequests.protocolVersion())
+        return request.getProtocol().equals(CanonicalProtocolIdentity.current())
                 && !request.getQueryId().isBlank() && request.getStageId() >= 0
                 && request.getPlanEpoch() > 0 && ShuffleAccessControl.validOwner(request.getExecutionOwner())
                 && (request.getShuffleId().isBlank()

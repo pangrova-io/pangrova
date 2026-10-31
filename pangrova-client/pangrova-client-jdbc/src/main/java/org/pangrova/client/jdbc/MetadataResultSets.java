@@ -1,6 +1,8 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.rest.PangrovaRestClient;
+import org.pangrova.client.core.api.MetadataTableIdentifier;
+import org.pangrova.client.core.api.MetadataColumnInfo;
+import org.pangrova.client.transport.http.PangrovaRestClient;
 
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -168,7 +170,7 @@ final class MetadataResultSets {
         }
     }
 
-    private static void addTableRow(List<Object[]> rows, PangrovaRestClient.MetadataTableIdentifier table,
+    private static void addTableRow(List<Object[]> rows, MetadataTableIdentifier table,
                                     String cat, String schemaPattern, String tableNamePattern) {
         if (!matchesPattern(table.name(), tableNamePattern)) {
             return;
@@ -190,7 +192,7 @@ final class MetadataResultSets {
     }
 
     private static void addTableColumnRows(List<Object[]> rows, PangrovaRestClient restClient,
-                                           PangrovaRestClient.MetadataTableIdentifier table, String cat,
+                                           MetadataTableIdentifier table, String cat,
                                            String schemaPattern, String tableNamePattern,
                                            String columnNamePattern) {
         if (!matchesPattern(table.name(), tableNamePattern)) {
@@ -206,7 +208,7 @@ final class MetadataResultSets {
     }
 
     private static void appendColumnRows(List<Object[]> rows,
-                                         List<PangrovaRestClient.MetadataColumnInfo> columns,
+                                         List<MetadataColumnInfo> columns,
                                          String cat, String schema, String tableName,
                                          String columnNamePattern) {
         int position = 1;
@@ -228,11 +230,11 @@ final class MetadataResultSets {
         }
     }
 
-    private static String schemaOf(PangrovaRestClient.MetadataTableIdentifier table) {
+    private static String schemaOf(MetadataTableIdentifier table) {
         return table.namespace().get(1);
     }
 
-    private static List<PangrovaRestClient.MetadataTableIdentifier> tablesInCatalog(
+    private static List<MetadataTableIdentifier> tablesInCatalog(
             PangrovaRestClient client, String catalog) {
         var tables = client.listTables(catalog);
         for (var table : tables) {
@@ -241,7 +243,7 @@ final class MetadataResultSets {
             }
         }
         return tables.stream().sorted(Comparator.comparing(MetadataResultSets::schemaOf)
-                .thenComparing(PangrovaRestClient.MetadataTableIdentifier::name)).toList();
+                .thenComparing(MetadataTableIdentifier::name)).toList();
     }
 
     private static boolean matchesPattern(String value, String pattern) {

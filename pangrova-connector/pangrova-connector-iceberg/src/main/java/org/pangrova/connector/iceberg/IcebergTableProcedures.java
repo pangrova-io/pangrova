@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.metadata.TableProcedure;
+import org.pangrova.connector.spi.metadata.TableProcedure;
 
 import java.util.List;
 

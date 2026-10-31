@@ -1,11 +1,12 @@
 package org.pangrova.metadata.governance;
 
+import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.pangrova.governance.quality.QualityCheckResult;
-import org.pangrova.governance.quality.alert.Severity;
+import org.pangrova.governance.api.quality.QualityCheckResult;
+import org.pangrova.governance.api.quality.Severity;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -72,11 +73,11 @@ class JdbcQualityResultIdentityIntegrationTest extends ContainerTestBase {
         DataSource dataSource = SharedPostgresContainer.migratedDataSource("quality_result_gate");
         var store = new JdbcQualityRuleStore(dataSource);
         var time = Instant.parse("2026-01-01T00:00:00Z");
-        store.saveRule(new org.pangrova.governance.quality.rule.DataQualityRule(1, "invalid-config",
+        store.saveRule(new org.pangrova.governance.api.quality.DataQualityRule(1, "invalid-config",
                 "catalog", "schema", "orders", "", Severity.ERROR, "invalid", true, null, time, time,
-                new org.pangrova.governance.quality.rule.QualityExecutionIdentity("quality-owner", "quality-tenant"), null));
-        var gate = new org.pangrova.governance.quality.gate.RuleBasedWriteQualityGate(store,
-                new org.pangrova.governance.quality.rule.UnconfiguredQualityRuleExecutor());
+                new org.pangrova.governance.api.quality.QualityExecutionIdentity("quality-owner", "quality-tenant"), null));
+        var gate = new org.pangrova.governance.core.quality.RuleBasedWriteQualityGate(store,
+                new org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQualityRuleExecutor());
         assertThat(gate.validate("catalog", "schema", "orders").allowed()).isFalse();
         assertThat(gate.validate("catalog", "schema", "orders").allowed()).isFalse();
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();

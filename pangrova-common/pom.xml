@@ -12,15 +12,13 @@
 
     <artifactId>pangrova-common</artifactId>
     <name>Pangrova Common</name>
-    <description>Common utilities, exception hierarchy, and configuration framework for Pangrova</description>
+    <description>Shared primitives, lifecycle utilities, and exception hierarchy for Pangrova</description>
+
+    <properties>
+        <module.name>org.pangrova.common</module.name>
+    </properties>
 
     <dependencies>
-        <!-- YAML parsing (merged from pangrova-config) -->
-        <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
-        </dependency>
-
         <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>

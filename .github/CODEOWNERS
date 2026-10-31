@@ -2,7 +2,6 @@
 * @pangrova/maintainers
 
 # Core modules
-/pangrova-spi/ @pangrova/core
 /pangrova-planner/ @pangrova/core
 /pangrova-protocol/ @pangrova/core
 

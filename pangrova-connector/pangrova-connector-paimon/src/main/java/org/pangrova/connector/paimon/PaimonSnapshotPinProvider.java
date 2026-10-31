@@ -5,8 +5,8 @@ import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
-import org.pangrova.spi.connector.index.SnapshotExpiredException;
-import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.connector.spi.index.SnapshotExpiredException;
+import org.pangrova.connector.spi.index.SnapshotPinProvider;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

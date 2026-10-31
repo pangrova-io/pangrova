@@ -26,7 +26,7 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 import org.pangrova.protocol.v2.TableFunctionDetail;

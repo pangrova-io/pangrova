@@ -1,7 +1,6 @@
 package org.pangrova.planner.optimization;
 
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 import org.pangrova.planner.PlanTable;
 
 import java.util.ArrayList;

@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorSession;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -31,7 +31,7 @@ abstract class PaimonDeleteTestSupport {
     static final Identifier IDENTIFIER = Identifier.create(DATABASE, TABLE_NAME);
     static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

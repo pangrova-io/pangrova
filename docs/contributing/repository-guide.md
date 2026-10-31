@@ -26,22 +26,31 @@ The root README is an introduction; development inventories belong here.
 | `docs/` | User, developer, design and operational documentation |
 | `website/` | Docusaurus rendering, navigation, blog and shared static images |
 | `pangrova-common` / `pangrova-config` | Shared primitives and typed configuration |
-| `pangrova-spi` | Extension contracts and stability annotations |
 | `pangrova-parser` / `pangrova-planner` | SQL parsing and Calcite planning |
 | `pangrova-protocol` | Canonical wire contracts and build-time function-contract generators |
-| `pangrova-coordinator` | Query control, authorization, scheduling and publication orchestration |
-| `pangrova-worker` | Worker process, task lifecycle, transport and JNI loading |
+| `pangrova-query-api` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
+| `pangrova-data-build` | Durable build contracts, canonical codecs, publication router and generic JDBC build/stage/exchange implementation |
+| `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migrations; runtime bootstrap and owner test fixtures consume the same version sequence |
+| `pangrova-query` | Query runtime services, profiling/audit orchestration and JDBC/in-memory durable state implementations |
+| `pangrova-coordination` | Independent coordination API, Coordinator service and optional ZooKeeper provider; providers depend on the API, not the process implementation |
+| `pangrova-worker` | Worker process, task lifecycle, transport and JNI native bridge |
 | `pangrova-worker-native` | C++20 execution, JNI, Velox adapters and Lance FFI |
 | `pangrova-native-bundle` | Platform-specific JNI library packaging |
 | `pangrova-connector` | Iceberg, Paimon and Lance connector modules |
 | `pangrova-metadata` | Durable metadata, catalog and coordination persistence |
-| `pangrova-materialization` | Shared dynamic-table/materialized-view domain kernel |
+| `pangrova-table` | Table control, maintenance, statistics and governance-binding owner |
+| `pangrova-file` | Volume/Stage, directory generation, upload, storage profile and COPY claim/publication owner |
+| `pangrova-semantic` | Semantic View identity, immutable versions, definition validation, publication fencing and JDBC storage |
+| `pangrova-ai` | Shared AI descriptors, governed control plane, and optional Worker-side AI runtime |
+| `pangrova-storage` | Content-addressed blob storage backends shared by Worker COPY and the AI FILE layer |
+| `pangrova-materialization` | Dynamic-table/materialized-view domain kernel and JDBC state store |
 | `pangrova-streaming` | CDC and streaming infrastructure |
 | `pangrova-shuffle` | Exchange contracts and deployable shuffle service |
 | `pangrova-operations` | DDL/DML operation infrastructure |
-| `pangrova-resource` / `pangrova-resilience` | Resource admission, scheduling and fault handling |
-| `pangrova-security` / `pangrova-governance` | Authentication, authorization, lineage and governance |
-| `pangrova-indexing` / `pangrova-observability` | Index services, metrics and tracing |
+| `pangrova-scheduler` | Cluster admission, quota/resource placement, scheduling strategies and fair/load-balanced execution order |
+| `pangrova-security` / `pangrova-governance` | Authentication, authorization, classification, lineage and quality governance |
+| `pangrova-indexing` | Index contracts (descriptors, state, eval, pruning, publication) and index services/planner extension |
+| `pangrova-observability` | Observability contracts/no-op implementations, OpenTelemetry providers and adapters; Query audit persistence belongs to `pangrova-query` |
 | `pangrova-transport` / `pangrova-client` | Client result transport, REST, JDBC and CLI |
 | `pangrova-standalone` | Single-JVM Coordinator/Worker assembly |
 | `pangrova-testing` | Shared test infrastructure, E2E, benchmark, chaos and reference generator |
@@ -80,11 +89,11 @@ or `.gitkeep` files.
 | Test native runtime | `python3 pangrova-worker-native/bin/run-native-tests.py` |
 | Validate instruction layout | `.pangrova/setup.sh --check` |
 | Validate website | `pnpm run typecheck` and `pnpm run build` in `website/` |
-| Generate TPC data | `python3 pangrova-testing/pangrova-test-benchmark/scripts/generate_tpc_data.py --help` |
-| Manage an explicit benchmark deployment | `python3 pangrova-testing/pangrova-test-benchmark/scripts/tpc_cluster.py start --help` (or `stop`) |
-| Run complete benchmark suites | `pangrova-testing/pangrova-test-benchmark/scripts/run-tpc-suite.sh` |
-| Run the distinct CLI latency experiment | `pangrova-testing/pangrova-test-benchmark/scripts/run-tpc-benchmark.sh` |
-| Reference SQL generator | `pangrova-testing/pangrova-test-fuzzer/scripts/run-operator-fuzzer.sh`; DuckDB only |
+| Generate TPC data | `python3 pangrova-testing/pangrova-testing-benchmark/scripts/generate_tpc_data.py --help` |
+| Manage an explicit benchmark deployment | `python3 pangrova-testing/pangrova-testing-benchmark/scripts/tpc_cluster.py start --help` (or `stop`) |
+| Run complete benchmark suites | `pangrova-testing/pangrova-testing-benchmark/scripts/run-tpc-suite.sh` |
+| Run the distinct CLI latency experiment | `pangrova-testing/pangrova-testing-benchmark/scripts/run-tpc-benchmark.sh` |
+| Reference SQL generator | `pangrova-testing/pangrova-testing-fuzzer/scripts/run-operator-fuzzer.sh`; DuckDB only |
 
 The benchmark [methodology](../testing/tpc-benchmark-methodology.md) defines evidence
 requirements. Keep JMH, complete-suite experiments and the 22-query tail experiment

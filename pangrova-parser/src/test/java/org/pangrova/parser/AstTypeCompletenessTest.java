@@ -83,7 +83,8 @@ class AstTypeCompletenessTest {
                 new SubstringExpression(DUMMY_LIT, DUMMY_LIT, DUMMY_LIT),
                 new UnaryMinusExpression(DUMMY_LIT),
                 new WindowedFunctionCall(DUMMY_ID, List.of(), false, new WindowSpec(List.of(), List.of(), null)),
-                new org.pangrova.parser.ast.expression.ParameterMarker()
+                new org.pangrova.parser.ast.expression.ParameterMarker(),
+                new org.pangrova.parser.ast.expression.SubscriptExpression(DUMMY_ID, DUMMY_LIT)
         );
 
         Set<ExpressionType> covered = EnumSet.noneOf(ExpressionType.class);
@@ -134,6 +135,7 @@ class AstTypeCompletenessTest {
             case UNARY_MINUS -> "neg";
             case WINDOWED_FUNCTION_CALL -> "win";
             case PARAMETER_MARKER -> "param";
+            case SUBSCRIPT -> "subscript";
         };
         assertEquals("lit", result);
     }
@@ -258,6 +260,12 @@ class AstTypeCompletenessTest {
             case DESCRIBE_STREAM -> "ds";
             case DROP_STREAM -> "dstr";
             case SHOW_STREAMS -> "sstr";
+            case GRANT_PRIVILEGE -> "grant_privilege";
+            case REVOKE_PRIVILEGE -> "revoke_privilege";
+            case CREATE_STORAGE_PROFILE -> "create_profile";
+            case DROP_STORAGE_PROFILE -> "drop_profile";
+            case SHOW_STORAGE_PROFILES -> "show_profiles";
+            case SHOW_TABLE_CONTROLS -> "show_controls";
             case SET_SESSION -> "setss";
         };
     }

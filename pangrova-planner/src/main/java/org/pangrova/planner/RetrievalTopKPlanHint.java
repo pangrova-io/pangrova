@@ -2,7 +2,7 @@ package org.pangrova.planner;
 
 import java.util.List;
 
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Planner-owned, wire-neutral intent for replacing a Sort/Fetch pair with typed Top-K retrieval. */
 @Internal

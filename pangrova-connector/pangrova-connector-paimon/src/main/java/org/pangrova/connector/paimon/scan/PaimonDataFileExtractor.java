@@ -1,7 +1,6 @@
 package org.pangrova.connector.paimon.scan;
 
-import org.pangrova.spi.annotation.Internal;
-
+import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.connector.paimon.handle.PaimonLsmLevel;
 import org.pangrova.connector.paimon.handle.PaimonLsmFile;
 import org.pangrova.connector.paimon.handle.PaimonPhysicalFile;

@@ -1,9 +1,10 @@
 package org.pangrova.protocol.function.catalog;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.protocol.function.generated.GeneratedExecutionSelection;
-import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.FunctionCatalogFinalizeRequest;
 import org.pangrova.protocol.v2.FunctionCatalogFinalizeResult;
 
@@ -19,7 +20,7 @@ public final class FunctionCatalogStartupContracts {
     /** Builds the exact declaration and protocol identity; this is not a capability claim. */
     public static FunctionCatalogFinalizeRequest request() {
         return FunctionCatalogFinalizeRequest.newBuilder()
-                .setProtocol(CanonicalTaskRequests.protocolVersion())
+                .setProtocol(CanonicalProtocolIdentity.current())
                 .setBindingDeclarationSha256(FunctionBindingDeclarations.declarationSha256())
                 .setExecutionSelectionSha256(ByteString.copyFrom(
                         HexFormat.of().parseHex(GeneratedExecutionSelection.CONTRACT_SHA256)))

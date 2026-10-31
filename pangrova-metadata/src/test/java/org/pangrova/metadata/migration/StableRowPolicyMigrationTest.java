@@ -3,8 +3,8 @@ package org.pangrova.metadata.migration;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.rowfilter.RowPolicy;
-import org.pangrova.security.store.PersistentRowPolicyStore;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
 
 import java.util.List;
 import java.util.UUID;

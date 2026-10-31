@@ -11,39 +11,12 @@
     </parent>
 
     <artifactId>pangrova-materialization</artifactId>
+    <packaging>pom</packaging>
     <name>Pangrova Materialization</name>
-    <description>Unified Dynamic Table and Materialized View domain kernel: definitions, generations, attempts, publication protocol, scheduling, and extension ports</description>
+    <description>Materialization parent for Pangrova: materialization runtime and JDBC store</description>
 
-    <dependencies>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-spi</artifactId>
-        </dependency>
-
-        <!-- Test -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.assertj</groupId>
-            <artifactId>assertj-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.jqwik</groupId>
-            <artifactId>jqwik</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.tngtech.archunit</groupId>
-            <artifactId>archunit-junit5</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <modules>
+        <module>pangrova-materialization-core</module>
+        <module>pangrova-materialization-store-jdbc</module>
+    </modules>
 </project>

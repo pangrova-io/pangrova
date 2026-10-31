@@ -1,15 +1,15 @@
 package org.pangrova.connector.iceberg.type;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.NullOnlyType;
-import org.pangrova.spi.connector.data.type.RowType;
-import org.pangrova.spi.connector.data.type.VectorType;
-import org.pangrova.spi.connector.data.type.primitive.DecimalType;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
-import org.pangrova.spi.connector.data.type.PangrovaTypeMapping;
-import org.pangrova.spi.connector.data.type.ArrayType;
-import org.pangrova.spi.connector.data.type.MapType;
-import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.NullOnlyType;
+import org.pangrova.connector.spi.data.type.RowType;
+import org.pangrova.connector.spi.data.type.VectorType;
+import org.pangrova.connector.spi.data.type.primitive.DecimalType;
+import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.spi.data.type.mapping.PangrovaTypeMapping;
+import org.pangrova.connector.spi.data.type.ArrayType;
+import org.pangrova.connector.spi.data.type.MapType;
+import org.pangrova.connector.spi.data.type.RowField;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -138,7 +138,7 @@ public final class IcebergTypeMapper {
     }
 
     /**
-     * Converts an Iceberg type to a parameterized Pangrova {@link org.pangrova.spi.connector.data.type.Type},
+     * Converts an Iceberg type to a parameterized Pangrova {@link org.pangrova.connector.spi.data.type.Type},
      * using table properties to detect vector columns. A {@code list(float/double)} column
      * with a matching dimension property is mapped to {@link VectorType}.
      *
@@ -147,7 +147,7 @@ public final class IcebergTypeMapper {
      * @param tableProperties the Iceberg table properties
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(
+    public static org.pangrova.connector.spi.data.type.Type toParameterizedType(
             Type icebergType, String columnName, Map<String, String> tableProperties) {
         if (isVectorColumn(icebergType, columnName, tableProperties)) {
             return parseVectorFromMetadata(icebergType, columnName, tableProperties);
@@ -223,14 +223,14 @@ public final class IcebergTypeMapper {
     }
 
     /**
-     * Converts an Iceberg type to the parameterized {@link org.pangrova.spi.connector.data.Type}.
+     * Converts an Iceberg type to the parameterized {@link org.pangrova.connector.spi.data.Type}.
      * For DECIMAL, ARRAY, MAP, and STRUCT, preserves full parameter information.
      * For simple types, bridges via {@link PangrovaTypeMapping}.
      *
      * @param icebergType the Iceberg type to convert
      * @return the corresponding parameterized Type
      */
-    public static org.pangrova.spi.connector.data.type.Type toParameterizedType(Type icebergType) {
+    public static org.pangrova.connector.spi.data.type.Type toParameterizedType(Type icebergType) {
         if (icebergType.typeId() == Type.TypeID.UNKNOWN) {
             return NullOnlyType.INSTANCE;
         }
@@ -260,7 +260,7 @@ public final class IcebergTypeMapper {
         };
     }
 
-    private static org.pangrova.spi.connector.data.type.Type mapPrimitiveToParameterized(
+    private static org.pangrova.connector.spi.data.type.Type mapPrimitiveToParameterized(
             Type.PrimitiveType primitive) {
         if (primitive.typeId() == Type.TypeID.DECIMAL) {
             Types.DecimalType dt = (Types.DecimalType) primitive;
@@ -269,7 +269,7 @@ public final class IcebergTypeMapper {
         return PangrovaTypeMapping.toType(mapPrimitiveToPangrova(primitive));
     }
 
-    private static org.pangrova.spi.connector.data.type.Type mapComplexToParameterized(
+    private static org.pangrova.connector.spi.data.type.Type mapComplexToParameterized(
             Type.NestedType nested) {
         return switch (nested.typeId()) {
             case LIST -> {
@@ -295,7 +295,7 @@ public final class IcebergTypeMapper {
 
     private static ConnectorTableMetadata.Column toColumn(Types.NestedField field) {
         PangrovaType type = toPangrovaType(field.type());
-        org.pangrova.spi.connector.data.type.Type paramType = toParameterizedType(field.type());
+        org.pangrova.connector.spi.data.type.Type paramType = toParameterizedType(field.type());
         return new ConnectorTableMetadata.Column(
                 field.name(), type, OptionalInt.of(field.fieldId()), paramType);
     }
@@ -303,7 +303,7 @@ public final class IcebergTypeMapper {
     private static ConnectorTableMetadata.Column toColumnWithProperties(
             Types.NestedField field, Map<String, String> tableProperties) {
         PangrovaType type = toPangrovaType(field.type(), field.name(), tableProperties);
-        org.pangrova.spi.connector.data.type.Type paramType =
+        org.pangrova.connector.spi.data.type.Type paramType =
                 toParameterizedType(field.type(), field.name(), tableProperties);
         return new ConnectorTableMetadata.Column(
                 field.name(), type, OptionalInt.of(field.fieldId()), paramType);
@@ -390,7 +390,7 @@ public final class IcebergTypeMapper {
      * Converts a parameterized type to Iceberg Type, recursively handling STRUCT/ARRAY/MAP.
      */
     public static Type toIcebergTypeFromParameterizedType(
-            org.pangrova.spi.connector.data.type.Type paramType, int baseFieldId) {
+            org.pangrova.connector.spi.data.type.Type paramType, int baseFieldId) {
         if (paramType instanceof RowType rowType) {
             return toIcebergTypeFromParameterized(rowType, baseFieldId);
         } else if (paramType instanceof ArrayType arrayType) {

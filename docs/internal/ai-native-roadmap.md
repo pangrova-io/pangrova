@@ -118,8 +118,8 @@ description: "Time-scoped internal audit evidence and implementation status; not
   不能证明生产部署闭环。修复必须通过合法 connector SPI/目录分发让 Worker 获得
   task-scoped、tenant-scoped 的 write resources，不能把 Coordinator metadata
   实例跨模块或跨进程共享。
-- JDK17 邻近复验：`mvn -q -pl pangrova-coordinator -am test
-  -Dtest=CanonicalTaskReportValidatorTest,QuerySchedulingEngineWriteAdmissionTest,RetrievalIntentCollectorTest,CanonicalSplitParserTest,DAGDispatchEngineRetrievalBindingTest,JdbcArtifactBuildStoreTest
+- JDK17 邻近复验：`mvn -q -pl pangrova-coordination/pangrova-coordination-core -am test
+  -Dtest=CanonicalTaskReportValidatorTest,QuerySchedulingEngineWriteAdmissionTest,RetrievalIntentCollectorTest,CanonicalSplitParserTest,DAGDispatchEngineRetrievalBindingTest,JdbcDataBuildStoreTest
   -Dsurefire.failIfNoSpecifiedTests=false` 为 **PASS（34 tests，0 failure/error/skip）**；
   包含真实 PostgreSQL 的 durable artifact store 9 项。该范围不含 Native/E2E。
 - Iceberg crash recovery 的持久 intent 现记录 tenant、原始 base snapshot 与稳定的
@@ -179,7 +179,7 @@ archive 与 CMake 编译 flags；独立插桩 Velox 仍在构建，尚无新一�
 需要完成同等插桩的 Velox 依赖构建，并确认 Tokio 分配的所有权或明确修复。
 按 `build-pipeline.md` 的逐步门禁，Step 4–8 **未执行**，不得记为通过。
 
-独立 JDK17 静态分析诊断：`mvn -q -pl pangrova-worker,pangrova-metadata,pangrova-parser
+独立 JDK17 静态分析诊断：`mvn -q -pl pangrova-worker/pangrova-worker-core,pangrova-metadata,pangrova-parser
 -am -DskipTests verify -Pstatic-analysis` 在 observability 模块被 36 项 SpotBugs
 medium 报告阻断；直接 Checkstyle 诊断在 metadata 模块仍有 27 项规范错误，均未伪报
 为全仓静态门禁通过。协议四项错误已修复，Worker 与 Parser 的独立 Checkstyle
@@ -457,7 +457,7 @@ Step 0–8 完成。统一 canonical v2 仍是唯一任务/结果协议；Coordi
   截止时间，避免预算已预留但过期后仍发送。改动后的全仓回归仍待完成。
 - JDBC `executeUpdate` 保留 `SQLTimeoutException` 的异常类型，不再把它包成普通
   `SQLException`；最近邻 JDBC 测试 PASS。Worker reactor 在本轮较早源码快照下
-  `mvn -q -pl pangrova-worker -am test` PASS；此后仍有 AI 预算、Worker 进程和
+  `mvn -q -pl pangrova-worker/pangrova-worker-core -am test` PASS；此后仍有 AI 预算、Worker 进程和
   Native 改动，不能引用该结果充当最终源码 Step 6。
 - Lance FFI 对 S3 manifest 提交使用条件创建，并在发布前验证对象存储是否真正拒绝
   重复 create。旧 MinIO 忽略条件头时 fail-closed；较新 MinIO 的两个独立客户端
@@ -722,13 +722,13 @@ Step 0–8 完成。统一 canonical v2 仍是唯一任务/结果协议；Coordi
 - 当前 JDK17 coordinator/E2E reactor `test-compile` 初次复跑为 **FAIL**：
   `SqlE2ETestBase` 未迁移 statistics provider 的 session 参数，
   `NativeCapabilityHandshakeE2ETest` 缺失显式 connector 配置。修复后同命令
-  `mvn -q -pl pangrova-coordinator,pangrova-testing/pangrova-test-e2e -am test-compile`
+  `mvn -q -pl pangrova-coordination/pangrova-coordination-core,pangrova-testing/pangrova-test-e2e -am test-compile`
   已复跑 **PASS**，但这不是实际 E2E 执行。
 - 认证健康状态不再改变匹配的认证器；无效凭证计入拒绝指标，不触发后续认证器
   降级，也不使有效用户永久无法认证。JDK17 的认证/配置/真实 PostgreSQL 授权及
   planner session/Native control RPC 邻近验证 **PASS：102 tests，0 failure/error/skip**。
   测试集合为 `OAuth2AuthenticatorTest,AuthenticationManagerTest,AuthenticationManagerObservabilityTest,SecureJwtParserVisibilityTest,AuthenticationContractTest,SecurityConfigurationLoaderTest,PangrovaCoordinatorMainTest,SignedOidcSecurityBootstrapIntegrationTest,TableResolverSessionTest,PlannerWiringSessionIntegrationTest,NativeDatasetControlClientTest,NativeDatasetControlRpcExceptionTest,WorkerNativeDatasetControlTest,NativeDatasetControlBootstrapTest`，
-  命令为 `mvn -q -pl pangrova-coordinator -am test -Dtest=<上述集合> -Dsurefire.failIfNoSpecifiedTests=false`。
+  命令为 `mvn -q -pl pangrova-coordination/pangrova-coordination-core -am test -Dtest=<上述集合> -Dsurefire.failIfNoSpecifiedTests=false`。
   其中真实签名测试连续拒绝八次无签名 token 后仍接受合法签名；RPC 测试覆盖
   明确授权拒绝、UNKNOWN 发布结果、关闭取消与租约/owner 校验。它们是组件集成，
   不计作 Native 数据执行或多 Worker E2E。
@@ -764,7 +764,7 @@ Step 0–8 完成。统一 canonical v2 仍是唯一任务/结果协议；Coordi
 | matching-ASan 构建与全量测试 | PASS | 使用相同 Clang ABI 的 ASan Velox、Protobuf 25.3 和 Abseil；3480/3480，零报告错误；日志 `/tmp/pangrova-fixes-chain-step3-tests.log`。不宣称 Rust unsafe 代码已由 ASan 完整覆盖。 |
 | classpath JNI 打包 | PASS | `package-native-lib.sh`；日志 `/tmp/pangrova-fixes-chain-step4.log`。之后的 ABI 7/physical-file 改动必须重新构建并打包。 |
 | 规划与 Native 准入专项 | PASS | `SqlCompilerTest,NativeAdmissionTest,SubstraitPlanValidatorTest,PartitionLocalPlanInspectorTest`，34 tests，零失败/错误/跳过；日志 `/tmp/pangrova-fixes-planner-tests.log`。 |
-| PostgreSQL 权限与持久化发布专项 | PASS | `PersistentRoleStoreTest,ArtifactBuildContractTest,JdbcArtifactBuildStoreTest,JdbcIndexArtifactPublicationStoreTest,JdbcTabularExportPublicationStoreTest`，37 tests，零失败/错误/跳过；日志 `/tmp/pangrova-fixes-authority-store-tests.log`。 |
+| PostgreSQL 权限与持久化发布专项 | PASS | `PersistentRoleStoreTest,DataBuildContractTest,JdbcDataBuildStoreTest,JdbcIndexGenerationPublicationStoreTest,JdbcTabularExportPublicationStoreTest`，37 tests，零失败/错误/跳过；日志 `/tmp/pangrova-fixes-authority-store-tests.log`。 |
 | 当前权限与直接 SQL 撤权并发 | PASS | `ArtifactCurrentAuthorityIntegrationTest` 5 tests；显式设置 `-Dpangrova.metadata.excludedTestGroups=none` 才实际运行，默认排除 integration 的零测试构建不计通过。日志 `/tmp/pangrova-fixes-authority-concurrency-tests-enabled.log`。 |
 | 全 Java install | FAIL，继续修复 | 初次执行被 LanceSplitManager 的测试构造迁移阻断；不能以 scoped main compile 替代完整 install。日志 `/tmp/pangrova-fixes-chain-step5.log`。 |
 | Paimon 实际 SDK fixture | FAIL，继续修复 | 暴露 footer 版本假设、绝对路径解析及 append bucket-key 测试配置错误。必须按 SDK 实际文件格式复证，而非弱化断言或改写 footer。日志 `/tmp/pangrova-fixes-feature-compilation-tests.log`。 |
@@ -797,7 +797,7 @@ StageGraph（不能每 split 执行完整 SQL）、末级 export 的完整覆盖
 | Java 全仓最近门禁 | FAIL，修复中 | Step 5 曾 39 modules 编译安装成功；随后源码变化使其不代表最终版本。第一次 Step 6 有两个 PostgreSQL 启动错误，同测试在释放本任务模拟编译资源后 25/25 通过；不能由此证明 OOM。全仓重跑又暴露包规模、类长度与方法分支门禁，按职责拆分且不改阈值；须重新编译及全量回归。 |
 | 覆盖率门禁真实性 | PASS（门禁脚本测试），实际门禁 FAIL | 旧脚本 `BASE...HEAD` 遗漏全部本地变更，且文件级测量可能掩盖未覆盖新行。现在计入 staged/unstaged/untracked 的新增可执行行，按各模块实际 JaCoCo XML 测量，缺失/过期报告明确失败。17 项真实临时 Git/index/XML/JDK 17 classfile 测试通过；仅当同一 SourceFile 的全部新鲜 classfile 确实没有 method Code 时记为零可执行行，不增加覆盖信用，也不豁免 default method、其他顶层类或过期/损坏 classfile。最近实际 `--base-ref HEAD --threshold 60` 因 896 个缺失/过期测量失败，必须完成带 coverage 的最终回归，不能声称达到 60%。 |
 | Generated 值查询读取 | 实施中，未通过 | canonical Read overlay、历史 schema/定义校验与实际分片资源预算已落 Java 源；真实 PostgreSQL 已验证两 source publication 仅绑定 query 所需 source 的对象。Lance Dataset 已补 SDK row-address 输出和逐行 partition/offset 校验，普通扫描保持原返回模式，禁止用连续返回行号冒充删除后的真实 offset。新增 Native/Rust 源已冻结并启动 Step 0–4 复跑；仍待 Java 与 public SQL E2E。另发现 Iceberg/Paimon 返回 metadata 时丢弃 SDK 属性，正在修复真实 generated 声明保真和历史证据，不以 Java binder 存在计能力通过。 |
-| 精确分区接管准入 | PASS（定向） | `JdbcArtifactStageExchangeStoreTest` 11 项、零失败/错误/跳过；真实同一 PostgreSQL 事务验证权限/owner、精确 stage/partition/page 坐标、重复领取、binding 回滚，以及外部 exchange 未 finalize 时不得消费。尚不等于整个后台 DAG 重启与终态闭环。 |
+| 精确分区接管准入 | PASS（定向） | `JdbcDataBuildStageExchangeStoreTest` 11 项、零失败/错误/跳过；真实同一 PostgreSQL 事务验证权限/owner、精确 stage/partition/page 坐标、重复领取、binding 回滚，以及外部 exchange 未 finalize 时不得消费。尚不等于整个后台 DAG 重启与终态闭环。 |
 | Coordinator 资源生命周期 | PASS（定向） | 30 项、零失败/错误/跳过；启动阶段异常按依赖顺序释放所有已初始化资源，单个清理失败不阻断后续资源。真实 OAuth2 issuer/PG 测试验证 metadata pool 在内部认证准入失败后实际关闭且 HTTP 未启动；普通启动/停止与属性测试同时通过。 |
 | 最近质量门禁 | PASS（定向窗口） | `CleanCodeMetricsPropertyTest,PackageStructurePropertyTest,PackageDependencyAcyclicityPropertyTest`，10 项、零失败/错误/跳过；穷举源码验证类/方法/分支/构造参数和包结构，不降低阈值。后续新增源码仍须重新复验。 |
 | 回归测试选择真实性 | PASS（配置验证），全量测试进行中 | 默认 Surefire 排除 `*IntegrationTest`，Worker/Coordinator/Metadata/E2E 子模块还覆盖 tag 或文件筛选；新增 `full-regression` 显式清除日常筛选，保留默认日常配置，发布回归关闭 Worker 的失败自动重试。四个模块真实 Maven effective POM 的最终 default-test 配置验证通过，7 项选择/覆盖率接线测试通过；模块 JVM 参数使用 late-bound JaCoCo agent，实测产生 execution data/report。CI sanitizer 使用已有 CTest preset 的正确 ASAN/LSAN 参数；新增 production-regression 接 canonical same-source Linux Bake image→实际 classifier/JNI→全量回归/coverage→E2E/Smoke，日常 JDK17/21 filtered job 不冒充完整回归。新 CI job 未执行，配置正确不代表镜像、产品或分布式测试通过。 |
@@ -1429,7 +1429,7 @@ Step0–8、大规模独立进程故障与生产 SLO 仍无 PASS，不作生产�
 
 | 范围 | 结果 | 命令、根因与限制 |
 |---|---|---|
-| Worker 完整测试编译 | PASS | JDK17，`mvn -Pfull-regression -pl pangrova-worker -am -DskipTests test-compile`，r3 15.022s。原 r2 的四个编译错误全部来自 Rerank 单测引用已移除的用量接口和旧 positional context；现使用实际注册的 canonical task authority，保留原分组/尾批/顺序断言并补拒绝漂移与缺失授权。其确定性 business provider 仅为单测，不证明真实 cross-encoder。 |
+| Worker 完整测试编译 | PASS | JDK17，`mvn -Pfull-regression -pl pangrova-worker/pangrova-worker-core -am -DskipTests test-compile`，r3 15.022s。原 r2 的四个编译错误全部来自 Rerank 单测引用已移除的用量接口和旧 positional context；现使用实际注册的 canonical task authority，保留原分组/尾批/顺序断言并补拒绝漂移与缺失授权。其确定性 business provider 仅为单测，不证明真实 cross-encoder。 |
 | AI 资源/Provider codec/FILE/JNI callback 单元 | PASS | 最近二十类，Protocol4 + Worker152，**156/156、0 skip、18.937s**。r1/r2 各 155 PASS/1 FAIL：启动测试硬编码 21 hidden 参数和旧 Embedding 签名。已从唯一声明取 hidden layout，并断言实际强制 purpose 的三参数签名，不放宽 descriptor 数量或有序业务输出。HTTP 合约测试使用本机受控响应，不记真实模型/E2E。 |
 | Paimon 实际 SDK 最近范围 | PASS | 原九类最近范围，Protocol11 + Paimon16，**27/27、0 skip、16.393s**，含 allocation/schema/handle/SDK 类型/physical fixture。不是 Native ABI9 writer、SDK0.39↔Native0.20 SQL 双向互读或原子发布通过。 |
 | Linux ARM64 构建 r10 | FAIL | BuildKit EOF 不是构建成功。实际 guest kernel 日志证明全局 OOM 杀死 `lima-guestagent` 和 SSH forwarding session；dockerd 仍存活且 guest Unix API 正常。恢复原 guest service 与精确失效 Unix socket forwarding 后，同一 Docker daemon 可达。未重启/删除用户容器，未猜测为依赖或网络错误。 |
@@ -2568,7 +2568,7 @@ gate 恢复，尚存 Binder 504 行；
 两个 Linux bootstrap 测试进程错误使用 Python 3.9；其余为 PlanFragmenter 509 行、
 AI invocation 18 files 和 SPI SnapshotState owner inventory。合规 Python 3.12 PATH
 及职责修复后，r4 上述五项消失，但仍为 **86 项 2 FAIL、0 error/skip**：
-`JdbcArtifactBuildStore` 501 行、Worker AI function 包 21 files 超出已固定 20。
+`JdbcDataBuildStore` 501 行、Worker AI function 包 21 files 超出已固定 20。
 日志 `/tmp/pangrova-production-security-full-module-r3.log` 和
 `/tmp/pangrova-production-security-full-module-r4.log`。不得据专项通过或旧失败消失
 宣称原模块完整通过。Store 将 execution-route 只读查询移至已有 Reader，保同一
@@ -2669,7 +2669,7 @@ Python **75/75 PASS**、扩围 Native **84/84 PASS**。
 及 `r5.log`、`function-contract-diagnostics-python-r3.log`、
 `native-owned-signatures-nearest-r3.log`。这证明该 Release checkpoint，后续源码变更须重跑。
 
-Coordinator 同依赖 reactor 的原命令 `mvn -B -pl pangrova-coordinator -am clean compile
+Coordinator 同依赖 reactor 的原命令 `mvn -B -pl pangrova-coordination/pangrova-coordination-core -am clean compile
 test-compile`：r1 **FAIL**，两个真实 epoch 测试定义同一类名；分别改为 admission
 与 cleanup 测试类后原 11 项断言全部保留。r2 **FAIL**，旧测试调用遗漏正式内部认证
 上下文、speculative fixture 仍调用已删除的假取消 ACK API。前者迁移到实际 HTTP
@@ -4786,10 +4786,10 @@ POM、编译错误、协议 golden 或生产实现；命令行版本覆盖不是
 mvn -Dtestcontainers.version=1.21.3 -pl pangrova-spi -Dtest='*Vector*' test
 mvn -Dtestcontainers.version=1.21.3 -pl pangrova-parser -Dtest='*Vector*' test
 mvn -Dtestcontainers.version=1.21.3 -pl pangrova-protocol -Dtest='VectorSearchFieldWiringTest' test
-mvn -Dtestcontainers.version=1.21.3 -pl pangrova-indexing -Dtest='*Vector*,*Bm25*' test
+mvn -Dtestcontainers.version=1.21.3 -pl pangrova-indexing/pangrova-indexing-core -Dtest='*Vector*,*Bm25*' test
 mvn -Dtestcontainers.version=1.21.3 -pl pangrova-streaming -Dtest='*Embedding*' test
 mvn -Dtestcontainers.version=1.21.3 -pl pangrova-planner test
-mvn -Dtestcontainers.version=1.21.3 -pl pangrova-worker test
+mvn -Dtestcontainers.version=1.21.3 -pl pangrova-worker/pangrova-worker-core test
 
 cmake --build pangrova-worker-native/build --parallel 4
 ctest --test-dir pangrova-worker-native/build --output-on-failure \
@@ -4800,21 +4800,21 @@ docker info --format '{{.ServerVersion}}'
 
 ### 10.4 历史关键证据路径索引
 
-- AI SQL/provider：`pangrova-worker/src/main/java/org/pangrova/worker/ai/function/`、
-  `pangrova-worker/src/main/java/org/pangrova/worker/bootstrap/phase/NativeFunctionBootstrap.java`。
+- AI SQL/provider：`pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/function/`、
+  `pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase/NativeFunctionBootstrap.java`。
 - Native registry/capability：`pangrova-worker-native/src/velox/runtime/NativeEngineLifecycle.cpp`、
   `pangrova-worker-native/test/jni/NativeCommandGetCapabilitiesTest.cpp`。
-- Embedding/backfill：`pangrova-coordinator/src/main/java/org/pangrova/coordinator/ai/embedding/`、
-  `pangrova-worker/src/main/java/org/pangrova/worker/ai/embedding/`。
+- Embedding/backfill：`pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding/`、
+  `pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/embedding/`。
 - Exact vector/ANN：`pangrova-worker-native/src/vector/`、
-  `pangrova-indexing/src/main/java/org/pangrova/indexing/engine/vector/`。
-- Hybrid/merge：`pangrova-worker/src/main/java/org/pangrova/worker/task/VectorSearchTaskSupport.java`、
-  `pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/QueryVectorResultMerger.java`、
-  `pangrova-coordinator/src/main/java/org/pangrova/coordinator/ai/vector/GlobalTopKMerger.java`。
-- FILE/multimodal：`pangrova-worker/src/main/java/org/pangrova/worker/ai/function/`、
-  `pangrova-worker/src/main/java/org/pangrova/worker/ai/embedding/provider/OpenAiCompatibleEmbeddingProvider.java`。
-- Semantic Cache：`pangrova-coordinator/src/main/java/org/pangrova/coordinator/ai/cache/`、
-  `pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java`。
+  `pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/engine/vector/`。
+- Hybrid/merge：`pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/VectorSearchTaskSupport.java`、
+  `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryVectorResultMerger.java`、
+  `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/vector/GlobalTopKMerger.java`。
+- FILE/multimodal：`pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/function/`、
+  `pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/ai/embedding/provider/OpenAiCompatibleEmbeddingProvider.java`。
+- Semantic Cache：`pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/cache/`、
+  `pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/execution/QueryPipelineExecutor.java`。
 - 文档声明：`docs/architecture/ai-native.md`、`docs/sql-reference/functions/ai-functions.md`、
   `docs/sql-reference/functions/vector-search.md`。
 

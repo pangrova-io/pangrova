@@ -1,11 +1,11 @@
 package org.pangrova.metadata.adapter;
 
-import org.pangrova.metadata.cache.TieredMetadataCache;
-import org.pangrova.metadata.model.ColumnMetadata;
-import org.pangrova.metadata.model.ColumnType;
-import org.pangrova.metadata.model.TableMetadata;
-import org.pangrova.metadata.sync.MetadataChange;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.metadata.core.cache.TieredMetadataCache;
+import org.pangrova.metadata.api.object.ColumnMetadata;
+import org.pangrova.metadata.api.object.ColumnType;
+import org.pangrova.metadata.api.object.TableMetadata;
+import org.pangrova.metadata.api.catalog.MetadataChange;
+import org.pangrova.connector.spi.metadata.table.TableStatistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -58,7 +58,7 @@ class CachingFederatedCatalogTest {
 
         // Trigger the three SPI methods in sequence as the planner would
         var session = StubConnectorSession.INSTANCE;
-        var schemaTable = new org.pangrova.spi.connector.metadata.table.SchemaTableName("public", "orders");
+        var schemaTable = new org.pangrova.connector.spi.metadata.table.SchemaTableName("public", "orders");
         var handle = connector.getTableHandle(session, schemaTable);
         connector.getTableMetadata(session, handle);
         connector.getColumnHandles(session, handle);
@@ -184,11 +184,11 @@ class CachingFederatedCatalogTest {
         }
     }
 
-    private enum StubConnectorSession implements org.pangrova.spi.connector.ConnectorSession {
+    private enum StubConnectorSession implements org.pangrova.connector.spi.ConnectorSession {
         INSTANCE;
 
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

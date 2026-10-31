@@ -14,9 +14,15 @@
 package org.pangrova.parser.ast.statement;
 
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code SHOW STORAGE PROFILES}.
  */
 public record ShowStorageProfilesStatement() implements Statement {
+
+    @Override
+    public StatementType type() {
+        return StatementType.SHOW_STORAGE_PROFILES;
+    }
 }

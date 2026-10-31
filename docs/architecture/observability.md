@@ -661,6 +661,14 @@ public class ProfilerEndpoint {
 
 ### Resource audit admission and shutdown
 
+Query audit contracts live in `pangrova-query-api`: `QueryAuditRecord`,
+`QueryAuditSink` and `QueryAuditStore` are in `org.pangrova.query.api.audit`.
+Domain callers consume the admission-only sink; storage lookup and retention are
+separate store operations. The runtime service is
+`org.pangrova.query.core.audit.QueryAuditService` in `pangrova-query`; JDBC and
+log stores implement the API port directly. Constructing or loading the query
+contracts does not require the audit service, its storage implementation or cache.
+
 Terminal query records preserve the query-owned submitting principal and resolved
 tenant for both success and failure. Anonymous rejection is explicitly attributed
 to `anonymous`, without inventing a tenant. The record persistence branch receives
@@ -882,7 +890,7 @@ observability:
 ## 6. Module Structure
 
 ```
-pangrova-observability/
+pangrova-observability/pangrova-observability-core/
 ├── src/main/java/org/pangrova/observability/
 │   ├── ObservabilityModule.java         # Module entry point
 │   ├── config/                          # Configuration

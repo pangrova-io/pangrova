@@ -1,10 +1,10 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.spi.connector.Connector;
-import org.pangrova.spi.connector.ConnectorContext;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.spi.plugin.Connector;
+import org.pangrova.connector.spi.plugin.ConnectorContext;
+import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.ConnectorSession;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,7 +29,7 @@ class IcebergMinioIntegrationTest {
 
     private static final ConnectorSession TEST_SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

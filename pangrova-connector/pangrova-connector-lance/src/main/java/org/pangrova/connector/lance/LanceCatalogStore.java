@@ -1,11 +1,11 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
-import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
-import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
-import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
-import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot;
+import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.connector.spi.metadata.PreparedSourcePublication;
+import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
+import org.pangrova.connector.spi.metadata.table.SchemaTableName;
 
 import java.io.IOException;
 import java.util.List;
@@ -72,7 +72,7 @@ final class LanceCatalogStore {
             PreparedSourcePublication publication, long writtenRows) {
         var base = output.table();
         long expectedRows = output.allocation().operation()
-                == org.pangrova.spi.connector.metadata.NativeWriteAllocation.Operation.APPEND
+                == org.pangrova.connector.spi.metadata.NativeWriteAllocation.Operation.APPEND
                 ? Math.addExact(base.rowCount(), writtenRows) : writtenRows;
         if (publication.rows() != expectedRows) {
             throw new IllegalArgumentException("SDK manifest rows differ from winners");
@@ -84,7 +84,7 @@ final class LanceCatalogStore {
         var accepted = authority.accept(reservation, publication, state(next));
         return new Snapshot(decode(accepted.table()), accepted.reference());
     }
-    org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abort(
+    org.pangrova.connector.spi.metadata.DistributedWriteAbortReceipt abort(
             LanceOutputHandle output, DistributedWriteCommitContext context) {
         requireCatalog(output.table().catalog());
         return authority.abort(reservation(output, context));

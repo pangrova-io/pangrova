@@ -7,7 +7,7 @@ import org.apache.paimon.options.Options;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.connector.spi.base.ConnectorException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;

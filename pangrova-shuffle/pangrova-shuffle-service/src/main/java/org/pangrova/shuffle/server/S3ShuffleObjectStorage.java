@@ -9,7 +9,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.function.Supplier;
 
-import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
+import org.pangrova.shuffle.config.ShuffleServiceConfig;
 
 import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.core.ResponseBytes;

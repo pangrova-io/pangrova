@@ -13,8 +13,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.testing.testkit.security.TestTlsAuthority;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.ResultProtocol;
+import org.pangrova.client.core.protocol.ResultEndpoint;
+import org.pangrova.client.core.protocol.ResultProtocol;
 import org.pangrova.transport.security.ResultTransportSecurity;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 

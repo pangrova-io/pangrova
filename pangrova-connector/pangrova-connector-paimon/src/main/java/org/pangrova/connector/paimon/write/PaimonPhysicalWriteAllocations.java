@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
+import org.pangrova.connector.paimon.schema.PaimonPhysicalSchemas;
+
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -14,8 +16,8 @@ import org.apache.paimon.io.DataFileMetaSerializer;
 import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
-import org.pangrova.spi.connector.metadata.NativePhysicalFileAllocation;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.connector.spi.metadata.NativePhysicalFileAllocation;
+import org.pangrova.connector.spi.metadata.NativePhysicalWriteAllocation;
 
 /** Captures real SDK path, schema, snapshot and sequence metadata before a Native object exists. */
 public final class PaimonPhysicalWriteAllocations {

@@ -16,6 +16,7 @@ package org.pangrova.parser.ast.statement;
 import java.util.Map;
 
 import org.pangrova.parser.ast.Statement;
+import org.pangrova.parser.ast.StatementType;
 
 /**
  * Represents {@code CREATE STORAGE PROFILE [IF NOT EXISTS] name WITH (key=value, ...)}.
@@ -27,5 +28,10 @@ public record CreateStorageProfileStatement(
 
     public CreateStorageProfileStatement {
         properties = Map.copyOf(properties);
+    }
+
+    @Override
+    public StatementType type() {
+        return StatementType.CREATE_STORAGE_PROFILE;
     }
 }

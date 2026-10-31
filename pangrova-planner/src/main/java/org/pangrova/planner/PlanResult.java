@@ -2,7 +2,7 @@ package org.pangrova.planner;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 import org.apache.calcite.rel.RelNode;
 
 import java.util.List;

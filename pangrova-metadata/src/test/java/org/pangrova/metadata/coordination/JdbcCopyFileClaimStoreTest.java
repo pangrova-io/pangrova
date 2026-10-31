@@ -1,14 +1,15 @@
 package org.pangrova.metadata.coordination;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.exception.MetastoreException;
-import org.pangrova.metadata.storage.JdbcStorageProfileRegistry;
+import org.pangrova.file.core.FileStorageException;
+import org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.store.PersistentRoleStore;
-import org.pangrova.spi.coordination.CopyFileClaim;
-import org.pangrova.spi.coordination.CopyFileClaimStore;
-import org.pangrova.spi.storage.StorageProfile;
-import org.pangrova.spi.storage.StorageType;
+import org.pangrova.security.store.jdbc.PersistentRoleStore;
+import org.pangrova.file.api.claim.CopyFileClaim;
+import org.pangrova.file.api.claim.CopyFileClaimStore;
+import org.pangrova.file.store.jdbc.claim.JdbcCopyFileClaimStore;
+import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.common.storage.StorageType;
 
 import java.sql.SQLException;
 import java.util.List;
@@ -164,8 +165,8 @@ class JdbcCopyFileClaimStoreTest {
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             statement.execute("ALTER TABLE copy_file_claims RENAME TO unavailable_copy_file_claims");
         }
-        assertThatThrownBy(() -> store.claim(original)).isInstanceOf(MetastoreException.class);
-        assertThatThrownBy(() -> store.get(original.claimKey(), 0)).isInstanceOf(MetastoreException.class);
+        assertThatThrownBy(() -> store.claim(original)).isInstanceOf(FileStorageException.class);
+        assertThatThrownBy(() -> store.get(original.claimKey(), 0)).isInstanceOf(FileStorageException.class);
     }
 
     @Test

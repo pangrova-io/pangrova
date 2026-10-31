@@ -87,7 +87,7 @@ DOCUMENT 分别使用精确模型配置拥有的前缀。这是 Pangrova 的明�
    invocation service、AI SQL function。查询和生成列均使用相同调用链；
    provider 只应用已经绑定的用途，不自行选择默认值。
 5. 迁移 `GeneratedColumnMutationExpressions`、
-   `GeneratedValueArtifactBuildPlanBuilder`、durable generated-value hint 与其
+   `GeneratedValueDataBuildPlanBuilder`、durable generated-value hint 与其
    bind/replay 路径。`QueryTextEmbedRule` 当前是 directive，须核对实际 consumer
    并接通 QUERY，不能把存在一个规则类写成查询链已完成。
 6. 精确模型 signature 已包含 canonical query/document-prefix 配置。继续保留

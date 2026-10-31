@@ -1,19 +1,19 @@
 package org.pangrova.protocol.index;
 
-import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IndexEvalHintDetail;
-import org.pangrova.spi.index.eval.IndexEvalHint;
-import org.pangrova.spi.index.eval.IndexEvaluatedSplit;
-import org.pangrova.spi.index.eval.SplitIndexEvalResult;
+import org.pangrova.indexing.api.eval.IndexEvalHint;
+import org.pangrova.indexing.api.eval.IndexEvaluatedSplit;
+import org.pangrova.indexing.api.eval.SplitIndexEvalResult;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Encodes {@link IndexEvalHint} objects into typed v2 file split details.
  *
- * <p>Lives in pangrova-protocol because it bridges pangrova-spi types
+ * <p>Lives in pangrova-protocol because it bridges connector/indexing SPI types
  * (IndexEvalHint, IndexPredicate) with proto types (SplitInfo,
  * IndexEvalHintInfo). Called by the coordinator's split serialization path.</p>
  */
@@ -91,7 +91,7 @@ public final class IndexEvalHintProtoCodec {
     private static IndexEvalHint fromProto(IndexEvalHintDetail proto) {
         return new IndexEvalHint(
                 proto.getIndexId(),
-                org.pangrova.spi.index.IndexType.valueOf(proto.getIndexType()),
+                org.pangrova.indexing.api.descriptor.IndexType.valueOf(proto.getIndexType()),
                 IndexPredicateProtoConverter.fromProto(proto.getPredicate()),
                 proto.getIndexFilePath(),
                 proto.getGeneration());

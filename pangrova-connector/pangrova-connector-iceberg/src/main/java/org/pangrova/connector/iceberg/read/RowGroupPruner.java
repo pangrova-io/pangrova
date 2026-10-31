@@ -1,9 +1,9 @@
 package org.pangrova.connector.iceberg.read;
 
-import org.pangrova.spi.index.statistics.FileColumnStatistics;
-import org.pangrova.spi.index.statistics.RowGroupSkipInfo;
-import org.pangrova.spi.index.statistics.RowGroupStatistics;
-import org.pangrova.spi.index.statistics.RowGroupStatistics.ColumnStats;
+import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.indexing.api.statistics.RowGroupSkipInfo;
+import org.pangrova.indexing.api.statistics.RowGroupStatistics;
+import org.pangrova.indexing.api.statistics.RowGroupStatistics.ColumnStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

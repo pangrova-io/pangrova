@@ -1,7 +1,6 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.scan.PaimonPartitionExtractor;
-
 import org.pangrova.connector.paimon.scan.PaimonDataFileExtractor;
 
 import org.apache.paimon.catalog.CatalogContext;

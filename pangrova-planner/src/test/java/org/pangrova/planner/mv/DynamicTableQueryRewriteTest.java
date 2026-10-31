@@ -2,8 +2,8 @@ package org.pangrova.planner.mv;
 
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
-import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
-import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.AccessDeniedException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

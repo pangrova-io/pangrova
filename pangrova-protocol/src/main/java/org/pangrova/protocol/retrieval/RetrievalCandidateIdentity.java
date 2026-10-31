@@ -5,7 +5,7 @@ import java.util.List;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Type;
 import org.pangrova.protocol.v2.CandidateIdentityKind;
-import org.pangrova.spi.annotation.Internal;
+import org.pangrova.common.api.annotation.Internal;
 
 /** Canonical candidate identity, distinct from generic deterministic value ordering. */
 @Internal

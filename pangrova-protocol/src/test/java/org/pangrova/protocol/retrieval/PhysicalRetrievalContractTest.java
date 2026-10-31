@@ -14,8 +14,8 @@ import io.substrait.proto.RelRoot;
 import io.substrait.proto.SortField;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.BoundExecutionPlan;
-import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.CandidateIdentityKind;
@@ -34,7 +34,7 @@ class PhysicalRetrievalContractTest {
         NamedStruct schema = schema();
         var binding = RetrievalTopKBinding.artifact(1, 3, 40,
                 ScoreDirection.SCORE_DIRECTION_LOWER_IS_BETTER, KEYS, schema.toByteArray(),
-                new RetrievalTopKBinding.ArtifactInput("items",
+                new RetrievalTopKBinding.PublishedGenerationInput("items",
                         BuiltInCapabilityCatalog.filteredDiskAnnRetrievalPlanRef(), List.of(),
                         ArtifactBinding.newBuilder().setArtifactId("index-generation").build(),
                         "filtered-diskann-pq-l2", 40, 0.95, 3));

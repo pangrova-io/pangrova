@@ -1,6 +1,6 @@
 package org.pangrova.planner.runtimefilter;
 
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.connector.spi.data.type.PangrovaType;
 
 /**
  * Immutable descriptor for a planned runtime filter produced during join analysis.

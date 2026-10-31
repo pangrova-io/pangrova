@@ -54,7 +54,7 @@ Subsets remain useful for diagnosis but cannot pass the complete 22-query gate.
 ## Verification and evidence limits
 
 Verified using `python3 -m unittest discover -s
-pangrova-testing/pangrova-test-benchmark/scripts/tests -v`: 69 tests passed at this
+pangrova-testing/pangrova-testing-benchmark/scripts/tests -v`: 69 tests passed at this
 audit point. The tests invoke real comparator shell entry points, compare exact
 threshold arithmetic, validate R7 against independent numerical oracles, and
 exercise installed OS/Python processes that fail the CLI protocol. These are

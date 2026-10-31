@@ -2,18 +2,18 @@ package org.pangrova.metadata.service;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.metadata.catalog.CatalogDescriptor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.metadata.catalog.CatalogState;
-import org.pangrova.metadata.catalog.CatalogType;
-import org.pangrova.metadata.control.CatalogDeploymentIdentity;
-import org.pangrova.metadata.control.JdbcTableControlStore;
-import org.pangrova.metadata.control.TableControlService;
-import org.pangrova.metadata.store.JdbcMetadataStore;
+import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
+import org.pangrova.metadata.api.catalog.CatalogState;
+import org.pangrova.metadata.api.catalog.CatalogType;
+import org.pangrova.table.api.control.CatalogDeploymentIdentity;
+import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
+import org.pangrova.table.core.control.TableControlService;
+import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.rowfilter.RowPolicy;
-import org.pangrova.security.store.PersistentRowPolicyStore;
-import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.connector.spi.metadata.table.TableIdentity;
 
 import java.util.List;
 import java.util.Map;
@@ -45,7 +45,7 @@ class TableControlRowPolicyStoreTest {
         catalogs.setTableControlService(control);
         persisted = new PersistentRowPolicyStore(source);
         persisted.initSchema();
-        policies = new TableControlRowPolicyStore(catalogs, persisted);
+        policies = new TableControlRowPolicyStore(new RegistryTablePolicyAuthority(catalogs), persisted);
         create("orders", "original");
     }
 
@@ -98,28 +98,28 @@ class TableControlRowPolicyStoreTest {
 
     @Test
     void deferredAuthorizationReadsTheSamePolicyByIdentityAfterRename() throws Exception {
-        var roles = new org.pangrova.security.store.PersistentRoleStore(source);
+        var roles = new org.pangrova.security.store.jdbc.PersistentRoleStore(source);
         roles.initSchema();
-        roles.createRole(org.pangrova.security.authz.Role.of("reader"));
-        roles.grantRoleToUser(org.pangrova.security.authz.UserRoleAssignment.of("alice", "reader"));
-        new org.pangrova.security.store.PersistentGrantStore(source).addGrant(
-                org.pangrova.security.authz.PrivilegeGrant.of("reader", org.pangrova.security.authz.Privilege.ALL,
+        roles.createRole(org.pangrova.security.api.policy.Role.of("reader"));
+        roles.grantRoleToUser(org.pangrova.security.api.policy.UserRoleAssignment.of("alice", "reader"));
+        new org.pangrova.security.store.jdbc.PersistentGrantStore(source).addGrant(
+                org.pangrova.security.api.policy.PrivilegeGrant.of("reader", org.pangrova.security.api.policy.Privilege.ALL,
                         "TABLE", "cat", "db", "*", null));
         policies.savePolicy(policy("orders", "id > 0"));
         var pending = control.rename(control.find("cat", "db", "orders").orElseThrow(), "db", "renamed");
         control.completeRename(pending, Optional.of(identity("original")), Optional.empty());
-        var table = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("cat", "db", "renamed");
-        var raw = org.pangrova.security.authz.DeferredAuthorizationScope.raw(table, Set.of("id"), table);
-        var transformed = new org.pangrova.security.authz.DeferredAuthorizationScope(List.of(
-                new org.pangrova.security.authz.DeferredAuthorizationScope.TablePermission(table, Set.of("id"),
-                        org.pangrova.security.authz.Privilege.SELECT,
-                        org.pangrova.security.authz.DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
-                        new org.pangrova.security.authz.DeferredAuthorizationScope.PolicySnapshot(
+        var table = new org.pangrova.connector.spi.metadata.table.QualifiedTableName("cat", "db", "renamed");
+        var raw = org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(table, Set.of("id"), table);
+        var transformed = new org.pangrova.security.api.authz.DeferredAuthorizationScope(List.of(
+                new org.pangrova.security.api.authz.DeferredAuthorizationScope.TablePermission(table, Set.of("id"),
+                        org.pangrova.security.api.policy.Privilege.SELECT,
+                        org.pangrova.security.api.authz.DeferredAuthorizationScope.ReadMode.SECURITY_TRANSFORMED,
+                        new org.pangrova.security.api.authz.DeferredAuthorizationScope.PolicySnapshot(
                                 Optional.of("(id > 0)"), Map.of("id", Optional.empty()))),
-                new org.pangrova.security.authz.DeferredAuthorizationScope.TablePermission(table, Set.of(),
-                        org.pangrova.security.authz.Privilege.ALTER,
-                        org.pangrova.security.authz.DeferredAuthorizationScope.ReadMode.NONE,
-                        org.pangrova.security.authz.DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
+                new org.pangrova.security.api.authz.DeferredAuthorizationScope.TablePermission(table, Set.of(),
+                        org.pangrova.security.api.policy.Privilege.ALTER,
+                        org.pangrova.security.api.authz.DeferredAuthorizationScope.ReadMode.NONE,
+                        org.pangrova.security.api.authz.DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
         try (var transaction = source.getConnection()) {
             transaction.setAutoCommit(false);
             assertThatThrownBy(() -> TableControlDeferredPolicy.requireCurrent(transaction, "alice", raw))

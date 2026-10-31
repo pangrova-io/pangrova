@@ -1,6 +1,6 @@
 package org.pangrova.metadata.service;
 
-import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.connector.spi.ConnectorSession;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -16,10 +16,10 @@ public final class DefaultConnectorSession implements ConnectorSession {
     private final String catalog;
     private final String schema;
     private final Map<String, String> properties;
-    private final Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority;
+    private final Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> queryAuthority;
 
     private DefaultConnectorSession(String user, String catalog, String schema, Map<String, String> properties,
-            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority) {
+            Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> queryAuthority) {
         this.user = user;
         this.catalog = catalog;
         this.schema = schema;
@@ -62,7 +62,7 @@ public final class DefaultConnectorSession implements ConnectorSession {
     }
 
     @Override
-    public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+    public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
         return queryAuthority;
     }
 

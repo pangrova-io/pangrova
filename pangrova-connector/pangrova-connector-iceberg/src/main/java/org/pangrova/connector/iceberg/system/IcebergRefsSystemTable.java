@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 

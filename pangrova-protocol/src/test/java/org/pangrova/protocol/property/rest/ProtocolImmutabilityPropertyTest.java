@@ -17,7 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Exhaustive test verifying immutability of all REST DTO classes
- * in {@code org.pangrova.protocol.rest} and its sub-packages.
+ * in {@code org.pangrova.protocol.rest}, the shared execution identity package,
+ * and the public client DTO packages
+ * {@code org.pangrova.client.core.protocol} and {@code org.pangrova.client.core.api}
+ * and their sub-packages.
  *
  * <p>Uses reflection to discover all classes at test time, ensuring
  * newly added DTOs are automatically covered without manual updates.</p>
@@ -26,7 +29,23 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ProtocolImmutabilityPropertyTest {
 
-    private static final String BASE_PACKAGE = "org.pangrova.protocol.rest";
+    /** Packages scanned for DTO classes. */
+    private static final List<String> DTO_PACKAGES = List.of(
+            "org.pangrova.protocol.rest",
+            "org.pangrova.protocol.execution.identity",
+            "org.pangrova.client.core.protocol",
+            "org.pangrova.client.core.api");
+
+    /**
+     * Packages whose record types count as immutable DTO components. The public
+     * error package is scanned only by reference (its exception types are not DTOs).
+     */
+    private static final List<String> DTO_TYPE_ROOTS = List.of(
+            "org.pangrova.protocol.rest",
+            "org.pangrova.protocol.execution.identity",
+            "org.pangrova.client.core.protocol",
+            "org.pangrova.client.core.api",
+            "org.pangrova.client.core.error");
 
     /**
      * Immutable types allowed as record component types.
@@ -152,26 +171,28 @@ class ProtocolImmutabilityPropertyTest {
             return true;
         }
         // Another protocol record is immutable by induction
-        if (type.isRecord() && type.getPackageName().startsWith(BASE_PACKAGE)) {
+        if (type.isRecord() && DTO_TYPE_ROOTS.stream().anyMatch(type.getPackageName()::startsWith)) {
             return true;
         }
         return false;
     }
 
     /**
-     * Discovers all concrete classes in {@link #BASE_PACKAGE} and sub-packages
+     * Discovers all concrete classes in {@link #DTO_PACKAGES} and sub-packages
      * by scanning the classpath directory structure.
      */
     private static List<Class<?>> discoverDtoClasses() {
         List<Class<?>> classes = new ArrayList<>();
         try {
-            String path = BASE_PACKAGE.replace('.', '/');
             ClassLoader cl = Thread.currentThread().getContextClassLoader();
-            var resources = cl.getResources(path);
-            while (resources.hasMoreElements()) {
-                URL resource = resources.nextElement();
-                if ("file".equals(resource.getProtocol())) {
-                    scanDirectory(new File(resource.toURI()), BASE_PACKAGE, classes);
+            for (String basePackage : DTO_PACKAGES) {
+                String path = basePackage.replace('.', '/');
+                var resources = cl.getResources(path);
+                while (resources.hasMoreElements()) {
+                    URL resource = resources.nextElement();
+                    if ("file".equals(resource.getProtocol())) {
+                        scanDirectory(new File(resource.toURI()), basePackage, classes);
+                    }
                 }
             }
         } catch (Exception e) {

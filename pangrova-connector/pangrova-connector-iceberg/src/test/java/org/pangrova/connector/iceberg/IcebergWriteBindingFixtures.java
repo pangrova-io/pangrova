@@ -1,9 +1,10 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+
 import com.google.protobuf.ByteString;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ConnectorWriteBinding;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.WriteOutputBinding;
@@ -19,7 +20,7 @@ final class IcebergWriteBindingFixtures {
                 .setOutputHandle(SerializedConnectorOutputHandle.newBuilder()
                         .setTypeUrl(codec.typeUrl()).setCodecVersion(codec.codecVersion())
                         .setPayload(ByteString.copyFrom(payload))
-                        .setPayloadChecksum(CanonicalTaskRequests.sha256(payload))
+                        .setPayloadChecksum(ProtocolChecksums.sha256(payload))
                         .addAllWriteColumnNames(codec.writeColumnNames(handle)))).build().toByteArray();
     }
 }
