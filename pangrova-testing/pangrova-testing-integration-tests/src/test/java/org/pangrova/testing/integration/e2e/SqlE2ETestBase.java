@@ -2505,7 +2505,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         fileAccess, fileClient, fileClient));
         if (featureAccessControl != null) {
             var aiStores = org.pangrova.ai.control.assembly.AiInfrastructureStores.jdbc(
-                    stateStoreDataSource, ModelAuthorityFixtures.artifacts().authority());
+                    stateStoreDataSource, ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource));
             var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
                     aiStores.catalogExports(),
                     new org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner(catalog),

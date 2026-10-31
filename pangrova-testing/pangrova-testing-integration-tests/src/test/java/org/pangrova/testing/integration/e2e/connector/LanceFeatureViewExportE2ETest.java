@@ -126,7 +126,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         executeDdl("CREATE FEATURE VIEW " + view + "_limit VERSION 1 AS '"
                 + definition.replace("FROM " + source, "FROM " + source + " LIMIT 1") + "'");
         var limited = org.pangrova.ai.control.assembly.AiInfrastructureStores.jdbc(
-                stateStoreDataSource(), ModelAuthorityFixtures.artifacts().authority()).features()
+                stateStoreDataSource(), ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource())).features()
                 .findFeatureView(new org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewId(
                         tenant, CATALOG, "default", view.substring(view.lastIndexOf('.') + 1) + "_limit"), 1)
                 .orElseThrow();
@@ -221,7 +221,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         Instant now = Instant.now();
         var evaluations = org.pangrova.ai.control.assembly.AiInfrastructureStores
                 .jdbc(stateStoreDataSource(),
-                        ModelAuthorityFixtures.artifacts().authority()).evaluations();
+                        ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource())).evaluations();
         evaluations.createDatasetVersion(new EvaluationDatasetVersion(
                 new EvaluationDatasetId(tenant, datasetId), 1, "feature-e2e",
                 manifest.sourceSnapshot(), manifest.manifestUri(),

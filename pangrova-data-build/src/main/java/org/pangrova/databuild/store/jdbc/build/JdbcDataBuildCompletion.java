@@ -3,7 +3,7 @@ package org.pangrova.databuild.store.jdbc.build;
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwnerLostException;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
-import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 
 import org.pangrova.databuild.api.build.DataBuildJob;
 import org.pangrova.databuild.api.build.DataBuildOutput;
@@ -23,7 +23,8 @@ final class JdbcDataBuildCompletion {
     private JdbcDataBuildCompletion() {}
 
     static boolean complete(DataBuildTransactionAuthority transactionAuthority,
-            JdbcDataBuildExecutionFence executionFence, Connection connection, DataBuildPageCompletion completion)
+            DataBuildExecutionTransactionFence executionFence,
+            Connection connection, DataBuildPageCompletion completion)
             throws SQLException {
         transactionAuthority.requireCurrent(connection, completion.tenantId(), completion.jobId());
         try {

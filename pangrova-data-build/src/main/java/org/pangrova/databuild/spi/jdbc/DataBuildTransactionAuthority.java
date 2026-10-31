@@ -1,5 +1,6 @@
 package org.pangrova.databuild.spi.jdbc;
 
+import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
 
 import java.sql.Connection;
@@ -11,6 +12,7 @@ import java.sql.SQLException;
  * They must use the supplied connection without committing, rolling back or
  * replacing it. Execution-owner and job locks are acquired afterwards by the caller.
  */
+@Internal
 public interface DataBuildTransactionAuthority {
     /** Reads and validates the exact persisted tenant/job dispatch specification. */
     DataBuildDispatchSpec requireCurrent(Connection connection, String tenantId, String jobId)

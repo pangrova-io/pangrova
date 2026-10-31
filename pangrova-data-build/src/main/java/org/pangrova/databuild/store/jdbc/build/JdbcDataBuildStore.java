@@ -1,9 +1,10 @@
 package org.pangrova.databuild.store.jdbc.build;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.databuild.spi.jdbc.DataBuildJobSubmissionTransactions;
 import org.pangrova.databuild.spi.jdbc.DataBuildPublicationCandidates;
 import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
-import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionRoutes;
 
 import org.pangrova.databuild.store.jdbc.execution.CurrentDeferredExecutionContext;
@@ -38,19 +39,20 @@ import static org.pangrova.databuild.store.jdbc.build.JdbcDataBuildPageSelection
 
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
 @org.pangrova.common.api.annotation.Internal
-public final class JdbcDataBuildStore extends JdbcDataBuildStoreSupport implements DataBuildStore {
+public final class JdbcDataBuildStore extends JdbcDataBuildStoreSupport
+        implements DataBuildStore, DataBuildJobSubmissionTransactions {
 
     private final JdbcDataBuildReader reader;
 
     private final DataBuildTransactionAuthority transactionAuthority;
-    private final JdbcDataBuildExecutionFence executionFence;
+    private final DataBuildExecutionTransactionFence executionFence;
     private final CurrentDirectRoleReader currentRoles;
     private final DataBuildPublicationCandidates publicationCandidates;
 
     /** Uses explicitly assembled current authority and execution fencing on each store transaction. */
     public JdbcDataBuildStore(
             DataSource dataSource, DataBuildTransactionAuthority transactionAuthority,
-            JdbcDataBuildExecutionFence executionFence, CurrentDirectRoleReader currentRoles,
+            DataBuildExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles,
             DataBuildPublicationCandidates publicationCandidates) {
         super(dataSource);
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
@@ -101,8 +103,8 @@ public final class JdbcDataBuildStore extends JdbcDataBuildStoreSupport implemen
      * Inserts the canonical job, graph and page allocations in a caller-owned PostgreSQL transaction.
      * Current authorization and idempotency use this same connection; the caller owns commit/rollback.
      */
-    public static void createJobWithinTransaction(DataBuildTransactionAuthority transactionAuthority,
-            Connection connection, DataBuildJob job,
+    @Override
+    public void createJob(Connection connection, DataBuildJob job,
             DataBuildDispatchSpec dispatchSpec, List<DataBuildPage> pages) throws SQLException {
         Objects.requireNonNull(connection, "connection");
         if (connection.getAutoCommit()) {

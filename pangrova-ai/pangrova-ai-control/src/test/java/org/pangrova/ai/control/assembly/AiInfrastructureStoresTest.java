@@ -18,8 +18,8 @@ class AiInfrastructureStoresTest {
     }
 
     @Test
-    void compositionCannotInventMissingCrossDomainAuthority() {
+    void compositionCannotInventMissingJobSubmissionProvider() {
         assertThatThrownBy(() -> AiInfrastructureStores.jdbc(new PGSimpleDataSource(), null))
-                .isInstanceOf(NullPointerException.class).hasMessage("authority must not be null");
+                .isInstanceOf(NullPointerException.class).hasMessage("jobSubmissions must not be null");
     }
 }

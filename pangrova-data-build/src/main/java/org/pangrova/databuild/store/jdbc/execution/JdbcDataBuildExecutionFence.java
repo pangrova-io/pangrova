@@ -1,6 +1,7 @@
 package org.pangrova.databuild.store.jdbc.execution;
 
 import org.pangrova.databuild.api.build.DataBuildJobKey;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwner;
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwnerLostException;
 import org.pangrova.common.api.annotation.Internal;
@@ -15,7 +16,7 @@ import java.util.Objects;
 
 /** Artifact routing and publication ownership, composed with Query's same-transaction anchor fence. */
 @Internal
-public final class JdbcDataBuildExecutionFence {
+public final class JdbcDataBuildExecutionFence implements DataBuildExecutionTransactionFence {
     private final ExecutionTransactionFence executionFence;
 
     public JdbcDataBuildExecutionFence(ExecutionTransactionFence executionFence) {
@@ -23,6 +24,7 @@ public final class JdbcDataBuildExecutionFence {
     }
 
     /** Holds the actual owner after current authority and before job/descriptor locks. */
+    @Override
     public ExecutionAnchor requireCurrent(Connection connection, String tenantId, String jobId,
             DataBuildExecutionOwner expected) throws SQLException {
         if (connection.getAutoCommit()) {
@@ -49,6 +51,7 @@ public final class JdbcDataBuildExecutionFence {
     }
 
     /** Checks both the anchor's exact job association and its current execution ownership. */
+    @Override
     public void requireAnchor(Connection connection, String tenantId, String jobId, ExecutionAnchor anchor)
             throws SQLException {
         if (!new DataBuildJobKey(tenantId, jobId).executionId().equals(anchor.executionId())) {
@@ -58,6 +61,7 @@ public final class JdbcDataBuildExecutionFence {
     }
 
     /** Verifies the exact persisted publication owner's live backend token before any job lock. */
+    @Override
     public void requirePublication(Connection connection, String tenantId, String jobId)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(

@@ -148,7 +148,12 @@ leases do not provide inter-process exclusion. JDBC provider owner tests use the
 Testing Kit migration fixture without importing Core or Metadata fixtures.
 
 AI Control's `assembly.AiInfrastructureStores` requires the process root to supply
-the real `DataBuildTransactionAuthority`. AI Control has no production or test-jar
+the real `DataBuildJobSubmissionTransactions` provider, which owns its explicitly
+injected `DataBuildTransactionAuthority`. Submission and export association use the
+caller connection; the participant must not commit, roll back or close it.
+`DataBuildExecutionTransactionFence` similarly exposes current owner checks while
+Query retains anchor locking and post-lock database clock evaluation.
+AI Control has no production or test-jar
 dependency on Metadata. Cross-domain catalog-export and deferred-model authority
 tests live in Testing Integration; owner tests use the canonical migration fixture.
 Do not restore a default factory that discovers Metadata or bypasses authority.

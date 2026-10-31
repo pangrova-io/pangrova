@@ -6,7 +6,7 @@ import org.pangrova.metadata.databuild.jdbc.JdbcGeneratedValueDescriptorStore;
 import org.pangrova.metadata.databuild.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.exception.MetastoreException;
 
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
+import org.pangrova.databuild.spi.jdbc.DataBuildJobSubmissionTransactions;
 import org.pangrova.metadata.databuild.GeneratedValueBuildSubmission;
 import org.pangrova.security.api.AuthorizationDeniedException;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
@@ -24,11 +24,14 @@ import java.util.Objects;
 public final class JdbcGeneratedValueBuildSubmissionStore implements GeneratedValueBuildSubmissionStore {
     private final DataSource dataSource;
     private final DataBuildTransactionAuthority transactionAuthority;
+    private final DataBuildJobSubmissionTransactions jobSubmissions;
 
     public JdbcGeneratedValueBuildSubmissionStore(
-            DataSource dataSource, DataBuildTransactionAuthority transactionAuthority) {
+            DataSource dataSource, DataBuildTransactionAuthority transactionAuthority,
+            DataBuildJobSubmissionTransactions jobSubmissions) {
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.jobSubmissions = Objects.requireNonNull(jobSubmissions, "jobSubmissions");
     }
 
     @Override
@@ -69,8 +72,7 @@ public final class JdbcGeneratedValueBuildSubmissionStore implements GeneratedVa
             transactionAuthority.requireCurrent(connection, build.dispatchSpec());
         }
         for (var build : builds) {
-            JdbcDataBuildStore.createJobWithinTransaction(
-                    transactionAuthority, connection, build.job(), build.dispatchSpec(), build.pages());
+            jobSubmissions.createJob(connection, build.job(), build.dispatchSpec(), build.pages());
         }
         for (var build : builds) {
             JdbcGeneratedValueDescriptorStore.registerWithinTransaction(connection, build.descriptor());

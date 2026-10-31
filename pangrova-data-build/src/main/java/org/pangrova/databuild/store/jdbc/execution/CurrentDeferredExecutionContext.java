@@ -1,6 +1,7 @@
 package org.pangrova.databuild.store.jdbc.execution;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 import org.pangrova.databuild.spi.storage.CurrentExecutionAuthority;
 
 import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
@@ -30,7 +31,7 @@ public final class CurrentDeferredExecutionContext implements CurrentExecutionAu
      * The caller retains the transaction locks until dispatch preparation commits; renew and publish recheck authority.
      */
     public static CurrentDeferredExecutionContext resolve(DataBuildTransactionAuthority transactionAuthority,
-            JdbcDataBuildExecutionFence executionFence, CurrentDirectRoleReader currentRoles,
+            DataBuildExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles,
             Connection connection, String tenantId, String jobId,
             DataBuildExecutionOwner expectedOwner) throws SQLException {
         if (connection.getAutoCommit()) {

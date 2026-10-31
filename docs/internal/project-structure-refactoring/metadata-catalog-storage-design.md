@@ -1,8 +1,8 @@
 # Metadata、Catalog 与生成任务存储边界设计
 
-> 状态：2026-10-31 源码审查形成的目标设计，模块拆分尚未完成。审查基线为 `pangrova-metadata` 的 132 个主源 Java 文件及 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`，不含生成源码和 `target`。后续阶段执行/交换 SPI 已实际落位，新增4个主源，任务模块现为73个主源；详见[执行记录第38节](../project-restructure-execution-plan.md#38-阶段执行与交换状态的存储-spi)。本文原逐文件表保留审查基线，以下实施状态明确区分当前与目标。
+> 状态：2026-10-31 源码审查形成的目标设计，模块拆分尚未完成。审查基线为 `pangrova-metadata` 的 132 个主源 Java 文件及 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`，不含生成源码和 `target`。后续阶段执行/交换及同连接提交/fence SPI 已实际落位，累计新增6个主源，任务模块现为75个主源；详见[执行记录第39节](../project-restructure-execution-plan.md#39-同连接提交与执行校验端口)。本文原逐文件表保留审查基线，以下实施状态明确区分当前与目标。
 >
-> `pangrova-data-build` 是已经落地但用户未接受的过渡名称。职责审查后，目标名称采用 `pangrova-derived-data-jobs`，表达“派生数据生成任务”；当前源码尚未完成最终迁移。现有 SQL 表名、协议枚举、canonical JSON 字段、缓存路径和历史迁移均保持原值。
+> `pangrova-data-build` 是已经落地但用户未接受的过渡名称。按用户的单词命名要求，目标名称采用 `pangrova-generation`，表达索引、生成列值和导出结果的“生成”；当前源码尚未完成最终迁移。现有 SQL 表名、协议枚举、canonical JSON 字段、缓存路径和历史迁移均保持原值。
 
 ## 1. 结论与设计方式
 
@@ -134,7 +134,8 @@ SQL writer 证据来自主源字符串扫描，并人工补全字符串拼接与
 实施更新：阶段执行、交换及其8个record已移到`databuild.spi.storage`，上层消费接口；
 JDBC上下文实现三getter只读view，原private构造/同事务resolver保留。新增源码为
 CurrentExecutionAuthority、DataBuildStageExecutionStore、DataBuildStageExchangeStore和package-info。
-下面的表记录审查时的缺口；其中上述缺口已由第38节关闭，物理provider拆分及其他事务口仍待实施。
+第39节进一步分离 DataBuildJobSubmissionTransactions 与 DataBuildExecutionTransactionFence，真实 JDBC provider 实现接口；AI 的关联提交与 Metadata 的生成值提交仍使用原 Connection。
+下面的表保留初审缺口；Stage/Exchange 缺口已由第38节关闭，submission/fence 由第39节关闭；读取端口及物理 provider 拆分仍待实施。
 
 ### 4.1 哪些接口已经是 port，哪些还不是
 
@@ -170,15 +171,15 @@ pangrova-catalog/                         # 新建的真实领域 family
     org.pangrova.catalog.store.postgresql/# 实际 SQL、row mapper、invalidation writer/poller
   # memory dependency provider 按实际能力归位；不假造完整 durable Catalog 后端
 
-pangrova-derived-data-jobs/                       # 派生数据生成任务；已确定目标名，源码待迁移
-  pangrova-derived-data-jobs-core/
+pangrova-generation/                       # 派生数据生成任务；已确定目标名，源码待迁移
+  pangrova-generation-core/
     api/                                 # job、page、lease、stage、output、manifest、evidence
     spi/                                 # TaskStore、StageExecutionStore、StageExchangeStore、PublicationStore
     core/                                # 任务/格式校验与发布路由；无 PG SQL
     protocol/                            # canonical 合同与稳定编码
-  pangrova-derived-data-jobs-transaction-spi/     # 必要的窄 JDBC borrowed-transaction bridge
+  pangrova-generation-transaction-spi/     # 必要的窄 JDBC borrowed-transaction bridge
     spi.jdbc/                            # authority、job insert/read/finalize、publication fence
-  pangrova-derived-data-jobs-store-postgresql/
+  pangrova-generation-store-postgresql/
     store.postgresql/                    # 当前真实存储实现与 PG 集成测试
 
 pangrova-{security,table,indexing,ai}/

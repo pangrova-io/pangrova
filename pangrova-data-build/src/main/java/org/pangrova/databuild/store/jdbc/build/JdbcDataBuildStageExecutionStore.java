@@ -4,7 +4,7 @@ import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
 import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
 import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore.ExchangeEvidence;
 import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
-import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 
 import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadSplits;
 import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadDependencies;
@@ -33,13 +33,13 @@ import java.util.function.Function;
 public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSupport
         implements DataBuildStageExecutionStore {
     private final DataBuildTransactionAuthority transactionAuthority;
-    private final JdbcDataBuildExecutionFence executionFence;
+    private final DataBuildExecutionTransactionFence executionFence;
     private final CurrentDirectRoleReader currentRoles;
 
     /** Resolves current authority, execution fencing and roles on each stage transaction. */
     public JdbcDataBuildStageExecutionStore(
             DataSource dataSource, DataBuildTransactionAuthority transactionAuthority,
-            JdbcDataBuildExecutionFence executionFence, CurrentDirectRoleReader currentRoles) {
+            DataBuildExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles) {
         super(dataSource);
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");

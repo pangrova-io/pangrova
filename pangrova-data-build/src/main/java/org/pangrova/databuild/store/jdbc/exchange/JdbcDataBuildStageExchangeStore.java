@@ -5,7 +5,7 @@ import org.pangrova.databuild.store.jdbc.execution.CurrentDeferredExecutionConte
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
 import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore;
 import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
-import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 
 import org.pangrova.databuild.protocol.DataBuildExchangeEvidenceCodec;
 
@@ -30,13 +30,13 @@ import java.util.Optional;
 public final class JdbcDataBuildStageExchangeStore implements DataBuildStageExchangeStore {
     private final DataSource dataSource;
     private final DataBuildTransactionAuthority transactionAuthority;
-    private final JdbcDataBuildExecutionFence executionFence;
+    private final DataBuildExecutionTransactionFence executionFence;
     private final CurrentDirectRoleReader currentRoles;
 
     /** Uses the same PostgreSQL authority and owner transaction as durable stage claims. */
     public JdbcDataBuildStageExchangeStore(
             DataSource dataSource, DataBuildTransactionAuthority transactionAuthority,
-            JdbcDataBuildExecutionFence executionFence, CurrentDirectRoleReader currentRoles) {
+            DataBuildExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles) {
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
         this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");

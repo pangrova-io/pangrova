@@ -7,9 +7,8 @@ import org.pangrova.databuild.api.DataBuildOutputTypeIds;
 import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
 import org.pangrova.databuild.api.build.DataBuildJob;
 import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.databuild.spi.jdbc.DataBuildJobSubmissionTransactions;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
 import org.pangrova.ai.control.api.CatalogExportStorageException;
 
 import javax.sql.DataSource;
@@ -21,11 +20,12 @@ import java.util.Objects;
 @Internal
 public final class JdbcCatalogExportBuildStore implements CatalogExportBuildStore {
     private final DataSource dataSource;
-    private final DataBuildTransactionAuthority transactionAuthority;
+    private final DataBuildJobSubmissionTransactions jobSubmissions;
 
-    public JdbcCatalogExportBuildStore(DataSource dataSource, DataBuildTransactionAuthority transactionAuthority) {
+    public JdbcCatalogExportBuildStore(
+            DataSource dataSource, DataBuildJobSubmissionTransactions jobSubmissions) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
-        this.transactionAuthority = Objects.requireNonNull(transactionAuthority, "transactionAuthority");
+        this.jobSubmissions = Objects.requireNonNull(jobSubmissions, "jobSubmissions");
     }
 
     @Override
@@ -35,8 +35,7 @@ public final class JdbcCatalogExportBuildStore implements CatalogExportBuildStor
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                JdbcDataBuildStore.createJobWithinTransaction(
-                        transactionAuthority, connection, job, dispatchSpec, pages);
+                jobSubmissions.createJob(connection, job, dispatchSpec, pages);
                 JdbcCatalogExportJobInsertion.insert(connection, request);
                 connection.commit();
             } catch (SQLException | RuntimeException | Error failure) {

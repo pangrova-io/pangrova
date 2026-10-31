@@ -79,13 +79,14 @@ with the real `JdbcCurrentDirectRoleReader`, then explicitly passes it to
 consumers. The instance factory supplies that adapter to build, stage, exchange,
 publication and generated-submission stores; it has no static current-authority
 singleton, default model provider or mutable global injection point.
-AI Control's catalog-export adapter receives the same port explicitly from
-`ai.control.assembly.AiInfrastructureStores`, whose caller supplies the real
-authority. AI Control no longer imports Metadata runtime or its test-jar;
+AI Control's catalog-export adapter receives `DataBuildJobSubmissionTransactions`
+explicitly from `ai.control.assembly.AiInfrastructureStores`, whose caller supplies
+the real job store with its injected authority. AI Control no longer imports Metadata runtime or its test-jar;
 cross-domain authority tests belong to Testing Integration. Its build insertion and catalog association remain on
 one connection; an authority failure rolls back the whole export transaction.
 The existing authority gate, execution-owner fence and job/descriptor lock order
-remain unchanged.
+remain unchanged. `DataBuildExecutionTransactionFence` exposes the same owner
+checks to consumers without requiring the concrete JDBC implementation.
 
 The model provider observes the exact incarnation, configuration version,
 deployment version and signature, and rechecks direct invocation roles before

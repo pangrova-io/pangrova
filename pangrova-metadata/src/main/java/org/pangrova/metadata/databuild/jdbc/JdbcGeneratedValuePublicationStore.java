@@ -1,7 +1,7 @@
 package org.pangrova.metadata.databuild.jdbc;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
-import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 
 import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
 import org.pangrova.databuild.api.build.DataBuildJob;
@@ -52,13 +52,13 @@ public final class JdbcGeneratedValuePublicationStore
 
     private final DataSource dataSource;
     private final DataBuildTransactionAuthority transactionAuthority;
-    private final JdbcDataBuildExecutionFence executionFence;
+    private final DataBuildExecutionTransactionFence executionFence;
     private final JdbcGeneratedValueDescriptorStore descriptorStore;
 
     /** Composes descriptor publication with current authority and the same-transaction execution fence. */
     public JdbcGeneratedValuePublicationStore(
             DataSource dataSource, DataBuildTransactionAuthority transactionAuthority,
-            JdbcDataBuildExecutionFence executionFence) {
+            DataBuildExecutionTransactionFence executionFence) {
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");

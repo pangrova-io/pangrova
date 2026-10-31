@@ -105,7 +105,7 @@ class FeatureViewSqlIntegrationTest {
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("feature_secure_sql");
         infrastructure = AiInfrastructureStores.jdbc(dataSource,
-                ModelAuthorityFixtures.artifacts().authority());
+                ModelAuthorityFixtures.artifacts().builds(dataSource));
         var store = new JdbcMetadataStore(dataSource);
         initializeSourceCatalog(store);
         var roles = new PersistentRoleStore(dataSource);

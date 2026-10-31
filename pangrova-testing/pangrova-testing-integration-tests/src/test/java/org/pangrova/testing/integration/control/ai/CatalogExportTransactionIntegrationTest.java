@@ -23,6 +23,7 @@ import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
 import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
 import org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures;
+import org.pangrova.metadata.assembly.databuild.DataBuildStores;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.security.api.AuthorizationDeniedException;
 import org.pangrova.security.api.authz.DeferredAuthorizationScope;
@@ -55,8 +56,8 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
     void setUp() throws Exception {
         dataSource = MigratedPostgres.create();
         DataBuildAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL, SCOPE);
-        store = AiInfrastructureStores.jdbc(dataSource, ModelAuthorityFixtures.artifacts().authority()).catalogExports();
         builds = ModelAuthorityFixtures.artifacts().builds(dataSource);
+        store = AiInfrastructureStores.jdbc(dataSource, builds).catalogExports();
     }
 
     @Test
@@ -147,7 +148,9 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
                 ModelAuthorityFixtures.artifacts().authority().requireCurrent(connection, spec);
             }
         };
-        var guarded = AiInfrastructureStores.jdbc(dataSource, authority).catalogExports();
+        var guardedBuilds = new JdbcDataBuildStore(dataSource, authority, DataBuildStores.executionFence(),
+                DataBuildStores.currentRoles(), DataBuildStores.publicationCandidates());
+        var guarded = AiInfrastructureStores.jdbc(dataSource, guardedBuilds).catalogExports();
         var job = job("authority-transaction");
         var request = request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL);
         var spec = spec(job, TENANT, PRINCIPAL);

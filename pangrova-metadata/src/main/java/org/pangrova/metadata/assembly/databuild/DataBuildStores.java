@@ -2,6 +2,7 @@ package org.pangrova.metadata.assembly.databuild;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
 import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
+import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence;
 import org.pangrova.metadata.adapter.databuild.MetadataDataBuildTransactionAuthority;
 import org.pangrova.metadata.adapter.databuild.MetadataDataBuildPublicationCandidates;
@@ -26,7 +27,7 @@ import javax.sql.DataSource;
 public final class DataBuildStores {
     private final DataBuildTransactionAuthority authority;
 
-    private static final JdbcDataBuildExecutionFence EXECUTION_FENCE =
+    private static final DataBuildExecutionTransactionFence EXECUTION_FENCE =
             new JdbcDataBuildExecutionFence(new JdbcExecutionTransactionFence());
 
     private static final CurrentDirectRoleReader CURRENT_ROLES = new JdbcCurrentDirectRoleReader();
@@ -45,7 +46,7 @@ public final class DataBuildStores {
     public static DataBuildPublicationCandidates publicationCandidates() { return PUBLICATION_CANDIDATES; }
 
     /** Artifact routing composed with the real Query transaction fence. */
-    public static JdbcDataBuildExecutionFence executionFence() { return EXECUTION_FENCE; }
+    public static DataBuildExecutionTransactionFence executionFence() { return EXECUTION_FENCE; }
 
     /** Same-connection authority for caller-owned cross-domain transactions. */
     public DataBuildTransactionAuthority authority() { return authority; }
@@ -76,6 +77,6 @@ public final class DataBuildStores {
     }
 
     public JdbcGeneratedValueBuildSubmissionStore generatedSubmissions(DataSource dataSource) {
-        return new JdbcGeneratedValueBuildSubmissionStore(dataSource, authority);
+        return new JdbcGeneratedValueBuildSubmissionStore(dataSource, authority, builds(dataSource));
     }
 }

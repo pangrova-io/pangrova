@@ -311,6 +311,22 @@ static通过。首次owner static暴露8个接口内record冗余public，删除�
 仍失败且与前批7组成员一致。3个canonical golden SHA不变，Native/proto输入未改，未重做ASan。
 台账657行、51叶子计数逐项对齐，659链接有效。日志为`/tmp/pangrova-storage-spi-*`。
 
-这证明接口分离与原链行为，不能声称当前JAR已物理拆分。最终family采用
-`pangrova-derived-data-jobs`；core/transaction-spi/store-postgresql及Catalog/领域迁移、全文件
+这证明接口分离与原链行为，不能声称当前JAR已物理拆分。本批曾选family候选
+`pangrova-derived-data-jobs`（第39节按单词要求改为generation）；core/transaction-spi/store-postgresql及Catalog/领域迁移、全文件
 语义审查、7组SCC和最终R5/R6仍待完成。前一完整目录检查点`9d38fbd4`已推送远端。
+
+## 39. 同连接提交与执行 fence 复核
+
+新增2个Internal契约，当前3,570主源/657包/2,373测试源，64reactor/51Java叶子不变。
+真实任务store直接实现caller-owned提交SPI，AI/Metadata不再调用其静态实现入口；三种execution
+fence检查通过接口注入，真实方法体及Query行锁后独立时钟查询不变。全请求authority预检仍在
+生成任务写入之前，各任务结构admission保持原位置；没有新增无权限默认值或隐藏provider。
+
+任务36、AI71、Metadata50、Indexing12、Core24、Integration23项通过及相应static通过。
+任务static的一行长度错误已只换行修复。全仓clean编译前60项成功，Integration暴露先前审查漏掉
+第8处跨行AI工厂调用；修正后resume其余4项成功，不能报告首次clean单遍全绿。模块7/包2/状态枚举3项
+通过，全图无环仍失败，7组SCC成员集合不变。日志为 `/tmp/pangrova-transaction-ports-*`。
+
+阶段38检查点 `49d0f538` 已推送。用户要求单词名称后目标改为 `pangrova-generation`，
+现有Dynamic Table/MV的Materialization family保持独立。当前data-build只是过渡路径，后续
+读取SPI/物理拆分、Catalog与各领域归位及总验收继续推进。Native输入未改，未重做ASan。

@@ -11,6 +11,7 @@ import org.pangrova.metadata.assembly.databuild.DataBuildStores;
 import org.pangrova.databuild.assembly.DataBuildDispatchSpecFactory;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
+import org.pangrova.databuild.spi.jdbc.DataBuildJobSubmissionTransactions;
 import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
 
 import org.flywaydb.core.Flyway;
@@ -49,6 +50,7 @@ class JdbcDataBuildStoreTest {
     private static final String TENANT = "tenant-1";
 
     private JdbcDataBuildStore store;
+    private DataBuildJobSubmissionTransactions submissions;
     private javax.sql.DataSource dataSource;
 
     @BeforeEach
@@ -58,6 +60,7 @@ class JdbcDataBuildStoreTest {
                 .locations("classpath:db/migration")
                 .load().migrate();
         store = DataBuildAuthorityFixtures.artifacts().builds(dataSource);
+        submissions = store;
         executions = new org.pangrova.metadata.testinfra.DataBuildExecutionFixtures(dataSource);
         org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures.provision(
                 dataSource, TENANT, "principal-" + TENANT, dispatchSpec(TENANT).authorizationScope());
@@ -114,7 +117,7 @@ class JdbcDataBuildStoreTest {
                 ordinary.maxSpillBytes(), ordinary.taskTimeoutMillis());
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            assertThatThrownBy(() -> JdbcDataBuildStore.createJobWithinTransaction(DataBuildAuthorityFixtures.artifacts().authority(), connection, job(1), raw, pages(1)))
+            assertThatThrownBy(() -> submissions.createJob(connection, job(1), raw, pages(1)))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("size limit");
             connection.commit();
         }
@@ -136,10 +139,10 @@ class JdbcDataBuildStoreTest {
         var pages = pages(1);
         var spec = dispatchSpec(TENANT, pages);
         try (var connection = dataSource.getConnection()) {
-            assertThatThrownBy(() -> JdbcDataBuildStore.createJobWithinTransaction(DataBuildAuthorityFixtures.artifacts().authority(), connection, job(1), spec, pages))
+            assertThatThrownBy(() -> submissions.createJob(connection, job(1), spec, pages))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("caller-owned transaction");
             connection.setAutoCommit(false);
-            JdbcDataBuildStore.createJobWithinTransaction(DataBuildAuthorityFixtures.artifacts().authority(), connection, job(1), spec, pages);
+            submissions.createJob(connection, job(1), spec, pages);
             // Shared authority/publication reads must see the caller's uncommitted cohort, without another connection.
             assertThat(JdbcDataBuildQueries.findDispatchSpec(connection, TENANT, "job-1")).contains(spec);
             assertThat(JdbcDataBuildQueries.loadPages(connection, TENANT, "job-1")).isEqualTo(pages);
@@ -150,7 +153,7 @@ class JdbcDataBuildStoreTest {
             assertThat(store.findJob(TENANT, "job-1")).isEmpty();
             connection.rollback();
             assertThat(store.findDispatchSpec(TENANT, "job-1")).isEmpty();
-            JdbcDataBuildStore.createJobWithinTransaction(DataBuildAuthorityFixtures.artifacts().authority(), connection, job(1), spec, pages);
+            submissions.createJob(connection, job(1), spec, pages);
             connection.commit();
         }
         assertThat(store.findDispatchSpec(TENANT, "job-1")).contains(spec);
@@ -751,8 +754,11 @@ class JdbcDataBuildStoreTest {
                     DataBuildAuthorityFixtures.artifacts().authority().requireCurrent(connection, spec);
                 }
             };
-            assertThatThrownBy(() -> JdbcDataBuildStore.createJobWithinTransaction(
-                    authority, caller, job(1), dispatchSpec(TENANT, pages(1)), pages(1)))
+            DataBuildJobSubmissionTransactions guardedSubmissions = new JdbcDataBuildStore(dataSource, authority,
+                    DataBuildStores.executionFence(), DataBuildStores.currentRoles(),
+                    DataBuildStores.publicationCandidates());
+            assertThatThrownBy(() -> guardedSubmissions.createJob(
+                    caller, job(1), dispatchSpec(TENANT, pages(1)), pages(1)))
                     .isInstanceOf(org.pangrova.security.api.AuthorizationDeniedException.class);
             assertThat(calls).hasValue(1);
             assertThat(caller.getAutoCommit()).isFalse();

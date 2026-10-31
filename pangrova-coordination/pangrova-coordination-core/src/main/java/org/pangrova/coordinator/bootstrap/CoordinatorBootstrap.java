@@ -299,7 +299,8 @@ public final class CoordinatorBootstrap {
             metadataDataSource = PooledDataSourceFactory.create(jdbc.jdbcUrl(), jdbc.username(), jdbc.password());
             distributedLease = resolveDistributedLease(metadataDataSource);
             SchemaMigrationRunner.migrate(metadataDataSource);
-            aiInfrastructureStores = AiInfrastructureStores.jdbc(metadataDataSource, artifactStores.authority());
+            aiInfrastructureStores = AiInfrastructureStores.jdbc(
+                    metadataDataSource, artifactStores.builds(metadataDataSource));
             MetadataStore store = new JdbcMetadataStore(metadataDataSource);
             ClassLoader cl = getClass().getClassLoader();
             nativeDatasetControl = new NativeDatasetControlBootstrap(config.internalAuthSecret(),

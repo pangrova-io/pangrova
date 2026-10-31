@@ -1,0 +1,26 @@
+package org.pangrova.databuild.spi.jdbc;
+
+import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
+import org.pangrova.databuild.api.build.DataBuildJob;
+import org.pangrova.databuild.api.build.DataBuildPage;
+
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.List;
+
+/** Canonical job submission participating in a caller-owned transaction. */
+@Internal
+@FunctionalInterface
+public interface DataBuildJobSubmissionTransactions {
+    /**
+     * Validates admission and current authority, then atomically inserts or verifies
+     * the exact immutable job, dispatch graph, route, dependencies and page cohort.
+     * The supplied connection must already have auto-commit disabled. Implementations
+     * use only this connection and never commit, roll back, close it, change its
+     * auto-commit state, or acquire a replacement transaction. The caller retains
+     * responsibility for committing or rolling back all participating domain writes.
+     */
+    void createJob(Connection connection, DataBuildJob job,
+            DataBuildDispatchSpec dispatchSpec, List<DataBuildPage> pages) throws SQLException;
+}

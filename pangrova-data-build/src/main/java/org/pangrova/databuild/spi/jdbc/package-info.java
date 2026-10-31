@@ -1,5 +1,5 @@
 /**
- * Artifact-owned transaction ports for current domain authority.
+ * Artifact-owned transaction ports for current authority, canonical submission and execution ownership checks.
  *
  * <p>These internal integration contracts are consumed by artifact JDBC stores and
  * their explicitly assembled domain adapters. Implementations use the caller's

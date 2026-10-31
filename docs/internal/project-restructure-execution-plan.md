@@ -2103,6 +2103,43 @@ package-info明确Internal稳定性、允许的runtime/provider消费者及禁�
 本批临时日志前缀 `/tmp/pangrova-storage-spi-*`，接口源码与消费链均为实际实现，不是计划中的占位。
 
 当前3,568主源、657包、2,373测试源，仍为64reactor/51Java叶子/1资源制品。
-最终任务family名称确定为 `pangrova-derived-data-jobs`，拟拆core、transaction-spi、
+本批曾选任务family名称 `pangrova-derived-data-jobs`（第39节依新要求改为单词generation），拟拆core、transaction-spi、
 store-postgresql三叶；当前源码尚用data-build过渡路径。下一批先完成同连接submission/fence
 契约，再迁物理制品与最终包名。领域writer、Catalog、7个SCC、全文件语义审查及R5/R6仍未关闭。
+
+阶段38已提交并推送：`49d0f538`。
+
+## 39. 同连接提交与执行校验端口
+
+新增 `DataBuildJobSubmissionTransactions` 和 `DataBuildExecutionTransactionFence`，
+真实 JdbcDataBuildStore/JdbcDataBuildExecutionFence 直接实现接口。原静态提交入口删除，
+没有转发兼容壳。AI 导出关联和 Metadata 生成值提交以接口参加原事务；读取/写入都使用
+调用方 Connection，参与者不获取、提交、回滚或关闭这个连接。任务状态与领域关联仍原子提交。
+
+生成值提交先完成全部请求的 scope/current-authority 预检，再插入任务、descriptor 并确认
+redo acknowledgement；结构 admission 仍在每个任务插入中进行，不误称全部结构检查已经前置。
+Query 原 fence 行锁后单独取数据库时钟，execution/anchor/publication 三个真实方法体不变。
+既有 DataBuildTransactionAuthority 补上 Internal 注解，为后续独立 transaction-spi 制品明确稳定性。
+
+| 检查 | 结果 |
+|---|---|
+| 最近合同/事务检查 | 3项通过 |
+| 任务 owner | 36项通过；static发现1行超长，换行后static/install通过 |
+| AI Control完整owner | 71项与static/install通过 |
+| Metadata选定PG链 | 50项与static/install通过 |
+| 全reactor编译 | clean install先通过60项；Integration漏改跨行工厂调用，修正后resume余4项通过，合计64项编译，不宣称首次单遍成功 |
+| Indexing锁竞争 | 12项与static/install通过 |
+| Coordinator消费者 | 24项与static/install通过 |
+| Integration跨域与SQL/Native | 23项与static通过 |
+| 模块/包/状态枚举 | 7+2+3项通过；全图无环仍因原7组SCC失败，成员集合一致 |
+
+工厂调用审查先前只覆盖7处，clean编译发现第8处 `LanceFeatureViewExportE2ETest` 跨行
+成员调用；已改为真实 builds provider。后续采用 AST 检查跨行、限定名、static import 与
+method reference，不能将单行检索无结果作为完整性证明。日志前缀
+`/tmp/pangrova-transaction-ports-*`。Native/proto/JNI输入未改，复用匹配库，未重做ASan。
+
+当前3,570主源/657包/2,373测试源，64reactor/51Java叶子/1资源制品不变。
+用户进一步要求单词名称，最终目标改为 `pangrova-generation` / `org.pangrova.generation`。
+原有 Materialization family 专门承担 Dynamic Table/Materialized View，不与公共生成任务合并。
+core、transaction-spi、store-postgresql 三制品分别拥有任务合同/编排、同连接协作合同和真实PG实现。
+当前源码仍为data-build过渡路径；读取SPI、物理迁移、领域发布、Catalog、剩余SCC与总验收尚未关闭。

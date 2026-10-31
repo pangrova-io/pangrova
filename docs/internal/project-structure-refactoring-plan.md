@@ -4,15 +4,15 @@
 
 **结论：主要领域划分和 Java 协调规划 / C++ 执行的方向合理，但物理模块与实际职责没有完全对应。重构重点应是移交状态和资源的所有权、收窄导出契约、消除包依赖环，并把测试和装配一起迁移。不能以目录数量、包数量或编译通过作为完成标准。**
 
-完整范围包括 64 个 Maven reactor 项目、51 个有 Java 源码的叶子、1 个纯资源 JAR、3,568 个 Java 主源文件、657 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
+完整范围包括 64 个 Maven reactor 项目、51 个有 Java 源码的叶子、1 个纯资源 JAR、3,570 个 Java 主源文件、657 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
 
-实施已推进至 [执行记录第 38 节](project-restructure-execution-plan.md#38-阶段执行与交换状态的存储-spi)：第 30–31 节落位 Query 事务 fence、任务 execution route/fence 和通用 JDBC runtime；第 32 节落实 schema-migrations 资源制品和 Table/Materialization owner 测试。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；第 34 节消除 Worker write/catalog 环，全图无环检查仍因剩余 7 组 SCC 失败，没有增加豁免。逐包台账与当前源码集合及文件数完全一致，遗漏、多余、重复均为零。
+实施已推进至 [执行记录第 39 节](project-restructure-execution-plan.md#39-同连接提交与执行校验端口)：第 30–31 节落位 Query 事务 fence、任务 execution route/fence 和通用 JDBC runtime；第 32 节落实 schema-migrations 资源制品和 Table/Materialization owner 测试。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；第 34 节消除 Worker write/catalog 环，全图无环检查仍因剩余 7 组 SCC 失败，没有增加豁免。逐包台账与当前源码集合及文件数完全一致，遗漏、多余、重复均为零。
 
 第 33 节完成 AI 工厂显式 authority 注入、错误归属和 Metadata 依赖拆分；第34节提取协调API并下沉Worker会话/资源端口；第35节完成模型当前权限provider与显式事务消费链。领域发布、Indexing激活耦合、真实非空模型ManagedSource撤权测试及剩余7组包环仍待处理。
 
 初审的 60 个项目、3,542 个主源文件、649 包属于历史快照，保留在审查证据中；本文范围与逐包台账已更新至阶段执行/交换状态存储 SPI 批次。两个新 owner 已通过 61 / 41 项测试，64 项 reactor 清理编译通过；消费者验证另见执行记录。分批验证结果与剩余工作以执行记录为准，已编译或已迁移不等于全项目语义审查完成。
 
-最新设计要求：业务规则、任务编排、存储契约和 PostgreSQL 实现必须可分别演进。当前 `pangrova-data-build` 是用户已否决的过渡名；最终采用 `pangrova-derived-data-jobs`，存储 SPI 与三制品边界落实后统一迁移。Metadata 不整体改名为 Catalog：先迁出各领域权威与基础设施，再将目录身份/连接器生命周期和技术元数据投影按不同能力迁入 Catalog，最终退役当前混合 Metadata 制品。具体拆分以最新配套设计为准。
+最新设计要求：业务规则、任务编排、存储契约和 PostgreSQL 实现必须可分别演进。当前 `pangrova-data-build` 是用户已否决的过渡名；按用户单词命名要求，最终采用 `pangrova-generation`（生成），存储 SPI 与三制品边界落实后统一迁移。Metadata 不整体改名为 Catalog：先迁出各领域权威与基础设施，再将目录身份/连接器生命周期和技术元数据投影按不同能力迁入 Catalog，最终退役当前混合 Metadata 制品。具体拆分以最新配套设计为准。
 
 配套清单：
 
@@ -261,7 +261,7 @@ flowchart TD
 **命名状态（2026-10-31）**：原 `pangrova-artifact` 及内部包已迁为 `pangrova-data-build` /
 `org.pangrova.databuild`，但用户认为名称无法解释职责，已否决。现有名称仅是过渡状态。
 目标概念是“派生数据生成任务”：管理执行与结果证据，索引、生成列、导出对象的业务定义和可见版本
-属于各领域。最终名称确定为 `pangrova-derived-data-jobs`，分为 core、transaction-spi、store-postgresql；源码迁移尚待完成。不把通用任务控制误称为全部 Catalog 或
+属于各领域。最终名称确定为 `pangrova-generation`，分为 core、transaction-spi、store-postgresql；源码迁移尚待完成。不把通用任务控制误称为全部 Catalog 或
 Dynamic Table/MV Materialization，也不把一个主 SOURCE_SNAPSHOT 标识描述为全部输入均已物理固定。
 后续更名仍须同步 reactor、BOM、manifest、消费者、精确检查规则与文档，删除旧路径和兼容壳。
 数据库历史 migration、表/列、canonical JSON 字段、protobuf 字段与数值标识保留兼容性，
