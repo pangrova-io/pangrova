@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.assembly.databuild.DataBuildStores;
+import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.ai.control.store.jdbc.embedding.JdbcCurrentModelAuthority;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.security.store.jdbc.JdbcCurrentDirectRoleReader;
@@ -45,7 +45,7 @@ public final class CoordinatorBootstrap {
     private final CoordinatorBootstrapConfig config;
     private final CurrentModelAuthority modelAuthority =
             new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
-    private final DataBuildStores artifactStores = new DataBuildStores(modelAuthority);
+    private final GenerationStores artifactStores = new GenerationStores(modelAuthority);
     private final org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle =
             new org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
@@ -442,17 +442,17 @@ public final class CoordinatorBootstrap {
                     config.baseIndexPath(), distributedLease,
                     artifactStores.builds(
                             metadataDataSource),
-                    org.pangrova.databuild.assembly.DataBuildPublicationFactory.route(java.util.Map.of(
-                            org.pangrova.databuild.api.DataBuildOutputTypeIds.VECTOR_INDEX,
+                    org.pangrova.generation.assembly.GenerationPublicationFactory.route(java.util.Map.of(
+                            org.pangrova.generation.api.GenerationOutputTypeIds.VECTOR_INDEX,
                             artifactStores.indexPublications(
                                     metadataDataSource),
-                            org.pangrova.databuild.api.DataBuildOutputTypeIds.TEXT_INDEX,
+                            org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX,
                             artifactStores.indexPublications(
                                     metadataDataSource),
-                            org.pangrova.databuild.api.DataBuildOutputTypeIds.GENERATED_COLUMN_VALUES,
+                            org.pangrova.generation.api.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
                             artifactStores.generatedPublications(
                                     metadataDataSource),
-                            org.pangrova.databuild.api.DataBuildOutputTypeIds.TABULAR_EXPORT,
+                            org.pangrova.generation.api.GenerationOutputTypeIds.TABULAR_EXPORT,
                             artifactStores.tabularPublications(
                                     metadataDataSource))),
                     maintenanceLeaderElection);

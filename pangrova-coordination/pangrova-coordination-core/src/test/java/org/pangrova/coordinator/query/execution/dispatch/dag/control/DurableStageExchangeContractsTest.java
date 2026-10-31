@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.databuild.protocol.DataBuildStageGraphCodec;
+import org.pangrova.generation.protocol.GenerationStageGraphCodec;
 
 import com.google.protobuf.Any;
 import io.substrait.proto.ExchangeRel;
@@ -14,10 +14,10 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelRoot;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.databuild.template.FrozenStageBindings;
-import org.pangrova.databuild.api.execution.DataBuildStageGraph;
-import org.pangrova.databuild.api.execution.template.DataBuildStageTemplate;
-import org.pangrova.databuild.api.DataBuildPageKind;
+import org.pangrova.coordinator.generation.template.FrozenStageBindings;
+import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
+import org.pangrova.generation.api.GenerationPageKind;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.BatchSerde;
@@ -37,7 +37,7 @@ class DurableStageExchangeContractsTest {
     @Test
     void checksDecodedImmutablePlansWithoutChangingTemplatesBindingsOrPresentation() {
         var original = graph(schema());
-        var persisted = DataBuildStageGraphCodec.decode(DataBuildStageGraphCodec.encode(original), DataBuildStageGraphCodec.sha256(original));
+        var persisted = GenerationStageGraphCodec.decode(GenerationStageGraphCodec.encode(original), GenerationStageGraphCodec.sha256(original));
         assertThatCode(() -> DurableStageRuntime.validateExchangeContracts(persisted)).doesNotThrowAnyException();
         assertThat(persisted).isEqualTo(original);
         assertThat(persisted.requireStage(0).planBytes()).isEqualTo(original.requireStage(0).planBytes());
@@ -57,14 +57,14 @@ class DurableStageExchangeContractsTest {
         for (NamedStruct changed : List.of(schema.toBuilder().setNames(0, "different").build(),
                 changedNullability, changedType)) {
             var malformed = graph(changed);
-            var persisted = DataBuildStageGraphCodec.decode(DataBuildStageGraphCodec.encode(malformed), DataBuildStageGraphCodec.sha256(malformed));
+            var persisted = GenerationStageGraphCodec.decode(GenerationStageGraphCodec.encode(malformed), GenerationStageGraphCodec.sha256(malformed));
             assertThatThrownBy(() -> DurableStageRuntime.validateExchangeContracts(persisted))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("rebuild required")
                     .hasRootCauseMessage("Exchange input differs from frozen producer schema: gather");
         }
     }
 
-    private static DataBuildStageGraph graph(NamedStruct consumerSchema) {
+    private static GenerationStageGraph graph(NamedStruct consumerSchema) {
         NamedStruct source = schema();
         Rel read = Rel.newBuilder().setRead(ReadRel.newBuilder().setBaseSchema(source).setVirtualTable(
                 ReadRel.VirtualTable.newBuilder().addValues(Expression.Literal.Struct.newBuilder().addFields(
@@ -79,13 +79,13 @@ class DurableStageExchangeContractsTest {
                 RelationDetailEnvelope.newBuilder().setSchemaVersion(1).setExchangeInput(input).build()))).build();
         byte[] output = plan(consumer);
         var template = FrozenStageBindings.freeze(new BoundExecutionPlan(output, List.of(binding())), List.of());
-        return new DataBuildStageGraph(DataBuildStageGraph.FORMAT_VERSION, DataBuildStageGraph.Purpose.RELATIONAL_EXPORT,
-                List.of(DataBuildStageGraph.StagePlan.of(1, 1, DataBuildPageKind.RELATIONAL_COMPUTE, plan(producer),
-                                DataBuildStageTemplate.of(new byte[0], List.of(), List.of()), List.of(), List.of("display"), false),
-                        DataBuildStageGraph.StagePlan.of(0, 1, DataBuildPageKind.RELATIONAL_PARTITION, output,
+        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+                List.of(GenerationStageGraph.StagePlan.of(1, 1, GenerationPageKind.RELATIONAL_COMPUTE, plan(producer),
+                                GenerationStageTemplate.of(new byte[0], List.of(), List.of()), List.of(), List.of("display"), false),
+                        GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION, output,
                                 template, List.of(), List.of("display"), true)),
-                List.of(new DataBuildStageGraph.Exchange("gather", 1, 0,
-                        DataBuildStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1,
+                List.of(new GenerationStageGraph.Exchange("gather", 1, 0,
+                        GenerationStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1,
                         "BATCH_SERDE_ARROW_BATCH", true)), List.of());
     }
 

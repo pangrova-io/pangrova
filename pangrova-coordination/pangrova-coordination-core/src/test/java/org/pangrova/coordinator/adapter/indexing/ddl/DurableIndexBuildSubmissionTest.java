@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.build.DataBuildSplit;
-import org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
-import org.pangrova.planner.databuild.VectorDataBuildPlanBuilder;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.job.GenerationSplit;
+import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.OperatorBindingSet;
@@ -36,31 +36,31 @@ class DurableIndexBuildSubmissionTest {
                             "items", List.of("embedding"), IndexType.VECTOR, properties,
                             IndexState.BUILDING, null, 7, "snapshot-7", "snapshot-7", now, now, "tenant");
                     var capability = BuiltInCapabilityCatalog.vectorArtifactBuildPlanRef(algorithm);
-                    var plan = VectorDataBuildPlanBuilder.build(
+                    var plan = VectorGenerationPlanBuilder.build(
                             List.of("catalog", "schema", "items"), "embedding", capability,
                             BuiltInCapabilityCatalog.vectorArtifactFormat(algorithm));
-                    var splits = empty ? List.<DataBuildSplit>of()
-                            : List.of(DataBuildSplit.of("source-1", DataSplit.newBuilder()
+                    var splits = empty ? List.<GenerationSplit>of()
+                            : List.of(GenerationSplit.of("source-1", DataSplit.newBuilder()
                                     .setSplitId("split-1").setConnectorId("file")
                                     .setDataObjectId("source-1").setSourceSnapshot("snapshot-7")
                                     .setOpaqueLocation("s3://data/items/source-1.parquet")
                                     .build().toByteArray()));
                     var pages = DurableIndexBuildService.buildPages(
-                            "job-1", splits, DataBuildOutputTypeIds.VECTOR_INDEX, 5);
+                            "job-1", splits, GenerationOutputTypeIds.VECTOR_INDEX, 5);
                     var submission = DurableIndexBuildSubmission.create(
                             new DurableIndexBuildSubmission.Definition(
                                     "tenant", "user", "job-1", descriptor,
                                     new QualifiedTableName("catalog", "schema", "items"), plan,
-                                    DataBuildOutputTypeIds.VECTOR_INDEX,
+                                    GenerationOutputTypeIds.VECTOR_INDEX,
                                     DurableIndexBuildService.vectorProperties(capability, properties, 4, metric),
                                     pages, "7", "s3://artifacts/staging/job-1", "job-1:snapshot-7",
-                                    new DataBuildDispatchSpec.ResourceGrant(
+                                    new GenerationDispatchSpec.ResourceGrant(
                                             64L * 1024 * 1024, 1, 64L * 1024 * 1024, 60_000), now));
                     assertThat(submission.job().emptyPartitionPolicy()).isEqualTo(empty
-                            ? DataBuildEmptyPartitionPolicy.ALLOW_ZERO_ROWS
-                            : DataBuildEmptyPartitionPolicy.FORBID);
+                            ? GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
+                            : GenerationEmptyPartitionPolicy.FORBID);
                     assertThat(submission.job().state()).isEqualTo(empty
-                            ? DataBuildJobState.READY_TO_PUBLISH : DataBuildJobState.QUEUED);
+                            ? GenerationJobState.READY_TO_PUBLISH : GenerationJobState.QUEUED);
                     var output = OperatorBindingSet.parseFrom(submission.dispatch().stageGraph().requireStage(0).bindingSetBytes())
                             .getBindings(0).getOutputArtifact();
                     assertThat(output.getFormat().getMajorVersion()).isEqualTo(2);

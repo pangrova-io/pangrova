@@ -9,9 +9,9 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStag
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.StagePartitionDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
-import org.pangrova.coordinator.query.execution.dispatch.dag.binding.DataBuildPartitionResources;
+import org.pangrova.coordinator.query.execution.dispatch.dag.binding.GenerationPartitionResources;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
-import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver;
+import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.DynamicFilterBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
@@ -356,7 +356,7 @@ final class LeafStageDispatcher {
             throw new IllegalStateException(
                     "artifact retrieval plan has no durable metadata resolver");
         }
-        return DataBuildPartitionResources.bind(artifactBindingResolver.materializeForTask(
+        return GenerationPartitionResources.bind(artifactBindingResolver.materializeForTask(
                 tenantId, bindings, taskSplits));
     }
 

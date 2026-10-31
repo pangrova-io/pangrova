@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.assembly.databuild.DataBuildStores;
+import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 
 import org.pangrova.coordinator.PangrovaCoordinator;
@@ -58,7 +58,7 @@ final class HighAvailabilityBootstrap {
     private final CoordinatorTaskTracker taskTracker;
     private final ScheduledExecutorService schedulerExecutor;
     private final DistributedLease distributedLease;
-    private final DataBuildStores artifactStores;
+    private final GenerationStores artifactStores;
 
     private DataSource dataSource;
     private PangrovaCoordinator coordinator;
@@ -67,7 +67,7 @@ final class HighAvailabilityBootstrap {
     private CatalogRegistry catalogRegistry;
     private CoordinatorRegistry quorumRegistry;
     private boolean durableExecutionAnchors;
-    private org.pangrova.databuild.api.build.DataBuildStore artifactExecutions;
+    private org.pangrova.generation.api.job.GenerationJobStore artifactExecutions;
     private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
     private final AtomicBoolean executionRecoveryRunning = new AtomicBoolean();
     private volatile boolean querySchedulingStopped;
@@ -89,7 +89,7 @@ final class HighAvailabilityBootstrap {
         this.taskTracker = taskTracker;
         this.schedulerExecutor = schedulerExecutor;
         this.distributedLease = distributedLease;
-        artifactStores = new DataBuildStores(modelAuthority);
+        artifactStores = new GenerationStores(modelAuthority);
     }
 
     /**
@@ -300,9 +300,9 @@ final class HighAvailabilityBootstrap {
                 var key = artifact.orElseThrow();
                 var job = artifactExecutions.findJob(key.tenantId(), key.jobId()).orElseThrow(() ->
                         new IllegalStateException("artifact recovery association lost its exact job"));
-                if (job.state() == org.pangrova.databuild.api.build.DataBuildJobState.PUBLISHED
-                        || job.state() == org.pangrova.databuild.api.build.DataBuildJobState.FAILED
-                        || job.state() == org.pangrova.databuild.api.build.DataBuildJobState.CANCELLED) {
+                if (job.state() == org.pangrova.generation.api.job.GenerationJobState.PUBLISHED
+                        || job.state() == org.pangrova.generation.api.job.GenerationJobState.FAILED
+                        || job.state() == org.pangrova.generation.api.job.GenerationJobState.CANCELLED) {
                     haService.releaseQueryOwnership(anchor.executionId(), config.coordinatorId());
                 }
                 continue;
@@ -315,7 +315,7 @@ final class HighAvailabilityBootstrap {
         }
     }
 
-    private java.util.Optional<org.pangrova.databuild.api.build.DataBuildJobKey> artifactJob(
+    private java.util.Optional<org.pangrova.generation.api.job.GenerationJobKey> artifactJob(
             ExecutionAnchor anchor) {
         if (!anchor.executionId().startsWith("artifact:")) {
             return java.util.Optional.empty();

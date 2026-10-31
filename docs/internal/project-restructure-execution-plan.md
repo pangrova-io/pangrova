@@ -2177,3 +2177,58 @@ Catalog审计确认：真实PG以同步历史MAX驱动续读，updateSyncTime无
 checkpoint/history事务与PG复现设计加入配套方案B0；尚未修改这些行为或执行新回归。
 原有Materialization域仍独立；generation三制品迁移、B6公共发布SQL/领域归位、Catalog修复、
 剩余包环和全文件语义验收继续推进。
+
+阶段40已提交并推送：`7c9c9d7d`。
+
+## 41. Generation 命名与三制品物理拆分
+
+### 41.1 已落位的所有权与兼容性
+
+原 `pangrova-data-build` 制品与手写 `databuild` 包已退役。单词 `generation` 表达索引、
+生成列值和导出结果的生成任务；既有 Dynamic Table/MV 的 Materialization family 保持独立。
+
+| 当前制品 | 主源 / 测试源文件 | 责任 |
+|---|---:|---|
+| pangrova-generation-core | 48 / 8 | 任务、阶段、页、不可变证据、codec、发布路由与业务storage SPI |
+| pangrova-generation-transaction-spi | 6 / 1 | 五个Internal同连接协作端口及包说明；不拥有连接/提交 |
+| pangrova-generation-store-postgresql | 22 / 3 | 真实PostgreSQL job/stage/exchange/query/route/fence实现 |
+
+core 的生产和测试依赖均不引入两个兄弟制品；现有 Security/Jackson 依赖仍在，不声称已实现
+SDK隔离。事务隔离测试从core迁入transaction-spi；core另用真实、未过滤的测试classloader/
+classpath证明兄弟制品不在场。3个真实PG取消/锁/回滚测试从Metadata迁到provider，八个不应
+被调用的权限/fence/candidates/roles方法严格抛AssertionError，不提供空授权默认值。
+
+Java迁移覆盖231个类型、27个包、241个文件更新和180个路径移动；13个精确非Java投影同步
+POM/manifest/filter与filter测试，删除旧owner POM。两个实施脚本均先校验全源SHA与目标冲突，
+再应用，未建立兼容转发壳。旧owner先clean，最终67项目再全clean，避免旧class掩盖漏引用。
+57个本轮构建JAR无映射中的旧类身份，现手写源码无旧类型、包、反射路径残留。
+
+独立审计确认239个纯改名文件的代码token归一后完全一致（165 main/74 test）；两个测试结构
+变化按独立后置patch核对。1,045个保护文件字节一致：418cpp、230h、376历史SQL、18proto和
+3golden；golden仍位于artifact/encoding资源路径。240次main显式protocol.v2引用保持原值，
+没有将生成协议Artifact类型替换为Generation。Native/JNI输入未改，未重做ASan。
+
+Metadata仍拥有领域publication与跨域工厂，builds工厂仍返回真实provider类型；这属于尚未
+迁出的装配ABI，不宣称领域writer或process assembly已归位。B6输出SQL/lock/finalize、Catalog
+B0游标行为、剩余包环及全项目逐文件验收仍开放。
+
+### 41.2 本批验证终态
+
+| 检查 | 结果 |
+|---|---|
+| 三叶完整owner | core33、transaction-spi1、PG6通过；PG两行更名后超长仅换行修正，三叶static/install通过 |
+| 全reactor clean install | 67项一次通过，跳过测试，仅编译证据 |
+| Protocol完整owner | 602项与static/install通过 |
+| AI Control完整owner | 71项与static/install通过 |
+| Metadata完整owner | 580项与static/install通过 |
+| Planner生成计划消费者 | 19项与static/install通过；不声称Planner完整owner套件已执行 |
+| Indexing发布/锁竞争 | 27项与static/install通过 |
+| Coordinator消费者 | 48项通过；两处更名后超长仅换行修正，static/install复验通过 |
+| Integration跨域及SQL/Native | 23项与static通过 |
+| 模块/包/状态枚举 | 12项通过；无环项仍因原7组SCC失败，按改名映射比对成员完全一致 |
+| SPI与精确filter | 104个已标注公共类型/0gap、22个Stable有真实实现，精确filter正反例通过 |
+
+当前67reactor＝53Java叶子＋1资源制品＋13聚合；3,571主源、657包、2,374测试源。
+逐包657行与实际所有53叶子计数一致，指定五文档895链接有效。架构类引用初查漏一处旧dispatcher，
+已修正并复验241项通过。日志前缀`/tmp/pangrova-generation-*`；全部本批验证进程已结束。
+三制品与最终单词命名已完成本批闭环，不关闭剩余领域迁移、7组SCC、全文件语义审查或R5/R6。

@@ -2,9 +2,9 @@ package org.pangrova.coordinator.adapter.indexing;
 
 import org.pangrova.coordinator.adapter.indexing.ddl.ConnectorAccessorResolver;
 import org.pangrova.coordinator.adapter.indexing.filter.IndexSplitFilter;
-import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver;
+import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
-import org.pangrova.databuild.api.build.DataBuildStore;
+import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.core.eval.IndexEvaluationFailures;
@@ -42,7 +42,7 @@ public final class IndexAwareSplitFetcher {
     private final ConnectorAccessorResolver accessorResolver;
     private final IndexPredicateAnalyzer predicateAnalyzer;
     private final PublishedGenerationBindingResolver artifactBindingResolver;
-    private volatile org.pangrova.coordinator.databuild.GeneratedValueReadResolver generatedValueReadResolver;
+    private volatile org.pangrova.coordinator.generation.GeneratedValueReadResolver generatedValueReadResolver;
 
     /**
      * @param catalogRegistry   catalog registry for split enumeration
@@ -56,7 +56,7 @@ public final class IndexAwareSplitFetcher {
             IndexSplitFilter splitFilter,
             IndexMetadataStore metadataStore,
             ConnectorAccessorResolver accessorResolver,
-            DataBuildStore artifactBuildStore) {
+            GenerationJobStore artifactBuildStore) {
         this.catalogRegistry = catalogRegistry;
         this.splitFilter = splitFilter;
         this.metadataStore = metadataStore;
@@ -73,7 +73,7 @@ public final class IndexAwareSplitFetcher {
 
     /** Binds the process-owned generated read service once after actual PostgreSQL initialization. */
     public synchronized void bindGeneratedValueReads(
-            org.pangrova.coordinator.databuild.GeneratedValueReadResolver resolver) {
+            org.pangrova.coordinator.generation.GeneratedValueReadResolver resolver) {
         if (generatedValueReadResolver != null) {
             throw new IllegalStateException("Generated query reads are already bound");
         }
@@ -81,7 +81,7 @@ public final class IndexAwareSplitFetcher {
     }
 
     /** Returns the generated read service; a configured artifact store may never silently omit it. */
-    public org.pangrova.coordinator.databuild.GeneratedValueReadResolver generatedValueReads() {
+    public org.pangrova.coordinator.generation.GeneratedValueReadResolver generatedValueReads() {
         if (artifactBindingResolver != null && generatedValueReadResolver == null) {
             throw new IllegalStateException("Durable query reads require their actual generated read service");
         }

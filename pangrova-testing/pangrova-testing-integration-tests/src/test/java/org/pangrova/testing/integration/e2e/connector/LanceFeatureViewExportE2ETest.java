@@ -9,7 +9,7 @@ import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
-import org.pangrova.databuild.api.build.DataBuildOutput;
+import org.pangrova.generation.api.job.GenerationOutput;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetId;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetVersion;
 import org.pangrova.ai.control.evaluation.EvaluationMetric;
@@ -185,7 +185,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
         String job = result.getString("job_id");
         await().atMost(Duration.ofMinutes(2)).untilAsserted(() -> assertThat(store.findPublishedGeneration(
                 tenant, result.getString("artifact_id"), result.getString("generation"), Long.toString(snapshot))).isPresent());
-        List<DataBuildOutput> outputs = store.loadCompleteOutputs(tenant, job);
+        List<GenerationOutput> outputs = store.loadCompleteOutputs(tenant, job);
         assertThat(outputs).isNotEmpty();
         List<String> rows = new ArrayList<>();
         for (var output : outputs) {

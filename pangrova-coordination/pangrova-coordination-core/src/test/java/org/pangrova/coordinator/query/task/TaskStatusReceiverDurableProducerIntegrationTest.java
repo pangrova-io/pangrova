@@ -3,9 +3,9 @@ package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.databuild.assembly.DataBuildDispatchSpecFactory;
+import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
-import org.pangrova.databuild.protocol.DataBuildStageGraphCodec;
+import org.pangrova.generation.protocol.GenerationStageGraphCodec;
 
 import com.google.protobuf.CodedOutputStream;
 import org.junit.jupiter.api.AfterEach;
@@ -24,33 +24,33 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTermina
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.coordinator.query.task.report.DurableDataBuildWorkReportSink;
+import org.pangrova.coordinator.query.task.report.DurableGenerationWorkReportSink;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.testinfra.CoordinatorDataBuildAuthorityFixtures;
-import org.pangrova.coordinator.testinfra.CoordinatorDataBuildExecutionFixtures;
+import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
+import org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildJobKey;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.build.DataBuildLease;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.execution.DataBuildExchangeRegistration;
-import org.pangrova.databuild.api.execution.DataBuildExecutionOwner;
-import org.pangrova.databuild.api.execution.DataBuildStageGraph;
-import org.pangrova.databuild.api.execution.template.DataBuildStageTemplate;
-import org.pangrova.databuild.api.DataBuildPageKind;
-import org.pangrova.databuild.api.DataBuildDependencySet;
-import org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy;
-import org.pangrova.databuild.api.DataBuildExecutionKind;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
-import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobKey;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.job.GenerationLease;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.execution.GenerationExchangeRegistration;
+import org.pangrova.generation.api.execution.GenerationExecutionOwner;
+import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
+import org.pangrova.generation.api.GenerationPageKind;
+import org.pangrova.generation.api.GenerationDependencySet;
+import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
 import org.pangrova.observability.api.noop.NoOpTracingProvider;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
@@ -83,15 +83,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real PostgreSQL authority/page commits feeding the ordinary task-to-stage lifecycle. */
 class TaskStatusReceiverDurableProducerIntegrationTest {
-    private static final DataBuildJobKey KEY = new DataBuildJobKey("report-tenant", "report-job");
+    private static final GenerationJobKey KEY = new GenerationJobKey("report-tenant", "report-job");
     private static final String TASK = "producer-task";
     private DataSource dataSource;
-    private JdbcDataBuildStore builds;
-    private DataBuildStageExecutionStore stages;
-    private CoordinatorDataBuildExecutionFixtures executions;
+    private PostgresGenerationJobStore builds;
+    private GenerationStageExecutionStore stages;
+    private CoordinatorGenerationExecutionFixtures executions;
     private ExecutionAnchor anchor;
-    private DataBuildLease lease;
-    private DataBuildDispatchSpec spec;
+    private GenerationLease lease;
+    private GenerationDispatchSpec spec;
     private CoordinatorTaskTracker tracker;
     private QueryManager queries;
     private TaskStatusReceiver receiver;
@@ -104,14 +104,14 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         dataSource = SharedPostgresContainer.migratedDataSource("durable_native_report");
         builds = ModelAuthorityFixtures.artifacts().builds(dataSource);
         stages = ModelAuthorityFixtures.artifacts().stages(dataSource);
-        executions = new CoordinatorDataBuildExecutionFixtures(dataSource);
+        executions = new CoordinatorGenerationExecutionFixtures(dataSource);
         spec = specification();
-        CoordinatorDataBuildAuthorityFixtures.provision(dataSource, KEY.tenantId(), spec.principal(), spec.authorizationScope());
+        CoordinatorGenerationAuthorityFixtures.provision(dataSource, KEY.tenantId(), spec.principal(), spec.authorizationScope());
         builds.createJob(job(), spec, List.of(
-                new DataBuildPage(KEY.jobId(), "producer-0", 1, 0, 0,
-                        DataBuildPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3),
-                new DataBuildPage(KEY.jobId(), "terminal-0", 0, 0, 1,
-                        DataBuildPageKind.RELATIONAL_PARTITION, List.of(), List.of("producer-0"), 3)));
+                new GenerationPage(KEY.jobId(), "producer-0", 1, 0, 0,
+                        GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3),
+                new GenerationPage(KEY.jobId(), "terminal-0", 0, 0, 1,
+                        GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of("producer-0"), 3)));
         anchor = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "report-coordinator", 8);
         registerExchange();
         lease = stages.preparePartition(claim(1, 0), value -> value.lease()).orElseThrow();
@@ -142,7 +142,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         };
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queries, tracker, workers,
                 null, null, null, null, null, null, callback, null, null,
-                new DurableDataBuildWorkReportSink(builds, stages)));
+                new DurableGenerationWorkReportSink(builds, stages)));
         request = request(7);
         registerTask(request);
     }
@@ -308,8 +308,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 null, null, null, 1, System.currentTimeMillis(), null, null, TaskAttemptDescriptor.from(attempt), bytes);
     }
 
-    private DataBuildStageExecutionStore.PartitionClaim claim(int stage, int ordinal) {
-        return new DataBuildStageExecutionStore.PartitionClaim(KEY, anchor, stage, 0, ordinal,
+    private GenerationStageExecutionStore.PartitionClaim claim(int stage, int ordinal) {
+        return new GenerationStageExecutionStore.PartitionClaim(KEY, anchor, stage, 0, ordinal,
                 8, Duration.ofMinutes(1), Instant.now());
     }
 
@@ -323,37 +323,37 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     private void registerExchange() {
-        var address = new DataBuildExchangeRegistration.Address("shuffle.internal", 9080, "shuffle.internal");
-        ModelAuthorityFixtures.artifacts().exchanges(dataSource).register(KEY, DataBuildExecutionOwner.from(anchor),
-                new DataBuildExchangeRegistration("exchange-1-0", KEY.executionId(), "allocation-1", 1, 7,
-                        DataBuildStageGraphCodec.sha256(spec.stageGraph()), spec.stageGraph().requireStage(1).planSha256(), "41", 1,
-                        "c".repeat(64), 1, List.of(new DataBuildExchangeRegistration.Endpoint(address, 0, 1)), address,
-                        DataBuildExecutionOwner.from(anchor)));
+        var address = new GenerationExchangeRegistration.Address("shuffle.internal", 9080, "shuffle.internal");
+        ModelAuthorityFixtures.artifacts().exchanges(dataSource).register(KEY, GenerationExecutionOwner.from(anchor),
+                new GenerationExchangeRegistration("exchange-1-0", KEY.executionId(), "allocation-1", 1, 7,
+                        GenerationStageGraphCodec.sha256(spec.stageGraph()), spec.stageGraph().requireStage(1).planSha256(), "41", 1,
+                        "c".repeat(64), 1, List.of(new GenerationExchangeRegistration.Endpoint(address, 0, 1)), address,
+                        GenerationExecutionOwner.from(anchor)));
     }
 
-    private static DataBuildDispatchSpec specification() {
-        var graph = new DataBuildStageGraph(DataBuildStageGraph.FORMAT_VERSION, DataBuildStageGraph.Purpose.RELATIONAL_EXPORT,
-                List.of(DataBuildStageGraph.StagePlan.of(1, 1, DataBuildPageKind.RELATIONAL_COMPUTE,
-                                new byte[]{1}, DataBuildStageTemplate.of(new byte[0], List.of(), List.of()),
+    private static GenerationDispatchSpec specification() {
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
+                List.of(GenerationStageGraph.StagePlan.of(1, 1, GenerationPageKind.RELATIONAL_COMPUTE,
+                                new byte[]{1}, GenerationStageTemplate.of(new byte[0], List.of(), List.of()),
                                 List.of("lake.raw.items"), List.of("id"), false),
-                        DataBuildStageGraph.StagePlan.of(0, 1, DataBuildPageKind.RELATIONAL_PARTITION,
-                                new byte[]{2}, DataBuildStageTemplate.of(new byte[]{3}, List.of(), List.of()),
+                        GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
+                                new byte[]{2}, GenerationStageTemplate.of(new byte[]{3}, List.of(), List.of()),
                                 List.of(), List.of("id"), true)),
-                List.of(new DataBuildStageGraph.Exchange("exchange-1-0", 1, 0,
-                        DataBuildStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true)), List.of());
-        return DataBuildDispatchSpecFactory.create(KEY.jobId(), graph, KEY.tenantId(), "report-principal",
+                List.of(new GenerationStageGraph.Exchange("exchange-1-0", 1, 0,
+                        GenerationStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true)), List.of());
+        return GenerationDispatchSpecFactory.create(KEY.jobId(), graph, KEY.tenantId(), "report-principal",
                 DeferredAuthorizationScope.raw(new QualifiedTableName("lake", "raw", "items"), Set.of("id"),
                         new QualifiedTableName("lake", "features", "output")),
-                new DataBuildDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
+                new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
     }
 
-    private static DataBuildJob job() {
+    private static GenerationJob job() {
         var now = Instant.now();
-        return new DataBuildJob(KEY.tenantId(), KEY.jobId(), "feature-view/output", DataBuildOutputTypeIds.TABULAR_EXPORT,
-                "generation", "lake.raw.items", "41", DataBuildExecutionKind.EXPORT,
-                DataBuildDependencySet.sourceSnapshot("lake.raw.items", "41"), DataBuildEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
+        return new GenerationJob(KEY.tenantId(), KEY.jobId(), "feature-view/output", GenerationOutputTypeIds.TABULAR_EXPORT,
+                "generation", "lake.raw.items", "41", GenerationExecutionKind.EXPORT,
+                GenerationDependencySet.sourceSnapshot("lake.raw.items", "41"), GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
                 "s3://warehouse/report-job", "pangrova.tabular-export.arrow-stream", 1, 0, "a".repeat(64),
-                "native", "", KEY.jobId(), 2, 0, DataBuildJobState.QUEUED, 0, now, now, now);
+                "native", "", KEY.jobId(), 2, 0, GenerationJobState.QUEUED, 0, now, now, now);
     }
 
     private static QueryManager queryManager(WorkerManager workers, CoordinatorTaskTracker tracker) {

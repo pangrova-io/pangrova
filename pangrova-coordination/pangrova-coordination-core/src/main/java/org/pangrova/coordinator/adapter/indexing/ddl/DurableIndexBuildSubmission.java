@@ -1,16 +1,16 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
-import org.pangrova.databuild.assembly.DataBuildDispatchSpecFactory;
+import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.DataBuildDependencySet;
-import org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy;
-import org.pangrova.databuild.api.DataBuildExecutionKind;
-import org.pangrova.planner.databuild.DataBuildPlan;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.GenerationDependencySet;
+import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.planner.generation.GenerationPlan;
 import org.pangrova.protocol.v2.ArtifactDependency;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
@@ -26,14 +26,14 @@ import java.util.List;
 
 /** Builds immutable metadata records for one durable Native index submission. */
 record DurableIndexBuildSubmission(
-        DataBuildJob job,
-        DataBuildDispatchSpec dispatch) {
+        GenerationJob job,
+        GenerationDispatchSpec dispatch) {
 
     static DurableIndexBuildSubmission create(Definition definition) {
         String sourceId = String.join(".",
                 definition.table().catalog(), definition.table().schema(),
                 definition.table().table());
-        DataBuildDependencySet dependencies = DataBuildDependencySet.sourceSnapshot(
+        GenerationDependencySet dependencies = GenerationDependencySet.sourceSnapshot(
                 sourceId, definition.descriptor().buildSnapshotId());
         ArtifactWriteBinding output = outputBinding(
                 definition, sourceId, dependencies);
@@ -42,10 +42,10 @@ record DurableIndexBuildSubmission(
                 .setCapability(definition.plan().capability())
                 .setOutputArtifact(output)
                 .build();
-        DataBuildJob job = buildJob(
+        GenerationJob job = buildJob(
                 definition, sourceId, dependencies, output);
-        DataBuildDispatchSpec dispatch = DataBuildDispatchSpecFactory.create(
-                definition.jobId(), org.pangrova.databuild.assembly.DataBuildStageGraphFactory.forArtifactPages(
+        GenerationDispatchSpec dispatch = GenerationDispatchSpecFactory.create(
+                definition.jobId(), org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
                         definition.plan().planBytes(),
                         OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(),
                         definition.pages(), java.util.List.of()),
@@ -60,7 +60,7 @@ record DurableIndexBuildSubmission(
     private static ArtifactWriteBinding outputBinding(
             Definition definition,
             String sourceId,
-            DataBuildDependencySet dependencies) {
+            GenerationDependencySet dependencies) {
         return ArtifactWriteBinding.newBuilder()
                 .setArtifactId(definition.descriptor().indexId())
                 .setArtifactType(definition.artifactType())
@@ -91,34 +91,34 @@ record DurableIndexBuildSubmission(
                 .build();
     }
 
-    private static DataBuildJob buildJob(
+    private static GenerationJob buildJob(
             Definition definition,
             String sourceId,
-            DataBuildDependencySet dependencies,
+            GenerationDependencySet dependencies,
             ArtifactWriteBinding output) {
-        DataBuildPlan plan = definition.plan();
-        List<DataBuildPage> pages = definition.pages();
-        return new DataBuildJob(
+        GenerationPlan plan = definition.plan();
+        List<GenerationPage> pages = definition.pages();
+        return new GenerationJob(
                 definition.tenantId(), definition.jobId(),
                 definition.descriptor().indexId(), definition.artifactType(),
                 definition.generation(), sourceId,
-                definition.descriptor().buildSnapshotId(), DataBuildExecutionKind.BUILD,
+                definition.descriptor().buildSnapshotId(), GenerationExecutionKind.BUILD,
                 dependencies, emptyPolicy(definition),
                 definition.stagingUri(), plan.format().getFormatId(),
                 plan.format().getMajorVersion(), plan.format().getMinorVersion(),
                 HexFormat.of().formatHex(plan.format().getSchemaSha256().toByteArray()),
                 plan.format().getWriterBuildId(), output.getEncryptionKeyRef(),
                 definition.idempotencyKey(), pages.size(), 0,
-                pages.isEmpty() ? DataBuildJobState.READY_TO_PUBLISH
-                        : DataBuildJobState.QUEUED,
+                pages.isEmpty() ? GenerationJobState.READY_TO_PUBLISH
+                        : GenerationJobState.QUEUED,
                 0, definition.descriptor().updatedAt(),
                 definition.now(), definition.now());
     }
 
-    private static DataBuildEmptyPartitionPolicy emptyPolicy(Definition definition) {
+    private static GenerationEmptyPartitionPolicy emptyPolicy(Definition definition) {
         return definition.pages().isEmpty()
-                ? DataBuildEmptyPartitionPolicy.ALLOW_ZERO_ROWS
-                : DataBuildEmptyPartitionPolicy.FORBID;
+                ? GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
+                : GenerationEmptyPartitionPolicy.FORBID;
     }
 
     record Definition(
@@ -127,13 +127,13 @@ record DurableIndexBuildSubmission(
             String jobId,
             IndexDescriptor descriptor,
             QualifiedTableName table,
-            DataBuildPlan plan,
+            GenerationPlan plan,
             String artifactType,
             List<NamedValue> buildProperties,
-            List<DataBuildPage> pages,
+            List<GenerationPage> pages,
             String generation,
             String stagingUri,
             String idempotencyKey,
-            DataBuildDispatchSpec.ResourceGrant resourceGrant,
+            GenerationDispatchSpec.ResourceGrant resourceGrant,
             Instant now) {}
 }

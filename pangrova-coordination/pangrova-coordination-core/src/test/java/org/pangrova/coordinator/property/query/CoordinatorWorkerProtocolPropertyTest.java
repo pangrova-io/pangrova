@@ -282,7 +282,7 @@ class CoordinatorWorkerProtocolPropertyTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 java.util.HexFormat.of().parseHex(
-                                        org.pangrova.databuild.api.DataBuildDependencySet
+                                        org.pangrova.generation.api.GenerationDependencySet
                                                 .sourceSnapshot("catalog.schema.table",
                                                         "snapshot-1").sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2
@@ -330,7 +330,7 @@ class CoordinatorWorkerProtocolPropertyTest {
                 new TaskStatusReceiverContext(
                         buildMinimalQueryManager(tracker, wm), tracker, wm,
                         null, null, null, null, null, null, null, null, null,
-                        new org.pangrova.coordinator.query.task.report.DataBuildWorkReportSink() {
+                        new org.pangrova.coordinator.query.task.report.GenerationWorkReportSink() {
                             @Override
                             public boolean commit(String tenantId, org.pangrova.protocol.v2.TaskReport status,
                                     byte[] originalWireBytes) {

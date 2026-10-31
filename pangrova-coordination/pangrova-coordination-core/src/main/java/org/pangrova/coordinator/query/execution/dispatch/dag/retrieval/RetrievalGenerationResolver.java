@@ -10,8 +10,8 @@ import java.util.stream.Collectors;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver;
-import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
+import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
+import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.planner.RetrievalTopKPlanHint;

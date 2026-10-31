@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.assembly.databuild.DataBuildStores;
+import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 
 import javax.sql.DataSource;
 
 import org.pangrova.coordinator.ai.embedding.DurableGeneratedValueBuildService;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
-import org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner;
+import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.feature.DurableFeatureExportService;
 import org.pangrova.coordinator.feature.FeatureViewStatementService;
 import org.pangrova.coordinator.feature.FeatureSourceCompiler;
@@ -16,7 +16,7 @@ import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.ai.control.assembly.AiInfrastructureStores;
-import org.pangrova.databuild.api.build.DataBuildStore;
+import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.security.api.AccessControl;
 import org.slf4j.Logger;
@@ -30,11 +30,11 @@ final class QueryMaterializationWiring {
     private static final Logger LOG = LoggerFactory.getLogger(QueryMaterializationWiring.class);
 
     private final Dependencies dependencies;
-    private final DataBuildStores artifactStores;
+    private final GenerationStores artifactStores;
 
     QueryMaterializationWiring(Dependencies dependencies) {
         this.dependencies = dependencies;
-        artifactStores = new DataBuildStores(dependencies.modelAuthority());
+        artifactStores = new GenerationStores(dependencies.modelAuthority());
     }
 
     GeneratedValueMaterializationCoordinator createGeneratedValue(CatalogRegistry catalog) {
@@ -49,7 +49,7 @@ final class QueryMaterializationWiring {
         var submissions = artifactStores.generatedSubmissions(dependencies.metadataDataSource());
         var service = new DurableGeneratedValueBuildService(
                 dependencies.artifactBuildStore(), submissions,
-                new SnapshotDataBuildSplitPlanner(catalog), workerSelector(),
+                new SnapshotGenerationSplitPlanner(catalog), workerSelector(),
                 dependencies.config().baseIndexPath(), catalog);
         var coordinator = new GeneratedValueMaterializationCoordinator(catalog, service,
                 dependencies.metadataDataSource(), new org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal(
@@ -66,7 +66,7 @@ final class QueryMaterializationWiring {
         var indexedReads = moduleContext.optional(
                 org.pangrova.coordinator.adapter.indexing.IndexAwareSplitFetcher.class);
         if (indexedReads != null && dependencies.artifactBuildStore() != null) {
-            indexedReads.bindGeneratedValueReads(new org.pangrova.coordinator.databuild.GeneratedValueReadResolver(
+            indexedReads.bindGeneratedValueReads(new org.pangrova.coordinator.generation.GeneratedValueReadResolver(
                     catalog, dependencies.artifactBuildStore(),
                     artifactStores.generatedPublications(dependencies.metadataDataSource())));
         }
@@ -81,7 +81,7 @@ final class QueryMaterializationWiring {
         }
         var exportService = new DurableFeatureExportService(
                 dependencies.aiInfrastructureStores().catalogExports(),
-                new SnapshotDataBuildSplitPlanner(catalog),
+                new SnapshotGenerationSplitPlanner(catalog),
                 dependencies.config().baseIndexPath(), catalog);
         return compiler -> new FeatureViewStatementService(
                 dependencies.aiInfrastructureStores().features(), exportService,
@@ -99,7 +99,7 @@ final class QueryMaterializationWiring {
             CoordinatorBootstrapConfig config,
             ModuleIntegrationBootstrap moduleWiring,
             DataSource metadataDataSource,
-            DataBuildStore artifactBuildStore,
+            GenerationJobStore artifactBuildStore,
             WorkerManager workerManager,
             TaskScheduler taskScheduler,
             SplitAssignmentManager splitAssignmentManager,

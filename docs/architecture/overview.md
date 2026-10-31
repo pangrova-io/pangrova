@@ -199,7 +199,7 @@ This is a selected ownership map, not a fixed count of Maven reactor modules.
 | Shared contracts/configuration | `pangrova-protocol`, `pangrova-common`, `pangrova-config` |
 | Parsing and planning | `pangrova-parser`, `pangrova-planner` |
 | Coordination and metadata | `pangrova-coordination/pangrova-coordination-core`, `pangrova-metadata` |
-| Query and durable artifact contracts/runtime | `pangrova-query-api`, `pangrova-query`, `pangrova-data-build` (artifact JDBC adapters still reside in Metadata) |
+| Query and durable generation contracts/runtime | `pangrova-query-api`, `pangrova-query`; `pangrova-generation` contains core, transaction-spi and store-postgresql leaves (domain authority/publication adapters still reside in Metadata) |
 | Execution | `pangrova-worker/pangrova-worker-core`, `pangrova-worker-native`, `pangrova-shuffle`, `pangrova-transport` |
 | Connectors | `pangrova-connector/pangrova-connector-iceberg`, `pangrova-connector/pangrova-connector-paimon` |
 | Platform services | `pangrova-security`, `pangrova-operations`, `pangrova-governance`, `pangrova-streaming`, `pangrova-observability`, `pangrova-indexing` |

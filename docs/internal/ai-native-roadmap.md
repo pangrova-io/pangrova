@@ -119,7 +119,7 @@ description: "Time-scoped internal audit evidence and implementation status; not
   task-scoped、tenant-scoped 的 write resources，不能把 Coordinator metadata
   实例跨模块或跨进程共享。
 - JDK17 邻近复验：`mvn -q -pl pangrova-coordination/pangrova-coordination-core -am test
-  -Dtest=CanonicalTaskReportValidatorTest,QuerySchedulingEngineWriteAdmissionTest,RetrievalIntentCollectorTest,CanonicalSplitParserTest,DAGDispatchEngineRetrievalBindingTest,JdbcDataBuildStoreTest
+  -Dtest=CanonicalTaskReportValidatorTest,QuerySchedulingEngineWriteAdmissionTest,RetrievalIntentCollectorTest,CanonicalSplitParserTest,DAGDispatchEngineRetrievalBindingTest,JdbcGenerationJobStoreTest
   -Dsurefire.failIfNoSpecifiedTests=false` 为 **PASS（34 tests，0 failure/error/skip）**；
   包含真实 PostgreSQL 的 durable artifact store 9 项。该范围不含 Native/E2E。
 - Iceberg crash recovery 的持久 intent 现记录 tenant、原始 base snapshot 与稳定的

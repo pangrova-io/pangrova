@@ -8,22 +8,22 @@ import org.pangrova.ai.control.api.CatalogExportStorageException;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.ai.control.assembly.AiInfrastructureStores;
-import org.pangrova.databuild.api.DataBuildPageKind;
-import org.pangrova.databuild.api.DataBuildDependencySet;
-import org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy;
-import org.pangrova.databuild.api.DataBuildExecutionKind;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.execution.DataBuildStageGraph;
-import org.pangrova.databuild.api.execution.template.DataBuildStageTemplate;
-import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.generation.api.GenerationPageKind;
+import org.pangrova.generation.api.GenerationDependencySet;
+import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
+import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
 import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
-import org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures;
-import org.pangrova.metadata.assembly.databuild.DataBuildStores;
+import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
+import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.security.api.AuthorizationDeniedException;
 import org.pangrova.security.api.authz.DeferredAuthorizationScope;
@@ -50,12 +50,12 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
             "artifact_build_pages", "artifact_execution_routes", "catalog_export_requests");
     private DataSource dataSource;
     private CatalogExportBuildStore store;
-    private JdbcDataBuildStore builds;
+    private PostgresGenerationJobStore builds;
 
     @BeforeEach
     void setUp() throws Exception {
         dataSource = MigratedPostgres.create();
-        DataBuildAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL, SCOPE);
+        GenerationAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL, SCOPE);
         builds = ModelAuthorityFixtures.artifacts().builds(dataSource);
         store = AiInfrastructureStores.jdbc(dataSource, builds).catalogExports();
     }
@@ -104,8 +104,8 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
 
     @Test
     void rejectsNonExportArtifactOrExecutionKindBeforeInsertion() throws Exception {
-        for (var job : List.of(job("index", DataBuildOutputTypeIds.VECTOR_INDEX, DataBuildExecutionKind.EXPORT),
-                job("build", DataBuildOutputTypeIds.TABULAR_EXPORT, DataBuildExecutionKind.BUILD))) {
+        for (var job : List.of(job("index", GenerationOutputTypeIds.VECTOR_INDEX, GenerationExecutionKind.EXPORT),
+                job("build", GenerationOutputTypeIds.TABULAR_EXPORT, GenerationExecutionKind.BUILD))) {
             assertThatThrownBy(() -> store.createCatalogExportJob(
                     request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL),
                     job, spec(job, TENANT, PRINCIPAL), pages(job)))
@@ -130,14 +130,14 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
     @Test
     void injectedAuthoritySharesExportTransactionAndItsDenialRollsBackAllChanges() throws Exception {
         var calls = new AtomicInteger();
-        var authority = new DataBuildTransactionAuthority() {
+        var authority = new GenerationTransactionAuthority() {
             @Override
-            public DataBuildDispatchSpec requireCurrent(Connection connection, String tenant, String job) {
+            public GenerationDispatchSpec requireCurrent(Connection connection, String tenant, String job) {
                 throw new AssertionError("Creation validates the supplied specification before persistence");
             }
 
             @Override
-            public void requireCurrent(Connection connection, DataBuildDispatchSpec spec) throws SQLException {
+            public void requireCurrent(Connection connection, GenerationDispatchSpec spec) throws SQLException {
                 assertThat(connection.getAutoCommit()).isFalse();
                 calls.incrementAndGet();
                 try (var statement = connection.prepareStatement(
@@ -148,8 +148,8 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
                 ModelAuthorityFixtures.artifacts().authority().requireCurrent(connection, spec);
             }
         };
-        var guardedBuilds = new JdbcDataBuildStore(dataSource, authority, DataBuildStores.executionFence(),
-                DataBuildStores.currentRoles(), DataBuildStores.publicationCandidates());
+        var guardedBuilds = new PostgresGenerationJobStore(dataSource, authority, GenerationStores.executionFence(),
+                GenerationStores.currentRoles(), GenerationStores.publicationCandidates());
         var guarded = AiInfrastructureStores.jdbc(dataSource, guardedBuilds).catalogExports();
         var job = job("authority-transaction");
         var request = request(job, CatalogExportRequest.ObjectKind.FEATURE_VIEW, PRINCIPAL);
@@ -197,36 +197,36 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
         }
     }
 
-    private static CatalogExportRequest request(DataBuildJob job,
+    private static CatalogExportRequest request(GenerationJob job,
             CatalogExportRequest.ObjectKind kind, String principal) {
         return new CatalogExportRequest(TENANT, kind, "lake", "features", "customers", 1,
                 job.stagingGeneration(), job.artifactId(), job.jobId(), job.dependencySet().sha256(), principal, NOW);
     }
 
-    private static DataBuildJob job(String id) {
-        return job(id, DataBuildOutputTypeIds.TABULAR_EXPORT, DataBuildExecutionKind.EXPORT);
+    private static GenerationJob job(String id) {
+        return job(id, GenerationOutputTypeIds.TABULAR_EXPORT, GenerationExecutionKind.EXPORT);
     }
 
-    private static DataBuildJob job(String id, String artifactType, DataBuildExecutionKind executionKind) {
-        return new DataBuildJob(TENANT, id, "export-" + id, artifactType, "generation-1",
+    private static GenerationJob job(String id, String artifactType, GenerationExecutionKind executionKind) {
+        return new GenerationJob(TENANT, id, "export-" + id, artifactType, "generation-1",
                 "lake.raw.customers", "snapshot-1", executionKind,
-                DataBuildDependencySet.sourceSnapshot("lake.raw.customers", "snapshot-1"),
-                DataBuildEmptyPartitionPolicy.ALLOW_ZERO_ROWS, "s3://exports/" + id,
+                GenerationDependencySet.sourceSnapshot("lake.raw.customers", "snapshot-1"),
+                GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS, "s3://exports/" + id,
                 "pangrova.tabular-export.arrow-stream", 1, 0, "a".repeat(64), "writer", "", id,
-                1, 0, DataBuildJobState.QUEUED, 0, NOW, NOW, NOW);
+                1, 0, GenerationJobState.QUEUED, 0, NOW, NOW, NOW);
     }
 
-    private static List<DataBuildPage> pages(DataBuildJob job) {
-        return List.of(new DataBuildPage(job.jobId(), "page", 0, 0, 0,
-                DataBuildPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
+    private static List<GenerationPage> pages(GenerationJob job) {
+        return List.of(new GenerationPage(job.jobId(), "page", 0, 0, 0,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
     }
 
-    private static DataBuildDispatchSpec spec(DataBuildJob job, String tenant, String principal) {
-        var stage = DataBuildStageGraph.StagePlan.of(0, 1, DataBuildPageKind.RELATIONAL_PARTITION,
-                new byte[]{1}, DataBuildStageTemplate.of(new byte[]{2}, List.of(), List.of()),
+    private static GenerationDispatchSpec spec(GenerationJob job, String tenant, String principal) {
+        var stage = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
+                new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of(), true);
-        var graph = new DataBuildStageGraph(2, DataBuildStageGraph.Purpose.RELATIONAL_EXPORT,
+        var graph = new GenerationStageGraph(2, GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
                 List.of(stage), List.of(), List.of());
-        return new DataBuildDispatchSpec(job.jobId(), graph, tenant, principal, SCOPE, 4096, 1, 4096, 60_000);
+        return new GenerationDispatchSpec(job.jobId(), graph, tenant, principal, SCOPE, 4096, 1, 4096, 60_000);
     }
 }

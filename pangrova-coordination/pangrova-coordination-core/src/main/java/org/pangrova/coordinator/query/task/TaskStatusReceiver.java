@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.Optional;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
-import org.pangrova.coordinator.query.task.report.DataBuildWorkReportSink;
+import org.pangrova.coordinator.query.task.report.GenerationWorkReportSink;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -30,7 +30,7 @@ public final class TaskStatusReceiver {
     private final CanonicalTaskReportValidator taskReportValidator = new CanonicalTaskReportValidator();
     private final QueryStateJournal stateJournal;
     private final StageCompletionCallback stageCompletionCallback;
-    private final DataBuildWorkReportSink artifactWorkReportSink;
+    private final GenerationWorkReportSink artifactWorkReportSink;
     private final TaskReportSequences sequences = new TaskReportSequences();
     private final NativeTaskWriteCompletion writes;
     private final SpeculativeTaskReportCompletion speculation;
@@ -211,7 +211,7 @@ public final class TaskStatusReceiver {
             return artifactWorkReportSink.commit(request.taskRequest().getSecurity().getTenantId(),
                     status, report.canonicalTaskReport());
         } catch (org.pangrova.security.api.AuthorizationDeniedException
-                | org.pangrova.databuild.api.execution.DataBuildExecutionOwnerLostException fenced) {
+                | org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException fenced) {
             LOG.warn("event=durable_report_rejected_authority queryId={} taskId={} reason={}",
                     report.queryId(), report.taskId(), fenced.getMessage());
             return false;

@@ -547,7 +547,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
         if (snapshot.isEmpty()) {
             return new IndexBuildInput(
                     materializeDataFiles ? ""
-                            : org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner
+                            : org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner
                                     .EMPTY_SNAPSHOT,
                     List.of());
         }

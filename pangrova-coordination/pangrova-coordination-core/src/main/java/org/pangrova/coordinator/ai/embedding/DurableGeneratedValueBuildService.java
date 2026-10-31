@@ -1,30 +1,30 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.databuild.assembly.DataBuildStageGraphFactory;
+import org.pangrova.generation.assembly.GenerationStageGraphFactory;
 
-import org.pangrova.databuild.assembly.DataBuildDispatchSpecFactory;
+import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner;
-import org.pangrova.coordinator.databuild.template.FrozenStageBindings;
+import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
+import org.pangrova.coordinator.generation.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.AiInvocationOperatorBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
 import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.DataBuildPageKind;
-import org.pangrova.databuild.api.build.DataBuildSplit;
-import org.pangrova.databuild.api.build.DataBuildStore;
-import org.pangrova.metadata.databuild.GeneratedValueBuildDescriptor;
-import org.pangrova.metadata.databuild.GeneratedValueBuildSubmissionStore;
-import org.pangrova.metadata.databuild.GeneratedValueBuildSubmission;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.GenerationPageKind;
+import org.pangrova.generation.api.job.GenerationSplit;
+import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
+import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
+import org.pangrova.metadata.generation.GeneratedValueBuildSubmission;
 import org.pangrova.connector.spi.coordination.WriteCommitEntry;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.planner.databuild.DataBuildPlan;
-import org.pangrova.planner.databuild.GeneratedValueDataBuildPlan;
-import org.pangrova.planner.databuild.GeneratedValueDataBuildPlanBuilder;
+import org.pangrova.planner.generation.GenerationPlan;
+import org.pangrova.planner.generation.GeneratedValueGenerationPlan;
+import org.pangrova.planner.generation.GeneratedValueGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
@@ -68,12 +68,12 @@ public final class DurableGeneratedValueBuildService {
     private static final long DEFAULT_SPILL_BYTES = 1024L * 1024 * 1024;
     private static final long DEFAULT_TIMEOUT_MILLIS = Duration.ofMinutes(2).toMillis();
 
-    private final DataBuildStore store;
+    private final GenerationJobStore store;
     private final GeneratedValueBuildSubmissionStore submissions;
-    private final SnapshotDataBuildSplitPlanner splitPlanner;
+    private final SnapshotGenerationSplitPlanner splitPlanner;
     private final WorkerSelector workerSelector;
     private final String baseArtifactUri;
-    private final org.pangrova.coordinator.databuild.ProtectedSourceSchemaVerifier sourceSchemaVerifier;
+    private final org.pangrova.coordinator.generation.ProtectedSourceSchemaVerifier sourceSchemaVerifier;
     private volatile GeneratedSourceCompiler sourceCompiler;
 
     /** Binds the process-owned SQL compiler after QueryDispatcher initialization. */
@@ -91,9 +91,9 @@ public final class DurableGeneratedValueBuildService {
 
     /** Uses the sole durable artifact store and the same metadata database outbox. */
     public DurableGeneratedValueBuildService(
-            DataBuildStore store,
+            GenerationJobStore store,
             GeneratedValueBuildSubmissionStore submissions,
-            SnapshotDataBuildSplitPlanner splitPlanner,
+            SnapshotGenerationSplitPlanner splitPlanner,
             WorkerSelector workerSelector,
             String baseArtifactUri,
             org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalogs) {
@@ -108,7 +108,7 @@ public final class DurableGeneratedValueBuildService {
             throw new IllegalArgumentException("baseArtifactUri must not be blank");
         }
         this.baseArtifactUri = stripTrailingSlash(baseArtifactUri);
-        this.sourceSchemaVerifier = new org.pangrova.coordinator.databuild.ProtectedSourceSchemaVerifier(catalogs);
+        this.sourceSchemaVerifier = new org.pangrova.coordinator.generation.ProtectedSourceSchemaVerifier(catalogs);
     }
 
     /**
@@ -139,7 +139,7 @@ public final class DurableGeneratedValueBuildService {
                 java.util.Map.of("tenant_id", write.tenantId()), Instant.EPOCH);
         var authorizationScope = DeferredAuthorizationScopeCodec.decode(
                 write.authorizationReceipt().authorizationScope());
-        List<DataBuildSplit> splits = splitPlanner.enumerate(
+        List<GenerationSplit> splits = splitPlanner.enumerate(
                 table, sourceSnapshot, connectorSession);
         List<GeneratedValueBuildSubmission> builds = new ArrayList<>(definitions.getDefinitionsCount());
         for (GeneratedColumnDefinition definition : definitions.getDefinitionsList()) {
@@ -161,13 +161,13 @@ public final class DurableGeneratedValueBuildService {
             validateDefinitionCapability(definition);
             OperatorBinding model = AiInvocationOperatorBinder.bindTemplate(
                     new org.pangrova.planner.AiInvocationPlanHint(
-                            GeneratedValueDataBuildPlanBuilder.MODEL_INVOCATION_ID, "AI_EMBED",
+                            GeneratedValueGenerationPlanBuilder.MODEL_INVOCATION_ID, "AI_EMBED",
                             definition.getLogicalModelName(),
                             org.pangrova.planner.AiInvocationPlanHint.Operation.EMBEDDING, false),
                     workerSelector, user);
             requireModelDimension(definition, model);
             OperatorBinding sink = OperatorBinding.newBuilder()
-                    .setPlanNodeId(GeneratedValueDataBuildPlanBuilder.ARTIFACT_PLAN_NODE_ID)
+                    .setPlanNodeId(GeneratedValueGenerationPlanBuilder.ARTIFACT_PLAN_NODE_ID)
                     .setCapability(BuiltInCapabilityCatalog.generatedValuesArtifactBuildPlanRef())
                     .setOutputArtifact(ArtifactWriteBinding.newBuilder()
                             .setFormat(BuiltInCapabilityCatalog.generatedValuesArtifactFormat()))
@@ -189,14 +189,14 @@ public final class DurableGeneratedValueBuildService {
             GeneratedColumnDefinition definition,
             QualifiedTableName table,
             String sourceSnapshot,
-            List<DataBuildSplit> splits,
+            List<GenerationSplit> splits,
             UserIdentity user,
             DeferredAuthorizationScope authorizationScope) {
         validateDefinitionCapability(definition);
         String tenantId = tenantId(user);
         int dimension = vectorDimension(definition);
         var generated = preparePlan(definition, table, sourceSnapshot, user, authorizationScope, dimension);
-        DataBuildPlan plan = generated.artifact();
+        GenerationPlan plan = generated.artifact();
         OperatorBinding model = AiInvocationOperatorBinder.bindTemplate(
                 generated.modelInvocation(), workerSelector, user);
         requireModelDimension(definition, model);
@@ -222,14 +222,14 @@ public final class DurableGeneratedValueBuildService {
                 .build();
 
         ensureExecutableTogether(model, sink, tenantId(user));
-        List<DataBuildPage> pages = pages(jobId, splits);
+        List<GenerationPage> pages = pages(jobId, splits);
         Instant now = Instant.now();
-        DataBuildJob job = GeneratedValueBuildRequests.job(plan, identity, pages.size(), now);
+        GenerationJob job = GeneratedValueBuildRequests.job(plan, identity, pages.size(), now);
         OperatorBindingSet bindingSet = OperatorBindingSet.newBuilder()
                 .addBindings(model)
                 .addBindings(sink)
                 .build();
-        DataBuildDispatchSpec dispatch = dispatch(identity, plan, bindingSet, pages, user, authorizationScope);
+        GenerationDispatchSpec dispatch = dispatch(identity, plan, bindingSet, pages, user, authorizationScope);
         var descriptor = new GeneratedValueBuildDescriptor(
                 tenantId, artifactId, sourceId, table.catalog(), table.schema(), table.table(),
                 definition.getTargetColumn(),
@@ -237,28 +237,28 @@ public final class DurableGeneratedValueBuildService {
         return new GeneratedValueBuildSubmission(job, dispatch, pages, descriptor);
     }
 
-    private static DataBuildDispatchSpec dispatch(GeneratedValueBuildRequests.Identity identity,
-            DataBuildPlan plan, OperatorBindingSet bindings, List<DataBuildPage> pages,
+    private static GenerationDispatchSpec dispatch(GeneratedValueBuildRequests.Identity identity,
+            GenerationPlan plan, OperatorBindingSet bindings, List<GenerationPage> pages,
             UserIdentity user, DeferredAuthorizationScope authorizationScope) {
         var models = authorizationScope.definitionSnapshot().map(DeferredAuthorizationScope.DefinitionSnapshot::models)
                 .orElseThrow(() -> new IllegalArgumentException(
                             "Generated durable stage requires observed model authority"));
         var template = FrozenStageBindings.freeze(
                 new BoundExecutionPlan(plan.planBytes(), bindings.getBindingsList()), models);
-        return DataBuildDispatchSpecFactory.create(
+        return GenerationDispatchSpecFactory.create(
                 identity.jobId(),
-                DataBuildStageGraphFactory.forArtifactPages(plan.planBytes(), template.bindingBytes(), pages, models),
+                GenerationStageGraphFactory.forArtifactPages(plan.planBytes(), template.bindingBytes(), pages, models),
                 identity.tenant(),
                 principal(user),
                 authorizationScope,
-                new DataBuildDispatchSpec.ResourceGrant(
+                new GenerationDispatchSpec.ResourceGrant(
                         DEFAULT_MEMORY_BYTES,
                         1,
                         DEFAULT_SPILL_BYTES,
                         DEFAULT_TIMEOUT_MILLIS));
     }
 
-    private GeneratedValueDataBuildPlan preparePlan(GeneratedColumnDefinition definition,
+    private GeneratedValueGenerationPlan preparePlan(GeneratedColumnDefinition definition,
             QualifiedTableName table, String sourceSnapshot, UserIdentity user,
             DeferredAuthorizationScope authorizationScope, int dimension) {
         var connectorSession = new GeneratedInputSession(table, user);
@@ -272,8 +272,8 @@ public final class DurableGeneratedValueBuildService {
             throw new org.pangrova.security.api.AuthorizationDeniedException(
                     "Generated source policies changed since admission; securely resubmit the write intent");
         }
-        return GeneratedValueDataBuildPlanBuilder.build(
-                        org.pangrova.planner.databuild.PhysicalRowLocatorPlanAugmenter.prepend(
+        return GeneratedValueGenerationPlanBuilder.build(
+                        org.pangrova.planner.generation.PhysicalRowLocatorPlanAugmenter.prepend(
                                 source.relation().planBytes(), List.of(table.catalog(), table.schema(), table.table())),
                         definition.getTargetColumn(),
                         definition.getSourceColumnsList(),
@@ -294,17 +294,17 @@ public final class DurableGeneratedValueBuildService {
         }
     }
 
-    private static List<DataBuildPage> pages(
-            String jobId, List<DataBuildSplit> splits) {
-        List<DataBuildPage> pages = new ArrayList<>(splits.size());
+    private static List<GenerationPage> pages(
+            String jobId, List<GenerationSplit> splits) {
+        List<GenerationPage> pages = new ArrayList<>(splits.size());
         for (int ordinal = 0; ordinal < splits.size(); ordinal++) {
-            pages.add(new DataBuildPage(
+            pages.add(new GenerationPage(
                     jobId,
                     jobId + ":map:" + ordinal,
                     0,
                     ordinal,
                     ordinal,
-                    DataBuildPageKind.SOURCE_MAP,
+                    GenerationPageKind.SOURCE_MAP,
                     List.of(splits.get(ordinal)),
                     List.of(),
                     DEFAULT_MAX_ATTEMPTS));
@@ -321,7 +321,7 @@ public final class DurableGeneratedValueBuildService {
         properties.add(intProperty("vector_dimension", dimension));
         properties.add(stringProperty(
                 "source_encoding",
-                GeneratedValueDataBuildPlanBuilder.SOURCE_ENCODING));
+                GeneratedValueGenerationPlanBuilder.SOURCE_ENCODING));
         properties.add(stringProperty(
                 "execution_mode", definition.getExecutionMode().name()));
         for (int index = 0; index < definition.getSourceColumnsCount(); index++) {

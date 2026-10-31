@@ -5,12 +5,12 @@ import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.testinfra.CoordinatorDataBuildAuthorityFixtures;
+import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
-import org.pangrova.planner.databuild.VectorDataBuildPlanBuilder;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.security.api.AuthorizationDeniedException;
 import org.pangrova.security.api.authz.DeferredAuthorizationScope;
@@ -36,22 +36,22 @@ class DeferredIndexAuthorityResolverTest extends ContainerTestBase {
     private static final String TENANT = "index-authority-tenant";
     private static final QualifiedTableName TABLE = new QualifiedTableName("lake", "raw", "items");
     private DataSource dataSource;
-    private JdbcDataBuildStore builds;
+    private PostgresGenerationJobStore builds;
     private IndexDescriptor previous;
 
     @BeforeEach
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("deferred_index_authority");
-        CoordinatorDataBuildAuthorityFixtures.provision(dataSource, TENANT, "alice",
+        CoordinatorGenerationAuthorityFixtures.provision(dataSource, TENANT, "alice",
                 DeferredAuthorizationScope.raw(TABLE, Set.of("embedding"), TABLE));
         builds = ModelAuthorityFixtures.artifacts().builds(dataSource);
         previous = descriptor(TABLE, "embedding");
-        var plan = VectorDataBuildPlanBuilder.build(List.of("lake", "raw", "items"), "embedding",
+        var plan = VectorGenerationPlanBuilder.build(List.of("lake", "raw", "items"), "embedding",
                 BuiltInCapabilityCatalog.hnswArtifactBuildPlanRef(), BuiltInCapabilityCatalog.hnswArtifactFormat());
         var submission = DurableIndexBuildSubmission.create(new DurableIndexBuildSubmission.Definition(
                 TENANT, "alice", DurableIndexBuildService.jobId(TENANT, previous), previous, TABLE,
-                plan, DataBuildOutputTypeIds.VECTOR_INDEX, List.of(), List.of(), "0", "s3://warehouse/staging/index-1/0",
-                "index-1-generation-0", new DataBuildDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000), NOW));
+                plan, GenerationOutputTypeIds.VECTOR_INDEX, List.of(), List.of(), "0", "s3://warehouse/staging/index-1/0",
+                "index-1-generation-0", new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000), NOW));
         builds.createJob(submission.job(), submission.dispatch(), List.of());
     }
 

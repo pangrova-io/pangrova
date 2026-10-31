@@ -153,12 +153,12 @@ edits. Absence of requirements is never a compatibility mode.
    cross-language golden tests supplies field13; two independently handwritten
    digest formulas or name-level hashes are not sufficient.
 6. **One final task writer.** Collect after overlay, retrieval, governed binding,
-   AQE, and DataBuildPartitionBindings rewrites. BoundExecutionPlan and
+   AQE, and GenerationPartitionBindings rewrites. BoundExecutionPlan and
    LeafTask/DmlWriteTask/CanonicalTaskSpec carry the bound requirements.
    TaskRequestFactory.canonicalRequest writes field18 for ordinary leaf,
    intermediate/root and DML. DurablePartitionRequest.prepare uses that same
    factory. Zero-function fragments still have an explicit complete envelope.
-7. **Durable authority survives replay.** DataBuildStageGraph canonical storage,
+7. **Durable authority survives replay.** GenerationStageGraph canonical storage,
    its codec/store and all artifact/export/generated-value submitters persist
    the catalogue identity and original provenance with immutable graph templates.
    A partition rewrite recomputes requirements against that retained authority,

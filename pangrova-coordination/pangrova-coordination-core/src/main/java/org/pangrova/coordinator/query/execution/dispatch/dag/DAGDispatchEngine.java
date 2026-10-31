@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver;
+import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveStagePlanResolver;

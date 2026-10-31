@@ -261,12 +261,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // Additional resources that leak if not closed between test classes.
     private static volatile org.apache.arrow.memory.RootAllocator coordinatorArrowAllocator;
     private static volatile org.pangrova.coordinator.bootstrap.IndexingBootstrap sharedIndexingBootstrap;
-    private static volatile org.pangrova.databuild.api.build.DataBuildStore
+    private static volatile org.pangrova.generation.api.job.GenerationJobStore
             sharedArtifactBuildStore;
-    private static volatile org.pangrova.coordinator.databuild.DurableDataBuildDispatcher
+    private static volatile org.pangrova.coordinator.generation.DurableGenerationDispatcher
             sharedArtifactBuildDispatcher;
     private static volatile RemoteTaskDispatcher artifactTaskDispatcher;
-    private static volatile org.pangrova.coordinator.databuild.DurableDataBuildPublisher
+    private static volatile org.pangrova.coordinator.generation.DurableGenerationPublisher
             sharedArtifactPublisher;
     private static volatile ScheduledExecutorService artifactDispatchExecutor;
     private static volatile RemoteTaskStatusReporter sharedStatusReporter;
@@ -2212,9 +2212,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return coordination;
     }
 
-    private static org.pangrova.coordinator.query.task.report.DataBuildWorkReportSink
+    private static org.pangrova.coordinator.query.task.report.GenerationWorkReportSink
             artifactWorkReportSink() {
-        return new org.pangrova.coordinator.query.task.report.DurableDataBuildWorkReportSink(
+        return new org.pangrova.coordinator.query.task.report.DurableGenerationWorkReportSink(
                 java.util.Objects.requireNonNull(sharedArtifactBuildStore,
                         "E2E durable artifact store must be initialized"),
                 ModelAuthorityFixtures.artifacts().stages(stateStoreDataSource));
@@ -2236,28 +2236,28 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static void startArtifactControlLoops() {
         if (sharedArtifactBuildDispatcher == null) {
             artifactTaskDispatcher = createE2ETaskDispatcher();
-            sharedArtifactBuildDispatcher = new org.pangrova.coordinator.databuild
-                    .DurableDataBuildDispatcher(
-                            new org.pangrova.coordinator.databuild.DurableDataBuildDispatcher.Dependencies(
+            sharedArtifactBuildDispatcher = new org.pangrova.coordinator.generation
+                    .DurableGenerationDispatcher(
+                            new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Dependencies(
                                     sharedArtifactBuildStore,
                                     new TaskScheduler(new WorkerPerformanceScorer()),
                                     workerManager, artifactTaskDispatcher, taskTracker,
                                     E2E_COORDINATOR_ID,
                                     () -> requireE2ECoordination().getCurrentEpoch(),
-                                    new org.pangrova.coordinator.databuild.DataBuildExecutionOwnership(
+                                    new org.pangrova.coordinator.generation.GenerationExecutionOwnership(
                                             requireE2ECoordination(), E2E_COORDINATOR_ID),
                                     ModelAuthorityFixtures.artifacts().stages(
                                             stateStoreDataSource),
                                     ModelAuthorityFixtures.artifacts().exchanges(stateStoreDataSource),
                                     java.util.Objects.requireNonNull(sharedQueryDispatcher,
                                             "shared QueryDispatcher must be initialized").dagEngine()),
-                            new org.pangrova.coordinator.databuild.DurableDataBuildDispatcher.Settings(
+                            new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
                                     Duration.ofMinutes(2), Duration.ofSeconds(5), 32));
         }
         if (sharedArtifactPublisher == null) {
-            sharedArtifactPublisher = new org.pangrova.coordinator.databuild.DurableDataBuildPublisher(
-                    sharedArtifactBuildStore, E2eDataBuildPublications.stores(stateStoreDataSource),
-                    new org.pangrova.coordinator.databuild.DataBuildExecutionOwnership(
+            sharedArtifactPublisher = new org.pangrova.coordinator.generation.DurableGenerationPublisher(
+                    sharedArtifactBuildStore, E2eGenerationPublications.stores(stateStoreDataSource),
+                    new org.pangrova.coordinator.generation.GenerationExecutionOwnership(
                             requireE2ECoordination(), E2E_COORDINATOR_ID));
             sharedArtifactPublisher.start();
         }
@@ -2294,7 +2294,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             sharedIndexingBootstrap = new org.pangrova.coordinator.bootstrap.IndexingBootstrap(
                     tempDir.resolve("index-artifacts").toString(),
                     new org.pangrova.coordination.jdbc.JdbcDistributedLease(stateStoreDataSource),
-                    sharedArtifactBuildStore, E2eDataBuildPublications.router(stateStoreDataSource));
+                    sharedArtifactBuildStore, E2eGenerationPublications.router(stateStoreDataSource));
             sharedIndexingBootstrap.start(indexMetadataStore, metadataBootstrap.catalogRegistry(),
                     METRICS_PROVIDER, currentAccessControl);
             sharedGeneratedValueCoordinator.activateCatalogs(
@@ -2324,7 +2324,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     metadataBootstrap.catalogRegistry(), sharedIndexingBootstrap.getSplitFilter(), indexMetadataStore,
                     accessorResolver, sharedArtifactBuildStore);
             indexAwareSplitFetcher.bindGeneratedValueReads(
-                    new org.pangrova.coordinator.databuild.GeneratedValueReadResolver(
+                    new org.pangrova.coordinator.generation.GeneratedValueReadResolver(
                             metadataBootstrap.catalogRegistry(), sharedArtifactBuildStore,
                             ModelAuthorityFixtures.artifacts().generatedPublications(
                                     stateStoreDataSource)));
@@ -2508,7 +2508,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     stateStoreDataSource, ModelAuthorityFixtures.artifacts().builds(stateStoreDataSource));
             var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
                     aiStores.catalogExports(),
-                    new org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner(catalog),
+                    new org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner(catalog),
                     tempDir.resolve("feature-exports").toString(), catalog);
             var features = aiStores.features();
             var service = new org.pangrova.coordinator.feature.FeatureViewStatementService(

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.databuild.api.build.DataBuildLease;
+import org.pangrova.generation.api.job.GenerationLease;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -12,7 +12,7 @@ public final class StageTaskIdentity {
     private StageTaskIdentity() {}
 
     /** Encodes the actual owner fence, immutable page identity and current page attempt. */
-    public static String fromLease(DataBuildLease lease) {
+    public static String fromLease(GenerationLease lease) {
         byte[] execution = lease.executionAnchor().executionId().getBytes(StandardCharsets.UTF_8);
         byte[] page = lease.pageId().getBytes(StandardCharsets.UTF_8);
         int length = execution.length + page.length + 2 * Integer.BYTES + 3 * Long.BYTES;

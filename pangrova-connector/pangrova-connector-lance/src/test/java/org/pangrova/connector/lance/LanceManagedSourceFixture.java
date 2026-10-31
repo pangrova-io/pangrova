@@ -12,7 +12,7 @@ import org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures;
+import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.catalog.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.write.NativeWriteBindings;
 import org.pangrova.protocol.source.SourceSnapshotBindings;
@@ -101,7 +101,7 @@ public final class LanceManagedSourceFixture {
     }
 
     LanceManagedSourceFixture(String catalogName, java.nio.file.Path warehouse) {
-        this(catalogName, warehouse, DataBuildAuthorityFixtures.modelAuthority(),
+        this(catalogName, warehouse, GenerationAuthorityFixtures.modelAuthority(),
                 new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence());
     }
 

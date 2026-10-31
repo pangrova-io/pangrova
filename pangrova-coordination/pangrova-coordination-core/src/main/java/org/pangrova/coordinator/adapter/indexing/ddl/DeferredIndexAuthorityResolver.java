@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
-import org.pangrova.databuild.api.build.DataBuildStore;
+import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.security.api.authz.DeferredAuthorizationScope;
 import org.pangrova.connector.spi.ConnectorSession;
 import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
@@ -15,7 +15,7 @@ import java.util.Set;
 final class DeferredIndexAuthorityResolver {
     private DeferredIndexAuthorityResolver() {}
 
-    static Resolved resolve(DataBuildStore store, IndexDescriptor previous, IndexDescriptor replacement) {
+    static Resolved resolve(GenerationJobStore store, IndexDescriptor previous, IndexDescriptor replacement) {
         if (!previous.indexId().equals(replacement.indexId())
                 || !previous.tenantId().equals(replacement.tenantId())
                 || replacement.generation() != Math.addExact(previous.generation(), 1)) {
@@ -33,7 +33,7 @@ final class DeferredIndexAuthorityResolver {
         return resolved;
     }
 
-    static Resolved resolveExisting(DataBuildStore store, IndexDescriptor descriptor) {
+    static Resolved resolveExisting(GenerationJobStore store, IndexDescriptor descriptor) {
         String tenant = descriptor.tenantId();
         var authority = store.loadAuthorizedDispatchSpec(tenant, DurableIndexBuildService.jobId(tenant, descriptor));
         var table = new QualifiedTableName(descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());

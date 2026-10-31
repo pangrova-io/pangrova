@@ -458,7 +458,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.security.api.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.coordination.api.DistributedLease lease,
-                       org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore) {
+                       org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore) {
         startIndexing(metadataStore, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, artifactBuildStore, null);
     }
@@ -469,8 +469,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.security.api.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.coordination.api.DistributedLease lease,
-                       org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore,
-                       org.pangrova.databuild.api.publication.DataBuildPublicationStore artifactPublicationStore) {
+                       org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
+                       org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore) {
         startIndexing(metadataStore, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, artifactBuildStore,
                 artifactPublicationStore, null);
@@ -482,8 +482,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.security.api.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.coordination.api.DistributedLease lease,
-                       org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore,
-                       org.pangrova.databuild.api.publication.DataBuildPublicationStore artifactPublicationStore,
+                       org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
+                       org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore,
                        org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection leaderElection) {
         try {
             indexingBootstrap = new IndexingBootstrap(

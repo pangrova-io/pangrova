@@ -2,19 +2,19 @@ package org.pangrova.coordinator.adapter.indexing.ddl;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.DataBuildPageKind;
-import org.pangrova.databuild.api.build.DataBuildSplit;
-import org.pangrova.databuild.api.build.DataBuildStore;
+import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.GenerationPageKind;
+import org.pangrova.generation.api.job.GenerationSplit;
+import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.planner.databuild.DataBuildPlan;
-import org.pangrova.planner.databuild.Bm25DataBuildPlanBuilder;
-import org.pangrova.planner.databuild.VectorDataBuildPlanBuilder;
+import org.pangrova.planner.generation.GenerationPlan;
+import org.pangrova.planner.generation.Bm25GenerationPlanBuilder;
+import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.LogicalType;
@@ -58,19 +58,19 @@ public final class DurableIndexBuildService {
     private static final int MAX_TRAINING_SAMPLES = 1_000_000;
     private static final int MAX_VECTOR_DIMENSION = 65_535;
 
-    private final DataBuildStore store;
+    private final GenerationJobStore store;
     private final CatalogRegistry catalogRegistry;
-    private final SnapshotDataBuildSplitPlanner splitPlanner;
+    private final SnapshotGenerationSplitPlanner splitPlanner;
     private final String baseArtifactUri;
 
     /** Creates the sole durable Native index compiler over catalog and metadata authority. */
     public DurableIndexBuildService(
-            DataBuildStore store, CatalogRegistry catalogRegistry,
+            GenerationJobStore store, CatalogRegistry catalogRegistry,
             String baseArtifactUri) {
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.catalogRegistry = Objects.requireNonNull(
                 catalogRegistry, "catalogRegistry must not be null");
-        this.splitPlanner = new SnapshotDataBuildSplitPlanner(catalogRegistry);
+        this.splitPlanner = new SnapshotGenerationSplitPlanner(catalogRegistry);
         if (baseArtifactUri == null || baseArtifactUri.isBlank()) {
             throw new IllegalArgumentException("baseArtifactUri must not be blank");
         }
@@ -119,8 +119,8 @@ public final class DurableIndexBuildService {
     private String submitScoped(IndexDescriptor descriptor, QualifiedTableName table,
                                 String tenantId, ConnectorSession session) {
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
-        DataBuildPlan plan = build.plan();
-        List<DataBuildSplit> splits = splitPlanner.enumerate(
+        GenerationPlan plan = build.plan();
+        List<GenerationSplit> splits = splitPlanner.enumerate(
                 table, descriptor.buildSnapshotId(),
                 session);
         String jobId = jobId(tenantId, descriptor);
@@ -129,10 +129,10 @@ public final class DurableIndexBuildService {
         String idempotencyKey = jobId + ":snapshot:" + descriptor.buildSnapshotId();
         Map<String, String> properties = descriptor.properties();
         int maxAttempts = boundedInt(properties, "max_attempts", 5, 1, 100);
-        List<DataBuildPage> pages = buildPages(
+        List<GenerationPage> pages = buildPages(
                 jobId, splits, build.artifactType(), maxAttempts);
         Instant now = Instant.now();
-        var grant = new DataBuildDispatchSpec.ResourceGrant(
+        var grant = new GenerationDispatchSpec.ResourceGrant(
                         boundedLong(properties, "max_memory_bytes", DEFAULT_MEMORY_BYTES,
                                 64L * 1024 * 1024, 64L * 1024 * 1024 * 1024),
                         boundedInt(properties, "max_threads", 1, 1, 16),
@@ -149,21 +149,21 @@ public final class DurableIndexBuildService {
         return jobId;
     }
 
-    static List<DataBuildPage> buildPages(
-            String jobId, List<DataBuildSplit> splits,
+    static List<GenerationPage> buildPages(
+            String jobId, List<GenerationSplit> splits,
             String artifactType, int maxAttempts) {
-        List<DataBuildPage> pages = new ArrayList<>();
+        List<GenerationPage> pages = new ArrayList<>();
         List<String> level = new ArrayList<>(splits.size());
         for (int index = 0; index < splits.size(); index++) {
             String pageId = jobId + ":map:" + index;
-            pages.add(new DataBuildPage(
+            pages.add(new GenerationPage(
                     jobId, pageId, 0, index, pages.size(),
-                    DataBuildPageKind.SOURCE_MAP,
+                    GenerationPageKind.SOURCE_MAP,
                     List.of(splits.get(index)), List.of(), maxAttempts));
             level.add(pageId);
         }
         if (!artifactType.equals(
-                org.pangrova.databuild.api.DataBuildOutputTypeIds.TEXT_INDEX)
+                org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX)
                 || level.isEmpty()) {
             return List.copyOf(pages);
         }
@@ -173,9 +173,9 @@ public final class DurableIndexBuildService {
             for (int offset = 0; offset < level.size(); offset += MAX_REDUCTION_FAN_IN) {
                 int partition = next.size();
                 String pageId = jobId + ":reduce:" + stage + ":" + partition;
-                pages.add(new DataBuildPage(
+                pages.add(new GenerationPage(
                         jobId, pageId, stage, partition, pages.size(),
-                        DataBuildPageKind.DEPENDENCY_REDUCE, List.of(),
+                        GenerationPageKind.DEPENDENCY_REDUCE, List.of(),
                         level.subList(offset, Math.min(
                                 level.size(), offset + MAX_REDUCTION_FAN_IN)),
                         maxAttempts));
@@ -184,9 +184,9 @@ public final class DurableIndexBuildService {
             level = next;
             stage++;
         }
-        pages.add(new DataBuildPage(
+        pages.add(new GenerationPage(
                 jobId, jobId + ":finalize", stage, 0, pages.size(),
-                DataBuildPageKind.GENERATION_FINALIZE,
+                GenerationPageKind.GENERATION_FINALIZE,
                 List.of(), level, maxAttempts));
         return List.copyOf(pages);
     }
@@ -203,8 +203,8 @@ public final class DurableIndexBuildService {
                 throw validation("Native BM25 requires analyzer=standard-v1");
             }
             return new NativeBuildSpec(
-                    Bm25DataBuildPlanBuilder.build(tableName, column),
-                    org.pangrova.databuild.api.DataBuildOutputTypeIds.TEXT_INDEX,
+                    Bm25GenerationPlanBuilder.build(tableName, column),
+                    org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX,
                     List.of(stringProperty("analyzer", analyzer)));
         }
         String algorithm = normalizedAlgorithm(descriptor);
@@ -217,10 +217,10 @@ public final class DurableIndexBuildService {
         }
         validateDeclaredDimension(descriptor.properties(), vector.dimension());
         return new NativeBuildSpec(
-                VectorDataBuildPlanBuilder.build(
+                VectorGenerationPlanBuilder.build(
                         tableName, column, buildCapability,
                         BuiltInCapabilityCatalog.vectorArtifactFormat(algorithm)),
-                org.pangrova.databuild.api.DataBuildOutputTypeIds.VECTOR_INDEX,
+                org.pangrova.generation.api.GenerationOutputTypeIds.VECTOR_INDEX,
                 vectorProperties(
                         buildCapability, descriptor.properties(), vector.dimension(), metric));
     }
@@ -494,7 +494,7 @@ public final class DurableIndexBuildService {
     private record VectorShape(int dimension, VectorType.ElementType elementType) {}
 
     private record NativeBuildSpec(
-            DataBuildPlan plan,
+            GenerationPlan plan,
             String artifactType,
             List<NamedValue> properties) {}
 }

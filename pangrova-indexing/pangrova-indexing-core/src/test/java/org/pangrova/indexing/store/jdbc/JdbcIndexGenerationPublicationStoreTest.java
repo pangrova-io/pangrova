@@ -1,26 +1,26 @@
 package org.pangrova.indexing.store.jdbc;
 
 
-import org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures;
+import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
-import org.pangrova.databuild.assembly.DataBuildDispatchSpecFactory;
+import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
-import org.pangrova.metadata.databuild.jdbc.JdbcIndexGenerationPublicationStore;
-import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
+import org.pangrova.metadata.generation.jdbc.JdbcIndexGenerationPublicationStore;
+import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.build.DataBuildOutput;
-import org.pangrova.databuild.api.DataBuildOutputScope;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.DataBuildPageKind;
-import org.pangrova.databuild.api.build.DataBuildSplit;
-import org.pangrova.databuild.api.build.DataBuildPageCompletion;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.job.GenerationOutput;
+import org.pangrova.generation.api.GenerationOutputScope;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.GenerationPageKind;
+import org.pangrova.generation.api.job.GenerationSplit;
+import org.pangrova.generation.api.job.GenerationPageCompletion;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.state.IndexState;
@@ -39,12 +39,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JdbcIndexGenerationPublicationStoreTest {
 
-    private org.pangrova.metadata.testinfra.DataBuildExecutionFixtures executions;
+    private org.pangrova.metadata.testinfra.GenerationExecutionFixtures executions;
 
     private static final Instant START = Instant.parse("2026-09-06T00:00:00Z");
     private static final String TENANT = "tenant-1";
 
-    private JdbcDataBuildStore buildStore;
+    private PostgresGenerationJobStore buildStore;
     private JdbcIndexGenerationPublicationStore publicationStore;
     private JdbcIndexMetadataStore indexStore;
 
@@ -58,18 +58,18 @@ class JdbcIndexGenerationPublicationStoreTest {
         Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .load().migrate();
-        buildStore = DataBuildAuthorityFixtures.artifacts().builds(dataSource);
-        executions = new org.pangrova.metadata.testinfra.DataBuildExecutionFixtures(dataSource);
-        publicationStore = DataBuildAuthorityFixtures.artifacts().indexPublications(dataSource);
+        buildStore = GenerationAuthorityFixtures.artifacts().builds(dataSource);
+        executions = new org.pangrova.metadata.testinfra.GenerationExecutionFixtures(dataSource);
+        publicationStore = GenerationAuthorityFixtures.artifacts().indexPublications(dataSource);
         indexStore = new JdbcIndexMetadataStore(dataSource);
         indexStore.registerIndex(descriptor);
-        DataBuildAuthorityFixtures.provision(
+        GenerationAuthorityFixtures.provision(
                 dataSource, TENANT, "principal-1", dispatch().authorizationScope());
     }
 
     @Test
     void publishesCompleteDiskAnnBundleAndIndexPointerInOneTransaction() {
-        DataBuildJob claim = completedAndClaimedJob(completeBundle());
+        GenerationJob claim = completedAndClaimedJob(completeBundle());
 
         var manifest = publicationStore.publishClaimed(
                 claim, "maintenance-a", 7, START.plusSeconds(3));
@@ -78,7 +78,7 @@ class JdbcIndexGenerationPublicationStoreTest {
         assertThat(manifest.rowCount()).isEqualTo(11);
         assertThat(manifest.totalBytes()).isEqualTo(600);
         assertThat(buildStore.findJob(TENANT, "job-1").orElseThrow().state())
-                .isEqualTo(DataBuildJobState.PUBLISHED);
+                .isEqualTo(GenerationJobState.PUBLISHED);
         assertThat(buildStore.findPublishedGeneration(
                 TENANT, "index-1", "0", "snapshot-1"))
                 .contains(manifest);
@@ -113,7 +113,7 @@ class JdbcIndexGenerationPublicationStoreTest {
                 .hasMessageContaining("work-page role contract");
 
         assertThat(buildStore.findJob(TENANT, "job-1").orElseThrow().state())
-                .isEqualTo(DataBuildJobState.RUNNING);
+                .isEqualTo(GenerationJobState.RUNNING);
         assertThat(indexStore.findIndex("index-1").orElseThrow().state())
                 .isEqualTo(IndexState.BUILDING);
         assertThat(indexStore.findActiveIndexGeneration("index-1")).isEmpty();
@@ -121,8 +121,8 @@ class JdbcIndexGenerationPublicationStoreTest {
 
     @Test
     void stalePublisherCannotCommitAfterLeaseTakeover() {
-        DataBuildJob stale = completedAndClaimedJob(completeBundle());
-        DataBuildJob current = buildStore.claimReadyForPublication(
+        GenerationJob stale = completedAndClaimedJob(completeBundle());
+        GenerationJob current = buildStore.claimReadyForPublication(
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "maintenance-b", 8), 8, Duration.ofSeconds(30),
                 START.plusSeconds(40)).orElseThrow();
 
@@ -135,7 +135,7 @@ class JdbcIndexGenerationPublicationStoreTest {
                 current, "maintenance-b", 8, START.plusSeconds(41));
         assertThat(manifest.generation()).isEqualTo("0");
         assertThat(buildStore.findJob(TENANT, "job-1").orElseThrow().state())
-                .isEqualTo(DataBuildJobState.PUBLISHED);
+                .isEqualTo(GenerationJobState.PUBLISHED);
     }
 
     @Test
@@ -147,16 +147,16 @@ class JdbcIndexGenerationPublicationStoreTest {
 
     @Test
     void publishesExplicitEmptyVectorGenerationThroughTheSamePublicationFence() {
-        var empty = new DataBuildJob(
-                TENANT, "job-1", "index-1", DataBuildOutputTypeIds.VECTOR_INDEX,
+        var empty = new GenerationJob(
+                TENANT, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.databuild.api.DataBuildExecutionKind.BUILD,
-                org.pangrova.databuild.api.DataBuildDependencySet.sourceSnapshot(
+                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
+                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
                 "s3://bucket/staging/index-1/0", "pangrova.diskann.segment", 2, 0,
                 "a".repeat(64), "native-build-1", "kms/key-1", "create-index-request-1",
-                0, 0, DataBuildJobState.READY_TO_PUBLISH, 0, START, START, START);
+                0, 0, GenerationJobState.READY_TO_PUBLISH, 0, START, START, START);
         buildStore.createJob(empty, dispatch(List.of()), List.of());
         var claim = buildStore.claimReadyForPublication(
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "maintenance-a", 7), 7, Duration.ofSeconds(30), START)
@@ -169,7 +169,7 @@ class JdbcIndexGenerationPublicationStoreTest {
         assertThat(indexStore.findIndex("index-1").orElseThrow().state())
                 .isEqualTo(IndexState.READY);
         assertThat(buildStore.findJob(TENANT, "job-1").orElseThrow().state())
-                .isEqualTo(DataBuildJobState.PUBLISHED);
+                .isEqualTo(GenerationJobState.PUBLISHED);
     }
 
     @Test
@@ -185,27 +185,27 @@ class JdbcIndexGenerationPublicationStoreTest {
                 map.jobId(), map.pageId(), map.fencingToken(), map.ownerEpoch(),
                 report, sha256(report), List.of(
                         textOutput("postings", "BM25_POSTINGS", "data-object-1", 0,
-                                DataBuildOutputScope.SOURCE_OBJECT, 300, 11),
+                                GenerationOutputScope.SOURCE_OBJECT, 300, 11),
                         textOutput("locators", "ROW_LOCATORS", "data-object-1", 1,
-                                DataBuildOutputScope.SOURCE_OBJECT, 200, 11),
+                                GenerationOutputScope.SOURCE_OBJECT, 200, 11),
                         textOutput("stats-shard", "BM25_STATS_SHARD", "page-map", 2,
-                                DataBuildOutputScope.WORK_UNIT, 100, 7)),
+                                GenerationOutputScope.WORK_UNIT, 100, 7)),
                 START.plusSeconds(1))).isTrue();
 
         var finalizer = buildStore.claimNextPage(
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "maintenance-a", 7), 7, Duration.ofSeconds(30),
                 START.plusSeconds(2)).orElseThrow();
-        assertThat(finalizer.kind()).isEqualTo(DataBuildPageKind.GENERATION_FINALIZE);
+        assertThat(finalizer.kind()).isEqualTo(GenerationPageKind.GENERATION_FINALIZE);
         byte[] finalReport = "bm25-final-report".getBytes(StandardCharsets.UTF_8);
         assertThat(completePage(buildStore, 
                 finalizer.jobId(), finalizer.pageId(), finalizer.fencingToken(),
                 finalizer.ownerEpoch(), finalReport, sha256(finalReport),
                 List.of(textOutput(
                         "corpus-stats", "BM25_CORPUS_STATS", "0", 0,
-                        DataBuildOutputScope.GENERATION, 150, 11)),
+                        GenerationOutputScope.GENERATION, 150, 11)),
                 START.plusSeconds(3))).isTrue();
 
-        DataBuildJob claim = buildStore.claimReadyForPublication(
+        GenerationJob claim = buildStore.claimReadyForPublication(
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "maintenance-a", 7), 7, Duration.ofSeconds(30),
                 START.plusSeconds(4)).orElseThrow();
         var manifest = publicationStore.publishClaimed(
@@ -216,7 +216,7 @@ class JdbcIndexGenerationPublicationStoreTest {
         assertThat(manifest.totalBytes()).isEqualTo(650);
         assertThat(buildStore.loadPublishedOutputs(
                 TENANT, "job-1", java.util.Set.of("data-object-1")))
-                .extracting(DataBuildOutput::objectRole)
+                .extracting(GenerationOutput::objectRole)
                 .containsExactly("BM25_POSTINGS", "ROW_LOCATORS", "BM25_CORPUS_STATS");
         assertThat(indexStore.findIndex("index-1").orElseThrow())
                 .satisfies(index -> {
@@ -225,7 +225,7 @@ class JdbcIndexGenerationPublicationStoreTest {
                 });
     }
 
-    private DataBuildJob completedAndClaimedJob(List<DataBuildOutput> outputs) {
+    private GenerationJob completedAndClaimedJob(List<GenerationOutput> outputs) {
         buildStore.createJob(job(1), dispatch(), List.of(page()));
         var page = buildStore.claimNextPage(
                 TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "maintenance-a", 7), 7, Duration.ofSeconds(30), START)
@@ -239,98 +239,98 @@ class JdbcIndexGenerationPublicationStoreTest {
                 START.plusSeconds(2)).orElseThrow();
     }
 
-    private static DataBuildJob job(int pages) {
-        return new DataBuildJob(
-                TENANT, "job-1", "index-1", DataBuildOutputTypeIds.VECTOR_INDEX,
+    private static GenerationJob job(int pages) {
+        return new GenerationJob(
+                TENANT, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.databuild.api.DataBuildExecutionKind.BUILD,
-                org.pangrova.databuild.api.DataBuildDependencySet.sourceSnapshot(
+                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy.FORBID,
+                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/index-1/0",
                 "pangrova.diskann.segment", 2, 0, "a".repeat(64),
                 "native-build-1", "kms/key-1", "create-index-request-1",
-                pages, 0, pages == 0 ? DataBuildJobState.READY_TO_PUBLISH
-                        : DataBuildJobState.QUEUED,
+                pages, 0, pages == 0 ? GenerationJobState.READY_TO_PUBLISH
+                        : GenerationJobState.QUEUED,
                 0, START, START, START);
     }
 
-    private static DataBuildJob textJob() {
-        return new DataBuildJob(
-                TENANT, "job-1", "index-1", DataBuildOutputTypeIds.TEXT_INDEX,
+    private static GenerationJob textJob() {
+        return new GenerationJob(
+                TENANT, "job-1", "index-1", GenerationOutputTypeIds.TEXT_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.databuild.api.DataBuildExecutionKind.BUILD,
-                org.pangrova.databuild.api.DataBuildDependencySet.sourceSnapshot(
+                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy.FORBID,
+                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/index-1/0",
                 "pangrova.bm25.segment", 1, 0, "a".repeat(64),
                 "native-build-1", "kms/key-1", "create-index-request-1",
-                2, 0, DataBuildJobState.QUEUED, 0, START, START, START);
+                2, 0, GenerationJobState.QUEUED, 0, START, START, START);
     }
 
-    private static DataBuildPage page() {
-        return new DataBuildPage(
+    private static GenerationPage page() {
+        return new GenerationPage(
                 "job-1", "page-0", 0, 0, 0,
-                DataBuildPageKind.SOURCE_MAP,
-                List.of(DataBuildSplit.of(
+                GenerationPageKind.SOURCE_MAP,
+                List.of(GenerationSplit.of(
                         "data-object-1",
                         "canonical-v2-split".getBytes(StandardCharsets.UTF_8))),
                 List.of(),
                 5);
     }
 
-    private static DataBuildPage textMapPage() {
-        return new DataBuildPage(
+    private static GenerationPage textMapPage() {
+        return new GenerationPage(
                 "job-1", "page-map", 0, 0, 0,
-                DataBuildPageKind.SOURCE_MAP,
-                List.of(DataBuildSplit.of(
+                GenerationPageKind.SOURCE_MAP,
+                List.of(GenerationSplit.of(
                         "data-object-1",
                         "canonical-v2-split".getBytes(StandardCharsets.UTF_8))),
                 List.of(), 5);
     }
 
-    private static DataBuildPage textFinalPage() {
-        return new DataBuildPage(
+    private static GenerationPage textFinalPage() {
+        return new GenerationPage(
                 "job-1", "page-final", 1, 0, 1,
-                DataBuildPageKind.GENERATION_FINALIZE,
+                GenerationPageKind.GENERATION_FINALIZE,
                 List.of(), List.of("page-map"), 5);
     }
 
-    private static DataBuildDispatchSpec dispatch() {
+    private static GenerationDispatchSpec dispatch() {
         return dispatch(List.of(page()));
     }
 
-    private static DataBuildDispatchSpec dispatch(List<DataBuildPage> pages) {
-        return DataBuildDispatchSpecFactory.create(
-                "job-1", org.pangrova.databuild.assembly.DataBuildStageGraphFactory.forArtifactPages(
+    private static GenerationDispatchSpec dispatch(List<GenerationPage> pages) {
+        return GenerationDispatchSpecFactory.create(
+                "job-1", org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
                         "substrait-plan".getBytes(StandardCharsets.UTF_8), "operator-binding".getBytes(StandardCharsets.UTF_8), pages, java.util.List.of()),
                 TENANT, "principal-1",
                 org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
                         new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items"),
                         java.util.Set.of("embedding"),
                         new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items")),
-                new DataBuildDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
+                new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
     }
 
-    private static List<DataBuildOutput> completeBundle() {
+    private static List<GenerationOutput> completeBundle() {
         return List.of(
                 output("graph", "DISKANN_GRAPH", 0),
                 output("vectors", "RAW_VECTORS", 1),
                 output("locators", "ROW_LOCATORS", 2));
     }
 
-    private static DataBuildOutput output(String id, String role, int ordinal) {
-        return new DataBuildOutput(
+    private static GenerationOutput output(String id, String role, int ordinal) {
+        return new GenerationOutput(
                 id, "s3://bucket/staging/index-1/0/" + id, role,
-                "data-object-1", ordinal, DataBuildOutputScope.SOURCE_OBJECT,
+                "data-object-1", ordinal, GenerationOutputScope.SOURCE_OBJECT,
                 200, 11, "b".repeat(64), "kms/key-1");
     }
 
-    private static DataBuildOutput textOutput(
+    private static GenerationOutput textOutput(
             String id, String role, String scopeId, int ordinal,
-            DataBuildOutputScope scope, long sizeBytes, long rowCount) {
-        return new DataBuildOutput(
+            GenerationOutputScope scope, long sizeBytes, long rowCount) {
+        return new GenerationOutput(
                 id, "s3://bucket/staging/index-1/0/" + id, role,
                 scopeId, ordinal, scope, sizeBytes, rowCount,
                 "b".repeat(64), "kms/key-1");
@@ -353,11 +353,11 @@ class JdbcIndexGenerationPublicationStoreTest {
     }
 
     private boolean completePage(
-            JdbcDataBuildStore store,
+            PostgresGenerationJobStore store,
             String jobId, String pageId, long fencingToken, long ownerEpoch,
             byte[] reportBytes, String reportSha256,
-            List<DataBuildOutput> outputs, Instant now) {
-        return store.completePage(new DataBuildPageCompletion(
+            List<GenerationOutput> outputs, Instant now) {
+        return store.completePage(new GenerationPageCompletion(
                 TENANT, jobId, pageId, fencingToken, ownerEpoch,
                 reportBytes, reportSha256, outputs, now, executions.reportedOwner(TENANT, jobId, ownerEpoch)));
     }

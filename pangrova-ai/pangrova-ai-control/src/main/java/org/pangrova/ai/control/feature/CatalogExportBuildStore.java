@@ -1,8 +1,8 @@
 package org.pangrova.ai.control.feature;
 
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildPage;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationPage;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.List;
@@ -10,6 +10,6 @@ import java.util.List;
 /** Atomically binds a Feature View or Training Dataset version to its generic durable build. */
 @Internal
 public interface CatalogExportBuildStore {
-    void createCatalogExportJob(CatalogExportRequest request, DataBuildJob job,
-            DataBuildDispatchSpec dispatchSpec, List<DataBuildPage> pages);
+    void createCatalogExportJob(CatalogExportRequest request, GenerationJob job,
+            GenerationDispatchSpec dispatchSpec, List<GenerationPage> pages);
 }

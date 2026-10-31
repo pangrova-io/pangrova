@@ -114,7 +114,7 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-connector-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
             "pangrova-metadata:SemanticViewValidationState",
             "pangrova-metadata:EvaluationRunState",
-            "pangrova-data-build:DataBuildJobState",
+            "pangrova-generation-core:GenerationJobState",
             // Unified materialization kernel lifecycle enums.
             "pangrova-materialization-core:GcLedgerEntry.GcState",
             "pangrova-materialization-core:PinState",

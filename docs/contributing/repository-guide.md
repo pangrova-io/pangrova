@@ -29,10 +29,10 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-parser` / `pangrova-planner` | SQL parsing and Calcite planning |
 | `pangrova-protocol` | Canonical wire contracts and build-time function-contract generators |
 | `pangrova-query-api` | Execution identities, immutable journal/lineage facts and query audit/recovery ports; no Query runtime implementation dependency |
-| `pangrova-data-build` | Durable build contracts, canonical codecs, publication router and generic JDBC build/stage/exchange implementation |
+| `pangrova-generation` | Durable generation jobs: core contracts/codecs/routing, independent transaction SPI and PostgreSQL job/stage/exchange implementation |
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migrations; runtime bootstrap and owner test fixtures consume the same version sequence |
 | `pangrova-query` | Query runtime services, profiling/audit orchestration and JDBC/in-memory durable state implementations |
-| `pangrova-coordination` | Independent coordination API, Coordinator service and optional ZooKeeper provider; providers depend on the API, not the process implementation |
+| `pangrova-coordination` | Independent coordination API, Coordinator service, JDBC, InMemory and optional ZooKeeper providers; providers depend on the API, not the process implementation |
 | `pangrova-worker` | Worker process, task lifecycle, transport and JNI native bridge |
 | `pangrova-worker-native` | C++20 execution, JNI, Velox adapters and Lance FFI |
 | `pangrova-native-bundle` | Platform-specific JNI library packaging |

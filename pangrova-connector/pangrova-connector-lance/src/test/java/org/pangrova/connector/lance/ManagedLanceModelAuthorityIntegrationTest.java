@@ -4,7 +4,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures;
+import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence;
 import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
@@ -94,7 +94,7 @@ class ManagedLanceModelAuthorityIntegrationTest extends ContainerTestBase {
     }
 
     private static final class RecordingModelAuthority implements CurrentModelAuthority {
-        private final CurrentModelAuthority emptyModels = DataBuildAuthorityFixtures.modelAuthority();
+        private final CurrentModelAuthority emptyModels = GenerationAuthorityFixtures.modelAuthority();
         private final String markerTable = "model_rejection_" + UUID.randomUUID().toString().replace("-", "");
         private Connection executionConnection;
         private Connection deniedConnection;

@@ -20,7 +20,7 @@ import org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElec
 import org.pangrova.coordinator.adapter.indexing.lifecycle.MetadataBackedBuildClaimHandler;
 import org.pangrova.coordinator.adapter.indexing.lifecycle.MetadataBackedGenerationChecker;
 import org.pangrova.coordinator.adapter.indexing.lifecycle.StuckBuildRecovery;
-import org.pangrova.coordinator.databuild.DurableDataBuildPublisher;
+import org.pangrova.coordinator.generation.DurableGenerationPublisher;
 import org.pangrova.indexing.core.registry.IndexEngineRegistry;
 import org.pangrova.indexing.core.build.IndexBuildCoordinator;
 import org.pangrova.indexing.core.build.IndexBuildContext;
@@ -101,11 +101,11 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     private final String baseIndexPath;
     private final DistributedLease distributedLease;
-    private final org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore;
-    private final org.pangrova.databuild.api.publication.DataBuildPublicationStore artifactPublicationStore;
+    private final org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore;
+    private final org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore;
     private final MaintenanceLeaderElection configuredLeaderElection;
     private MaintenanceLeaderElection leaderElection;
-    private DurableDataBuildPublisher artifactPublisher;
+    private DurableGenerationPublisher artifactPublisher;
 
     /**
      * Creates an IndexingBootstrap with an externally-configured base index path
@@ -121,7 +121,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore) {
+            org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore, null, null);
     }
 
@@ -129,8 +129,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore,
-            org.pangrova.databuild.api.publication.DataBuildPublicationStore artifactPublicationStore) {
+            org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
+            org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore,
                 artifactPublicationStore, null);
     }
@@ -138,8 +138,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore,
-            org.pangrova.databuild.api.publication.DataBuildPublicationStore artifactPublicationStore,
+            org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
+            org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore,
             MaintenanceLeaderElection configuredLeaderElection) {
         if (baseIndexPath == null || baseIndexPath.isBlank()) {
             throw new IllegalStateException(
@@ -340,9 +340,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         if (artifactBuildStore == null || artifactPublisher != null) {
             return;
         }
-        artifactPublisher = new DurableDataBuildPublisher(artifactBuildStore,
+        artifactPublisher = new DurableGenerationPublisher(artifactBuildStore,
                 artifactPublicationStores(artifactPublicationStore),
-                new org.pangrova.coordinator.databuild.DataBuildExecutionOwnership(authority));
+                new org.pangrova.coordinator.generation.GenerationExecutionOwnership(authority));
         artifactPublisher.start();
     }
 
@@ -379,18 +379,18 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public ConnectorAccessorResolver getAccessorResolver() { return accessorResolver; }
 
     /** Returns the generic durable artifact store shared by build and query binding. */
-    public org.pangrova.databuild.api.build.DataBuildStore getArtifactBuildStore() {
+    public org.pangrova.generation.api.job.GenerationJobStore getArtifactBuildStore() {
         return artifactBuildStore;
     }
 
-    static Map<String, org.pangrova.databuild.api.publication.DataBuildPublicationStore>
+    static Map<String, org.pangrova.generation.api.publication.GenerationPublicationStore>
             artifactPublicationStores(
-                    org.pangrova.databuild.api.publication.DataBuildPublicationStore store) {
+                    org.pangrova.generation.api.publication.GenerationPublicationStore store) {
         return Map.of(
-                org.pangrova.databuild.api.DataBuildOutputTypeIds.VECTOR_INDEX, store,
-                org.pangrova.databuild.api.DataBuildOutputTypeIds.TEXT_INDEX, store,
-                org.pangrova.databuild.api.DataBuildOutputTypeIds.TABULAR_EXPORT, store,
-                org.pangrova.databuild.api.DataBuildOutputTypeIds.GENERATED_COLUMN_VALUES, store);
+                org.pangrova.generation.api.GenerationOutputTypeIds.VECTOR_INDEX, store,
+                org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX, store,
+                org.pangrova.generation.api.GenerationOutputTypeIds.TABULAR_EXPORT, store,
+                org.pangrova.generation.api.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, store);
     }
 
     /**

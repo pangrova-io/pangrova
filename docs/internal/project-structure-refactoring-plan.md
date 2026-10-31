@@ -4,15 +4,15 @@
 
 **结论：主要领域划分和 Java 协调规划 / C++ 执行的方向合理，但物理模块与实际职责没有完全对应。重构重点应是移交状态和资源的所有权、收窄导出契约、消除包依赖环，并把测试和装配一起迁移。不能以目录数量、包数量或编译通过作为完成标准。**
 
-完整范围包括 64 个 Maven reactor 项目、51 个有 Java 源码的叶子、1 个纯资源 JAR、3,571 个 Java 主源文件、657 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
+完整范围包括 67 个 Maven reactor 项目、53 个有 Java 源码的叶子、1 个纯资源 JAR、3,571 个 Java 主源文件、657 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
 
-实施已推进至 [执行记录第 40 节](project-restructure-execution-plan.md#40-同连接输入读取与-catalog-同步缺陷审计)：第 30–31 节落位 Query 事务 fence、任务 execution route/fence 和通用 JDBC runtime；第 32 节落实 schema-migrations 资源制品和 Table/Materialization owner 测试。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；第 34 节消除 Worker write/catalog 环，全图无环检查仍因剩余 7 组 SCC 失败，没有增加豁免。逐包台账与当前源码集合及文件数完全一致，遗漏、多余、重复均为零。
+实施已推进至 [执行记录第 41 节](project-restructure-execution-plan.md#41-generation-命名与三制品物理拆分)：第 30–31 节落位 Query 事务 fence、任务 execution route/fence 和通用 JDBC runtime；第 32 节落实 schema-migrations 资源制品和 Table/Materialization owner 测试。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；第 34 节消除 Worker write/catalog 环，全图无环检查仍因剩余 7 组 SCC 失败，没有增加豁免。逐包台账按当前源码重新核对；Generation 三叶已落位，当前批次构建与运行时结果由执行记录另行登记，不沿用更名前成绩。
 
 第 33 节完成 AI 工厂显式 authority 注入、错误归属和 Metadata 依赖拆分；第34节提取协调API并下沉Worker会话/资源端口；第35节完成模型当前权限provider与显式事务消费链。领域发布、Indexing激活耦合、真实非空模型ManagedSource撤权测试及剩余7组包环仍待处理。
 
-初审的 60 个项目、3,542 个主源文件、649 包属于历史快照，保留在审查证据中；本文范围与逐包台账已更新至阶段执行/交换状态存储 SPI 批次。两个新 owner 已通过 61 / 41 项测试，64 项 reactor 清理编译通过；消费者验证另见执行记录。分批验证结果与剩余工作以执行记录为准，已编译或已迁移不等于全项目语义审查完成。
+初审的 60 个项目、3,542 个主源文件、649 包属于历史快照，保留在审查证据中；本文范围与逐包台账已更新至 Generation 三叶物理拆分后的源码快照。第37节两个 Coordination 后端 owner 已通过 61 / 41 项测试；Generation 三叶落位后67项reactor clean编译通过，当前消费者验证进度见第41节。分批验证结果与剩余工作以执行记录为准，已编译或已迁移不等于全项目语义审查完成。
 
-最新设计要求：业务规则、任务编排、存储契约和 PostgreSQL 实现必须可分别演进。当前 `pangrova-data-build` 是用户已否决的过渡名；按用户单词命名要求，最终采用 `pangrova-generation`（生成），存储 SPI 与三制品边界落实后统一迁移。Metadata 不整体改名为 Catalog：先迁出各领域权威与基础设施，再将目录身份/连接器生命周期和技术元数据投影按不同能力迁入 Catalog，最终退役当前混合 Metadata 制品。具体拆分以最新配套设计为准。
+最新设计要求：业务规则、任务编排、存储契约和 PostgreSQL 实现必须可分别演进。原 `pangrova-data-build` 过渡制品已退役；按用户单词命名要求，`pangrova-generation`（生成）已拆为 core、transaction-spi、store-postgresql 三叶。Metadata 不整体改名为 Catalog：先迁出各领域权威与基础设施，再将目录身份/连接器生命周期和技术元数据投影按不同能力迁入 Catalog，最终退役当前混合 Metadata 制品。具体拆分以最新配套设计为准。
 
 配套清单：
 
@@ -30,7 +30,7 @@
 3. **Connector SPI / Runtime / 各 provider**：插件契约、类加载生命周期、具体格式 SDK 是真实隔离理由。三个 connector 不合并成一个大 SDK 模块。
 4. **Table / File / Metadata / Semantic / Governance**：表控制、文件空间、技术对象目录、语义定义、治理事实不同源。共享数据库不等于同一个领域，图结构相似也不意味着应该建立通用 Graph 模块。
 5. **Query API / Query、AI API / Control / Worker、Indexing API / Core、Observability API / SDK**：有真实消费者或 classpath 隔离收益，保留。
-6. **Artifact / Indexing / Materialization**：通用持久构建、索引发布、物化定义与刷新分别保留。生成列和 Feature View 导出不能成为可选 Indexing 的附属功能。
+6. **Generation / Indexing / Materialization**：通用持久构建、索引发布、物化定义与刷新分别保留。生成列和 Feature View 导出不能成为可选 Indexing 的附属功能。
 7. **单个 Native shared library + 内部 OBJECT targets**：当前打包方式合理；内部 include 双向耦合需要治理，但不意味着应该立即拆多份动态库。
 
 ### 1.2 关键发现
@@ -43,7 +43,7 @@
 | F02 P1 | 初审 Coordinator 596 文件 / 99 包，而 Query runtime 24 文件 / 14 包；`QueryManager` 同时依赖 dispatch、租户准入、日志、审计及具体 SDK | Coordinator 仍承担 Query 和领域实现。按状态机、提交协议和调度职责迁移，不能整个 `query` 目录一次性搬走 |
 | F03 P1 | Coordinator 主 SCC 涉及 29 包；bootstrap 2 包、HTTP 5 包另成环 | 先抽入口契约和回调，再迁实现；拆掉根包对子包实现的反向调用。HTTP endpoint 不反向读取整份 server context |
 | F04 P1 | Planner 有 18 包 SCC；`PlanTable` 被多个阶段复用；`PlannedQuery` 注释声称不暴露 Calcite，但 public `plan()` 返回 `RelNode`，Coordinator 两处调用 | 内部表绑定值、计划结果与编译流程分层；对外暴露 split/lineage/dispatch 所需快照，由 Planner 内部处理 Calcite tree |
-| F05 P1 | 初审 CurrentDeferredExecutionContext 在 Metadata 直连 Security JDBC；第 30–31 节已迁入 Artifact，并显式注入 Query fence 与 Security current-role 端口；跨域领域 publication 仍待迁移 | Artifact authority SPI 已存在但迁移未完。拆事实 owner 和同事务端口，保留锁顺序、私有构造约束、实际 anchor 和错误语义 |
+| F05 P1 | 初审 `CurrentDeferredExecutionContext` 在 Metadata 直连 Security JDBC；第 30–31 节已迁入当时的 Artifact owner，现为 `PostgresCurrentGenerationAuthority`，并显式注入 Query fence 与 Security current-role 端口；跨域领域 publication 仍待迁移 | Generation authority SPI 已存在但迁移未完。拆事实 owner 和同事务端口，保留锁顺序、私有构造约束、实际 anchor 和错误语义 |
 | F06 P1 | `QueryMaterializationWiring.createGeneratedValue/createFeatureView` 要求 `IndexingBootstrap != null` | 将 durable build runtime 的能力装配从索引开关中独立出来。显式准入缺失能力，不能以空返回掩盖必需处理器缺失 |
 | F07 P1 | Common POM 仍含 provided Jetty/Jackson；`CanonicalJsonMapper` public 方法暴露 Jackson tree/TypeReference | provided 并未实现基础层隔离。HTTP server 实现迁 Transport；共享 Jackson adapter 提取为独立低层制品，领域 canonical codec 仍归各 owner |
 | F08 P1 | 第34节已将11个协调契约迁入独立API，ZooKeeper不再依赖coordination-core | 第34节已落位；保持 provider 单向依赖 API，进程选择/关闭 provider；继续审查实现的异常和恢复语义 |
@@ -53,7 +53,7 @@
 | F12 P2 | Materialization 的 domain/port/usecase、Metadata service、Transport 根包等混合了不同能力；`StateStoreFactory` 在 Config 持有全局可变注册表 | 分能力审查并归位。Config 保留配置定义/加载/校验，store 选择交给实例化装配；不以构造器参数数量为理由制造更大的 Context |
 | F13 P2 | Native engine 的 runner/filter/report-state 依赖 indexing/capabilities；OBJECT target 只提供组织边界 | 在已存在的五个通用 seam 上设计 engine-owned port，并保留 capability 专属算子的显式耦合；不虚称现有 include 图无环 |
 
-关键源码入口：[QueryManager](../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java)、[PlannedQuery](../../pangrova-planner/src/main/java/org/pangrova/planner/PlannedQuery.java)、[JdbcDataBuildExecutionFence](../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution/JdbcDataBuildExecutionFence.java)、[QueryMaterializationWiring](../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryMaterializationWiring.java)、[TaskInfo](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskInfo.java)、[StateStoreFactory](../../pangrova-config/src/main/java/org/pangrova/config/StateStoreFactory.java)。
+关键源码入口：[QueryManager](../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/query/QueryManager.java)、[PlannedQuery](../../pangrova-planner/src/main/java/org/pangrova/planner/PlannedQuery.java)、[PostgresGenerationExecutionFence](../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/PostgresGenerationExecutionFence.java)、[QueryMaterializationWiring](../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/QueryMaterializationWiring.java)、[TaskInfo](../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/task/TaskInfo.java)、[StateStoreFactory](../../pangrova-config/src/main/java/org/pangrova/config/StateStoreFactory.java)。
 
 ## 2. 目标目录和制品决策
 
@@ -81,7 +81,10 @@ pangrova/
 │   └── pangrova-observability-sdk/
 ├── pangrova-query-api/
 ├── pangrova-query/
-├── pangrova-data-build/            # 过渡名；目标拆生成任务 core / 存储 provider，见配套设计
+├── pangrova-generation/            # 已落位：生成任务内核、同连接事务契约、PostgreSQL provider
+│   ├── pangrova-generation-core/
+│   ├── pangrova-generation-transaction-spi/
+│   └── pangrova-generation-store-postgresql/
 ├── pangrova-scheduler/
 ├── pangrova-coordination/
 │   ├── pangrova-coordination-api/   # 第34节已建立：registry、lease、provider 契约
@@ -137,7 +140,7 @@ pangrova/
     └── pangrova-testing-fuzzer/
 ```
 
-三个新增制品各有具体理由：serialization-json 切断 Common 的第三方实现依赖，同时避免所有数据库 owner 依赖 Protocol；coordination-api 消除 provider 对进程制品的依赖；schema-migrations 让升级资源及 owner 测试不必通过 Metadata 实现获得。最后一个是资源制品，不是空 API/Core 占位模块。暂不进一步拆 Security、Table、File、Artifact 的 API/Core/Store JAR；用精确 exports 和最小 classpath 测试证明隔离，出现独立发布或不可隔离依赖时再拆。
+三个新增制品各有具体理由：serialization-json 切断 Common 的第三方实现依赖，同时避免所有数据库 owner 依赖 Protocol；coordination-api 消除 provider 对进程制品的依赖；schema-migrations 让升级资源及 owner 测试不必通过 Metadata 实现获得。最后一个是资源制品，不是空 API/Core 占位模块。Generation 已按真实契约与后端依赖拆为 core / transaction-spi / store-postgresql。Security、Table、File 的进一步拆分仍以独立消费者和实际实现为依据；用精确 exports 与最小 classpath 验证，不为目录对称创建空制品。
 
 `.idea/`、`.vscode/` 等本机状态不作为目标架构的一部分。`target/`、native build 目录、生成源码和发布二进制不手工整理进源码树。
 
@@ -147,13 +150,13 @@ pangrova/
 
 ```mermaid
 flowchart TD
-  Assembly[Coordinator / Worker / Standalone 装配] --> Runtime[Query / Artifact / Scheduler / 领域实现]
+  Assembly[Coordinator / Worker / Standalone 装配] --> Runtime[Query / Generation / Scheduler / 领域实现]
   Assembly --> Providers[Connector / JDBC / ZK / SDK adapters]
   Runtime --> Contracts[各 owner API / SPI / producer events]
   Providers --> Contracts
-  Query[Query runtime] --> Artifact[Artifact]
-  Artifact --> QueryAPI[Query API]
-  Artifact --> SecurityAPI[Security API]
+  Query[Query runtime] --> Generation[Generation]
+  Generation --> QueryAPI[Query API]
+  Generation --> SecurityAPI[Security API]
   Protocol[Protocol codecs] --> Wire[稳定值与 wire schema]
   Json[Serialization JSON adapter] --> Common[Common primitives]
   Contracts --> Common
@@ -188,7 +191,7 @@ flowchart TD
 | Transport | 分 client HTTP、result API、Arrow/Flight adapter、server HTTP；接收 Jetty factory；保留单制品并收窄出口 | P1/P8 |
 | Observability API / SDK | 两制品保留；API 保留其无依赖 no-op；SDK provider 不从领域 core 被直接调用 | P1 |
 | Query API / Query | API 承接 lifecycle/state/execution/transaction 契约；Query 承接 Coordinator query 状态、终态、journal/recovery 和执行编排 | P3/P5 |
-| Artifact | 通用 build/stage/exchange/job publication 完整迁入；Security/Query/领域发布通过事务口接入；不依赖 Metadata 实现 | P3 |
+| Generation | 通用 build/stage/exchange/job publication 完整迁入；Security/Query/领域发布通过事务口接入；不依赖 Metadata 实现 | P3 |
 | Scheduler | 承接通用 admission/placement/speculation；Stage DAG 语义属于 Query；Worker 注册属于协调域 | P5 |
 | Coordination Core / ZooKeeper | core 瘦身为进程装配及入口；ZK 只依赖新增 coordination-api；HTTP 和 bootstrap 分别解环 | P5 |
 | Worker Core / Native Bridge | task 纯状态、内存契约、exchange SPI、bootstrap 资源生命周期分开；JNI write session 与 catalog 分层 | P6 |
@@ -200,7 +203,7 @@ flowchart TD
 | Security | api/core/provider/store 分能力，统一 tenant 与角色权威；JDBC 同事务口收窄；OAuth/LDAP/KMS 等 provider 隔离 | P1/P3/P7 |
 | Governance | audit/classification/lineage/quality 分能力；provider/executor 归 adapter；同步 gate 和异步 lineage 分开 | P7 |
 | AI API / Control / Worker | API 保留运行端口；Control 的 embedding/evaluation/feature 拆契约与实现；Worker 保留 provider 调用与执行资源生命周期 | P3/P7/P8 |
-| Indexing API / Core | API 保留索引稳定契约；Core 承接领域 build/publication/GC；通用 Artifact 不归 Indexing；planner adapter 不泄漏 wire DTO | P3/P4/P7 |
+| Indexing API / Core | API 保留索引稳定契约；Core 承接领域 build/publication/GC；通用 Generation 不归 Indexing；planner adapter 不泄漏 wire DTO | P3/P4/P7 |
 | Materialization Core / Store JDBC | 保留物理边界；domain/port/usecase 按 definition/generation/attempt/publication/schedule/pin/GC 拆；测试回归各 owner | P2/P7 |
 | Streaming | checkpoint/offset/watermark/CDC/pipeline 保持能力划分；core 不依赖 Coordinator；adapter.coordinator 检查是否仅通过契约 | P7 |
 | Shuffle Core / Service | core 为 exchange/spool 能力；service 为远端部署/transport/authority；根包独占、清理记录和恢复 owner 明确 | P6/P8 |
@@ -239,33 +242,33 @@ flowchart TD
 
 验收：同一 SQL 的绑定表、权限应用次数、物化重写、DML surviving rows、fragment/exchange、canonical plan bytes 和 lineage 不变；跨查询不可共享可变 Calcite tree；18 包 SCC 消除且其他 SCC 不增加。
 
-### 4.3 Artifact 和 Metadata
+### 4.3 Generation 和 Metadata
 
-当前 `DataBuildTransactionAuthority` 和 `JdbcDataBuildQueries` 已在 Artifact；本计划以此为起点，不重复创建接口。Metadata 的真实 adapter 继续承担尚未移交的校验。
+当前 `GenerationTransactionAuthority` 等五个同连接契约已归 transaction-spi；`PostgresGenerationQueries` 等真实实现在 PostgreSQL provider。core 独立保留任务/阶段/交换语义契约与不可变证据；本计划以此为起点，不重复创建接口。Metadata 的真实 adapter 继续承担尚未移交的校验。
 
 | 当前对象 | 目标 owner / 包 | 原子性或安全条件 |
 |---|---|---|
-| `JdbcDataBuildStore*`、stage execution/exchange、output/page/claim/mappings | Artifact `store.jdbc.build/stage/exchange` | 同连接提交与回滚；保留 claim 并发、不完整图拒绝、终态单写者 |
-| `DataBuildPublicationJob`、job 状态写入、digest/output validator | Artifact `core.publication` / `store.jdbc.publication` | 领域 adapter 不直接改 `artifact_build_jobs`，通过同事务精确发布口 |
-| `artifact_execution_routes` 查写 | Artifact `store.jdbc.execution` | durable tenant/job route 是权威，hash 不能代替实际关联 |
+| `PostgresGenerationJobStore*`、stage execution/exchange、output/page/claim/mappings | Generation PostgreSQL provider `store.postgresql.job/exchange` | 同连接提交与回滚；保留 claim 并发、不完整图拒绝、终态单写者 |
+| `GenerationPublicationJob`、job 状态写入、digest/output validator | Generation core `core.publication` / PostgreSQL publication 能力（待迁） | 领域 adapter 不直接改 `artifact_build_jobs`，通过同事务精确发布口 |
+| `artifact_execution_routes` 查写 | Generation PostgreSQL provider `store.postgresql.execution` | durable tenant/job route 是权威，hash 不能代替实际关联 |
 | `execution_anchor` 查锁与 live-owner 校验 | Query `store.jdbc.anchor` + Query 所有事务 SPI | 保留 FOR SHARE、锁取得之后另取数据库时间；stale owner 与存储不可用不能投影成同一种错误 |
-| `CurrentDeferredExecutionContext` | Artifact 内部受控解析器 + execution evidence | 不开放任意构造；先 current authority、后真实 fence、再当前 roles；tenant/job 精确匹配 |
-| `JdbcIndexGenerationPublicationStore` | Indexing `adapter.artifact` / `store.jdbc.publication` | 同事务更新索引 generation 和通用 build 状态，不分两次 commit |
-| generated descriptor/submission/publication | AI Control `api.generated` / `adapter.artifact` / `store.jdbc.generated` | 生成列定义和模型状态归 AI Control；Query DML outbox 通过窄事务接口关联，不令 Metadata 反向依赖 AI Control |
-| tabular export publication | Artifact 的通用输出落库；AI Control adapter 维护 Feature association | 通用导出和 Feature View 绑定不是同一事实；关联、build 插入和发布仍原子 |
-| `CurrentModelAuthority` / `JdbcCurrentModelAuthority` | 第35节已落位：Security事务端口、AI Control模型当前态provider | Metadata managed-source、Artifact adapter与生成写入均显式接入；保持同连接、当前角色、两个snapshot集合与空值语义 |
-| `DataBuildStores` | Artifact assembly + 进程跨域 assembly | Artifact 不能在工厂中 new Metadata provider；组合根显式传入真实 authority，不提供无检查默认构造器 |
+| `PostgresCurrentGenerationAuthority` | Generation 内部受控解析器 + execution evidence | 不开放任意构造；先 current authority、后真实 fence、再当前 roles；tenant/job 精确匹配 |
+| `JdbcIndexGenerationPublicationStore` | Indexing `adapter.generation` / `store.jdbc.publication` | 同事务更新索引 generation 和通用 build 状态，不分两次 commit |
+| generated descriptor/submission/publication | AI Control `api.generated` / `adapter.generation` / `store.jdbc.generated` | 生成列定义和模型状态归 AI Control；Query DML outbox 通过窄事务接口关联，不令 Metadata 反向依赖 AI Control |
+| tabular export publication | Generation 的通用输出落库；AI Control adapter 维护 Feature association | 通用导出和 Feature View 绑定不是同一事实；关联、build 插入和发布仍原子 |
+| `CurrentModelAuthority` / `JdbcCurrentModelAuthority` | 第35节已落位：Security事务端口、AI Control模型当前态provider | Metadata managed-source、Generation adapter与生成写入均显式接入；保持同连接、当前角色、两个snapshot集合与空值语义 |
+| `GenerationStores` | Generation assembly + 进程跨域 assembly | Generation 不能在工厂中 new Metadata provider；组合根显式传入真实 authority，不提供无检查默认构造器 |
 
 **迁移时序**：先补供给方窄事务口和回归，再切当前调用者；移动通用 store 后切 factory；最后迁领域 publication adapter 并关闭旧 SQL writer。每一小批完成清理，不用双写/双发布过渡。
 
-**命名状态（2026-10-31）**：原 `pangrova-artifact` 及内部包已迁为 `pangrova-data-build` /
-`org.pangrova.databuild`，但用户认为名称无法解释职责，已否决。现有名称仅是过渡状态。
-目标概念是“派生数据生成任务”：管理执行与结果证据，索引、生成列、导出对象的业务定义和可见版本
-属于各领域。最终名称确定为 `pangrova-generation`，分为 core、transaction-spi、store-postgresql；源码迁移尚待完成。不把通用任务控制误称为全部 Catalog 或
-Dynamic Table/MV Materialization，也不把一个主 SOURCE_SNAPSHOT 标识描述为全部输入均已物理固定。
-后续更名仍须同步 reactor、BOM、manifest、消费者、精确检查规则与文档，删除旧路径和兼容壳。
-数据库历史 migration、表/列、canonical JSON 字段、protobuf 字段与数值标识保留兼容性，
-手写编码器须证明原字节不变。更名不关闭领域 writer、发布原子性与装配整改。
+**命名状态（2026-10-31）**：历史上先使用 `pangrova-artifact`，再迁到已否决的
+`pangrova-data-build` / `org.pangrova.databuild`。当前源码已统一为 `pangrova-generation` /
+`org.pangrova.generation`，分为 core 48、transaction-spi 6、store-postgresql 22 个主源文件；
+旧制品与类型路径已删除。任务管理执行与结果证据，索引、生成列及导出对象的业务定义和可见版本
+仍归各领域；Dynamic Table/MV 仍归既有 Materialization owner。
+reactor、BOM、manifest、消费者和精确 filter 已同步；本批运行时验收另见执行记录。
+历史 migration、表/列、canonical JSON 字段、protobuf 字段与数值标识、缓存路径保持原值。
+更名和物理拆分不关闭领域 writer、发布原子性与装配整改。
 
 **存储独立演进方案（最新要求）**：每个事实 owner 定义语义存储 SPI，PostgreSQL provider 实现它。
 不建立一个容纳 Catalog、任务、模型、索引所有表的通用 CRUD 接口。业务接口不出现
@@ -274,14 +277,14 @@ Dynamic Table/MV Materialization，也不把一个主 SOURCE_SNAPSHOT 标识描�
 
 | 边界 | 契约与业务职责 | PostgreSQL provider 职责 | 本批发现与实施顺序 |
 |---|---|---|---|
-| 生成任务 | job/page/lease、阶段执行、交换证据、发布完成条件；领域输出规则由 owner 提供 | 条件更新、租约竞争、数据库时间、输出证据持久化、事务和锁 | 已有 `DataBuildStore` / `DataBuildPublicationStore`；先补 stage/exchange SPI，迁出实现嵌套 DTO，再拆 provider |
+| 生成任务 | job/page/lease、阶段执行、交换证据、发布完成条件；领域输出规则由 owner 提供 | 条件更新、租约竞争、数据库时间、输出证据持久化、事务和锁 | 任务/阶段/交换 SPI 与8个不可变 DTO 已分离；三叶已落位，领域发布 writer 和格式规则继续按后续批次处理 |
 | Catalog | 目录定义、部署身份/历史、连接器句柄生命周期；与对象库存投影分开 | definition/revision 持久化、并发更新和历史读 | `MetadataStore` 当前混合定义与投影，先拆语义接口与调用者，再移真实实现 |
 | 技术元数据 | 名称/Schema 解析、对象与版本观测、缓存失效、技术依赖 | inventory、outbox、invalidation cursor 的持久化 | `service` 按 resolution/lifecycle/cleanup 分包；不拥有模型/索引/生成列状态 |
 | 各业务领域 | Indexing 的 generation、AI 的生成值与 Feature 关联、Table 的源对象/写提交 | 各 owner 的行写入和领域约束 | 先给跨域事务定义窄 port，再迁 publication writer 与测试，关闭旧写入口 |
 | 共用数据库设施 | 连接与迁移配置，不解释业务表 | 池、驱动、事务生命周期、迁移运行器 | 从 Metadata 基础设施中抽离；历史 SQL 仍只由 schema-migrations 资源制品发布 |
 
 任务存储当前包含 `FOR UPDATE SKIP LOCKED`，完整链还使用 PostgreSQL 的 advisory lock 等语义。
-第一份独立实现应明确命名 PostgreSQL provider；使用 JDBC API 不等于已支持其他关系数据库。
+第一份独立实现已明确命名 PostgreSQL provider；使用 JDBC API 不等于已支持其他关系数据库。
 未来后端必须通过同一份存储契约测试，证明 CAS、租约、持久恢复、幂等与原子发布语义。
 没有实际实现和验证时，不增加宣称支持其他数据库的配置项或空实现。
 
@@ -308,9 +311,9 @@ Metadata `service` 16 类的目标（下列相对包最终归 Catalog；当前�
 | statement / statement.dml | Query `core.statement/transaction` | SQL 入口和领域 DDL handler 的装配；具体 Table/View/Index 操作归各 owner |
 | scheduler / speculation / scheduler.ft | Scheduler 对应 core 能力 | 集群资源快照和 worker transport adapter |
 | task issuance/report/write | Query `core.task/transaction` 与其 SPI | HTTP report endpoint；不将 Worker 进程内 TaskInfo 引入 Query |
-| artifact/runtime/template | Artifact 编排或 Query durable-execution adapter | 真实 runtime 组合、所需 Worker 能力注册 |
+| generation/runtime/template | Generation 编排或 Query durable-execution adapter | 真实 runtime 组合、所需 Worker 能力注册 |
 | adapter.indexing 的生命周期/build/publication | Indexing Core 对应能力 | 编译器/查询入口组合 adapter；不把全部 adapter 原样搬入 core |
-| ai.embedding / feature | AI Control 能力 + Query/Artifact adapter | SQL 绑定入口；不拥有模型或 Feature 持久权威 |
+| ai.embedding / feature | AI Control 能力 + Query/Generation adapter | SQL 绑定入口；不拥有模型或 Feature 持久权威 |
 | materialization / dynamictable | Materialization ports 的 Query/Metadata adapter | adapter 装配；kernel 不依赖 Coordinator |
 | metadata/nativecontrol/read、file、semantic、governance | 相应 owner API 的入口 adapter | 认证、请求解析和 dispatch |
 | coordination.api | 新 coordination-api，包根 `org.pangrova.coordination.api` | leader/coordinator 应用，memory/JDBC provider 与装配 |
@@ -348,10 +351,10 @@ TaskInfo、TaskNativeCreation、TaskTerminalPublication、TaskCleanupRetry 留�
 
 | 事实 | 唯一权威 owner | 跨域协作 |
 |---|---|---|
-| query state/journal/anchor/write commit journal | Query | Artifact 使用同事务 fence/acknowledgment 端口 |
-| artifact job/stage/page/exchange/route/generic publication | Artifact | Indexing/AI/Feature publication adapter 原子关联领域状态 |
-| index definition/generation/commit/GC | Indexing | Query 执行，Artifact 通用 build；不可由 Metadata 任意改状态 |
-| model/generated definition/evaluation/feature association | AI Control | Security 当前授权、Artifact build、Query DML outbox |
+| query state/journal/anchor/write commit journal | Query | Generation 使用同事务 fence/acknowledgment 端口 |
+| artifact job/stage/page/exchange/route/generic publication | Generation | Indexing/AI/Feature publication adapter 原子关联领域状态 |
+| index definition/generation/commit/GC | Indexing | Query 执行，Generation 通用 build；不可由 Metadata 任意改状态 |
+| model/generated definition/evaluation/feature association | AI Control | Security 当前授权、Generation build、Query DML outbox |
 | technical catalog/object/version/outbox/dependency | Metadata | Table 控制、connector metadata、Governance 投影 |
 | table control/policy binding/statistics/maintenance | Table | Security/Governance 提供策略，Metadata 做目录适配 |
 | volume/stage/directory/copy claim/publication | File | Storage 发布内容，Worker 执行传输 |
@@ -403,10 +406,10 @@ Native 子批次必须同时处理 CMake 源集合、include 路径、test 路�
 
 | 批次 | 依赖 | 可交付改动 | 完成条件 | 风险 |
 |---|---|---|---|---|
-| P0 事实和边界声明 | 无 | Artifact 两个导出包说明已补；继续核查其余声明根说明；保存当前依赖/注册/资源事实；建立逐包状态 | 文档/manifest gate 通过；8 SCC 保持真实失败并记录，未扩大豁免 | 低 |
+| P0 事实和边界声明 | 无 | Generation 两个导出包说明已补；继续核查其余声明根说明；保存当前依赖/注册/资源事实；建立逐包状态 | 文档/manifest gate 通过；8 SCC 保持真实失败并记录，未扩大豁免 | 低 |
 | P1 基础层和装配契约 | P0 | Jackson/Jetty 移出 Common；配置装配归位；annotation、公开出口与最小 classpath | Common 不链接框架；canonical bytes 不变；全部消费者编译 | 中 |
 | P2 schema 与测试所有权 | P0 | migrations 资源制品、fixture 依赖、Table/Materialization store 测试迁回 owner | 93 份资源 checksum 不变且无重复；新/旧库迁移和 owner 独立测试通过 | 高 |
-| P3 Artifact 与事务边界 | P1/P2 | authority/fence/publication 窄口、通用 store、领域 adapter；去掉 Indexing 对通用功能的启用绑定 | 同事务撤权/并发/fence/原子发布/恢复通过；关闭索引后的基础 SQL 与具备能力的生成/导出路径通过 | 高 |
+| P3 Generation 与事务边界 | P1/P2 | authority/fence/publication 窄口、通用 store、领域 adapter；去掉 Indexing 对通用功能的启用绑定 | 同事务撤权/并发/fence/原子发布/恢复通过；关闭索引后的基础 SQL 与具备能力的生成/导出路径通过 | 高 |
 | P4 Planner 和 wire 出口 | P0；消耗 P1 基础设施 | 低层绑定/plan 类型、编译管线、Calcite 出口、M4 债务清理 | Planner SCC 清零；计划/授权/Java-native golden；无公开 Calcite 泄漏 | 高 |
 | P5 Coordinator 和 Query/Scheduler | P3/P4 | 按生命周期→执行→调度迁移；coordination-api；bootstrap/HTTP 解环；DDL 归属 | Coordinator 三组 SCC 消失；Query/Scheduler 不依赖进程实现；单/多节点启动、取消/重试/fence | 高 |
 | P6 Worker 和 Native | P0；消费 P3/P5 的稳定执行契约 | 四 SCC 解环、JNI write session、native seam、资源生命周期 | Worker 四 SCC 消失；JNI 对称、native/ASan、remote shuffle、取消关闭完整链 | 高 |
@@ -432,10 +435,10 @@ P1/P2/P4 的独立部分可由不同实施人并行，前提是不同时修改�
 | P1.2 HTTP 与配置 | 移 EmbeddedHttpServerFactory；StateStoreFactory 改实例化装配；校对 annotation 家族兼容性 | 与 P1.1 分开审查；双实例启动/关闭互不污染、既有调用者通过 |
 | P2.1 Migration 资源 | 93 份 SQL 按原字节迁入资源制品，同批删除旧资源副本 | 路径/版本/checksum 清单、新旧库迁移、classpath 无重复 |
 | P2.2 测试归属 | Table 和 Materialization JDBC 的 owner 测试迁回；共享 fixture 不依赖 Metadata runtime | P2.1；无 test-scope 制品环；原断言保留，owner 可独立执行 |
-| P3.1 Query 事务 fence | Query API 提供接收调用方 Connection 的窄事务能力；Query JDBC 实现 anchor 查锁；迁 Artifact 与 ManagedSource 消费者 | 可先于 P2 做接口设计，整体验收仍遵守 P3 前置；真实 PG、同连接、等待锁后过期、owner incarnation/token 不匹配 |
-| P3.2 Artifact route/fence | route 查写迁 Artifact；publication fence 组合 Query 端口；LostOwner 错误契约归 Artifact API；同步所有 catch | P3.1；缺失/损坏 route 与 stale owner 区分；SQL 故障不得按 stale owner 吞掉 |
-| P3.3 Current authority evidence | Security current roles、AI model-current 提供同事务能力；迁 CurrentDeferredExecutionContext；构造保持受控 | P3.2；撤权、tenant/job 错配、模型变化后拒绝，不能传旧角色快照冒充当前角色 |
-| P3.4 通用 store 与查询 | build/stage/exchange/output/page/claim 归 Artifact；清理跨域 SQL read projection；factory 显式注入 | P3.3；候选分页/排序/claim 冲突语义、重启恢复不变，Metadata 无通用 job writer |
+| P3.1 Query 事务 fence | Query API 提供接收调用方 Connection 的窄事务能力；Query JDBC 实现 anchor 查锁；迁 Generation 与 ManagedSource 消费者 | 可先于 P2 做接口设计，整体验收仍遵守 P3 前置；真实 PG、同连接、等待锁后过期、owner incarnation/token 不匹配 |
+| P3.2 Generation route/fence | route 查写迁 Generation；publication fence 组合 Query 端口；LostOwner 错误契约归 Generation API；同步所有 catch | P3.1；缺失/损坏 route 与 stale owner 区分；SQL 故障不得按 stale owner 吞掉 |
+| P3.3 Current authority evidence | Security current roles、AI model-current 提供同事务能力；迁 PostgresCurrentGenerationAuthority；构造保持受控 | P3.2；撤权、tenant/job 错配、模型变化后拒绝，不能传旧角色快照冒充当前角色 |
+| P3.4 通用 store 与查询 | build/stage/exchange/output/page/claim 归 Generation；清理跨域 SQL read projection；factory 显式注入 | P3.3；候选分页/排序/claim 冲突语义、重启恢复不变，Metadata 无通用 job writer |
 | P3.5 领域发布与装配 | Indexing/AI publication adapter 归各 owner；通用 runtime 不再依赖 IndexingBootstrap 开关 | P3.4；领域指针与通用 job 同事务；禁用 Indexing 的能力矩阵与 SQL E2E |
 | P4.1 Planner 低层值 | PlanTable、错误、fragment/trait/cost 类型先分离，消除低层到门面的调用 | 原消费者同批修改；AST SCC 边数减少，绑定身份/类型不变 |
 | P4.2 编译和公开结果 | compile 管线、PlannedQuery 内外分离，替换两个 Calcite tree 消费者；Substrait 出口集中 | P4.1；Planner SCC=0、权限/DML/golden/lineage；不缓存跨查询可变树 |
@@ -451,9 +454,14 @@ P1/P2/P4 的独立部分可由不同实施人并行，前提是不同时修改�
 | P8.1–P8.8 provider/入口 | Connector、AI Worker、Shuffle、Transport、Client、Operations、Standalone、Protocol/Function 各一组闭环 | SDK 不泄漏、真实注册、optional 配置、资源关闭和相应执行链 |
 | P9.1–P9.3 总验收 | 结构与制品收口；统一运行时回归；文档与部署交付 | 前两项真实通过后更新完成状态，任何未执行项目保留未验收 |
 
-**P3 需要单独防止的假完成**：`JdbcDataBuildStore.LIVE_PUBLICATION_ANCHOR` 在候选选择及 claim 冲突查询中直接读取 Query anchor。仅迁 `ArtifactExecutionFence` 并不能关闭这条依赖。该读模型应作为明确的跨域查询 adapter 收口，保留数据库内过滤与分页/原子 claim，不以 SQL 字符串 SPI 或先分页再内存过滤替代。ManagedSource 对 Query fence 的直接静态调用已在第 30 节同批切换；不得制造带虚构 acquiredAt/expiresAt 的 ExecutionAnchor 来满足接口签名。
+**P3 需要继续保留的读投影边界**：初审发现通用 store 的 `LIVE_PUBLICATION_ANCHOR` 直接读取 Query anchor。
+当前这段 SQL 已归 `MetadataGenerationPublicationCandidates`，通过 transaction-spi 的
+`GenerationPublicationCandidates` 提供候选与 live-owner 读投影；PG store 只调用该显式端口。
+后续把 adapter 移到进程装配侧时，继续保留数据库内过滤、排序/分页及 claim 冲突语义，
+不能用 SQL 字符串 SPI 或先分页再内存过滤替代，也不能把 read projection 当作 execution authority。
+ManagedSource 对 Query fence 的静态调用已在第30节切换；不得制造虚构 acquiredAt/expiresAt 的 ExecutionAnchor。
 
-所有 P3 子批次必须保留 `DataBuildExecutionFenceLockIntegrationTest`、`DataBuildPublicationFenceLockIntegrationTest` 的真实 PostgreSQL 锁等待验证。Maven 默认测试筛选可能排除 `*IntegrationTest`，应显式选择并核对实际测试数；默认 owner suite 通过不能替代这两类并发证据。
+所有 P3 子批次必须保留 `GenerationExecutionFenceLockIntegrationTest`、`GenerationPublicationFenceLockIntegrationTest` 的真实 PostgreSQL 锁等待验证。Maven 默认测试筛选可能排除 `*IntegrationTest`，应显式选择并核对实际测试数；默认 owner suite 通过不能替代这两类并发证据。
 
 每个工作单的关闭记录包含：原/新类路径、移除的依赖边、唯一事实/资源 owner、所有生产调用者与注册、兼容性影响、实际验证命令/测试数、残留项。状态按“待设计 → 设计核对 → 实施 → 验证 → 完成”推进；整个批次不因其中一个端口迁移就标记完成。
 
@@ -523,6 +531,6 @@ python3 .pangrova/scripts/generate-module-baseline.py --check
 
 ## 9. 初次计划交付的审查边界
 
-本次完成当前结构盘点、重点耦合源码核验、结构测试复跑，以及覆盖所有模块和包的后续迁移设计。交付前最新 10 项结构测试实际结果为 **9 通过、1 失败、0 跳过**；剩余 8 组包环已经纳入 P3–P6。初审的 **8 通过、2 失败** 保留为历史证据。此次复核未执行全项目运行时回归，也不把现有执行记录中的历史测试成绩冒充本次结果。
+初次计划交付完成结构盘点、重点耦合源码核验、结构测试复跑及全包迁移设计；以下是当时的历史验收记录，不能当作 Generation 本批成绩。当时 10 项结构测试结果为 **9 通过、1 失败、0 跳过**；剩余 8 组包环已经纳入 P3–P6。初审的 **8 通过、2 失败** 保留为历史证据。当前源码规模与三叶归属见本文开头和逐包台账；最新构建、运行时与结构验证统一以执行记录为准。
 
 本计划提供完整范围与可执行迁移单元；649 包的“结构归属已盘点”不等于 3,542 文件的每个方法都经过语义证明。P7/P8 的入口、资源、事务和错误路径审查是实施退出条件，发现行为缺陷时另建最小回归修复，不以搬包掩盖。初次计划交付仅整理计划和审查证据，保留工作区既有迁移。后续目标继续包含实际代码修复、迁移和编译验证，进展与剩余项记录在执行计划第 30 节及以后。

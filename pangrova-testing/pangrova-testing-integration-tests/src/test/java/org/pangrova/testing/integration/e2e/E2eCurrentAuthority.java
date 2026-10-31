@@ -6,13 +6,13 @@ import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.pangrova.coordinator.ai.embedding.DurableGeneratedValueBuildService;
 import org.pangrova.ai.control.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
-import org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner;
+import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.databuild.api.build.DataBuildStore;
+import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
@@ -106,7 +106,7 @@ final class E2eCurrentAuthority {
         var selector = new DefaultWorkerSelector(services.workers(), services.scheduler(),
                 new SplitAssignmentManager(), new SpillBudget(1024L * 1024 * 1024, ""), services.models());
         var builds = new DurableGeneratedValueBuildService(services.builds(), submissions,
-                new SnapshotDataBuildSplitPlanner(services.catalogs()), selector, services.artifactUri(), services.catalogs());
+                new SnapshotGenerationSplitPlanner(services.catalogs()), selector, services.artifactUri(), services.catalogs());
         return new GeneratedValueMaterializationCoordinator(services.catalogs(), builds,
                 services.dataSource(), services.journal(), ModelAuthorityFixtures.models());
     }
@@ -117,7 +117,7 @@ final class E2eCurrentAuthority {
         return roles;
     }
 
-    record GeneratedServices(DataSource dataSource, CatalogRegistry catalogs, DataBuildStore builds,
+    record GeneratedServices(DataSource dataSource, CatalogRegistry catalogs, GenerationJobStore builds,
                              WriteCommitJournal journal, WorkerManager workers, TaskScheduler scheduler,
                              EmbeddingModelRegistry models, String artifactUri) {}
 }

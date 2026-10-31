@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.coordinator.databuild.template.PersistedStagePlan;
-import org.pangrova.coordinator.databuild.template.FrozenStageBindings;
+import org.pangrova.coordinator.generation.template.PersistedStagePlan;
+import org.pangrova.coordinator.generation.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
 import org.pangrova.coordinator.query.stage.StageDAG;
@@ -10,13 +10,13 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.databuild.api.build.DataBuildJobKey;
-import org.pangrova.databuild.api.build.DataBuildLease;
-import org.pangrova.databuild.api.execution.DataBuildStageGraph;
-import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore;
-import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PreparedExecution;
-import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PartitionProgress;
-import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore;
+import org.pangrova.generation.api.job.GenerationJobKey;
+import org.pangrova.generation.api.job.GenerationLease;
+import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
+import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PreparedExecution;
+import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PartitionProgress;
+import org.pangrova.generation.spi.storage.GenerationStageExchangeStore;
 import org.pangrova.planner.ShuffleType;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
@@ -44,14 +44,14 @@ import java.util.function.LongSupplier;
 public final class DurableStageRuntime {
     private final PreparedExecution execution;
     private final Dependencies dependencies;
-    private final DataBuildJobKey job;
+    private final GenerationJobKey job;
     private final StageExecutionContext.Durable control;
 
     /** Runtime dependencies do not become part of the immutable plan or persisted identity. */
-    public record Dependencies(DataBuildStageExecutionStore stages, WorkerManager workers,
+    public record Dependencies(GenerationStageExecutionStore stages, WorkerManager workers,
             TaskScheduler scheduler, LongSupplier controlTerm, Duration leaseDuration,
             BiConsumer<PreparedTask, CompletableFuture<DispatchResult>> dispatched,
-            DataBuildStageExchangeStore exchanges) {
+            GenerationStageExchangeStore exchanges) {
         public Dependencies {
             java.util.Objects.requireNonNull(stages, "stages");
             java.util.Objects.requireNonNull(workers, "workers");
@@ -66,16 +66,16 @@ public final class DurableStageRuntime {
     }
 
     /** The exact claim, local Worker snapshot and canonical request, returned only after the PG transaction commits. */
-    public record PreparedTask(DataBuildLease lease, WorkerInfo worker, SubmitTaskRequest request) {}
+    public record PreparedTask(GenerationLease lease, WorkerInfo worker, SubmitTaskRequest request) {}
 
     /** Uses only the current authority returned by the same transactional graph preparation port. */
     public DurableStageRuntime(PreparedExecution execution, Dependencies dependencies) {
         this.execution = java.util.Objects.requireNonNull(execution, "execution");
         this.dependencies = java.util.Objects.requireNonNull(dependencies, "dependencies");
         var spec = execution.authority().dispatchSpec();
-        job = new DataBuildJobKey(spec.tenantId(), spec.jobId());
+        job = new GenerationJobKey(spec.tenantId(), spec.jobId());
         if (!execution.job().tenantId().equals(job.tenantId()) || !execution.job().jobId().equals(job.jobId())
-                || spec.stageGraph().purpose() != DataBuildStageGraph.Purpose.RELATIONAL_EXPORT) {
+                || spec.stageGraph().purpose() != GenerationStageGraph.Purpose.RELATIONAL_EXPORT) {
             throw new IllegalArgumentException("Durable stage runtime differs from its actual relational job");
         }
         var epochs = new HashMap<Integer, Long>();
@@ -90,10 +90,10 @@ public final class DurableStageRuntime {
     }
 
     /** Hooks real register/finalize RPCs into the existing current-authority metadata barrier. */
-    public org.pangrova.coordinator.databuild.DurableStageShuffleEvidence shuffleEvidence() {
-        return new org.pangrova.coordinator.databuild.DurableStageShuffleEvidence(dependencies.exchanges(),
+    public org.pangrova.coordinator.generation.DurableStageShuffleEvidence shuffleEvidence() {
+        return new org.pangrova.coordinator.generation.DurableStageShuffleEvidence(dependencies.exchanges(),
                 execution.authority().dispatchSpec(), execution.job().sourceSnapshot(),
-                () -> org.pangrova.databuild.api.execution.DataBuildExecutionOwner.from(
+                () -> org.pangrova.generation.api.execution.GenerationExecutionOwner.from(
                         execution.authority().executionAnchor()));
     }
 
@@ -123,7 +123,7 @@ public final class DurableStageRuntime {
     }
 
     /** Opaque persisted bytes are inspected only at this execution boundary, never by the metadata store. */
-    static void validateExchangeContracts(DataBuildStageGraph graph) {
+    static void validateExchangeContracts(GenerationStageGraph graph) {
         if (graph.exchanges().isEmpty()) return;
         Map<Integer, SerializedPlanFragment> plans = new HashMap<>();
         graph.stages().forEach(stage -> plans.put(stage.stageId(),
@@ -160,7 +160,7 @@ public final class DurableStageRuntime {
             DurablePartitionRequest.ExchangeAccess exchange, Instant now) {
         List<WorkerInfo> snapshot = List.copyOf(dependencies.workers().getActiveWorkers());
         long term = dependencies.controlTerm().getAsLong();
-        var claim = new DataBuildStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
+        var claim = new GenerationStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
                 stage, partition, progress.pageOrdinal(), term, dependencies.leaseDuration(), now);
         return dependencies.stages().preparePartition(claim, evidence -> {
             var request = DurablePartitionRequest.prepare(evidence, exchange, now, control.traceContext());
@@ -225,7 +225,7 @@ public final class DurableStageRuntime {
                 && coverage.getCoverageRatio() == 1.0;
     }
 
-    private static boolean exactIssuedAttempt(DataBuildStageExecutionStore.NativeWinner stored,
+    private static boolean exactIssuedAttempt(GenerationStageExecutionStore.NativeWinner stored,
             org.pangrova.protocol.v2.TaskAttemptId attempt) {
         var owner = attempt.getExecutionOwner();
         return attempt.getAttemptId() == stored.attemptId() && attempt.getFencingToken() == stored.fencingToken()

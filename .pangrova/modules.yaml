@@ -193,12 +193,30 @@ artifacts:
     forbiddenImports: [pangrova-query, pangrova-metadata, pangrova-coordination-core, pangrova-worker-core, pangrova-planner, pangrova-security]
     providers: {}
 
-  pangrova-data-build:
-    path: pangrova-data-build
-    moduleName: org.pangrova.databuild
-    packageRoots: [org.pangrova.databuild.api, org.pangrova.databuild.protocol, org.pangrova.databuild.assembly, org.pangrova.databuild.core.publication, org.pangrova.databuild.spi.jdbc, org.pangrova.databuild.spi.storage, org.pangrova.databuild.store.jdbc.query, org.pangrova.databuild.store.jdbc.execution, org.pangrova.databuild.store.jdbc.build, org.pangrova.databuild.store.jdbc.exchange]
-    exports: [org.pangrova.databuild.api, org.pangrova.databuild.protocol, org.pangrova.databuild.assembly, org.pangrova.databuild.spi.jdbc, org.pangrova.databuild.spi.storage, org.pangrova.databuild.store.jdbc.query, org.pangrova.databuild.store.jdbc.execution, org.pangrova.databuild.store.jdbc.build, org.pangrova.databuild.store.jdbc.exchange]
+  pangrova-generation-core:
+    path: pangrova-generation/pangrova-generation-core
+    moduleName: org.pangrova.generation.core
+    packageRoots: [org.pangrova.generation.api, org.pangrova.generation.protocol, org.pangrova.generation.assembly, org.pangrova.generation.core.publication, org.pangrova.generation.spi.storage]
+    exports: [org.pangrova.generation.api, org.pangrova.generation.protocol, org.pangrova.generation.assembly, org.pangrova.generation.spi.storage]
     allowedImports: [pangrova-common, pangrova-query-api, pangrova-security]
+    forbiddenImports: [pangrova-generation-transaction-spi, pangrova-generation-store-postgresql, pangrova-metadata, pangrova-query, pangrova-ai-control, pangrova-indexing-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
+    providers: {}
+
+  pangrova-generation-transaction-spi:
+    path: pangrova-generation/pangrova-generation-transaction-spi
+    moduleName: org.pangrova.generation.transaction.spi
+    packageRoots: [org.pangrova.generation.spi.jdbc]
+    exports: [org.pangrova.generation.spi.jdbc]
+    allowedImports: [pangrova-generation-core, pangrova-common, pangrova-query-api]
+    forbiddenImports: [pangrova-generation-store-postgresql, pangrova-metadata, pangrova-query, pangrova-ai-control, pangrova-indexing-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
+    providers: {}
+
+  pangrova-generation-store-postgresql:
+    path: pangrova-generation/pangrova-generation-store-postgresql
+    moduleName: org.pangrova.generation.store.postgresql
+    packageRoots: [org.pangrova.generation.store.postgresql.job, org.pangrova.generation.store.postgresql.query, org.pangrova.generation.store.postgresql.execution, org.pangrova.generation.store.postgresql.exchange]
+    exports: [org.pangrova.generation.store.postgresql.job, org.pangrova.generation.store.postgresql.query, org.pangrova.generation.store.postgresql.execution, org.pangrova.generation.store.postgresql.exchange]
+    allowedImports: [pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-common, pangrova-query-api, pangrova-security]
     forbiddenImports: [pangrova-metadata, pangrova-query, pangrova-ai-control, pangrova-indexing-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
     providers: {}
 
@@ -327,7 +345,9 @@ artifacts:
     packageRoots: [org.pangrova.metadata]
     exports: [org.pangrova.metadata]
     allowedImports:
-      - pangrova-data-build
+      - pangrova-generation-core
+      - pangrova-generation-transaction-spi
+      - pangrova-generation-store-postgresql
       - pangrova-connector-spi
       - pangrova-common
       - pangrova-governance
@@ -339,6 +359,8 @@ artifacts:
       - pangrova-streaming
       - pangrova-table
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
+    friendExports:
+      pangrova-generation-store-postgresql: [org.pangrova.generation.store.postgresql.job, org.pangrova.generation.store.postgresql.query, org.pangrova.generation.store.postgresql.execution, org.pangrova.generation.store.postgresql.exchange]
     providers: {}
 
   pangrova-semantic:
@@ -429,7 +451,7 @@ artifacts:
     moduleName: org.pangrova.ai.control
     packageRoots: [org.pangrova.ai.control]
     exports: [org.pangrova.ai.control]
-    allowedImports: [pangrova-data-build, pangrova-common, pangrova-ai-api, pangrova-security]
+    allowedImports: [pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-common, pangrova-ai-api, pangrova-security]
     forbiddenImports:
       - pangrova-metadata
       - pangrova-coordination-core
@@ -560,7 +582,8 @@ artifacts:
       - pangrova-coordination-api
       - pangrova-coordination-jdbc
       - pangrova-coordination-inmemory
-      - pangrova-data-build
+      - pangrova-generation-core
+      - pangrova-generation-transaction-spi
       - pangrova-ai-api
       - pangrova-ai-control
       - pangrova-client-core

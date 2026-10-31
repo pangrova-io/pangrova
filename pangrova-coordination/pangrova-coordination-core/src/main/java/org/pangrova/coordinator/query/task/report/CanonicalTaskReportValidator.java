@@ -60,7 +60,7 @@ public final class CanonicalTaskReportValidator {
         validateOrigin(status);
         validateCoverage(status, expectedRequest);
         validateTaskUsage(status, expectedRequest);
-        DataBuildTaskReportValidator.validate(status, report, expectedRequest);
+        GenerationTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);
         return Optional.of(status);
     }

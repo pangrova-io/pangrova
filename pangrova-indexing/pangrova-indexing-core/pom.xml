@@ -21,7 +21,17 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-data-build</artifactId>
+            <artifactId>pangrova-generation-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-generation-transaction-spi</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-generation-store-postgresql</artifactId>
             <scope>test</scope>
         </dependency>
 

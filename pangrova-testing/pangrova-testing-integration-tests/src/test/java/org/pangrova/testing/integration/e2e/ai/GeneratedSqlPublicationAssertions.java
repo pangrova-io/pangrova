@@ -5,7 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.databuild.api.build.DataBuildJobKey;
+import org.pangrova.generation.api.job.GenerationJobKey;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
 
@@ -96,7 +96,7 @@ final class GeneratedSqlPublicationAssertions {
         } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
             throw new AssertionError("Stored Native report must be the original canonical wire report", malformed);
         }
-        String executionId = new DataBuildJobKey(row.getString("tenant_id"), row.getString("job_id"))
+        String executionId = new GenerationJobKey(row.getString("tenant_id"), row.getString("job_id"))
                 .executionId();
         assertThat(row.getString("execution_id")).isEqualTo(executionId);
         assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);

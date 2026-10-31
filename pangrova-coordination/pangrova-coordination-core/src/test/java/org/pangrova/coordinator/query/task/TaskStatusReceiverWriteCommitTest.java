@@ -5,7 +5,7 @@ import org.pangrova.scheduler.api.placement.TaskDuration;
 
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
-import org.pangrova.coordinator.query.task.report.DataBuildWorkReportSink;
+import org.pangrova.coordinator.query.task.report.GenerationWorkReportSink;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
@@ -113,7 +113,7 @@ class TaskStatusReceiverWriteCommitTest {
                 queryManager, tracker, workerManager,
                 null, null, null, null,
                 catalogRegistry, writeCommitTracker, null, null, writeCommitJournal,
-                DataBuildWorkReportSink.rejecting());
+                GenerationWorkReportSink.rejecting());
         receiver = new TaskStatusReceiver(deps);
     }
 
@@ -191,7 +191,7 @@ class TaskStatusReceiverWriteCommitTest {
                 queryManager, tracker, workerManager,
                 null, null, null, null,
                 catalogRegistry, writeCommitTracker, callback, null, writeCommitJournal,
-                DataBuildWorkReportSink.rejecting()));
+                GenerationWorkReportSink.rejecting()));
     }
 
     private void registerRunningQuery() {
@@ -288,7 +288,7 @@ class TaskStatusReceiverWriteCommitTest {
                 queryManager, tracker, workerManager,
                 null, null, null, null,
                 catalogRegistry, writeCommitTracker, null, null, writeCommitJournal,
-                DataBuildWorkReportSink.rejecting()));
+                GenerationWorkReportSink.rejecting()));
         tracker.openQueryIssuance(QUERY_ID);
         registerRunningQuery();
         tracker.registerTask(QUERY_ID, "t-race");

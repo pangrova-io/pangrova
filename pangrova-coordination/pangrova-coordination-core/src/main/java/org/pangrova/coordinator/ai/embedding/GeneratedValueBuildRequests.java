@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.DataBuildDependencySet;
-import org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy;
-import org.pangrova.databuild.api.DataBuildExecutionKind;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
-import org.pangrova.planner.databuild.DataBuildPlan;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.GenerationDependencySet;
+import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.planner.generation.GenerationPlan;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.NamedValue;
 
@@ -21,10 +21,10 @@ final class GeneratedValueBuildRequests {
     record Identity(String tenant, String sourceId, String artifactId, String generation,
                     String jobId, String stagingUri, String snapshot) {}
 
-    static ArtifactWriteBinding output(DataBuildPlan plan, Identity identity, List<NamedValue> properties) {
+    static ArtifactWriteBinding output(GenerationPlan plan, Identity identity, List<NamedValue> properties) {
         return ArtifactWriteBinding.newBuilder()
                 .setArtifactId(identity.artifactId())
-                .setArtifactType(DataBuildOutputTypeIds.GENERATED_COLUMN_VALUES)
+                .setArtifactType(GenerationOutputTypeIds.GENERATED_COLUMN_VALUES)
                 .setGeneration(identity.generation())
                 .setSourceId(identity.sourceId())
                 .setSourceSnapshot(identity.snapshot())
@@ -41,25 +41,25 @@ final class GeneratedValueBuildRequests {
                 .setDependencySetChecksum(org.pangrova.protocol.v2.Checksum.newBuilder()
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
-                                HexFormat.of().parseHex(DataBuildDependencySet.sourceSnapshot(
+                                HexFormat.of().parseHex(GenerationDependencySet.sourceSnapshot(
                                         identity.sourceId(), identity.snapshot()).sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2.ArtifactEmptyPartitionPolicy
                         .ARTIFACT_EMPTY_PARTITION_POLICY_FORBID)
                 .build();
     }
 
-    static DataBuildJob job(DataBuildPlan plan, Identity identity, int pageCount, Instant now) {
-        return new DataBuildJob(
+    static GenerationJob job(GenerationPlan plan, Identity identity, int pageCount, Instant now) {
+        return new GenerationJob(
                 identity.tenant(),
                 identity.jobId(),
                 identity.artifactId(),
-                DataBuildOutputTypeIds.GENERATED_COLUMN_VALUES,
+                GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
                 identity.generation(),
                 identity.sourceId(),
                 identity.snapshot(),
-                DataBuildExecutionKind.BUILD,
-                DataBuildDependencySet.sourceSnapshot(identity.sourceId(), identity.snapshot()),
-                DataBuildEmptyPartitionPolicy.FORBID,
+                GenerationExecutionKind.BUILD,
+                GenerationDependencySet.sourceSnapshot(identity.sourceId(), identity.snapshot()),
+                GenerationEmptyPartitionPolicy.FORBID,
                 identity.stagingUri(),
                 plan.format().getFormatId(),
                 plan.format().getMajorVersion(),
@@ -72,8 +72,8 @@ final class GeneratedValueBuildRequests {
                 pageCount,
                 0,
                 pageCount == 0
-                        ? DataBuildJobState.READY_TO_PUBLISH
-                        : DataBuildJobState.QUEUED,
+                        ? GenerationJobState.READY_TO_PUBLISH
+                        : GenerationJobState.QUEUED,
                 0,
                 now,
                 now,

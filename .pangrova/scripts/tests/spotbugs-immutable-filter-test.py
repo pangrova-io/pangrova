@@ -206,7 +206,7 @@ public final class ImmutableFilterBoundary {
             command(isolated, owner, method, signature, "SQL_INJECTION_JDBC", true);
             command(full, owner, method, signature, "SQL_INJECTION_JDBC", true);
             // Client JDBC intentionally has several approved overloads; the Artifact methods have one each.
-            var boundaries = owner.startsWith("org.pangrova.databuild.")
+            var boundaries = owner.startsWith("org.pangrova.generation.")
                     ? java.util.List.of(isolated, full) : java.util.List.of(isolated);
             for (Filter boundary : boundaries) {
                 command(boundary, owner + "Other", method, signature, "SQL_INJECTION_JDBC", false);
@@ -359,7 +359,7 @@ def main():
         borrowed_manifest.write_text('\n'.join(borrowed_cases), encoding='utf-8')
         jdbc_matches = [match for match in full_filter.getroot()
                         if any(child.tag.endswith('Class') and child.get('name', '').startswith(
-                            ('org.pangrova.client.jdbc.', 'org.pangrova.databuild.store.jdbc.')) for child in match)
+                            ('org.pangrova.client.jdbc.', 'org.pangrova.generation.store.postgresql.')) for child in match)
                         and any(child.tag.endswith('Bug') and child.get('pattern') == 'SQL_INJECTION_JDBC'
                                 for child in match)]
         expected_jdbc = {
@@ -372,16 +372,16 @@ def main():
             for params in ('java.lang.String,int', 'java.lang.String,int[]', 'java.lang.String,java.lang.String[]')
         }
         expected_jdbc |= {
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadOutputsForPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.List'),
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadPublishedSourceSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List', 'java.util.Map'),
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadSourceOutputs', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List', 'void'),
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadStoredSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map', 'void'),
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.databuild.store.jdbc.build.JdbcDataBuildPageSelection$Selection', 'java.util.Optional'),
-            ('org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
-            ('org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.databuild.api.build.DataBuildJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
-            ('org.pangrova.databuild.store.jdbc.exchange.JdbcDataBuildStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.databuild.api.build.DataBuildJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadOutputsForPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.List'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadPublishedSourceSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List', 'java.util.Map'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadSourceOutputs', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List', 'void'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadStoredSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map', 'void'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection$Selection', 'java.util.Optional'),
+            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.generation.api.job.GenerationJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
+            ('org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.generation.api.job.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
         }
         if len(jdbc_matches) != len(expected_jdbc):
             raise RuntimeError('Expected 21 exact JDBC forwarding/Artifact SQL classifications')
@@ -444,13 +444,13 @@ def main():
         identity_manifest = temporary / 'jdbc-identity-cases.txt'
         identity_manifest.write_text('\n'.join(identity_cases), encoding='utf-8')
         expected_metadata = {
-            ('org.pangrova.databuild.api.execution.DataBuildExchangeFinalization', 'partitions', 'java.util.List'),
-            ('org.pangrova.databuild.api.execution.DataBuildExchangeRegistration', 'endpoints', 'java.util.List'),
-            ('org.pangrova.databuild.api.execution.DataBuildStageGraph', 'stages', 'java.util.List'),
-            ('org.pangrova.databuild.api.execution.DataBuildStageGraph', 'exchanges', 'java.util.List'),
-            ('org.pangrova.databuild.api.execution.DataBuildStageGraph', 'modelSnapshots', 'java.util.List'),
-            ('org.pangrova.databuild.api.execution.template.DataBuildStageTemplate', 'publicationReads', 'java.util.List'),
-            ('org.pangrova.databuild.api.DataBuildDependencySet', 'dependencies', 'java.util.List'),
+            ('org.pangrova.generation.api.execution.GenerationExchangeFinalization', 'partitions', 'java.util.List'),
+            ('org.pangrova.generation.api.execution.GenerationExchangeRegistration', 'endpoints', 'java.util.List'),
+            ('org.pangrova.generation.api.execution.GenerationStageGraph', 'stages', 'java.util.List'),
+            ('org.pangrova.generation.api.execution.GenerationStageGraph', 'exchanges', 'java.util.List'),
+            ('org.pangrova.generation.api.execution.GenerationStageGraph', 'modelSnapshots', 'java.util.List'),
+            ('org.pangrova.generation.api.execution.template.GenerationStageTemplate', 'publicationReads', 'java.util.List'),
+            ('org.pangrova.generation.api.GenerationDependencySet', 'dependencies', 'java.util.List'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'columns', 'java.util.List'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'partitionSpec', 'java.util.Map'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'sortOrder', 'java.util.List'),

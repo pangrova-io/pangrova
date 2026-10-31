@@ -2,12 +2,12 @@ package org.pangrova.ai.control.store.jdbc.feature;
 
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
-import org.pangrova.databuild.api.DataBuildExecutionKind;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.spi.jdbc.DataBuildJobSubmissionTransactions;
+import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.spi.jdbc.GenerationJobSubmissionTransactions;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.ai.control.api.CatalogExportStorageException;
 
@@ -20,17 +20,17 @@ import java.util.Objects;
 @Internal
 public final class JdbcCatalogExportBuildStore implements CatalogExportBuildStore {
     private final DataSource dataSource;
-    private final DataBuildJobSubmissionTransactions jobSubmissions;
+    private final GenerationJobSubmissionTransactions jobSubmissions;
 
     public JdbcCatalogExportBuildStore(
-            DataSource dataSource, DataBuildJobSubmissionTransactions jobSubmissions) {
+            DataSource dataSource, GenerationJobSubmissionTransactions jobSubmissions) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.jobSubmissions = Objects.requireNonNull(jobSubmissions, "jobSubmissions");
     }
 
     @Override
-    public void createCatalogExportJob(CatalogExportRequest request, DataBuildJob job,
-            DataBuildDispatchSpec dispatchSpec, List<DataBuildPage> pages) {
+    public void createCatalogExportJob(CatalogExportRequest request, GenerationJob job,
+            GenerationDispatchSpec dispatchSpec, List<GenerationPage> pages) {
         requireIdentity(request, job, dispatchSpec);
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -51,8 +51,8 @@ public final class JdbcCatalogExportBuildStore implements CatalogExportBuildStor
         }
     }
 
-    private static void requireIdentity(CatalogExportRequest request, DataBuildJob job,
-            DataBuildDispatchSpec dispatchSpec) {
+    private static void requireIdentity(CatalogExportRequest request, GenerationJob job,
+            GenerationDispatchSpec dispatchSpec) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(job, "job");
         Objects.requireNonNull(dispatchSpec, "dispatchSpec");
@@ -62,8 +62,8 @@ public final class JdbcCatalogExportBuildStore implements CatalogExportBuildStor
                 || !request.artifactId().equals(job.artifactId())
                 || !request.generation().equals(job.stagingGeneration())
                 || !request.dependencySha256().equalsIgnoreCase(job.dependencySet().sha256())
-                || !DataBuildOutputTypeIds.TABULAR_EXPORT.equals(job.artifactType())
-                || job.executionKind() != DataBuildExecutionKind.EXPORT) {
+                || !GenerationOutputTypeIds.TABULAR_EXPORT.equals(job.artifactType())
+                || job.executionKind() != GenerationExecutionKind.EXPORT) {
             throw new IllegalArgumentException("Catalog export link differs from its authorized artifact job identity");
         }
     }

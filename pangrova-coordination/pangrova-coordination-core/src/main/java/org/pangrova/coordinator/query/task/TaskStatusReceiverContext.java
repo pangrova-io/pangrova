@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
-import org.pangrova.coordinator.query.task.report.DataBuildWorkReportSink;
+import org.pangrova.coordinator.query.task.report.GenerationWorkReportSink;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -41,7 +41,7 @@ public record TaskStatusReceiverContext(
         StageCompletionCallback stageCompletionCallback,
         LineageEventEmitter lineageEmitter,
         WriteCommitJournal writeCommitJournal,
-        DataBuildWorkReportSink artifactWorkReportSink) {
+        GenerationWorkReportSink artifactWorkReportSink) {
 
     /** Compatibility constructor for callers that cannot dispatch background artifact work. */
     // The compatibility adapter retains exact fields for existing report producers.
@@ -62,7 +62,7 @@ public record TaskStatusReceiverContext(
         this(queryManager, taskTracker, workerManager, speculativeLauncher,
                 duplicateResolver, taskDispatcher, stateJournal, catalogRegistry,
                 writeCommitTracker, stageCompletionCallback, lineageEmitter,
-                writeCommitJournal, DataBuildWorkReportSink.rejecting());
+                writeCommitJournal, GenerationWorkReportSink.rejecting());
     }
 
     public TaskStatusReceiverContext {
@@ -79,7 +79,7 @@ public record TaskStatusReceiverContext(
         // lineageEmitter is nullable — lineage disabled when null
         // writeCommitJournal is nullable — defaults to InMemoryWriteCommitJournal
         artifactWorkReportSink = artifactWorkReportSink == null
-                ? DataBuildWorkReportSink.rejecting() : artifactWorkReportSink;
+                ? GenerationWorkReportSink.rejecting() : artifactWorkReportSink;
     }
 
     /** Factory for non-speculative mode (core dependencies only). */
@@ -90,6 +90,6 @@ public record TaskStatusReceiverContext(
         return new TaskStatusReceiverContext(
                 queryManager, taskTracker, workerManager, null, null, null,
                 queryManager.getStateJournal(), null, null, null, null, null,
-                DataBuildWorkReportSink.rejecting());
+                GenerationWorkReportSink.rejecting());
     }
 }

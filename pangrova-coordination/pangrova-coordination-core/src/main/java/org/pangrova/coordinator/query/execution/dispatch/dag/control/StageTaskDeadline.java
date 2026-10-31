@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildLease;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationLease;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.time.Duration;
@@ -29,7 +29,7 @@ public record StageTaskDeadline(long epochMillis, Instant preparedAt) {
 
     /** Database renewal cannot extend a previously dispatched partition's Native credentials. */
     public static StageTaskDeadline forPartition(
-            DataBuildLease lease, DataBuildDispatchSpec spec, Instant now) {
+            GenerationLease lease, GenerationDispatchSpec spec, Instant now) {
         return new StageTaskDeadline(Math.min(lease.expiresAt().toEpochMilli(),
                 Math.addExact(now.toEpochMilli(), spec.taskTimeoutMillis())), now);
     }

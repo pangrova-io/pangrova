@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.metadata.assembly.databuild.DataBuildStores;
+import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 
 import java.util.concurrent.ScheduledExecutorService;
@@ -63,7 +63,7 @@ final class QueryBootstrap {
     private final org.pangrova.security.api.secret.SecretResolver secretResolver;
     private final org.pangrova.ai.control.assembly.AiInfrastructureStores aiInfrastructureStores;
     private final CurrentModelAuthority modelAuthority;
-    private final DataBuildStores artifactStores;
+    private final GenerationStores artifactStores;
 
     private WorkerManager workerManager;
     private QueryManager queryManager;
@@ -89,12 +89,12 @@ final class QueryBootstrap {
     private TaskScheduler taskScheduler;
     private WeightedFairScheduler fairScheduler;
     private org.pangrova.planner.cache.QueryResultCache queryResultCache;
-    private org.pangrova.databuild.api.build.DataBuildStore artifactBuildStore;
+    private org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
     private org.pangrova.ai.control.embedding.EmbeddingModelRegistry
             embeddingModelRegistry;
-    private org.pangrova.coordinator.databuild.DurableDataBuildDispatcher
+    private org.pangrova.coordinator.generation.DurableGenerationDispatcher
             artifactBuildDispatcher;
     private org.pangrova.coordinator.materialization.MaterializationMaintenance
             materializationMaintenance;
@@ -145,7 +145,7 @@ final class QueryBootstrap {
         this.secretResolver = secretResolver;
         this.aiInfrastructureStores = aiInfrastructureStores;
         this.modelAuthority = java.util.Objects.requireNonNull(modelAuthority, "modelAuthority");
-        artifactStores = new DataBuildStores(modelAuthority);
+        artifactStores = new GenerationStores(modelAuthority);
     }
 
     void start() {
@@ -361,17 +361,17 @@ final class QueryBootstrap {
         if (artifactBuildStore == null || artifactBuildDispatcher != null) {
             return;
         }
-        artifactBuildDispatcher = new org.pangrova.coordinator.databuild.DurableDataBuildDispatcher(
-                new org.pangrova.coordinator.databuild.DurableDataBuildDispatcher.Dependencies(
+        artifactBuildDispatcher = new org.pangrova.coordinator.generation.DurableGenerationDispatcher(
+                new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Dependencies(
                         artifactBuildStore, taskScheduler, workerManager, remoteTaskDispatcher,
                         taskTracker, config.coordinatorId(), activeControlTerm,
-                        new org.pangrova.coordinator.databuild.DataBuildExecutionOwnership(
+                        new org.pangrova.coordinator.generation.GenerationExecutionOwnership(
                                 service, config.coordinatorId()),
                         artifactStores.stages(
                                 metadataDataSource),
                         artifactStores.exchanges(metadataDataSource),
                         queryDispatcher.dagEngine()),
-                new org.pangrova.coordinator.databuild.DurableDataBuildDispatcher.Settings(
+                new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
                         java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(5), 32));
         artifactPoll = schedulerExecutor().scheduleWithFixedDelay(() -> {
             try {
@@ -531,10 +531,10 @@ final class QueryBootstrap {
             CatalogRegistry catalog, StageCompletionCallback stageCallback,
             org.pangrova.connector.spi.coordination.WriteCommitJournal journal) {
         boolean speculative = config.speculationEnabled() && speculativeTaskLauncher != null;
-        org.pangrova.coordinator.query.task.report.DataBuildWorkReportSink artifactSink =
+        org.pangrova.coordinator.query.task.report.GenerationWorkReportSink artifactSink =
                 artifactBuildStore == null
-                        ? org.pangrova.coordinator.query.task.report.DataBuildWorkReportSink.rejecting()
-                        : new org.pangrova.coordinator.query.task.report.DurableDataBuildWorkReportSink(
+                        ? org.pangrova.coordinator.query.task.report.GenerationWorkReportSink.rejecting()
+                        : new org.pangrova.coordinator.query.task.report.DurableGenerationWorkReportSink(
                                 artifactBuildStore,
                                 artifactStores.stages(
                                         metadataDataSource));

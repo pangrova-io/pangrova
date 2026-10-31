@@ -15,7 +15,7 @@ import org.pangrova.connector.iceberg.IcebergConnector;
 import org.pangrova.coordinator.adapter.indexing.ddl.ConnectorAccessorResolver;
 import org.pangrova.coordinator.adapter.indexing.ddl.DeferredSnapshotPinProvider;
 import org.pangrova.coordinator.adapter.indexing.ddl.IndexSourceAuthority;
-import org.pangrova.coordinator.testinfra.CoordinatorDataBuildAuthorityFixtures;
+import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.indexing.core.config.GcConfig;
 import org.pangrova.indexing.core.config.IndexingConfig;
@@ -122,7 +122,7 @@ class IndexGcIcebergPinIntegrationTest {
         var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_revoked_cleanup");
         var indexes = new JdbcIndexMetadataStore(dataSource);
         var source = new QualifiedTableName("cat", "db", "items");
-        CoordinatorDataBuildAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
+        CoordinatorGenerationAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
                 DeferredAuthorizationScope.raw(source, Set.of("id"), source));
         var lifecycle = new LifecycleConfig(new GcConfig(1, 0), null, null);
         var config = new IndexingConfig(warehouse.toString(), false, null, lifecycle);

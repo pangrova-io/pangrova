@@ -345,3 +345,25 @@ S3新增同连接输入SPI，真实reader六个方法体与SQL不变；Metadata�
 Catalog新增只读审计确认真实同步历史/续读游标混淆，B0已列出源确认边界、scope、CAS与真实PG
 修复回归设计；未将设计冒充实现。输出校验SQL仍在Metadata，Index digest仍是领域算法；
 物理三制品和后续发布拆分未因S3通过而提前关闭。上一检查点`c2402293`已推送。
+
+## 41. Generation 三制品物理隔离证据
+
+`pangrova-generation` 单词名称及 core/transaction-spi/store-postgresql 已实际落地，旧data-build
+制品退役；Materialization继续拥有独立Dynamic Table/MV领域。三叶主/测试源分别48/8、6/1、22/3。
+真实core classpath排除两个兄弟制品；JDBC端口测试归transaction-spi，PG取消/锁/回滚测试归真实
+provider，未保留空权限默认值或旧类型转发壳。Metadata领域writer/装配ABI仍待迁，不能混称完成。
+
+迁移231类型/27包、241文件更新/180路径移动；独立审计239纯改名文件代码token一致，其他测试
+变化按后置patch核对。1,045个SQL/proto/native/golden保护文件字节一致，240次main显式v2引用
+不变。旧owner先clean，全67项目随后clean install一次通过（跳过测试）；57个JAR无映射旧类。
+
+core33、transaction-spi1、PG6、Protocol602、AI71、Metadata580、Planner选定19、Indexing27、
+Coordinator48、Integration23项均通过，相关static通过。PG及Coordinator各2处更名长行只换行
+后单独static/install通过，没有重复无行为变化的测试或放宽规则。Planner不是完整owner回归。
+Native复用匹配库，本批没有Native/JNI输入变更，没有重新执行ASan。
+
+模块/包/状态枚举12项通过；无环项仍因原7组失败，按包映射对比成员一致。SPI gate覆盖104个
+已标注公共类型/0gap、22个Stable有真实实现；精确filter正反例通过。文档初漏旧dispatcher引用
+已修正，架构类引用241项通过。当前67reactor/53Java叶子/1资源制品、3571主源/657包/2374测试源；
+657行台账及53叶子计数对齐，限定五文档895链接有效。详细日志前缀`/tmp/pangrova-generation-*`。
+阶段40检查点`7c9c9d7d`已推送；本批不关闭Catalog B0、B6、Worker待修环和全项目最终验收。

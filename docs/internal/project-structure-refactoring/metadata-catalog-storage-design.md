@@ -1,8 +1,8 @@
 # Metadata、Catalog 与生成任务存储边界设计
 
-> 状态：2026-10-31 源码审查形成的目标设计，模块拆分尚未完成。审查基线为 `pangrova-metadata` 的 132 个主源 Java 文件及 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`，不含生成源码和 `target`。后续阶段执行/交换及同连接提交/fence SPI 已实际落位，累计新增7个主源，任务模块现为76个主源；详见[执行记录第40节](../project-restructure-execution-plan.md#40-同连接输入读取与-catalog-同步缺陷审计)。本文原逐文件表保留审查基线，以下实施状态明确区分当前与目标。
+> 状态：2026-10-31 源码审查形成的目标设计，Generation 三叶已落位，Catalog 和领域 writer 拆分仍待实施。审查基线为 `pangrova-metadata` 的 132 个主源 Java 文件及 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`，不含生成源码和 `target`。后续阶段执行/交换及同连接提交/fence SPI 已实际落位，累计新增7个主源，三叶现合计76个主源（core 48、transaction-spi 6、PostgreSQL provider 22）；详见[执行记录第40节](../project-restructure-execution-plan.md#40-同连接输入读取与-catalog-同步缺陷审计)。本文原逐文件表保留审查基线，以下实施状态明确区分当前与目标。
 >
-> `pangrova-data-build` 是已经落地但用户未接受的过渡名称。按用户的单词命名要求，目标名称采用 `pangrova-generation`，表达索引、生成列值和导出结果的“生成”；当前源码尚未完成最终迁移。现有 SQL 表名、协议枚举、canonical JSON 字段、缓存路径和历史迁移均保持原值。
+> 历史过渡名 `pangrova-data-build` 已退役，当前名称为 `pangrova-generation` / `org.pangrova.generation`，表达索引、生成列值和导出结果的“生成”。三叶及全部消费者已按此命名落位；本批构建和回归结果以执行记录为准，不复用更名前成绩。现有 SQL 表名、协议枚举、canonical JSON 字段、缓存路径和历史迁移均保持原值。
 
 ## 1. 结论与设计方式
 
@@ -37,7 +37,7 @@ flowchart TD
 
 ### 2.1 全部包的职责目标
 
-下表是现有包的完整分区；迁移粒度以附录逐文件表为准。`service`、`databuild.jdbc`、`store.jdbc.catalog` 三处必须先拆混合职责，不能整包机械搬移。
+下表是现有包的完整分区；迁移粒度以附录逐文件表为准。`service`、`generation.jdbc`、`store.jdbc.catalog` 三处必须先拆混合职责，不能整包机械搬移。
 
 | 当前包（`org.pangrova.metadata` 下） | 现状职责 | 目标责任 |
 |---|---|---|
@@ -62,11 +62,11 @@ flowchart TD
 | `adapter.governance` | 名称→stable Table identity→质量规则 wiring | 同上；规则真值在 Governance/Table |
 | `tenant` | tenant 与 membership SQL、当前租户约束 | Security PostgreSQL provider |
 | `source.jdbc` | managed source head/schema/publication/object/cleanup 状态 | Table managed-source provider；先解决 Query/Catalog 同事务端口 |
-| `databuild` | generated-value descriptor、submission、generation reference | AI Control 领域 API/SPI |
-| `databuild.jdbc` | 通用输出校验 + Index/AI/关系导出发布 | 拆公共内核 provider、Indexing provider、AI provider、关系导出 adapter |
-| `databuild.jdbc.submission` | generated-value 提交与 committed write redo acknowledgement | AI 提交流程 + Query journal 同事务 adapter |
-| `adapter.databuild` | tenant/table/model 授权组合、Query publication-owner 投影 | PostgreSQL 跨 owner 事务 adapter；进程组合根注入 |
-| `assembly.databuild` | 同时创建 Query/Security/任务/Index/AI provider | Coordinator 组合根；不属于任何存储 owner |
+| `generation` | generated-value descriptor、submission、generation reference | AI Control 领域 API/SPI |
+| `generation.jdbc` | 通用输出校验 + Index/AI/关系导出发布 | 拆公共内核 provider、Indexing provider、AI provider、关系导出 adapter |
+| `generation.jdbc.submission` | generated-value 提交与 committed write redo acknowledgement | AI 提交流程 + Query journal 同事务 adapter |
+| `adapter.generation` | tenant/table/model 授权组合、Query publication-owner 投影 | PostgreSQL 跨 owner 事务 adapter；进程组合根注入 |
+| `assembly.generation` | 同时创建 Query/Security/任务/Index/AI provider | Coordinator 组合根；不属于任何存储 owner |
 | `checkpoint` | Common CheckpointStore 的 JDBC 实现 | Coordinator resilience provider；先核实真实接线 |
 | `exception`、`exception.catalog` | Catalog 错误混有 Index 错误/通用存储错误 | 分别归 Catalog/Indexing/各存储 owner |
 
@@ -101,13 +101,13 @@ SQL writer 证据来自主源字符串扫描，并人工补全字符串拼接与
 - `ModelAsset`、`FunctionAsset`、`MaterializedViewAsset`、`VolumeAsset` 等目前只是技术库存 DTO。扫描仅发现对应 sealed `Asset` 声明和测试级引用，不能据此为 Catalog 新增 model/MV/function/file 生命周期 writer。真正的业务定义与有效版本仍由各 owner 提供只读投影。
 - `ObjectDependencyService` 的机制不等同于跨领域删除事务。当前未找到其生产构造点；迁移只能声明保留技术依赖图，不能把未接线的维护 hook 宣称为完整领域级联删除能力。
 
-## 3. 当前 69 个生成任务文件的分区
+## 3. 当前 76 个生成任务文件的分区
 
 | 当前目录 | 文件数（含包说明） | 保留的职责 | 必须处理的混合点 |
 |---|---:|---|---|
-| `api` | 9 | 依赖、execution kind、输出 scope/page kind、存储错误 | `DataBuildOutputTypeIds` 的四类业务 ID 应由领域提供；字符串值不变 |
-| `api/build` | 11 | job/page/lease/output/split、主 Store port | `markPublished` 是绕过领域发布的独立入口；移除前迁移测试，不保留假兼容 |
-| `api/execution` | 6 | 实际 execution owner、stage graph、exchange DTO | 不引入 JDBC；具体 store 的 DTO 补归此处 |
+| `api` | 9 | 依赖、execution kind、输出 scope/page kind、存储错误 | `GenerationOutputTypeIds` 的四类业务 ID 应由领域提供；字符串值不变 |
+| `api/job` | 11 | job/page/lease/output/split、主 Store port | `markPublished` 是绕过领域发布的独立入口；移除前迁移测试，不保留假兼容 |
+| `api/execution` | 6 | 实际 execution owner、stage graph、exchange DTO | 不引入 JDBC；具体 store 的 DTO 已归 `spi.storage` |
 | `api/execution/template` | 2 | immutable stage template | domain-specific plan builder 继续归领域 |
 | `api/format` | 2 | 格式契约接口/模型 | 当前六个格式的角色、ordinal、scope、empty 规则硬编码应改为领域注册扩展 |
 | `api/manifest` | 2 | immutable generation completion evidence | 不拥有 active/latest 选择；不得读到 staging outputs |
@@ -115,50 +115,51 @@ SQL writer 证据来自主源字符串扫描，并人工补全字符串拼接与
 | `assembly` | 4 | 纯 dispatch/graph/manifest 构造入口 | 无连接池与 provider 选择，可以在业务制品保留 |
 | `core/publication` | 2 | 按类型路由到发布 port | 进程注册已实现的领域 handler；未知类型 fail closed |
 | `protocol` | 4 | canonical JSON 与 exchange/graph codec | wire/JSON 字节兼容属于合同，拆包不改格式 |
-| `spi/jdbc` | 3 | 2 个同连接协作接口及包说明 | 是技术事务 bridge，不是后端无关 Store |
-| `store/jdbc/build` | 14 | 13 个实现/helper：admission、claim、completion、read、stage execution 等 | admission 含 TABULAR_EXPORT 特例；StageExecution 缺上层 SPI |
-| `store/jdbc/exchange` | 2 | exchange provider 与包说明 | 缺 StageExchangeStore port，public static helpers 泄漏实现 |
-| `store/jdbc/execution` | 4 | 3 个 authority/fence/route 类 | `CurrentDeferredExecutionContext` 混合无 SQL 证据与 JDBC resolve |
-| `store/jdbc/query` | 2 | 当前 SQL read helpers | 被跨领域直接调用，应收进 provider 并用事务 port 暴露所需语义 |
-| **合计** | **69** | | |
+| `spi/jdbc` | 6 | 5 个同连接协作接口及包说明，独立 transaction-spi 制品 | 是技术事务 bridge，不是后端无关 Store |
+| `store/postgresql/job` | 14 | 13 个实现/helper：admission、claim、completion、read、stage execution 等 | admission 含 TABULAR_EXPORT 特例；StageExecution 已实现上层 SPI |
+| `store/postgresql/exchange` | 2 | exchange provider 与包说明 | StageExchange 已实现 SPI，静态 SQL helpers 仅供 provider 内部 |
+| `store/postgresql/execution` | 4 | 3 个 authority/fence/route 类 | 只读 CurrentGenerationAuthority 已归 core，private resolve 留 provider |
+| `store/postgresql/query` | 2 | 当前 SQL read helpers | 真实 SQL read 已实现 GenerationTransactionInputs；具体构造仅留 assembly |
+| `spi/storage` | 4 | 两个阶段/交换存储 port、只读 authority 及包说明 | 8 个 DTO 已归契约，业务不依赖 JDBC |
+| **合计** | **76** | | |
 
 上述内核边界基本成立，但不能称当前边界已经完成：
 
-- `DataBuildOutputFormatContracts` 持有六种格式规则，`DataBuildOutputTypeIds` 持有 VECTOR_INDEX/TEXT_INDEX/GENERATED_COLUMN_VALUES/TABULAR_EXPORT；`JdbcDataBuildAdmission` 直接按 TABULAR_EXPORT 分支。目标是领域贡献不可变的类型/格式 contract，组合根注入完整 registry；schema、output role、empty-output、row-count 规则不靠任意字符串绕过。
-- [DataBuildJob](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildJob.java) 与 dependency set 保留主 source identity/snapshot 的精确绑定。该约束不证明所有实际读取输入都已物理 pin；连接器/source snapshot 的获取和有效性权威在 Catalog/Table/Connector，查询编译与 split planner 负责把真实来源编入任务。不能删除这个约束，也不能把它解释为任务模块拥有源数据真值。
+- `GenerationOutputFormatContracts` 持有六种格式规则，`GenerationOutputTypeIds` 持有 VECTOR_INDEX/TEXT_INDEX/GENERATED_COLUMN_VALUES/TABULAR_EXPORT；`PostgresGenerationAdmission` 直接按 TABULAR_EXPORT 分支。目标是领域贡献不可变的类型/格式 contract，组合根注入完整 registry；schema、output role、empty-output、row-count 规则不靠任意字符串绕过。
+- [GenerationJob](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationJob.java) 与 dependency set 保留主 source identity/snapshot 的精确绑定。该约束不证明所有实际读取输入都已物理 pin；连接器/source snapshot 的获取和有效性权威在 Catalog/Table/Connector，查询编译与 split planner 负责把真实来源编入任务。不能删除这个约束，也不能把它解释为任务模块拥有源数据真值。
 - generic manifest 是可被发布代读取的不可变证据。Indexing/AI 的 active generation 指针仍归领域；读取必须按 tenant、generation、snapshot 和允许的 source-object 集合绑定，不能退化成扫描完整 manifest 再过滤。
-- `DataBuildStore.markPublished` 当前检索到 9 个测试调用、0 个生产调用。该入口可单独把 job 标成 PUBLISHED，不要求领域版本同时提交。目标应删除这个公共入口，内部任务终态更新只能由同事务 publication bridge 完成；第一轮存储拆制品不应悄悄改它，另立行为批次迁移原测试。
+- `GenerationJobStore.markPublished` 当前检索到 9 个测试调用、0 个生产调用。该入口可单独把 job 标成 PUBLISHED，不要求领域版本同时提交。目标应删除这个公共入口，内部任务终态更新只能由同事务 publication bridge 完成；第一轮存储拆制品不应悄悄改它，另立行为批次迁移原测试。
 
 ## 4. Store SPI 与 PostgreSQL provider 的可实施分层
 
-实施更新：阶段执行、交换及其8个record已移到`databuild.spi.storage`，上层消费接口；
+实施更新：阶段执行、交换及其8个record已移到`generation.spi.storage`，上层消费接口；
 JDBC上下文实现三getter只读view，原private构造/同事务resolver保留。新增源码为
-CurrentExecutionAuthority、DataBuildStageExecutionStore、DataBuildStageExchangeStore和package-info。
-第39节进一步分离 DataBuildJobSubmissionTransactions 与 DataBuildExecutionTransactionFence，真实 JDBC provider 实现接口；AI 的关联提交与 Metadata 的生成值提交仍使用原 Connection。
-下面的表保留初审缺口；Stage/Exchange 缺口已由第38节关闭，submission/fence 由第39节关闭；S3 已分离 DataBuildTransactionInputs，真实 reader 直接实现，保留普通 auto-commit 读取；跨 owner 具体 reader 引用仅留 assembly。物理 provider 拆分仍待实施。
+CurrentGenerationAuthority、GenerationStageExecutionStore、GenerationStageExchangeStore和package-info。
+第39节进一步分离 GenerationJobSubmissionTransactions 与 GenerationExecutionTransactionFence，真实 JDBC provider 实现接口；AI 的关联提交与 Metadata 的生成值提交仍使用原 Connection。
+下面的表保留初审缺口；Stage/Exchange 缺口已由第38节关闭，submission/fence 由第39节关闭；S3 已分离 GenerationTransactionInputs，真实 reader 直接实现，保留普通 auto-commit 读取；跨 owner 具体 reader 引用仅留 assembly。物理 provider 与 transaction-spi 拆分已落位；尚未迁出的 publication SQL/领域 writer 单列后续批次。
 
 ### 4.1 初审缺口与接口实施状态
 
 | 类型/调用方式 | 初审判断 | 当前状态与剩余动作 |
 |---|---|---|
-| `DataBuildStore` | 无 Connection 的任务语义 port；包含持久租约/幂等契约 | 作为业务 SPI 保留；另批收紧独立 markPublished |
-| `DataBuildPublicationStore` | 无 Connection 的原子发布语义 port | 保留调用契约；按领域实现并注册 |
+| `GenerationJobStore` | 无 Connection 的任务语义 port；包含持久租约/幂等契约 | 作为业务 SPI 保留；另批收紧独立 markPublished |
+| `GenerationPublicationStore` | 无 Connection 的原子发布语义 port | 保留调用契约；按领域实现并注册 |
 | `MetadataStore` | 无 Connection，但跨了定义权威/库存投影/同步记录 | 拆 descriptor、inventory、sync-progress 能力；同步端口须先完成 B0，不能搬移旧 no-op |
 | `ObjectDependencyStore` | 已有 Memory/PostgreSQL 的真实依赖图 port | 移 Catalog SPI，并让两个 provider 共用契约测试 |
 | `GeneratedValueBuildMetadataStore`、`GeneratedValueBuildSubmissionStore` | 已有无 SQL 的 AI 语义 port | 连同值对象归 AI；实际 PG provider 另制品 |
 | Connector SPI 的 `ManagedSourceCatalog` | 已有 source publication 能力 port | 实现归 Table/source owner；不因名字含 Catalog 归目录元数据 |
-| `JdbcDataBuildStageExecutionStore` | 具体类就是上层 API，多个 public nested DTO 也在实现包 | S1 已完成 StageExecutionStore SPI 及7个record迁移，物理制品待拆 |
-| `JdbcDataBuildStageExchangeStore` | 具体类被 runtime 使用，ExchangeEvidence 在 provider 类内 | S1 已完成 StageExchangeStore SPI 与 ExchangeEvidence 迁移；SQL helpers 留 provider |
-| `CurrentDeferredExecutionContext` | 证据 accessor 无 SQL，`resolve` 需要 Connection、roles、execution fence | S1 已以 CurrentExecutionAuthority 分离只读证据；private resolver保留，不能作为授权输入 |
-| `DataBuildTransactionAuthority`、`DataBuildPublicationCandidates` | 明确传 Connection 的内部技术 SPI | 保留借用连接且不管理事务契约；依赖方向与业务 Store SPI 分开 |
-| `JdbcDataBuildStore.createJobWithinTransaction`、`JdbcDataBuildQueries.*` | 调用方依赖具体类/static SQL helper | S2 已迁提交端口，S3 已迁读取端口；公共 publication SQL 端口仍待实施 |
-| `JdbcDataBuildExecutionFence` | 公共任务路由校验 + Query ExecutionTransactionFence 组合 | S2 已由 DataBuildExecutionTransactionFence 暴露，真实 Query/任务 SQL 保留原归属 |
+| `PostgresGenerationStageExecutionStore` | 具体类就是上层 API，多个 public nested DTO 也在实现包 | S1 已完成 StageExecutionStore SPI 及7个record迁移，物理制品已拆 |
+| `PostgresGenerationStageExchangeStore` | 具体类被 runtime 使用，ExchangeEvidence 在 provider 类内 | S1 已完成 StageExchangeStore SPI 与 ExchangeEvidence 迁移；SQL helpers 留 provider |
+| `PostgresCurrentGenerationAuthority` | 证据 accessor 无 SQL，`resolve` 需要 Connection、roles、execution fence | S1 已以 CurrentGenerationAuthority 分离只读证据；private resolver保留，不能作为授权输入 |
+| `GenerationTransactionAuthority`、`GenerationPublicationCandidates` | 明确传 Connection 的内部技术 SPI | 保留借用连接且不管理事务契约；依赖方向与业务 Store SPI 分开 |
+| `PostgresGenerationJobStore.createJobWithinTransaction`、`PostgresGenerationQueries.*` | 调用方依赖具体类/static SQL helper | S2 已迁提交端口，S3 已迁读取端口；公共 publication SQL 端口仍待实施 |
+| `PostgresGenerationExecutionFence` | 公共任务路由校验 + Query ExecutionTransactionFence 组合 | S2 已由 GenerationExecutionTransactionFence 暴露，真实 Query/任务 SQL 保留原归属 |
 
-`DataBuildDispatchRequestFactory`、`DurableDataBuildDispatcher`、`DurableStageRuntime`、`DurableStageShuffleEvidence`、`DurableDataBuildWorkReportSink`、`PublishedGenerationBindingResolver`、`DataBuildPartitionBindings`、`StageExchangeAccessValidator`、`StageExecutionContext`、`DurablePartitionRequest` 在初审时均直接引用至少一种上述 JDBC 类型或 nested DTO，S1 已将这些运行时消费者迁至语义 SPI/证据类型。`DataBuildStores` 是实际构造点，必须迁入组合根而非成为 Metadata 的永久 provider 工厂。
+`GenerationDispatchRequestFactory`、`DurableGenerationDispatcher`、`DurableStageRuntime`、`DurableStageShuffleEvidence`、`DurableGenerationWorkReportSink`、`PublishedGenerationBindingResolver`、`GenerationPartitionBindings`、`StageExchangeAccessValidator`、`StageExecutionContext`、`DurablePartitionRequest` 在初审时均直接引用至少一种上述 JDBC 类型或 nested DTO，S1 已将这些运行时消费者迁至语义 SPI/证据类型。`GenerationStores` 是实际构造点，必须迁入组合根而非成为 Metadata 的永久 provider 工厂。
 
-### 4.2 目标目录与依赖（未实施）
+### 4.2 目录与依赖（Generation 已落位，其他 owner 为目标）
 
-下面的树表达真正需要的编译隔离；不要求为每个包制造一个空 Maven 模块。首批可把 API、普通 SPI 和 core 放同一 `-core` 制品；仅当存在独立消费者或依赖冲突时再拆 API 制品。技术 `spi.jdbc` 若被多个 owner 的 provider 引用，应放独立的轻量 transaction-SPI 制品，使业务 core 不依赖 PostgreSQL provider 或其 SQL API。
+下面的树区分已落位与目标边界。Generation 的 API、普通 storage SPI 与发布路由在 core；`spi.jdbc` 独立在 transaction-spi，真实 SQL 实现在 store-postgresql。core 无 transaction/provider 主源或测试依赖。Catalog 和各领域 provider 仍是待实施设计，不为目录对称建立空模块。
 
 ```text
 pangrova-catalog/                         # 新建的真实领域 family
@@ -171,14 +172,14 @@ pangrova-catalog/                         # 新建的真实领域 family
     org.pangrova.catalog.store.postgresql/# 实际 SQL、row mapper、invalidation writer/poller
   # memory dependency provider 按实际能力归位；不假造完整 durable Catalog 后端
 
-pangrova-generation/                       # 派生数据生成任务；已确定目标名，源码待迁移
+pangrova-generation/                       # 生成任务；三叶已落位
   pangrova-generation-core/
-    api/                                 # job、page、lease、stage、output、manifest、evidence
-    spi/                                 # TaskStore、StageExecutionStore、StageExchangeStore、PublicationStore
+    api/                                 # api.job含GenerationJobStore；其他API含发布port与证据
+    spi.storage/                         # Stage/Exchange ports、CurrentGenerationAuthority及8个DTO
     core/                                # 任务/格式校验与发布路由；无 PG SQL
     protocol/                            # canonical 合同与稳定编码
   pangrova-generation-transaction-spi/     # 必要的窄 JDBC borrowed-transaction bridge
-    spi.jdbc/                            # authority、job insert/read/finalize、publication fence
+    spi.jdbc/                            # authority、submission、inputs、candidates、execution fence
   pangrova-generation-store-postgresql/
     store.postgresql/                    # 当前真实存储实现与 PG 集成测试
 
@@ -211,7 +212,7 @@ pangrova-coordination/.../
   → 一次 commit
 ```
 
-各流程的现有锁序须按代码和并发测试保留，不能仅凭上图统一重排：Index/AI publication 先 authority、execution、job，再领域行；generated committed-write submission 先 authorization gate、锁 exact COMMITTED write journal，再验证所有请求 authority，插入所有任务/descriptor 并确认 redo ack；managed-source publication 先 gate/执行 fence/write intent，再当前 receipt 与 source/head 状态。`DataBuildPublicationCandidates` 的 hasLiveOwner 在 job 锁后只能读，不得追加 execution anchor 行锁造成逆序。
+各流程的现有锁序须按代码和并发测试保留，不能仅凭上图统一重排：Index/AI publication 先 authority、execution、job，再领域行；generated committed-write submission 先 authorization gate、锁 exact COMMITTED write journal，再验证所有请求 authority，插入所有任务/descriptor 并确认 redo ack；managed-source publication 先 gate/执行 fence/write intent，再当前 receipt 与 source/head 状态。`GenerationPublicationCandidates` 的 hasLiveOwner 在 job 锁后只能读，不得追加 execution anchor 行锁造成逆序。
 
 实现方式是提供**语义 Store 和事务协作端口两个层次**：
 
@@ -219,14 +220,14 @@ pangrova-coordination/.../
 - SQL 仍由唯一 owner provider 写。组合事务只决定调用次序和一次提交，不能把各领域表名集中到新的“大 PostgreSQL store”中。
 - `preparePartition`/`prepareLeasedPartition` 的 callback 当前在授权/owner/page 锁持有期间构造本地不可变派发元数据；callback 不得做网络 I/O，失败回滚 claim。抽 SPI 不能把 callback 移到 commit 后，也不能让它第二次取连接。
 - 多种后端可以独立实现语义 SPI，但一个原子操作涉及的 participants 必须共享同一受支持的事务能力。不能把 PostgreSQL job 和独立 Memory/远端领域 store 拼接后宣称等价。装配时对不支持的组合显式失败；跨数据库方案如需 saga/outbox 属于另一次行为设计与测试，不是此次机械分层的默认替代。
-- 全链当前依赖 PostgreSQL 并发与授权 gate 语义。DataBuild SQL 有 `FOR UPDATE SKIP LOCKED`，授权链使用 PostgreSQL gate；某类旧 Javadoc 声称 PostgreSQL/H2 不等于已证明完整后端兼容。真实 PG 集成测试不能被 H2 或 mock Connection 替代。
+- 全链当前依赖 PostgreSQL 并发与授权 gate 语义。Generation SQL 有 `FOR UPDATE SKIP LOCKED`，授权链使用 PostgreSQL gate；某类旧 Javadoc 声称 PostgreSQL/H2 不等于已证明完整后端兼容。真实 PG 集成测试不能被 H2 或 mock Connection 替代。
 
 ## 5. Maven/生产接线的实际阻碍
 
-1. Metadata 当前生产依赖 `data-build`、`query-api`、`query` runtime、`observability-api`、`connector-spi`、`indexing-api`、Common、Table、Security、Governance，以及 Iceberg/Jackson/Caffeine/Hikari/Flyway；这是混合职责的结果，不能把整个依赖表照搬到 Catalog core。
+1. Metadata 当前生产依赖 Generation 的 core、transaction-spi、store-postgresql 三叶，以及 `query-api`、`query` runtime、`observability-api`、`connector-spi`、`indexing-api`、Common、Table、Security、Governance，以及 Iceberg/Jackson/Caffeine/Hikari/Flyway；这是混合职责的结果，不能把整个依赖表照搬到 Catalog core。
 2. 直接消费 Metadata 的现有 POM 有 Coordination core、Integration tests、Indexing core，以及仅测试使用的 Connector Lance、Semantic；其中 Coordination/Integration/Indexing/Lance 还使用 Metadata test-jar。迁移测试 fixture 到 testing-kit 或本 owner 后，必须删除反向 test-jar 依赖，不能让新 Catalog/AI provider 的测试再依赖旧 Metadata 来“通过”。
-3. Indexing core 已依赖 Metadata 中的 `IndexAlreadyExistsException`、`MetastoreException`、`MetadataJsonMapper`、`JdbcTenantStore`。如果 Metadata `DataBuildStores` 再直接构造迁回 Indexing 的 publisher，会形成 Maven 环。先移动进程工厂并用 owner port 注入，再迁实现；Indexing 错误/codec/Security tenant port 一起解除旧依赖。
-4. AI Control 当前无需依赖 Metadata。GeneratedValue 的 5 个合同/DTO 加 3 个 JDBC 类迁回时，不能顺手把 Metadata exception、DataBuildStores 或整个 MetadataStore 引入 AI。
+3. Indexing core 已依赖 Metadata 中的 `IndexAlreadyExistsException`、`MetastoreException`、`MetadataJsonMapper`、`JdbcTenantStore`。如果 Metadata `GenerationStores` 再直接构造迁回 Indexing 的 publisher，会形成 Maven 环。先移动进程工厂并用 owner port 注入，再迁实现；Indexing 错误/codec/Security tenant port 一起解除旧依赖。
+4. AI Control 当前无需依赖 Metadata。GeneratedValue 的 5 个合同/DTO 加 3 个 JDBC 类迁回时，不能顺手把 Metadata exception、GenerationStores 或整个 MetadataStore 引入 AI。
 5. `CatalogRegistry` 生产类型引用见 73 个文件、测试类型引用见 59 个文件；`MetadataStore` 为 5/46，`JdbcMetadataStore` 为 1/32。它们是静态引用文件数，非运行时调用次数。`JdbcMetadataStore` 的唯一生产构造来源为 `CoordinatorBootstrap`，所以第一批可以从这个明确的生产接线点迁真实 descriptor writer。
 6. `MetadataEvent` 是 Catalog/表/同步混合 sealed union。只迁 Registry 而让 Catalog 继续引用 MetadataEvent，会与 Metadata→Catalog 形成环；先抽窄 lifecycle event port 或将技术事件 DTO 与 Catalog read model 同批迁移，进程用 adapter 接其余事件。
 7. `PooledDataSourceFactory`、`SchemaMigrationRunner` 的生产调用都在 CoordinatorBootstrap；`EmbeddedDataSource` 当前只有测试引用。这些不应成为 Catalog domain API。把生产启动归组合根，测试数据源归测试基础设施。
@@ -237,11 +238,11 @@ pangrova-coordination/.../
 
 ### 批次 A：生成任务存储的最小完整独立化
 
-**范围**：新增两个缺失的 StageExecution/StageExchange semantic SPI；迁出其业务 DTO 和 current-authority evidence；把现有 `store.jdbc` 的 22 个文件（18 个非包说明类 + 4 个包说明）中的实际 SQL/resolver 实现移到 PostgreSQL provider 制品。由于 DTO/resolve 拆分，最终 provider 文件数不再固定为 22。当前 2 个 store 近端单测随 provider 迁移，8 个 API/protocol 测试留 core。Metadata 的 `JdbcDataBuildStoreTest`、`JdbcDataBuildStageExchangeStoreTest` 中纯 provider 行为测试迁 owner；涉及真实 tenant/model/Query 的部分保留跨 owner 集成测试。
+**当前落位**：两个 StageExecution/StageExchange semantic SPI、8个 DTO 与只读 authority 已归 core；provider 保留22个主源文件（18个实现/helper + 4个包说明），transaction-spi 独立6个主源文件。core 现有8个测试源文件，transaction-spi 的 JDBC port 隔离测试独立1文件，PG provider 有原2个近端测试及从 Metadata 迁入的1个真实取消锁测试。Metadata 仍保留真实 tenant/model/Query 跨域测试；其余纯 provider 场景是否迁回按实际依赖逐项核验，不以文件名认定已完成。
 
-**业务语义不改**：SQL、事务边界、lease、callback 持锁范围、错误/回滚、canonical bytes、source snapshots 均不改；不在这批顺手重排格式规则或移除 markPublished。同连接端口完成后，按已经确定的 generation 名称迁移三制品和包名。
+**业务语义不改**：SQL、事务边界、lease、callback 持锁范围、错误/回滚、canonical bytes、source snapshots 均不改；不在这批顺手重排格式规则或移除 markPublished。同连接端口及 generation 三制品/包名已落位；本批没有改动上述业务规则。
 
-**闭环**：非组合根只依赖 SPI，具体类/nested DTO 不再穿到 Coordinator runtime。组合根显式创建真实 PG 实例；core 的 POM 不依赖 provider。跨领域尚未替换的 static SQL helpers 临时只能被 infrastructure adapters 引用，列为下一批待移，不能声称完全解耦。
+**已落实与剩余边界**：运行时已消费任务/阶段/交换及事务 SPI；core 的主源和测试不依赖 transaction-spi/provider。Metadata `GenerationStores` 暂保留真实 PG 装配，`builds()` 返回具体 `PostgresGenerationJobStore`，因此 Coordinator 暂有 provider compile 依赖；它是明确待移的组合根 ABI，不宣称已完全关闭具体类型依赖。公共 publication SQL/领域 writer 仍按批次D迁移。
 
 **验收**：core contract/encoding tests；PG page claim 竞争、过期回收、attempt/epoch fencing、producer原始字节、stage exchange producer winner/finalize、published input 精确范围、callback 失败回滚；真实 root assembly 测试；provider 不可用时启动拒绝而非 Memory fallback。按开发规则运行 owner full-regression/static 和受影响 protocol/Java-native 执行链；只验证类存在或 mock 接口调用不能证明生产接线。
 
@@ -293,7 +294,7 @@ Registry/handles/health、技术 object/schema、cache/event/observation、depen
 
 先将通用 output validator 的真实 SQL 移到任务 PG provider，通过同连接校验端口消费；再提取 job lock/finalize 的事务能力。digest 按实际领域算法和历史字节归属，不能整体机械搬入公共内核：当前 ManifestDigest 依赖 Index publisher 的 JobRow，Index/Generated 和 Tabular 的字段及行数聚合规则也不同。Index publication 归 Indexing；GeneratedValue 5 个合同与 descriptor/publication/submission 三个实现归 AI；关系导出 adapter 保持公共关系导出责任。进程用领域 handler registry 组成完整 publication 路由。
 
-S2/S3 已通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `createJobWithinTransaction` 静态调用；公共发布 SQL 的迁移仍需后续批次。每个 writer 只写本 owner 表；领域指针与 job finalization 的共同提交由 PostgreSQL unit-of-work 编排。移除公共 `markPublished` 绕行，现有 9 个测试改用真实 publication fixture 或限定的测试数据装载，不能为通过测试暴露生产绕行接口。
+S2/S3 已通过 transaction bridge 替代跨 owner `PostgresGenerationQueries` 和 `createJobWithinTransaction` 静态调用；公共发布 SQL 的迁移仍需后续批次。每个 writer 只写本 owner 表；领域指针与 job finalization 的共同提交由 PostgreSQL unit-of-work 编排。移除公共 `markPublished` 绕行，现有 9 个测试改用真实 publication fixture 或限定的测试数据装载，不能为通过测试暴露生产绕行接口。
 
 验收 Index/AI 指针与 job 状态原子性、publish failure/rollback、旧 owner/过期 token 拒绝、after-blocking-write owner 再验证、撤权与 model incarnation/config/deployment/signature 变化、query-only 生成写入、committed-write redo acknowledgement 与全部派生任务原子提交。digest 现状有领域差异：Index/Generated 包含 encryption-key reference，而 Tabular 当前不包含；scope 的 source-row 汇总也不同。迁移先保持字节语义，不能以“统一 helper”静默改变历史 manifest 校验。
 
@@ -303,13 +304,13 @@ S2/S3 已通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `c
 
 全项目复用以下检查：业务是否导入 `.store.jdbc/.store.postgresql`；构造器或 setter 是否偷偷创建 Memory/default fallback；Store接口是否默认 no-op/empty 掩盖不支持；provider是否有真实进程构造点；事务参与者是否另取连接/提前提交；测试是否只加载类而没验证生产路由。provider切换在进程启动时完成，不能在一次请求失败后改变语义。
 
-清除 Metadata 最后 imports、POM/test-jar、装配引用后删除旧模块；按最终职责确认任务 family 名称并一次精确迁移。所有受影响 owner/reactor clean 后验证 JAR 无旧身份，canonical 协议/JSON/SQL/缓存兼容证据不变。只 clean 新模块不足以移除其他模块的旧 `.class`。
+清除 Metadata 最后 imports、POM/test-jar、装配引用后删除旧 Metadata 模块；Generation family 名称与三叶已经落位，后续只按真实职责迁移领域代码。所有受影响 owner/reactor clean 后验证 JAR 无旧身份，canonical 协议/JSON/SQL/缓存兼容证据不变。只 clean 新模块不足以移除其他模块的旧 `.class`。
 
-## 7. Metadata 132 文件逐项 owner 清单
+## 7. Metadata 初审 132 文件逐项 owner 清单
 
-下表每行对应一个当前主源文件。表中的“生产/测试引用”是去除注释与字符串后的类型引用文件数，包括同包和显式导入，不代表动态调用次数；“调用方示例”最多列出三个真实生产类型引用文件，完整范围应以迁移时 `rg` 和编译结果复核。无引用不自动代表可删除，reflection/loader 和装配另行核对。SQL 列是本文件直接写入，跨 helper 的共同事务见第 2.2 节。
+下表保留初审132文件的原名称与引用计数；链接指向当前源码。包/类更名后仍由同一真实实现承接，引用计数不是本批重新统计的结果。表中的“生产/测试引用”是去除注释与字符串后的类型引用文件数，包括同包和显式导入，不代表动态调用次数；“调用方示例”最多列出三个真实生产类型引用文件，完整范围应以迁移时 `rg` 和编译结果复核。无引用不自动代表可删除，reflection/loader 和装配另行核对。SQL 列是本文件直接写入，跨 helper 的共同事务见第 2.2 节。
 
-| 当前文件 | 目标 owner | 直接 SQL writes | 生产/测试引用 | 调用方示例 |
+| 初审文件（链接当前源码） | 目标 owner | 直接 SQL writes | 生产/测试引用 | 调用方示例 |
 |---|---|---|---:|---|
 | [adapter/CachingFederatedCatalog.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/CachingFederatedCatalog.java) | Catalog 联邦连接器适配 | — | 0/1 | — |
 | [adapter/ChangeListener.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/ChangeListener.java) | Catalog 联邦连接器适配 | — | 2/0 | FederatedCatalog, CachingFederatedCatalog |
@@ -318,8 +319,8 @@ S2/S3 已通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `c
 | [adapter/FederationColumnHandle.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/FederationColumnHandle.java) | Catalog 联邦连接器适配 | — | 1/0 | FederationConnectorMetadata |
 | [adapter/FederationConnectorMetadata.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/FederationConnectorMetadata.java) | Catalog 联邦连接器适配 | — | 1/2 | FederationCatalogHandle |
 | [adapter/FederationTableHandle.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/FederationTableHandle.java) | Catalog 联邦连接器适配 | — | 1/0 | FederationConnectorMetadata |
-| [adapter/databuild/MetadataDataBuildPublicationCandidates.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/databuild/MetadataDataBuildPublicationCandidates.java) | 进程 PostgreSQL 跨 owner 事务适配 | — | 1/0 | DataBuildStores |
-| [adapter/databuild/MetadataDataBuildTransactionAuthority.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/databuild/MetadataDataBuildTransactionAuthority.java) | 进程 PostgreSQL 跨 owner 事务适配 | — | 1/0 | DataBuildStores |
+| [adapter/databuild/MetadataDataBuildPublicationCandidates.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/generation/MetadataGenerationPublicationCandidates.java) | 进程 PostgreSQL 跨 owner 事务适配 | — | 1/0 | DataBuildStores |
+| [adapter/databuild/MetadataDataBuildTransactionAuthority.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/generation/MetadataGenerationTransactionAuthority.java) | 进程 PostgreSQL 跨 owner 事务适配 | — | 1/0 | DataBuildStores |
 | [adapter/governance/QualityRuleStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/governance/QualityRuleStoreWiring.java) | Catalog→Governance/Table 适配；进程组合根装配 | — | 1/0 | ModuleIntegrationBootstrap |
 | [adapter/governance/TableControlQualityRuleStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/governance/TableControlQualityRuleStore.java) | Catalog→Governance/Table 适配；进程组合根装配 | — | 1/2 | QualityRuleStoreWiring |
 | [adapter/security/TableControlColumnMaskStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/security/TableControlColumnMaskStore.java) | Catalog→Table/Security 适配；进程组合根装配 | — | 2/8 | ColumnMaskStoreWiring, TableControlDeferredPolicy |
@@ -356,7 +357,7 @@ S2/S3 已通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `c
 | [api/relation/ObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectDependencyStore.java) | Catalog 技术对象依赖图 | — | 3/3 | ObjectDependencyService, InMemoryObjectDependencyStore, JdbcObjectDependencyStore |
 | [api/relation/ObjectKind.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectKind.java) | Catalog 技术对象依赖图 | — | 2/5 | ObjectRef, JdbcObjectDependencyStore |
 | [api/relation/ObjectRef.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation/ObjectRef.java) | Catalog 技术对象依赖图 | — | 10/5 | LineageBridgeMaintenanceHook, ObjectDependencyService, ObjectDependencyKey |
-| [assembly/databuild/DataBuildStores.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/databuild/DataBuildStores.java) | Coordinator 进程组合根 | — | 4/6 | QueryMaterializationWiring, HighAvailabilityBootstrap, CoordinatorBootstrap |
+| [assembly/databuild/DataBuildStores.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/generation/GenerationStores.java) | Coordinator 进程组合根 | — | 4/6 | QueryMaterializationWiring, HighAvailabilityBootstrap, CoordinatorBootstrap |
 | [assembly/security/ColumnMaskStoreWiring.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security/ColumnMaskStoreWiring.java) | Catalog→Table/Security 适配；进程组合根装配 | — | 2/0 | CoordinatorBootstrap, QueryExecutionBootstrap |
 | [assembly/security/package-info.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security/package-info.java) | Catalog→Table/Security 适配；进程组合根装配 | — | 0/0 | — |
 | [checkpoint/JdbcCheckpointStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/checkpoint/JdbcCheckpointStore.java) | Coordinator 恢复/checkpoint provider（当前未接生产） | `checkpoints` | 0/0 | — |
@@ -386,19 +387,19 @@ S2/S3 已通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `c
 | [core/schema/SchemaEvolutionValidator.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/schema/SchemaEvolutionValidator.java) | Catalog 技术 Schema 投影/校验 | — | 3/12 | MetadataBootstrap, MetadataSyncService, DefaultMetadataService |
 | [core/schema/SchemaValidationResult.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/schema/SchemaValidationResult.java) | Catalog 技术 Schema 投影/校验 | — | 3/1 | MetadataSyncService, SchemaEvolutionValidator, DefaultMetadataService |
 | [core/schema/StrictnessLevel.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/schema/StrictnessLevel.java) | Catalog 技术 Schema 投影/校验 | — | 1/0 | SchemaEvolutionValidator |
-| [databuild/GeneratedValueBuildDescriptor.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/GeneratedValueBuildDescriptor.java) | AI Control 生成值定义/提交/版本 | — | 5/2 | DurableGeneratedValueBuildService, GeneratedValueBuildSubmission, GeneratedValueBuildMetadataStore |
-| [databuild/GeneratedValueBuildMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/GeneratedValueBuildMetadataStore.java) | AI Control 生成值定义/提交/版本 | — | 3/0 | GeneratedValueGenerationBindingResolver, GeneratedValueReadResolver, JdbcGeneratedValuePublicationStore |
-| [databuild/GeneratedValueBuildSubmission.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/GeneratedValueBuildSubmission.java) | AI Control 生成值定义/提交/版本 | — | 3/1 | DurableGeneratedValueBuildService, GeneratedValueBuildSubmissionStore, JdbcGeneratedValueBuildSubmissionStore |
-| [databuild/GeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/GeneratedValueBuildSubmissionStore.java) | AI Control 生成值定义/提交/版本 | — | 2/1 | DurableGeneratedValueBuildService, JdbcGeneratedValueBuildSubmissionStore |
-| [databuild/GeneratedValueGenerationReference.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/GeneratedValueGenerationReference.java) | AI Control 生成值定义/提交/版本 | — | 3/0 | GeneratedValueGenerationBindingResolver, GeneratedValueBuildMetadataStore, JdbcGeneratedValuePublicationStore |
-| [databuild/jdbc/DataBuildPublicationJob.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/DataBuildPublicationJob.java) | 公共生成任务内核及其 PostgreSQL provider | — | 5/0 | JdbcGeneratedValuePublicationStore, JdbcGeneratedValueDescriptorStore, JdbcIndexGenerationPublicationStore |
-| [databuild/jdbc/DataBuildPublicationManifestDigest.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/DataBuildPublicationManifestDigest.java) | Indexing 发布 digest；现为 Index JobRow 专用，保留领域字节 | — | 1/0 | JdbcIndexGenerationPublicationStore |
-| [databuild/jdbc/DataBuildPublicationOutputValidator.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/DataBuildPublicationOutputValidator.java) | 公共生成任务内核及其 PostgreSQL provider | — | 3/0 | JdbcGeneratedValuePublicationStore, JdbcIndexGenerationPublicationStore, JdbcTabularExportPublicationStore |
-| [databuild/jdbc/JdbcGeneratedValueDescriptorStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/JdbcGeneratedValueDescriptorStore.java) | AI Control 生成值定义/提交/版本 | `generated_value_artifacts` | 2/0 | JdbcGeneratedValuePublicationStore, JdbcGeneratedValueBuildSubmissionStore |
-| [databuild/jdbc/JdbcGeneratedValuePublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/JdbcGeneratedValuePublicationStore.java) | AI Control 生成值定义/提交/版本 | `artifact_build_jobs`, `generated_value_generation_manifests` | 1/2 | DataBuildStores |
-| [databuild/jdbc/JdbcIndexGenerationPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/JdbcIndexGenerationPublicationStore.java) | Indexing 领域发布 provider | `artifact_build_jobs`, `index_descriptors`, `index_generation_builds`, `index_generation_manifests` | 2/1 | DataBuildStores, DataBuildPublicationManifestDigest |
-| [databuild/jdbc/JdbcTabularExportPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/JdbcTabularExportPublicationStore.java) | 通用关系导出发布适配；不自动归 AI | `artifact_build_jobs`, `tabular_export_generations` | 1/2 | DataBuildStores |
-| [databuild/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java) | AI Control 生成值定义/提交/版本 | `write_commit_journal` | 1/0 | DataBuildStores |
+| [databuild/GeneratedValueBuildDescriptor.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildDescriptor.java) | AI Control 生成值定义/提交/版本 | — | 5/2 | DurableGeneratedValueBuildService, GeneratedValueBuildSubmission, GeneratedValueBuildMetadataStore |
+| [databuild/GeneratedValueBuildMetadataStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildMetadataStore.java) | AI Control 生成值定义/提交/版本 | — | 3/0 | GeneratedValueGenerationBindingResolver, GeneratedValueReadResolver, JdbcGeneratedValuePublicationStore |
+| [databuild/GeneratedValueBuildSubmission.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildSubmission.java) | AI Control 生成值定义/提交/版本 | — | 3/1 | DurableGeneratedValueBuildService, GeneratedValueBuildSubmissionStore, JdbcGeneratedValueBuildSubmissionStore |
+| [databuild/GeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueBuildSubmissionStore.java) | AI Control 生成值定义/提交/版本 | — | 2/1 | DurableGeneratedValueBuildService, JdbcGeneratedValueBuildSubmissionStore |
+| [databuild/GeneratedValueGenerationReference.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/GeneratedValueGenerationReference.java) | AI Control 生成值定义/提交/版本 | — | 3/0 | GeneratedValueGenerationBindingResolver, GeneratedValueBuildMetadataStore, JdbcGeneratedValuePublicationStore |
+| [databuild/jdbc/DataBuildPublicationJob.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationJob.java) | 公共生成任务内核及其 PostgreSQL provider | — | 5/0 | JdbcGeneratedValuePublicationStore, JdbcGeneratedValueDescriptorStore, JdbcIndexGenerationPublicationStore |
+| [databuild/jdbc/DataBuildPublicationManifestDigest.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationManifestDigest.java) | Indexing 发布 digest；现为 Index JobRow 专用，保留领域字节 | — | 1/0 | JdbcIndexGenerationPublicationStore |
+| [databuild/jdbc/DataBuildPublicationOutputValidator.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/GenerationPublicationOutputValidator.java) | 公共生成任务内核及其 PostgreSQL provider | — | 3/0 | JdbcGeneratedValuePublicationStore, JdbcIndexGenerationPublicationStore, JdbcTabularExportPublicationStore |
+| [databuild/jdbc/JdbcGeneratedValueDescriptorStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcGeneratedValueDescriptorStore.java) | AI Control 生成值定义/提交/版本 | `generated_value_artifacts` | 2/0 | JdbcGeneratedValuePublicationStore, JdbcGeneratedValueBuildSubmissionStore |
+| [databuild/jdbc/JdbcGeneratedValuePublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcGeneratedValuePublicationStore.java) | AI Control 生成值定义/提交/版本 | `artifact_build_jobs`, `generated_value_generation_manifests` | 1/2 | DataBuildStores |
+| [databuild/jdbc/JdbcIndexGenerationPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcIndexGenerationPublicationStore.java) | Indexing 领域发布 provider | `artifact_build_jobs`, `index_descriptors`, `index_generation_builds`, `index_generation_manifests` | 2/1 | DataBuildStores, DataBuildPublicationManifestDigest |
+| [databuild/jdbc/JdbcTabularExportPublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/JdbcTabularExportPublicationStore.java) | 通用关系导出发布适配；不自动归 AI | `artifact_build_jobs`, `tabular_export_generations` | 1/2 | DataBuildStores |
+| [databuild/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission/JdbcGeneratedValueBuildSubmissionStore.java) | AI Control 生成值定义/提交/版本 | `write_commit_journal` | 1/0 | DataBuildStores |
 | [exception/IndexAlreadyExistsException.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/exception/IndexAlreadyExistsException.java) | Indexing API 错误 | — | 3/1 | IndexDdlExecutor, IndexMetadataStore, JdbcIndexDescriptorStore |
 | [exception/MetadataException.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/exception/MetadataException.java) | Catalog 错误 | — | 14/2 | DependencyViolationException, DefaultMetadataService, IndexAlreadyExistsException |
 | [exception/MetadataResolutionException.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/exception/MetadataResolutionException.java) | Catalog 错误 | — | 3/4 | PlanningReadBindings, LazyMetadataSchema, DefaultMetadataService |
@@ -444,84 +445,86 @@ S2/S3 已通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `c
 | [store/jdbc/object/JdbcObjectDependencyStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/object/JdbcObjectDependencyStore.java) | Catalog 技术对象依赖图 | `pangrova_object_dependencies` | 0/1 | — |
 | [tenant/JdbcTenantStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/tenant/JdbcTenantStore.java) | Security 租户 PostgreSQL provider | `tenant_user_memberships`, `tenants` | 7/21 | ModuleIntegrationBootstrap, CoordinatorBootstrap, QueryExecutionBootstrap |
 
-## 8. 生成任务 69 文件逐项分区
+## 8. 生成任务初审 69 文件逐项分区
+
+本节保留初审文件标签与职责判定，链接已更新到 Generation 三叶；不得把69视作当前规模。S1/S2/S3新增的7文件为 `CurrentGenerationAuthority`、`GenerationStageExecutionStore`、`GenerationStageExchangeStore`、`spi.storage/package-info.java`、`GenerationJobSubmissionTransactions`、`GenerationExecutionTransactionFence`、`GenerationTransactionInputs`，已计入第3节当前76文件。
 
 本表记录当前身份；目标最终前缀待确认，不执行新一轮改名。包说明随对应实现层更新。
 
 | 当前文件 | 目标层/处理 |
 |---|---|
-| [api/DataBuildDependency.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildDependency.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/DataBuildDependencySet.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildDependencySet.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/DataBuildEmptyPartitionPolicy.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildEmptyPartitionPolicy.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/DataBuildExecutionKind.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildExecutionKind.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/DataBuildOutputScope.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildOutputScope.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/DataBuildOutputTypeIds.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildOutputTypeIds.java) | 领域 type ID 扩展；既有字符串值不变 |
-| [api/DataBuildPageKind.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildPageKind.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/DataBuildStorageException.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/DataBuildStorageException.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildDispatchSpec.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildDispatchSpec.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildJob.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildJob.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildJobKey.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildJobKey.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildJobState.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildJobState.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildLease.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildLease.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildOutput.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildOutput.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildPage.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildPage.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildPageCompletion.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildPageCompletion.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildSplit.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildSplit.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/build/DataBuildStore.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/DataBuildStore.java) | 业务 Store SPI；独立 markPublished 另批移除 |
-| [api/build/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/build/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/DataBuildExchangeFinalization.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/DataBuildExchangeFinalization.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/DataBuildExchangeRegistration.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/DataBuildExchangeRegistration.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/DataBuildExecutionOwner.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/DataBuildExecutionOwner.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/DataBuildExecutionOwnerLostException.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/DataBuildExecutionOwnerLostException.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/DataBuildStageGraph.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/DataBuildStageGraph.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/template/DataBuildStageTemplate.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/template/DataBuildStageTemplate.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/execution/template/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/execution/template/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/format/DataBuildOutputFormatContracts.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/format/DataBuildOutputFormatContracts.java) | 拆通用 contract 与领域注册规则；既有格式/字节不变 |
-| [api/format/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/format/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/manifest/DataBuildGenerationManifest.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/manifest/DataBuildGenerationManifest.java) | 公共 immutable completion evidence；非 active/latest 权威 |
-| [api/manifest/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/manifest/package-info.java) | 公共 immutable completion evidence；非 active/latest 权威 |
-| [api/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
-| [api/publication/DataBuildPublicationStore.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/publication/DataBuildPublicationStore.java) | 业务 publication port；领域 current-pointer 归 owner |
-| [api/publication/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/api/publication/package-info.java) | 业务 publication port；领域 current-pointer 归 owner |
-| [assembly/DataBuildDispatchSpecFactory.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/assembly/DataBuildDispatchSpecFactory.java) | core 纯值对象构造；不做 provider 装配 |
-| [assembly/DataBuildPublicationFactory.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/assembly/DataBuildPublicationFactory.java) | core 纯值对象构造；不做 provider 装配 |
-| [assembly/DataBuildStageGraphFactory.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/assembly/DataBuildStageGraphFactory.java) | core 纯值对象构造；不做 provider 装配 |
-| [assembly/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/assembly/package-info.java) | core 纯值对象构造；不做 provider 装配 |
-| [core/publication/DataBuildPublicationRouter.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/core/publication/DataBuildPublicationRouter.java) | core 发布路由；领域 handler 显式注入 |
-| [core/publication/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/core/publication/package-info.java) | core 发布路由；领域 handler 显式注入 |
-| [protocol/DataBuildCanonicalJson.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/protocol/DataBuildCanonicalJson.java) | core 协议编码；canonical bytes 不变 |
-| [protocol/DataBuildExchangeEvidenceCodec.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/protocol/DataBuildExchangeEvidenceCodec.java) | core 协议编码；canonical bytes 不变 |
-| [protocol/DataBuildStageGraphCodec.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/protocol/DataBuildStageGraphCodec.java) | core 协议编码；canonical bytes 不变 |
-| [protocol/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/protocol/package-info.java) | core 协议编码；canonical bytes 不变 |
-| [spi/jdbc/DataBuildPublicationCandidates.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/jdbc/DataBuildPublicationCandidates.java) | JDBC transaction bridge；与普通 Store SPI 分开 |
-| [spi/jdbc/DataBuildTransactionAuthority.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/jdbc/DataBuildTransactionAuthority.java) | JDBC transaction bridge；与普通 Store SPI 分开 |
-| [spi/jdbc/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/jdbc/package-info.java) | JDBC transaction bridge；与普通 Store SPI 分开 |
-| [store/jdbc/build/DataBuildRevocation.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/DataBuildRevocation.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildAdmission.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildAdmission.java) | provider admission；业务格式特例另批迁领域 contract |
-| [store/jdbc/build/JdbcDataBuildCompletion.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildCompletion.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildJobInsertion.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildJobInsertion.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildOutputQueries.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildOutputQueries.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildPageClaim.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildPageClaim.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildPageSelection.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildPageSelection.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildPublishedInputs.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildPublishedInputs.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildReader.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildReader.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildStageExecutionStore.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildStageExecutionStore.java) | 抽 StageExecutionStore/DTO 到 SPI；实现留 PostgreSQL provider |
-| [store/jdbc/build/JdbcDataBuildStore.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildStore.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildStoreMappings.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildStoreMappings.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/JdbcDataBuildStoreSupport.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/JdbcDataBuildStoreSupport.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/build/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/build/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/exchange/JdbcDataBuildStageExchangeStore.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/exchange/JdbcDataBuildStageExchangeStore.java) | 抽 StageExchangeStore/ExchangeEvidence 到 SPI；实现留 PostgreSQL provider |
-| [store/jdbc/exchange/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/exchange/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/execution/CurrentDeferredExecutionContext.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution/CurrentDeferredExecutionContext.java) | 拆无 SQL evidence 与 provider resolver |
-| [store/jdbc/execution/JdbcDataBuildExecutionFence.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution/JdbcDataBuildExecutionFence.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/execution/JdbcDataBuildExecutionRoutes.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution/JdbcDataBuildExecutionRoutes.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/execution/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
-| [store/jdbc/query/JdbcDataBuildQueries.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/query/JdbcDataBuildQueries.java) | provider SQL read；跨域调用改窄 transaction port |
-| [store/jdbc/query/package-info.java](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/query/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [api/DataBuildDependency.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationDependency.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/DataBuildDependencySet.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationDependencySet.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/DataBuildEmptyPartitionPolicy.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationEmptyPartitionPolicy.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/DataBuildExecutionKind.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationExecutionKind.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/DataBuildOutputScope.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationOutputScope.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/DataBuildOutputTypeIds.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationOutputTypeIds.java) | 领域 type ID 扩展；既有字符串值不变 |
+| [api/DataBuildPageKind.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationPageKind.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/DataBuildStorageException.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/GenerationStorageException.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildDispatchSpec.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationDispatchSpec.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildJob.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationJob.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildJobKey.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationJobKey.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildJobState.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationJobState.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildLease.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationLease.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildOutput.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationOutput.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildPage.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationPage.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildPageCompletion.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationPageCompletion.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildSplit.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationSplit.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/build/DataBuildStore.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationJobStore.java) | 业务 Store SPI；独立 markPublished 另批移除 |
+| [api/build/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/DataBuildExchangeFinalization.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/GenerationExchangeFinalization.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/DataBuildExchangeRegistration.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/GenerationExchangeRegistration.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/DataBuildExecutionOwner.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/GenerationExecutionOwner.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/DataBuildExecutionOwnerLostException.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/GenerationExecutionOwnerLostException.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/DataBuildStageGraph.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/GenerationStageGraph.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/template/DataBuildStageTemplate.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/template/GenerationStageTemplate.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/execution/template/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/template/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/format/DataBuildOutputFormatContracts.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/format/GenerationOutputFormatContracts.java) | 拆通用 contract 与领域注册规则；既有格式/字节不变 |
+| [api/format/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/format/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/manifest/DataBuildGenerationManifest.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/manifest/GenerationManifest.java) | 公共 immutable completion evidence；非 active/latest 权威 |
+| [api/manifest/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/manifest/package-info.java) | 公共 immutable completion evidence；非 active/latest 权威 |
+| [api/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/package-info.java) | core API/SPI 值对象与约束；不依赖 SQL |
+| [api/publication/DataBuildPublicationStore.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/publication/GenerationPublicationStore.java) | 业务 publication port；领域 current-pointer 归 owner |
+| [api/publication/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/publication/package-info.java) | 业务 publication port；领域 current-pointer 归 owner |
+| [assembly/DataBuildDispatchSpecFactory.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/assembly/GenerationDispatchSpecFactory.java) | core 纯值对象构造；不做 provider 装配 |
+| [assembly/DataBuildPublicationFactory.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/assembly/GenerationPublicationFactory.java) | core 纯值对象构造；不做 provider 装配 |
+| [assembly/DataBuildStageGraphFactory.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/assembly/GenerationStageGraphFactory.java) | core 纯值对象构造；不做 provider 装配 |
+| [assembly/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/assembly/package-info.java) | core 纯值对象构造；不做 provider 装配 |
+| [core/publication/DataBuildPublicationRouter.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/core/publication/GenerationPublicationRouter.java) | core 发布路由；领域 handler 显式注入 |
+| [core/publication/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/core/publication/package-info.java) | core 发布路由；领域 handler 显式注入 |
+| [protocol/DataBuildCanonicalJson.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/protocol/GenerationCanonicalJson.java) | core 协议编码；canonical bytes 不变 |
+| [protocol/DataBuildExchangeEvidenceCodec.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/protocol/GenerationExchangeEvidenceCodec.java) | core 协议编码；canonical bytes 不变 |
+| [protocol/DataBuildStageGraphCodec.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/protocol/GenerationStageGraphCodec.java) | core 协议编码；canonical bytes 不变 |
+| [protocol/package-info.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/protocol/package-info.java) | core 协议编码；canonical bytes 不变 |
+| [spi/jdbc/DataBuildPublicationCandidates.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/GenerationPublicationCandidates.java) | JDBC transaction bridge；与普通 Store SPI 分开 |
+| [spi/jdbc/DataBuildTransactionAuthority.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/GenerationTransactionAuthority.java) | JDBC transaction bridge；与普通 Store SPI 分开 |
+| [spi/jdbc/package-info.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/package-info.java) | JDBC transaction bridge；与普通 Store SPI 分开 |
+| [store/jdbc/build/DataBuildRevocation.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationRevocation.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildAdmission.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationAdmission.java) | provider admission；业务格式特例另批迁领域 contract |
+| [store/jdbc/build/JdbcDataBuildCompletion.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationCompletion.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildJobInsertion.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobInsertion.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildOutputQueries.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationOutputQueries.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildPageClaim.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationPageClaim.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildPageSelection.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationPageSelection.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildPublishedInputs.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationPublishedInputs.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildReader.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobReader.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildStageExecutionStore.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationStageExecutionStore.java) | 抽 StageExecutionStore/DTO 到 SPI；实现留 PostgreSQL provider |
+| [store/jdbc/build/JdbcDataBuildStore.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobStore.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildStoreMappings.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobStoreMappings.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/JdbcDataBuildStoreSupport.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobStoreSupport.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/build/package-info.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/exchange/JdbcDataBuildStageExchangeStore.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/exchange/PostgresGenerationStageExchangeStore.java) | 抽 StageExchangeStore/ExchangeEvidence 到 SPI；实现留 PostgreSQL provider |
+| [store/jdbc/exchange/package-info.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/exchange/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/execution/CurrentDeferredExecutionContext.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/PostgresCurrentGenerationAuthority.java) | 拆无 SQL evidence 与 provider resolver |
+| [store/jdbc/execution/JdbcDataBuildExecutionFence.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/PostgresGenerationExecutionFence.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/execution/JdbcDataBuildExecutionRoutes.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/PostgresGenerationExecutionRoutes.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/execution/package-info.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
+| [store/jdbc/query/JdbcDataBuildQueries.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/query/PostgresGenerationQueries.java) | provider SQL read；跨域调用改窄 transaction port |
+| [store/jdbc/query/package-info.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/query/package-info.java) | PostgreSQL provider；保留原 SQL/事务 |
 
 ## 9. 本次证据范围与实施限制
 
-本次只读检查主源、真实构造点、Maven dependencies 和最近测试，并写本文；没有在本次设计审查中修改代码、运行 Maven、承诺新后端已实现。当前规模包括包说明，不等于 public API 数。上文候选端口/目录是待实施设计，与当前源码路径明确区分。
+本次只读检查主源、真实构造点、Maven dependencies 和最近测试，并写本文；没有在本次设计审查中修改代码、运行 Maven、承诺新后端已实现。当前规模包括包说明，不等于 public API 数。第3–4节已标明 Generation 当前边界；Catalog、领域 writer 和发布能力的候选仍是待实施设计。第7–8节的初审标签/引用数字保留为历史证据，链接使用实际当前源码。
 
 迁移以现有领域授权和事务行为为约束：观察到的 policy/model snapshot 不能被重新读取的值悄悄替换；当前 direct roles、真实 Query execution anchor 与授权 gate 必须使用实际 provider。历史 SQL、generated proto、wire enum、持久 JSON 字段与 golden bytes 无机械替换。最终名称不能代替边界验收。

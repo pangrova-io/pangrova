@@ -10,7 +10,7 @@ import io.substrait.proto.NamedStruct;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
+import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
 import org.pangrova.planner.RetrievalTopKPlanHint;
 import org.pangrova.planner.SerializedPlanFragment;
 import org.pangrova.protocol.execution.BoundExecutionPlan;

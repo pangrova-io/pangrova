@@ -14,7 +14,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.Retrieval
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
 import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.retrieval.RetrievalMergeBinding;
@@ -54,7 +54,7 @@ public final class RetrievalIntentCollector {
                 intents.put(sourceKey, new RetrievalGenerationIntent(
                         tenantId,
                         sourceKey,
-                        node.indexId(), DataBuildOutputTypeIds.VECTOR_INDEX,
+                        node.indexId(), GenerationOutputTypeIds.VECTOR_INDEX,
                         Integer.toString(node.indexGeneration()), node.tableName(),
                         node.indexSnapshot(),
                         node.retrievalCapability(),
@@ -77,7 +77,7 @@ public final class RetrievalIntentCollector {
                     intents.put(sourceKey, new RetrievalGenerationIntent(
                             tenantId,
                             sourceKey,
-                            node.indexId(), DataBuildOutputTypeIds.TEXT_INDEX,
+                            node.indexId(), GenerationOutputTypeIds.TEXT_INDEX,
                             Integer.toString(node.indexGeneration()), node.tableName(),
                             node.indexSnapshot(),
                             BuiltInCapabilityCatalog.bm25RetrievalPlanRef(),

@@ -20,7 +20,9 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-observability/pangrova-observability-api` | Metrics/tracing/logging contracts and API-owned no-op implementations (no SDK dependency) |
 | `pangrova-observability/pangrova-observability-sdk` | OpenTelemetry providers, SDK configuration, and transport adapters |
 | `pangrova-query-api` | Query-owned execution anchors, journal/lineage facts, audit and recovery ports; never depends on Query runtime/store implementations |
-| `pangrova-data-build` | Durable artifact contracts, canonical graph/exchange codecs, submission factories, publication routing and generic JDBC build/stage/exchange state; current authority and cross-domain publication reads use injected transaction ports |
+| `pangrova-generation/pangrova-generation-core` | Generation-job contracts, storage SPI and immutable evidence, canonical codecs, pure construction factories and publication routing; no JDBC transaction/provider dependency |
+| `pangrova-generation/pangrova-generation-transaction-spi` | Internal borrowed-connection authority, submission, input-reading, candidate and execution-fence contracts; callers retain transaction ownership |
+| `pangrova-generation/pangrova-generation-store-postgresql` | PostgreSQL job/page/stage/exchange state, route/fence and fresh authority resolution; implements core and transaction ports |
 | `pangrova-query` | Query runtime services, profiling/audit orchestration, journal factories and JDBC/in-memory state stores; implements `pangrova-query-api` |
 | `pangrova-operations` | DDL/DML operation execution |
 | `pangrova-coordination/pangrova-coordination-api` | SDK-free lease, coordinator/worker registry and immutable topology contracts for applications and independent providers |
@@ -35,7 +37,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-file` | Volume/Stage, directory generation, upload, storage profile and COPY claim/publication owner; Worker keeps only execution adapters |
 | `pangrova-storage` | Content-addressed blob publication backends (filesystem, managed S3) shared by Worker COPY and the AI FILE layer |
 | `pangrova-ai/pangrova-ai-api` | Shared AI model, capability, invocation, embedding descriptors and the Worker↔AI runtime ports |
-| `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Artifact contracts without exposing this dependency through AI API |
+| `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Generation contracts without exposing this dependency through AI API |
 | `pangrova-ai/pangrova-ai-worker` | Optional Worker-side AI execution plane: governed provider invocation, AI SQL functions and ServiceLoader runtime adapters |
 | `pangrova-connector-*` | Data source connector providers (Iceberg / Paimon / Lance) |
 | `pangrova-standalone` | Single-node standalone deployment |
@@ -130,18 +132,22 @@ The authoritative per-artifact allow-list (`packageRoots`, `exports`,
 in `.pangrova/modules.yaml`; `.pangrova/module-baseline.yaml` records generated
 facts. Do not restate the matrix here — a duplicated table drifts from policy.
 
-Generation-job composition roots currently use the exported `org.pangrova.databuild.assembly`
-factory ports and pass `org.pangrova.databuild.api` contracts to domain consumers. The routing
-implementation in `org.pangrova.databuild.core.publication` is not exported.
-The `data-build` module/package name is transitional while its domain and storage
-boundaries are being separated; it is not the accepted final name.
-Stage/exchange consumers use `org.pangrova.databuild.spi.storage` rather than
+Generation-job composition roots currently use the exported `org.pangrova.generation.assembly`
+factory ports and pass `org.pangrova.generation.api` contracts to domain consumers. The routing
+implementation in `org.pangrova.generation.core.publication` is not exported.
+The `pangrova-generation` family separates core, transaction-spi and store-postgresql
+artifacts. Core must not depend on either transaction-spi or the provider, including
+through its test classpath. JDBC cooperation contracts live in `spi.jdbc` in the
+transaction artifact; the actual PostgreSQL provider is selected by assembly.
+This generation-job family does not own Dynamic Table or Materialized View
+lifecycles, which remain in `pangrova-materialization`.
+Stage/exchange consumers use `org.pangrova.generation.spi.storage` rather than
 JDBC provider types or nested provider records. A returned current-authority view
 is process-local preparation evidence, never a credential accepted by a store.
 Providers establish fresh authority on every operation. Partition preparation
 callbacks run before transaction locks are released and must not perform network
 I/O; callback failure rolls back the claim.
-Domain adapters read persisted generation inputs through `DataBuildTransactionInputs`
+Domain adapters read persisted generation inputs through `GenerationTransactionInputs`
 on the supplied connection. Ordinary auto-commit reads remain supported; a stored
 compiler observation never grants current authority. PostgreSQL SQL and canonical
 input validation stay in the real provider, selected by the composition root.
@@ -152,10 +158,10 @@ leases do not provide inter-process exclusion. JDBC provider owner tests use the
 Testing Kit migration fixture without importing Core or Metadata fixtures.
 
 AI Control's `assembly.AiInfrastructureStores` requires the process root to supply
-the real `DataBuildJobSubmissionTransactions` provider, which owns its explicitly
-injected `DataBuildTransactionAuthority`. Submission and export association use the
+the real `GenerationJobSubmissionTransactions` provider, which owns its explicitly
+injected `GenerationTransactionAuthority`. Submission and export association use the
 caller connection; the participant must not commit, roll back or close it.
-`DataBuildExecutionTransactionFence` similarly exposes current owner checks while
+`GenerationExecutionTransactionFence` similarly exposes current owner checks while
 Query retains anchor locking and post-lock database clock evaluation.
 AI Control has no production or test-jar
 dependency on Metadata. Cross-domain catalog-export and deferred-model authority
@@ -165,7 +171,7 @@ Do not restore a default factory that discovers Metadata or bypasses authority.
 Security owns the `CurrentModelAuthority` JDBC cooperation port and its deferred
 receipt snapshots. AI Control implements current model/role validation on the
 caller connection. Metadata consumes this explicit port without importing AI
-Control; the process composition root supplies the real provider to Artifact,
+Control; the process composition root supplies the real provider to Generation,
 managed-source and generated-write consumers. No provider may acquire or finish
 the caller transaction, and no static authority setter or permissive default is
 allowed.

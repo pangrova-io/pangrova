@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
-import org.pangrova.coordinator.databuild.GeneratedValueReadResolver;
-import org.pangrova.coordinator.databuild.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
+import org.pangrova.coordinator.generation.GeneratedValueReadResolver;
+import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver.ResolvedRetrievalGeneration;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;

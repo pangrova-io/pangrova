@@ -67,27 +67,27 @@ and optional lineage adapter are not registered by production bootstrap; query
 lineage uses its durable outbox. Future integration requires an explicit identity,
 authority and atomicity design. Historical V9 schema and checksums remain intact.
 
-Artifact stores now consume `DataBuildTransactionAuthority` from
-`databuild.spi.jdbc`. This is explicitly a caller-owned JDBC transaction port,
+Generation stores now consume `GenerationTransactionAuthority` from
+`generation.spi.jdbc`. This is explicitly a caller-owned JDBC transaction port,
 not a data-source container or an authorization snapshot. The real
-`MetadataDataBuildTransactionAuthority` adapter retains the current tenant and
+`MetadataGenerationTransactionAuthority` adapter retains the current tenant and
 table-policy checks and delegates model validation through Security's
 `security.spi.jdbc.CurrentModelAuthority` on that same connection. The process
 root constructs AI Control's `store.jdbc.embedding.JdbcCurrentModelAuthority`
 with the real `JdbcCurrentDirectRoleReader`, then explicitly passes it to
-`new DataBuildStores(modelAuthority)` and the managed-source and generated-write
+`new GenerationStores(modelAuthority)` and the managed-source and generated-write
 consumers. The instance factory supplies that adapter to build, stage, exchange,
 publication and generated-submission stores; it has no static current-authority
 singleton, default model provider or mutable global injection point.
-AI Control's catalog-export adapter receives `DataBuildJobSubmissionTransactions`
+AI Control's catalog-export adapter receives `GenerationJobSubmissionTransactions`
 explicitly from `ai.control.assembly.AiInfrastructureStores`, whose caller supplies
 the real job store with its injected authority. AI Control no longer imports Metadata runtime or its test-jar;
 cross-domain authority tests belong to Testing Integration. Its build insertion and catalog association remain on
 one connection; an authority failure rolls back the whole export transaction.
 The existing authority gate, execution-owner fence and job/descriptor lock order
-remain unchanged. `DataBuildExecutionTransactionFence` exposes the same owner
+remain unchanged. `GenerationExecutionTransactionFence` exposes the same owner
 checks to consumers without requiring the concrete JDBC implementation.
-`DataBuildTransactionInputs` supplies dispatch, dependency and page reads on that
+`GenerationTransactionInputs` supplies dispatch, dependency and page reads on that
 same connection. The real JDBC reader implements the port directly and retains
 auto-commit reads, exact tenant/job scope and corrupt-input rejection. Authority
 and publication consumers receive it explicitly; SQL-reader construction remains
@@ -106,12 +106,12 @@ and SQL triggers are separate ownership concerns; this provider migration does
 not change them or the optional Indexing activation path.
 
 Immutable dispatch/dependency/page/split reads are owned by
-`databuild.store.jdbc.query.JdbcDataBuildQueries`. They retain the caller's
+`generation.store.postgresql.query.PostgresGenerationQueries`. They retain the caller's
 connection and do not begin, commit or close its transaction. The canonical historical SQL sequence is now owned by the resource-only
 `pangrova-schema-migrations` artifact, consumed by Metadata as a runtime dependency.
 Its `db/migration` location, filenames, versions and bytes are unchanged;
 `META-INF/pangrova/schema-migrations.tsv` records their original hashes.
-Metadata retains bootstrap execution and cross-domain composition. `CurrentDeferredExecutionContext`
+Metadata retains bootstrap execution and cross-domain composition. `PostgresCurrentGenerationAuthority`
 still has a private constructor and is resolved through current authority plus the
 real backend execution anchor. It rejects a port result for a different tenant or
 job before constructing that context.
@@ -125,9 +125,9 @@ transaction. It checks expiry using a separate database-clock statement after
 the anchor row lock. Absent/replaced/expired ownership is a typed rejection;
 SQL failures and corrupt rows are not stale-owner results.
 
-Artifact owns exact durable route reads/writes and publication-owner lookup in
-`databuild.store.jdbc.execution`. Its injected fence verifies the route, delegates
-anchor authority to Query, and exposes `DataBuildExecutionOwnerLostException` to
+Generation owns exact durable route reads/writes and publication-owner lookup in
+`generation.store.postgresql.execution`. Its injected fence verifies the route, delegates
+anchor authority to Query, and exposes `GenerationExecutionOwnerLostException` to
 consumers without leaking a Metadata implementation type. Metadata composition
 wires this real fence into build, stage, exchange and publication stores.
 Managed-source publication and File's COPY-source read admission also receive the
@@ -138,17 +138,17 @@ two publication fence checks around blocking job/descriptor work retain their
 existing order and transaction.
 
 Generic job/page/stage state, revocation and exchange writers now live in
-`databuild.store.jdbc.build` and `databuild.store.jdbc.exchange`. Execution context
-resolution lives in `databuild.store.jdbc.execution` and receives Security's
+`generation.store.postgresql.job` and `generation.store.postgresql.exchange`. Execution context
+resolution lives in `generation.store.postgresql.execution` and receives Security's
 `security.spi.jdbc.CurrentDirectRoleReader`; the real JDBC provider reads current
 direct roles on the same connection after current authorization and execution
 fencing. It never owns the caller's transaction or substitutes IdP groups.
 
-Publication candidate selection uses `databuild.spi.jdbc.DataBuildPublicationCandidates`,
+Publication candidate selection uses `generation.spi.jdbc.GenerationPublicationCandidates`,
 implemented by Metadata's shared-database projection. The SQL filters live owners
 before sorting/limiting candidates and reads persisted publication ownership without
 acquiring an anchor lock after the job lock. This read projection is not an execution
-ownership authority. Generic storage failures use `DataBuildStorageException` while
+ownership authority. Generic storage failures use `GenerationStorageException` while
 retaining the existing persistence error code, original cause and rollback failures.
 
 Domain publication, generated-value submission and cross-domain composition
@@ -156,15 +156,23 @@ remain in Metadata pending their owner migration. Current model authority is alr
 implemented by AI Control through the Security-owned transaction port. Historical SQL resources have their
 separate schema-migrations owner; their location does not make Metadata the writer
 for every domain table.
-Stage/exchange consumers now depend on `databuild.spi.storage` contracts and their
+Stage/exchange consumers now depend on `generation.spi.storage` contracts and their
 immutable records rather than nested JDBC implementation types. The JDBC providers
 retain fresh checks and the same transaction-scoped preparation callbacks. Their
 private current-authority context implements a read-only view; that view is not an
 authorization credential and is never accepted as a JDBC authorization input.
 
-The generic runtime move does not complete the generation-job/domain separation.
-The current data-build name is transitional; the target family is
-`pangrova-derived-data-jobs`, with core, transaction-spi and store-postgresql artifacts.
+The generic generation runtime now has three physical artifacts under
+`pangrova-generation`: core owns the contracts, storage SPI and codecs;
+transaction-spi owns the five borrowed-connection ports; store-postgresql owns
+the actual SQL providers. Core has no transaction/provider dependency.
+The private `PostgresCurrentGenerationAuthority` is issued only by fresh provider
+resolution; its `CurrentGenerationAuthority` view is not an authorization input.
+This split does not complete domain publication and process-assembly migration.
+Metadata still composes real providers, and its `GenerationStores.builds()` return
+type currently exposes `PostgresGenerationJobStore`. Indexing/AI publication
+writers and the shared publication-output SQL validator remain separate work.
+Dynamic Table/Materialized View lifecycle ownership stays in `pangrova-materialization`.
 
 ## 1. Design Background and Goals
 

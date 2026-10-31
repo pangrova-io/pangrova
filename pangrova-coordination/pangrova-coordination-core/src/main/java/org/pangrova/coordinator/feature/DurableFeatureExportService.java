@@ -18,33 +18,33 @@
  */
 package org.pangrova.coordinator.feature;
 
-import org.pangrova.databuild.assembly.DataBuildDispatchSpecFactory;
+import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
-import org.pangrova.databuild.api.execution.DataBuildStageGraph;
+import org.pangrova.generation.api.execution.GenerationStageGraph;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner;
-import org.pangrova.coordinator.databuild.ProtectedSourceSchemaVerifier;
+import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
+import org.pangrova.coordinator.generation.ProtectedSourceSchemaVerifier;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
-import org.pangrova.databuild.api.build.DataBuildJob;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.build.DataBuildSplit;
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.job.GenerationSplit;
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
-import org.pangrova.databuild.api.DataBuildDependencySet;
-import org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy;
-import org.pangrova.databuild.api.DataBuildExecutionKind;
-import org.pangrova.databuild.api.DataBuildOutputTypeIds;
+import org.pangrova.generation.api.GenerationDependencySet;
+import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
+import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewVersion;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
 import org.pangrova.ai.control.feature.CatalogExportRequest.ObjectKind;
-import org.pangrova.planner.databuild.DataBuildPlan;
-import org.pangrova.planner.databuild.TabularExportPlanBuilder;
+import org.pangrova.planner.generation.GenerationPlan;
+import org.pangrova.planner.generation.TabularExportPlanBuilder;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.OperatorBinding;
@@ -71,14 +71,14 @@ public final class DurableFeatureExportService {
     private static final long TIMEOUT_MILLIS = Duration.ofHours(1).toMillis();
 
     private final CatalogExportBuildStore buildStore;
-    private final SnapshotDataBuildSplitPlanner splitPlanner;
+    private final SnapshotGenerationSplitPlanner splitPlanner;
     private final String baseArtifactUri;
     private final ProtectedSourceSchemaVerifier sourceSchemaVerifier;
 
     /** Uses actual pinned connector splits and the sole durable artifact store. */
     public DurableFeatureExportService(
             CatalogExportBuildStore buildStore,
-            SnapshotDataBuildSplitPlanner splitPlanner,
+            SnapshotGenerationSplitPlanner splitPlanner,
             String baseArtifactUri,
             CatalogRegistry catalogRegistry) {
         this.buildStore = Objects.requireNonNull(buildStore, "buildStore must not be null");
@@ -110,9 +110,9 @@ public final class DurableFeatureExportService {
                     "Feature export must bind the current authenticated principal, tenant and exact compiled source");
         }
         sourceSchemaVerifier.verify(source, sourceSnapshot, connectorSession, compiled);
-        List<DataBuildSplit> splits = splitPlanner.enumerate(
+        List<GenerationSplit> splits = splitPlanner.enumerate(
                 source, sourceSnapshot, connectorSession);
-        DataBuildPlan plan = TabularExportPlanBuilder.build(compiled.planBytes());
+        GenerationPlan plan = TabularExportPlanBuilder.build(compiled.planBytes());
         DeferredAuthorizationScope authorizationScope = authorizationScope(feature, compiled);
         ExportIdentity identity = exportIdentity(feature, sourceSnapshot, requestedBy, compiled, authorizationScope);
         ArtifactWriteBinding output = outputBinding(
@@ -125,11 +125,11 @@ public final class DurableFeatureExportService {
                 .build();
         var prepared = FeatureExportStageGraph.prepare(compiled.stageGraph(), identity.jobId(), source.toString(),
                 splits, sink, MAX_ATTEMPTS);
-        List<DataBuildPage> pages = prepared.pages();
+        List<GenerationPage> pages = prepared.pages();
         Instant now = Instant.now();
-        DataBuildJob job = buildJob(
+        GenerationJob job = buildJob(
                 identity, sourceSnapshot, plan, pages.size(), now);
-        DataBuildDispatchSpec dispatch = dispatchSpec(
+        GenerationDispatchSpec dispatch = dispatchSpec(
                 identity, prepared.graph(), requestedBy, authorizationScope);
         CatalogExportRequest request = exportRequest(feature, identity, requestedBy, now);
         buildStore.createCatalogExportJob(request, job, dispatch, pages);
@@ -155,27 +155,27 @@ public final class DurableFeatureExportService {
                 + artifactDigest.substring(0, 32) + ":" + generation;
         String stagingUri = baseArtifactUri + "/v2/tenants/" + tenantScope
                 + "/exports/" + artifactDigest + "/generation-" + generation;
-        DataBuildDependencySet dependencies = DataBuildDependencySet.sourceSnapshot(
+        GenerationDependencySet dependencies = GenerationDependencySet.sourceSnapshot(
                 feature.sourceTable(), sourceSnapshot);
         return new ExportIdentity(
                 tenantId, feature.sourceTable(), artifactId, generation,
                 jobId, stagingUri, dependencies);
     }
 
-    private static DataBuildJob buildJob(
+    private static GenerationJob buildJob(
             ExportIdentity identity,
             String sourceSnapshot,
-            DataBuildPlan plan,
+            GenerationPlan plan,
             int pageCount,
             Instant now) {
-        DataBuildJobState state = pageCount == 0
-                ? DataBuildJobState.READY_TO_PUBLISH
-                : DataBuildJobState.QUEUED;
-        return new DataBuildJob(
+        GenerationJobState state = pageCount == 0
+                ? GenerationJobState.READY_TO_PUBLISH
+                : GenerationJobState.QUEUED;
+        return new GenerationJob(
                 identity.tenantId(), identity.jobId(), identity.artifactId(),
-                DataBuildOutputTypeIds.TABULAR_EXPORT, identity.generation(), identity.sourceId(),
-                sourceSnapshot, DataBuildExecutionKind.EXPORT, identity.dependencies(),
-                DataBuildEmptyPartitionPolicy.ALLOW_ZERO_ROWS, identity.stagingUri(),
+                GenerationOutputTypeIds.TABULAR_EXPORT, identity.generation(), identity.sourceId(),
+                sourceSnapshot, GenerationExecutionKind.EXPORT, identity.dependencies(),
+                GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS, identity.stagingUri(),
                 plan.format().getFormatId(), plan.format().getMajorVersion(),
                 plan.format().getMinorVersion(), HexFormat.of().formatHex(
                         plan.format().getSchemaSha256().toByteArray()),
@@ -183,15 +183,15 @@ public final class DurableFeatureExportService {
                 state, 0, now, now, now);
     }
 
-    private static DataBuildDispatchSpec dispatchSpec(
+    private static GenerationDispatchSpec dispatchSpec(
             ExportIdentity identity,
-            DataBuildStageGraph graph,
+            GenerationStageGraph graph,
             String requestedBy,
             DeferredAuthorizationScope authorizationScope) {
-        return DataBuildDispatchSpecFactory.create(
+        return GenerationDispatchSpecFactory.create(
                 identity.jobId(), graph,
                 identity.tenantId(), requestedBy, authorizationScope,
-                new DataBuildDispatchSpec.ResourceGrant(
+                new GenerationDispatchSpec.ResourceGrant(
                         MEMORY_BYTES, 1, SPILL_BYTES, TIMEOUT_MILLIS));
     }
 
@@ -228,12 +228,12 @@ public final class DurableFeatureExportService {
     }
 
     private static ArtifactWriteBinding outputBinding(
-            DataBuildPlan plan, String artifactId, String generation,
+            GenerationPlan plan, String artifactId, String generation,
             String sourceId, String snapshot, String stagingUri,
-            DataBuildDependencySet dependencies) {
+            GenerationDependencySet dependencies) {
         ArtifactWriteBinding.Builder output = ArtifactWriteBinding.newBuilder()
                 .setArtifactId(artifactId)
-                .setArtifactType(DataBuildOutputTypeIds.TABULAR_EXPORT)
+                .setArtifactType(GenerationOutputTypeIds.TABULAR_EXPORT)
                 .setGeneration(generation)
                 .setSourceId(sourceId)
                 .setSourceSnapshot(snapshot)
@@ -283,5 +283,5 @@ public final class DurableFeatureExportService {
             String generation,
             String jobId,
             String stagingUri,
-            DataBuildDependencySet dependencies) {}
+            GenerationDependencySet dependencies) {}
 }

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.databuild.api.execution.DataBuildExchangeRegistration;
-import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PreparedPartition;
+import org.pangrova.generation.api.execution.GenerationExchangeRegistration;
+import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.Checksum;
@@ -45,7 +45,7 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireInput(ExternalShuffleInput input, PreparedPartition prepared,
-            DataBuildExchangeRegistration registration) {
+            GenerationExchangeRegistration registration) {
         if (!input.getShuffleId().equals(registration.shuffleId())
                 || input.getPlanEpoch() != registration.planEpoch()
                 || input.getOutputPartitionId() != prepared.lease().partitionId()
@@ -58,23 +58,23 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireConsumerTransport(ExternalShuffleInput input, PreparedPartition prepared,
-            DataBuildExchangeRegistration registration) {
+            GenerationExchangeRegistration registration) {
         if (!exactOwner(input.getExecutionOwner(), prepared)
                 || !protocolAddress(input.getCommitAddress()).equals(registration.commitAddress())
-                || !input.getEndpointsList().stream().map(endpoint -> new DataBuildExchangeRegistration.Endpoint(
-                        new DataBuildExchangeRegistration.Address(endpoint.getHost(), endpoint.getPort(),
+                || !input.getEndpointsList().stream().map(endpoint -> new GenerationExchangeRegistration.Endpoint(
+                        new GenerationExchangeRegistration.Address(endpoint.getHost(), endpoint.getPort(),
                                 endpoint.getTlsIdentity()), endpoint.getPartitionStart(), endpoint.getPartitionEnd()))
                         .toList().equals(registration.endpoints())) {
             throw new IllegalArgumentException("Consumer access changed the real external service identity");
         }
     }
 
-    private static DataBuildExchangeRegistration.Address protocolAddress(
+    private static GenerationExchangeRegistration.Address protocolAddress(
             org.pangrova.protocol.v2.ShuffleServiceAddress value) {
-        return new DataBuildExchangeRegistration.Address(value.getHost(), value.getPort(), value.getTlsIdentity());
+        return new GenerationExchangeRegistration.Address(value.getHost(), value.getPort(), value.getTlsIdentity());
     }
 
-    private static void requireChecksum(Checksum checksum, DataBuildExchangeRegistration registration) {
+    private static void requireChecksum(Checksum checksum, GenerationExchangeRegistration registration) {
         if (checksum.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256 || checksum.getDigest().size() != 32
                 || !HexFormat.of().formatHex(checksum.getDigest().toByteArray())
                         .equals(registration.producerSetSha256())) {
@@ -89,7 +89,7 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireOutput(PreparedPartition prepared, DurablePartitionRequest.ExchangeAccess access,
-            List<org.pangrova.databuild.api.execution.DataBuildStageGraph.Exchange> outgoing) {
+            List<org.pangrova.generation.api.execution.GenerationStageGraph.Exchange> outgoing) {
         if (outgoing.isEmpty()) {
             if (access.output() != null || access.allocation() != null) {
                 throw new IllegalArgumentException("Terminal partition cannot bind an unregistered output exchange");
@@ -104,7 +104,7 @@ final class StageExchangeAccessValidator {
 
     private static void requireProducerAllocation(PreparedPartition prepared,
             DurablePartitionRequest.ExchangeAccess access,
-            org.pangrova.databuild.api.execution.DataBuildStageGraph.Exchange edge) {
+            org.pangrova.generation.api.execution.GenerationStageGraph.Exchange edge) {
         var registration = prepared.exchanges().stream().map(value -> value.registration())
                 .filter(value -> value.exchangeId().equals(edge.exchangeId())).findFirst().orElseThrow();
         if (!access.allocation().shuffleId().equals(registration.shuffleId())
@@ -118,13 +118,13 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireProducerTransport(org.pangrova.shuffle.api.ShuffleHandle handle,
-            DataBuildExchangeRegistration registration) {
-        var endpoints = handle.endpoints().stream().map(endpoint -> new DataBuildExchangeRegistration.Endpoint(
-                new DataBuildExchangeRegistration.Address(endpoint.host(), endpoint.port(), endpoint.tlsIdentity()),
+            GenerationExchangeRegistration registration) {
+        var endpoints = handle.endpoints().stream().map(endpoint -> new GenerationExchangeRegistration.Endpoint(
+                new GenerationExchangeRegistration.Address(endpoint.host(), endpoint.port(), endpoint.tlsIdentity()),
                 endpoint.partitionStart(), endpoint.partitionEnd())).toList();
         var address = handle.commitAddress();
         if (!endpoints.equals(registration.endpoints())
-                || !new DataBuildExchangeRegistration.Address(address.host(), address.port(), address.tlsIdentity())
+                || !new GenerationExchangeRegistration.Address(address.host(), address.port(), address.tlsIdentity())
                         .equals(registration.commitAddress())
                 || !HexFormat.of().formatHex(handle.expectedProducerSetChecksum())
                         .equals(registration.producerSetSha256())) {

@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.feature;
 
-import org.pangrova.coordinator.databuild.template.FrozenStageBindings;
+import org.pangrova.coordinator.generation.template.FrozenStageBindings;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions;
-import org.pangrova.databuild.api.build.DataBuildPage;
-import org.pangrova.databuild.api.build.DataBuildSplit;
-import org.pangrova.databuild.api.execution.DataBuildStageGraph;
-import org.pangrova.databuild.api.DataBuildPageKind;
+import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.generation.api.job.GenerationSplit;
+import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.generation.api.GenerationPageKind;
 import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.planner.databuild.TabularExportPlanBuilder;
+import org.pangrova.planner.generation.TabularExportPlanBuilder;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.OperatorBinding;
@@ -19,13 +19,13 @@ import java.util.List;
 final class FeatureExportStageGraph {
     private FeatureExportStageGraph() {}
 
-    record Prepared(DataBuildStageGraph graph, List<DataBuildPage> pages) {}
+    record Prepared(GenerationStageGraph graph, List<GenerationPage> pages) {}
 
     static Prepared prepare(AuthorizedStageGraph graph, String jobId, String sourceId,
-            List<DataBuildSplit> splits, OperatorBinding sink, int maxAttempts) {
+            List<GenerationSplit> splits, OperatorBinding sink, int maxAttempts) {
         requireAdmitted(graph, sourceId);
-        var stages = new ArrayList<DataBuildStageGraph.StagePlan>();
-        var pages = new ArrayList<DataBuildPage>();
+        var stages = new ArrayList<GenerationStageGraph.StagePlan>();
+        var pages = new ArrayList<GenerationPage>();
         for (var stage : topologicalStages(graph)) {
             boolean terminal = "OUTPUT".equals(stage.taskType());
             var plan = terminal ? TabularExportPlanBuilder.build(stage.serializedPlan().planBytes()).planBytes()
@@ -41,19 +41,19 @@ final class FeatureExportStageGraph {
                         + " has an invalid canonical schema: " + failure.getMessage(), failure);
             }
             var bound = new BoundExecutionPlan(plan, terminal ? List.of(sink) : List.of());
-            var kind = terminal ? DataBuildPageKind.RELATIONAL_PARTITION : DataBuildPageKind.RELATIONAL_COMPUTE;
-            stages.add(DataBuildStageGraph.StagePlan.of(stage.stageId(), stage.parallelism(), kind, plan,
+            var kind = terminal ? GenerationPageKind.RELATIONAL_PARTITION : GenerationPageKind.RELATIONAL_COMPUTE;
+            stages.add(GenerationStageGraph.StagePlan.of(stage.stageId(), stage.parallelism(), kind, plan,
                     FrozenStageBindings.freeze(bound, List.of()),
                     stage.sources().stream().map(source -> source.qualifiedName()).toList(),
                     stage.outputNames(), terminal));
             pages.addAll(pages(graph, stage, jobId, splits, kind, maxAttempts, pages.size()));
         }
-        var edges = graph.transfers().stream().map(edge -> new DataBuildStageGraph.Exchange(edge.exchangeId(),
+        var edges = graph.transfers().stream().map(edge -> new GenerationStageGraph.Exchange(edge.exchangeId(),
                 edge.upstreamStageId(), edge.downstreamStageId(),
-                DataBuildStageGraph.Exchange.Distribution.valueOf(edge.shuffleType().name()), edge.distributionKeys(),
+                GenerationStageGraph.Exchange.Distribution.valueOf(edge.shuffleType().name()), edge.distributionKeys(),
                 edge.partitionCount(), edge.batchSerde().name(), edge.requireComplete())).toList();
-        return new Prepared(new DataBuildStageGraph(DataBuildStageGraph.FORMAT_VERSION,
-                DataBuildStageGraph.Purpose.RELATIONAL_EXPORT, stages, edges, List.of()), List.copyOf(pages));
+        return new Prepared(new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
+                GenerationStageGraph.Purpose.RELATIONAL_EXPORT, stages, edges, List.of()), List.copyOf(pages));
     }
 
     private static List<AuthorizedStageGraph.SerializedStage> topologicalStages(AuthorizedStageGraph graph) {
@@ -81,8 +81,8 @@ final class FeatureExportStageGraph {
         return List.copyOf(ordered);
     }
 
-    private static List<DataBuildPage> pages(AuthorizedStageGraph graph, AuthorizedStageGraph.SerializedStage stage,
-            String job, List<DataBuildSplit> splits, DataBuildPageKind kind, int maxAttempts, int ordinalBase) {
+    private static List<GenerationPage> pages(AuthorizedStageGraph graph, AuthorizedStageGraph.SerializedStage stage,
+            String job, List<GenerationSplit> splits, GenerationPageKind kind, int maxAttempts, int ordinalBase) {
         var producers = graph.transfers().stream().filter(edge -> edge.downstreamStageId() == stage.stageId())
                 .map(edge -> graph.stages().stream().filter(value -> value.stageId() == edge.upstreamStageId())
                         .findFirst().orElseThrow()).toList();
@@ -90,13 +90,13 @@ final class FeatureExportStageGraph {
                 .range(0, producer.parallelism()).mapToObj(partition -> pageId(job, producer.stageId(), partition)))
                 .toList();
         var byBytes = splits.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                DataBuildSplit::canonicalSplitBase64, java.util.function.Function.identity()));
+                GenerationSplit::canonicalSplitBase64, java.util.function.Function.identity()));
         var allocations = producers.isEmpty() ? StageSplitPartitions.partitionSplits(
-                splits.stream().map(DataBuildSplit::canonicalSplitBase64).toList(), stage.parallelism())
+                splits.stream().map(GenerationSplit::canonicalSplitBase64).toList(), stage.parallelism())
                 : List.<List<String>>of();
-        var result = new ArrayList<DataBuildPage>();
+        var result = new ArrayList<GenerationPage>();
         for (int partition = 0; partition < stage.parallelism(); partition++) {
-            result.add(new DataBuildPage(job, pageId(job, stage.stageId(), partition),
+            result.add(new GenerationPage(job, pageId(job, stage.stageId(), partition),
                     stage.stageId(), partition,
                     Math.addExact(ordinalBase, partition), kind,
                     producers.isEmpty() ? allocations.get(partition).stream().map(byBytes::get).toList()

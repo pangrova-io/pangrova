@@ -24,7 +24,7 @@
         <module>pangrova-protocol</module>
         <module>pangrova-observability</module>
         <module>pangrova-query-api</module>
-        <module>pangrova-data-build</module>
+        <module>pangrova-generation</module>
         <module>pangrova-query</module>
         <module>pangrova-scheduler</module>
         <module>pangrova-operations</module>
@@ -494,7 +494,17 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-data-build</artifactId>
+                <artifactId>pangrova-generation-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-generation-transaction-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-generation-store-postgresql</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

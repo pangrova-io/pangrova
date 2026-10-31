@@ -3,7 +3,7 @@ package org.pangrova.coordinator.feature;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.databuild.protocol.DataBuildStageGraphCodec;
+import org.pangrova.generation.protocol.GenerationStageGraphCodec;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.databuild.SnapshotDataBuildSplitPlanner;
+import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.coordinator.query.QueryManager;
@@ -142,7 +142,7 @@ class FeatureViewSqlIntegrationTest {
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 taskTracker, metadata.catalogRegistry(), null, null, 0);
         var exports = new DurableFeatureExportService(infrastructure.catalogExports(),
-                new SnapshotDataBuildSplitPlanner(metadata.catalogRegistry()), warehouse.resolve("exports").toString(),
+                new SnapshotGenerationSplitPlanner(metadata.catalogRegistry()), warehouse.resolve("exports").toString(),
                 metadata.catalogRegistry());
         var service = new FeatureViewStatementService(infrastructure.features(), exports, access, (sql, actor) -> {
             observedLifetime.set(actor.queryAuthority().orElseThrow());
@@ -284,7 +284,7 @@ class FeatureViewSqlIntegrationTest {
         var scope = org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
                 new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "raw", "customers"),
                 Set.of("customer_id", "event_ts", "secret"), target);
-        org.pangrova.coordinator.testinfra.CoordinatorDataBuildAuthorityFixtures.provision(
+        org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures.provision(
                 dataSource, TENANT, USER.principal(), scope);
         dispatch("CREATE FEATURE VIEW global_limit VERSION 1 AS '"
                 + definition("customers").replace("FROM customers", "FROM customers ORDER BY customer_id DESC LIMIT 1")
@@ -304,23 +304,23 @@ class FeatureViewSqlIntegrationTest {
             assertThat(builds.findJob(TENANT, jobId).orElseThrow().expectedPages())
                     .isEqualTo(spec.stageGraph().stages().stream().mapToInt(value -> value.parallelism()).sum());
         }
-        try (var ownership = new org.pangrova.coordinator.testinfra.CoordinatorDataBuildExecutionFixtures(dataSource)) {
+        try (var ownership = new org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures(dataSource)) {
             var anchor = ownership.takeOwnership(TENANT, jobId, "global-coordinator", 4);
             var stages = ModelAuthorityFixtures.artifacts().stages(dataSource);
             var terminal = spec.stageGraph().stages().stream().filter(value -> value.publicationOutput())
                     .findFirst().orElseThrow();
             assertThat(terminal.parallelism()).isEqualTo(1);
-            var key = new org.pangrova.databuild.api.build.DataBuildJobKey(TENANT, jobId);
+            var key = new org.pangrova.generation.api.job.GenerationJobKey(TENANT, jobId);
             var progress = stages.inspectPartition(key, anchor, terminal.stageId(), 0);
             assertThat(progress.pageOrdinal()).isPositive();
-            assertThat(stages.preparePartition(new org.pangrova.databuild.spi.storage
-                    .DataBuildStageExecutionStore.PartitionClaim(
+            assertThat(stages.preparePartition(new org.pangrova.generation.spi.storage
+                    .GenerationStageExecutionStore.PartitionClaim(
                             key, anchor, terminal.stageId(), 0, progress.pageOrdinal(),
                             4, java.time.Duration.ofMinutes(1), Instant.now()),
                     evidence -> evidence.lease())).isEmpty();
             var frozen = stages.prepareExecution(
-                    new org.pangrova.databuild.api.build.DataBuildJobKey(TENANT, jobId), anchor);
-            assertThat(DataBuildStageGraphCodec.sha256(frozen.authority().dispatchSpec().stageGraph())).isEqualTo(DataBuildStageGraphCodec.sha256(spec.stageGraph()));
+                    new org.pangrova.generation.api.job.GenerationJobKey(TENANT, jobId), anchor);
+            assertThat(GenerationStageGraphCodec.sha256(frozen.authority().dispatchSpec().stageGraph())).isEqualTo(GenerationStageGraphCodec.sha256(spec.stageGraph()));
         }
         assertPinnedPageCoverage(jobId, snapshot);
         assertTopologicalPageOrdinals(jobId);
@@ -386,7 +386,7 @@ class FeatureViewSqlIntegrationTest {
     }
 
     /** Independent component oracle with a real engine-issued, state-bound and explicitly closed lifetime. */
-    private List<org.pangrova.databuild.api.build.DataBuildSplit> enumeratePinnedCoverage(long snapshot) {
+    private List<org.pangrova.generation.api.job.GenerationSplit> enumeratePinnedCoverage(long snapshot) {
         String queryId = "feature-coverage";
         var state = new QueryStateMachine();
         var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));
@@ -394,7 +394,7 @@ class FeatureViewSqlIntegrationTest {
                 session().withQueryId(queryId).withQueryAuthority(authority), "lake", "raw");
         try {
             authority.beginMetadata("lake", () -> metadata.catalogRegistry().getCatalog("lake").getMetadata(actor));
-            return new SnapshotDataBuildSplitPlanner(metadata.catalogRegistry()).enumerate(
+            return new SnapshotGenerationSplitPlanner(metadata.catalogRegistry()).enumerate(
                     new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "raw", "customers"),
                     Long.toString(snapshot), actor);
         } finally {

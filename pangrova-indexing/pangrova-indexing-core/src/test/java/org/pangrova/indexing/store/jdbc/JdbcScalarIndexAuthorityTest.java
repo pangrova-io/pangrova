@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.metadata.exception.IndexAlreadyExistsException;
 import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures;
+import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.indexing.store.IndexGenerationFormat;
 import org.pangrova.indexing.store.IndexPublicationRequest;
@@ -39,7 +39,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.isolatedDataSource("scalar_index_authority");
         SchemaMigrationRunner.migrate(dataSource);
-        DataBuildAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL,
+        GenerationAuthorityFixtures.provision(dataSource, TENANT, PRINCIPAL,
                 DeferredAuthorizationScope.raw(TABLE, Set.of("value"), TABLE));
         indexes = new JdbcIndexMetadataStore(dataSource);
     }

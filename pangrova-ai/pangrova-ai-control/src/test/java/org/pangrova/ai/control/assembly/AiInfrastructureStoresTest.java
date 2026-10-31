@@ -10,9 +10,9 @@ class AiInfrastructureStoresTest {
     void ownerClasspathDoesNotContainMetadataRuntimeOrFixtures() {
         var loader = getClass().getClassLoader();
         for (String implementation : new String[]{
-                "org.pangrova.metadata.assembly.databuild.DataBuildStores",
+                "org.pangrova.metadata.assembly.generation.GenerationStores",
                 "org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner",
-                "org.pangrova.metadata.testinfra.DataBuildAuthorityFixtures"}) {
+                "org.pangrova.metadata.testinfra.GenerationAuthorityFixtures"}) {
             assertThatThrownBy(() -> loader.loadClass(implementation)).isInstanceOf(ClassNotFoundException.class);
         }
     }

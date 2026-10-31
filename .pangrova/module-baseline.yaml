@@ -12,6 +12,8 @@ reactor:
     path: pangrova-connector
   - artifactId: pangrova-coordination
     path: pangrova-coordination
+  - artifactId: pangrova-generation
+    path: pangrova-generation
   - artifactId: pangrova-indexing
     path: pangrova-indexing
   - artifactId: pangrova-materialization
@@ -69,14 +71,16 @@ artifacts:
       pangrova-ai-api: compile
       pangrova-common: compile
       pangrova-connector-spi: test
-      pangrova-data-build: compile
+      pangrova-generation-core: compile
+      pangrova-generation-transaction-spi: compile
       pangrova-security: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-ai-api
         - pangrova-common
-        - pangrova-data-build
+        - pangrova-generation-core
+        - pangrova-generation-transaction-spi
         - pangrova-security
       test:
         - pangrova-ai-api
@@ -506,13 +510,13 @@ artifacts:
       - org.pangrova.coordinator.cache
       - org.pangrova.coordinator.clustering
       - org.pangrova.coordinator.coordination
-      - org.pangrova.coordinator.databuild
-      - org.pangrova.coordinator.databuild.runtime
-      - org.pangrova.coordinator.databuild.template
       - org.pangrova.coordinator.dynamictable
       - org.pangrova.coordinator.embedding
       - org.pangrova.coordinator.feature
       - org.pangrova.coordinator.file
+      - org.pangrova.coordinator.generation
+      - org.pangrova.coordinator.generation.runtime
+      - org.pangrova.coordinator.generation.template
       - org.pangrova.coordinator.governance
       - org.pangrova.coordinator.http
       - org.pangrova.coordinator.http.endpoint
@@ -541,7 +545,7 @@ artifacts:
       - org.pangrova.coordinator.query.execution.dispatch.dag.split
       - org.pangrova.coordinator.query.execution.dispatch.listener
       - org.pangrova.coordinator.query.execution.dispatch.shuffle
-      - org.pangrova.coordinator.query.execution.dispatch.shuffle.databuild
+      - org.pangrova.coordinator.query.execution.dispatch.shuffle.generation
       - org.pangrova.coordinator.query.execution.dispatch.shuffle.lifecycle
       - org.pangrova.coordinator.query.execution.dispatch.task
       - org.pangrova.coordinator.query.execution.dispatch.task.branch
@@ -598,8 +602,10 @@ artifacts:
       pangrova-coordination-api: compile
       pangrova-coordination-inmemory: compile
       pangrova-coordination-jdbc: compile
-      pangrova-data-build: compile
       pangrova-file: compile
+      pangrova-generation-core: compile
+      pangrova-generation-store-postgresql: compile
+      pangrova-generation-transaction-spi: compile
       pangrova-governance: compile
       pangrova-indexing-api: compile
       pangrova-indexing-core: compile
@@ -636,8 +642,8 @@ artifacts:
         - pangrova-coordination-api
         - pangrova-coordination-inmemory
         - pangrova-coordination-jdbc
-        - pangrova-data-build
         - pangrova-file
+        - pangrova-generation-core
         - pangrova-governance
         - pangrova-indexing-api
         - pangrova-indexing-core
@@ -673,8 +679,9 @@ artifacts:
         - pangrova-coordination-api
         - pangrova-coordination-inmemory
         - pangrova-coordination-jdbc
-        - pangrova-data-build
         - pangrova-file
+        - pangrova-generation-core
+        - pangrova-generation-store-postgresql
         - pangrova-governance
         - pangrova-indexing-api
         - pangrova-indexing-core
@@ -706,11 +713,11 @@ artifacts:
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.bootstrap
       - org.pangrova.coordinator.coordination
-      - org.pangrova.coordinator.databuild
       - org.pangrova.coordinator.dynamictable
       - org.pangrova.coordinator.embedding
       - org.pangrova.coordinator.feature
       - org.pangrova.coordinator.file
+      - org.pangrova.coordinator.generation
       - org.pangrova.coordinator.http
       - org.pangrova.coordinator.http.endpoint
       - org.pangrova.coordinator.http.endpoint.copy
@@ -798,58 +805,6 @@ artifacts:
     exportedPackages: []
     providers:
       {}
-  pangrova-data-build:
-    path: pangrova-data-build
-    mainPackages:
-      - org.pangrova.databuild.api
-      - org.pangrova.databuild.api.build
-      - org.pangrova.databuild.api.execution
-      - org.pangrova.databuild.api.execution.template
-      - org.pangrova.databuild.api.format
-      - org.pangrova.databuild.api.manifest
-      - org.pangrova.databuild.api.publication
-      - org.pangrova.databuild.assembly
-      - org.pangrova.databuild.core.publication
-      - org.pangrova.databuild.protocol
-      - org.pangrova.databuild.spi.jdbc
-      - org.pangrova.databuild.spi.storage
-      - org.pangrova.databuild.store.jdbc.build
-      - org.pangrova.databuild.store.jdbc.exchange
-      - org.pangrova.databuild.store.jdbc.execution
-      - org.pangrova.databuild.store.jdbc.query
-    pomDependencies:
-      pangrova-common: compile
-      pangrova-connector-spi: test
-      pangrova-query-api: compile
-      pangrova-security: compile
-    imports:
-      main:
-        - pangrova-common
-        - pangrova-query-api
-        - pangrova-security
-      test:
-        - pangrova-common
-        - pangrova-connector-spi
-        - pangrova-query-api
-        - pangrova-security
-    exportedPackages:
-      - org.pangrova.databuild.api
-      - org.pangrova.databuild.api.build
-      - org.pangrova.databuild.api.execution
-      - org.pangrova.databuild.api.execution.template
-      - org.pangrova.databuild.api.format
-      - org.pangrova.databuild.api.manifest
-      - org.pangrova.databuild.api.publication
-      - org.pangrova.databuild.assembly
-      - org.pangrova.databuild.protocol
-      - org.pangrova.databuild.spi.jdbc
-      - org.pangrova.databuild.spi.storage
-      - org.pangrova.databuild.store.jdbc.build
-      - org.pangrova.databuild.store.jdbc.exchange
-      - org.pangrova.databuild.store.jdbc.execution
-      - org.pangrova.databuild.store.jdbc.query
-    providers:
-      {}
   pangrova-file:
     path: pangrova-file
     mainPackages:
@@ -924,6 +879,107 @@ artifacts:
       - org.pangrova.function.api.registry
       - org.pangrova.function.api.runtime
       - org.pangrova.function.api.scalar
+    providers:
+      {}
+  pangrova-generation-core:
+    path: pangrova-generation/pangrova-generation-core
+    mainPackages:
+      - org.pangrova.generation.api
+      - org.pangrova.generation.api.execution
+      - org.pangrova.generation.api.execution.template
+      - org.pangrova.generation.api.format
+      - org.pangrova.generation.api.job
+      - org.pangrova.generation.api.manifest
+      - org.pangrova.generation.api.publication
+      - org.pangrova.generation.assembly
+      - org.pangrova.generation.core.publication
+      - org.pangrova.generation.protocol
+      - org.pangrova.generation.spi.storage
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-spi: test
+      pangrova-query-api: compile
+      pangrova-security: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-query-api
+        - pangrova-security
+      test:
+        - pangrova-common
+        - pangrova-connector-spi
+        - pangrova-query-api
+        - pangrova-security
+    exportedPackages:
+      - org.pangrova.generation.api
+      - org.pangrova.generation.api.execution
+      - org.pangrova.generation.api.execution.template
+      - org.pangrova.generation.api.format
+      - org.pangrova.generation.api.job
+      - org.pangrova.generation.api.manifest
+      - org.pangrova.generation.api.publication
+      - org.pangrova.generation.assembly
+      - org.pangrova.generation.protocol
+      - org.pangrova.generation.spi.storage
+    providers:
+      {}
+  pangrova-generation-store-postgresql:
+    path: pangrova-generation/pangrova-generation-store-postgresql
+    mainPackages:
+      - org.pangrova.generation.store.postgresql.exchange
+      - org.pangrova.generation.store.postgresql.execution
+      - org.pangrova.generation.store.postgresql.job
+      - org.pangrova.generation.store.postgresql.query
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-generation-core: compile
+      pangrova-generation-transaction-spi: compile
+      pangrova-query-api: compile
+      pangrova-security: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-generation-core
+        - pangrova-generation-transaction-spi
+        - pangrova-query-api
+        - pangrova-security
+      test:
+        - pangrova-common
+        - pangrova-generation-core
+        - pangrova-generation-transaction-spi
+        - pangrova-query-api
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.generation.store.postgresql.exchange
+      - org.pangrova.generation.store.postgresql.execution
+      - org.pangrova.generation.store.postgresql.job
+      - org.pangrova.generation.store.postgresql.query
+    providers:
+      {}
+  pangrova-generation-transaction-spi:
+    path: pangrova-generation/pangrova-generation-transaction-spi
+    mainPackages:
+      - org.pangrova.generation.spi.jdbc
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-connector-spi: test
+      pangrova-generation-core: compile
+      pangrova-query-api: compile
+      pangrova-security: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-generation-core
+        - pangrova-query-api
+      test:
+        - pangrova-common
+        - pangrova-connector-spi
+        - pangrova-generation-core
+        - pangrova-query-api
+        - pangrova-security
+    exportedPackages:
+      - org.pangrova.generation.spi.jdbc
     providers:
       {}
   pangrova-governance:
@@ -1059,7 +1115,9 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-spi: compile
-      pangrova-data-build: test
+      pangrova-generation-core: test
+      pangrova-generation-store-postgresql: test
+      pangrova-generation-transaction-spi: test
       pangrova-indexing-api: compile
       pangrova-metadata: compile
       pangrova-observability-api: compile
@@ -1082,7 +1140,8 @@ artifacts:
       test:
         - pangrova-common
         - pangrova-connector-spi
-        - pangrova-data-build
+        - pangrova-generation-core
+        - pangrova-generation-store-postgresql
         - pangrova-indexing-api
         - pangrova-metadata
         - pangrova-planner
@@ -1173,14 +1232,14 @@ artifacts:
     mainPackages:
       - org.pangrova.metadata
       - org.pangrova.metadata.adapter
-      - org.pangrova.metadata.adapter.databuild
+      - org.pangrova.metadata.adapter.generation
       - org.pangrova.metadata.adapter.governance
       - org.pangrova.metadata.adapter.security
       - org.pangrova.metadata.api.cache
       - org.pangrova.metadata.api.catalog
       - org.pangrova.metadata.api.object
       - org.pangrova.metadata.api.relation
-      - org.pangrova.metadata.assembly.databuild
+      - org.pangrova.metadata.assembly.generation
       - org.pangrova.metadata.assembly.security
       - org.pangrova.metadata.checkpoint
       - org.pangrova.metadata.core.cache
@@ -1193,11 +1252,11 @@ artifacts:
       - org.pangrova.metadata.core.outbox
       - org.pangrova.metadata.core.relation
       - org.pangrova.metadata.core.schema
-      - org.pangrova.metadata.databuild
-      - org.pangrova.metadata.databuild.jdbc
-      - org.pangrova.metadata.databuild.jdbc.submission
       - org.pangrova.metadata.exception
       - org.pangrova.metadata.exception.catalog
+      - org.pangrova.metadata.generation
+      - org.pangrova.metadata.generation.jdbc
+      - org.pangrova.metadata.generation.jdbc.submission
       - org.pangrova.metadata.provider.memory.relation
       - org.pangrova.metadata.service
       - org.pangrova.metadata.source.jdbc
@@ -1208,8 +1267,10 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-connector-spi: compile
-      pangrova-data-build: compile
       pangrova-file: test
+      pangrova-generation-core: compile
+      pangrova-generation-store-postgresql: compile
+      pangrova-generation-transaction-spi: compile
       pangrova-governance: compile
       pangrova-indexing-api: compile
       pangrova-observability-api: compile
@@ -1224,7 +1285,9 @@ artifacts:
       main:
         - pangrova-common
         - pangrova-connector-spi
-        - pangrova-data-build
+        - pangrova-generation-core
+        - pangrova-generation-store-postgresql
+        - pangrova-generation-transaction-spi
         - pangrova-governance
         - pangrova-indexing-api
         - pangrova-observability-api
@@ -1235,8 +1298,10 @@ artifacts:
       test:
         - pangrova-common
         - pangrova-connector-spi
-        - pangrova-data-build
         - pangrova-file
+        - pangrova-generation-core
+        - pangrova-generation-store-postgresql
+        - pangrova-generation-transaction-spi
         - pangrova-governance
         - pangrova-observability-api
         - pangrova-query
@@ -1253,7 +1318,7 @@ artifacts:
       - org.pangrova.metadata.api.catalog
       - org.pangrova.metadata.api.object
       - org.pangrova.metadata.api.relation
-      - org.pangrova.metadata.assembly.databuild
+      - org.pangrova.metadata.assembly.generation
       - org.pangrova.metadata.assembly.security
       - org.pangrova.metadata.core.cache
       - org.pangrova.metadata.core.catalog.handle.connector
@@ -1263,10 +1328,10 @@ artifacts:
       - org.pangrova.metadata.core.event
       - org.pangrova.metadata.core.outbox
       - org.pangrova.metadata.core.schema
-      - org.pangrova.metadata.databuild
-      - org.pangrova.metadata.databuild.jdbc
       - org.pangrova.metadata.exception
       - org.pangrova.metadata.exception.catalog
+      - org.pangrova.metadata.generation
+      - org.pangrova.metadata.generation.jdbc
       - org.pangrova.metadata.service
       - org.pangrova.metadata.source.jdbc
       - org.pangrova.metadata.store.jdbc.cache
@@ -1413,11 +1478,11 @@ artifacts:
       - org.pangrova.planner.cost.distribution
       - org.pangrova.planner.cost.join
       - org.pangrova.planner.cost.sort
-      - org.pangrova.planner.databuild
       - org.pangrova.planner.declaration
       - org.pangrova.planner.embedding
       - org.pangrova.planner.exchange
       - org.pangrova.planner.extension
+      - org.pangrova.planner.generation
       - org.pangrova.planner.incremental
       - org.pangrova.planner.lineage
       - org.pangrova.planner.metadata
@@ -1471,7 +1536,7 @@ artifacts:
       - org.pangrova.planner.cache
       - org.pangrova.planner.cost
       - org.pangrova.planner.cost.distribution
-      - org.pangrova.planner.databuild
+      - org.pangrova.planner.generation
       - org.pangrova.planner.lineage
       - org.pangrova.planner.mv
       - org.pangrova.planner.optimization
@@ -1498,7 +1563,6 @@ artifacts:
       - org.pangrova.protocol.capability.inventory
       - org.pangrova.protocol.catalog
       - org.pangrova.protocol.checksum
-      - org.pangrova.protocol.databuild
       - org.pangrova.protocol.descriptor
       - org.pangrova.protocol.execution
       - org.pangrova.protocol.execution.identity
@@ -1507,6 +1571,7 @@ artifacts:
       - org.pangrova.protocol.function.declaration
       - org.pangrova.protocol.function.formula
       - org.pangrova.protocol.function.selection
+      - org.pangrova.protocol.generation
       - org.pangrova.protocol.index
       - org.pangrova.protocol.metadata
       - org.pangrova.protocol.resource
@@ -1554,13 +1619,13 @@ artifacts:
       - org.pangrova.protocol.capability.inventory
       - org.pangrova.protocol.catalog
       - org.pangrova.protocol.checksum
-      - org.pangrova.protocol.databuild
       - org.pangrova.protocol.descriptor
       - org.pangrova.protocol.execution
       - org.pangrova.protocol.execution.identity
       - org.pangrova.protocol.function
       - org.pangrova.protocol.function.catalog
       - org.pangrova.protocol.function.declaration
+      - org.pangrova.protocol.generation
       - org.pangrova.protocol.index
       - org.pangrova.protocol.metadata
       - org.pangrova.protocol.resource
@@ -2079,9 +2144,11 @@ artifacts:
       pangrova-coordination-core: test
       pangrova-coordination-inmemory: test
       pangrova-coordination-jdbc: test
-      pangrova-data-build: test
       pangrova-file: compile
       pangrova-function: compile
+      pangrova-generation-core: test
+      pangrova-generation-store-postgresql: test
+      pangrova-generation-transaction-spi: test
       pangrova-governance: test
       pangrova-indexing-api: test
       pangrova-indexing-core: test
@@ -2127,9 +2194,11 @@ artifacts:
         - pangrova-coordination-core
         - pangrova-coordination-inmemory
         - pangrova-coordination-jdbc
-        - pangrova-data-build
         - pangrova-file
         - pangrova-function
+        - pangrova-generation-core
+        - pangrova-generation-store-postgresql
+        - pangrova-generation-transaction-spi
         - pangrova-governance
         - pangrova-indexing-api
         - pangrova-indexing-core

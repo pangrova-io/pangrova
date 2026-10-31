@@ -52,7 +52,7 @@ public record StageNode(
     }
 
     private static void requirePersistedCoordinates(StagePlanAccess plan, int stage, int parallelism, String type) {
-        if (plan instanceof org.pangrova.coordinator.databuild.template.PersistedStagePlan persisted
+        if (plan instanceof org.pangrova.coordinator.generation.template.PersistedStagePlan persisted
                 && (stage != persisted.stage().stageId() || parallelism != persisted.stage().parallelism()
                         || !type.equals(persisted.taskType()))) {
             throw new IllegalArgumentException("Durable stage coordinates differ from its immutable metadata graph");

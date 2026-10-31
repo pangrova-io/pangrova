@@ -23,7 +23,7 @@ import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.ai.control.store.jdbc.evaluation.JdbcEvaluationStore;
 import org.pangrova.ai.control.store.jdbc.feature.JdbcFeatureCatalogStore;
 import org.pangrova.ai.control.store.jdbc.feature.JdbcCatalogExportBuildStore;
-import org.pangrova.databuild.spi.jdbc.DataBuildJobSubmissionTransactions;
+import org.pangrova.generation.spi.jdbc.GenerationJobSubmissionTransactions;
 
 import javax.sql.DataSource;
 import java.util.Objects;
@@ -42,7 +42,7 @@ public record AiInfrastructureStores(
 
     /** Creates the governed AI control stores against the supplied durable database. */
     public static AiInfrastructureStores jdbc(
-            DataSource dataSource, DataBuildJobSubmissionTransactions jobSubmissions) {
+            DataSource dataSource, GenerationJobSubmissionTransactions jobSubmissions) {
         Objects.requireNonNull(dataSource, "dataSource must not be null");
         Objects.requireNonNull(jobSubmissions, "jobSubmissions must not be null");
         return new AiInfrastructureStores(

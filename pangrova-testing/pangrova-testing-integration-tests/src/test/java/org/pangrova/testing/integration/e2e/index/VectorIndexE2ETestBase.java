@@ -17,11 +17,11 @@ package org.pangrova.testing.integration.e2e.index;
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.databuild.api.manifest.DataBuildGenerationManifest;
-import org.pangrova.databuild.api.build.DataBuildJobState;
-import org.pangrova.databuild.api.build.DataBuildOutput;
+import org.pangrova.generation.api.manifest.GenerationManifest;
+import org.pangrova.generation.api.job.GenerationJobState;
+import org.pangrova.generation.api.job.GenerationOutput;
 import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.protocol.databuild.PublishedGenerationBindingChecksum;
+import org.pangrova.protocol.generation.PublishedGenerationBindingChecksum;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.Checksum;
@@ -95,7 +95,7 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
         assertThat(manifest.manifestSha256()).isEqualTo(active.manifestSha256());
         assertThat(manifest.sourceId()).isEqualTo(active.sourceId());
         var job = store.findJob(manifest.tenantId(), manifest.jobId()).orElseThrow();
-        assertThat(job.state()).isEqualTo(DataBuildJobState.PUBLISHED);
+        assertThat(job.state()).isEqualTo(GenerationJobState.PUBLISHED);
         assertThat(job.stagingGeneration()).isEqualTo(manifest.generation());
         assertThat(job.sourceSnapshot()).isEqualTo(manifest.sourceSnapshot());
         var outputs = store.loadCompleteOutputs(manifest.tenantId(), manifest.jobId());
@@ -234,8 +234,8 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
 
     private static double assertAnnCapability(PublishedIndex index, QueryEvidence evidence, String expectedCapability) {
         var manifest = index.manifest();
-        Map<String, DataBuildOutput> outputs = index.outputs().stream().collect(Collectors.toMap(
-                DataBuildOutput::objectId, Function.identity()));
+        Map<String, GenerationOutput> outputs = index.outputs().stream().collect(Collectors.toMap(
+                GenerationOutput::objectId, Function.identity()));
         int matchingBindings = 0;
         double requiredRecall = 0;
         for (IssuedTask task : evidence.tasks()) {
@@ -270,7 +270,7 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
                                 assertThat(split.getSourceSnapshot()).isEqualTo(manifest.sourceSnapshot()));
                 assertThat(artifact.getSplitObjectsList()).isNotEmpty();
                 for (ArtifactObject object : artifact.getSplitObjectsList()) {
-                    DataBuildOutput published = outputs.get(object.getObjectId());
+                    GenerationOutput published = outputs.get(object.getObjectId());
                     assertThat(published).as("object emitted by the published Native build").isNotNull();
                     assertThat(object.getOpaqueUri()).isEqualTo(published.opaqueUri());
                     assertThat(object.getSourceObjectId()).isEqualTo(published.sourceObjectId());
@@ -317,12 +317,12 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
                                 artifact.getArtifactType().equals("VECTOR_INDEX"))));
     }
 
-    protected static Path cachedObject(DataBuildOutput object) {
+    protected static Path cachedObject(GenerationOutput object) {
         String digest = object.checksumSha256().toLowerCase(java.util.Locale.ROOT);
         return nativeArtifactCacheDirectory().resolve(digest.substring(0, 2)).resolve(digest + ".bin");
     }
 
-    private static void assertMaterialized(DataBuildOutput object) {
+    private static void assertMaterialized(GenerationOutput object) {
         try {
             Path actual = cachedObject(object);
             assertThat(Files.isRegularFile(actual)).as("checksum-addressed Native materialization").isTrue();
@@ -346,8 +346,8 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
         return HexFormat.of().formatHex(checksum.getDigest().toByteArray());
     }
 
-    protected record PublishedIndex(IndexDescriptor descriptor, DataBuildGenerationManifest manifest,
-                                    List<DataBuildOutput> outputs) {}
+    protected record PublishedIndex(IndexDescriptor descriptor, GenerationManifest manifest,
+                                    List<GenerationOutput> outputs) {}
     protected record IssuedTask(TaskRequest request, TaskReport report) {}
     protected record QueryEvidence(List<TypedRow> rows, List<IssuedTask> tasks) {}
 

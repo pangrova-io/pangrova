@@ -61,8 +61,8 @@ names are rejected before dispatch.
    declared algorithm to a canonical build `CapabilityRef` and
    `ArtifactFormatRef`.
 3. The service pins an immutable table snapshot, enumerates source splits and
-   persists source-map, reduction and finalization pages in `DataBuildStore`.
-4. `DurableDataBuildDispatcher` leases pages and dispatches normal v2
+   persists source-map, reduction and finalization pages in `GenerationJobStore`.
+4. `DurableGenerationDispatcher` leases pages and dispatches normal v2
    `TaskRequest` objects with an `ArtifactWriteBinding`.
 5. A Native worker verifies capability, format, fencing token and resource
    grant before building an immutable artifact object.
