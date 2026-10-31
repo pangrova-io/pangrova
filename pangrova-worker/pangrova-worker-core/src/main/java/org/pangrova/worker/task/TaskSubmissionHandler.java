@@ -13,6 +13,8 @@
  */
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
@@ -86,7 +88,7 @@ final class TaskSubmissionHandler {
             }
             TaskInfo published = info;
             reservation.publish(() -> owner.tasks.put(taskId, published));
-            owner.transition(taskId, TaskManager.TaskState.INITIALIZING);
+            owner.transition(taskId, TaskState.INITIALIZING);
             registerSubmittedTask(taskId, queryId, request);
             reservation.admitted();
         } catch (RuntimeException | Error failure) {
@@ -158,7 +160,7 @@ final class TaskSubmissionHandler {
         String queryId = descriptor.queryId().toString();
         TaskInfo info = new TaskInfo(taskId, queryId, null, descriptor, Instant.now());
         owner.tasks.put(taskId, info);
-        owner.transition(taskId, TaskManager.TaskState.INITIALIZING);
+        owner.transition(taskId, TaskState.INITIALIZING);
         QueryCancellationPropagator prop = owner.cancellationPropagator;
         if (prop != null) {
             prop.registerTask(queryId, taskId);
@@ -175,17 +177,17 @@ final class TaskSubmissionHandler {
         if (info == null) {
             return TaskCancelResult.notFound(taskId);
         }
-        TaskManager.TaskState current = info.getState();
+        TaskState current = info.getState();
         if (owner.lifecycleManager == null) {
-            if (!owner.transition(taskId, TaskManager.TaskState.CANCELLING)) {
+            if (!owner.transition(taskId, TaskState.CANCELLING)) {
                 return TaskCancelResult.notCancellable(taskId, current.name());
             }
-            owner.transition(taskId, TaskManager.TaskState.CANCELLED);
+            owner.transition(taskId, TaskState.CANCELLED);
             owner.removeCoordinatorIndex(info);
             return TaskCancelResult.cancelled();
         }
-        if (current != TaskManager.TaskState.CANCELLING
-                && !owner.transition(taskId, TaskManager.TaskState.CANCELLING)) {
+        if (current != TaskState.CANCELLING
+                && !owner.transition(taskId, TaskState.CANCELLING)) {
             return TaskCancelResult.notCancellable(taskId, current.name());
         }
         owner.lifecycleManager.cancelNativeExecutor(info);
@@ -199,8 +201,8 @@ final class TaskSubmissionHandler {
         if (info != null && owner.lifecycleManager != null) {
             // Explicit retirement abandons an unclaimed result; completion already committed keeps
             // its state.
-            if (info.getState() == TaskManager.TaskState.RUNNING
-                    || info.getState() == TaskManager.TaskState.INITIALIZING) {
+            if (info.getState() == TaskState.RUNNING
+                    || info.getState() == TaskState.INITIALIZING) {
                 cancelTask(taskId);
             }
             owner.lifecycleManager.releaseRetiredTaskExecutor(info, owner.lifecycleCallback);
@@ -253,9 +255,9 @@ final class TaskSubmissionHandler {
         if (reporter == null) {
             return;
         }
-        owner.transition(taskId, TaskManager.TaskState.RUNNING);
-        owner.transition(taskId, TaskManager.TaskState.FINISHING);
-        owner.transition(taskId, TaskManager.TaskState.FINISHED);
+        owner.transition(taskId, TaskState.RUNNING);
+        owner.transition(taskId, TaskState.FINISHING);
+        owner.transition(taskId, TaskState.FINISHED);
         if (request == null || !request.taskRequest().hasAttempt()) {
             throw new IllegalStateException(
                     "Auto-finish task is missing fenced request identity: " + taskId);

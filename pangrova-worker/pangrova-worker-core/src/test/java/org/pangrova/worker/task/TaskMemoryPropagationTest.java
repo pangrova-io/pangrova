@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
-import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -38,7 +37,7 @@ class TaskMemoryPropagationTest {
         var info = new TaskInfo("memory-projection", submitted.taskRequest().getAttempt().getQueryOrJobId(),
                 submitted, descriptor, Instant.now());
         assertThat(descriptor.resourceLimit().maxMemoryBytes()).isEqualTo(memoryBytes);
-        assertThat(TaskMemoryRequestor.resolveMemoryLimit(info)).isEqualTo(memoryBytes);
+        assertThat(info.memoryAccount().requestedNativeMemoryBytes()).isEqualTo(memoryBytes);
     }
 
     @Property(tries = 200)
@@ -49,7 +48,7 @@ class TaskMemoryPropagationTest {
             long baseline = runtime.arbitrator().getUsedMemory();
             long nodeBaseline = runtime.nodePool().getUsedBytes();
             var info = tasks.submit(runtime.bindWorker(request(memoryBytes, ActualNativeTaskPlans.values(1, 1))));
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.RUNNING);
             assertThat(runtime.arbitrator().queryAllocationsSnapshot()).containsEntry("buffer:" + info.taskId(),
                     info.request().taskRequest().getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(0L);
@@ -67,7 +66,7 @@ class TaskMemoryPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-stats")) {
             var info = tasks.submit(runtime.bindWorker(request(memoryBytes, ActualNativeTaskPlans.values(1, 1))));
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.RUNNING);
             tasks.consume(info);
             awaitActualTerminal(tasks, info);
             assertActualOutcome(tasks, info);
@@ -87,10 +86,10 @@ class TaskMemoryPropagationTest {
             long baseline = runtime.arbitrator().getUsedMemory();
             var request = runtime.bindWorker(request(1024L * 1024, ActualNativeTaskPlans.values(1, 1)));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.RUNNING);
             assertThatThrownBy(() -> ActualNativeResultReader.read(runtime, request))
                     .hasMessageContaining("MEM_CAP_EXCEEDED");
-            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FAILED);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
             assertThat(report.getReportOrigin())
@@ -119,7 +118,7 @@ class TaskMemoryPropagationTest {
 
     private static void awaitActualTerminal(ActualTaskManagerFixture tasks, TaskInfo info) {
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            assertThat(info.getState()).isIn(TaskManager.TaskState.FINISHED, TaskManager.TaskState.FAILED);
+            assertThat(info.getState()).isIn(org.pangrova.worker.task.state.TaskState.FINISHED, org.pangrova.worker.task.state.TaskState.FAILED);
             assertThat(tasks.reports().reports()).anyMatch(report ->
                     report.taskId().equals(info.request().taskRequest().getAttempt().getTaskId())
                             && (report.state().equals("FINISHED") || report.state().equals("FAILED")));
@@ -130,7 +129,7 @@ class TaskMemoryPropagationTest {
         var terminal = tasks.terminalReport(info);
         var nativeReport = TaskReport.parseFrom(terminal.canonicalTaskReport());
         assertThat(nativeReport.getAttempt()).isEqualTo(info.request().taskRequest().getAttempt());
-        if (info.getState() == TaskManager.TaskState.FINISHED) {
+        if (info.getState() == org.pangrova.worker.task.state.TaskState.FINISHED) {
             assertThat(nativeReport.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
             assertThat(nativeReport.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
             assertThat(nativeReport.hasError()).isFalse();

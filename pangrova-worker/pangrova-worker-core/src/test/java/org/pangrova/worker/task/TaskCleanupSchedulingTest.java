@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
@@ -72,8 +74,8 @@ class TaskCleanupSchedulingTest {
 
     private static TaskInfo finishedTask(String id) {
         var info = new TaskInfo(id, "query", null, null, Instant.now());
-        assertThat(info.compareAndSetState(TaskManager.TaskState.RECEIVED, TaskManager.TaskState.RUNNING)).isTrue();
-        assertThat(info.compareAndSetState(TaskManager.TaskState.RUNNING, TaskManager.TaskState.FINISHED)).isTrue();
+        assertThat(info.compareAndSetState(TaskState.RECEIVED, TaskState.RUNNING)).isTrue();
+        assertThat(info.compareAndSetState(TaskState.RUNNING, TaskState.FINISHED)).isTrue();
         return info;
     }
 }

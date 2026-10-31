@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -23,10 +25,10 @@ class OutputBufferResetBetweenTasksTest {
                                     true, ActualNativeTaskPlans.values(2, 3))));
             assertThat(tasks.consume(first).values())
                     .containsExactlyInAnyOrder(0L, 1L, 2L, 3L, 4L, 5L);
-            tasks.awaitState(first, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(first, TaskState.FINISHED);
             var second = tasks.submit(runtime.valuesRequest(true));
             assertThat(tasks.consume(second).values()).containsExactly(42L);
-            tasks.awaitState(second, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(second, TaskState.FINISHED);
             assertThat(first.executorHandle()).isZero();
             assertThat(second.executorHandle()).isZero();
         }
@@ -39,7 +41,7 @@ class OutputBufferResetBetweenTasksTest {
             var first = tasks.submit(runtime.valuesRequest(true));
             long oldHandle = first.executorHandle();
             tasks.consume(first);
-            tasks.awaitState(first, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(first, TaskState.FINISHED);
             assertThatThrownBy(() -> runtime.executor().getTaskStatus(oldHandle))
                     .isInstanceOf(IllegalStateException.class);
             assertThat(runtime.executor().releaseTask(oldHandle)).isEmpty();
@@ -54,13 +56,13 @@ class OutputBufferResetBetweenTasksTest {
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-empty-isolation")) {
             var first = tasks.submit(runtime.valuesRequest(true));
             assertThat(tasks.consume(first).rows()).isOne();
-            tasks.awaitState(first, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(first, TaskState.FINISHED);
             var second =
                     tasks.submit(
                             runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
                                     true, ActualNativeTaskPlans.values(0, 0))));
             var received = tasks.consume(second);
-            tasks.awaitState(second, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(second, TaskState.FINISHED);
             assertThat(received.rows()).isZero();
             assertThat(received.values()).isEmpty();
             assertThat(first.terminalTaskReport()).isNotEqualTo(second.terminalTaskReport());

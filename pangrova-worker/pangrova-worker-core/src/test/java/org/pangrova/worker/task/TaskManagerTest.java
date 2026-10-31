@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
@@ -106,7 +108,7 @@ class TaskManagerTest {
         for (String taskId : taskIds) {
             assertThat(manager.getTaskState(taskId))
                     .isPresent()
-                    .hasValue(TaskManager.TaskState.INITIALIZING);
+                    .hasValue(TaskState.INITIALIZING);
         }
     }
 

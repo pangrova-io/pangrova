@@ -13,6 +13,8 @@
  */
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,18 +90,18 @@ final class TaskDrainExecutor {
         LOG.info("event=task_manager_drained");
     }
 
-    private static boolean isTerminal(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.FINISHED
-                || state == TaskManager.TaskState.FAILED
-                || state == TaskManager.TaskState.CANCELLED;
+    private static boolean isTerminal(TaskState state) {
+        return state == TaskState.FINISHED
+                || state == TaskState.FAILED
+                || state == TaskState.CANCELLED;
     }
 
-    private static boolean isActive(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.RECEIVED
-                || state == TaskManager.TaskState.INITIALIZING
-                || state == TaskManager.TaskState.RUNNING
-                || state == TaskManager.TaskState.FINISHING
-                || state == TaskManager.TaskState.CANCELLING;
+    private static boolean isActive(TaskState state) {
+        return state == TaskState.RECEIVED
+                || state == TaskState.INITIALIZING
+                || state == TaskState.RUNNING
+                || state == TaskState.FINISHING
+                || state == TaskState.CANCELLING;
     }
 
     private List<String> collectNonTerminalTaskIds() {

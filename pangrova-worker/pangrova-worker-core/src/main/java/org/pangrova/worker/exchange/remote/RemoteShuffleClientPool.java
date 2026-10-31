@@ -20,7 +20,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
-import org.pangrova.worker.exchange.CanonicalBatchChunks;
+import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
 import org.pangrova.worker.exchange.remote.security.RemoteShuffleCredentials;
 import org.pangrova.worker.exchange.remote.security.ShuffleClientTlsConfig;
 import org.slf4j.Logger;

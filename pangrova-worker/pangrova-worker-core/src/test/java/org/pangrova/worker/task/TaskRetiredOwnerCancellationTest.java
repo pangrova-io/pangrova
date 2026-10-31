@@ -1,4 +1,6 @@
 package org.pangrova.worker.task;
+
+import org.pangrova.worker.task.state.TaskState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -21,7 +23,7 @@ class TaskRetiredOwnerCancellationTest {
             info.stageExecutorReleaseReceipt(actualReceipt);
             assertThatThrownBy(() -> tasks.manager().cancelTask(info.taskId()))
                     .isInstanceOf(RuntimeException.class);
-            assertThat(info.getState()).isEqualTo(TaskManager.TaskState.CANCELLING);
+            assertThat(info.getState()).isEqualTo(TaskState.CANCELLING);
             assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("CANCELLED"));
             tasks.manager().releaseTaskExecutor(info.taskId());
             assertThat(info.executorHandle()).isZero();
@@ -49,7 +51,7 @@ class TaskRetiredOwnerCancellationTest {
             // Reach the same real CANCELLING retry path as the retained original manager failure.
             assertThatThrownBy(() -> tasks.manager().cancelTask(info.taskId()))
                     .isInstanceOf(RuntimeException.class);
-            assertThat(info.getState()).isEqualTo(TaskManager.TaskState.CANCELLING);
+            assertThat(info.getState()).isEqualTo(TaskState.CANCELLING);
             assertThat(tasks.reports().reports())
                     .noneMatch(report -> report.state().equals("CANCELLED"));
             info.stageExecutorReleaseReceipt(otherReceipt);

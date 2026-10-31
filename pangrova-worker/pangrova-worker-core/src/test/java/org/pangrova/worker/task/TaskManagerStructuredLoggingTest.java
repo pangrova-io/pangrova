@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
@@ -19,7 +21,7 @@ class TaskManagerStructuredLoggingTest {
                 var tasks = new ActualTaskManagerFixture(runtime, "submit-log")) {
             var info = tasks.submit(runtime.valuesRequest(true));
             assertThat(tasks.consume(info).values()).containsExactly(42L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(tasks.terminalReport(info).taskId())
                     .isEqualTo(info.request().taskRequest().getAttempt().getTaskId());
         }
@@ -31,9 +33,9 @@ class TaskManagerStructuredLoggingTest {
                 var tasks = new ActualTaskManagerFixture(runtime, "completion-log")) {
             var info = tasks.submit(runtime.valuesRequest(true));
             assertThat(tasks.consume(info).values()).containsExactly(42L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(tasks.manager().getTaskState(info.taskId()))
-                    .hasValue(TaskManager.TaskState.FINISHED);
+                    .hasValue(TaskState.FINISHED);
         }
     }
 
@@ -45,9 +47,9 @@ class TaskManagerStructuredLoggingTest {
                     tasks.submit(
                             runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
                                     false, ActualNativeTaskPlans.failingCast())));
-            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            tasks.awaitState(info, TaskState.FAILED);
             assertThat(tasks.manager().getTaskState(info.taskId()))
-                    .hasValue(TaskManager.TaskState.FAILED);
+                    .hasValue(TaskState.FAILED);
             assertThat(tasks.terminalReport(info).error().message()).contains("not-an-integer");
             assertThat(tasks.reports().reports())
                     .noneMatch(report -> report.state().equals("FINISHED"));
@@ -62,11 +64,11 @@ class TaskManagerStructuredLoggingTest {
             assertThatNoException()
                     .isThrownBy(() -> admitted.set(tasks.submit(runtime.valuesRequest(true))));
             var info = admitted.get();
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, TaskState.RUNNING);
             assertThat(tasks.manager().getRunningTaskCount()).isEqualTo(1);
             assertThat(info.executorHandle()).isPositive();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
         }
     }

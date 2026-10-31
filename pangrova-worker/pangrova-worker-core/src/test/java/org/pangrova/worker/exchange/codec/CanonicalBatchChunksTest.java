@@ -1,4 +1,4 @@
-package org.pangrova.worker.exchange;
+package org.pangrova.worker.exchange.codec;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

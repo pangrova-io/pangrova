@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.pangrova.observability.api.Span;
 import org.pangrova.observability.api.SpanKind;
 import org.pangrova.observability.api.TracingProvider;
@@ -80,11 +82,11 @@ final class TaskLifecycleManager {
      * pre-reserved resident memory. A rejected task has no Native executor.
      */
     void reserveAdmissionResources(TaskInfo info) {
-        memoryRequestor.requestMemoryForTask(info);
+        memoryRequestor.requestMemoryForTask(info.memoryAccount());
         try {
-            memoryRequestor.requestBufferMemory(info);
+            memoryRequestor.requestBufferMemory(info.memoryAccount());
         } catch (RuntimeException failure) {
-            memoryRequestor.releaseTaskMemory(info);
+            memoryRequestor.releaseTaskMemory(info.memoryAccount());
             throw failure;
         }
     }
@@ -345,8 +347,8 @@ final class TaskLifecycleManager {
         if (memoryRequestor == null) {
             return;
         }
-        memoryRequestor.releaseTaskMemory(info);
-        memoryRequestor.releaseBufferMemory(info);
+        memoryRequestor.releaseTaskMemory(info.memoryAccount());
+        memoryRequestor.releaseBufferMemory(info.memoryAccount());
         LOG.debug("event=task_memory_released taskId={} queryId={}",
                 info.taskId(), info.queryId());
     }
@@ -370,7 +372,7 @@ final class TaskLifecycleManager {
     }
 
     private static void requireNotCancelled(TaskInfo info) {
-        if (info.getState() == TaskManager.TaskState.CANCELLING) {
+        if (info.getState() == TaskState.CANCELLING) {
             throw new java.util.concurrent.CancellationException(
                     "Task was cancelled before Native start: " + info.taskId());
         }
@@ -398,8 +400,8 @@ final class TaskLifecycleManager {
             enforcer.checkDuringExecution(taskId);
         }
         deps.taskExecutor().startTask(handle);
-        if (!callback.transition(taskId, TaskManager.TaskState.RUNNING)) {
-            if (info.getState() == TaskManager.TaskState.CANCELLING) {
+        if (!callback.transition(taskId, TaskState.RUNNING)) {
+            if (info.getState() == TaskState.CANCELLING) {
                 deps.taskExecutor().cancelTask(handle);
                 throw new java.util.concurrent.CancellationException(
                         "Task was cancelled during Native start: " + taskId);
@@ -435,7 +437,7 @@ final class TaskLifecycleManager {
                                    LifecycleCallback callback) {
         completionMonitor.startCompletionMonitor(taskId, info, handle,
                 tid -> completionMonitor.onTaskCompleted(tid, info, callback, () -> {
-                    if (info.getState() == TaskManager.TaskState.CANCELLING) {
+                    if (info.getState() == TaskState.CANCELLING) {
                         releaseAllResources(info, taskId);
                         return;
                     }
@@ -478,7 +480,7 @@ final class TaskLifecycleManager {
 
     private void propagateMemoryLimitToNative(TaskInfo info) {
         if (memoryAllocator != null) {
-            memoryAllocator.propagateMemoryLimitToNative(info);
+            memoryAllocator.propagateMemoryLimitToNative(info.memoryAccount(), info.executorHandle());
         }
     }
 
@@ -488,7 +490,7 @@ final class TaskLifecycleManager {
      */
     interface LifecycleCallback {
         /** Drive a state transition on the task registry. */
-        boolean transition(String taskId, TaskManager.TaskState target);
+        boolean transition(String taskId, TaskState target);
 
         /** Remove coordinator taskId mapping on terminal state. */
         void clearCoordinatorIndex(TaskInfo info);

@@ -5,7 +5,6 @@ import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.nativebridge.jni.NativeRuntime;
 import org.pangrova.worker.nativebridge.jni.NativeCommandBuilder;
-import org.pangrova.worker.task.TaskInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,8 +46,7 @@ public final class TaskMemoryAllocator {
     /**
      * Propagates the task memory limit to the native C++ MemoryManager via JNI.
      */
-    public void propagateMemoryLimitToNative(TaskInfo info) {
-        long handle = info.executorHandle();
+    public void propagateMemoryLimitToNative(TaskMemoryAccount info, long handle) {
         long memoryLimit = handle != 0 ? resolveNativeMemoryLimit(info) : 0;
         if (memoryLimit <= 0) {
             return;
@@ -56,7 +54,7 @@ public final class TaskMemoryAllocator {
         sendNativeMemoryLimit(info, handle, memoryLimit);
     }
 
-    private void sendNativeMemoryLimit(TaskInfo info, long handle, long memoryLimit) {
+    private void sendNativeMemoryLimit(TaskMemoryAccount info, long handle, long memoryLimit) {
         try {
             byte[] cmd = NativeCommandBuilder.updateMemoryLimit(memoryLimit);
             NativeRuntime.nativeCommand(handle, cmd);
@@ -74,15 +72,15 @@ public final class TaskMemoryAllocator {
      * Resolves the Native growth limit. Canonical grants are limits, whereas
      * descriptor-only compatibility tasks still use their up-front reservation.
      */
-    public long resolveNativeMemoryLimit(TaskInfo info) {
-        if (info.request() != null) {
-            return TaskMemoryRequestor.resolveMemoryLimit(info);
+    public long resolveNativeMemoryLimit(TaskMemoryAccount info) {
+        if (info.isCanonical()) {
+            return info.requestedNativeMemoryBytes();
         }
         long allocated = info.allocatedMemory();
         if (allocated > 0) {
             return allocated;
         }
-        return TaskMemoryRequestor.resolveMemoryLimit(info);
+        return info.requestedNativeMemoryBytes();
     }
 
     /**
@@ -90,7 +88,7 @@ public final class TaskMemoryAllocator {
      * Native usage is not available through this JVM-side counter; terminal
      * reports use the captured Native task statistics instead.
      */
-    public long resolveCurrentMemoryUsage(TaskInfo info) {
+    public long resolveCurrentMemoryUsage(TaskMemoryAccount info) {
         return info.allocatedMemory();
     }
 
@@ -98,7 +96,7 @@ public final class TaskMemoryAllocator {
      * Returns the descriptor-only reservation for compatibility. Canonical
      * terminal peak usage comes from Native task statistics, not this limit.
      */
-    public long resolvePeakMemoryUsage(TaskInfo info) {
+    public long resolvePeakMemoryUsage(TaskMemoryAccount info) {
         return info.allocatedMemory();
     }
 
@@ -108,7 +106,7 @@ public final class TaskMemoryAllocator {
     /**
      * Logs a warning when memory usage exceeds 85% of the allocated limit.
      */
-    public void logMemoryWarningIfNeeded(TaskInfo info, long memoryBytes) {
+    public void logMemoryWarningIfNeeded(TaskMemoryAccount info, long memoryBytes) {
         long allocated = resolveNativeMemoryLimit(info);
         if (allocated <= 0) {
             return;

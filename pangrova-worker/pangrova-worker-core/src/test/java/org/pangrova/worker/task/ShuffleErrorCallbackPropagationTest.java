@@ -22,7 +22,7 @@ class ShuffleErrorCallbackPropagationTest {
             var request =
                     runtime.bindWorker(ActualNativeShuffleRequests.producer(4, ActualNativeTaskPlans.failingCast()));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FAILED);
             var report = TaskReport.parseFrom(info.terminalTaskReport());
             assertThat(report.getAttempt()).isEqualTo(request.getAttempt());
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
@@ -40,7 +40,7 @@ class ShuffleErrorCallbackPropagationTest {
             var info = tasks.submit(runtime.valuesRequest(true));
             assertThat(info.shuffleServerHandle()).isNull();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
             assertThat(info.allocatedBufferMemory()).isZero();
         }

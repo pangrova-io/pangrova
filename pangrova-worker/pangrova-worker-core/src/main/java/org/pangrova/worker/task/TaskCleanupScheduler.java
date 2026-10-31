@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,10 +111,10 @@ public final class TaskCleanupScheduler {
                                        java.util.function.Consumer<TaskInfo> resourceRelease,
                                        java.util.function.Predicate<TaskInfo> consumedResultProbe) {
         TaskInfo info = entry.getValue();
-        TaskManager.TaskState state = info.getState();
-        if ((state == TaskManager.TaskState.FINISHED
-                || state == TaskManager.TaskState.FAILED
-                || state == TaskManager.TaskState.CANCELLED)) {
+        TaskState state = info.getState();
+        if ((state == TaskState.FINISHED
+                || state == TaskState.FAILED
+                || state == TaskState.CANCELLED)) {
             // Prefer terminalTime() over startTime() so that long-running
             // tasks aren't evicted immediately after they terminate,
             // leaving result fetchers with no buffered data.

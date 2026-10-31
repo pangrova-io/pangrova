@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -88,7 +90,7 @@ class TaskSubmitDedupTest {
 
         String secondId = manager.submitTask(descriptor, request);
         assertThat(secondId).isEqualTo(firstId);
-        assertThat(manager.getTaskState(secondId)).contains(TaskManager.TaskState.CANCELLED);
+        assertThat(manager.getTaskState(secondId)).contains(TaskState.CANCELLED);
         assertThat(manager.tasks).hasSize(1);
     }
 

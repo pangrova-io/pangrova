@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.TaskReport;
@@ -55,8 +57,8 @@ final class TaskAdmissionControl {
         return Optional.of(compact);
     }
 
-    private static boolean isTerminal(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.FINISHED || state == TaskManager.TaskState.FAILED
-                || state == TaskManager.TaskState.CANCELLED;
+    private static boolean isTerminal(TaskState state) {
+        return state == TaskState.FINISHED || state == TaskState.FAILED
+                || state == TaskState.CANCELLED;
     }
 }

@@ -1,6 +1,10 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import java.time.Instant;
+
+import org.pangrova.worker.task.memory.TaskMemoryAccount;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.worker.resource.memory.TaskMemoryPool;
@@ -11,8 +15,9 @@ import org.pangrova.worker.buffer.OutputBufferManager;
  * Task tracking record: immutable metadata + delegated mutable execution state.
  *
  * <p>Metadata fields (taskId, queryId, request, descriptor, startTime) are final and set at
- * construction. Mutable execution state (executor handle, memory accounting, output stats) is
- * encapsulated in {@link TaskExecutionState} and accessed via delegation methods.
+ * construction. Execution state (executor handle and output stats) is owned by
+ * {@link TaskExecutionState}; admission memory reservations are owned by
+ * {@link TaskMemoryAccount}. Both are accessed through the same per-task owners.
  */
 public final class TaskInfo {
 
@@ -25,6 +30,7 @@ public final class TaskInfo {
 
     // --- Mutable execution state (delegated) ---
     private final TaskExecutionState execution = new TaskExecutionState();
+    private final TaskMemoryAccount memoryAccount;
     private final TaskCleanupRetry cleanupRetry = new TaskCleanupRetry();
     private final TaskNativeCreation nativeCreation = new TaskNativeCreation();
     private final TaskTerminalPublication terminalPublication = new TaskTerminalPublication();
@@ -40,6 +46,7 @@ public final class TaskInfo {
         this.request = request;
         this.descriptor = descriptor;
         this.startTime = startTime;
+        this.memoryAccount = new TaskMemoryAccount(taskId, queryId, request, descriptor);
     }
 
     // --- Immutable accessors ---
@@ -77,12 +84,12 @@ public final class TaskInfo {
 
     // --- State machine (delegated) ---
 
-    public TaskManager.TaskState getState() {
+    public TaskState getState() {
         return execution.getState();
     }
 
     public boolean compareAndSetState(
-            TaskManager.TaskState expected, TaskManager.TaskState update) {
+            TaskState expected, TaskState update) {
         return execution.compareAndSetState(expected, update);
     }
 
@@ -212,20 +219,25 @@ public final class TaskInfo {
 
     // --- Resource accounting (delegated) ---
 
+    /** Shares the one reservation account with this package's lifecycle and reporting owners. */
+    TaskMemoryAccount memoryAccount() {
+        return memoryAccount;
+    }
+
     public long allocatedMemory() {
-        return execution.allocatedMemory();
+        return memoryAccount.allocatedMemory();
     }
 
     public void setAllocatedMemory(long bytes) {
-        execution.setAllocatedMemory(bytes);
+        memoryAccount.setAllocatedMemory(bytes);
     }
 
     public long allocatedBufferMemory() {
-        return execution.allocatedBufferMemory();
+        return memoryAccount.allocatedBufferMemory();
     }
 
     public void setAllocatedBufferMemory(long bytes) {
-        execution.setAllocatedBufferMemory(bytes);
+        memoryAccount.setAllocatedBufferMemory(bytes);
     }
 
     public TaskMemoryPool taskMemoryPool() {

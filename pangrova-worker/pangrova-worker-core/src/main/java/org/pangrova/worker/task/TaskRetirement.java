@@ -38,7 +38,7 @@ final class TaskRetirement {
                                             new IllegalStateException(
                                                     "Task retirement lacks actual execution drain evidence"));
             boolean transitioned = reconcile(info, callback, actual);
-            if (transitioned && info.getState() == TaskManager.TaskState.FINISHED) {
+            if (transitioned && info.getState() == org.pangrova.worker.task.state.TaskState.FINISHED) {
                 completionPending.set(true);
             }
             callback.clearCoordinatorIndex(info);
@@ -59,15 +59,15 @@ final class TaskRetirement {
         boolean transitioned = false;
         while (true) {
             var current = info.getState();
-            if (current == TaskManager.TaskState.FINISHED) {
+            if (current == org.pangrova.worker.task.state.TaskState.FINISHED) {
                 if (actual.getState() != TaskState.TASK_STATE_FINISHED) {
                     throw new IllegalStateException(
                             "Committed success conflicts with actual retired execution");
                 }
                 return transitioned;
             }
-            if (current == TaskManager.TaskState.FAILED
-                    || current == TaskManager.TaskState.CANCELLED) {
+            if (current == org.pangrova.worker.task.state.TaskState.FAILED
+                    || current == org.pangrova.worker.task.state.TaskState.CANCELLED) {
                 return transitioned;
             }
             var target = next(current, actual.getState());
@@ -80,27 +80,28 @@ final class TaskRetirement {
         }
     }
 
-    private static TaskManager.TaskState next(TaskManager.TaskState current, TaskState actual) {
-        if (current == TaskManager.TaskState.RECEIVED) {
-            return TaskManager.TaskState.INITIALIZING;
+    private static org.pangrova.worker.task.state.TaskState next(
+            org.pangrova.worker.task.state.TaskState current, TaskState actual) {
+        if (current == org.pangrova.worker.task.state.TaskState.RECEIVED) {
+            return org.pangrova.worker.task.state.TaskState.INITIALIZING;
         }
-        if (current == TaskManager.TaskState.CANCELLING) {
-            return TaskManager.TaskState.CANCELLED;
+        if (current == org.pangrova.worker.task.state.TaskState.CANCELLING) {
+            return org.pangrova.worker.task.state.TaskState.CANCELLED;
         }
         return switch (actual) {
             case TASK_STATE_FINISHED ->
-                    current == TaskManager.TaskState.INITIALIZING
-                            ? TaskManager.TaskState.RUNNING
-                            : current == TaskManager.TaskState.RUNNING
-                                    ? TaskManager.TaskState.FINISHING
-                                    : TaskManager.TaskState.FINISHED;
-            case TASK_STATE_FAILED -> TaskManager.TaskState.FAILED;
+                    current == org.pangrova.worker.task.state.TaskState.INITIALIZING
+                            ? org.pangrova.worker.task.state.TaskState.RUNNING
+                            : current == org.pangrova.worker.task.state.TaskState.RUNNING
+                                    ? org.pangrova.worker.task.state.TaskState.FINISHING
+                                    : org.pangrova.worker.task.state.TaskState.FINISHED;
+            case TASK_STATE_FAILED -> org.pangrova.worker.task.state.TaskState.FAILED;
             case TASK_STATE_CANCELLED -> {
-                if (current == TaskManager.TaskState.FINISHING) {
+                if (current == org.pangrova.worker.task.state.TaskState.FINISHING) {
                     throw new IllegalStateException(
                             "Actual cancellation conflicts with committed completion");
                 }
-                yield TaskManager.TaskState.CANCELLING;
+                yield org.pangrova.worker.task.state.TaskState.CANCELLING;
             }
             default ->
                     throw new IllegalStateException(

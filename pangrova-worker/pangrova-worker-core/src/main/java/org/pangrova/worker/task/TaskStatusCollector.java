@@ -243,10 +243,11 @@ final class TaskStatusCollector {
         long elapsed = java.time.Duration.between(info.startTime(), Instant.now()).toMillis();
         long outputRows = info.outputBatches();
         long outputBytes = info.outputBytes();
-        long memoryBytes = (memoryAllocator != null) ? memoryAllocator.resolveCurrentMemoryUsage(info) : 0;
-        long peakMemory = (memoryAllocator != null) ? memoryAllocator.resolvePeakMemoryUsage(info) : 0;
+        long memoryBytes = (memoryAllocator != null)
+                ? memoryAllocator.resolveCurrentMemoryUsage(info.memoryAccount()) : 0;
+        long peakMemory = (memoryAllocator != null) ? memoryAllocator.resolvePeakMemoryUsage(info.memoryAccount()) : 0;
         if (memoryAllocator != null) {
-            memoryAllocator.logMemoryWarningIfNeeded(info, memoryBytes);
+            memoryAllocator.logMemoryWarningIfNeeded(info.memoryAccount(), memoryBytes);
         }
         return new TaskStats(outputRows, outputBytes, outputRows, outputBytes,
                 elapsed, 0, memoryBytes, peakMemory, 0, 0, 0,

@@ -1,4 +1,4 @@
-package org.pangrova.worker.exchange;
+package org.pangrova.worker.exchange.codec;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.BatchChunk;

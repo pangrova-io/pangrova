@@ -7,7 +7,7 @@ import java.security.MessageDigest;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.worker.exchange.CanonicalBatchChunks;
+import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
 
 class StreamingBatchChunkValidatorTest {
 

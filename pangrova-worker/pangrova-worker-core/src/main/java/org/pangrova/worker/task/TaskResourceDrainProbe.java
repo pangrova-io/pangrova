@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.pangrova.protocol.v2.ResourceDrainEvidence;
 import org.pangrova.protocol.v2.ResourceDrainEvidenceRequest;
 import org.pangrova.protocol.v2.ResourceDrainScope;
@@ -18,7 +20,7 @@ final class TaskResourceDrainProbe {
     boolean resultDrained(TaskInfo info) {
         var submitted = info.request();
         if (submitted == null || !submitted.taskRequest().getExecutionOptions().getDirectResultOutput()
-                || info.getState() != TaskManager.TaskState.FINISHED || info.executorHandle() == 0) {
+                || info.getState() != TaskState.FINISHED || info.executorHandle() == 0) {
             return false;
         }
         var request = submitted.taskRequest();

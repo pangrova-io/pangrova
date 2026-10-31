@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -30,7 +32,7 @@ class TaskManagerMemoryAllocationTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = admission(runtime, 4 * 1024 * MB, 4 * 1024 * MB)) {
             var info = tasks.submit(runtime.bindWorker(request(100 * MB, 0)));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
             assertThat(tasks.terminalReport(info).error()).isNull();
         }
@@ -43,7 +45,7 @@ class TaskManagerMemoryAllocationTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = admission(runtime, MB, MB)) {
             var info = tasks.submit(runtime.bindWorker(request(10 * MB, 0)));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
         }
     }
@@ -90,10 +92,10 @@ class TaskManagerMemoryAllocationTest {
                 var info = tasks.submit(runtime.bindWorker(request(50 * MB, 50 * MB)));
                 assertThat(info.allocatedBufferMemory()).isEqualTo(50 * MB);
                 assertThat(tasks.consume(info).values()).containsExactly(42L);
-                tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+                tasks.awaitState(info, TaskState.FINISHED);
                 assertThat(info.allocatedBufferMemory()).isZero();
                 assertThat(tasks.manager().getTaskState(info.taskId()))
-                        .hasValue(TaskManager.TaskState.FINISHED);
+                        .hasValue(TaskState.FINISHED);
             }
         }
     }

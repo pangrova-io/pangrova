@@ -17,7 +17,7 @@ final class TaskStateMapper {
      * Maps Worker TaskState to SPI TaskStatus.TaskState.
      * Mapped from the canonical Protobuf TaskState generated for both runtimes.
      */
-    public static TaskStatus.TaskState toSpiState(TaskManager.TaskState state) {
+    public static TaskStatus.TaskState toSpiState(org.pangrova.worker.task.state.TaskState state) {
         return switch (state) {
             case RECEIVED -> TaskStatus.TaskState.PENDING;
             case INITIALIZING -> TaskStatus.TaskState.PENDING;
@@ -34,7 +34,7 @@ final class TaskStateMapper {
      * Maps Worker TaskState to Protobuf TaskState enum.
      * Values match the Protobuf {@code TaskState} enum exactly.
      */
-    public static TaskState toProtoState(TaskManager.TaskState state) {
+    public static TaskState toProtoState(org.pangrova.worker.task.state.TaskState state) {
         return switch (state) {
             case RECEIVED -> TaskState.TASK_STATE_PENDING;
             case INITIALIZING -> TaskState.TASK_STATE_PENDING;
@@ -51,7 +51,7 @@ final class TaskStateMapper {
      * Maps Worker TaskState to Protobuf TaskState string name.
      * Used for REST DTO serialization and logging.
      */
-    public static String toProtoStateName(TaskManager.TaskState state) {
+    public static String toProtoStateName(org.pangrova.worker.task.state.TaskState state) {
         return toProtoState(state).name();
     }
 

@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -222,7 +224,7 @@ public final class TaskCompletionMonitor {
             TaskInfo info,
             TaskLifecycleManager.LifecycleCallback callback,
             Runnable releaseResources) {
-        if (!callback.transition(taskId, TaskManager.TaskState.FINISHING)) {
+        if (!callback.transition(taskId, TaskState.FINISHING)) {
             // Task may already be CANCELLING or FAILED.
             // Still release resources to prevent native handle / memory leaks.
             releaseThen(info, releaseResources, () -> reportCancelledAfterRelease(info, callback));
@@ -233,8 +235,8 @@ public final class TaskCompletionMonitor {
 
     private void finishCompletedTask(
             String taskId, TaskInfo info, TaskLifecycleManager.LifecycleCallback callback) {
-        if (info.getState() != TaskManager.TaskState.FINISHED
-                && !callback.transition(taskId, TaskManager.TaskState.FINISHED)) {
+        if (info.getState() != TaskState.FINISHED
+                && !callback.transition(taskId, TaskState.FINISHED)) {
             reportCancelledAfterRelease(info, callback);
             return;
         }
@@ -252,7 +254,7 @@ public final class TaskCompletionMonitor {
             Exception cause,
             TaskLifecycleManager.LifecycleCallback callback,
             Runnable releaseResources) {
-        if (info.getState() == TaskManager.TaskState.CANCELLING) {
+        if (info.getState() == TaskState.CANCELLING) {
             releaseThen(info, releaseResources, () -> reportCancelledAfterRelease(info, callback));
             return;
         }
@@ -271,8 +273,8 @@ public final class TaskCompletionMonitor {
             TaskLifecycleManager.LifecycleCallback callback,
             Exception cause,
             boolean nativeUnsupported) {
-        if (info.getState() == TaskManager.TaskState.FAILED
-                || callback.transition(taskId, TaskManager.TaskState.FAILED)) {
+        if (info.getState() == TaskState.FAILED
+                || callback.transition(taskId, TaskState.FAILED)) {
             callback.clearCoordinatorIndex(info);
             reportErrorStatus(info, cause, nativeUnsupported);
         } else {
@@ -292,9 +294,9 @@ public final class TaskCompletionMonitor {
 
     private void reportCancelledAfterRelease(
             TaskInfo info, TaskLifecycleManager.LifecycleCallback callback) {
-        if (info.getState() != TaskManager.TaskState.CANCELLED
-                && (info.getState() != TaskManager.TaskState.CANCELLING
-                        || !callback.transition(info.taskId(), TaskManager.TaskState.CANCELLED))) {
+        if (info.getState() != TaskState.CANCELLED
+                && (info.getState() != TaskState.CANCELLING
+                        || !callback.transition(info.taskId(), TaskState.CANCELLED))) {
             return;
         }
         callback.clearCoordinatorIndex(info);

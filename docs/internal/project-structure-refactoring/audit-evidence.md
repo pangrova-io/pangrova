@@ -1,6 +1,6 @@
 # 项目结构审查证据
 
-审查日期：2026-10-31。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“计划交付复核”，两次检查结果不混用。
+审查日期：2026-10-31。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“42. Worker 包环和分配异常的增量证据”，不同批次检查结果不混用。
 
 ## 范围和方法
 
@@ -367,3 +367,44 @@ Native复用匹配库，本批没有Native/JNI输入变更，没有重新执行A
 已修正，架构类引用241项通过。当前67reactor/53Java叶子/1资源制品、3571主源/657包/2374测试源；
 657行台账及53叶子计数对齐，限定五文档895链接有效。详细日志前缀`/tmp/pangrova-generation-*`。
 阶段40检查点`7c9c9d7d`已推送；本批不关闭Catalog B0、B6、Worker待修环和全项目最终验收。
+
+
+## 42. Worker 包环和分配异常的增量证据
+
+本节在第 41 节检查点 `243d3710` 后记录当前源码，前述历史数量和失败事实保持原样。
+标准目录实扫 67 reactor / 53 Java 叶子 / 1 资源制品，3,574 主源、658 包、2,375 测试源。
+Worker Core 由 242/37/239 增至 245 主源/38 包/240 测试源：codec 包说明、TaskMemoryAccount、
+独立 TaskState 为三个新增主源，四项预算回归共用一个新测试源；原 codec 及测试只是移动。
+AST 辅助扫描的非标准脚本/资源/native fixture Java 不计入标准 main/test 数。
+
+`/tmp/pangrova-worker-ownership-structure.log` 的终态为 13 项、12 通过、1 失败、0 错误/跳过。
+模块 7、包结构 2、状态枚举 3 项通过，包结构属性覆盖 658 包。全图无环仍失败；对照第 41 节
+原始 report，恰好移除 exchange/remote/execution 和 task/memory/state 两组三包 SCC，没有
+新增或改变其余组成员。当前 [原始 AST report](package-cycles.txt) 保留五组全部边与源码见证。
+
+| 剩余 SCC | 包数 | 与第 41 节成员比较 |
+|---|---:|---|
+| Coordinator 领域执行 | 29 | 完全相同 |
+| Coordinator bootstrap | 2 | 完全相同 |
+| Coordinator HTTP | 5 | 完全相同 |
+| Planner | 18 | 完全相同 |
+| Worker bootstrap | 3 | 完全相同 |
+
+纯迁移最近 58 项通过。descriptor-only 部分额度异常测试先在仓库得到 4 项断言失败，再于
+修复后连同 9 项 canonical/统一计费测试共 13 项通过；三个日志分别是
+`/tmp/pangrova-worker-ownership-focused.log`、`/tmp/pangrova-worker-partial-reservation-red.log`、
+`/tmp/pangrova-worker-partial-reservation-green.log`。两预算与原 query credit 经真实实现校验，
+回调/清理错误保持身份和 cause/suppressed；不把测试注入点误报成当前 canonical HTTP 泄漏。
+
+候选初版的 logger 误改在独立审查后、应用前已修正；宽泛 token 归一化的旧证明不再有效。
+最终调用选择器检查不替代真实编译和行为测试。Worker 完整回归已执行 1,298 项，0 失败/错误/跳过，
+含真实 5 GiB HTTP 传输和 Native property。随后 Checkstyle 报 3 处注释/换行问题，修正后
+SpotBugs 再发现 `TaskInfo.memoryAccount()` 暴露可变账本；核对调用者后收紧为包内可见，
+不增加豁免。最终 static/install 通过，使用 skipTests，不重计运行时测试。日志为
+`/tmp/pangrova-worker-ownership-full.log` 和 `/tmp/pangrova-worker-ownership-static-final.log`。
+67 项 clean reactor 单次编译全部通过（skipTests，不是全仓测试）；Integration remote/Native/COPY
+分别在独立 Maven JVM 执行 18 + 3 + 1 = 22 项，零失败/错误/跳过，Integration 静态检查通过。
+日志分别为 `/tmp/pangrova-worker-ownership-reactor.log`、`/tmp/pangrova-worker-shuffle-egress.log`、
+`/tmp/pangrova-worker-native-ingress.log`、`/tmp/pangrova-worker-copy-native.log`。clean 后的 Worker
+JAR/classes 中旧 codec 和嵌套 TaskState 均不存在，三个新 owner 类型存在；未留兼容类。
+B6、Catalog B0、剩余五 SCC、全文件语义审查与 R5/R6 仍未完成。

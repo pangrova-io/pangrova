@@ -29,7 +29,7 @@ class TaskCancellationResourceCleanupTest {
             var info = tasks.submit(runtime.bindWorker(largeRequest()));
             long handle = info.executorHandle();
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
-            tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
@@ -48,7 +48,7 @@ class TaskCancellationResourceCleanupTest {
             var monitor = tasks.completionMonitor();
             Runnable release = () -> tasks.manager().releaseTaskExecutor(info.taskId());
             monitor.onTaskCompleted(info.taskId(), info, tasks.manager().lifecycleCallback, release);
-            tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.CANCELLED);
             byte[] receipt = info.executorReleaseReport();
             // A duplicate actual callback after CANCELLED still joins the same
             // real release owner rather than returning before resource cleanup.
@@ -68,7 +68,7 @@ class TaskCancellationResourceCleanupTest {
             long handle = info.executorHandle();
             assertThat(info.allocatedBufferMemory()).isPositive();
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
-            tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             assertThat(runtime.executor().releaseTask(handle)).isEmpty();
             assertThat(TaskReport.parseFrom(info.executorReleaseReport()).getState())
@@ -92,7 +92,7 @@ class TaskCancellationResourceCleanupTest {
                 Thread completion = completionThread(tasks, info, failure);
                 completion.start();
                 await().atMost(Duration.ofSeconds(10)).until(() -> lease.blocks(completion));
-                assertThat(info.getState()).isEqualTo(TaskManager.TaskState.CANCELLING);
+                assertThat(info.getState()).isEqualTo(org.pangrova.worker.task.state.TaskState.CANCELLING);
                 assertThat(info.executorHandle()).isEqualTo(handle);
                 assertThat(info.allocatedBufferMemory()).isPositive();
                 assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("CANCELLED"));
@@ -101,7 +101,7 @@ class TaskCancellationResourceCleanupTest {
                 assertThat(completion.isAlive()).isFalse();
                 assertThat(failure.get()).isNull();
             }
-            tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
         }
     }
@@ -133,7 +133,7 @@ class TaskCancellationResourceCleanupTest {
             // controller continuation. There is no fake 'next release succeeds'.
             await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
                 tasks.manager().cleanupTerminalTasks(Duration.ofDays(1));
-                assertThat(info.getState()).isEqualTo(TaskManager.TaskState.CANCELLED);
+                assertThat(info.getState()).isEqualTo(org.pangrova.worker.task.state.TaskState.CANCELLED);
             });
             assertRetired(runtime, info, handle);
         }
@@ -150,7 +150,7 @@ class TaskCancellationResourceCleanupTest {
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
             assertThat(info.allocatedBufferMemory()).isPositive();
             tasks.manager().lifecycleManager.executeTask(info.taskId(), info, tasks.manager().lifecycleCallback);
-            tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             var receipt = TaskReport.parseFrom(info.executorReleaseReport());
             assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
@@ -165,11 +165,11 @@ class TaskCancellationResourceCleanupTest {
              var tasks = new ActualTaskManagerFixture(runtime, "actual-cancel-wins")) {
             var info = tasks.preparePending(runtime.valuesRequest(false));
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
-            assertThat(tasks.manager().lifecycleCallback.transition(info.taskId(), TaskManager.TaskState.FINISHING))
+            assertThat(tasks.manager().lifecycleCallback.transition(info.taskId(), org.pangrova.worker.task.state.TaskState.FINISHING))
                     .isFalse();
             tasks.completionMonitor().onTaskCompleted(info.taskId(), info, tasks.manager().lifecycleCallback,
                     () -> tasks.manager().releaseTaskExecutor(info.taskId()));
-            tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.CANCELLED);
             assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("FINISHED"));
             assertThat(info.executorHandle()).isZero();
         }
@@ -183,7 +183,7 @@ class TaskCancellationResourceCleanupTest {
             long handle = info.executorHandle();
             runtime.executor().startTask(handle);
             runtime.awaitFinished(handle);
-            assertThat(tasks.manager().transition(info.taskId(), TaskManager.TaskState.RUNNING)).isTrue();
+            assertThat(tasks.manager().transition(info.taskId(), org.pangrova.worker.task.state.TaskState.RUNNING)).isTrue();
             info.setTerminalTaskReport(runtime.executor().getTaskStatus(handle));
             info.setTerminalTaskStats(runtime.executor().getTaskStats(handle));
             var failure = new AtomicReference<Throwable>();
@@ -191,14 +191,14 @@ class TaskCancellationResourceCleanupTest {
             try (var lease = new ActualNativeHandleLease(runtime.executor(), handle)) {
                 completion.start();
                 await().atMost(Duration.ofSeconds(10)).until(() -> lease.blocks(completion));
-                assertThat(info.getState()).isEqualTo(TaskManager.TaskState.FINISHING);
+                assertThat(info.getState()).isEqualTo(org.pangrova.worker.task.state.TaskState.FINISHING);
                 assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isFalse();
                 assertThat(info.allocatedBufferMemory()).isPositive();
             }
             completion.join(10_000);
             assertThat(completion.isAlive()).isFalse();
             assertThat(failure.get()).isNull();
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertRetired(runtime, info, handle);
             assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("CANCELLED"));
         }

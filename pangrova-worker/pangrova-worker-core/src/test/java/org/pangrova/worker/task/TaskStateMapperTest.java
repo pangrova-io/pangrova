@@ -15,15 +15,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TaskStateMapperTest {
 
     @ParameterizedTest
-    @EnumSource(TaskManager.TaskState.class)
-    void toSpiState_returnsNonNullForEveryWorkerState(TaskManager.TaskState state) {
+    @EnumSource(org.pangrova.worker.task.state.TaskState.class)
+    void toSpiState_returnsNonNullForEveryWorkerState(org.pangrova.worker.task.state.TaskState state) {
         TaskStatus.TaskState result = TaskStateMapper.toSpiState(state);
         assertThat(result).isNotNull();
     }
 
     @ParameterizedTest
-    @EnumSource(TaskManager.TaskState.class)
-    void toProtoState_returnsNonNullForEveryWorkerState(TaskManager.TaskState state) {
+    @EnumSource(org.pangrova.worker.task.state.TaskState.class)
+    void toProtoState_returnsNonNullForEveryWorkerState(org.pangrova.worker.task.state.TaskState state) {
         TaskState result = TaskStateMapper.toProtoState(state);
         assertThat(result).isNotNull();
         assertThat(result.name()).isNotBlank();
@@ -31,103 +31,103 @@ class TaskStateMapperTest {
 
     @Test
     void toSpiState_receivedMapsToPending() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.RECEIVED))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.RECEIVED))
                 .isEqualTo(TaskStatus.TaskState.PENDING);
     }
 
     @Test
     void toSpiState_initializingMapsToPending() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.INITIALIZING))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.INITIALIZING))
                 .isEqualTo(TaskStatus.TaskState.PENDING);
     }
 
     @Test
     void toSpiState_runningMapsToRunning() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.RUNNING))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.RUNNING))
                 .isEqualTo(TaskStatus.TaskState.RUNNING);
     }
 
     @Test
     void toSpiState_finishingMapsToFlushing() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.FINISHING))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.FINISHING))
                 .isEqualTo(TaskStatus.TaskState.FLUSHING);
     }
 
     @Test
     void toSpiState_cancellingRemainsNonTerminal() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.CANCELLING))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.CANCELLING))
                 .isEqualTo(TaskStatus.TaskState.RUNNING);
     }
 
     @Test
     void toSpiState_finishedMapsToFinished() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.FINISHED))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.FINISHED))
                 .isEqualTo(TaskStatus.TaskState.FINISHED);
     }
 
     @Test
     void toSpiState_failedMapsToFailed() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.FAILED))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.FAILED))
                 .isEqualTo(TaskStatus.TaskState.FAILED);
     }
 
     @Test
     void toSpiState_cancelledMapsToCancelled() {
-        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.CANCELLED))
+        assertThat(TaskStateMapper.toSpiState(org.pangrova.worker.task.state.TaskState.CANCELLED))
                 .isEqualTo(TaskStatus.TaskState.CANCELLED);
     }
 
     @Test
     void toProtoState_receivedMapsToPending() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.RECEIVED))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.RECEIVED))
                 .isEqualTo(TaskState.TASK_STATE_PENDING);
     }
 
     @Test
     void toProtoState_initializingMapsToPending() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.INITIALIZING))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.INITIALIZING))
                 .isEqualTo(TaskState.TASK_STATE_PENDING);
     }
 
     @Test
     void toProtoState_runningMapsToRunning() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.RUNNING))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.RUNNING))
                 .isEqualTo(TaskState.TASK_STATE_RUNNING);
     }
 
     @Test
     void toProtoState_finishingMapsToFlushing() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.FINISHING))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.FINISHING))
                 .isEqualTo(TaskState.TASK_STATE_FLUSHING);
     }
 
     @Test
     void toProtoState_cancellingRemainsNonTerminal() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.CANCELLING))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.CANCELLING))
                 .isEqualTo(TaskState.TASK_STATE_RUNNING);
     }
 
     @Test
     void toProtoState_finishedMapsToFinished() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.FINISHED))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.FINISHED))
                 .isEqualTo(TaskState.TASK_STATE_FINISHED);
     }
 
     @Test
     void toProtoState_failedMapsToFailed() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.FAILED))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.FAILED))
                 .isEqualTo(TaskState.TASK_STATE_FAILED);
     }
 
     @Test
     void toProtoState_cancelledMapsToCancelled() {
-        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.CANCELLED))
+        assertThat(TaskStateMapper.toProtoState(org.pangrova.worker.task.state.TaskState.CANCELLED))
                 .isEqualTo(TaskState.TASK_STATE_CANCELLED);
     }
 
     @Test
     void everyWorkerState_mapsToExactlyOneSpiState() {
-        for (TaskManager.TaskState state : TaskManager.TaskState.values()) {
+        for (org.pangrova.worker.task.state.TaskState state : org.pangrova.worker.task.state.TaskState.values()) {
             TaskStatus.TaskState spiState = TaskStateMapper.toSpiState(state);
             assertThat(spiState)
                     .as("Worker state %s must map to exactly one SPI state", state)
@@ -137,7 +137,7 @@ class TaskStateMapperTest {
 
     @Test
     void everyWorkerState_mapsToExactlyOneProtoState() {
-        for (TaskManager.TaskState state : TaskManager.TaskState.values()) {
+        for (org.pangrova.worker.task.state.TaskState state : org.pangrova.worker.task.state.TaskState.values()) {
             TaskState protoState = TaskStateMapper.toProtoState(state);
             assertThat(protoState)
                     .as("Worker state %s must map to exactly one Protobuf state", state)

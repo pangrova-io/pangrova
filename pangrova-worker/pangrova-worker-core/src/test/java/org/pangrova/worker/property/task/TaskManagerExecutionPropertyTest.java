@@ -32,9 +32,9 @@ class TaskManagerExecutionPropertyTest {
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
             var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 3)));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.RUNNING);
             var received = tasks.consume(info);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertThat(received.batches()).isEqualTo(batches);
             assertThat(received.rows()).isEqualTo(batches * 3L);
             assertThat(received.values().stream().sorted())
@@ -51,7 +51,7 @@ class TaskManagerExecutionPropertyTest {
             var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(false,
                     ActualNativeTaskPlans.failingCast(successfulSources)));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FAILED);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
             assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
@@ -70,9 +70,9 @@ class TaskManagerExecutionPropertyTest {
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
             var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 1)));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.RUNNING);
             assertThat(tasks.consume(info).rows()).isEqualTo(batches);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             var reports = tasks.reports().reports();
             assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
             assertThat(reports.get(0).state()).isEqualTo("RUNNING");
@@ -93,7 +93,7 @@ class TaskManagerExecutionPropertyTest {
             var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(false,
                     ActualNativeTaskPlans.failingCast(successfulSources)));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FAILED);
             var reports = tasks.reports().reports();
             assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
             assertThat(reports.get(0).state()).isEqualTo("RUNNING");

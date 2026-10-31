@@ -1,5 +1,7 @@
 package org.pangrova.worker.property.buffer;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
@@ -30,7 +32,7 @@ class BufferMemoryBoundedPropertyTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "concurrent-buffer-bound")) {
             var infos = submitConcurrentTasks(runtime, tasks, taskCount, 3);
-            for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            for (var info : infos) tasks.awaitState(info, TaskState.RUNNING);
             long heldGrants = runtime.arbitrator().queryAllocationsSnapshot().entrySet().stream()
                     .filter(entry -> entry.getKey().startsWith("buffer:"))
                     .mapToLong(java.util.Map.Entry::getValue).sum();
@@ -39,7 +41,7 @@ class BufferMemoryBoundedPropertyTest {
                     .isLessThanOrEqualTo(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
             for (var info : infos) {
                 assertThat(tasks.consume(info).rows()).isEqualTo(6);
-                tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+                tasks.awaitState(info, TaskState.FINISHED);
             }
         }
     }
@@ -50,11 +52,11 @@ class BufferMemoryBoundedPropertyTest {
              var tasks = new ActualTaskManagerFixture(runtime, "concurrent-buffer-release")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             var infos = submitConcurrentTasks(runtime, tasks, taskCount, 2);
-            for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            for (var info : infos) tasks.awaitState(info, TaskState.RUNNING);
             for (var info : infos) {
                 assertThat(info.allocatedBufferMemory()).isEqualTo(BUFFER_BYTES);
                 assertThat(tasks.consume(info).rows()).isEqualTo(4);
-                tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+                tasks.awaitState(info, TaskState.FINISHED);
                 assertThat(runtime.arbitrator().queryAllocationsSnapshot())
                         .doesNotContainKey("buffer:" + info.taskId());
             }

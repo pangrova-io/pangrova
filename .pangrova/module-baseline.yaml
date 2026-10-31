@@ -2312,6 +2312,7 @@ artifacts:
       - org.pangrova.worker.dataset
       - org.pangrova.worker.embedding
       - org.pangrova.worker.exchange
+      - org.pangrova.worker.exchange.codec
       - org.pangrova.worker.exchange.remote
       - org.pangrova.worker.exchange.remote.security
       - org.pangrova.worker.exchange.source
@@ -2399,6 +2400,7 @@ artifacts:
       - org.pangrova.worker.dataset
       - org.pangrova.worker.embedding
       - org.pangrova.worker.exchange
+      - org.pangrova.worker.exchange.codec
       - org.pangrova.worker.exchange.remote
       - org.pangrova.worker.execution
       - org.pangrova.worker.file
@@ -2415,6 +2417,7 @@ artifacts:
       - org.pangrova.worker.shuffle
       - org.pangrova.worker.task
       - org.pangrova.worker.task.memory
+      - org.pangrova.worker.task.state
       - org.pangrova.worker.transport
     providers:
       {}

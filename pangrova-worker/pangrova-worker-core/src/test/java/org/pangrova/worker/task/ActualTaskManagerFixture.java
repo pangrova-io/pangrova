@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
@@ -56,7 +58,7 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
         assertThat(reservation.first()).isTrue();
         manager.lifecycleManager.reserveAdmissionResources(info);
         reservation.publish(() -> manager.tasks.put(info.taskId(), info));
-        assertThat(manager.transition(info.taskId(), TaskManager.TaskState.INITIALIZING)).isTrue();
+        assertThat(manager.transition(info.taskId(), TaskState.INITIALIZING)).isTrue();
         reservation.admitted();
         assertThat(manager.taskAdmissions.knownIdentity(
                 org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request))).isTrue();
@@ -88,7 +90,7 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
         return manager.tasks.get(id);
     }
 
-    public void awaitState(TaskInfo info, TaskManager.TaskState expected) {
+    public void awaitState(TaskInfo info, TaskState expected) {
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
             assertThat(info.getState()).isEqualTo(expected);
             assertThat(reports.reports()).anyMatch(report -> report.taskId()

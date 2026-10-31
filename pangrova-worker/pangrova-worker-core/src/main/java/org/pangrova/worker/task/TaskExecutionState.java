@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -27,8 +29,8 @@ final class TaskExecutionState {
     // Signaled exactly once when the task enters a terminal state.
     private final CountDownLatch terminalLatch = new CountDownLatch(1);
 
-    private final AtomicReference<TaskManager.TaskState> state =
-            new AtomicReference<>(TaskManager.TaskState.RECEIVED);
+    private final AtomicReference<TaskState> state =
+            new AtomicReference<>(TaskState.RECEIVED);
     private final AtomicLong executorHandle = new AtomicLong(0);
     private final AtomicReference<CompletableFuture<byte[]>> executorRelease =
             new AtomicReference<>();
@@ -49,8 +51,6 @@ final class TaskExecutionState {
     private final AtomicLong terminalEpochMillis = new AtomicLong(0);
 
     // Resource accounting
-    private final AtomicLong allocatedMemory = new AtomicLong(0);
-    private final AtomicLong allocatedBufferMemory = new AtomicLong(0);
     private final AtomicLong preNativeReadBytes = new AtomicLong(0);
 
     void setPreNativeReadBytes(long bytes) {
@@ -85,9 +85,9 @@ final class TaskExecutionState {
 
     // --- State machine ---
 
-    TaskManager.TaskState getState() { return state.get(); }
+    TaskState getState() { return state.get(); }
 
-    boolean compareAndSetState(TaskManager.TaskState expected, TaskManager.TaskState update) {
+    boolean compareAndSetState(TaskState expected, TaskState update) {
         boolean ok = state.compareAndSet(expected, update);
         if (ok && isTerminal(update)) {
             // Record terminal time on first successful transition to a terminal state.
@@ -111,10 +111,10 @@ final class TaskExecutionState {
         return t == 0L ? null : java.time.Instant.ofEpochMilli(t);
     }
 
-    private static boolean isTerminal(TaskManager.TaskState s) {
-        return s == TaskManager.TaskState.FINISHED
-                || s == TaskManager.TaskState.FAILED
-                || s == TaskManager.TaskState.CANCELLED;
+    private static boolean isTerminal(TaskState s) {
+        return s == TaskState.FINISHED
+                || s == TaskState.FAILED
+                || s == TaskState.CANCELLED;
     }
 
     // --- Executor handle (CAS for double-release prevention) ---
@@ -175,14 +175,6 @@ final class TaskExecutionState {
     long nextReportSequence() { return reportSequence.incrementAndGet(); }
 
     // --- Resource accounting ---
-
-    long allocatedMemory() { return allocatedMemory.get(); }
-
-    void setAllocatedMemory(long bytes) { allocatedMemory.set(bytes); }
-
-    long allocatedBufferMemory() { return allocatedBufferMemory.get(); }
-
-    void setAllocatedBufferMemory(long bytes) { allocatedBufferMemory.set(bytes); }
 
     TaskMemoryPool taskMemoryPool() { return taskMemoryPool.get(); }
 

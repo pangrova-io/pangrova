@@ -4,21 +4,21 @@
 
 **结论：主要领域划分和 Java 协调规划 / C++ 执行的方向合理，但物理模块与实际职责没有完全对应。重构重点应是移交状态和资源的所有权、收窄导出契约、消除包依赖环，并把测试和装配一起迁移。不能以目录数量、包数量或编译通过作为完成标准。**
 
-完整范围包括 67 个 Maven reactor 项目、53 个有 Java 源码的叶子、1 个纯资源 JAR、3,571 个 Java 主源文件、657 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
+完整范围包括 67 个 Maven reactor 项目、53 个有 Java 源码的叶子、1 个纯资源 JAR、3,574 个 Java 主源文件、658 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
 
-实施已推进至 [执行记录第 41 节](project-restructure-execution-plan.md#41-generation-命名与三制品物理拆分)：第 30–31 节落位 Query 事务 fence、任务 execution route/fence 和通用 JDBC runtime；第 32 节落实 schema-migrations 资源制品和 Table/Materialization owner 测试。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；第 34 节消除 Worker write/catalog 环，全图无环检查仍因剩余 7 组 SCC 失败，没有增加豁免。逐包台账按当前源码重新核对；Generation 三叶已落位，当前批次构建与运行时结果由执行记录另行登记，不沿用更名前成绩。
+实施已推进至 [执行记录第 42 节](project-restructure-execution-plan.md#42-worker-包环与内存分配回滚)：Generation 三叶已在第 41 节完成当批验证；第 42 节抽出 Worker codec、纯状态和每任务内存账本，修复 descriptor-only 部分额度异常回滚。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；全图 SCC 从 7 组降至 5 组，无环 gate 仍失败，没有增加豁免。Worker 完整回归 1,298 项、受影响 Integration 22 项通过，两个制品静态检查通过；67 项 reactor clean 编译通过。最近 58 项与新增回归红 4→绿 13 的独立证据保留在执行记录中。
 
-第 33 节完成 AI 工厂显式 authority 注入、错误归属和 Metadata 依赖拆分；第34节提取协调API并下沉Worker会话/资源端口；第35节完成模型当前权限provider与显式事务消费链。领域发布、Indexing激活耦合、真实非空模型ManagedSource撤权测试及剩余7组包环仍待处理。
+第 33 节完成 AI 工厂显式 authority 注入、错误归属和 Metadata 依赖拆分；第34节提取协调API并下沉Worker会话/资源端口；第35节完成模型当前权限provider与显式事务消费链。领域发布、Indexing激活耦合、真实非空模型ManagedSource撤权测试及剩余5组包环仍待处理。
 
-初审的 60 个项目、3,542 个主源文件、649 包属于历史快照，保留在审查证据中；本文范围与逐包台账已更新至 Generation 三叶物理拆分后的源码快照。第37节两个 Coordination 后端 owner 已通过 61 / 41 项测试；Generation 三叶落位后67项reactor clean编译通过，当前消费者验证进度见第41节。分批验证结果与剩余工作以执行记录为准，已编译或已迁移不等于全项目语义审查完成。
+初审的 60 个项目、3,542 个主源文件、649 包属于历史快照，保留在审查证据中；本文范围与逐包台账已更新至第 42 节 Worker 所有权落位后的源码快照。第37节两个 Coordination 后端 owner 已通过 61 / 41 项测试；Generation 三叶落位后67项reactor clean编译通过，其消费者验证结果见第41节；第42节也已完成当批 Worker 完整回归、受影响 Integration 验证及67项clean编译。分批验证结果与剩余工作以执行记录为准，已编译或已迁移不等于全项目语义审查完成。
 
 最新设计要求：业务规则、任务编排、存储契约和 PostgreSQL 实现必须可分别演进。原 `pangrova-data-build` 过渡制品已退役；按用户单词命名要求，`pangrova-generation`（生成）已拆为 core、transaction-spi、store-postgresql 三叶。Metadata 不整体改名为 Catalog：先迁出各领域权威与基础设施，再将目录身份/连接器生命周期和技术元数据投影按不同能力迁入 Catalog，最终退役当前混合 Metadata 制品。具体拆分以最新配套设计为准。
 
 配套清单：
 
-- [657 个当前包的目标归属与处理台账](project-structure-refactoring/package-migration-map.md)：每个当前包恰好一行，记录批次、动作、目标和约束；混合职责包需要按本文的类级方案拆分。
+- [658 个当前包的目标归属与处理台账](project-structure-refactoring/package-migration-map.md)：每个当前包恰好一行，记录批次、动作、目标和约束；混合职责包需要按本文的类级方案拆分。
 - [本次审查证据](project-structure-refactoring/audit-evidence.md)：实际检查结果、模块统计、扫描范围和限制。
-- [7 组当前包环及源码边](project-structure-refactoring/package-cycles.txt)：来自本次 AST 架构测试，不是根据包名猜测的依赖。
+- [5 组当前包环及源码边](project-structure-refactoring/package-cycles.txt)：来自本次 AST 架构测试，不是根据包名猜测的依赖。
 - [Metadata、Catalog 与存储 SPI 深审设计](project-structure-refactoring/metadata-catalog-storage-design.md)：逐文件归属、持久化契约、PostgreSQL 实现及原子发布的迁移方案。
 
 ## 1. 合理性判断和需要解决的问题
@@ -39,7 +39,7 @@
 
 | 编号 | 现状与源码证据 | 判断与计划 |
 |---|---|---|
-| F01 P0 | 初审两项失败中的导出包说明问题已修复；当前模块/包结构 9 项通过，无环项失败：657 包存在剩余 7 个 SCC | 保持边界声明检查；按 SCC 解环。当前架构 gate 尚未全绿 |
+| F01 P0 | 初审两项失败中的导出包说明问题已修复；当前模块/包结构 9 项通过，无环项失败：658 包存在剩余 5 个 SCC | 保持边界声明检查；按 SCC 解环。当前架构 gate 尚未全绿 |
 | F02 P1 | 初审 Coordinator 596 文件 / 99 包，而 Query runtime 24 文件 / 14 包；`QueryManager` 同时依赖 dispatch、租户准入、日志、审计及具体 SDK | Coordinator 仍承担 Query 和领域实现。按状态机、提交协议和调度职责迁移，不能整个 `query` 目录一次性搬走 |
 | F03 P1 | Coordinator 主 SCC 涉及 29 包；bootstrap 2 包、HTTP 5 包另成环 | 先抽入口契约和回调，再迁实现；拆掉根包对子包实现的反向调用。HTTP endpoint 不反向读取整份 server context |
 | F04 P1 | Planner 有 18 包 SCC；`PlanTable` 被多个阶段复用；`PlannedQuery` 注释声称不暴露 Calcite，但 public `plan()` 返回 `RelNode`，Coordinator 两处调用 | 内部表绑定值、计划结果与编译流程分层；对外暴露 split/lineage/dispatch 所需快照，由 Planner 内部处理 Calcite tree |
@@ -49,7 +49,7 @@
 | F08 P1 | 第34节已将11个协调契约迁入独立API，ZooKeeper不再依赖coordination-core | 第34节已落位；保持 provider 单向依赖 API，进程选择/关闭 provider；继续审查实现的异常和恢复语义 |
 | F09 P1 | 大量 manifest exports 覆盖整棵领域根包；Query 直接导出 core/store/adapter | 模块检查通过也不代表封装合理。逐调用者缩为 api/spi/assembly，真实跨域事务口作为受限 friend export，而非整棵 store |
 | F10 P1 | 初审 Table / Materialization JDBC 的 owner 测试在 Metadata；第 32 节迁回 10 个测试类，跨 Metadata Catalog 的集成保留在 Metadata | 属于测试归属错位，不能直接推断零覆盖。迁 owner 测试与数据库 fixture，保留跨域集成测试；先拆 migration 资源依赖，避免 test-scope Maven 环 |
-| F11 P1 | Worker `task/state` 引用 `TaskManager.TaskState`；`task/memory` 引用可变 `TaskInfo`；bootstrap、exchange 仍成环；JNI write/catalog 环在第34节已消除 | 抽纯状态与窄资源端口。`TaskInfo` 含 native 创建、释放、清理重试和终态发布，不得伪装成不可变 DTO 或复制资源 owner |
+| F11 P1 | 第42节将纯 TaskState、每任务 TaskMemoryAccount 和 codec 归真实能力包，task/exchange 两环消失；bootstrap 三包仍成环；JNI write/catalog 环在第34节已消除 | 保留 TaskInfo 的 native 创建、释放、清理重试和终态发布 owner；Worker 完整回归及受影响 Native 链通过，bootstrap 资源责任继续解环 |
 | F12 P2 | Materialization 的 domain/port/usecase、Metadata service、Transport 根包等混合了不同能力；`StateStoreFactory` 在 Config 持有全局可变注册表 | 分能力审查并归位。Config 保留配置定义/加载/校验，store 选择交给实例化装配；不以构造器参数数量为理由制造更大的 Context |
 | F13 P2 | Native engine 的 runner/filter/report-state 依赖 indexing/capabilities；OBJECT target 只提供组织边界 | 在已存在的五个通用 seam 上设计 engine-owned port，并保留 capability 专属算子的显式耦合；不虚称现有 include 图无环 |
 
@@ -322,12 +322,12 @@ Metadata `service` 16 类的目标（下列相对包最终归 Catalog；当前�
 
 **执行次序**：先 lifecycle port，再 Query owner 迁移，再 Stage/DAG 和 Scheduler，最后领域 adapter 和 bootstrap 清理。每步同步修改回调，防止迁出后通过 callback 参数把 Coordinator 类型带回去。不可将 29 包 SCC 整体迁至 Query 后宣称解环。
 
-### 4.5 Worker 包环（原四组，当前剩三组）
+### 4.5 Worker 包环（原四组，当前剩 bootstrap 一组）
 
 | 环 | 改法 | 必须验证 |
 |---|---|---|
-| task / task.memory / task.state | 将 `TaskManager.TaskState` 抽到 `task.state.TaskState`；纯 transition 无 manager 依赖；memory 接收 task-memory view/操作端口，不接收整个 TaskInfo | 合法迁移、取消与 finish 竞争、内存释放恰一次、terminal report 顺序 |
-| exchange / exchange.remote / execution | TaskExecutor 窄执行/egress 口归 execution SPI；CanonicalBatchChunks 归 exchange.codec；remote 实现返回 owned lease，执行层决定关闭 | 背压、半关闭、ticket 续租、失败清理、远程 exchange 恢复 |
+| task / task.memory / task.state | 第42节结构解环：纯 `task.state.TaskState` 与每任务 `TaskMemoryAccount` 已落位；memory 不再接收整个 TaskInfo | 近端与失败回归、含取消/finish、Native 释放和 terminal report 的完整 owner 回归通过 |
+| exchange / exchange.remote / execution | 第42节由 `CanonicalBatchChunks` 下沉 codec 消除实际回边；未为解环增加空执行端口或合并包，既有 lease/执行 owner 保留 | codec/remote 近端、完整 owner 回归及真实 PG/gRPC 18 项、Native ingress 3 项通过 |
 | bootstrap / lifecycle / phase | phase 接受具体能力并返回资源；关闭序列消费 lifecycle contract；去掉 phase→整个 WorkerComponentRefs | 部分启动失败逆序关闭、graceful drain、重复 close、native ownership |
 | nativebridge.jni.write / write.catalog | TaskConnectorSession 归 `nativebridge.connector.session`；CatalogResourceResolver 归 `nativebridge.connector.spi`；catalog runtime 是实现，write 是消费者 | catalog revision pin、secret、重复绑定释放、JNI upcall 与写提交完整链 |
 
@@ -446,8 +446,8 @@ P1/P2/P4 的独立部分可由不同实施人并行，前提是不同时修改�
 | P5.2 Query 生命周期 | QueryManager、state、终态/pin/audit 逐能力迁 Query；进程资源以窄端口提供 | P3/P4；取消、失败、成功的清理和审计顺序不变 |
 | P5.3 执行与调度 | Stage/DAG/task/statement 归 Query，通用 admission/placement 归 Scheduler；领域 handler 归 owner | P5.2；Coordinator 主 SCC 消失；不把整个环原样搬至 Query |
 | P5.4 HTTP/启动 | server 组装 endpoint；phase 返回明确 owned resources；缩小 Context 可见面 | P5.1–P5.3；两个启动/HTTP SCC 消失，部分启动失败逆序释放 |
-| P6.1 Worker task | 抽纯 TaskState；memory 使用窄资源操作端口；TaskInfo 保留单一可变 owner | 取消/finish race、native 创建与释放、terminal report；task SCC 消失 |
-| P6.2 Exchange/启动 | codec 和执行端口归位；remote lease 关闭归 owner；bootstrap lifecycle 契约下沉 | 背压/半关闭/恢复/重复 close；两组 SCC 消失 |
+| P6.1 Worker task | 第42节纯 TaskState、TaskMemoryAccount 已落位，task SCC 消失；保留 TaskInfo 资源 owner | 近端/异常红绿及完整 Worker 回归通过，包含取消/finish、Native 创建释放、terminal report |
+| P6.2 Exchange/启动 | 第42节 codec 下沉已消除 exchange SCC；bootstrap lifecycle 能力与资源责任继续处理 | Exchange 真实链通过；bootstrap 三包 SCC 尚未消除，须验部分启动失败与重复 close |
 | P6.3 JNI session | TaskConnectorSession 与 CatalogResourceResolver 归 connector session/SPI，catalog 实现与 write 消费者解耦 | catalog revision pin、真实 JNI 写入链、symbol/callback 校验；bridge SCC 消失 |
 | P6.4 Native seam | runner/filter/report 的 engine-owned 端口；逐项核对 handle 和 buffer owner | P6.1–P6.3 稳定后；CMake/include 图、Release/ASan、打包消费者，禁止复制 registry |
 | P7.1–P7.11 领域包 | Metadata、Table、File、Security、Governance、AI Control、Indexing、Materialization、Streaming、Semantic、Storage 各一个起始工作单，可按能力再拆 | 第 4.6 节 + 逐包台账；每单落到类清单/唯一 writer/异常/释放责任/测试，不整体机械搬包 |

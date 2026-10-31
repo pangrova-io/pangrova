@@ -1,5 +1,7 @@
 package org.pangrova.worker.http.endpoint;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.ws.rs.core.Response;
@@ -35,22 +37,22 @@ class TaskResourceCanonicalControlTest {
             }
             String local = manager.resolveWorkerTaskId(canonical);
             assertThat(local).isNotNull().isNotEqualTo(canonical);
-            assertThat(manager.getTaskState(local)).contains(TaskManager.TaskState.INITIALIZING);
+            assertThat(manager.getTaskState(local)).contains(TaskState.INITIALIZING);
             assertThat(owner.executorHandle()).isPositive();
             try (Response cancelled = resource.cancelTask(canonical, seal(original))) {
                 assertThat(cancelled.getStatus()).isEqualTo(202);
             }
-            assertThat(manager.getTaskState(local)).contains(TaskManager.TaskState.CANCELLING);
+            assertThat(manager.getTaskState(local)).contains(TaskState.CANCELLING);
             manager.releaseTaskExecutor(local);
             assertThat(owner.executorHandle()).isZero();
             assertThat(owner.allocatedBufferMemory()).isZero();
-            assertThat(manager.getTaskState(local)).contains(TaskManager.TaskState.CANCELLED);
+            assertThat(manager.getTaskState(local)).contains(TaskState.CANCELLED);
             assertThat(manager.resolveWorkerTaskId(canonical)).isEqualTo(local);
             try (Response delayed = resource.submitTask(original)) {
                 assertThat(delayed.getStatus()).isEqualTo(409);
             }
             assertThat(manager.resolveWorkerTaskId(canonical)).isEqualTo(local);
-            assertThat(manager.getTaskState(local)).contains(TaskManager.TaskState.CANCELLED);
+            assertThat(manager.getTaskState(local)).contains(TaskState.CANCELLED);
             try (Response joined = resource.cancelTask(canonical, seal(original))) {
                 assertThat(joined.getStatus()).isEqualTo(200);
                 var receipt =
@@ -81,14 +83,14 @@ class TaskResourceCanonicalControlTest {
                 assertThat(((ErrorDetail) cancelled.getEntity()).errorCode())
                         .isEqualTo("BAD_REQUEST");
             }
-            assertThat(manager.getTaskState(local)).contains(TaskManager.TaskState.INITIALIZING);
+            assertThat(manager.getTaskState(local)).contains(TaskState.INITIALIZING);
             assertThat(owner.executorHandle()).isPositive();
             try (Response cancelled = resource.cancelTask("canonical-task", seal(original))) {
                 assertThat(cancelled.getStatus()).isEqualTo(202);
             }
             manager.releaseTaskExecutor(local);
             assertThat(owner.executorHandle()).isZero();
-            assertThat(manager.getTaskState(local)).contains(TaskManager.TaskState.CANCELLED);
+            assertThat(manager.getTaskState(local)).contains(TaskState.CANCELLED);
         }
     }
 
@@ -150,7 +152,7 @@ class TaskResourceCanonicalControlTest {
             assertThat(actual.batches()).isPositive();
             assertThat(owner.executorHandle()).isZero();
             assertThat(owner.allocatedBufferMemory()).isZero();
-            assertThat(owner.getState()).isEqualTo(TaskManager.TaskState.FINISHED);
+            assertThat(owner.getState()).isEqualTo(TaskState.FINISHED);
         }
     }
 

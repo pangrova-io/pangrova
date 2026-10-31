@@ -1,7 +1,5 @@
 package org.pangrova.worker.task.state;
 
-import org.pangrova.worker.task.TaskManager.TaskState;
-
 import java.util.Map;
 import java.util.Set;
 

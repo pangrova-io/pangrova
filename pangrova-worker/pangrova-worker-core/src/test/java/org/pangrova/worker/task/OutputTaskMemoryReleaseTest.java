@@ -144,14 +144,14 @@ class OutputTaskMemoryReleaseTest {
         var request = ActualNativeTaskFixture.valuesTaskRequest(true);
         var info = new TaskInfo("idempotent-release", request.getAttempt().getQueryOrJobId(),
                 SubmitTaskRequest.from(request), descriptor(request, "OUTPUT"), Instant.now());
-        requestor.requestMemoryForTask(info);
-        requestor.requestBufferMemory(info);
+        requestor.requestMemoryForTask(info.memoryAccount());
+        requestor.requestBufferMemory(info.memoryAccount());
         assertThat(arbitrator.getAvailableMemory()).isLessThan(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
-        requestor.releaseTaskMemory(info);
-        requestor.releaseBufferMemory(info);
+        requestor.releaseTaskMemory(info.memoryAccount());
+        requestor.releaseBufferMemory(info.memoryAccount());
         long afterFirst = arbitrator.getAvailableMemory();
-        requestor.releaseTaskMemory(info);
-        requestor.releaseBufferMemory(info);
+        requestor.releaseTaskMemory(info.memoryAccount());
+        requestor.releaseBufferMemory(info.memoryAccount());
         assertThat(arbitrator.getAvailableMemory()).isEqualTo(afterFirst);
         assertThat(afterFirst).isEqualTo(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
     }
@@ -234,7 +234,7 @@ class OutputTaskMemoryReleaseTest {
         var request = runtime.valuesRequest(true);
         String id = manager.submitTask(descriptor(request, "OUTPUT"), SubmitTaskRequest.from(request));
         var info = manager.tasks.get(id);
-        assertThat(info.getState()).isEqualTo(TaskManager.TaskState.FAILED);
+        assertThat(info.getState()).isEqualTo(org.pangrova.worker.task.state.TaskState.FAILED);
         assertThat(info.executorHandle()).isZero();
         assertThat(info.allocatedBufferMemory()).isZero();
         assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
@@ -280,7 +280,7 @@ class OutputTaskMemoryReleaseTest {
         assertThat(info.executorHandle()).isPositive();
         manager.close();
         var receipt = TaskReport.parseFrom(info.executorReleaseReport());
-        assertThat(info.getState()).isEqualTo(TaskManager.TaskState.FINISHED);
+        assertThat(info.getState()).isEqualTo(org.pangrova.worker.task.state.TaskState.FINISHED);
         assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
         assertThat(receipt.getAttempt()).isEqualTo(request.getAttempt());
         assertThat(receipt.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
@@ -308,7 +308,7 @@ class OutputTaskMemoryReleaseTest {
 
     private void awaitUnconsumedResult(TaskInfo info, TaskRequest request) throws Exception {
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            assertThat(info.getState()).isEqualTo(TaskManager.TaskState.RUNNING);
+            assertThat(info.getState()).isEqualTo(org.pangrova.worker.task.state.TaskState.RUNNING);
             assertThat(TaskReport.parseFrom(runtime.executor().getTaskStatus(info.executorHandle())).getState())
                     .isEqualTo(TaskState.TASK_STATE_RUNNING);
         });
@@ -319,7 +319,7 @@ class OutputTaskMemoryReleaseTest {
 
     private void assertCancelledRetirement(TaskInfo info, TaskRequest request) throws Exception {
         var actual = TaskReport.parseFrom(info.executorReleaseReport());
-        assertThat(info.getState()).isEqualTo(TaskManager.TaskState.CANCELLED);
+        assertThat(info.getState()).isEqualTo(org.pangrova.worker.task.state.TaskState.CANCELLED);
         assertThat(info.resourcesReleased()).isTrue();
         assertThat(actual.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
         assertThat(actual.getAttempt()).isEqualTo(request.getAttempt());

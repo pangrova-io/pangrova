@@ -16,7 +16,7 @@ import org.pangrova.shuffle.exchange.ExchangeInput;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.exchange.CanonicalBatchChunks;
+import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
 import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
 import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;

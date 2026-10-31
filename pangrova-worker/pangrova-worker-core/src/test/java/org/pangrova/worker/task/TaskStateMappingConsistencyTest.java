@@ -47,7 +47,7 @@ class TaskStateMappingConsistencyTest {
 
     @Test
     void toProtoState_outputsOnlyValidProtobufValues() {
-        Set<String> mapped = Arrays.stream(TaskManager.TaskState.values())
+        Set<String> mapped = Arrays.stream(org.pangrova.worker.task.state.TaskState.values())
                 .map(TaskStateMapper::toProtoState)
                 .map(TaskState::name)
                 .collect(Collectors.toSet());
@@ -59,7 +59,7 @@ class TaskStateMappingConsistencyTest {
 
     @Test
     void toProtoState_coversAllProtobufValues() {
-        Set<String> mapped = Arrays.stream(TaskManager.TaskState.values())
+        Set<String> mapped = Arrays.stream(org.pangrova.worker.task.state.TaskState.values())
                 .map(TaskStateMapper::toProtoState)
                 .map(TaskState::name)
                 .collect(Collectors.toSet());
@@ -71,7 +71,7 @@ class TaskStateMappingConsistencyTest {
 
     @Test
     void toSpiState_coversAllSpiValues() {
-        Set<TaskStatus.TaskState> mapped = Arrays.stream(TaskManager.TaskState.values())
+        Set<TaskStatus.TaskState> mapped = Arrays.stream(org.pangrova.worker.task.state.TaskState.values())
                 .map(TaskStateMapper::toSpiState)
                 .collect(Collectors.toSet());
 

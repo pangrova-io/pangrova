@@ -26,7 +26,7 @@ class TaskManagerOutputConfigWiringTest {
             assertThat(info.allocatedBufferMemory())
                     .isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(0L, 1L, 2L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
         }
     }
@@ -38,7 +38,7 @@ class TaskManagerOutputConfigWiringTest {
             var request =
                     runtime.bindWorker(request(false, 8L * 1024 * 1024, 2)).toBuilder().clearExecutionOptions().build();
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertThat(request.getExecutionOptions().getDirectResultOutput()).isFalse();
             assertThat(info.executorHandle()).isZero();
             assertThat(info.allocatedBufferMemory()).isZero();
@@ -60,7 +60,7 @@ class TaskManagerOutputConfigWiringTest {
             assertThat(runtime.arbitrator().queryAllocationsSnapshot())
                     .containsEntry("buffer:" + info.taskId(), 1024L * 1024);
             assertThat(tasks.consume(info).values()).containsExactly(0L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertThat(info.allocatedBufferMemory()).isZero();
             assertThat(runtime.arbitrator().queryAllocationsSnapshot())
                     .doesNotContainKey("buffer:" + info.taskId());
@@ -73,7 +73,7 @@ class TaskManagerOutputConfigWiringTest {
                 var tasks = new ActualTaskManagerFixture(runtime, "output-no-budget")) {
             var request = runtime.bindWorker(request(false, 0, 1));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertThat(info.allocatedBufferMemory()).isZero();
             assertThat(info.executorHandle()).isZero();
             assertThat(runtime.arbitrator().queryAllocationsSnapshot())
@@ -93,7 +93,7 @@ class TaskManagerOutputConfigWiringTest {
             assertThat(info.allocatedBufferMemory())
                     .isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(42L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
         }
     }
 

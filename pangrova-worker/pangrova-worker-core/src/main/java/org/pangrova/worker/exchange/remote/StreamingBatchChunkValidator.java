@@ -4,7 +4,7 @@ import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.shuffle.core.ShufflePartitionManifestChecksum;
-import org.pangrova.worker.exchange.CanonicalBatchChunks;
+import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

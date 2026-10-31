@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
 import org.pangrova.protocol.execution.QueryId;
@@ -69,9 +71,9 @@ class QueryCancellationPropagatorIntegrationTest {
 
         assertThat(cancelled).isEqualTo(2);
         assertThat(taskManager.getTaskState(task1))
-                .hasValue(TaskManager.TaskState.CANCELLED);
+                .hasValue(TaskState.CANCELLED);
         assertThat(taskManager.getTaskState(task2))
-                .hasValue(TaskManager.TaskState.CANCELLED);
+                .hasValue(TaskState.CANCELLED);
     }
 
     @Test
@@ -82,9 +84,9 @@ class QueryCancellationPropagatorIntegrationTest {
         propagator.cancelQuery("query-A");
 
         assertThat(taskManager.getTaskState(taskA))
-                .hasValue(TaskManager.TaskState.CANCELLED);
+                .hasValue(TaskState.CANCELLED);
         assertThat(taskManager.getTaskState(taskB))
-                .hasValue(TaskManager.TaskState.INITIALIZING);
+                .hasValue(TaskState.INITIALIZING);
         assertThat(propagator.taskCountForQuery("query-B")).isEqualTo(1);
     }
 
@@ -120,7 +122,7 @@ class QueryCancellationPropagatorIntegrationTest {
         int cancelled = propagator.cancelQuery("query-1");
         assertThat(cancelled).isEqualTo(1);
         assertThat(taskManager.getTaskState(task2))
-                .hasValue(TaskManager.TaskState.CANCELLED);
+                .hasValue(TaskState.CANCELLED);
     }
 
     @Test
@@ -144,7 +146,7 @@ class QueryCancellationPropagatorIntegrationTest {
         String taskId = bare.submitTask(descriptorForQuery("query-1"));
         assertThat(taskId).isNotNull();
         assertThat(bare.getTaskState(taskId))
-                .hasValue(TaskManager.TaskState.INITIALIZING);
+                .hasValue(TaskState.INITIALIZING);
     }
 
     private static TaskDescriptor descriptorForQuery(String queryId) {

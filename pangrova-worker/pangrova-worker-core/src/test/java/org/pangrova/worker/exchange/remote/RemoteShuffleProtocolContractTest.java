@@ -9,7 +9,7 @@ import java.security.MessageDigest;
 import java.util.List;
 
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.worker.exchange.CanonicalBatchChunks;
+import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;

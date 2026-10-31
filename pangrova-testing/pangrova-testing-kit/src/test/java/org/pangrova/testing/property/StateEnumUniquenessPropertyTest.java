@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * contract modules (the {@code -api}/{@code -spi} artifacts declared in
  * {@code .pangrova/modules.yaml}, plus {@code pangrova-protocol}).</p>
  *
- * <p>Internal state machines (QueryStateMachine.State, TaskManager.TaskState,
+ * <p>Internal state machines (QueryStateMachine.State, worker.task.state.TaskState,
  * TaskStateMachine.State, StageStateMachine.State) are allowed as module-internal
  * representations, provided they do not duplicate the SPI enum name in a different
  * stable upstream module.</p>
@@ -75,7 +75,7 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-coordination-core:TaskStateMachine.State",
             "pangrova-coordination-core:StageStateMachine.State",
             "pangrova-scheduler:HealthState",
-            "pangrova-worker-core:TaskManager.TaskState",
+            "pangrova-worker-core:TaskState",
             // One-shot local assembly admission/cleanup phases, not distributed Worker health or task state.
             "pangrova-worker-core:WorkerBootstrapLifecycle.State",
             "pangrova-worker-core:ExchangeClient.State",

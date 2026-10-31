@@ -13,7 +13,7 @@ import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.worker.exchange.CanonicalBatchChunks;
+import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
 import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
 import org.pangrova.worker.exchange.remote.RemoteShuffleClientException;
 

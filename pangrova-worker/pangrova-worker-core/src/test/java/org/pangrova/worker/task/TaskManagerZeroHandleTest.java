@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -44,7 +46,7 @@ class TaskManagerZeroHandleTest {
             var info = tasks.submit(runtime.valuesRequest(true));
             assertThat(info.executorHandle()).isPositive();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
             var receipt =
                     org.pangrova.protocol.v2.TaskReport.parseFrom(info.executorReleaseReport());

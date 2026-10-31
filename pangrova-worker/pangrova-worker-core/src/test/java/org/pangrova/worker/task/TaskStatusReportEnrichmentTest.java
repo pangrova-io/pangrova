@@ -28,7 +28,7 @@ class TaskStatusReportEnrichmentTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "enrichment-stats")) {
             var info = tasks.submit(runtime.valuesRequest(false));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             var reports = taskReports(tasks, info);
             assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
             var running = reports.get(0);
@@ -55,7 +55,7 @@ class TaskStatusReportEnrichmentTest {
                             true, ActualNativeTaskPlans.values(5, 2)));
             var info = tasks.submit(request);
             assertThat(tasks.consume(info).rows()).isEqualTo(10);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             // Output rows are the terminal relation cardinality, not source/each-operator sums.
             tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
             var finished = taskReports(tasks, info).get(taskReports(tasks, info).size() - 1);
@@ -83,7 +83,7 @@ class TaskStatusReportEnrichmentTest {
                                     .setFileFormat(FileFormat.FILE_FORMAT_PARQUET)
                                     .setTargetFileSize(128_000_000));
             var info = tasks.submit(request.build());
-            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FAILED);
             assertThat(taskReports(tasks, info))
                     .noneMatch(report -> report.state().equals("FINISHED"));
             var failure = tasks.terminalReport(info);
@@ -101,7 +101,7 @@ class TaskStatusReportEnrichmentTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "enrichment-compute")) {
             var info = tasks.submit(runtime.valuesRequest(false));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             assertThat(tasks.terminalReport(info).writeResult()).isNull();
         }
     }
@@ -111,10 +111,10 @@ class TaskStatusReportEnrichmentTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "enrichment-sequence")) {
             var info = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.RUNNING);
             tasks.manager().statusCollector.reportStatus(info, "RUNNING", null);
             assertThat(tasks.consume(info).values()).containsExactly(42L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, org.pangrova.worker.task.state.TaskState.FINISHED);
             tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
             var reports = taskReports(tasks, info);
             assertThat(reports).hasSizeGreaterThanOrEqualTo(3);

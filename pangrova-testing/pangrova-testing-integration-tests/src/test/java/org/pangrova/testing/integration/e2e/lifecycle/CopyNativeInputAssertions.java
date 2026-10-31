@@ -137,7 +137,7 @@ final class CopyNativeInputAssertions {
         var rejected = SubmitTaskRequest.from(changed.build(), mismatched.copySourceRead());
         String rejectedId = submit(manager, rejected);
         var reported = awaitReleasedReport(reports, rejected.taskRequest(), TaskState.TASK_STATE_FAILED);
-        assertThat(manager.getTaskState(rejectedId)).contains(org.pangrova.worker.task.TaskManager.TaskState.FAILED);
+        assertThat(manager.getTaskState(rejectedId)).contains(org.pangrova.worker.task.state.TaskState.FAILED);
         assertThat(reported.getUsage().getObjectStoreReadBytes()).isEqualTo(fileSize);
         assertThat(reported.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
                 .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
@@ -152,7 +152,7 @@ final class CopyNativeInputAssertions {
         readExactValues(runtime, accepted.taskRequest());
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> manager.getTaskState(id).orElseThrow()
-                        == org.pangrova.worker.task.TaskManager.TaskState.FINISHED);
+                        == org.pangrova.worker.task.state.TaskState.FINISHED);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> runtime.drainEvidence(handle, accepted.taskRequest()).getDrained());
         assertThat(localInputs(stagingRoot)).hasSize(1);

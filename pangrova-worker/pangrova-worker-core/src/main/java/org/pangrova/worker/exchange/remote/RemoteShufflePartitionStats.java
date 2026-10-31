@@ -7,7 +7,7 @@ import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
 import org.pangrova.shuffle.core.ShufflePartitionManifestChecksum;
-import org.pangrova.worker.exchange.CanonicalBatchChunks;
+import org.pangrova.worker.exchange.codec.CanonicalBatchChunks;
 
 /** Ordered producer statistics and digest for one output partition. */
 final class RemoteShufflePartitionStats {

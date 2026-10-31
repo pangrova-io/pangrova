@@ -4,7 +4,7 @@
 
 状态：执行中，尚未完成全模块语义审查和全链验证。审计起点：2026-10-31 当前工作区（包括既有暂存和未暂存迁移）。本文是执行清单；长期蓝图中的历史数量、M 编号和“done”不能代替当前验收证据。
 
-**最新源码快照（第 35 节模型当前权限显式事务接线）**：62 个 Maven reactor 项目、49 个 Java 代码叶子、1 个纯资源 JAR、3,561 个 Java 主源文件、656 个主源包。AST 包环由起点 9 组逐批降为 7 组 SCC；全图 gate 仍失败。第 1、4、6–9 节中的数量与验证是各批次起点/历史记录，不能覆盖本行和后续最新验证。第 2 节给出全部模块的职责目标，第 5 节逐叶子列出包覆盖范围，第 12 节将剩余结构问题拆为有前置条件、迁移边界和验收条件的任务。
+**最新源码快照（第 42 节 Worker 包环与内存分配回滚）**：67 个 Maven reactor 项目、53 个 Java 代码叶子、1 个纯资源 JAR、3,574 个 Java 主源文件、658 个主源包、2,375 个测试源文件。全图仍有 5 组 SCC；12 项模块/包/状态检查通过，无环项真实失败。第 42 节 Worker 1,298 项、受影响 Integration 22 项及静态检查通过，67 项 clean reactor 编译通过；各历史章节保留当批事实，不以旧结果代替本批验收。
 
 ## 1. 已核实的现状和设计判断
 
@@ -2232,3 +2232,76 @@ B0游标行为、剩余包环及全项目逐文件验收仍开放。
 逐包657行与实际所有53叶子计数一致，指定五文档895链接有效。架构类引用初查漏一处旧dispatcher，
 已修正并复验241项通过。日志前缀`/tmp/pangrova-generation-*`；全部本批验证进程已结束。
 三制品与最终单词命名已完成本批闭环，不关闭剩余领域迁移、7组SCC、全文件语义审查或R5/R6。
+
+## 42. Worker 包环与内存分配回滚
+
+### 42.1 已落位的职责和未完成边界
+
+`CanonicalBatchChunks` 及原测试迁至 `worker.exchange.codec`，生产 remote/egress 与
+Integration 消费者同步切换；只新增该能力的包说明，未复制 codec 或合并三包。
+1 MiB chunk、256 MiB batch 限制、checksum、protobuf 字段与 buffer 语义保持原值。
+
+`TaskState` 从 `TaskManager` 的嵌套枚举归入 `worker.task.state`，八个状态及映射值保持不变。
+每个 `TaskInfo` 只创建一个 final `TaskMemoryAccount`，后者拥有原两份 AtomicLong 预算账本
+及构造后固定的请求引用；requestor/allocator 消费该能力，不再反向依赖整个 TaskInfo。Native
+handle、创建/释放收据、cleanup retry、terminal publication 仍由原任务生命周期 owner 持有。
+没有建立转发 provider、复制计数器或改变 JNI 签名。
+
+静态检查发现新账本 getter 暴露可变 owner；全部生产调用者位于 `worker.task`，已将
+`TaskInfo.memoryAccount()` 收紧为包内可见，仅供 lifecycle/reporting 与同包测试共享。
+不增加 SpotBugs 豁免，不为避警复制账本。另补构造器 Javadoc 及两处超长行换行。
+
+候选初版误将 `LOG.info` 改为 `LOG.account`，独立审查发现后已在应用前修正；不能引用初版
+过宽 token 归一化作为行为证明。最终冻结 Task patch 的调用选择器及原 53 个 logger 调用已
+独立核对，实际仓库近端编译/测试另列于下表。StateEnum 表保留第 41 节的 Generation key。
+
+独立审查另发现原 descriptor-only 分配在已取得部分 arbitrator credit 后，spill/critical
+回调抛错会留下未归账户的额度；Error 还绕过原 node 归还 catch。新增回归先在真实仓库得到
+四项失败，再应用最小修复归还已成功返回的 credit 和原 node reservation，保留原异常身份/
+cause，并将清理异常作为 suppressed。真实两预算、共享 query 旧额度和重复 lifecycle release
+均参与断言；不使用 mock 或空授权。当前 canonical HTTP admission 跳过此 descriptor-only
+预分配，不能把该缺陷描述为已证实的 canonical Native 泄漏。Native cap/实际 growth 计费及
+完整 serialized-buffer grant 规则不变；本修复不声称实现变账后抛错或清理失败的通用事务原子性。
+
+### 42.2 当前结构证据与验证进度
+
+标准 `src/main/java` / `src/test/java` 实扫：67 reactor、53 Java 叶子、1 资源制品，
+3,574 主源、658 主源包、2,375 测试源；Worker Core 为 245 主源、38 包、240 测试源。
+相对第 41 节新增 3 主源（codec 包说明、TaskMemoryAccount、独立 TaskState）和 1 测试源；
+codec 主类及原测试的移动不增加文件数。非标准 scripts/resource/native fixture Java 不计入
+这些源码数量，测试源数也不等于测试用例数。
+
+| 检查 | 已取得结果 / 待完成项 |
+|---|---|
+| Worker 纯迁移近端 | 58 项通过，0 失败/错误/跳过；`/tmp/pangrova-worker-ownership-focused.log` |
+| 部分额度异常回归红灯 | 4 项断言失败，0 错误/跳过；`/tmp/pangrova-worker-partial-reservation-red.log` |
+| 修复后回归及 canonical 计费 | 4 项新回归 + 9 项 UnifiedMemoryAccounting，共 13 项通过，0 跳过；`/tmp/pangrova-worker-partial-reservation-green.log` |
+| 模块/包/状态枚举 | 7 + 2 + 3 项通过；包结构属性穷举 658 包 |
+| 全图无环 | 仍失败；7 组实降为 5 组，未加豁免；`/tmp/pangrova-worker-ownership-structure.log` |
+| Worker 完整 owner | 1,298 项通过，0 失败/错误/跳过，含真实 5 GiB HTTP 传输与 Native property；随后静态检查失败，见下文 |
+| Worker static / install | 初次 Checkstyle 3 错误，修正注释/换行后 SpotBugs 报 1 个可变 owner 暴露；收紧访问范围后静态检查和 install 通过；`/tmp/pangrova-worker-ownership-static-final.log`，该命令 skipTests，不重复计作测试 |
+| 67 项 reactor clean install | 单次全部通过；`-DskipTests` 编译主源和测试源，不能计作运行时测试；`/tmp/pangrova-worker-ownership-reactor.log` |
+| Integration remote/Native/COPY 链 | 分独立 Maven JVM 执行 18 + 3 + 1 = 22 项，全部通过且零跳过；最后 COPY selection 的 verify 同时通过 Integration 静态检查 |
+
+Integration 原始日志分别为 `/tmp/pangrova-worker-shuffle-egress.log`、
+`/tmp/pangrova-worker-native-ingress.log`、`/tmp/pangrova-worker-copy-native.log`。两个 Native
+selection 显式清空 `native-runtime-owner` 排除，实际执行而非被过滤；COPY 选择现有
+`privateTicketStagesExactVersionAndRestartsFromManagedBytes`，不声称执行了整个 Integration 制品。
+Worker 完整回归中 TaskMemoryPropagation 的 Jupiter 1 项与 jqwik 4 项均实际执行，不能只依据
+后写入的同名 XML 4 项来漏计。完整 1,298 项以原始 Maven 总结为准，不与近端重复测试累加。
+
+沿用已经匹配的 Native 库，packaged resource 与 qualified cohort 的 SHA-256 同为
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`；本批无 native/proto
+输入变更，没有重编 Native 或运行 ASan。clean 后 Worker JAR/classes 旧 codec 与嵌套 TaskState
+均已消失，新的 codec、TaskState、TaskMemoryAccount 均存在。文档架构类引用 241 项通过。
+
+与第 41 节 AST report 逐组对照，以下两组三包 SCC 已消失：
+`worker.exchange / worker.exchange.remote / worker.execution` 和
+`worker.task / worker.task.memory / worker.task.state`。剩余五组成员完全相同：
+Coordinator 领域执行 29 包、bootstrap 2 包、HTTP 5 包、Planner 18 包、Worker bootstrap 3 包。
+当前 [AST 源码见证](project-structure-refactoring/package-cycles.txt) 是原始生成结果的副本，
+不是人工删边。结构测试总体为 13 项、12 通过、1 无环断言失败，0 错误/跳过。
+
+第 41 节检查点 `243d3710` 已推送。第 42 节的源码落位与近端红绿不关闭 B6 的公共发布
+SQL/领域 writer/装配、Catalog B0 同步游标修复、上述五组 SCC、逐包语义审查及最终 R5/R6。
+本节计划内运行时、静态与全仓编译验收已结束；全项目目标仍保持进行中。

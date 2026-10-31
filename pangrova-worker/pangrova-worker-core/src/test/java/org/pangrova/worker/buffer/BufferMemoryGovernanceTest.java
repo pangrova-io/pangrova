@@ -1,5 +1,7 @@
 package org.pangrova.worker.buffer;
 
+import org.pangrova.worker.task.state.TaskState;
+
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Tag;
@@ -40,7 +42,7 @@ class BufferMemoryGovernanceTest {
             long baseline = runtime.arbitrator().getUsedMemory();
             var request = runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.failingCast()));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            tasks.awaitState(info, TaskState.FAILED);
             assertThat(tasks.terminalReport(info).error().message()).contains("not-an-integer");
             assertThat(info.executorHandle()).isZero();
             assertThat(info.allocatedBufferMemory()).isZero();
@@ -70,9 +72,9 @@ class BufferMemoryGovernanceTest {
             long baseline = runtime.arbitrator().getUsedMemory();
             for (int index = 0; index < taskCount; index++) {
                 var info = tasks.submit(runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.values(batchCount, 2))));
-                tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+                tasks.awaitState(info, TaskState.RUNNING);
                 assertThat(tasks.consume(info).rows()).isEqualTo(batchCount * 2L);
-                tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+                tasks.awaitState(info, TaskState.FINISHED);
                 assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
             }
         }
@@ -86,11 +88,11 @@ class BufferMemoryGovernanceTest {
             var request = runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.values(1, 2))).toBuilder();
             request.getAttemptBuilder().setTaskId("task-key-" + taskSuffix);
             var info = tasks.submit(request.build());
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, TaskState.RUNNING);
             String key = "buffer:" + info.taskId();
             assertThat(runtime.arbitrator().queryAllocationsSnapshot()).containsEntry(key, bufferGrant(TASK_MEMORY));
             tasks.consume(info);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(runtime.arbitrator().queryAllocationsSnapshot()).doesNotContainKey(key);
         }
     }
@@ -100,10 +102,10 @@ class BufferMemoryGovernanceTest {
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-grant")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             var info = tasks.submit(runtime.bindWorker(request(taskMemory, ActualNativeTaskPlans.values(batches, 2))));
-            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.awaitState(info, TaskState.RUNNING);
             assertHeldGrant(runtime, info, taskMemory);
             assertThat(tasks.consume(info).rows()).isEqualTo(batches * 2L);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskState.FINISHED);
             assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
         }
     }

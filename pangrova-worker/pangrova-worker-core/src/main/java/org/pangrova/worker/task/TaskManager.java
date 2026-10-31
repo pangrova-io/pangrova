@@ -7,6 +7,7 @@ import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskStatus;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
+import org.pangrova.worker.task.state.TaskState;
 import org.pangrova.worker.task.state.TaskStateTransitions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,14 +31,6 @@ public class TaskManager implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(TaskManager.class);
 
     static final int MAX_TRACKED_TASKS = 50_000;
-
-    /**
-     * Worker task states with defined transition rules.
-     */
-    public enum TaskState {
-        RECEIVED, INITIALIZING, RUNNING, FINISHING, CANCELLING,
-        FINISHED, FAILED, CANCELLED
-    }
 
     final ConcurrentHashMap<String, TaskInfo> tasks = new ConcurrentHashMap<>();
     final AtomicLong taskIdCounter = new AtomicLong(0);

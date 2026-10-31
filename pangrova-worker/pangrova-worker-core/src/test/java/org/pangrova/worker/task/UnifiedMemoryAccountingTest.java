@@ -39,7 +39,7 @@ class UnifiedMemoryAccountingTest {
         assertThat(arbitrator.getUsedMemory()).isZero();
 
         // Allocate memory for task via requestor (the single path)
-        requestor.requestMemoryForTask(info);
+        requestor.requestMemoryForTask(info.memoryAccount());
 
         // Verify single counter tracks the allocation
         long allocated = info.allocatedMemory();
@@ -47,14 +47,14 @@ class UnifiedMemoryAccountingTest {
         assertThat(arbitrator.getUsedMemory()).isEqualTo(allocated);
 
         // Allocator reads from the same source (arbitrator)
-        assertThat(allocator.resolveCurrentMemoryUsage(info)).isEqualTo(allocated);
-        assertThat(allocator.resolveNativeMemoryLimit(info)).isEqualTo(allocated);
+        assertThat(allocator.resolveCurrentMemoryUsage(info.memoryAccount())).isEqualTo(allocated);
+        assertThat(allocator.resolveNativeMemoryLimit(info.memoryAccount())).isEqualTo(allocated);
 
         // Debug assertion passes: single source of truth
         allocator.assertMemoryConsistency(allocated);
 
         // Release memory
-        requestor.releaseTaskMemory(info);
+        requestor.releaseTaskMemory(info.memoryAccount());
 
         // After release: zero used
         assertThat(arbitrator.getUsedMemory()).isZero();
@@ -71,21 +71,21 @@ class UnifiedMemoryAccountingTest {
         TaskInfo task2 = buildTaskInfo("q2", "t2", 48 * 1024 * 1024L);
 
         // Allocate task1
-        requestor.requestMemoryForTask(task1);
+        requestor.requestMemoryForTask(task1.memoryAccount());
         assertThat(arbitrator.getUsedMemory()).isEqualTo(32 * 1024 * 1024L);
 
         // Allocate task2
-        requestor.requestMemoryForTask(task2);
+        requestor.requestMemoryForTask(task2.memoryAccount());
         long expectedTotal = 32 * 1024 * 1024L + 48 * 1024 * 1024L;
         assertThat(arbitrator.getUsedMemory()).isEqualTo(expectedTotal);
         allocator.assertMemoryConsistency(expectedTotal);
 
         // Release task1
-        requestor.releaseTaskMemory(task1);
+        requestor.releaseTaskMemory(task1.memoryAccount());
         assertThat(arbitrator.getUsedMemory()).isEqualTo(48 * 1024 * 1024L);
 
         // Release task2
-        requestor.releaseTaskMemory(task2);
+        requestor.releaseTaskMemory(task2.memoryAccount());
         assertThat(arbitrator.getUsedMemory()).isZero();
         allocator.assertMemoryConsistency(0);
     }
@@ -99,8 +99,8 @@ class UnifiedMemoryAccountingTest {
         TaskInfo info = buildTaskInfo(100 * 1024 * 1024L); // 100MB
 
         // Allocate task memory + buffer memory
-        requestor.requestMemoryForTask(info);
-        requestor.requestBufferMemory(info);
+        requestor.requestMemoryForTask(info.memoryAccount());
+        requestor.requestBufferMemory(info.memoryAccount());
 
         // Both tracked in the same arbitrator
         long taskMem = info.allocatedMemory();
@@ -110,8 +110,8 @@ class UnifiedMemoryAccountingTest {
         assertThat(arbitrator.getUsedMemory()).isEqualTo(taskMem + bufferMem);
 
         // Release both
-        requestor.releaseTaskMemory(info);
-        requestor.releaseBufferMemory(info);
+        requestor.releaseTaskMemory(info.memoryAccount());
+        requestor.releaseBufferMemory(info.memoryAccount());
         assertThat(arbitrator.getUsedMemory()).isZero();
         allocator.assertMemoryConsistency(0);
     }
@@ -123,10 +123,10 @@ class UnifiedMemoryAccountingTest {
         TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
         TaskInfo info = buildShuffleTaskInfo(grant);
 
-        requestor.requestBufferMemory(info);
+        requestor.requestBufferMemory(info.memoryAccount());
         assertThat(info.allocatedBufferMemory()).isEqualTo(grant);
         assertThat(arbitrator.getUsedMemory()).isEqualTo(grant);
-        requestor.releaseBufferMemory(info);
+        requestor.releaseBufferMemory(info.memoryAccount());
         assertThat(arbitrator.getUsedMemory()).isZero();
     }
 
@@ -136,7 +136,7 @@ class UnifiedMemoryAccountingTest {
         TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
         TaskInfo info = buildShuffleTaskInfo(16L * 1024 * 1024);
 
-        assertThatThrownBy(() -> requestor.requestBufferMemory(info))
+        assertThatThrownBy(() -> requestor.requestBufferMemory(info.memoryAccount()))
                 .hasMessageContaining("complete buffer grant");
         assertThat(info.allocatedBufferMemory()).isZero();
         assertThat(arbitrator.getUsedMemory()).isZero();
@@ -148,10 +148,10 @@ class UnifiedMemoryAccountingTest {
         TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
         TaskInfo info = buildShuffleTaskInfo(16L * 1024 * 1024);
 
-        requestor.requestMemoryForTask(info);
+        requestor.requestMemoryForTask(info.memoryAccount());
         assertThat(info.allocatedMemory()).isZero();
         assertThat(arbitrator.getUsedMemory()).isZero();
-        assertThat(new TaskMemoryAllocator(arbitrator).resolveNativeMemoryLimit(info))
+        assertThat(new TaskMemoryAllocator(arbitrator).resolveNativeMemoryLimit(info.memoryAccount()))
                 .isEqualTo(32L * 1024 * 1024);
         NativeMemoryCoordinator nativeMemory = new NativeMemoryCoordinator(8L * 1024 * 1024,
                 arbitrator);
@@ -171,7 +171,7 @@ class UnifiedMemoryAccountingTest {
         requestor.setNodeMemoryPool(node);
 
         assertThatThrownBy(() -> requestor.requestBufferMemory(
-                buildShuffleTaskInfo(16L * 1024 * 1024)))
+                buildShuffleTaskInfo(16L * 1024 * 1024).memoryAccount()))
                 .hasMessageContaining("insufficient node buffer budget");
         assertThat(node.getUsedBytes()).isZero();
         assertThat(arbitrator.getUsedMemory()).isZero();
@@ -181,7 +181,7 @@ class UnifiedMemoryAccountingTest {
     void missingShuffleBufferGrantIsRejected() {
         MemoryArbitrator arbitrator = new MemoryArbitrator(BUDGET, 0);
         TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
-        assertThatThrownBy(() -> requestor.requestBufferMemory(buildShuffleTaskInfo(0)))
+        assertThatThrownBy(() -> requestor.requestBufferMemory(buildShuffleTaskInfo(0).memoryAccount()))
                 .hasMessageContaining("positive serialized-buffer grant");
         assertThat(arbitrator.getUsedMemory()).isZero();
     }

@@ -4,9 +4,6 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
-import org.pangrova.protocol.execution.TaskDescriptor;
-import org.pangrova.protocol.execution.TaskResourceLimit;
-import org.pangrova.worker.task.TaskInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,8 +48,8 @@ public final class TaskMemoryRequestor {
     }
 
     /** Reserves descriptor-only memory; canonical Native capacity grows on demand. */
-    public void requestMemoryForTask(TaskInfo info) {
-        long requested = resolveMemoryLimit(info);
+    public void requestMemoryForTask(TaskMemoryAccount info) {
+        long requested = info.requestedNativeMemoryBytes();
         if (requested <= 0) {
             return;
         }
@@ -62,7 +59,7 @@ public final class TaskMemoryRequestor {
         // arbitrator. Pre-reserving the maximum here charges every Native byte
         // twice and makes a single task monopolize the node before it allocates.
         // Serialized transport buffers remain exact admission reservations.
-        if (info.request() != null) {
+        if (info.isCanonical()) {
             return;
         }
 
@@ -75,9 +72,15 @@ public final class TaskMemoryRequestor {
         long allocated;
         try {
             allocated = allocateWithSpill(info, requested);
-        } catch (Exception e) {
-            releaseNodePool(nodePool, nodeReserved);
-            throw e;
+        } catch (RuntimeException | Error failure) {
+            try {
+                releaseNodePool(nodePool, nodeReserved);
+            } catch (RuntimeException | Error cleanupFailure) {
+                if (cleanupFailure != failure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
         }
 
         info.setAllocatedMemory(allocated);
@@ -97,26 +100,39 @@ public final class TaskMemoryRequestor {
                 info.taskId(), allocated, requested, nodePool != null);
     }
 
-    private long allocateWithSpill(TaskInfo info, long requested) {
+    private long allocateWithSpill(TaskMemoryAccount info, long requested) {
         long allocated = arbitrator.requestMemory(info.queryId(), requested);
-        if (allocated < requested && resourceManager != null) {
-            long reclaimed = resourceManager.handleMemoryPressure(requested - allocated);
-            if (reclaimed > 0) {
-                long extra = arbitrator.requestMemory(info.queryId(), requested - allocated);
-                allocated += extra;
-                LOG.info("event=spill_reclaim_retry taskId={} reclaimed={} extraAllocated={}",
-                        info.taskId(), reclaimed, extra);
+        try {
+            if (allocated < requested && resourceManager != null) {
+                long reclaimed = resourceManager.handleMemoryPressure(requested - allocated);
+                if (reclaimed > 0) {
+                    long extra = arbitrator.requestMemory(info.queryId(), requested - allocated);
+                    allocated += extra;
+                    LOG.info("event=spill_reclaim_retry taskId={} reclaimed={} extraAllocated={}",
+                            info.taskId(), reclaimed, extra);
+                }
             }
+            return allocated;
+        } catch (RuntimeException | Error failure) {
+            // The account only owns credit after this method returns. Roll back
+            // any credit already granted before a pressure callback failed.
+            try {
+                arbitrator.release(info.queryId(), allocated);
+            } catch (RuntimeException | Error cleanupFailure) {
+                if (cleanupFailure != failure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
         }
-        return allocated;
     }
 
     /** Reserves the exact canonical transport-buffer grant through both memory budgets. */
-    public void requestBufferMemory(TaskInfo info) {
-        boolean shuffleTask = isShuffleTask(info);
-        boolean canonicalTask = info.request() != null;
+    public void requestBufferMemory(TaskMemoryAccount info) {
+        boolean shuffleTask = info.requiresShuffleBuffer();
+        boolean canonicalTask = info.isCanonical();
         long requested = canonicalTask
-                ? info.request().taskRequest().getResourceGrant().getShuffleBufferBytes()
+                ? info.canonicalBufferBytes()
                 : resolveBufferMemoryLimit(info);
         if (shuffleTask && requested <= 0) {
             throw new PangrovaException(PangrovaErrorCode.RESOURCE_MEMORY_EXCEEDED,
@@ -163,7 +179,7 @@ public final class TaskMemoryRequestor {
     }
 
     private static OptionalLong reserveBufferFromNodePool(
-            NodeMemoryPool nodePool, TaskInfo info, long requested, boolean canonicalTask) {
+            NodeMemoryPool nodePool, TaskMemoryAccount info, long requested, boolean canonicalTask) {
         if (nodePool == null) {
             return OptionalLong.of(0);
         }
@@ -182,14 +198,8 @@ public final class TaskMemoryRequestor {
         return OptionalLong.empty();
     }
 
-    private static boolean isShuffleTask(TaskInfo info) {
-        return info.request() != null
-                && info.request().taskRequest().hasExecutionOptions()
-                && info.request().taskRequest().getExecutionOptions().hasShuffle();
-    }
-
     /** Releases the task memory previously reserved for the given task. */
-    public void releaseTaskMemory(TaskInfo info) {
+    public void releaseTaskMemory(TaskMemoryAccount info) {
         long allocated = info.allocatedMemory();
         if (allocated > 0) {
             info.setAllocatedMemory(0); // Claim-and-reset for idempotent release
@@ -201,7 +211,7 @@ public final class TaskMemoryRequestor {
     }
 
     /** Releases the buffer memory previously reserved for the given task. */
-    public void releaseBufferMemory(TaskInfo info) {
+    public void releaseBufferMemory(TaskMemoryAccount info) {
         long bufferMemory = info.allocatedBufferMemory();
         if (bufferMemory > 0) {
             info.setAllocatedBufferMemory(0); // Claim-and-reset for idempotent release
@@ -213,7 +223,7 @@ public final class TaskMemoryRequestor {
     }
 
     private void rejectIfBelowThreshold(
-            TaskInfo info, long allocated, long requested) {
+            TaskMemoryAccount info, long allocated, long requested) {
         if (minAllocationRatio <= 0.0) {
             return;
         }
@@ -237,7 +247,7 @@ public final class TaskMemoryRequestor {
      *
      * @return bytes reserved from the node pool (0 if no node pool configured)
      */
-    private long reserveFromNodePool(NodeMemoryPool nodePool, TaskInfo info, long requested) {
+    private long reserveFromNodePool(NodeMemoryPool nodePool, TaskMemoryAccount info, long requested) {
         if (nodePool == null) {
             return 0;
         }
@@ -265,31 +275,18 @@ public final class TaskMemoryRequestor {
         }
     }
 
-    private long resolveBufferMemoryLimit(TaskInfo info) {
-        long taskMemory = resolveMemoryLimit(info);
+    private long resolveBufferMemoryLimit(TaskMemoryAccount info) {
+        long taskMemory = info.requestedNativeMemoryBytes();
         if (taskMemory > 0) {
             return (long) (taskMemory * BUFFER_MEMORY_FRACTION);
         }
         return DEFAULT_BUFFER_MEMORY;
     }
 
-    /** Resolves the canonical grant first; descriptor-only tasks are test wiring. */
-    public static long resolveMemoryLimit(TaskInfo info) {
-        if (info.request() != null) {
-            return info.request().taskRequest().getResourceGrant().getNativeMemoryBytes();
-        }
-        TaskDescriptor desc = info.descriptor();
-        if (desc == null) {
-            return 0;
-        }
-        TaskResourceLimit limit = desc.resourceLimit();
-        return (limit != null) ? limit.maxMemoryBytes() : 0;
-    }
-
     private void logPartialAllocation(
-            TaskInfo info, long allocated, long requested) {
+            TaskMemoryAccount info, long allocated, long requested) {
         LOG.warn("event=partial_memory_allocation taskId={} stageId={} taskType={} allocated={} requested={}",
-                info.taskId(), info.descriptor().stageId(),
-                info.descriptor().taskType(), allocated, requested);
+                info.taskId(), info.stageId(),
+                info.taskType(), allocated, requested);
     }
 }
