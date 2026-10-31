@@ -20,7 +20,7 @@ package org.pangrova.metadata.databuild.jdbc;
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
 import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 
-import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+import org.pangrova.databuild.spi.jdbc.DataBuildTransactionInputs;
 import org.pangrova.databuild.api.build.DataBuildJob;
 import org.pangrova.databuild.api.build.DataBuildJobState;
 import org.pangrova.databuild.api.build.DataBuildOutput;
@@ -60,12 +60,17 @@ public final class JdbcTabularExportPublicationStore implements DataBuildPublica
     private final DataSource dataSource;
     private final DataBuildTransactionAuthority transactionAuthority;
     private final DataBuildExecutionTransactionFence executionFence;
+    private final DataBuildTransactionInputs inputs;
+    private final DataBuildPublicationOutputValidator outputValidator;
 
+    /** Composes tabular publication with current authority, execution fencing and same-connection input reads. */
     public JdbcTabularExportPublicationStore(
             DataSource dataSource, DataBuildTransactionAuthority transactionAuthority,
-            DataBuildExecutionTransactionFence executionFence) {
+            DataBuildExecutionTransactionFence executionFence, DataBuildTransactionInputs inputs) {
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
+        this.inputs = Objects.requireNonNull(inputs, "inputs");
+        this.outputValidator = new DataBuildPublicationOutputValidator(inputs);
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
     }
 
@@ -90,7 +95,7 @@ public final class JdbcTabularExportPublicationStore implements DataBuildPublica
                 executionFence.requirePublication(connection, claimed.tenantId(), claimed.jobId());
                 JobRow job = lockClaim(connection, claimed, owner, ownerEpoch, now);
                 List<DataBuildOutput> outputs =
-                        DataBuildPublicationOutputValidator.loadAndValidate(connection, job);
+                        outputValidator.loadAndValidate(connection, job);
                 Aggregate aggregate = aggregate(job, outputs);
                 long epoch = nextEpoch(connection, job.tenantId(), job.artifactId());
                 DataBuildGenerationManifest manifest = manifest(job, aggregate, now);
@@ -111,7 +116,7 @@ public final class JdbcTabularExportPublicationStore implements DataBuildPublica
         }
     }
 
-    private static JobRow lockClaim(
+    private JobRow lockClaim(
             Connection connection, DataBuildJob claimed,
             String owner, long ownerEpoch, Instant now) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -139,7 +144,7 @@ public final class JdbcTabularExportPublicationStore implements DataBuildPublica
         }
     }
 
-    private static JobRow mapJob(Connection connection, ResultSet result) throws SQLException {
+    private JobRow mapJob(Connection connection, ResultSet result) throws SQLException {
         String tenantId = result.getString("tenant_id");
         String jobId = result.getString("job_id");
         return new JobRow(
@@ -148,7 +153,7 @@ public final class JdbcTabularExportPublicationStore implements DataBuildPublica
                 result.getString("source_id"), result.getString("source_snapshot"),
                 DataBuildExecutionKind.valueOf(result.getString("execution_kind")),
                 new org.pangrova.databuild.api.DataBuildDependencySet(
-                        JdbcDataBuildQueries.loadArtifactDependencies(
+                        inputs.loadJobDependencies(
                                 connection, tenantId, jobId),
                         result.getString("dependency_set_sha256")),
                 org.pangrova.databuild.api.DataBuildEmptyPartitionPolicy.valueOf(

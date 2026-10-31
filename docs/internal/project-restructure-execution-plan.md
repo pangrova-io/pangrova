@@ -2143,3 +2143,37 @@ method reference，不能将单行检索无结果作为完整性证明。日志�
 原有 Materialization family 专门承担 Dynamic Table/Materialized View，不与公共生成任务合并。
 core、transaction-spi、store-postgresql 三制品分别拥有任务合同/编排、同连接协作合同和真实PG实现。
 当前源码仍为data-build过渡路径；读取SPI、物理迁移、领域发布、Catalog、剩余SCC与总验收尚未关闭。
+
+阶段39已提交并推送：`c2402293`。
+
+## 40. 同连接输入读取与 Catalog 同步缺陷审计
+
+新增 Internal 的 `DataBuildTransactionInputs`，只暴露 dispatch、job dependencies、pages
+三个读取语义；原 JdbcDataBuildQueries 直接实现接口，六个读取/映射方法体及SQL不变。
+没有静态兼容入口或空实现。普通auto-commit读取保留；历史compiler observation不能授予当前权限。
+Metadata authority和三个publisher显式接收同一个真实reader，具体reader引用只留装配位置。
+OutputValidator改为实际实例并接reader，但其中公共任务SQL仍待下一批归位，未宣称已迁出。
+
+新增两个真实PG测试：验证auto-commit、tenant/job范围、canonical顺序和损坏/缺失split拒绝；
+注入reader必须收到原Connection，并在未提交tenant撤权时拒绝、rollback后恢复。排序断言验证
+返回契约，不宣称在所有PG访问计划下都能检测删去ORDER BY。原未提交输入与事务回滚断言保留。
+
+| 检查 | 结果 |
+|---|---|
+| 任务完整owner | 36项通过；3处空行static错误修正后static/install通过 |
+| Metadata真实PG链 | 52项通过；2个构造器说明static错误修正后static/install通过 |
+| 全reactor clean install | 64项一次通过；跳过测试，仅编译证据 |
+| Indexing锁竞争 | 12项与static/install通过 |
+| Coordinator消费者 | 24项与static/install通过 |
+| Integration跨域及SQL/Native | 23项与static通过 |
+| 模块/包/状态枚举 | 12项通过；全图无环仍因相同7组SCC失败，无豁免 |
+
+当前3,571主源/657包/2,373测试源；任务模块76主源＝core目标48、transaction-spi目标6、PG目标22。
+台账657行与所有51个Java叶子计数精确一致。日志前缀`/tmp/pangrova-input-ports-*`；本批没有
+Native/proto/JNI输入变更，未重做ASan。AI无本批源码变化，不虚报再次执行其完整owner套件。
+
+Catalog审计确认：真实PG以同步历史MAX驱动续读，updateSyncTime无操作；部分失败和空批也
+记录本地结束时间，syncWithRetry不检查返回errors。已将源确认cursor、deployment scope、真实
+checkpoint/history事务与PG复现设计加入配套方案B0；尚未修改这些行为或执行新回归。
+原有Materialization域仍独立；generation三制品迁移、B6公共发布SQL/领域归位、Catalog修复、
+剩余包环和全文件语义验收继续推进。

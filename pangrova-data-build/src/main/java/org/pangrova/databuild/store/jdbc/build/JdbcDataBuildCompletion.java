@@ -1,5 +1,7 @@
 package org.pangrova.databuild.store.jdbc.build;
 
+import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+
 import org.pangrova.databuild.api.execution.DataBuildExecutionOwnerLostException;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
@@ -19,6 +21,7 @@ import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
 
 /** Applies one fenced artifact page completion inside its caller's transaction. */
 final class JdbcDataBuildCompletion {
+    private static final JdbcDataBuildQueries INPUTS = new JdbcDataBuildQueries();
 
     private JdbcDataBuildCompletion() {}
 
@@ -84,7 +87,7 @@ final class JdbcDataBuildCompletion {
             DataBuildPageCompletion completion) throws SQLException {
         JdbcDataBuildStoreSupport.validateOutputCoverage(
                 job, page,
-                org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadSplits(
+                INPUTS.loadSplits(
                         connection, completion.tenantId(),
                         completion.jobId(), completion.pageId()).stream()
                         .map(DataBuildSplit::dataObjectId).toList(),

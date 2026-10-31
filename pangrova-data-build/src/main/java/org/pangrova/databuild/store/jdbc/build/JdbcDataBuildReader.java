@@ -49,8 +49,7 @@ final class JdbcDataBuildReader extends JdbcDataBuildStoreSupport {
         requireText(tenantId, "tenantId");
         requireText(jobId, "jobId");
         try (Connection connection = dataSource.getConnection()) {
-            return org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries
-                    .findDispatchSpec(connection, tenantId, jobId);
+            return INPUTS.findDispatchSpec(connection, tenantId, jobId);
         } catch (SQLException e) {
             throw failure("find artifact dispatch spec", e);
         }

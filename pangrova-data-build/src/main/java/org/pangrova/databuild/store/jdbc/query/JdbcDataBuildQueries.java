@@ -1,6 +1,7 @@
 package org.pangrova.databuild.store.jdbc.query;
 
 import org.pangrova.databuild.api.DataBuildPageKind;
+import org.pangrova.databuild.spi.jdbc.DataBuildTransactionInputs;
 import org.pangrova.databuild.api.DataBuildDependency;
 import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
 import org.pangrova.databuild.api.build.DataBuildPage;
@@ -18,11 +19,12 @@ import java.util.Optional;
 
 /** Reads immutable scoped build inputs using the caller's connection; never opens or commits a transaction. */
 @org.pangrova.common.api.annotation.Internal
-public final class JdbcDataBuildQueries {
-    private JdbcDataBuildQueries() {}
+public final class JdbcDataBuildQueries implements DataBuildTransactionInputs {
+    public JdbcDataBuildQueries() {}
 
     /** Reads the immutable scoped dispatch contract without synthesizing missing state. */
-    public static Optional<DataBuildDispatchSpec> findDispatchSpec(
+    @Override
+    public Optional<DataBuildDispatchSpec> findDispatchSpec(
             Connection connection, String tenantId, String jobId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT * FROM artifact_build_dispatch_specs "
@@ -47,7 +49,8 @@ public final class JdbcDataBuildQueries {
     }
 
     /** Loads the exact version-pinned input dependencies in their canonical ordinal order. */
-    public static List<DataBuildDependency> loadArtifactDependencies(
+    @Override
+    public List<DataBuildDependency> loadJobDependencies(
             Connection connection, String tenantId, String jobId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT dependency_kind,dependency_id,dependency_version "
@@ -69,7 +72,8 @@ public final class JdbcDataBuildQueries {
     }
 
     /** Loads the exact scoped page cohort in its persisted ordinal order. */
-    public static List<DataBuildPage> loadPages(
+    @Override
+    public List<DataBuildPage> loadPages(
             Connection connection, String tenantId, String jobId)
             throws SQLException {
         List<DataBuildPage> pages = new ArrayList<>();
@@ -88,7 +92,7 @@ public final class JdbcDataBuildQueries {
         return List.copyOf(pages);
     }
 
-    private static DataBuildPage mapPage(
+    private DataBuildPage mapPage(
             Connection connection, String tenantId, String jobId, ResultSet result)
             throws SQLException {
         String pageId = result.getString("page_id");
@@ -105,7 +109,7 @@ public final class JdbcDataBuildQueries {
     }
 
     /** Loads replayable canonical splits in their persisted source order, rejecting legacy missing bytes. */
-    public static List<DataBuildSplit> loadSplits(
+    public List<DataBuildSplit> loadSplits(
             Connection connection, String tenantId, String jobId, String pageId)
             throws SQLException {
         List<DataBuildSplit> splits = new ArrayList<>();
@@ -135,7 +139,7 @@ public final class JdbcDataBuildQueries {
     }
 
     /** Loads the exact producer-page barrier in its persisted dependency order. */
-    public static List<String> loadDependencies(
+    public List<String> loadDependencies(
             Connection connection, String tenantId, String jobId, String pageId)
             throws SQLException {
         List<String> dependencies = new ArrayList<>();

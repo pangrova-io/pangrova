@@ -6,9 +6,6 @@ import org.pangrova.databuild.spi.storage.DataBuildStageExchangeStore.ExchangeEv
 import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
 import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 
-import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadSplits;
-import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadDependencies;
-
 import org.pangrova.databuild.api.build.DataBuildJob;
 import org.pangrova.databuild.api.build.DataBuildJobKey;
 import org.pangrova.databuild.api.build.DataBuildLease;
@@ -194,8 +191,9 @@ public final class JdbcDataBuildStageExecutionStore extends JdbcDataBuildStoreSu
             var page = JdbcDataBuildPageSelection.findPage(connection, lease.tenantId(), lease.jobId(),
                     lease.pageId(), true).orElseThrow();
             requireIssuedLease(page, lease, now);
-            var actualSplits = loadSplits(connection, lease.tenantId(), lease.jobId(), lease.pageId());
-            var actualDependencies = loadDependencies(connection, lease.tenantId(), lease.jobId(), lease.pageId());
+            var actualSplits = INPUTS.loadSplits(connection, lease.tenantId(), lease.jobId(), lease.pageId());
+            var actualDependencies = INPUTS.loadDependencies(
+                    connection, lease.tenantId(), lease.jobId(), lease.pageId());
             if (!actualSplits.equals(lease.splits()) || !actualDependencies.equals(lease.dependencyPageIds())) {
                 throw new IllegalStateException("Issued durable partition inputs differ from immutable PG allocations");
             }

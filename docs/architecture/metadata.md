@@ -87,6 +87,12 @@ one connection; an authority failure rolls back the whole export transaction.
 The existing authority gate, execution-owner fence and job/descriptor lock order
 remain unchanged. `DataBuildExecutionTransactionFence` exposes the same owner
 checks to consumers without requiring the concrete JDBC implementation.
+`DataBuildTransactionInputs` supplies dispatch, dependency and page reads on that
+same connection. The real JDBC reader implements the port directly and retains
+auto-commit reads, exact tenant/job scope and corrupt-input rejection. Authority
+and publication consumers receive it explicitly; SQL-reader construction remains
+in assembly. The common publication output validator still owns SQL in Metadata
+and is a separate migration step.
 
 The model provider observes the exact incarnation, configuration version,
 deployment version and signature, and rechecks direct invocation roles before

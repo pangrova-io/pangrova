@@ -1,7 +1,6 @@
 package org.pangrova.databuild.store.jdbc.build;
 
 import org.pangrova.databuild.protocol.DataBuildStageGraphCodec;
-import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
 
 import org.pangrova.databuild.api.build.DataBuildJob;
 import org.pangrova.databuild.api.build.DataBuildJobState;
@@ -357,13 +356,13 @@ abstract class JdbcDataBuildStoreSupport extends JdbcDataBuildStoreMappings {
         if (!JdbcDataBuildAdmission.sameIdentity(existing, requested)) {
             throw new IllegalStateException("artifact job id is already bound to different work");
         }
-        if (!JdbcDataBuildQueries.findDispatchSpec(
+        if (!INPUTS.findDispatchSpec(
                 connection, existing.tenantId(), existing.jobId()).orElseThrow()
                 .equals(dispatchSpec)) {
             throw new IllegalStateException(
                     "artifact job retry supplied a different dispatch template");
         }
-        List<DataBuildPage> stored = JdbcDataBuildQueries.loadPages(
+        List<DataBuildPage> stored = INPUTS.loadPages(
                 connection, existing.tenantId(), existing.jobId());
         if (!stored.equals(pages)) {
             throw new IllegalStateException("artifact job retry supplied different work pages");

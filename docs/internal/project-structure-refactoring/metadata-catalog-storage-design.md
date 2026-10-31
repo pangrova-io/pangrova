@@ -1,6 +1,6 @@
 # Metadata、Catalog 与生成任务存储边界设计
 
-> 状态：2026-10-31 源码审查形成的目标设计，模块拆分尚未完成。审查基线为 `pangrova-metadata` 的 132 个主源 Java 文件及 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`，不含生成源码和 `target`。后续阶段执行/交换及同连接提交/fence SPI 已实际落位，累计新增6个主源，任务模块现为75个主源；详见[执行记录第39节](../project-restructure-execution-plan.md#39-同连接提交与执行校验端口)。本文原逐文件表保留审查基线，以下实施状态明确区分当前与目标。
+> 状态：2026-10-31 源码审查形成的目标设计，模块拆分尚未完成。审查基线为 `pangrova-metadata` 的 132 个主源 Java 文件及 `pangrova-data-build` 的 69 个主源 Java 文件，均包含 `package-info.java`，不含生成源码和 `target`。后续阶段执行/交换及同连接提交/fence SPI 已实际落位，累计新增7个主源，任务模块现为76个主源；详见[执行记录第40节](../project-restructure-execution-plan.md#40-同连接输入读取与-catalog-同步缺陷审计)。本文原逐文件表保留审查基线，以下实施状态明确区分当前与目标。
 >
 > `pangrova-data-build` 是已经落地但用户未接受的过渡名称。按用户的单词命名要求，目标名称采用 `pangrova-generation`，表达索引、生成列值和导出结果的“生成”；当前源码尚未完成最终迁移。现有 SQL 表名、协议枚举、canonical JSON 字段、缓存路径和历史迁移均保持原值。
 
@@ -135,26 +135,26 @@ SQL writer 证据来自主源字符串扫描，并人工补全字符串拼接与
 JDBC上下文实现三getter只读view，原private构造/同事务resolver保留。新增源码为
 CurrentExecutionAuthority、DataBuildStageExecutionStore、DataBuildStageExchangeStore和package-info。
 第39节进一步分离 DataBuildJobSubmissionTransactions 与 DataBuildExecutionTransactionFence，真实 JDBC provider 实现接口；AI 的关联提交与 Metadata 的生成值提交仍使用原 Connection。
-下面的表保留初审缺口；Stage/Exchange 缺口已由第38节关闭，submission/fence 由第39节关闭；读取端口及物理 provider 拆分仍待实施。
+下面的表保留初审缺口；Stage/Exchange 缺口已由第38节关闭，submission/fence 由第39节关闭；S3 已分离 DataBuildTransactionInputs，真实 reader 直接实现，保留普通 auto-commit 读取；跨 owner 具体 reader 引用仅留 assembly。物理 provider 拆分仍待实施。
 
-### 4.1 哪些接口已经是 port，哪些还不是
+### 4.1 初审缺口与接口实施状态
 
-| 当前类型/调用方式 | 判断 | 目标动作 |
+| 类型/调用方式 | 初审判断 | 当前状态与剩余动作 |
 |---|---|---|
 | `DataBuildStore` | 无 Connection 的任务语义 port；包含持久租约/幂等契约 | 作为业务 SPI 保留；另批收紧独立 markPublished |
 | `DataBuildPublicationStore` | 无 Connection 的原子发布语义 port | 保留调用契约；按领域实现并注册 |
-| `MetadataStore` | 无 Connection，但跨了定义权威/库存投影/同步记录 | 拆 CatalogDescriptorStore、CatalogInventoryStore、CatalogSyncHistoryStore（目标名） |
+| `MetadataStore` | 无 Connection，但跨了定义权威/库存投影/同步记录 | 拆 descriptor、inventory、sync-progress 能力；同步端口须先完成 B0，不能搬移旧 no-op |
 | `ObjectDependencyStore` | 已有 Memory/PostgreSQL 的真实依赖图 port | 移 Catalog SPI，并让两个 provider 共用契约测试 |
 | `GeneratedValueBuildMetadataStore`、`GeneratedValueBuildSubmissionStore` | 已有无 SQL 的 AI 语义 port | 连同值对象归 AI；实际 PG provider 另制品 |
 | Connector SPI 的 `ManagedSourceCatalog` | 已有 source publication 能力 port | 实现归 Table/source owner；不因名字含 Catalog 归目录元数据 |
-| `JdbcDataBuildStageExecutionStore` | 具体类就是上层 API，多个 public nested DTO 也在实现包 | 新增 StageExecutionStore SPI，迁出 PreparedExecution/Partition/Claim/Progress/PublishedInput/NativeWinner/ProducerCompletion 等 |
-| `JdbcDataBuildStageExchangeStore` | 具体类被 runtime 使用，ExchangeEvidence 在 provider 类内 | 新增 StageExchangeStore SPI；证据 DTO 放无 SQL 合同包；static SQL helpers 留 provider |
-| `CurrentDeferredExecutionContext` | 证据 accessor 无 SQL，`resolve` 需要 Connection、roles、execution fence | 拆无 SQL 的进程内 current-authority evidence 与 provider resolver；不得把 snapshot 变成长期有效授权令牌 |
+| `JdbcDataBuildStageExecutionStore` | 具体类就是上层 API，多个 public nested DTO 也在实现包 | S1 已完成 StageExecutionStore SPI 及7个record迁移，物理制品待拆 |
+| `JdbcDataBuildStageExchangeStore` | 具体类被 runtime 使用，ExchangeEvidence 在 provider 类内 | S1 已完成 StageExchangeStore SPI 与 ExchangeEvidence 迁移；SQL helpers 留 provider |
+| `CurrentDeferredExecutionContext` | 证据 accessor 无 SQL，`resolve` 需要 Connection、roles、execution fence | S1 已以 CurrentExecutionAuthority 分离只读证据；private resolver保留，不能作为授权输入 |
 | `DataBuildTransactionAuthority`、`DataBuildPublicationCandidates` | 明确传 Connection 的内部技术 SPI | 保留借用连接且不管理事务契约；依赖方向与业务 Store SPI 分开 |
-| `JdbcDataBuildStore.createJobWithinTransaction`、`JdbcDataBuildQueries.*` | 调用方依赖具体类/static SQL helper | 新增窄的 job-submission、publication/read transaction port；由真实 PG provider 实现，替代跨 owner 静态实现调用 |
-| `JdbcDataBuildExecutionFence` | 公共任务路由校验 + Query ExecutionTransactionFence 组合 | 对外暴露窄的技术 port，具体 SQL 路由与 fence adapter 留 provider |
+| `JdbcDataBuildStore.createJobWithinTransaction`、`JdbcDataBuildQueries.*` | 调用方依赖具体类/static SQL helper | S2 已迁提交端口，S3 已迁读取端口；公共 publication SQL 端口仍待实施 |
+| `JdbcDataBuildExecutionFence` | 公共任务路由校验 + Query ExecutionTransactionFence 组合 | S2 已由 DataBuildExecutionTransactionFence 暴露，真实 Query/任务 SQL 保留原归属 |
 
-`DataBuildDispatchRequestFactory`、`DurableDataBuildDispatcher`、`DurableStageRuntime`、`DurableStageShuffleEvidence`、`DurableDataBuildWorkReportSink`、`PublishedGenerationBindingResolver`、`DataBuildPartitionBindings`、`StageExchangeAccessValidator`、`StageExecutionContext`、`DurablePartitionRequest` 当前均直接引用至少一种上述 JDBC 类型或 nested DTO。它们应只依赖语义 SPI/证据类型。`DataBuildStores` 是实际构造点，必须迁入组合根而非成为 Metadata 的永久 provider 工厂。
+`DataBuildDispatchRequestFactory`、`DurableDataBuildDispatcher`、`DurableStageRuntime`、`DurableStageShuffleEvidence`、`DurableDataBuildWorkReportSink`、`PublishedGenerationBindingResolver`、`DataBuildPartitionBindings`、`StageExchangeAccessValidator`、`StageExecutionContext`、`DurablePartitionRequest` 在初审时均直接引用至少一种上述 JDBC 类型或 nested DTO，S1 已将这些运行时消费者迁至语义 SPI/证据类型。`DataBuildStores` 是实际构造点，必须迁入组合根而非成为 Metadata 的永久 provider 工厂。
 
 ### 4.2 目标目录与依赖（未实施）
 
@@ -239,11 +239,39 @@ pangrova-coordination/.../
 
 **范围**：新增两个缺失的 StageExecution/StageExchange semantic SPI；迁出其业务 DTO 和 current-authority evidence；把现有 `store.jdbc` 的 22 个文件（18 个非包说明类 + 4 个包说明）中的实际 SQL/resolver 实现移到 PostgreSQL provider 制品。由于 DTO/resolve 拆分，最终 provider 文件数不再固定为 22。当前 2 个 store 近端单测随 provider 迁移，8 个 API/protocol 测试留 core。Metadata 的 `JdbcDataBuildStoreTest`、`JdbcDataBuildStageExchangeStoreTest` 中纯 provider 行为测试迁 owner；涉及真实 tenant/model/Query 的部分保留跨 owner 集成测试。
 
-**业务语义不改**：SQL、事务边界、lease、callback 持锁范围、错误/回滚、canonical bytes、source snapshots 均不改；不在这批顺手重排格式规则、移除 markPublished 或改最终模块名称。
+**业务语义不改**：SQL、事务边界、lease、callback 持锁范围、错误/回滚、canonical bytes、source snapshots 均不改；不在这批顺手重排格式规则或移除 markPublished。同连接端口完成后，按已经确定的 generation 名称迁移三制品和包名。
 
 **闭环**：非组合根只依赖 SPI，具体类/nested DTO 不再穿到 Coordinator runtime。组合根显式创建真实 PG 实例；core 的 POM 不依赖 provider。跨领域尚未替换的 static SQL helpers 临时只能被 infrastructure adapters 引用，列为下一批待移，不能声称完全解耦。
 
 **验收**：core contract/encoding tests；PG page claim 竞争、过期回收、attempt/epoch fencing、producer原始字节、stage exchange producer winner/finalize、published input 精确范围、callback 失败回滚；真实 root assembly 测试；provider 不可用时启动拒绝而非 Memory fallback。按开发规则运行 owner full-regression/static 和受影响 protocol/Java-native 执行链；只验证类存在或 mock 接口调用不能证明生产接线。
+
+### 批次 B0：先修复 Catalog 同步续读语义
+
+源码审计确认 `JdbcMetadataStore.getLastSyncTime` 直接取 `MAX(sync_history.sync_time)`，
+`updateSyncTime` 为 no-op；`MetadataSyncService.finishSync` 对空批、部分失败和全部失败也
+写入结束时间。逐条异常只进入 SyncResult.errors，syncWithRetry 接到结果即返回。因此真实PG
+可能跳过未成功应用的变化；现有watermark单测只检查fake的boolean，未验证真实持久化行为。
+
+仅过滤成功历史或把结束时间换为开始时间不足以修复：源事务可能在扫描前生成timestamp，
+扫描后才提交；历史按catalog name关联也无法区分同名重建。历史记录是审计，不能作为续读权威。
+
+实施边界：外部FederatedCatalog provider显式返回完整change batch及源确认的opaque cursor；
+无增量能力的provider明确声明只支持full inventory，不添加将旧List包装为next=now的默认实现。
+Catalog core负责应用/重试，PG进度provider按catalog incarnation、revision/source scope保存
+独立checkpoint，以expected version执行CAS；同步历史与成功checkpoint在同一事务完成。
+部分或全部失败不得推进，完整空批仅按源确认边界推进；full scan没有一致snapshot边界时只更新
+库存与历史，不自行创造增量cursor。新增迁移不编辑历史SQL，也不从旧MAX值回填可信checkpoint。
+
+最近回归先用两个真实PG库复现：sink缺schema导致部分FK失败，补schema后第二次仍须读取失败项；
+source事务在空扫描后提交，其变化不得被跳过。再验证同名重建、checkpoint/history提交失败、CAS
+竞争和源确认的完整空批。错误必须进入实际retry路径，不能只检查fake方法是否被调用。
+该修复不自动解决异步schema事件可靠投递，后者另列outbox批次。
+
+生产maintenance-leader调度链存在，但仓库尚无具体FederatedCatalogFactory provider注册；
+PostgresFederationInventory是测试component adapter，不能当作生产CDC实现。外部SPI破坏性变更
+需明确能力要求，不能声称已覆盖不存在的发行包provider。本节为已确认缺陷与待实施设计，尚未
+运行上述新增回归。先完成B0，再以真实descriptor、inventory、sync-progress能力抽接口，
+不保留旧no-op，也不为目录对称建立三组纯转发writer。
 
 ### 批次 B：Catalog 定义权威的首个安全迁移
 
@@ -263,9 +291,9 @@ Registry/handles/health、技术 object/schema、cache/event/observation、depen
 
 ### 批次 D：领域 publication 和 submission 与 SQL owner 对齐
 
-移 `DataBuildPublicationJob`、digest/output validator 到公共内核/provider 的正确层；Index publication 归 Indexing；GeneratedValue 5 个合同与 descriptor/publication/submission 三个实现归 AI；关系导出 adapter 保持公共关系导出责任。进程用领域 handler registry 组成完整 publication 路由。
+先将通用 output validator 的真实 SQL 移到任务 PG provider，通过同连接校验端口消费；再提取 job lock/finalize 的事务能力。digest 按实际领域算法和历史字节归属，不能整体机械搬入公共内核：当前 ManifestDigest 依赖 Index publisher 的 JobRow，Index/Generated 和 Tabular 的字段及行数聚合规则也不同。Index publication 归 Indexing；GeneratedValue 5 个合同与 descriptor/publication/submission 三个实现归 AI；关系导出 adapter 保持公共关系导出责任。进程用领域 handler registry 组成完整 publication 路由。
 
-通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `createJobWithinTransaction` 静态调用。每个 writer 只写本 owner 表；领域指针与 job finalization 的共同提交由 PostgreSQL unit-of-work 编排。移除公共 `markPublished` 绕行，现有 9 个测试改用真实 publication fixture 或限定的测试数据装载，不能为通过测试暴露生产绕行接口。
+S2/S3 已通过 transaction bridge 替代跨 owner `JdbcDataBuildQueries` 和 `createJobWithinTransaction` 静态调用；公共发布 SQL 的迁移仍需后续批次。每个 writer 只写本 owner 表；领域指针与 job finalization 的共同提交由 PostgreSQL unit-of-work 编排。移除公共 `markPublished` 绕行，现有 9 个测试改用真实 publication fixture 或限定的测试数据装载，不能为通过测试暴露生产绕行接口。
 
 验收 Index/AI 指针与 job 状态原子性、publish failure/rollback、旧 owner/过期 token 拒绝、after-blocking-write owner 再验证、撤权与 model incarnation/config/deployment/signature 变化、query-only 生成写入、committed-write redo acknowledgement 与全部派生任务原子提交。digest 现状有领域差异：Index/Generated 包含 encryption-key reference，而 Tabular 当前不包含；scope 的 source-row 汇总也不同。迁移先保持字节语义，不能以“统一 helper”静默改变历史 manifest 校验。
 
@@ -364,7 +392,7 @@ Registry/handles/health、技术 object/schema、cache/event/observation、depen
 | [databuild/GeneratedValueBuildSubmissionStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/GeneratedValueBuildSubmissionStore.java) | AI Control 生成值定义/提交/版本 | — | 2/1 | DurableGeneratedValueBuildService, JdbcGeneratedValueBuildSubmissionStore |
 | [databuild/GeneratedValueGenerationReference.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/GeneratedValueGenerationReference.java) | AI Control 生成值定义/提交/版本 | — | 3/0 | GeneratedValueGenerationBindingResolver, GeneratedValueBuildMetadataStore, JdbcGeneratedValuePublicationStore |
 | [databuild/jdbc/DataBuildPublicationJob.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/DataBuildPublicationJob.java) | 公共生成任务内核及其 PostgreSQL provider | — | 5/0 | JdbcGeneratedValuePublicationStore, JdbcGeneratedValueDescriptorStore, JdbcIndexGenerationPublicationStore |
-| [databuild/jdbc/DataBuildPublicationManifestDigest.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/DataBuildPublicationManifestDigest.java) | 公共生成任务内核及其 PostgreSQL provider | — | 1/0 | JdbcIndexGenerationPublicationStore |
+| [databuild/jdbc/DataBuildPublicationManifestDigest.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/DataBuildPublicationManifestDigest.java) | Indexing 发布 digest；现为 Index JobRow 专用，保留领域字节 | — | 1/0 | JdbcIndexGenerationPublicationStore |
 | [databuild/jdbc/DataBuildPublicationOutputValidator.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/DataBuildPublicationOutputValidator.java) | 公共生成任务内核及其 PostgreSQL provider | — | 3/0 | JdbcGeneratedValuePublicationStore, JdbcIndexGenerationPublicationStore, JdbcTabularExportPublicationStore |
 | [databuild/jdbc/JdbcGeneratedValueDescriptorStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/JdbcGeneratedValueDescriptorStore.java) | AI Control 生成值定义/提交/版本 | `generated_value_artifacts` | 2/0 | JdbcGeneratedValuePublicationStore, JdbcGeneratedValueBuildSubmissionStore |
 | [databuild/jdbc/JdbcGeneratedValuePublicationStore.java](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/databuild/jdbc/JdbcGeneratedValuePublicationStore.java) | AI Control 生成值定义/提交/版本 | `artifact_build_jobs`, `generated_value_generation_manifests` | 1/2 | DataBuildStores |

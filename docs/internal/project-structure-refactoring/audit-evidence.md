@@ -330,3 +330,18 @@ fence检查通过接口注入，真实方法体及Query行锁后独立时钟查�
 阶段38检查点 `49d0f538` 已推送。用户要求单词名称后目标改为 `pangrova-generation`，
 现有Dynamic Table/MV的Materialization family保持独立。当前data-build只是过渡路径，后续
 读取SPI/物理拆分、Catalog与各领域归位及总验收继续推进。Native输入未改，未重做ASan。
+
+## 40. 输入读取端口与新增审计证据
+
+S3新增同连接输入SPI，真实reader六个方法体与SQL不变；Metadata业务适配器删除静态具体reader
+依赖，装配显式提供实例。普通auto-commit、tenant范围、损坏canonical输入拒绝、原事务内未提交
+撤权与rollback恢复由两个新增PG测试验证；编译器历史观察不被视为当前授权。
+
+任务36、Metadata52、Indexing12、Core24、Integration23项通过；任务3处空行及Metadata两个
+构造器Javadoc错误修正后，相应static/install通过。64项reactor clean install一次通过（跳过测试）。
+模块/包/状态枚举12项通过，SCC项因原7组仍失败。台账657行/51Java叶子与当前3,571主源、
+2,373测试源一致。日志为`/tmp/pangrova-input-ports-*`，Native未改或重做ASan。
+
+Catalog新增只读审计确认真实同步历史/续读游标混淆，B0已列出源确认边界、scope、CAS与真实PG
+修复回归设计；未将设计冒充实现。输出校验SQL仍在Metadata，Index digest仍是领域算法；
+物理三制品和后续发布拆分未因S3通过而提前关闭。上一检查点`c2402293`已推送。

@@ -12,6 +12,8 @@ import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
 import org.pangrova.databuild.api.execution.template.DataBuildStageTemplate;
 import org.pangrova.databuild.api.execution.DataBuildStageGraph;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
+import org.pangrova.databuild.spi.jdbc.DataBuildTransactionInputs;
+import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -91,6 +93,38 @@ class MetadataDataBuildTransactionAuthorityIntegrationTest extends ContainerTest
         builds = DataBuildAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.metadata.testinfra.DataBuildExecutionFixtures(dataSource);
         publisher = DataBuildAuthorityFixtures.artifacts().tabularPublications(dataSource);
+    }
+
+    @Test
+    void injectedInputPortUsesTheAuthorityConnectionBeforeCurrentTenantValidation() throws Exception {
+        var claim = createClaim("input-port", RAW);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var realInputs = new JdbcDataBuildQueries();
+        try (var caller = dataSource.getConnection()) {
+            caller.setAutoCommit(false);
+            try (var statement = caller.prepareStatement("UPDATE tenants SET status='DELETED' WHERE tenant_id=?")) {
+                statement.setString(1, TENANT);
+                assertThat(statement.executeUpdate()).isEqualTo(1);
+            }
+            DataBuildTransactionInputs inputs = (DataBuildTransactionInputs) java.lang.reflect.Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class<?>[]{DataBuildTransactionInputs.class},
+                    (proxy, method, arguments) -> {
+                        assertThat(method.getName()).isEqualTo("findDispatchSpec");
+                        assertThat(arguments[0]).isSameAs(caller);
+                        calls.incrementAndGet();
+                        return realInputs.findDispatchSpec(caller, (String) arguments[1], (String) arguments[2]);
+                    });
+            var authority = new MetadataDataBuildTransactionAuthority(
+                    inputs, DataBuildAuthorityFixtures.modelAuthority());
+            assertThatThrownBy(() -> authority.requireCurrent(caller, TENANT, claim.jobId()))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            assertThat(calls).hasValue(1);
+            assertThat(caller.getAutoCommit()).isFalse();
+            caller.rollback();
+            assertThat(authority.requireCurrent(caller, TENANT, claim.jobId()).jobId()).isEqualTo(claim.jobId());
+            assertThat(calls).hasValue(2);
+            caller.rollback();
+        }
     }
 
     @Test

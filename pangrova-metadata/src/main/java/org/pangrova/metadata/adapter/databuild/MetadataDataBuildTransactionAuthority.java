@@ -3,7 +3,7 @@ package org.pangrova.metadata.adapter.databuild;
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 
-import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+import org.pangrova.databuild.spi.jdbc.DataBuildTransactionInputs;
 import org.pangrova.databuild.api.build.DataBuildDispatchSpec;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
@@ -16,9 +16,12 @@ import java.sql.SQLException;
 @org.pangrova.common.api.annotation.Internal
 public final class MetadataDataBuildTransactionAuthority implements DataBuildTransactionAuthority {
     private final CurrentModelAuthority modelAuthority;
+    private final DataBuildTransactionInputs inputs;
 
     /** Requires the real model owner to validate snapshots on the current transaction. */
-    public MetadataDataBuildTransactionAuthority(CurrentModelAuthority modelAuthority) {
+    public MetadataDataBuildTransactionAuthority(
+            DataBuildTransactionInputs inputs, CurrentModelAuthority modelAuthority) {
+        this.inputs = java.util.Objects.requireNonNull(inputs, "inputs");
         this.modelAuthority = java.util.Objects.requireNonNull(modelAuthority, "modelAuthority");
     }
 
@@ -29,7 +32,7 @@ public final class MetadataDataBuildTransactionAuthority implements DataBuildTra
         AuthorizationTransactionGate.lockPublication(connection);
         DataBuildDispatchSpec spec;
         try {
-            spec = JdbcDataBuildQueries.findDispatchSpec(connection, tenantId, jobId)
+            spec = inputs.findDispatchSpec(connection, tenantId, jobId)
                     .orElseThrow(() -> new AuthorizationDeniedException(
                             "Deferred work has no scoped dispatch specification"));
         } catch (IllegalArgumentException unscopedOrCorrupt) {

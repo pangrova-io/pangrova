@@ -211,7 +211,8 @@ class DataBuildContractIsolationTest {
             }
         }) {
             for (String name : List.of("DataBuildTransactionAuthority", "DataBuildPublicationCandidates",
-                    "DataBuildJobSubmissionTransactions", "DataBuildExecutionTransactionFence")) {
+                    "DataBuildJobSubmissionTransactions", "DataBuildExecutionTransactionFence",
+                    "DataBuildTransactionInputs")) {
                 var port = loader.loadClass("org.pangrova.databuild.spi.jdbc." + name);
                 assertThat(port.isInterface()).isTrue();
                 assertThat(port.getMethods()).isNotEmpty();

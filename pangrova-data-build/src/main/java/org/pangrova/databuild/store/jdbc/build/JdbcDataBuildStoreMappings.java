@@ -1,5 +1,7 @@
 package org.pangrova.databuild.store.jdbc.build;
 
+import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+
 import org.pangrova.databuild.api.build.DataBuildJob;
 import org.pangrova.databuild.api.build.DataBuildJobState;
 import org.pangrova.databuild.api.build.DataBuildLease;
@@ -27,10 +29,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
-import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadArtifactDependencies;
 
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
 abstract class JdbcDataBuildStoreMappings {
+
+    protected static final JdbcDataBuildQueries INPUTS = new JdbcDataBuildQueries();
 
     protected static final long ATTEMPTS_PER_EPOCH = 1L << 32;
     private static final int MAX_FAILURE_LENGTH = 2048;
@@ -64,7 +67,7 @@ abstract class JdbcDataBuildStoreMappings {
                 result.getString("source_id"), result.getString("source_snapshot"),
                 DataBuildExecutionKind.valueOf(result.getString("execution_kind")),
                 new DataBuildDependencySet(
-                        loadArtifactDependencies(
+                        INPUTS.loadJobDependencies(
                                 connection, result.getString("tenant_id"), jobId),
                         result.getString("dependency_set_sha256")),
                 DataBuildEmptyPartitionPolicy.valueOf(

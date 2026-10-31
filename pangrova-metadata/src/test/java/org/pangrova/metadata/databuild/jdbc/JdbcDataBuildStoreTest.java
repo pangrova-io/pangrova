@@ -13,6 +13,7 @@ import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 import org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStore;
 import org.pangrova.databuild.spi.jdbc.DataBuildJobSubmissionTransactions;
 import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+import org.pangrova.databuild.spi.jdbc.DataBuildTransactionInputs;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +52,7 @@ class JdbcDataBuildStoreTest {
 
     private JdbcDataBuildStore store;
     private DataBuildJobSubmissionTransactions submissions;
+    private final DataBuildTransactionInputs inputs = new JdbcDataBuildQueries();
     private javax.sql.DataSource dataSource;
 
     @BeforeEach
@@ -144,12 +146,12 @@ class JdbcDataBuildStoreTest {
             connection.setAutoCommit(false);
             submissions.createJob(connection, job(1), spec, pages);
             // Shared authority/publication reads must see the caller's uncommitted cohort, without another connection.
-            assertThat(JdbcDataBuildQueries.findDispatchSpec(connection, TENANT, "job-1")).contains(spec);
-            assertThat(JdbcDataBuildQueries.loadPages(connection, TENANT, "job-1")).isEqualTo(pages);
-            assertThat(JdbcDataBuildQueries.loadArtifactDependencies(connection, TENANT, "job-1"))
+            assertThat(inputs.findDispatchSpec(connection, TENANT, "job-1")).contains(spec);
+            assertThat(inputs.loadPages(connection, TENANT, "job-1")).isEqualTo(pages);
+            assertThat(inputs.loadJobDependencies(connection, TENANT, "job-1"))
                     .isEqualTo(job(1).dependencySet().dependencies());
-            assertThat(JdbcDataBuildQueries.findDispatchSpec(connection, "tenant-2", "job-1")).isEmpty();
-            assertThat(JdbcDataBuildQueries.loadPages(connection, "tenant-2", "job-1")).isEmpty();
+            assertThat(inputs.findDispatchSpec(connection, "tenant-2", "job-1")).isEmpty();
+            assertThat(inputs.loadPages(connection, "tenant-2", "job-1")).isEmpty();
             assertThat(store.findJob(TENANT, "job-1")).isEmpty();
             connection.rollback();
             assertThat(store.findDispatchSpec(TENANT, "job-1")).isEmpty();
@@ -160,6 +162,47 @@ class JdbcDataBuildStoreTest {
         assertThat(store.claimNextPage(TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "coordinator", 1), 1,
                 Duration.ofSeconds(30), START)).hasValueSatisfying(lease ->
                         assertThat(lease.sourceObjectIds()).containsExactly("source-0"));
+    }
+
+    @Test
+    void inputPortAllowsAutoCommitReadsAndRejectsMissingOrCorruptCanonicalSplits() throws Exception {
+        var expectedPages = List.of(
+                sourcePage("page-z", 0, "source-0"), sourcePage("page-a", 1, "source-1"));
+        var spec = dispatchSpec(TENANT, expectedPages);
+        // Admission normalizes insertion order; assert the API order without depending on a PG access plan.
+        store.createJob(job(2), spec, List.of(expectedPages.get(1), expectedPages.get(0)));
+        try (var connection = dataSource.getConnection()) {
+            assertThat(connection.getAutoCommit()).isTrue();
+            assertThat(inputs.findDispatchSpec(connection, TENANT, "job-1")).contains(spec);
+            assertThat(inputs.loadJobDependencies(connection, TENANT, "job-1"))
+                    .isEqualTo(job(2).dependencySet().dependencies());
+            assertThat(inputs.loadPages(connection, TENANT, "job-1")).isEqualTo(expectedPages);
+            assertThat(inputs.findDispatchSpec(connection, "other-tenant", "job-1")).isEmpty();
+            assertThat(inputs.loadJobDependencies(connection, "other-tenant", "job-1")).isEmpty();
+            assertThat(inputs.loadPages(connection, "other-tenant", "job-1")).isEmpty();
+            try (var statement = connection.prepareStatement(
+                    "UPDATE artifact_build_page_sources SET split_sha256=? "
+                            + "WHERE tenant_id=? AND job_id=? AND page_id=?")) {
+                statement.setString(1, "0".repeat(64));
+                statement.setString(2, TENANT);
+                statement.setString(3, "job-1");
+                statement.setString(4, "page-z");
+                assertThat(statement.executeUpdate()).isEqualTo(1);
+            }
+            assertThatThrownBy(() -> inputs.loadPages(connection, TENANT, "job-1"))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("SHA-256 differs");
+            try (var statement = connection.prepareStatement(
+                    "UPDATE artifact_build_page_sources SET split_bytes=NULL "
+                            + "WHERE tenant_id=? AND job_id=? AND page_id=?")) {
+                statement.setString(1, TENANT);
+                statement.setString(2, "job-1");
+                statement.setString(3, "page-z");
+                assertThat(statement.executeUpdate()).isEqualTo(1);
+            }
+            assertThatThrownBy(() -> inputs.loadPages(connection, TENANT, "job-1"))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("predates replayable");
+            assertThat(connection.getAutoCommit()).isTrue();
+        }
     }
 
     @Test

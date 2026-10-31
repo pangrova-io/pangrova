@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-10-31，协调后端独立及 S1/S2 存储、同事务契约分离后的实施工作区。657 包 / 51 Java 叶子 / 3,570 主源文件 / 2,373 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
+当前台账：2026-10-31，协调后端独立及 S1/S2/S3 存储、同事务契约分离后的实施工作区。657 包 / 51 Java 叶子 / 3,571 主源文件 / 2,373 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -71,11 +71,11 @@
 
 ## pangrova-data-build
 
-路径：`pangrova-data-build`。主源文件 75，主源包 16，本叶子测试源文件 10（不是测试用例数）。
+路径：`pangrova-data-build`。主源文件 76，主源包 16，本叶子测试源文件 10（不是测试用例数）。
 
 `pangrova-data-build` / `org.pangrova.databuild` 仍是当前源码的过渡名称。最终采用单词 generation，表示索引、生成列值及导出结果的生成任务，目标 family 为 `pangrova-generation`，下分 `pangrova-generation-core`、`pangrova-generation-transaction-spi`、`pangrova-generation-store-postgresql`；目标根包为 `org.pangrova.generation`。三制品物理迁移与更名尚未落地，以下“当前包”链接保留实际源码路径，“迁移”列表示待实施目标。
 
-S1 已新增 `spi.storage` 的两个 Stage/Exchange 契约、只读 `CurrentExecutionAuthority` 与包说明；8 个 DTO 已从 JDBC 实现迁入契约。S2 又分离同连接任务提交和 execution fence 两个契约；当前 75 个主源文件的目标归属为 core 48、transaction-spi 5、store-postgresql 22。业务 storage 契约不暴露 JDBC；同连接 JDBC 端口独立归 transaction-spi，禁止 core 对该制品形成反向依赖。3 个 canonical golden 随合同/codec 测试归 core，保留 `artifact/encoding` 资源路径及字节。
+S1 已新增 `spi.storage` 的两个 Stage/Exchange 契约、只读 `CurrentExecutionAuthority` 与包说明；8 个 DTO 已从 JDBC 实现迁入契约。S2 又分离同连接任务提交和 execution fence 两个契约；S3 再分离同连接输入读取；当前 76 个主源文件的目标归属为 core 48、transaction-spi 6、store-postgresql 22。业务 storage 契约不暴露 JDBC；同连接 JDBC 端口独立归 transaction-spi，禁止 core 对该制品形成反向依赖。3 个 canonical golden 随合同/codec 测试归 core，保留 `artifact/encoding` 资源路径及字节。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -89,7 +89,7 @@ S1 已新增 `spi.storage` 的两个 Stage/Exchange 契约、只读 `CurrentExec
 | [org.pangrova.databuild.assembly](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/assembly) | 4 | 迁移 / P3 | `pangrova-generation-core`：`org.pangrova.generation.assembly` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
 | [org.pangrova.databuild.core.publication](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/core/publication) | 2 | 迁移 / P3 | `pangrova-generation-core`：`org.pangrova.generation.core.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
 | [org.pangrova.databuild.protocol](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/protocol) | 4 | 迁移 / P3 | `pangrova-generation-core`：`org.pangrova.generation.protocol` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.databuild.spi.jdbc](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/jdbc) | 5 | 迁移 / P3 | `pangrova-generation-transaction-spi`：`org.pangrova.generation.spi.jdbc` | 同连接事务端口独立制品；仅依赖 core、Common、Query API 合同和 JDK JDBC，core 不反向依赖，调用方保留事务与连接所有权 |
+| [org.pangrova.databuild.spi.jdbc](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/jdbc) | 6 | 迁移 / P3 | `pangrova-generation-transaction-spi`：`org.pangrova.generation.spi.jdbc` | 同连接事务端口独立制品；仅依赖 core、Common、Query API 合同和 JDK JDBC，core 不反向依赖，调用方保留事务与连接所有权 |
 | [org.pangrova.databuild.spi.storage](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/spi/storage) | 4 | 迁移 / P3 | `pangrova-generation-core`：`org.pangrova.generation.spi.storage` | S1 已分离两个业务 storage 契约、只读当前权限视图与8个DTO；无 JDBC/provider 类型泄漏，受限加载与真实回调回滚验证分别保留 |
 | [org.pangrova.databuild.store.jdbc.query](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/query) | 2 | 迁移 / P3 | `pangrova-generation-store-postgresql`：`org.pangrova.generation.store.postgresql.query` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
 | [org.pangrova.databuild.store.jdbc.execution](../../../pangrova-data-build/src/main/java/org/pangrova/databuild/store/jdbc/execution) | 4 | 迁移 / P3 | `pangrova-generation-store-postgresql`：`org.pangrova.generation.store.postgresql.execution` | route/fence/context 已迁入；Query 锁端口与 Security 当前角色端口显式注入，context 私有构造 |
@@ -1045,6 +1045,6 @@ S1 已新增 `spi.storage` 的两个 Stage/Exchange 契约、只读 `CurrentExec
 
 ## 台账覆盖核对
 
-共 657 行，动作分布：保留 451；按类拆分 74；改依赖 4；迁移 128。51 个当前 Java 叶子合计 3,570 个主源文件、2,373 个测试源文件；逐叶子统计与各包文件数之和一致。派生数据生成任务的三个目标制品尚未落地，不提前计入当前叶子数。
+共 657 行，动作分布：保留 451；按类拆分 74；改依赖 4；迁移 128。51 个当前 Java 叶子合计 3,571 个主源文件、2,373 个测试源文件；逐叶子统计与各包文件数之和一致。派生数据生成任务的三个目标制品尚未落地，不提前计入当前叶子数。
 
 当前 Java 叶子已包含 serialization-json、coordination-api、coordination-jdbc 和 coordination-inmemory；六种协调实现已在新 provider 包登记，旧 Core 实现包不再占行。schema-migrations 仅承接 SQL 资源，不计入 Java 叶子或主源包。新增窄 SPI、assembly package 和 package-info 随具体批次补入事实清单。

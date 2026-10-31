@@ -141,6 +141,10 @@ is process-local preparation evidence, never a credential accepted by a store.
 Providers establish fresh authority on every operation. Partition preparation
 callbacks run before transaction locks are released and must not perform network
 I/O; callback failure rolls back the claim.
+Domain adapters read persisted generation inputs through `DataBuildTransactionInputs`
+on the supplied connection. Ordinary auto-commit reads remain supported; a stored
+compiler observation never grants current authority. PostgreSQL SQL and canonical
+input validation stay in the real provider, selected by the composition root.
 
 Coordination backends depend on Coordination API, never on the Coordinator process
 or Metadata. The process composition root selects and closes providers; in-memory

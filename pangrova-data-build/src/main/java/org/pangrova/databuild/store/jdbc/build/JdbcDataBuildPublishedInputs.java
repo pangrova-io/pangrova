@@ -1,5 +1,7 @@
 package org.pangrova.databuild.store.jdbc.build;
 
+import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+
 import org.pangrova.databuild.spi.storage.DataBuildStageExecutionStore.PublishedInput;
 
 import org.pangrova.databuild.api.manifest.DataBuildGenerationManifest;
@@ -23,11 +25,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadArtifactDependencies;
 import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
 
 /** Same-connection immutable publication reads, shared by query resolution and durable claim preparation. */
 final class JdbcDataBuildPublishedInputs {
+    private static final JdbcDataBuildQueries INPUTS = new JdbcDataBuildQueries();
+
     private JdbcDataBuildPublishedInputs() {}
 
     static Optional<DataBuildGenerationManifest> findManifest(Connection connection, String tenantId,
@@ -59,7 +62,7 @@ final class JdbcDataBuildPublishedInputs {
                         DataBuildExecutionKind.valueOf(
                                 result.getString("execution_kind")),
                         new DataBuildDependencySet(
-                                loadArtifactDependencies(
+                                INPUTS.loadJobDependencies(
                                         connection, tenantId, result.getString("job_id")),
                                 result.getString("dependency_set_sha256")),
                         DataBuildEmptyPartitionPolicy.valueOf(

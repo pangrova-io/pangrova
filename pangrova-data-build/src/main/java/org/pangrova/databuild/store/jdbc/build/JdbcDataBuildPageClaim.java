@@ -1,5 +1,7 @@
 package org.pangrova.databuild.store.jdbc.build;
 
+import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+
 import org.pangrova.databuild.api.build.DataBuildLease;
 import org.pangrova.query.api.coordination.ExecutionAnchor;
 
@@ -11,13 +13,13 @@ import java.util.Optional;
 
 import static org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStoreMappings.fencingToken;
 import static org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStoreSupport.failExhaustedPage;
-import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadDependencies;
-import static org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries.loadSplits;
 import static org.pangrova.databuild.store.jdbc.build.JdbcDataBuildStoreSupport.markJobRunning;
 import static org.pangrova.common.jdbc.JdbcSupport.setInstant;
 
 /** Claims one already-locked page in the current-authority transaction. */
 final class JdbcDataBuildPageClaim {
+    private static final JdbcDataBuildQueries INPUTS = new JdbcDataBuildQueries();
+
     private JdbcDataBuildPageClaim() {}
 
     static Optional<DataBuildLease> claim(Connection connection, JdbcDataBuildStoreMappings.PageRow page,
@@ -33,8 +35,8 @@ final class JdbcDataBuildPageClaim {
         markJobRunning(connection, page.tenantId(), page.jobId(), now);
         return Optional.of(new DataBuildLease(page.tenantId(), page.jobId(), page.pageId(),
                 page.stageId(), page.partitionId(), page.pageOrdinal(), page.kind(),
-                loadSplits(connection, page.tenantId(), page.jobId(), page.pageId()),
-                loadDependencies(connection, page.tenantId(), page.jobId(), page.pageId()),
+                INPUTS.loadSplits(connection, page.tenantId(), page.jobId(), page.pageId()),
+                INPUTS.loadDependencies(connection, page.tenantId(), page.jobId(), page.pageId()),
                 attemptId, token, anchor.ownerId(), ownerEpoch, expiresAt, anchor));
     }
 

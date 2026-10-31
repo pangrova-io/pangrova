@@ -4,9 +4,9 @@
 
 **结论：主要领域划分和 Java 协调规划 / C++ 执行的方向合理，但物理模块与实际职责没有完全对应。重构重点应是移交状态和资源的所有权、收窄导出契约、消除包依赖环，并把测试和装配一起迁移。不能以目录数量、包数量或编译通过作为完成标准。**
 
-完整范围包括 64 个 Maven reactor 项目、51 个有 Java 源码的叶子、1 个纯资源 JAR、3,570 个 Java 主源文件、657 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
+完整范围包括 64 个 Maven reactor 项目、51 个有 Java 源码的叶子、1 个纯资源 JAR、3,571 个 Java 主源文件、657 个主源包，以及 C++/Rust、协议、数据库迁移、测试、部署和仓库工具目录。主源文件计数包含 `package-info.java`，不包含 `target` 生成代码。生成代码另做制品验证。
 
-实施已推进至 [执行记录第 39 节](project-restructure-execution-plan.md#39-同连接提交与执行校验端口)：第 30–31 节落位 Query 事务 fence、任务 execution route/fence 和通用 JDBC runtime；第 32 节落实 schema-migrations 资源制品和 Table/Materialization owner 测试。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；第 34 节消除 Worker write/catalog 环，全图无环检查仍因剩余 7 组 SCC 失败，没有增加豁免。逐包台账与当前源码集合及文件数完全一致，遗漏、多余、重复均为零。
+实施已推进至 [执行记录第 40 节](project-restructure-execution-plan.md#40-同连接输入读取与-catalog-同步缺陷审计)：第 30–31 节落位 Query 事务 fence、任务 execution route/fence 和通用 JDBC runtime；第 32 节落实 schema-migrations 资源制品和 Table/Materialization owner 测试。当前模块依赖 7 项、包结构 2 项、状态枚举 3 项通过；第 34 节消除 Worker write/catalog 环，全图无环检查仍因剩余 7 组 SCC 失败，没有增加豁免。逐包台账与当前源码集合及文件数完全一致，遗漏、多余、重复均为零。
 
 第 33 节完成 AI 工厂显式 authority 注入、错误归属和 Metadata 依赖拆分；第34节提取协调API并下沉Worker会话/资源端口；第35节完成模型当前权限provider与显式事务消费链。领域发布、Indexing激活耦合、真实非空模型ManagedSource撤权测试及剩余7组包环仍待处理。
 

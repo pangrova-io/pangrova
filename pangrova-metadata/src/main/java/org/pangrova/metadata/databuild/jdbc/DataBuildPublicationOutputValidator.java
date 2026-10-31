@@ -1,6 +1,6 @@
 package org.pangrova.metadata.databuild.jdbc;
 
-import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
+import org.pangrova.databuild.spi.jdbc.DataBuildTransactionInputs;
 import org.pangrova.databuild.api.build.DataBuildOutput;
 import org.pangrova.databuild.api.DataBuildOutputScope;
 import org.pangrova.databuild.api.DataBuildPageKind;
@@ -23,9 +23,13 @@ import java.util.Set;
 /** Validates complete artifact output bundles before atomic publication. */
 final class DataBuildPublicationOutputValidator {
 
-    private DataBuildPublicationOutputValidator() {}
+    private final DataBuildTransactionInputs inputs;
 
-    static List<DataBuildOutput> loadAndValidate(
+    DataBuildPublicationOutputValidator(DataBuildTransactionInputs inputs) {
+        this.inputs = java.util.Objects.requireNonNull(inputs, "inputs");
+    }
+
+    List<DataBuildOutput> loadAndValidate(
             Connection connection, DataBuildPublicationJob job)
             throws SQLException {
         requireAllPagesSucceeded(connection, job);
@@ -112,7 +116,7 @@ final class DataBuildPublicationOutputValidator {
         return new PageOutput(pageId, kind, output);
     }
 
-    private static void validateWorkPages(
+    private void validateWorkPages(
             Connection connection, DataBuildPublicationJob job,
             List<PageOutput> outputs) throws SQLException {
         FormatContract contract = DataBuildOutputFormatContracts.require(
@@ -145,14 +149,14 @@ final class DataBuildPublicationOutputValidator {
         validatePublishedBundles(job, sourcePages, outputs, contract);
     }
 
-    private static void validateRelationalTerminalPages(Connection connection, DataBuildPublicationJob job,
+    private void validateRelationalTerminalPages(Connection connection, DataBuildPublicationJob job,
             Map<String, List<PageOutput>> outputs, FormatContract contract) throws SQLException {
-        var graph = JdbcDataBuildQueries.findDispatchSpec(connection, job.tenantId(), job.jobId())
+        var graph = inputs.findDispatchSpec(connection, job.tenantId(), job.jobId())
                 .orElseThrow(() -> new IllegalStateException("Export has no persisted stage graph")).stageGraph();
         if (graph.purpose() != org.pangrova.databuild.api.execution.DataBuildStageGraph.Purpose.RELATIONAL_EXPORT) {
             throw new IllegalStateException("Tabular export requires the relational terminal purpose");
         }
-        var pages = JdbcDataBuildQueries.loadPages(connection, job.tenantId(), job.jobId());
+        var pages = inputs.loadPages(connection, job.tenantId(), job.jobId());
         Set<String> terminals = new HashSet<>();
         for (var page : pages) {
             var stage = graph.requireStage(page.stageId());

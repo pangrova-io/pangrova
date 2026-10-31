@@ -1,6 +1,8 @@
 package org.pangrova.metadata.assembly.databuild;
 
 import org.pangrova.databuild.spi.jdbc.DataBuildTransactionAuthority;
+import org.pangrova.databuild.spi.jdbc.DataBuildTransactionInputs;
+import org.pangrova.databuild.store.jdbc.query.JdbcDataBuildQueries;
 import org.pangrova.databuild.store.jdbc.execution.JdbcDataBuildExecutionFence;
 import org.pangrova.databuild.spi.jdbc.DataBuildExecutionTransactionFence;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence;
@@ -26,6 +28,7 @@ import javax.sql.DataSource;
 /** Composes artifact stores with the current tenant/table/model authority of the metadata database. */
 public final class DataBuildStores {
     private final DataBuildTransactionAuthority authority;
+    private final DataBuildTransactionInputs inputs;
 
     private static final DataBuildExecutionTransactionFence EXECUTION_FENCE =
             new JdbcDataBuildExecutionFence(new JdbcExecutionTransactionFence());
@@ -36,7 +39,8 @@ public final class DataBuildStores {
 
     /** Composes Metadata tenant/table checks with the supplied live model authority. */
     public DataBuildStores(CurrentModelAuthority modelAuthority) {
-        authority = new MetadataDataBuildTransactionAuthority(modelAuthority);
+        inputs = new JdbcDataBuildQueries();
+        authority = new MetadataDataBuildTransactionAuthority(inputs, modelAuthority);
     }
 
     /** Current Security-owned direct roles on the caller connection. */
@@ -65,15 +69,15 @@ public final class DataBuildStores {
     }
 
     public JdbcIndexGenerationPublicationStore indexPublications(DataSource dataSource) {
-        return new JdbcIndexGenerationPublicationStore(dataSource, authority, EXECUTION_FENCE);
+        return new JdbcIndexGenerationPublicationStore(dataSource, authority, EXECUTION_FENCE, inputs);
     }
 
     public JdbcGeneratedValuePublicationStore generatedPublications(DataSource dataSource) {
-        return new JdbcGeneratedValuePublicationStore(dataSource, authority, EXECUTION_FENCE);
+        return new JdbcGeneratedValuePublicationStore(dataSource, authority, EXECUTION_FENCE, inputs);
     }
 
     public JdbcTabularExportPublicationStore tabularPublications(DataSource dataSource) {
-        return new JdbcTabularExportPublicationStore(dataSource, authority, EXECUTION_FENCE);
+        return new JdbcTabularExportPublicationStore(dataSource, authority, EXECUTION_FENCE, inputs);
     }
 
     public JdbcGeneratedValueBuildSubmissionStore generatedSubmissions(DataSource dataSource) {
