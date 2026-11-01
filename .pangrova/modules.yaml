@@ -469,18 +469,18 @@ artifacts:
   pangrova-storage-filesystem:
     path: pangrova-storage/pangrova-storage-filesystem
     moduleName: org.pangrova.storage.filesystem
-    packageRoots: [org.pangrova.storage.filesystem.blob]
-    exports: [org.pangrova.storage.filesystem.blob]
-    allowedImports: [pangrova-storage-api]
+    packageRoots: [org.pangrova.storage.filesystem.blob, org.pangrova.storage.filesystem.object]
+    exports: [org.pangrova.storage.filesystem.blob, org.pangrova.storage.filesystem.object]
+    allowedImports: [pangrova-storage-api, pangrova-file-api, pangrova-common]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 
   pangrova-storage-s3:
     path: pangrova-storage/pangrova-storage-s3
     moduleName: org.pangrova.storage.s3
-    packageRoots: [org.pangrova.storage.s3.blob]
-    exports: [org.pangrova.storage.s3.blob]
-    allowedImports: [pangrova-storage-api]
+    packageRoots: [org.pangrova.storage.s3.blob, org.pangrova.storage.s3.object]
+    exports: [org.pangrova.storage.s3.blob, org.pangrova.storage.s3.object]
+    allowedImports: [pangrova-storage-api, pangrova-file-api, pangrova-common]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 
@@ -692,6 +692,7 @@ artifacts:
       - pangrova-indexing-api
       - pangrova-storage-api
       - pangrova-storage-s3
+      - pangrova-storage-filesystem
       - pangrova-worker-native-bridge
     forbiddenImports:
       - pangrova-coordination-core

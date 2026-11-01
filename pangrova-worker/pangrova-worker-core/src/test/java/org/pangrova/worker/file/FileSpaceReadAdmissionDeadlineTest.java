@@ -41,8 +41,8 @@ class FileSpaceReadAdmissionDeadlineTest {
         provider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         provider.createContext("/", this::respond);
         provider.start();
-        worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(
-                StaticCredentialsProvider.create(AwsBasicCredentials.create("test-access", "test-secret"))),
+        worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(java.util.List.of(new org.pangrova.storage.s3.object.S3ObjectStoreAccessorProvider(
+                StaticCredentialsProvider.create(AwsBasicCredentials.create("test-access", "test-secret"))))),
                 SECRET, JsonMapperFactory.create(), now::get);
     }
 

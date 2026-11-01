@@ -4,9 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.file.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import org.pangrova.file.api.object.ObjectStoreAccessor;
+import org.pangrova.file.api.object.ObjectStoreAccessorProvider;
+import org.pangrova.storage.filesystem.object.LocalObjectStoreAccessor;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -24,21 +24,21 @@ class ObjectStoreAccessorFactoryLifecycleTest {
     @TempDir Path directory;
 
     @Test
-    void closedFactoryCannotReopenCachedOrNewProfilesAndDoesNotCloseBorrowedCredentials() {
-        var credentials = new CountingCredentials();
-        var factory = new ObjectStoreAccessorFactory(credentials);
+    void closedFactoryCannotReopenCachedOrNewProfilesAndClosesItsProviders() {
+        var provider = new CountingProvider();
+        var factory = new ObjectStoreAccessorFactory(java.util.List.of(provider));
         factory.accessor(profile("first"));
         factory.close();
         factory.close();
-        assertThat(credentials.closes.get()).isZero();
+        assertThat(provider.closes.get()).isEqualTo(1);
         assertThatThrownBy(() -> factory.accessor(profile("first"))).hasMessageContaining("closed");
         assertThatThrownBy(() -> factory.accessor(profile("new"))).hasMessageContaining("closed");
     }
 
     @Test
-    void concurrentCloseReleasesOwnedCredentialsOnceAndRejectsFurtherAllocation() throws Exception {
-        var credentials = new CountingCredentials();
-        var factory = new ObjectStoreAccessorFactory(credentials, true);
+    void concurrentCloseReleasesOwnedProviderOnceAndRejectsFurtherAllocation() throws Exception {
+        var provider = new CountingProvider();
+        var factory = new ObjectStoreAccessorFactory(java.util.List.of(provider));
         var start = new CountDownLatch(1);
         var threads = Executors.newFixedThreadPool(8);
         try {
@@ -56,13 +56,43 @@ class ObjectStoreAccessorFactoryLifecycleTest {
             }
             start.countDown();
             CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).get(5, TimeUnit.SECONDS);
-            assertThat(credentials.closes.get()).isEqualTo(1);
+            assertThat(provider.closes.get()).isEqualTo(1);
             assertThatThrownBy(() -> factory.accessor(profile("later"))).hasMessageContaining("closed");
         } finally {
             start.countDown();
             threads.shutdownNow();
             factory.close();
         }
+    }
+
+    @Test
+    void duplicateBackendInventoryIsRejectedBeforeProviderOwnershipTransfers() {
+        var first = new CountingProvider();
+        var second = new CountingProvider();
+        assertThatThrownBy(() -> new ObjectStoreAccessorFactory(java.util.List.of(first, second)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Duplicate");
+        assertThat(first.closes).hasValue(0);
+        assertThat(second.closes).hasValue(0);
+        first.close();
+        second.close();
+    }
+
+    @Test
+    void oneFailedProviderDoesNotPreventTheOtherOwnerClosingAndFailureIsRetained() {
+        var fatal = new AssertionError("provider shutdown failed");
+        var first = new CountingProvider(() -> { throw fatal; });
+        var secondClosed = new AtomicInteger();
+        var second = new ObjectStoreAccessorProvider() {
+            @Override public StorageType storageType() { return StorageType.S3; }
+            @Override public ObjectStoreAccessor accessor(StorageProfile profile) { throw new AssertionError(); }
+            @Override public void close() { secondClosed.incrementAndGet(); }
+        };
+        var factory = new ObjectStoreAccessorFactory(java.util.List.of(first, second));
+        assertThatThrownBy(factory::close).isSameAs(fatal);
+        assertThatThrownBy(factory::close).isSameAs(fatal);
+        assertThat(first.closes).hasValue(1);
+        assertThat(secondClosed).hasValue(1);
+        assertThatThrownBy(() -> factory.accessor(profile("late"))).hasMessageContaining("closed");
     }
 
     private StorageProfile profile(String name) {
@@ -91,7 +121,7 @@ class ObjectStoreAccessorFactoryLifecycleTest {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var expected = new IllegalStateException("credential cleanup failed");
-        var credentials = new CountingCredentials(() -> {
+        var provider = new CountingProvider(() -> {
             entered.countDown();
             try {
                 if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("test cleanup was not released");
@@ -101,7 +131,7 @@ class ObjectStoreAccessorFactoryLifecycleTest {
             }
             throw expected;
         });
-        var factory = new ObjectStoreAccessorFactory(credentials, true);
+        var factory = new ObjectStoreAccessorFactory(java.util.List.of(provider));
         var threads = Executors.newFixedThreadPool(2);
         try {
             var first = CompletableFuture.runAsync(factory::close, threads);
@@ -118,7 +148,7 @@ class ObjectStoreAccessorFactoryLifecycleTest {
             assertThatThrownBy(() -> second.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(IllegalStateException.class);
             assertThatThrownBy(factory::close).satisfies(failure ->
                     assertThat(failure.getSuppressed()).containsExactly(expected));
-            assertThat(credentials.closes.get()).isEqualTo(1);
+            assertThat(provider.closes.get()).isEqualTo(1);
             assertThatThrownBy(() -> factory.accessor(profile("late"))).hasMessageContaining("closed");
         } finally {
             release.countDown();
@@ -126,15 +156,16 @@ class ObjectStoreAccessorFactoryLifecycleTest {
         }
     }
 
-    private static final class CountingCredentials implements AwsCredentialsProvider, AutoCloseable {
+    private static final class CountingProvider implements ObjectStoreAccessorProvider {
         private final AtomicInteger closes = new AtomicInteger();
         private final Runnable cleanup;
 
-        CountingCredentials() { this(() -> { }); }
-        CountingCredentials(Runnable cleanup) { this.cleanup = cleanup; }
+        CountingProvider() { this(() -> { }); }
+        CountingProvider(Runnable cleanup) { this.cleanup = cleanup; }
 
-        @Override public AwsCredentials resolveCredentials() {
-            return AwsBasicCredentials.create("test-key", "test-secret");
+        @Override public StorageType storageType() { return StorageType.LOCAL; }
+        @Override public ObjectStoreAccessor accessor(StorageProfile profile) {
+            return new LocalObjectStoreAccessor(Path.of(profile.bucket()));
         }
 
         @Override public void close() { closes.incrementAndGet(); cleanup.run(); }

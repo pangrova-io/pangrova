@@ -1,4 +1,4 @@
-package org.pangrova.worker.file;
+package org.pangrova.storage.s3.object;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -66,10 +66,54 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
         MINIO.stop();
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void replacementBetweenHeadAndDeleteSurvivesForMutableVersions(boolean suspended) throws IOException {
+        try (S3Client writer = client()) {
+            String bucket = bucket(writer, suspended);
+            if (suspended) {
+                writer.putBucketVersioning(request -> request.bucket(bucket).versioningConfiguration(
+                        VersioningConfiguration.builder().status(BucketVersioningStatus.SUSPENDED).build()));
+            }
+            var location = location(bucket, "delete-race");
+            String key = location.key("item");
+            String etag = writer.putObject(request -> request.bucket(bucket).key(key),
+                    software.amazon.awssdk.core.sync.RequestBody.fromString("before")).eTag();
+            var replaced = new java.util.concurrent.atomic.AtomicBoolean();
+            var deletes = new java.util.concurrent.atomic.AtomicInteger();
+            var replaceAfterHead = new ExecutionInterceptor() {
+                @Override
+                public void beforeTransmission(Context.BeforeTransmission context, ExecutionAttributes attributes) {
+                    if (context.request() instanceof software.amazon.awssdk.services.s3.model.DeleteObjectRequest) {
+                        deletes.incrementAndGet();
+                    }
+                }
+                @Override
+                public void afterExecution(Context.AfterExecution context, ExecutionAttributes attributes) {
+                    if (context.response() instanceof software.amazon.awssdk.services.s3.model.HeadObjectResponse
+                            && replaced.compareAndSet(false, true)) {
+                        writer.putObject(request -> request.bucket(bucket).key(key),
+                                software.amazon.awssdk.core.sync.RequestBody.fromString("replacement"));
+                    }
+                }
+            };
+            try (S3Client deleter = client(replaceAfterHead)) {
+                assertThatThrownBy(() -> new S3ObjectStoreAccessor(deleter).delete(location, "item", etag))
+                        .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                                assertThat(failure.getErrorCode())
+                                        .isEqualTo(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE));
+                assertThat(replaced).isTrue();
+                assertThat(deletes).hasValue(0);
+                assertThat(writer.getObjectAsBytes(request -> request.bucket(bucket).key(key)).asUtf8String())
+                        .isEqualTo("replacement");
+            }
+        }
+    }
+
     @Test
     void putHeadRangeAndDeleteRoundTrip() throws IOException {
         try (S3Client client = client()) {
-            String bucket = bucket(client, false);
+            String bucket = bucket(client, true);
             var accessor = new S3ObjectStoreAccessor(client);
             ObjectLocation location = location(bucket, "landing");
 
@@ -294,45 +338,6 @@ class S3ObjectStoreAccessorMinioTest extends ContainerTestBase {
                 assertThat(input.readAllBytes()).hasSize(FIVE_MIB + 4)
                         .startsWith(head).endsWith("tail".getBytes(StandardCharsets.UTF_8));
             }
-        }
-    }
-
-    @Test
-    void renewedMultipartGrantSurvivesOriginCleanupOnRealS3() throws IOException {
-        var now = new java.util.concurrent.atomic.AtomicLong(1_000L);
-        var mapper = org.pangrova.common.json.provider.jackson.JsonMapperFactory.create();
-        var credentials = StaticCredentialsProvider.create(
-                AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY));
-        try (S3Client client = client();
-                var originFactory = new ObjectStoreAccessorFactory(credentials);
-                var nextFactory = new ObjectStoreAccessorFactory(credentials)) {
-            String bucket = bucket(client, false);
-            var origin = new FileSpaceFileResource(originFactory, SECRET_KEY, mapper, now::get);
-            var next = new FileSpaceFileResource(nextFactory, SECRET_KEY, mapper, now::get);
-            String endpoint = location(bucket, "landing").profile().endpoint();
-            var initial = new FileAccessDescriptor("minio", StorageType.S3, bucket, "", endpoint,
-                    "us-east-1", true, "landing", "video/resume.mov", "write", 2_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
-            String encoded = java.util.Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(mapper.writeValueAsBytes(initial));
-            var session = origin.beginMultipart(new FileSpaceFileResource.BeginMultipartRequest(
-                    encoded, org.pangrova.common.file.FileAccessSignature.sign(SECRET_KEY, encoded), null));
-            byte[] head = new byte[FIVE_MIB];
-            java.util.Arrays.fill(head, (byte) 'a');
-            UploadedPart first = origin.uploadPart(initial, session.uploadId(), 1, head.length,
-                    new ByteArrayInputStream(head));
-            now.set(3_000L);
-            var renewed = new FileAccessDescriptor("minio", StorageType.S3, bucket, "", endpoint,
-                    "us-east-1", true, "landing", "video/resume.mov", "write", 9_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
-            var additional = origin.beginMultipart(renewed, null);
-            UploadedPart second = next.uploadPart(renewed, session.uploadId(), 2, 4, stream("tail"));
-            FileStat completed = next.completeMultipart(renewed, session.uploadId(), List.of(first, second));
-            assertThat(completed.size()).isEqualTo(FIVE_MIB + 4L);
-            try (InputStream input = new S3ObjectStoreAccessor(client).openRange(
-                    new ObjectLocation(renewed.profile(), renewed.baseKey()), "video/resume.mov", 0, -1, null)) {
-                assertThat(input.readAllBytes()).hasSize(FIVE_MIB + 4)
-                        .startsWith(head).endsWith("tail".getBytes(StandardCharsets.UTF_8));
-            }
-            origin.abortMultipart(renewed, additional.uploadId());
         }
     }
 

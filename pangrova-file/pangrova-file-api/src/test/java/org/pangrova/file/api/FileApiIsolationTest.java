@@ -22,7 +22,9 @@ class FileApiIsolationTest {
                 "org.pangrova.file.spi.authority.FileSpaceAuthority",
                 "org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry",
                 "software.amazon.awssdk.services.s3.S3Client", "com.aliyun.sdk.service.oss2.OSSClient",
-                "org.pangrova.worker.file.ObjectStoreAccessorFactory");
+                "org.pangrova.worker.file.ObjectStoreAccessorFactory",
+                "org.pangrova.storage.s3.object.S3ObjectStoreAccessorProvider",
+                "org.pangrova.storage.filesystem.object.FileSystemObjectStoreAccessorProvider");
         for (String name : forbidden) {
             assertThatThrownBy(() -> Class.forName(name)).isInstanceOf(ClassNotFoundException.class);
         }

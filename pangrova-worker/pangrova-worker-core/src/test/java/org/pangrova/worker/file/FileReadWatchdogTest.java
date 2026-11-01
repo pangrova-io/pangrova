@@ -38,14 +38,29 @@ class FileReadWatchdogTest {
             }
             @Override public void close() { closes.incrementAndGet(); }
         };
-        var response = new ResponseInputStream<>(GetObjectResponse.builder().contentLength(1L).build(),
+        var response = new ResponseInputStream<>(GetObjectResponse.builder().contentLength(1L).eTag("etag").contentRange("bytes 0-0/1").build(),
                 AbortableInputStream.create(body, () -> {
                     aborts.incrementAndGet();
                     aborted.countDown();
                 }));
+        var client = new software.amazon.awssdk.services.s3.S3Client() {
+            @Override public software.amazon.awssdk.services.s3.model.HeadObjectResponse headObject(
+                    software.amazon.awssdk.services.s3.model.HeadObjectRequest request) {
+                return software.amazon.awssdk.services.s3.model.HeadObjectResponse.builder()
+                        .contentLength(1L).eTag("etag").lastModified(java.time.Instant.EPOCH).build();
+            }
+            @Override public ResponseInputStream<GetObjectResponse> getObject(
+                    software.amazon.awssdk.services.s3.model.GetObjectRequest request) { return response; }
+            @Override public String serviceName() { return "s3"; }
+            @Override public void close() { }
+        };
+        var location = new org.pangrova.file.api.object.ObjectLocation(
+                new org.pangrova.file.api.profile.StorageProfile("test", org.pangrova.common.storage.StorageType.S3,
+                        "bucket", "", "", "us-east-1", java.util.Map.of(), java.util.Map.of()), "");
         var reader = Executors.newSingleThreadExecutor();
         try (var owner = new FileReadWatchdog(alarm);
-                var input = owner.open(new S3ObjectReadStream(response, 1), 2_000, () -> 1_000)) {
+                var input = owner.open(new org.pangrova.storage.s3.object.S3ObjectStoreAccessor(client)
+                        .openRange(location, "item", 0, 1, null), 2_000, () -> 1_000)) {
             var result = reader.submit(() -> input.read());
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(alarm.delayMillis()).isEqualTo(1_000);

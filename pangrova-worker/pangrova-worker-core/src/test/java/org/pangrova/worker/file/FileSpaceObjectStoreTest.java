@@ -1,5 +1,9 @@
 package org.pangrova.worker.file;
 
+import org.pangrova.storage.s3.object.S3ObjectStoreAccessor;
+
+import org.pangrova.storage.filesystem.object.LocalObjectStoreAccessor;
+
 import java.time.Instant;
 import java.util.UUID;
 import java.util.HashMap;

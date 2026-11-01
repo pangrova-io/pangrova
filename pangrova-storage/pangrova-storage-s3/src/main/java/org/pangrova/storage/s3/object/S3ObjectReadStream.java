@@ -1,4 +1,4 @@
-package org.pangrova.worker.file;
+package org.pangrova.storage.s3.object;
 
 import software.amazon.awssdk.core.ResponseInputStream;
 

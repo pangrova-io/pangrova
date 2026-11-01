@@ -40,8 +40,8 @@ class FileSpaceBlockedReadDeadlineTest {
             readerThread.set(thread);
             return thread;
         });
-        try (var worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(
-                StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test-secret"))),
+        try (var worker = new FileSpaceFileResource(new ObjectStoreAccessorFactory(java.util.List.of(new org.pangrova.storage.s3.object.S3ObjectStoreAccessorProvider(
+                StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test-secret"))))),
                 "blocked-read-test", JsonMapperFactory.create(), System::currentTimeMillis)) {
             // Warm provider/client construction before starting the receipt's original deadline.
             worker.head(descriptor(provider, "head", Long.MAX_VALUE));

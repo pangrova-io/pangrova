@@ -2047,15 +2047,23 @@ artifacts:
     path: pangrova-storage/pangrova-storage-filesystem
     mainPackages:
       - org.pangrova.storage.filesystem.blob
+      - org.pangrova.storage.filesystem.object
     pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
       pangrova-storage-api: compile
     imports:
       main:
+        - pangrova-common
+        - pangrova-file-api
         - pangrova-storage-api
       test:
+        - pangrova-common
+        - pangrova-file-api
         - pangrova-storage-api
     exportedPackages:
       - org.pangrova.storage.filesystem.blob
+      - org.pangrova.storage.filesystem.object
     providers:
       {}
   pangrova-storage-oss:
@@ -2082,15 +2090,25 @@ artifacts:
     path: pangrova-storage/pangrova-storage-s3
     mainPackages:
       - org.pangrova.storage.s3.blob
+      - org.pangrova.storage.s3.object
     pomDependencies:
+      pangrova-common: compile
+      pangrova-file-api: compile
       pangrova-storage-api: compile
+      pangrova-testing-kit: test
     imports:
       main:
+        - pangrova-common
+        - pangrova-file-api
         - pangrova-storage-api
       test:
+        - pangrova-common
+        - pangrova-file-api
         - pangrova-storage-api
+        - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.storage.s3.blob
+      - org.pangrova.storage.s3.object
     providers:
       {}
   pangrova-streaming:
@@ -2483,6 +2501,7 @@ artifacts:
       pangrova-security: compile
       pangrova-shuffle-core: compile
       pangrova-storage-api: compile
+      pangrova-storage-filesystem: compile
       pangrova-storage-s3: compile
       pangrova-testing-kit: test
       pangrova-worker-native-bridge: compile
@@ -2502,6 +2521,7 @@ artifacts:
         - pangrova-security
         - pangrova-shuffle-core
         - pangrova-storage-api
+        - pangrova-storage-filesystem
         - pangrova-storage-s3
         - pangrova-worker-native-bridge
       test:
@@ -2518,6 +2538,7 @@ artifacts:
         - pangrova-security
         - pangrova-shuffle-core
         - pangrova-storage-api
+        - pangrova-storage-filesystem
         - pangrova-storage-s3
         - pangrova-testing-kit
         - pangrova-worker-native-bridge

@@ -1,4 +1,4 @@
-package org.pangrova.worker.file;
+package org.pangrova.storage.s3.object;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -60,6 +60,7 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
 
     private final S3Client client;
     private final S3Presigner presigner;
+    private final java.util.Set<String> conditionalDeleteEndpoints;
 
     public S3ObjectStoreAccessor(S3Client client) {
         this(client, null);
@@ -70,8 +71,18 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
      * Without a presigner, {@code presign} stays unavailable.
      */
     public S3ObjectStoreAccessor(S3Client client, S3Presigner presigner) {
-        this.client = client;
+        this(client, presigner, java.util.Set.of());
+    }
+
+    /**
+     * Borrows SDK resources and installs exact custom endpoints qualified to enforce conditional DELETE.
+     * Other custom endpoints can delete only immutable version IDs; an If-Match header alone is not proof.
+     */
+    public S3ObjectStoreAccessor(S3Client client, S3Presigner presigner,
+            java.util.Set<String> conditionalDeleteEndpoints) {
+        this.client = java.util.Objects.requireNonNull(client, "client");
         this.presigner = presigner;
+        this.conditionalDeleteEndpoints = java.util.Set.copyOf(conditionalDeleteEndpoints);
     }
 
     @Override
@@ -79,7 +90,7 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
             boolean read) {
         if (presigner == null) {
             throw new PangrovaException(PangrovaErrorCode.FILE_STORAGE_UNAVAILABLE,
-                    "S3 signed URLs are not enabled on this Worker");
+                    "S3 signed URLs are not enabled by this owner");
         }
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
             throw new PangrovaException(PangrovaErrorCode.VALIDATION_INVALID_ARGUMENT,
@@ -350,6 +361,15 @@ public final class S3ObjectStoreAccessor implements ObjectStoreAccessor {
         String versionId = realVersionId(pinned.versionId());
         if (versionId != null) {
             request.versionId(versionId);
+        } else if (!location.profile().endpoint().isEmpty()
+                && !conditionalDeleteEndpoints.contains(location.profile().endpoint())) {
+            throw storageFailure("Mutable-version deletion requires a qualified conditional-delete endpoint", null);
+        } else if (current.etag() != null && !current.etag().isBlank()) {
+            // The pinned SDK predates modeled conditional deletes; this header
+            // participates in its normal signing and HTTP request pipeline.
+            request.overrideConfiguration(config -> config.putHeader("If-Match", current.etag()));
+        } else {
+            throw storageFailure("S3 returned no identity for conditional deletion of '" + path + "'", null);
         }
         try {
             client.deleteObject(request.build());

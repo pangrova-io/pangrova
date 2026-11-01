@@ -178,10 +178,25 @@ Configure workload roles through the supplied/default credential provider.
 Coordinator-issued descriptors remain credential-free; explicit credentials are
 accepted only inside the Worker secret boundary.
 
-The factory caches by the complete immutable storage profile, including root,
+Each backend provider caches by the complete immutable storage profile, including root,
 endpoint, options and credentials. Changing a secret or session token allocates a
 distinct client and presigner. Cached resources live until the owning file endpoint
 closes; injected credential providers remain caller-owned.
+
+The factory accepts a list of `ObjectStoreAccessorProvider` instances for embedded
+assembly and takes ownership after validating unique backend types. Default
+assembly installs the filesystem and S3 providers. The S3 provider exposes injected
+AWS credentials only through a non-owning SDK view, so closing its clients and
+presigners cannot close the caller's provider. Its separate default chain is owned
+and closed once.
+
+S3 FileSpace deletion uses exact immutable version IDs, or an ETag condition on
+the standard AWS endpoint. Custom endpoints require immutable versions by default.
+Embedded assembly may supply an exact inventory of custom endpoints qualified to
+enforce conditional DELETE; this inventory is not accepted from access descriptors.
+The pinned MinIO release silently ignores DELETE `If-Match` and therefore cannot
+delete mutable versions through default assembly. Such requests fail with
+`FILE_STORAGE_UNAVAILABLE` before DELETE. There is no unconditional retry.
 
 ## worker.ai
 

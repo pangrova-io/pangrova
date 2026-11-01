@@ -33,7 +33,7 @@ public interface ObjectStoreAccessor {
      * Opens a byte range of an object.
      *
      * @param offset          first byte to read
-     * @param length          bytes to read, or a negative value to read to the end
+     * @param length          bytes to read, or {@code -1} to read to the end; smaller values are invalid
      * @param expectedVersion version returned by {@link #head}; a mismatch fails
      *                        with {@code FILE-0002} instead of splicing versions
      */

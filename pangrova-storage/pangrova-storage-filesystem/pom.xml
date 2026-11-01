@@ -15,6 +15,14 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-file-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-storage-api</artifactId>
         </dependency>
         <dependency>

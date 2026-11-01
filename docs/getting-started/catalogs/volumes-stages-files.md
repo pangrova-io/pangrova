@@ -120,6 +120,14 @@ file-operation audit event per `LIST`, and fails closed with
 
 ## SQL stage removal
 
+For S3, deletion pins an immutable version when available. The standard AWS
+endpoint also supports ETag-conditional deletion of mutable versions. Custom
+endpoints use immutable versions unless locally qualified for conditional DELETE.
+The pinned MinIO release does not enforce that condition, so unversioned or
+suspended `null`-version removal fails with `FILE_STORAGE_UNAVAILABLE` before the
+DELETE request. Enabling versioning supports exact-version deletion. A successful
+HEAD alone cannot make an unconditional delete safe against concurrent overwrites.
+
 `REMOVE @stage` deletes the objects matched under a prefix. It takes the same
 shape as `LIST` plus the `PATTERN` filter, and requires `WRITE_STAGE` on the
 stage in addition to `USAGE_STAGE` and `READ_STAGE` (used to enumerate the match set):

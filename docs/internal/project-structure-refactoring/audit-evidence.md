@@ -1,6 +1,6 @@
 # 项目结构审查证据
 
-审查日期：2026-11-01。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“47. File契约、核心与JDBC拆分”，不同批次检查结果不混用。
+审查日期：2026-11-01。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“48. 对象传输provider与S3条件删除”，不同批次检查结果不混用。
 
 ## 范围和方法
 
@@ -533,3 +533,35 @@ manifest、SPI115零gap、Stable23、stub、truthfulness、246架构类引用通
 Native/protocol及合格库不变；没有新C++/ASan/Linux资格。Worker物理访问器迁移、OSS
 FileSpace/COPY、真实云端OSS/权限/KMS/多Worker、B6/Catalog B0、四SCC、全文件审查及R5/R6
 继续开放。详细命令范围、失败与日志见执行记录47。
+
+## 48. 对象传输provider与S3条件删除
+
+Worker的LOCAL/S3访问器、S3私有流和SDK工厂迁入现有Storage leaves.object；API新增真实
+ObjectStoreAccessorProvider，Worker只选择和关闭provider，AWS签名从构造参数移出，无旧类
+转发。File API29主源；Filesystem5/2包/3测试源；S3 8/2包/11测试源；Worker246/41包/236测试源。
+混入MinIO类的Worker multipart续期方法迁回Worker独立真实MinIO测试，显式关闭两个resource；
+watchdog只经公开accessor获得私有取消流。
+
+最近7项在旧行为先失败6项：mutable S3 HEAD→DELETE竞态、identity缺失仍删除、LOCAL负长度
+不一致。S3 conditional header修复的首次真实MinIO竞态仍失败，证明服务忽略If-Match；默认
+custom endpoint现只删immutable版本，两项MinIO回归要求零DELETE且新bytes保留。标准AWS与
+本地显式合格custom endpoint走签名ETag条件，协议夹具不充当真实云资格。原正向删除用
+versioned bucket，保留所有其他断言。SDK lifecycle实际分配资源后又暴露borrowed credentials
+被关闭3次；非拥有resolve委托修复后caller资源关闭0次，自有chain并发close仍1次。
+
+API9、Filesystem27、S3 61及static通过；最终SDK signed-header8与API9/static复核通过。
+Worker完整1257零failure/error/skip后有一个多空行style失败，修正后最近23及static通过；
+不是又一次完整回归。AI215+static；shared FILE HTTP/SQL41+static、独立LOCAL4、独立COPY1
+通过。74项clean install通过（skipTests）；最后仅有参数Javadoc和空行修正，相关static复核。
+
+实际S3 47个未过滤runtime URL加载5类型，无Worker/JDBC/其他provider；Filesystem四URL遍历
+全部实现，真实test classpath亦无SDK/Worker/JDBC。当前POM定位59个main JAR无旧Worker类型，
+Docker15 JAR、RUN语法和Module-Name通过，未构建镜像。更正上节92 JAR统计：glob还扫描
+退役目录和工具产物，并非92个当前reactor重建JAR；应以当前POM及实际runtime inventory为准。
+
+模块7/包2最终通过，初次装配allow-list漏项已修正；原四SCC成员/见证不变，只有包数669。
+SPI116零gap、Stable23、manifest、stub、truthfulness、247架构类引用通过。当前74reactor、
+58Java叶子、1资源JAR、15聚合、3599主源/669包/2391测试源；全包台账精确一致。Native/protocol
+及匹配库不变，无新C++/ASan/Linux资格。OSS FileSpace/COPY与云端资格、LOCAL并发/流契约、
+S3历史语义、Worker JDBC目录adapter、B6/Catalog B0、四SCC、全文件审查及R5/R6继续开放。
+详细失败、日志和范围见执行记录48。

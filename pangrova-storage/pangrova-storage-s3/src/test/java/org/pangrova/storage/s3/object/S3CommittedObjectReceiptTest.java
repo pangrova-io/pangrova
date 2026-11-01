@@ -1,4 +1,4 @@
-package org.pangrova.worker.file;
+package org.pangrova.storage.s3.object;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

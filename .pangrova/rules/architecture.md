@@ -38,8 +38,8 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-file/pangrova-file-core` | File access/URL/directory orchestration, Worker HTTP client adapter and internal current-authority SPI; consumes File API and Security, never a File store implementation |
 | `pangrova-file/pangrova-file-store-jdbc` | PostgreSQL File registries, current authority, directory snapshots, COPY claims and source-read admissions; implements File contracts and consumes Query/Security transaction ports |
 | `pangrova-storage/pangrova-storage-api` | SDK-free blob identity, publication and admitted managed-storage ports shared by Worker COPY and the AI FILE layer |
-| `pangrova-storage/pangrova-storage-filesystem` | Independent filesystem content publication over Storage API; no cloud SDK dependency |
-| `pangrova-storage/pangrova-storage-s3` | S3 publication, encryption, backend identity and bounded transport over Storage API |
+| `pangrova-storage/pangrova-storage-filesystem` | Filesystem content publication over Storage API and confined object transfer over File API; no cloud SDK or process dependency |
+| `pangrova-storage/pangrova-storage-s3` | S3 publication/managed storage over Storage API; object transfer and owned SDK clients/presigners over File API |
 | `pangrova-storage/pangrova-storage-oss` | Alibaba OSS publication over Storage API with its own client, cancellation, encryption and never-versioned bucket policy; not a COPY source/managed adapter |
 | `pangrova-ai/pangrova-ai-api` | Shared AI model, capability, invocation, embedding descriptors and the Worker↔AI runtime ports |
 | `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Generation contracts without exposing this dependency through AI API |
@@ -141,6 +141,12 @@ sources. Filesystem publication copies and verifies caller staging before an ato
 link, and must never publish a mutable alias of caller-owned bytes.
 OSS owns its official client and cancellable transport, and implements only the content-publication
 port. Its never-versioned bucket policy must not be generalized into COPY source/version authority.
+File API separately owns ObjectStoreAccessorProvider. Filesystem and S3 providers implement it;
+Worker assembly selects and closes providers, while each provider owns its accessor cache and
+resources. These providers must not depend on Worker, File Core or File JDBC stores. SDK clients
+must receive a non-owning credential view; only the provider may close an owned default chain.
+Mutable-version S3 deletes require a conditional-delete-capable endpoint. Custom endpoints are
+version-only unless explicitly qualified in local provider assembly; never retry unconditionally.
 
 The authoritative per-artifact allow-list (`packageRoots`, `exports`,
 `allowedImports`, `forbiddenImports`, `friendExports`, declared `providers`) lives

@@ -401,9 +401,9 @@ class FileSpaceFileResourceTest {
     @Test
     void providerUrlCannotOutliveTheAuthorizingGrant() {
         var now = new AtomicLong(System.currentTimeMillis());
-        try (var accessors = new ObjectStoreAccessorFactory(
+        try (var accessors = new ObjectStoreAccessorFactory(java.util.List.of(new org.pangrova.storage.s3.object.S3ObjectStoreAccessorProvider(
                 software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
-                        software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))) {
+                        software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))))) {
             var worker = owned(new FileSpaceFileResource(accessors, SECRET, mapper, now::get));
             java.util.function.LongFunction<FileAccessDescriptor> grantAt = expiry ->
                     new FileAccessDescriptor("s3", StorageType.S3, "test-bucket", "", "http://localhost:1",

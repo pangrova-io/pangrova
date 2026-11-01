@@ -1,4 +1,4 @@
-package org.pangrova.worker.file;
+package org.pangrova.storage.filesystem.object;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -42,6 +42,14 @@ class LocalObjectStoreAccessorTest {
         StorageProfile profile = new StorageProfile("local", StorageType.LOCAL,
                 root.toString(), "", "", "", Map.of(), Map.of());
         location = new ObjectLocation(profile, "volumes/media/raw/landing");
+    }
+
+    @Test
+    void invalidNegativeRangeLengthIsRejectedConsistentlyAcrossBackends() throws IOException {
+        accessor.put(location, "range.bin", stream("data"), 4, null);
+        assertThatThrownBy(() -> accessor.openRange(location, "range.bin", 0, -2, null))
+                .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.FILE_PATH_INVALID));
     }
 
     @Test

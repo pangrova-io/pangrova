@@ -23,14 +23,32 @@ Worker listing pages without opening file bytes. A different metadata provider
 must preserve the same attempt fencing and publication semantics. Relational
 directory scans still use their separate execution adapter.
 
-Worker file endpoints consume File API. Their current LOCAL and S3 accessors and
-SDK factory remain in Worker; moving those implementations to independent storage
-providers is still outstanding. The factory uses the complete immutable profile
-as its cache identity, including credentials and options. Delimiter-containing
-profile fields cannot collide, and a rotated secret or session token cannot reuse
-an earlier client or presigner. Invalid explicit S3 credentials fail before
-provider use. Closing the factory attempts all owned clients, presigners and its
-owned default credential chain, preserving cleanup failures.
+Worker file endpoints consume File API. Its `ObjectStoreAccessorProvider` contract
+lets the host select and own independent backend providers without SDK types in
+the factory signature. The filesystem artifact owns confined LOCAL transfer and
+multipart staging; the S3 artifact owns S3 transfer, response cancellation, SDK
+clients and presigners. Providers have no Worker, File Core or File JDBC dependency.
+Worker retains HTTP authorization/deadlines and its directory execution adapter.
+
+Each provider caches by the complete immutable profile, including credentials and
+options. Delimiter-containing fields cannot collide, and a rotated secret or token
+cannot reuse an earlier client or presigner. Invalid explicit S3 credentials fail
+before use. The host stops active reads and closes every owned provider; each
+provider closes its resources and preserves cleanup failure on repeated calls.
+SDK clients receive a credential view that delegates resolution without exposing
+close. The S3 provider closes its owned default chain once; injected credentials
+remain caller-owned, including after clients and presigners have been allocated.
+
+S3 deletion pins an immutable version ID where available. For unversioned or
+mutable `null` versions, the standard AWS endpoint uses an exact ETag `If-Match`
+condition; missing identity fails before DELETE. Custom endpoints are version-only
+by default. A host can pass an exact endpoint inventory qualified to enforce
+conditional DELETE to the S3 provider. This is local assembly policy, not a field
+accepted from an access ticket. The pinned MinIO release ignores this condition,
+so mutable-version deletion there fails before DELETE and preserves replacements.
+The protocol fixture verifies the qualified path but does not qualify a real AWS
+or other cloud deployment. See the official
+[conditional-delete semantics](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-deletes.html).
 
 `pangrova-storage-api` has a separate content-publication contract used by governed
 FILE values. Its filesystem, S3 and OSS implementations do not grant Volume/Stage
@@ -39,8 +57,10 @@ does not implement OSS FileSpace transfer, COPY source admission or managed
 storage. Those paths require their own authority, immutable-version and transfer
 contracts.
 
-Provider tests live with the JDBC artifact and apply the canonical migrations
-through the shared test kit. Cross-provider authority tests stay with the domain
+Metadata provider tests live with the JDBC artifact and apply the canonical migrations
+through the shared test kit. Object-transfer tests live with their physical provider;
+Worker retains the cross-resource multipart renewal and HTTP expiry tests, using
+public accessors rather than private SDK-stream classes. Cross-provider authority tests stay with the domain
 that supplies the other provider, while Coordinator and integration tests retain
 the production assembly and HTTP/SQL paths. File API tests load every API class
 using only its own output and Common, without filtering provider URLs out of a

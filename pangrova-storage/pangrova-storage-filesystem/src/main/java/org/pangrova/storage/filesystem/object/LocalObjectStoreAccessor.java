@@ -1,4 +1,4 @@
-package org.pangrova.worker.file;
+package org.pangrova.storage.filesystem.object;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -83,7 +83,7 @@ public final class LocalObjectStoreAccessor implements ObjectStoreAccessor {
                         "Version precondition failed for '" + path + "'");
             }
             long size = channel.size();
-            if (offset < 0 || offset > size || length > size - offset) {
+            if (offset < 0 || offset > size || length < -1 || length > size - offset) {
                 throw new PangrovaException(PangrovaErrorCode.FILE_PATH_INVALID,
                         "Requested range is outside '" + path + "'");
             }

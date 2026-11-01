@@ -4,7 +4,7 @@
 
 状态：执行中，尚未完成全模块语义审查和全链验证。审计起点：2026-10-31 当前工作区（包括既有暂存和未暂存迁移）。本文是执行清单；长期蓝图中的历史数量、M 编号和“done”不能代替当前验收证据。
 
-**最新源码快照（第47节File契约、核心与JDBC拆分）**：74 个 Maven reactor 项目、58 个 Java 代码叶子、1 个纯资源 JAR、15 个聚合项目、3,594 个 Java 主源文件、667 个主源包、2,386 个测试源文件。全图仍有4组 SCC；模块7项、包结构2项通过，无环项真实失败。74项 clean reactor 编译通过（skipTests）；本批验证见第47节，各历史章节保留当批事实。
+**最新源码快照（第48节对象传输provider与S3条件删除）**：74 个 Maven reactor 项目、58 个 Java 代码叶子、1 个纯资源 JAR、15 个聚合项目、3,599 个 Java 主源文件、669 个主源包、2,391 个测试源文件。全图仍有4组 SCC；模块7项、包结构2项通过，无环项真实失败。74项 clean reactor 编译通过（skipTests）；本批验证见第48节，各历史章节保留当批事实。
 
 ## 1. 已核实的现状和设计判断
 
@@ -2674,3 +2674,93 @@ test-jar无迁出的4个test class。Docker显式清单增加三个File叶子，
 源码及合格库未修改，没有新C++/ASan/Linux资格证据。Worker内LOCAL/S3物理访问器和SDK工厂
 仍需迁入独立provider，OSS FileSpace/COPY、真实OSS云SQL/RAM/KMS/多Worker、B6/Catalog B0、
 四SCC、逐文件语义审查与R5/R6继续开放；本批仅完成File契约/编排/JDBC边界和已复现配置根因。
+
+## 48. 对象传输provider、S3条件删除与凭据所有权
+
+第47节保存为检查点 `bd5efb34`。本批将Worker中的实际LOCAL/S3访问器、私有S3响应流与
+SDK客户端工厂迁入现有Storage provider叶子，不新增空制品。File API新增Experimental
+ObjectStoreAccessorProvider，只有backend、accessor解析与close契约，无SDK/Security/进程
+类型。Worker的ObjectStoreAccessorFactory只接收provider列表，校验唯一backend并管理
+整体关闭；原AWS构造器移除，所有repo调用者已切换，无旧类转发或第二套SDK创建路径。
+
+| 当前owner | 主源/包/测试源 | 变化 |
+|---|---:|---|
+| File API | 29 / 9 / 4 | 新增真实provider端口，两个实际实现；range长度明确只有-1表示读至末尾 |
+| Storage filesystem | 5 / 2 / 3 | blob之外新增object包，LocalObjectStoreAccessor及无云依赖的provider/cache归此 |
+| Storage S3 | 8 / 2 / 11 | blob之外新增object包，accessor、私有read stream、SDK/cache owner与原测试归此 |
+| Worker Core | 246 / 41 / 236 | 保留HTTP、descriptor、byte window、deadline/watchdog、provider装配；目录JDBC执行adapter仍待抽端口 |
+
+原MinIO类混有Worker HTTP multipart grant续期测试，首次provider编译因此失败。该方法独立
+归Worker FileSpaceS3MultipartIntegrationTest，保留实际MinIO与断言，并显式关闭两个resource。
+私有S3ObjectReadStream测试归S3叶子；Worker watchdog通过公开S3 accessor和SDK响应fixture
+得到同一取消流，不把私有类升为公共API，也不引入provider→Worker测试依赖。
+
+### 48.1 先复现，再修删除与凭据错误
+
+最初SDK HTTP fixture复现S3先HEAD、后无条件DELETE的竞态：无版本和字面null版本均可删除
+HEAD后并发替换的新对象；缺少ETag仍发DELETE。另复现LOCAL把-2当成读到末尾，和既有S3
+校验不一致。7项最近回归先有6项失败，日志 `/tmp/pangrova-object-provider-red.log` 保留。
+
+S3现优先删除HEAD固定的真实immutable version；无版本/可变null只在标准AWS endpoint或
+本地装配显式合格的精确自定义endpoint上发送ETag If-Match。缺少identity直接失败；412映射
+FILE_OBJECT_PRECONDITION_FAILED，不重试为无条件DELETE。沿用SDK2.25.16，使用request override
+添加该SDK尚未建模的标准header；实际签名HTTP请求验证If-Match被包含在SignedHeaders。
+语义依据为官方[条件删除](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-deletes.html)
+和[DeleteObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html)，不是把HEAD
+当作原子fence。LOCAL现拒绝小于-1的range length，错误码和S3一致。
+
+真实MinIO RELEASE.2024-12-18T13-15-44Z在两个mutable版本竞态中忽略DELETE If-Match，仍删除
+replacement，初次S3回归因此失败。不能宣称加header已修复所有兼容服务。默认自定义endpoint
+只允许immutable version删除；两项真实MinIO回归现在验证FILE_STORAGE_UNAVAILABLE、零DELETE
+发送和replacement仍存在。正向round-trip改用真实versioned bucket，所有原读写/range/metadata
+断言保留。合格custom endpoint inventory只能从provider本地构造参数传入，不从ticket或profile
+options接受。协议fixture覆盖显式合格路径，不等于真实云端资格；也不通过替换服务/忽略断言
+掩盖原MinIO失败。精确版本删除不等于清除整个key的历史或managed保留策略。
+
+迁移后的生命周期测试首次实际创建S3 client和presigner，发现借用credentials被SDK关闭3次。
+旧测试只走LOCAL，无法证明SDK ownership。现向SDK提供只委托resolveCredentials的非拥有视图，
+保持token刷新行为；只有S3 provider关闭自建默认chain一次，注入provider始终归caller。
+回归覆盖借用0次、拥有且实际分配client/presigner后的并发32次close仍只关闭1次、失败等待
+和Error后继续关闭。Generic Worker factory另覆盖重复backend拒绝、所有provider关闭及失败
+终态；完整StorageProfile缓存身份与上一批session/secret轮换断言保留。
+
+### 48.2 验证、装配与证据边界
+
+| 范围 | 实际终态 |
+|---|---|
+| File API / Filesystem / S3 | 9 / 27 / 61项及三个制品static通过；Filesystem包含LOCAL17、隔离/关闭2、blob8；S3包含MinIO14、conditional8及原blob10等 |
+| 最终签名与API注释复核 | 签名header断言补充后conditional8+S3 static；-1契约Javadoc澄清后API9+static，通过 |
+| Worker | full-regression1257项零failure/error/skip，包括5GiB LOCAL HTTP、真实multipart续期与Native property；结束后有一个多空行style错误，修复后最近23项及Worker static通过；未声称又运行完整1257 |
+| AI Worker | 完整215项及static通过，新增File API传递依赖没有引入进程或JDBC |
+| shared SQL/HTTP | 41项及Integration static通过：上一批35范围加S3 governed FILE SQL6；不是每项都经过真实HTTP/Native |
+| isolated owners | 独立LOCAL部署SQL/JNI4项；独立精确方法COPY私有ticket/精确版本/managed重启1项，通过；没有同JVM混用不同Native owner |
+| reactor / 结构 | 74项clean install通过（skipTests）；最终模块7、包2过，无环1仍因原四SCC失败。初次漏掉Worker→filesystem装配allow-list的真实失败已修正，没有新增baseline豁免 |
+| 其他门禁 | manifest、SPI116零gap、Stable23、stub、truthfulness、247架构类引用、diff检查通过；台账669行/58叶子摘要与源码计数精确一致 |
+
+Worker减少的测试主要随provider迁移，不是删除或跳过：Local原16、S3原30、identity7迁出，
+Worker增加两个provider lifecycle案例，1308-16-30-7+2=1257。provider新增negative range、
+conditional DELETE、真实MinIO拒绝和独立classloader等；不把同一案例复跑或property tries
+累计成新案例。所有结果按console suite与summary核对。
+
+Filesystem独立loader用本制品、File API、Storage API、Common四个URL，遍历全部本地实现；
+真实test classpath也没有SDK、Worker或JDBC。S3的实际runtime为本JAR加46个依赖URL，未过滤
+的47 URL loader加载5个公开契约/实现，无法加载Worker、File Core、JDBC、filesystem或OSS。
+File API实际依赖2 URL，Filesystem4、Worker176；前二者没有进程/Core/store依赖。
+
+产物检查改为从当前POM及maven-archiver属性定位59个main JAR（58Java＋1资源），确认三种
+旧Worker类型不存在且新provider JAR拥有它们。更正第47节的统计口径：当时glob检查的92个
+target JAR还包含退役目录产物和工具插件，不能都称为当前reactor重建制品；类型不残留的
+扫描事实保留。本批不把本地历史build缓存当运行时inventory；实际Maven runtime classpath
+与Docker显式15 JAR均检查，Automatic-Module-Name与RUN语法通过，未构建Linux镜像。
+
+本批日志前缀 `/tmp/pangrova-object-provider-*`：owners-first保留跨owner编译失败，s3-second
+保留MinIO竞态和borrowed credentials失败，s3-third为修正后60项，owners-final为追加装配
+断言后的97项总和，signed-delete-final为最终签名8项，worker-full保留1257与style失败，
+worker-static-final为最近范围/static，http-sql、local-native、copy-native、reactor-first、
+artifact-audit及structure-final保留上述最终终态。Native/protocol和合格库未修改，没有新
+C++/ASan/Linux资格结果。
+
+当前74reactor、58Java叶子、1资源JAR、15聚合；3599主源/669包/2391测试源。OSS FileSpace/
+COPY与真实OSS云权限/KMS/多Worker资格仍开放；LOCAL同key并发/流契约、S3历史版本删除语义、
+Worker directory JDBC adapter、B6/Catalog B0、四SCC、逐文件审查及R5/R6继续推进。本批不代表
+全部Storage语义或全仓生产验收。

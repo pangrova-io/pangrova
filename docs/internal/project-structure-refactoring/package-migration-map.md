@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-11-01，第47节File契约、核心与JDBC拆分工作区。667 包 / 58 Java 叶子 / 3,594 主源文件 / 2,386 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
+当前台账：2026-11-01，第48节对象传输provider与S3条件删除工作区。669 包 / 58 Java 叶子 / 3,599 主源文件 / 2,391 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -16,7 +16,9 @@
 
 [总体计划与批次定义](../project-structure-refactoring-plan.md)。目标包中的 `{a,b}` 表示按能力分包，不是字面 Java 包名；`<能力>` 由该行现有能力后缀确定；多目标项按总体计划中的类级规则迁移，禁止整包机械复制。短包名前缀与当前 owner 对齐；跨域目标均注明制品。
 
-第47节将File拆成API/Core/JDBC三个真实叶子；6个存储实现与4组测试归JDBC，Security authority归Core，传输DTO归api.object；没有保留旧包兼容类。Worker的LOCAL/S3实现与OSS FileSpace路径仍待后续迁移。
+第47节将File拆成API/Core/JDBC三个真实叶子；6个存储实现与4组测试归JDBC，Security authority归Core，传输DTO归api.object；没有保留旧包兼容类。当批仍待迁移的Worker LOCAL/S3实现在第48节迁出；OSS FileSpace路径继续开放。
+
+第48节将LOCAL/S3访问器、S3流与SDK工厂迁入各自Storage provider；File API新增真实provider端口，Worker仅选择并关闭provider。MinIO可变版本删除因不支持条件语义而显式拒绝；无Worker→SDK工厂签名泄漏。
 
 动作含义：保留＝当前结构无充分理由移动，继续语义审查；迁移＝已有清晰 owner/落位；按类拆分＝当前包混合职责；改依赖＝位置可保留，必须反转调用边。各行列出目标动作；只有执行记录中具备迁移与验证证据的部分可以标记完成，其余仍为“待实施/验收”。
 
@@ -403,7 +405,7 @@
 
 ## pangrova-file-api
 
-路径：`pangrova-file/pangrova-file-api`。主源文件 28，主源包 9，本叶子测试源文件 4（不是测试用例数）。
+路径：`pangrova-file/pangrova-file-api`。主源文件 29，主源包 9，本叶子测试源文件 4（不是测试用例数）。
 
 Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。
 
@@ -414,7 +416,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.file.api.claim](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/claim) | 2 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.claim` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
 | [org.pangrova.file.api.copy](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/copy) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.copy` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
 | [org.pangrova.file.api.directory](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/directory) | 4 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.directory` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.object](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/object) | 5 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.object` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
+| [org.pangrova.file.api.object](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/object) | 6 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.object` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
 | [org.pangrova.file.api.profile](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/profile) | 3 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.profile` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
 | [org.pangrova.file.api.space](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/space) | 6 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.space` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
 | [org.pangrova.file.api.storage](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/storage) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.storage` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
@@ -919,19 +921,21 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 
 ## pangrova-storage-filesystem
 
-路径：`pangrova-storage/pangrova-storage-filesystem`。主源文件 2，主源包 1，本叶子测试源文件 1（不是测试用例数）。
+路径：`pangrova-storage/pangrova-storage-filesystem`。主源文件 5，主源包 2，本叶子测试源文件 3（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.storage.filesystem.blob](../../../pangrova-storage/pangrova-storage-filesystem/src/main/java/org/pangrova/storage/filesystem/blob) | 2 | 保留 / P7 | `pangrova-storage-filesystem`：`org.pangrova.storage.filesystem.blob` | 第44节：独立复制、校验、原子不覆盖发布；8 项真实文件/并发回归，管理员受控 root 与共享 namespace 边界 |
+| [org.pangrova.storage.filesystem.object](../../../pangrova-storage/pangrova-storage-filesystem/src/main/java/org/pangrova/storage/filesystem/object) | 3 | 已迁移 / 第48节，继续语义验收 | `pangrova-storage-filesystem`：`org.pangrova.storage.filesystem.object` | 独立File API对象访问、缓存与生命周期；无Worker/Core/JDBC依赖；LOCAL根约束、流式版本校验和multipart。 |
 
 ## pangrova-storage-s3
 
-路径：`pangrova-storage/pangrova-storage-s3`。主源文件 4，主源包 1，本叶子测试源文件 3（不是测试用例数）。
+路径：`pangrova-storage/pangrova-storage-s3`。主源文件 8，主源包 2，本叶子测试源文件 11（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.storage.s3.blob](../../../pangrova-storage/pangrova-storage-s3/src/main/java/org/pangrova/storage/s3/blob) | 4 | 保留 / P7 | `pangrova-storage-s3`：`org.pangrova.storage.s3.blob` | 第44节：AWS SDK、加密、配置与后端指纹，COPY I/O grant 与取消边界；OSS 独立归下一制品，不以endpoint替换混用 |
+| [org.pangrova.storage.s3.object](../../../pangrova-storage/pangrova-storage-s3/src/main/java/org/pangrova/storage/s3/object) | 4 | 已迁移 / 第48节，继续语义验收 | `pangrova-storage-s3`：`org.pangrova.storage.s3.object` | 独立File API对象访问、缓存与生命周期；无Worker/Core/JDBC依赖；S3 SDK owner、不可变版本/条件DELETE、非拥有credentials视图。 |
 
 ## pangrova-storage-oss
 
@@ -1050,7 +1054,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 
 ## pangrova-worker-core
 
-路径：`pangrova-worker/pangrova-worker-core`。主源文件 249，主源包 41，本叶子测试源文件 241（不是测试用例数）。
+路径：`pangrova-worker/pangrova-worker-core`。主源文件 246，主源包 41，本叶子测试源文件 236（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -1075,7 +1079,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.worker.exchange.transport](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/exchange/transport) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.exchange.transport` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.execution](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution) | 9 | 按类拆分 / P6 | `pangrova-worker-core`：`org.pangrova.worker.execution.spi / core / adapter.nativebridge` | 只抽真实执行/egress 能力；保留 native creation recovery owner |
 | [org.pangrova.worker.execution.filter](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/execution/filter) | 5 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.execution.filter` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
-| [org.pangrova.worker.file](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file) | 12 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.file` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
+| [org.pangrova.worker.file](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/file) | 9 | provider已迁出 / 第48节；其余继续梳理 | `pangrova-worker-core`：`org.pangrova.worker.file` | HTTP descriptor/expiry/byte-window与provider装配；JDBC directory execution adapter的端口化仍开放 |
 | [org.pangrova.worker.heartbeat](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/heartbeat) | 6 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.heartbeat` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.http](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/http) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.http` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.http.endpoint](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/http/endpoint) | 8 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.http.endpoint` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
