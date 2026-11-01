@@ -452,7 +452,7 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-coordination-inmemory</artifactId>
+                <artifactId>pangrova-persistence-memory</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

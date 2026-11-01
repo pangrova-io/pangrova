@@ -2,7 +2,7 @@ package org.pangrova.coordinator.adapter.indexing.lifecycle;
 
 import org.pangrova.coordinator.adapter.indexing.ddl.ConnectorAccessorResolver;
 import org.pangrova.coordinator.adapter.indexing.ddl.IndexBuildServices;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.indexing.core.build.IndexBuildContext;
 import org.pangrova.indexing.core.build.IndexBuildCoordinator;
 import org.pangrova.indexing.core.config.ConsistencyConfig;

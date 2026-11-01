@@ -13,11 +13,10 @@
     <artifactId>pangrova-coordination</artifactId>
     <packaging>pom</packaging>
     <name>Pangrova Coordination</name>
-    <description>Coordination contracts, JDBC/in-memory/ZooKeeper backends and the Coordinator process</description>
+    <description>Coordinator process and ZooKeeper coordination backend</description>
 
     <modules>
 
-        <module>pangrova-coordination-inmemory</module>
         <module>pangrova-coordination-core</module>
         <module>pangrova-coordination-zookeeper</module>
     </modules>

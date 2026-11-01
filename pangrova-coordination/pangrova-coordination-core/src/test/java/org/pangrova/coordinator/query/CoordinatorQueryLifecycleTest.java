@@ -29,7 +29,7 @@ import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

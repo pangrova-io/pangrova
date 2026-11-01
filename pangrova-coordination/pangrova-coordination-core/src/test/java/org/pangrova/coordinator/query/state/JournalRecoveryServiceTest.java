@@ -22,7 +22,7 @@ import org.pangrova.client.core.error.ErrorDetail;
 import org.pangrova.spi.query.state.QueryStateEvent;
 import org.pangrova.spi.query.state.StateJournalConfig;
 import org.pangrova.spi.query.state.TaskStateEvent;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 

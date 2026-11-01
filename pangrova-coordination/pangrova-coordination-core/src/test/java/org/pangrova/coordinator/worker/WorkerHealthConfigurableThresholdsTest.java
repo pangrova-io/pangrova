@@ -5,7 +5,7 @@ import org.pangrova.scheduler.api.placement.HealthState;
 import java.time.Instant;
 
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

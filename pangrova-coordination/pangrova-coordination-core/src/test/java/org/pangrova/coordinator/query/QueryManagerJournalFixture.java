@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -24,7 +24,7 @@ import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.scheduler.core.admission.InMemoryClusterConcurrencySlots;
 import org.pangrova.scheduler.core.admission.TenantQuotaAdmissionController;
 import org.pangrova.security.core.tenant.InMemoryTenantStore;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
 

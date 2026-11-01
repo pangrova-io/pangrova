@@ -25,7 +25,7 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
 import org.pangrova.spi.connector.plugin.ConnectorFactory;
 import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.security.UserIdentity;
 
 import java.nio.file.Path;

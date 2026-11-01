@@ -13,7 +13,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 
 /** Real control-plane collaborators for REST registry tests; no Native task or SQL result is simulated. */

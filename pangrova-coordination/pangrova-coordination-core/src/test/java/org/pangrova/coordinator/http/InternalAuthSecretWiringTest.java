@@ -21,7 +21,7 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.core.authn.AuthenticationManager;
 import org.pangrova.spi.security.authn.AuthenticationRequest;
 import org.pangrova.security.core.authn.provider.oauth2.OAuth2Authenticator;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

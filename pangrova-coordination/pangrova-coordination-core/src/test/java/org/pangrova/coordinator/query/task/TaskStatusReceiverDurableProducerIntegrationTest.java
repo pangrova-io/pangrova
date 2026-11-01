@@ -67,7 +67,7 @@ import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.query.coordination.ExecutionAnchor;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 
 import javax.sql.DataSource;
 import java.io.ByteArrayOutputStream;

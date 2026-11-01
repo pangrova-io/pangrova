@@ -1,5 +1,5 @@
 package org.pangrova.coordinator.query;
-import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
+import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
@@ -26,7 +26,7 @@ import org.pangrova.security.core.tenant.InMemoryTenantStore;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,7 +76,7 @@ class QueryManagerTenantTest {
 
         queryManager = new QueryManager(new QueryManagerContext(
                 orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker, null, null, null, null, null,
-                new org.pangrova.query.store.memory.InMemoryQueryStateJournal(), null));
+                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(), null));
     }
 
     @AfterEach
@@ -156,7 +156,7 @@ class QueryManagerTenantTest {
                 orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker,
                 null, null, null, null,
                 new QueryThrottlingService(2, 0.001, 100.0),
-                new org.pangrova.query.store.memory.InMemoryQueryStateJournal(),
+                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(),
                 null));
 
         for (String tenantId : List.of("tenant-a", "tenant-b")) {

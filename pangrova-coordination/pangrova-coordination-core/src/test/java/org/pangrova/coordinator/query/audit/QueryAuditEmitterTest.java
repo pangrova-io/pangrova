@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.audit;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.query.adapter.audit.LogAuditStore;
+import org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore;
 import org.pangrova.query.core.audit.QueryAuditService;
 import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class QueryAuditEmitterTest {
     @Test
     void completedRecordKeepsTheSubmittingIdentityWithoutAnEventBackend() {
-        var service = new QueryAuditService(new LogAuditStore(4));
+        var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
         var emitter = new QueryAuditEmitter(null, service);
         emitter.emitQueryCompleted("completed-query", 17,
                 new QueryAuditEmitter.AuditSubject("alice", "tenant-a"));
@@ -31,7 +31,7 @@ class QueryAuditEmitterTest {
 
     @Test
     void failedRecordKeepsItsOwnIdentityAfterAnotherTenantCompletes() {
-        var service = new QueryAuditService(new LogAuditStore(4));
+        var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
         var emitter = new QueryAuditEmitter(null, service);
         emitter.emitQueryCompleted("alice-query", 17,
                 new QueryAuditEmitter.AuditSubject("alice", "tenant-a"));
@@ -48,7 +48,7 @@ class QueryAuditEmitterTest {
 
     @Test
     void anonymousRejectionDoesNotInventAPersistedTenant() {
-        var service = new QueryAuditService(new LogAuditStore(4));
+        var service = new QueryAuditService(new InMemoryQueryAuditStore(4));
         var emitter = new QueryAuditEmitter(null, service);
         emitter.emitQueryFailed("anonymous-query", "rejected", 7,
                 new QueryAuditEmitter.AuditSubject("anonymous", null));

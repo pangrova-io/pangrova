@@ -614,14 +614,6 @@
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
 
-    <!-- The shared audit cache connects persistence to profile reads; LogAuditStoreTest proves shared identity. -->
-    <Match>
-        <Class name="org.pangrova.query.adapter.audit.LogAuditStore"/>
-        <Method name="shared"/>
-        <Field name="SHARED_INSTANCE"/>
-        <Bug pattern="MS_EXPOSE_REP"/>
-    </Match>
-
     <!-- QueryAuditStore is an injected live persistence collaborator; QueryAuditServiceTest verifies shared writes and reads. -->
     <Match>
         <Class name="org.pangrova.query.core.audit.QueryAuditService"/>

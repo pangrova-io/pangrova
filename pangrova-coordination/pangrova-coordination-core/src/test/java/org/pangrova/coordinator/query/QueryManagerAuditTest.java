@@ -1,5 +1,5 @@
 package org.pangrova.coordinator.query;
-import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
+import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
@@ -10,7 +10,7 @@ import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
-import org.pangrova.query.adapter.audit.LogAuditStore;
+import org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore;
 import org.pangrova.query.core.audit.QueryAuditService;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.planner.PangrovaPlanner;
@@ -22,7 +22,7 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -165,12 +165,12 @@ class QueryManagerAuditTest {
 
     private QueryManager buildAuditQueryManager(List<AuditEvent> captured) {
         emitter = new AuditEventEmitter(new CapturingAuditEventWriter(captured));
-        QueryAuditService auditService = new QueryAuditService(new LogAuditStore());
+        QueryAuditService auditService = new QueryAuditService(new InMemoryQueryAuditStore());
         QueryDispatcher orchestrator = buildOrchestrator();
         QueryManagerContext deps = new QueryManagerContext(
                 orchestrator, TestObservability.TRACING,
                 null, null, null, null, emitter, auditService, null, null,
-                new org.pangrova.query.store.memory.InMemoryQueryStateJournal(), null);
+                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(), null);
         return new QueryManager(deps);
     }
 

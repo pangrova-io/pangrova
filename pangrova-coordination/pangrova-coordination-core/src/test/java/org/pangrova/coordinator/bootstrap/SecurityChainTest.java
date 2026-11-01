@@ -13,6 +13,8 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.security.core.authn.AuthenticationManager;
 import org.pangrova.spi.security.authn.AuthenticationRequest;
 import org.pangrova.spi.security.authn.AuthenticationResult;
@@ -165,16 +167,22 @@ class SecurityChainTest extends ContainerTestBase {
     @Test
     void auditEventsEmittedForQueryLifecycle() throws Exception {
         startSecurityBootstrap("coord-audit-test");
-        int port = bootstrap.getHttpPort();
+        String queryId = "rejected-audit-query";
+        var anonymous = new CoordinatorSessionContext(queryId, Map.of(), null, null);
+        assertThatThrownBy(() -> bootstrap.getQueryManager().submitQuery(queryId, "SELECT 1", anonymous))
+                .isInstanceOf(AccessDeniedException.class);
 
-        HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
-        assertThat(resp.statusCode()).isEqualTo(503);
+        // The real terminal-event sink and HTTP profile endpoint must share this bootstrap's store.
+        var profile = sendGet(bootstrap.getHttpPort(), "/v1/query/profile/" + queryId + "/json");
+        assertThat(profile.statusCode()).as(profile.body()).isEqualTo(200);
+        var json = MAPPER.readTree(profile.body());
+        assertThat(json.path("queryId").asText()).isEqualTo(queryId);
+        assertThat(json.path("success").asBoolean()).isFalse();
 
-        // Audit events are emitted asynchronously via AuditEventEmitter.
-        // The bootstrap wires LoggingAuditEventWriter + LogAuditStore.
-        // We verify the chain is active by confirming bootstrap started with audit components.
-        assertThat(bootstrap.isStarted()).isTrue();
-        assertThat(bootstrap.getQueryManager()).isNotNull();
+        // A subsequent Coordinator in the same JVM owns fresh state, even for the same query id.
+        startSecurityBootstrap("coord-audit-replacement");
+        assertThat(sendGet(bootstrap.getHttpPort(), "/v1/query/profile/" + queryId + "/json").statusCode())
+                .isEqualTo(404);
     }
 
     /**
@@ -278,7 +286,7 @@ class SecurityChainTest extends ContainerTestBase {
 
     private static org.pangrova.coordinator.http.CoordinatorHttpServer buildStandaloneServer(
             AuthenticationManager authManager) {
-        var workerManager = new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        var workerManager = new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         var taskTracker = new org.pangrova.coordinator.task.CoordinatorTaskTracker();
         var deps = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies(
                 org.pangrova.coordinator.query.execution.QueryDispatcherContext.withDefaults(

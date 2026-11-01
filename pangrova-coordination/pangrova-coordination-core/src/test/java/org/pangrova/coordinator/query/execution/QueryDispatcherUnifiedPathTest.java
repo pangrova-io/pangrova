@@ -48,7 +48,7 @@ class QueryDispatcherUnifiedPathTest {
         worker = new SourceFreeNativeWorkerFixture("w1", nativeDirectory);
         workerHttpServer = worker.httpServer();
 
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
 
         httpDispatcher =

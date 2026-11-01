@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.spi.coordination.LeaseEntry;
 import org.junit.jupiter.api.Test;
 

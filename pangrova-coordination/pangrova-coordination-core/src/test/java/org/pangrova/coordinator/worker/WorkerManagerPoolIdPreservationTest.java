@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.List;
 
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

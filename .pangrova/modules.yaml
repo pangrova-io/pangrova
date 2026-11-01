@@ -166,9 +166,9 @@ artifacts:
   pangrova-query:
     path: pangrova-query
     moduleName: org.pangrova.query
-    packageRoots: [org.pangrova.query.core, org.pangrova.query.assembly, org.pangrova.query.store, org.pangrova.query.adapter]
-    exports: [org.pangrova.query.core, org.pangrova.query.assembly, org.pangrova.query.store, org.pangrova.query.adapter]
-    allowedImports: [pangrova-common, pangrova-persistence-api, pangrova-persistence-jdbc, pangrova-spi]
+    packageRoots: [org.pangrova.query.core, org.pangrova.query.assembly]
+    exports: [org.pangrova.query.core, org.pangrova.query.assembly]
+    allowedImports: [pangrova-common, pangrova-persistence-api, pangrova-persistence-jdbc, pangrova-persistence-memory, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -366,11 +366,11 @@ artifacts:
       - pangrova-planner
     providers: {}
 
-  pangrova-coordination-inmemory:
-    path: pangrova-coordination/pangrova-coordination-inmemory
-    moduleName: org.pangrova.coordination.inmemory
-    packageRoots: [org.pangrova.coordination.inmemory]
-    exports: [org.pangrova.coordination.inmemory]
+  pangrova-persistence-memory:
+    path: pangrova-persistence/pangrova-persistence-memory
+    moduleName: org.pangrova.persistence.memory
+    packageRoots: [org.pangrova.persistence.memory]
+    exports: [org.pangrova.persistence.memory]
     allowedImports: [pangrova-common, pangrova-spi, pangrova-persistence-api]
     forbiddenImports: [pangrova-coordination-core, pangrova-persistence-jdbc, pangrova-coordination-zookeeper, pangrova-metadata]
     providers: {}
@@ -458,7 +458,7 @@ artifacts:
     moduleName: org.pangrova.coordinator
     packageRoots: [org.pangrova.coordinator]
     exports: [org.pangrova.coordinator]
-    allowedImports: [pangrova-spi, pangrova-persistence-jdbc, pangrova-coordination-inmemory, pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-ai-control, pangrova-client-core, pangrova-common, pangrova-config, pangrova-governance, pangrova-indexing-core, pangrova-materialization-core, pangrova-materialization-store-jdbc, pangrova-metadata, pangrova-observability-sdk, pangrova-operations, pangrova-parser, pangrova-planner, pangrova-protocol, pangrova-query, pangrova-scheduler, pangrova-security, pangrova-semantic, pangrova-shuffle-core, pangrova-streaming, pangrova-transport, pangrova-worker-core, pangrova-table, pangrova-file-core, pangrova-connector-runtime, pangrova-filesystem-api, pangrova-persistence-api]
+    allowedImports: [pangrova-spi, pangrova-persistence-jdbc, pangrova-persistence-memory, pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-ai-control, pangrova-client-core, pangrova-common, pangrova-config, pangrova-governance, pangrova-indexing-core, pangrova-materialization-core, pangrova-materialization-store-jdbc, pangrova-metadata, pangrova-observability-sdk, pangrova-operations, pangrova-parser, pangrova-planner, pangrova-protocol, pangrova-query, pangrova-scheduler, pangrova-security, pangrova-semantic, pangrova-shuffle-core, pangrova-streaming, pangrova-transport, pangrova-worker-core, pangrova-table, pangrova-file-core, pangrova-connector-runtime, pangrova-filesystem-api, pangrova-persistence-api]
     forbiddenImports: [pangrova-connector-iceberg, pangrova-connector-paimon]
     friendExports:
       pangrova-worker-core: [org.pangrova.worker.transport]

@@ -3,7 +3,7 @@ package org.pangrova.query.assembly.state;
 import javax.sql.DataSource;
 
 import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
-import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
+import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.spi.query.state.StateJournalConfig;
 

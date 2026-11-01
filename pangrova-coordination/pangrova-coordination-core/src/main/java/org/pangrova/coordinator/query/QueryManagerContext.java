@@ -8,7 +8,7 @@ import org.pangrova.spi.query.audit.QueryAuditSink;
 import org.pangrova.spi.observability.event.QueryEventDispatcher;
 import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
+import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.pangrova.spi.observability.TracingProvider;

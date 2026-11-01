@@ -19,7 +19,7 @@ import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.coordinator.query.task.UnregisteredWorkerException;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Modifier;
@@ -319,7 +319,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
                                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                                 new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
                         scheduler,
-                        new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry()),
+                        new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                         null, null, null, 0L),
                 null, null);

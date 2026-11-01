@@ -17,7 +17,7 @@ import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.spi.query.coordination.ExecutionAnchor;
 import org.pangrova.persistence.api.query.coordination.ExecutionAnchorStore;
 import org.pangrova.spi.coordination.LeaseEntry;
-import org.pangrova.query.store.memory.InMemoryExecutionAnchorStore;
+import org.pangrova.persistence.memory.query.coordination.InMemoryExecutionAnchorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

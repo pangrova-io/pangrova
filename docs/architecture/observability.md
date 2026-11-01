@@ -664,8 +664,10 @@ public class ProfilerEndpoint {
 Query audit values and the admission sink live in `pangrova-spi` under
 `org.pangrova.spi.query.audit`; the storage port lives in `pangrova-persistence-api`
 under `org.pangrova.persistence.api.query.audit`. The runtime service remains
-`org.pangrova.query.core.audit.QueryAuditService`. Current process assembly uses
-`LogAuditStore.shared()` for resource-record admission and profile lookup.
+`org.pangrova.query.core.audit.QueryAuditService`. Each Coordinator composes its own
+`QueryAuditServices`: admission and profile lookup
+share one `org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore` instance.
+Independent Coordinators do not share a global cache.
 API consumers do not load the service, cache or JDBC backend.
 
 Terminal query records preserve the query-owned submitting principal and resolved
@@ -1035,7 +1037,7 @@ Pangrova has two complementary audit subsystems:
 | Scope | Who did what (authentication, authorization, DDL, data access) | How much was consumed (CPU, memory, I/O, shuffle) |
 | Storage | `audit_logs` table | Structured log and bounded process-local cache |
 | Key fields | principal, clientIp, sql, success, accessedObjects | cpuTimeMs, peakMemoryBytes, spilledBytes, inputRows |
-| Owner | Security audit service / Persistence JDBC | Query audit service / `LogAuditStore` |
+| Owner | Security audit service / Persistence JDBC | Query audit service / Persistence Memory |
 
 The active security events and resource records use distinct contracts. Query identifiers
 allow correlation, but the process-local resource cache is not a durable SQL join source.

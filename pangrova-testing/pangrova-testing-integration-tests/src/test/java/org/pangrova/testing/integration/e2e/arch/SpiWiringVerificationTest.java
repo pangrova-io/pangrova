@@ -17,7 +17,7 @@ import org.pangrova.scheduler.api.placement.NoOpSchedulerControlLoop;
 import org.pangrova.testing.testkit.TestProjectPaths;
 import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
 import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
-import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -151,7 +151,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.coordinator.bootstrap.IndexingBootstrap",
             "org.pangrova.coordinator.bootstrap.ModuleIntegrationBootstrap",
             "org.pangrova.coordinator.clustering.ClusteringConnectorSession",
-            "org.pangrova.coordination.inmemory.InMemoryCoordinatorRegistry",
+            "org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry",
             "org.pangrova.coordinator.adapter.indexing.lifecycle.IndexCommitHandler",
             "org.pangrova.coordinator.query.lifecycle.CoordinatorQueryLifecycle",
             "org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager",
@@ -230,8 +230,8 @@ class SpiWiringVerificationTest {
             // Module integration — pending bootstrap wiring
             "org.pangrova.coordinator.cache.CacheEvictionBroadcaster",
             "org.pangrova.coordinator.columnar.ColumnarSessionContext",
-            "org.pangrova.coordination.inmemory.InMemoryDistributedLease",
-            "org.pangrova.query.store.memory.InMemoryWriteCommitJournal",
+            "org.pangrova.persistence.memory.coordination.InMemoryDistributedLease",
+            "org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal",
             "org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFactory",
             "org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter",
             "org.pangrova.coordinator.query.resourcegroup.ResourceGroupAdmissionController",

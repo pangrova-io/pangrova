@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.coordination;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 

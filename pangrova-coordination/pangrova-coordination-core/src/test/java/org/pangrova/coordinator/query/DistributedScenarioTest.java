@@ -45,7 +45,7 @@ import org.pangrova.client.core.protocol.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.worker.task.RemoteTaskStatusReporter;

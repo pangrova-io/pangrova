@@ -6,7 +6,7 @@ import org.pangrova.testing.integration.e2e.file.S3FileDeployment;
 
 import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
-import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
+import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
 
@@ -873,7 +873,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 null,
                 null,
                 null,
-                new org.pangrova.query.store.memory.InMemoryQueryStateJournal(),
+                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(),
                 null,
                 null,
                 org.pangrova.coordinator.query.execution.AsyncSubmitConfig.defaultEnabled(),

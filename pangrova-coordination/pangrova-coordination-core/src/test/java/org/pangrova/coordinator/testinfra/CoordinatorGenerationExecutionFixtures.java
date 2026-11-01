@@ -2,7 +2,7 @@ package org.pangrova.coordinator.testinfra;
 
 import org.pangrova.coordinator.generation.GenerationExecutionOwnership;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.generation.api.job.GenerationJobKey;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;

@@ -14,7 +14,7 @@ import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.QueryTimeoutEnforcer;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 
 import java.time.Duration;
 import java.util.List;

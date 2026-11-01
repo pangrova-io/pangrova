@@ -28,7 +28,7 @@ import org.pangrova.protocol.rest.task.*;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 
 import java.util.List;
 import java.util.Map;

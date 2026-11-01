@@ -1661,6 +1661,16 @@ Query 的 `assembly` 选择后端，业务服务不执行 JDBC。历史 migratio
 非持久部署的写隔离内存后端也必须按 `(queryId, commitFingerprint)` 保存每个确切意图，
 重复记录保留第一次决策；按 queryId 查询返回时间最新的已记录决策，不能吞掉同一查询的后续不同指纹。
 
+#### `org.pangrova.persistence.memory`
+
+非 JDBC 内存存储独立归 `pangrova-persistence-memory`，替换原 Coordination 内存制品并收纳
+Query 的执行锚点、状态日志、写提交日志、隔离记录和有界审计缓存。按 `coordination` 与
+`query.{coordination,state,transaction,audit}` 划分能力，不向 API/JDBC 混入内存实现。
+每个实例拥有自己的状态；无可变全局 journal/cache。Query 装配在一个 Coordinator 内显式
+共享审计写入与 profile 读取，不同 Coordinator 不共享。内存租约续租/释放在取得每键锁后
+读取时钟；过期 epoch 不能凭等待前的时间复活。内存状态不提供跨进程排他或重启恢复。
+
+
 #### `org.pangrova.scheduler.placement`
 
 从 Coordinator 迁出：

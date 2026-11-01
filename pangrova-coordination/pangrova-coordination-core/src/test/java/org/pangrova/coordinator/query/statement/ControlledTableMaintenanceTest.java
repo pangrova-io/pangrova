@@ -280,7 +280,7 @@ class ControlledTableMaintenanceTest {
     void requestsOnTheSameCoordinatorCannotReenterAnotherAttemptsLease() {
         var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
                 Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
-        var realLease = new org.pangrova.coordination.inmemory.InMemoryDistributedLease(CLOCK);
+        var realLease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease(CLOCK);
         var executor = new ControlledTableMaintenance(
                 registry, policies, realLease, "same-coordinator", Duration.ofMinutes(5), CLOCK);
         var nested = new java.util.concurrent.atomic.AtomicBoolean();

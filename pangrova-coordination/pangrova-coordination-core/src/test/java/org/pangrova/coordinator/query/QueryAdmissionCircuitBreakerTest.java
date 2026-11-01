@@ -24,7 +24,7 @@ import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegis
 import org.pangrova.coordinator.resilience.config.ResilienceConfigLoader;
 import org.pangrova.common.resilience.policy.ResiliencePolicyConfig;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -52,7 +52,7 @@ import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
 import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.testing.testkit.ContainerTestBase;

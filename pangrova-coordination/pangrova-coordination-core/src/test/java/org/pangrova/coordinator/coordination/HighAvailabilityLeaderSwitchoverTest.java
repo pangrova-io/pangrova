@@ -15,8 +15,8 @@ class HighAvailabilityLeaderSwitchoverTest {
 
     @Test
     void standbyTakesOverAfterLeaderFailure() throws Exception {
-        org.pangrova.coordination.inmemory.InMemoryDistributedLease sharedLease =
-                new org.pangrova.coordination.inmemory.InMemoryDistributedLease();
+        org.pangrova.persistence.memory.coordination.InMemoryDistributedLease sharedLease =
+                new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
         HighAvailabilityCoordinationService.CoordinationConfig fastConfig =
                 new HighAvailabilityCoordinationService.CoordinationConfig(200, 50);
 

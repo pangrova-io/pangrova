@@ -49,7 +49,7 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.pangrova.spi.query.coordination.ExecutionAnchor;
-import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -97,7 +97,7 @@ class TaskStatusReceiverWriteCommitTest {
     void setUp() {
         tracker = new CoordinatorTaskTracker();
         workerManager = new WorkerManager(20_000, 60_000,
-                new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+                new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         workerManager.registerWorker(workerInfo(WORKER_ID));
         writeCommitTracker = new NativeWriteCommitTracker();
         recordingMetadata = new RecordingConnectorMetadata();

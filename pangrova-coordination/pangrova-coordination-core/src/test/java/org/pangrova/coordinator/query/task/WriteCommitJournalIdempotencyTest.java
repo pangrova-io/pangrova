@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
-import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
@@ -84,7 +84,7 @@ class WriteCommitJournalIdempotencyTest {
     void setUp() {
         tracker = new CoordinatorTaskTracker();
         WorkerManager workerManager = new WorkerManager(20_000, 60_000,
-                new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+                new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         workerManager.registerWorker(workerInfo(WORKER_ID));
         writeCommitTracker = new NativeWriteCommitTracker();
         recordingMetadata = new RecordingConnectorMetadata();
@@ -262,8 +262,8 @@ class WriteCommitJournalIdempotencyTest {
     }
 
     @Test
-    void inMemoryJournalSingletonIsNoOpSafe() {
-        InMemoryWriteCommitJournal journal = InMemoryWriteCommitJournal.INSTANCE;
+    void inMemoryJournalRetainsIntentUntilCommittedAndAcknowledged() {
+        InMemoryWriteCommitJournal journal = new InMemoryWriteCommitJournal();
 
         // Operations should not throw
         journal.recordIntent(entry(

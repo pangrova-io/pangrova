@@ -66,7 +66,7 @@ class SpeculativeExecutionWiringTest {
         rec = new Rec();
         handler = new SpeculativeStageHandler(new SpeculationConfig(true, 5_000L),
                 new StragglerDetector(), launcher, SpeculationAdapters.taskRegistry(tracker));
-        wm = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         wm.registerWorker(w(WA, "ha"));
         wm.registerWorker(w(WB, "hb"));
         launcher.setDispatchDependencies(

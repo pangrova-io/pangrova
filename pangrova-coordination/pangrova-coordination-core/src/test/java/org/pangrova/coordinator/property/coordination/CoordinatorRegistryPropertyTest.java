@@ -7,8 +7,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryCoordinatorRegistry;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

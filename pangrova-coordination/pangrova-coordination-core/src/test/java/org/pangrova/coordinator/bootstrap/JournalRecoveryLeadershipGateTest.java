@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.junit.jupiter.api.Test;
 
 /**

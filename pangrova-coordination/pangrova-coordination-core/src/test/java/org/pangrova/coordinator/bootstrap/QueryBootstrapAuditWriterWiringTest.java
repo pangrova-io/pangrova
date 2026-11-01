@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.query.assembly.audit.QueryAuditServices;
 import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.spi.security.audit.AuditEventType;
 import org.pangrova.testing.testkit.ContainerTestBase;
@@ -46,7 +47,7 @@ class QueryBootstrapAuditWriterWiringTest extends ContainerTestBase {
     private static String emitAndVerifyLog(DataSource source) {
         var wiring = new QueryRuntimeWiring(new QueryRuntimeWiring.Dependencies(
                 CoordinatorBootstrapConfig.withDefaults("audit-test", 0), new NoOpTracingProvider(),
-                null, new ModuleIntegrationBootstrap(), source));
+                null, new ModuleIntegrationBootstrap(), source, new QueryAuditServices().auditService()));
         var emitter = wiring.createAuditEmitter();
         String id = UUID.randomUUID().toString();
         var logger = (Logger) LoggerFactory.getLogger("pangrova.audit");

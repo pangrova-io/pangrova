@@ -2974,3 +2974,73 @@ Lance FFI脚本已成功生成并seal 185MiB archive；随后
 
 最终`/tmp/pangrova-query-persistence-gates-final.log`再次确认ModuleDependency7通过、
 PackageDependencyAcyclicity1失败且仍仅原四SCC；当前原始包图含最终源码行号，已同步保存。
+
+## 51. Query 与 Coordination 内存后端归并（2026-11-01）
+
+### 51.1 实际归属与生命周期
+
+将原`pangrova-coordination-inmemory`替换为`pangrova-persistence-memory`，收纳三个
+Coordination lease/registry实现及五个Query内存后端。包按`coordination`和Query的
+`coordination/state/transaction/audit`能力划分。现有内存实现不是JDBC，故独立后端，
+不放入API或假称JDBC实现；Persistence现有api/jdbc/memory三个子模块。
+所有调用/POM/BOM/模块策略/Docker显式runtime清单同步，没有旧包转发或重复实现。
+
+Query保留core业务服务和assembly装配，已无store/adapter生产类。Memory只依赖
+Common、SPI、Persistence API及实际缓存/日志库，不依赖Query、Security、Protocol、
+Coordinator、JDBC或仲裁实现。最小classloader验证Coordination后端无需缓存/日志库
+也能构造并操作，整个后端依赖闭包也不包含上述运行时实现。
+
+`LogAuditStore`改为`InMemoryQueryAuditStore`；现有日志类别、字段及10,000条有界缓存
+保持。移除全局缓存及写日志单例。每个QueryBootstrap持有一个`QueryAuditServices`，
+QueryManager审计写入和HTTP profile读取显式共享该实例；不同Coordinator相互隔离。
+写提交链由原有bootstrap显式注入同一个journal，单独创建的组件不再隐式共享全局状态。
+删除已无对象的SpotBugs共享缓存豁免，没有添加新豁免。
+
+### 51.2 已复现并修复的行为
+
+- 内存写日志现在只接受PENDING初始意图，重复commit/abort保留首次终态及时间。
+  abort后commit原本已被`WriteCommitEntry.withState`拒绝，本批保留回归，不冒称新增修复。
+- 租约tryRenew/release在每key原子操作内部读取Clock。原实现可在锁外读取时间后等待，
+  取得锁时租约已过期，仍误续期或报告释放成功。确定性竞争测试控制holder锁和时钟，
+  验证过期拒绝及下一次获取epoch递增；不使用sleep碰运气。
+- 独立Coordinator的审计缓存和写journal不再串用。真实Coordinator拒绝查询后，HTTP
+  profile读取同一失败事件；关闭并在同一JVM创建新Coordinator后，该query profile为404。
+
+先红证据：`/tmp/pangrova-memory-audit-red.log`2项1失败、`wiring-red.log`1项1失败、
+`journal-red.log`4项2失败、`lease-red.log`2项2失败，均使用相同`pangrova-memory-`前缀。
+修复后的完整Memory测试执行两轮，分别见`owner.log`与`owners.log`；各74项及static通过。
+
+### 51.3 验证与制品证据
+
+- `/tmp/pangrova-memory-reactor.log`首次clean install在Coordinator测试编译处发现新依赖
+  参数遗漏；补齐测试装配后`reactor-corrected.log`全部68项install通过，涵盖主源和测试源
+  编译，使用skipTests，不是全仓测试通过。
+- `/tmp/pangrova-memory-owners.log`：Memory74、Query20全部通过及static通过。
+- `/tmp/pangrova-memory-coordinator.log`：119项全部通过及static通过，包括写提交、
+  审计/状态日志、真实HTTP profile、HA和Worker注册链；不包含第50节缺fixture的两个用例。
+- `/tmp/pangrova-memory-e2e.log`：ActivationSmoke、JournalWiredFailover、TestLeaseNamespace
+  共12项及static通过，实际SQL→Planner→Worker/JNI→Native执行及故障切换。
+  复用同源已验证dylib，SHA-256为
+  `8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`；
+  本批Native/Proto源码未变，不声称新完成C++/ASan或生产镜像验证。
+- `/tmp/pangrova-memory-gates.log`：模块依赖、源码引用、包图、命名/状态枚举31项通过，
+  包无环1项失败。四个SCC成员与第50节完全一致，当前697包原始报告与源码行号已保存。
+- `/tmp/pangrova-memory-wiring.log`：6项中4通过、2失败；仍是JdbcTenantStore、
+  InMemoryRoleStore、StaticGrantStore、EmptyRowPolicyStore四个未触达实现及
+  ResultExpirationScheduler。没有靠baseline、实验注解或空工厂制造可达性。
+- `/tmp/pangrova-memory-artifacts.log`：52个当前main JAR中，8个迁移后端类型均恰有一个
+  Memory定义，旧类型/旧模块及Query store/adapter类均不存在，schema/native/proto未变。
+  Docker RUN脚本经bash语法检查，17个显式runtime owner的当前JAR均存在；未构建生产镜像。
+- `manifest.log`、`stubs.log`、`spotbugs-filter.log`及`tooling.log`（同一日志前缀）分别保存
+  模块事实、stub检查、既有精确filter边界回归及8项manifest工具回归的通过结果。
+
+精确台账仍为68 reactor＝51 Java叶子＋1资源JAR＋16聚合；3,621主源、697包、2,398测试源。
+331个Persistence候选是文件名/包发现结果，不能视为完整store清单或完成语义验收。
+
+### 51.4 继续开放的范围
+
+Query后端已归位，`WriteCommitJournal`等存储契约仍在Connector SPI，需继续分析领域值、
+持久化端口与事务装配的边界。Generation、Metadata及其余领域存储、ZooKeeper后端、
+剩余通用API和逐文件语义审查继续推进。四个SCC、五个不可达对象、第50节两项Native
+fixture前置条件、Worker TLS首次异常归因及真实云端资格验证仍未解决。
+此检查点不代表全部模块完成或达到全量生产验收。

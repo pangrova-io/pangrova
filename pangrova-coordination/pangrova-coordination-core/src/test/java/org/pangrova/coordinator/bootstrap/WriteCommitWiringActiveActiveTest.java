@@ -2,13 +2,19 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
-import org.pangrova.query.store.memory.InMemoryExecutionAnchorStore;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.query.coordination.InMemoryExecutionAnchorStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WriteCommitWiringActiveActiveTest {
+
+    @Test
+    void eachCoordinatorOwnsItsProcessLocalWriteJournal() {
+        assertThat(WriteCommitWiring.createJournal(null)).isNotSameAs(WriteCommitWiring.createJournal(null));
+    }
+
 
     @Test
     void nonControlLeaderCanCommitWithItsOwnExecutionAnchor() {

@@ -197,7 +197,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
     private static Harness newHarness(CoordinatorTaskTracker tracker,
                                       ConnectorMetadata metadata) {
         WorkerManager workerManager = new WorkerManager(20_000, 60_000,
-                new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+                new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         workerManager.registerWorker(workerInfo(WORKER_ID));
         NativeWriteCommitTracker writeCommitTracker = new NativeWriteCommitTracker();
         CatalogRegistry catalogRegistry = buildCatalogRegistry(CATALOG_NAME, metadata);

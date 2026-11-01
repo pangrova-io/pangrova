@@ -614,3 +614,18 @@ ServiceLoader6/static通过。当前52main JAR与526迁移类型、16个Docker r
 最终68项构建见`/tmp/pangrova-query-persistence-reactor-final.log`。Lance固定FFI构建成功，
 fixture重建被既有Velox SDK provenance拒绝（`/tmp/pangrova-query-lance-fixture-rebuild.log`），
 因此两项Native SDK恢复测试仍未通过；不得从其他21项SQL/JNI通过推导这两项也通过。
+
+## 51. 内存后端与实例生命周期证据
+
+见[执行记录第51节](../project-restructure-execution-plan.md#51-query-与-coordination-内存后端归并2026-11-01)。
+原Coordination内存制品与Query五个内存后端合并到Persistence Memory，Query只保留业务及
+装配；52个当前JAR中8个迁移类型均有且仅有一个新定义。独立Coordinator不再共享审计缓存
+或写日志，HTTP profile与审计显式共用同一实例。写意图PENDING准入、终态幂等和锁内时钟
+均有先红后绿证据。日志`/tmp/pangrova-memory-{audit,wiring,journal,lease}-red.log`保留原失败。
+
+68项全仓安装编译通过；Memory74两轮、Query20、Coordinator119、真实SQL/JNI/故障切换12
+及各自static通过。模块/源码引用/包图等31项通过，包无环1项仍失败；四SCC成员未变。
+wiring6项中4通过、2失败，仍四store加一调度器不可达。当前包图原始报告已同步，未加豁免。
+制品、manifest、stub、filter精确边界、8项manifest工具测试及Docker RUN语法/17个runtime
+owner JAR检查通过；没有构建生产镜像。详细日志路径与首次编译失败见第51节。
+其余store/API迁移、完整文件审查和已有未通过项继续开放，不能由这一批通过推导全部目标完成。

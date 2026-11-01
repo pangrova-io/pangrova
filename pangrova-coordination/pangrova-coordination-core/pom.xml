@@ -40,7 +40,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordination-inmemory</artifactId>
+            <artifactId>pangrova-persistence-memory</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

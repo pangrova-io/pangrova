@@ -64,6 +64,7 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
         pangrova-worker/pangrova-worker-core pangrova-ai/pangrova-ai-worker \
         pangrova-spi pangrova-file/pangrova-file-core \
         pangrova-persistence/pangrova-persistence-api pangrova-persistence/pangrova-persistence-jdbc \
+        pangrova-persistence/pangrova-persistence-memory \
         pangrova-filesystem/pangrova-filesystem-api pangrova-filesystem/pangrova-filesystem-local \
         pangrova-filesystem/pangrova-filesystem-s3 pangrova-filesystem/pangrova-filesystem-oss \
         pangrova-client/pangrova-client-cli pangrova-connector/pangrova-connector-iceberg \

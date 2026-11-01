@@ -44,7 +44,7 @@ class QueryStatusResourceTest {
     static void startServer() throws Exception {
         queryManager = org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture.create(
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000,
-                        new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry()),
+                        new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker());
 
         ResourceConfig config = new ResourceConfig();

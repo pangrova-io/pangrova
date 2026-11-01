@@ -37,7 +37,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("Stable leader does not process an acknowledged commit twice")
     void leaderProcessesCommitExactlyOnce() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.coordination.inmemory.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var processCount = new AtomicInteger(0);
 
@@ -76,7 +76,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("onCommit() only persists to commit log — no inline processing")
     void onCommitDoesNotProcessInline() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.coordination.inmemory.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var processCount = new AtomicInteger(0);
 
@@ -162,7 +162,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("Failed processing leaves entry available for retry (at-least-once)")
     void failedProcessingLeavesEntryForRetry() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.coordination.inmemory.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var failOnFirstAttempt = new AtomicInteger(0);
 
@@ -214,7 +214,7 @@ class CommitLogPollerDeduplicationTest {
     @DisplayName("Failure blocks later events for the same table until retry")
     void failurePreservesPerTableCommitOrder() {
         var store = new TrackingStore();
-        var lease = new org.pangrova.coordination.inmemory.InMemoryDistributedLease();
+        var lease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
         var leaderElection = new MaintenanceLeaderElection(lease, "coord-1");
         var failForEventId = new AtomicInteger(1); // fail processing for event 2 once
 
@@ -266,7 +266,7 @@ class CommitLogPollerDeduplicationTest {
     void failedTableDoesNotStarveAnotherTableOutsideItsBacklog() {
         var store = new TrackingStore();
         var leaderElection = new MaintenanceLeaderElection(
-                new org.pangrova.coordination.inmemory.InMemoryDistributedLease(),
+                new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease(),
                 "coord-1");
         Instant first = Instant.parse("2026-09-05T00:00:00Z");
         for (int i = 0; i < 4; i++) {
@@ -299,7 +299,7 @@ class CommitLogPollerDeduplicationTest {
     void lostLeaseStopsLaterBatchEffectsEvenForAnotherTable() {
         var store = new TrackingStore();
         var leaderElection = new MaintenanceLeaderElection(
-                new org.pangrova.coordination.inmemory.InMemoryDistributedLease(),
+                new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease(),
                 "coord-1");
         Instant now = Instant.parse("2026-09-05T00:00:00Z");
         store.seedCommitLogEntry(new CommitLogEntry(

@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

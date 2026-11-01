@@ -91,7 +91,7 @@ class CompilerSnapshotConsistencyTest {
      */
     @Test
     void queryDispatcher_capturesCompilerOnce_usesConsistentlyThroughDispatch() throws Exception {
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
 
         httpDispatcher = new RemoteTaskDispatcher(

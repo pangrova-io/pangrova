@@ -28,7 +28,7 @@ import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.client.core.error.ErrorDetail;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.client.core.protocol.SubmitQueryResponse;
-import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
+import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.spi.observability.LongCounter;
 import org.pangrova.spi.observability.MetricsProvider;

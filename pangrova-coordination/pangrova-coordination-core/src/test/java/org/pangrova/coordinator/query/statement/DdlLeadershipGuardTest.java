@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryCoordinatorRegistry;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryCoordinatorRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.coordinator.query.execution.dispatch.DdlLeadershipGuard;
 import org.pangrova.coordinator.query.execution.dispatch.DdlNotOnLeaderException;
 import org.pangrova.parser.ast.CreateCatalogStatement;

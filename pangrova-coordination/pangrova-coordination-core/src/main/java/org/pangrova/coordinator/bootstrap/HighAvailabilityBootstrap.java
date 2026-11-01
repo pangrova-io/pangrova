@@ -16,7 +16,7 @@ import org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry;
 import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.spi.query.coordination.ExecutionAnchor;
 import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,5 +1,5 @@
 package org.pangrova.coordinator.query;
-import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
+import org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
@@ -97,7 +97,7 @@ class QueryManagerLineageTest {
         orchestrator = buildOrchestrator();
         return new QueryManager(new QueryManagerContext(orchestrator, TestObservability.TRACING,
                 null, null, null, lineageEmitter, null, null, null, null,
-                new org.pangrova.query.store.memory.InMemoryQueryStateJournal(), null));
+                new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal(), null));
     }
 
     private QueryManager buildQueryManagerWithoutLineage() {
@@ -110,7 +110,7 @@ class QueryManagerLineageTest {
                 new PangrovaPlanner(), new SubstraitConverter(),
                 new SubstraitPlanSerializer());
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         return new QueryDispatcher(
                 withPolicies(QueryDispatcherContext.withDefaults(
                         compiler, null, null, null, new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING), scheduler, wm,

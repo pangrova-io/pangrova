@@ -85,7 +85,7 @@ public final class WorkerManager {
      */
     public WorkerManager() {
         this(DEFAULT_SUSPECT_THRESHOLD_MS, DEFAULT_DEAD_THRESHOLD_MS,
-                new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+                new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
     }
 
     /**

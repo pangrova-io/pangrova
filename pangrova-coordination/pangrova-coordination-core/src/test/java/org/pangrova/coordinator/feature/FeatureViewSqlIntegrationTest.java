@@ -62,7 +62,7 @@ import org.pangrova.spi.connector.ConnectorQueryAuthority;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.security.UserIdentity;
 
 import javax.sql.DataSource;

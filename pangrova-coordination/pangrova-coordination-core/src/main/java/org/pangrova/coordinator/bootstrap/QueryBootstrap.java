@@ -33,6 +33,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.security.core.audit.AuditEventEmitter;
+import org.pangrova.query.assembly.audit.QueryAuditServices;
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.persistence.api.coordination.WorkerRegistry;
 import org.pangrova.spi.observability.MetricsProvider;
@@ -67,6 +68,7 @@ final class QueryBootstrap {
 
     private WorkerManager workerManager;
     private QueryManager queryManager;
+    private final QueryAuditServices queryAuditServices = new QueryAuditServices();
     private java.util.concurrent.ExecutorService asyncSubmitExecutor;
     private TaskStatusReceiver taskStatusReceiver;
     private CoordinatorTaskTracker taskTracker;
@@ -151,7 +153,8 @@ final class QueryBootstrap {
     void start() {
         CoordinatorPreflightChecks.validateJdbcConnection(metadataDataSource);
         var runtimeWiring = new QueryRuntimeWiring(new QueryRuntimeWiring.Dependencies(
-                config, tracingProvider, metricsProvider, moduleWiring, metadataDataSource));
+                config, tracingProvider, metricsProvider, moduleWiring, metadataDataSource,
+                queryAuditServices.auditService()));
         WorkerRegistry workerRegistry = runtimeWiring.createWorkerRegistry();
         workerManager = new WorkerManager(
                 config.workerSuspectThresholdMs(), config.workerDeadThresholdMs(), workerRegistry);
@@ -570,6 +573,7 @@ final class QueryBootstrap {
     AuditEventEmitter auditEmitter() { return auditEmitter; }
     org.pangrova.spi.connector.coordination.WriteCommitJournal writeCommitJournal() { return writeCommitJournal; }
     QueryManager queryManager() { return queryManager; }
+    QueryAuditServices queryAuditServices() { return queryAuditServices; }
     org.pangrova.observability.sdk.metrics.CoordinatorMetrics coordinatorMetrics() { return coordinatorMetrics; }
     TaskStatusReceiver taskStatusReceiver() { return taskStatusReceiver; }
     CoordinatorTaskTracker taskTracker() { return taskTracker; }

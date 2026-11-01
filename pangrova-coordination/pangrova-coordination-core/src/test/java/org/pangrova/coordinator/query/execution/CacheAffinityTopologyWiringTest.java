@@ -21,7 +21,7 @@ class CacheAffinityTopologyWiringTest {
     @Test
     void workerRegistrationTriggersRingRebuild() {
         CacheAffinityAssigner assigner = new CacheAffinityAssigner();
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         wm.addTopologyListener(assigner);
 
         assertThat(assigner.hasWorkers()).isFalse();
@@ -34,7 +34,7 @@ class CacheAffinityTopologyWiringTest {
     @Test
     void workerRemovalTriggersRingRebuild() {
         CacheAffinityAssigner assigner = new CacheAffinityAssigner();
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         wm.addTopologyListener(assigner);
 
         wm.registerWorker(buildWorker("w-1"));
@@ -49,7 +49,7 @@ class CacheAffinityTopologyWiringTest {
     @Test
     void heartbeatTimeoutToDeadTriggersRingRebuild() {
         CacheAffinityAssigner assigner = new CacheAffinityAssigner();
-        WorkerManager wm = new WorkerManager(5_000, 15_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager wm = new WorkerManager(5_000, 15_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         wm.addTopologyListener(assigner);
 
         wm.registerWorker(buildWorker("w-1"));
@@ -70,7 +70,7 @@ class CacheAffinityTopologyWiringTest {
     @Test
     void removeDeadWorkersTriggersRingRebuild() {
         CacheAffinityAssigner assigner = new CacheAffinityAssigner();
-        WorkerManager wm = new WorkerManager(5_000, 15_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager wm = new WorkerManager(5_000, 15_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         wm.addTopologyListener(assigner);
 
         wm.registerWorker(buildWorker("w-1"));
@@ -87,7 +87,7 @@ class CacheAffinityTopologyWiringTest {
 
     @Test
     void multipleListenersAllNotified() {
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager wm = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         CacheAffinityAssigner assigner1 = new CacheAffinityAssigner();
         CacheAffinityAssigner assigner2 = new CacheAffinityAssigner();
         wm.addTopologyListener(assigner1);

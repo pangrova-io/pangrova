@@ -14,7 +14,7 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 
 import java.time.Instant;
 import java.util.List;

@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
-import org.pangrova.query.store.memory.InMemoryExecutionAnchorStore;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.query.coordination.InMemoryExecutionAnchorStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

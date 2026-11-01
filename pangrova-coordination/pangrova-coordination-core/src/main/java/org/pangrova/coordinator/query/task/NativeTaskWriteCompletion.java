@@ -8,7 +8,7 @@ import java.util.Optional;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
 import org.pangrova.governance.api.quality.WriteQualityGate;
 import org.pangrova.governance.api.quality.WriteValidationResult;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
@@ -41,7 +41,7 @@ final class NativeTaskWriteCompletion {
         catalogRegistry = deps.catalogRegistry();
         writeCommitTracker = deps.writeCommitTracker();
         writeCommitJournal = deps.writeCommitJournal() != null
-                ? deps.writeCommitJournal() : InMemoryWriteCommitJournal.INSTANCE;
+                ? deps.writeCommitJournal() : new InMemoryWriteCommitJournal();
     }
 
     void setFencer(WriteCommitFencer fencer) { writeCommitFencer = fencer; }

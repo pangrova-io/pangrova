@@ -8,8 +8,6 @@ import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.query.adapter.audit.LogAuditStore;
-import org.pangrova.query.core.audit.QueryAuditService;
 import org.pangrova.observability.sdk.noop.NoOpNativeProfiler;
 import org.pangrova.spi.observability.profiling.ProfilerEndpoint;
 import org.pangrova.query.core.profiling.QueryProfileService;
@@ -33,6 +31,7 @@ final class HttpBootstrap {
     private final AuthenticationManager authenticationManager;
     private final TaskStatusReceiver taskStatusReceiver;
     private final QueryManager queryManager;
+    private final QueryProfileService queryProfileService;
     private final WorkerManager workerManager;
     private final CdcLifecycleManager cdcLifecycleManager;
     private final CoordinatorBootstrap coordinatorBootstrap;
@@ -45,7 +44,7 @@ final class HttpBootstrap {
                   TracingProvider tracingProvider,
                   AuthenticationManager authenticationManager,
                   TaskStatusReceiver taskStatusReceiver,
-                  QueryManager queryManager,
+                  QueryBootstrap queryBootstrap,
                   WorkerManager workerManager,
                   CdcLifecycleManager cdcLifecycleManager,
                   CoordinatorBootstrap coordinatorBootstrap,
@@ -55,7 +54,8 @@ final class HttpBootstrap {
         this.tracingProvider = tracingProvider;
         this.authenticationManager = authenticationManager;
         this.taskStatusReceiver = taskStatusReceiver;
-        this.queryManager = queryManager;
+        this.queryManager = queryBootstrap.queryManager();
+        this.queryProfileService = queryBootstrap.queryAuditServices().profileService();
         this.workerManager = workerManager;
         this.cdcLifecycleManager = cdcLifecycleManager;
         this.coordinatorBootstrap = coordinatorBootstrap;
@@ -68,7 +68,6 @@ final class HttpBootstrap {
             TracingHttpFilter tracingFilter = buildTracingFilter();
             HealthCheckEndpoint healthEndpoint = buildHealthEndpoint();
             ProfilerEndpoint profilerEndpoint = buildProfilerEndpoint();
-            QueryProfileService queryProfileService = buildQueryProfileService();
             var httpDeps = new CoordinatorHttpServerContext(
                     taskStatusReceiver, queryManager, tracingFilter,
                     authenticationManager, healthEndpoint, workerManager,
@@ -102,10 +101,6 @@ final class HttpBootstrap {
 
     private static ProfilerEndpoint buildProfilerEndpoint() {
         return new ProfilerEndpoint(new NoOpNativeProfiler());
-    }
-
-    private static QueryProfileService buildQueryProfileService() {
-        return new QueryProfileService(new QueryAuditService(LogAuditStore.shared()));
     }
 
     CoordinatorHttpServer httpServer() { return httpServer; }

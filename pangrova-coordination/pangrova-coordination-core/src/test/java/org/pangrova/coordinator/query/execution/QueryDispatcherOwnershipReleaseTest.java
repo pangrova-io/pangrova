@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -60,7 +60,7 @@ class QueryDispatcherOwnershipReleaseTest {
                 new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
                         COORDINATOR_ID, "test-incarnation", 1L));
         TaskScheduler taskScheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
         taskTracker = new CoordinatorTaskTracker();
 
@@ -119,7 +119,7 @@ class QueryDispatcherOwnershipReleaseTest {
                 new SqlCompiler(), null, null, null,
                 remote,
                 new TaskScheduler(new WorkerPerformanceScorer()),
-                new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry()), noHaTracker,
+                new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()), noHaTracker,
                 null, null, null, 0L);
         QueryDispatcher noHaDispatcher = new QueryDispatcher(deps, null, null);
         // No enableOwnershipTracking called — haService is null

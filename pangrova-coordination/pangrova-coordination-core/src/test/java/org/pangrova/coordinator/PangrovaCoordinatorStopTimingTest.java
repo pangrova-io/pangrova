@@ -17,7 +17,7 @@ class PangrovaCoordinatorStopTimingTest {
     void stop_setsRunningToFalse() throws Exception {
         // Verify the documented contract: stop() transitions running from true to false
         var haService = new HighAvailabilityCoordinationService(
-                new org.pangrova.coordination.inmemory.InMemoryDistributedLease(),
+                new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease(),
                 new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
         // Use reflection-free approach: just verify the public API
         // PangrovaCoordinator requires QueryManager which is complex to construct,

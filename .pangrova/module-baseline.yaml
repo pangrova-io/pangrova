@@ -506,7 +506,6 @@ artifacts:
       pangrova-connector-lance: runtime
       pangrova-connector-paimon: test
       pangrova-connector-runtime: compile
-      pangrova-coordination-inmemory: compile
       pangrova-file-core: compile
       pangrova-filesystem-api: compile
       pangrova-generation-core: compile
@@ -522,6 +521,7 @@ artifacts:
       pangrova-parser: compile
       pangrova-persistence-api: compile
       pangrova-persistence-jdbc: compile
+      pangrova-persistence-memory: compile
       pangrova-planner: compile
       pangrova-protocol: compile
       pangrova-query: compile
@@ -543,7 +543,6 @@ artifacts:
         - pangrova-common
         - pangrova-config
         - pangrova-connector-runtime
-        - pangrova-coordination-inmemory
         - pangrova-file-core
         - pangrova-filesystem-api
         - pangrova-generation-core
@@ -557,6 +556,7 @@ artifacts:
         - pangrova-parser
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
+        - pangrova-persistence-memory
         - pangrova-planner
         - pangrova-protocol
         - pangrova-query
@@ -577,7 +577,6 @@ artifacts:
         - pangrova-connector-lance
         - pangrova-connector-paimon
         - pangrova-connector-runtime
-        - pangrova-coordination-inmemory
         - pangrova-file-core
         - pangrova-filesystem-api
         - pangrova-generation-core
@@ -591,6 +590,7 @@ artifacts:
         - pangrova-parser
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
+        - pangrova-persistence-memory
         - pangrova-planner
         - pangrova-protocol
         - pangrova-query
@@ -650,27 +650,6 @@ artifacts:
       - org.pangrova.coordinator.storage
       - org.pangrova.coordinator.task
       - org.pangrova.coordinator.worker
-    providers:
-      {}
-  pangrova-coordination-inmemory:
-    path: pangrova-coordination/pangrova-coordination-inmemory
-    mainPackages:
-      - org.pangrova.coordination.inmemory
-    pomDependencies:
-      pangrova-common: compile
-      pangrova-persistence-api: compile
-      pangrova-spi: compile
-    imports:
-      main:
-        - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-spi
-      test:
-        - pangrova-common
-        - pangrova-persistence-api
-        - pangrova-spi
-    exportedPackages:
-      - org.pangrova.coordination.inmemory
     providers:
       {}
   pangrova-coordination-zookeeper:
@@ -1417,6 +1396,36 @@ artifacts:
       - org.pangrova.persistence.jdbc.security.transaction
     providers:
       {}
+  pangrova-persistence-memory:
+    path: pangrova-persistence/pangrova-persistence-memory
+    mainPackages:
+      - org.pangrova.persistence.memory
+      - org.pangrova.persistence.memory.coordination
+      - org.pangrova.persistence.memory.query.audit
+      - org.pangrova.persistence.memory.query.coordination
+      - org.pangrova.persistence.memory.query.state
+      - org.pangrova.persistence.memory.query.transaction
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-persistence-api: compile
+      pangrova-spi: compile
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-persistence-api
+        - pangrova-spi
+      test:
+        - pangrova-common
+        - pangrova-persistence-api
+        - pangrova-spi
+    exportedPackages:
+      - org.pangrova.persistence.memory.coordination
+      - org.pangrova.persistence.memory.query.audit
+      - org.pangrova.persistence.memory.query.coordination
+      - org.pangrova.persistence.memory.query.state
+      - org.pangrova.persistence.memory.query.transaction
+    providers:
+      {}
   pangrova-planner:
     path: pangrova-planner
     mainPackages:
@@ -1598,19 +1607,17 @@ artifacts:
   pangrova-query:
     path: pangrova-query
     mainPackages:
-      - org.pangrova.query.adapter
-      - org.pangrova.query.adapter.audit
       - org.pangrova.query.assembly
+      - org.pangrova.query.assembly.audit
       - org.pangrova.query.assembly.state
       - org.pangrova.query.core
       - org.pangrova.query.core.audit
       - org.pangrova.query.core.profiling
-      - org.pangrova.query.store
-      - org.pangrova.query.store.memory
     pomDependencies:
       pangrova-common: compile
       pangrova-persistence-api: compile
       pangrova-persistence-jdbc: compile
+      pangrova-persistence-memory: compile
       pangrova-spi: compile
       pangrova-testing-kit: test
     imports:
@@ -1618,18 +1625,19 @@ artifacts:
         - pangrova-common
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
+        - pangrova-persistence-memory
         - pangrova-spi
       test:
         - pangrova-common
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
+        - pangrova-persistence-memory
         - pangrova-spi
     exportedPackages:
-      - org.pangrova.query.adapter.audit
+      - org.pangrova.query.assembly.audit
       - org.pangrova.query.assembly.state
       - org.pangrova.query.core.audit
       - org.pangrova.query.core.profiling
-      - org.pangrova.query.store.memory
     providers:
       {}
   pangrova-scheduler:
@@ -2176,7 +2184,6 @@ artifacts:
       pangrova-connector-paimon: test
       pangrova-connector-runtime: test
       pangrova-coordination-core: test
-      pangrova-coordination-inmemory: test
       pangrova-file-core: compile
       pangrova-filesystem-api: test
       pangrova-filesystem-local: test
@@ -2194,6 +2201,7 @@ artifacts:
       pangrova-parser: test
       pangrova-persistence-api: test
       pangrova-persistence-jdbc: compile
+      pangrova-persistence-memory: test
       pangrova-planner: test
       pangrova-protocol: test
       pangrova-query: compile
@@ -2224,7 +2232,6 @@ artifacts:
         - pangrova-connector-lance
         - pangrova-connector-runtime
         - pangrova-coordination-core
-        - pangrova-coordination-inmemory
         - pangrova-file-core
         - pangrova-filesystem-api
         - pangrova-filesystem-local
@@ -2241,9 +2248,9 @@ artifacts:
         - pangrova-parser
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
+        - pangrova-persistence-memory
         - pangrova-planner
         - pangrova-protocol
-        - pangrova-query
         - pangrova-scheduler
         - pangrova-security
         - pangrova-shuffle-core

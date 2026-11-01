@@ -92,7 +92,7 @@ class WorkerHealthPropertyTest {
             @ForAll("workerIds") String workerId,
             @ForAll("elapsedMillis") long elapsedMs) {
 
-        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         Instant now = Instant.now();
         Instant lastHeartbeat = now.minusMillis(elapsedMs);
         manager.registerWorker(createWorker(workerId, lastHeartbeat));
@@ -120,7 +120,7 @@ class WorkerHealthPropertyTest {
             @ForAll("elapsedMillis") long elapsedMs,
             @ForAll("heartbeatData") WorkerManager.HeartbeatData data) {
 
-        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         Instant now = Instant.now();
         Instant staleHeartbeat = now.minusMillis(elapsedMs);
         manager.registerWorker(createWorker(workerId, staleHeartbeat));
@@ -148,7 +148,7 @@ class WorkerHealthPropertyTest {
             @ForAll("workerCounts") int activeCount,
             @ForAll("workerCounts") int deadCount) {
 
-        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager manager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         Instant now = Instant.now();
 
         List<String> activeIds = IntStream.range(0, activeCount)

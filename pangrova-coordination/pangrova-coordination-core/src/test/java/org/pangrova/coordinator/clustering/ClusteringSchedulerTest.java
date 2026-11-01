@@ -9,7 +9,7 @@ import org.pangrova.spi.connector.clustering.ClusteringState;
 import org.pangrova.spi.connector.clustering.ClusteringTableRef;
 import org.pangrova.spi.connector.clustering.ColumnMinMax;
 import org.pangrova.spi.connector.clustering.FileClusteringStats;
-import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.persistence.memory.coordination.InMemoryDistributedLease;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

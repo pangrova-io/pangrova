@@ -14,5 +14,6 @@
     <modules>
         <module>pangrova-persistence-api</module>
         <module>pangrova-persistence-jdbc</module>
+        <module>pangrova-persistence-memory</module>
     </modules>
 </project>

@@ -23,7 +23,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;

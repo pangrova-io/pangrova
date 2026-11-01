@@ -149,7 +149,7 @@ class SpeculativeExecutionE2ETest extends SqlE2ETestBase {
             launcher.setDispatchDependencies(
                     SpeculationAdapters.dispatcher(dispatcher),
                     SpeculationAdapters.workerInventory(new WorkerManager(20_000, 60_000,
-                            new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry())),
+                            new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry())),
                     SpeculationAdapters.taskRegistry(tracker));
             launcher.setCancelRetrier(SpeculationAdapters.canceller(
                     new org.pangrova.coordinator.task.TaskCancelRetrier(dispatcher, tracker)));

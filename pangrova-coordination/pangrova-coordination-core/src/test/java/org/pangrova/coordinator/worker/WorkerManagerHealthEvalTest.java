@@ -2,7 +2,7 @@ package org.pangrova.coordinator.worker;
 
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,6 @@
 package org.pangrova.query.core.profiling;
 
-import org.pangrova.query.adapter.audit.LogAuditStore;
+import org.pangrova.persistence.memory.query.audit.InMemoryQueryAuditStore;
 import org.pangrova.spi.query.audit.QueryAuditRecord;
 import org.pangrova.query.core.audit.QueryAuditService;
 import org.junit.jupiter.api.Test;
@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests QueryProfileService: wires LogAuditStore.findById into profile lookup
+ * Tests QueryProfileService: wires InMemoryQueryAuditStore.findById into profile lookup
  * and verifies structured JSON output with operator tree, timing, and memory.
  */
 class QueryProfileServiceTest {
@@ -45,7 +45,7 @@ class QueryProfileServiceTest {
 
     @Test
     void getProfileReturnsEmptyWhenQueryNotFound() {
-        var store = new LogAuditStore();
+        var store = new InMemoryQueryAuditStore();
         var service = new QueryProfileService(new QueryAuditService(store));
 
         Optional<QueryProfileService.QueryProfile> result = service.getProfile("nonexistent");
@@ -55,7 +55,7 @@ class QueryProfileServiceTest {
 
     @Test
     void getProfileReturnsStructuredDataAfterAuditSave() {
-        var store = new LogAuditStore();
+        var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var service = new QueryProfileService(auditService);
 
@@ -79,7 +79,7 @@ class QueryProfileServiceTest {
 
     @Test
     void profileContainsOperatorTree() {
-        var store = new LogAuditStore();
+        var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var service = new QueryProfileService(auditService);
 
@@ -113,7 +113,7 @@ class QueryProfileServiceTest {
 
     @Test
     void profileContainsTimingBreakdown() {
-        var store = new LogAuditStore();
+        var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var service = new QueryProfileService(auditService);
 
@@ -138,7 +138,7 @@ class QueryProfileServiceTest {
 
     @Test
     void profileContainsMemoryUsage() {
-        var store = new LogAuditStore();
+        var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var service = new QueryProfileService(auditService);
 
@@ -164,7 +164,7 @@ class QueryProfileServiceTest {
 
     @Test
     void profileContainsFlameGraphFrames() {
-        var store = new LogAuditStore();
+        var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var service = new QueryProfileService(auditService);
 

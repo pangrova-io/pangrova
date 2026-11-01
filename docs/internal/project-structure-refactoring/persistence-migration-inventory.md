@@ -5,11 +5,11 @@
 装配工厂和领域适配器也可能命中；命中不等于确认它是持久化实现，未命中也不等于完成审查。
 逐文件验收必须继续追踪调用者、实现、装配、事务、SQL/编解码、异常与最近测试。
 
-已归位的File、Coordination、Security和Query JDBC实现在Persistence中；Query内存后端尚待迁入，
+已归位的File、Coordination、Security、Query JDBC及Query/Coordination内存后端在Persistence中；
 其他领域存储仍待实施。Security保留行过滤/掩码渲染和权限判断，数据库事实读取归JDBC。
 内存/文件/仲裁等非JDBC后端须单独确定能力与模块落位，不能混入API或伪称JDBC。
 
-后续迁移顺序：Query内存存储与日志缓存 → Generation → Materialization/Table →
+后续迁移顺序：Generation → Materialization/Table →
 Metadata/Catalog/source authority → Indexing/AI/Semantic/Governance/Streaming/Operations →
 Worker与其余运行时持久化候选。每批先消除实现反向依赖，再原样迁移SQL与事务语义；不能
 通过增加API→实现依赖、取消真实数据库测试或恢复旧包转发来完成搬迁。
@@ -152,15 +152,6 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [ResilienceRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/resilience/provider/resilience4j/ResilienceRegistry.java) | `org.pangrova.coordinator.resilience.provider.resilience4j` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryStorageProfileRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/storage/InMemoryStorageProfileRegistry.java) | `org.pangrova.coordinator.storage` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [TaskIdentityRegistry.java](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/task/TaskIdentityRegistry.java) | `org.pangrova.coordinator.task` | 候选；待逐文件确认职责并迁移/留调用方 |
-
-## pangrova-coordination-inmemory
-
-2 个主源候选。
-
-| 文件 | 当前能力包 | 状态 |
-|---|---|---|
-| [InMemoryCoordinatorRegistry.java](../../../pangrova-coordination/pangrova-coordination-inmemory/src/main/java/org/pangrova/coordination/inmemory/InMemoryCoordinatorRegistry.java) | `org.pangrova.coordination.inmemory` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryWorkerRegistry.java](../../../pangrova-coordination/pangrova-coordination-inmemory/src/main/java/org/pangrova/coordination/inmemory/InMemoryWorkerRegistry.java) | `org.pangrova.coordination.inmemory` | 候选；待逐文件确认职责并迁移/留调用方 |
 
 ## pangrova-coordination-zookeeper
 
@@ -457,6 +448,18 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcTenantStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/tenant/JdbcTenantStore.java) | `org.pangrova.persistence.jdbc.security.tenant` | 已在目标owner；继续语义/装配验收 |
 | [AuthorizationTransactionGate.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/transaction/AuthorizationTransactionGate.java) | `org.pangrova.persistence.jdbc.security.transaction` | 已在目标owner；继续语义/装配验收 |
 
+## pangrova-persistence-memory
+
+5 个主源候选。
+
+| 文件 | 当前能力包 | 状态 |
+|---|---|---|
+| [InMemoryCoordinatorRegistry.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/coordination/InMemoryCoordinatorRegistry.java) | `org.pangrova.persistence.memory.coordination` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryWorkerRegistry.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/coordination/InMemoryWorkerRegistry.java) | `org.pangrova.persistence.memory.coordination` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryQueryAuditStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/query/audit/InMemoryQueryAuditStore.java) | `org.pangrova.persistence.memory.query.audit` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryExecutionAnchorStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/query/coordination/InMemoryExecutionAnchorStore.java) | `org.pangrova.persistence.memory.query.coordination` | 已在目标owner；继续语义/装配验收 |
+| [InMemoryWriteCommitQuarantineStore.java](../../../pangrova-persistence/pangrova-persistence-memory/src/main/java/org/pangrova/persistence/memory/query/transaction/InMemoryWriteCommitQuarantineStore.java) | `org.pangrova.persistence.memory.query.transaction` | 已在目标owner；继续语义/装配验收 |
+
 ## pangrova-planner
 
 10 个主源候选。
@@ -473,18 +476,6 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [FunctionNullabilityRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/substrait/FunctionNullabilityRegistry.java) | `org.pangrova.planner.substrait` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [StandardTypeRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/type/StandardTypeRegistry.java) | `org.pangrova.planner.type` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [NativeCapabilityRegistry.java](../../../pangrova-planner/src/main/java/org/pangrova/planner/validation/NativeCapabilityRegistry.java) | `org.pangrova.planner.validation` | 候选；待逐文件确认职责并迁移/留调用方 |
-
-## pangrova-query
-
-5 个主源候选。
-
-| 文件 | 当前能力包 | 状态 |
-|---|---|---|
-| [LogAuditStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/adapter/audit/LogAuditStore.java) | `org.pangrova.query.adapter.audit` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryExecutionAnchorStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory/InMemoryExecutionAnchorStore.java) | `org.pangrova.query.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryQueryStateJournal.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory/InMemoryQueryStateJournal.java) | `org.pangrova.query.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryWriteCommitJournal.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory/InMemoryWriteCommitJournal.java) | `org.pangrova.query.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [InMemoryWriteCommitQuarantineStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory/InMemoryWriteCommitQuarantineStore.java) | `org.pangrova.query.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
 
 ## pangrova-scheduler
 

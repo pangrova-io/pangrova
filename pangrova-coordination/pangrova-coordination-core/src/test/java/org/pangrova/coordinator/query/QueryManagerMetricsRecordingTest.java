@@ -19,7 +19,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.observability.DoubleHistogram;
 import org.pangrova.spi.observability.LongCounter;
 import org.pangrova.spi.observability.LongUpDownCounter;

@@ -31,7 +31,7 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

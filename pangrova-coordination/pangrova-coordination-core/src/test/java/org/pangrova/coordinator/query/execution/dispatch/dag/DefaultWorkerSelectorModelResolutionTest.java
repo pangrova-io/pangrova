@@ -29,7 +29,7 @@ import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
 import org.pangrova.spi.ai.embedding.EmbeddingModelBindingIdentity;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;

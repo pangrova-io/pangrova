@@ -3,9 +3,9 @@ package org.pangrova.coordinator.bootstrap;
 import javax.sql.DataSource;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
 import org.pangrova.coordinator.query.task.DefaultWriteCommitReconciler;
-import org.pangrova.query.store.memory.InMemoryWriteCommitQuarantineStore;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitQuarantineStore;
 import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitQuarantineStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 import org.pangrova.persistence.api.query.transaction.WriteCommitQuarantineStore;
@@ -34,7 +34,7 @@ final class WriteCommitWiring {
     static WriteCommitJournal createJournal(DataSource metadataDataSource) {
         return metadataDataSource != null
                 ? new JdbcWriteCommitJournal(metadataDataSource)
-                : InMemoryWriteCommitJournal.INSTANCE;
+                : new InMemoryWriteCommitJournal();
     }
 
     /**

@@ -54,7 +54,7 @@ class TaskStatusPropagationPropertyTest {
             @ForAll("terminalStates") String state) {
 
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         workerManager.registerWorker(
                 TestWorkerInfoBuilder.active(WORKER_ID, "localhost", 8080, 9090));
 
@@ -112,7 +112,7 @@ class TaskStatusPropagationPropertyTest {
             @ForAll("taskIds") String taskId) {
 
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
 
         QueryManager qm = buildMinimalQueryManager(tracker, workerManager);
         TaskStatusReceiver receiver = new TaskStatusReceiver(

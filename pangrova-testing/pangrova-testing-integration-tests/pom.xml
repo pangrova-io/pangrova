@@ -32,7 +32,7 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordination-inmemory</artifactId>
+            <artifactId>pangrova-persistence-memory</artifactId>
             <scope>test</scope>
         </dependency>
 

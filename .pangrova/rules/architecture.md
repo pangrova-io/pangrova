@@ -27,9 +27,9 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-generation/pangrova-generation-core` | Generation-job contracts, storage SPI and immutable evidence, canonical codecs, pure construction factories and publication routing; no JDBC transaction/provider dependency |
 | `pangrova-generation/pangrova-generation-transaction-spi` | Internal borrowed-connection authority, submission, input-reading, candidate and execution-fence contracts; callers retain transaction ownership |
 | `pangrova-generation/pangrova-generation-store-postgresql` | PostgreSQL job/page/stage/exchange state, route/fence and fresh authority resolution; implements core and transaction ports |
-| `pangrova-query` | Query runtime services, profiling/audit orchestration and journal assembly; JDBC stores belong to Persistence, process-local stores await backend relocation |
+| `pangrova-query` | Query runtime services, profiling/audit orchestration and explicit backend assembly; all Query stores belong to Persistence |
 | `pangrova-operations` | DDL/DML operation execution |
-| `pangrova-coordination/pangrova-coordination-inmemory` | Process-local lease and registry implementations over Coordination API; suitable for single-process use and tests |
+| `pangrova-persistence/pangrova-persistence-memory` | Instance-owned Coordination and Query stores, bounded audit cache and explicit structured logging; no state survives restart |
 | `pangrova-coordination/pangrova-coordination-core` | Control plane only: parse, bind, authorize, admit, schedule, fence, validate terminal metadata and audit |
 | `pangrova-coordination/pangrova-coordination-zookeeper` | Optional quorum provider over Persistence API and Coordination SPI; never depends on the Coordinator process artifact |
 | `pangrova-worker/pangrova-worker-core` | Worker node process, JNI loading entry, task scheduling |
@@ -127,7 +127,7 @@ pangrova-worker (Java)
 ## Module Dependency Policy
 
 The target foundations are `pangrova-filesystem` (api/local/s3/oss),
-`pangrova-persistence` (api/jdbc) and `pangrova-spi`. Generic filesystem operations
+`pangrova-persistence` (api/jdbc/memory) and `pangrova-spi`. Generic filesystem operations
 belong to Filesystem; authorization, SQL, transfer budgets and domain orchestration
 remain with callers. Shared contracts belong to `org.pangrova.spi.<domain>.<capability>`;
 store ports belong to `org.pangrova.persistence.api.<domain>.<capability>`, and backend

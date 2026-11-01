@@ -566,7 +566,7 @@ class QueryManagerAsyncSubmitTest {
                             TestObservability.TRACING),
                     scheduler,
                     new WorkerManager(20_000, 60_000,
-                            new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry()),
+                            new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry()),
                     new CoordinatorTaskTracker(),
                     null, null, null, 0L);
         }

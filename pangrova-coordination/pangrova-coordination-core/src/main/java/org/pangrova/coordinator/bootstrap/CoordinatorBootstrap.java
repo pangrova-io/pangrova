@@ -155,7 +155,7 @@ public final class CoordinatorBootstrap {
     private HttpBootstrap buildHttpBootstrap() {
         return new HttpBootstrap(config,
                 observability.tracingProvider(), security.authenticationManager(),
-                query.taskStatusReceiver(), query.queryManager(), query.workerManager(),
+                query.taskStatusReceiver(), query, query.workerManager(),
                 moduleWiring.getCdcLifecycleManager(), this,
                 query.splitAssignmentManager(),
                 metadataBootstrap != null ? metadataBootstrap.metadataService() : null);
@@ -545,7 +545,7 @@ public final class CoordinatorBootstrap {
                             + "(advertisedHost="
                             + config.coordinatorTransportAdvertisedHost() + ")");
         }
-        distributedLease = new org.pangrova.coordination.inmemory.InMemoryDistributedLease();
+        distributedLease = new org.pangrova.persistence.memory.coordination.InMemoryDistributedLease();
         LOG.warn("event=distributed_lease_fallback type=InMemory reason=single_node_loopback");
         return distributedLease;
     }

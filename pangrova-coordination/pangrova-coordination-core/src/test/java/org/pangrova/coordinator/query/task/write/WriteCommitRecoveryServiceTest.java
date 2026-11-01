@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.task.write;
 
-import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
-import org.pangrova.query.store.memory.InMemoryWriteCommitQuarantineStore;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitJournal;
+import org.pangrova.persistence.memory.query.transaction.InMemoryWriteCommitQuarantineStore;
 import org.pangrova.spi.query.transaction.QuarantinedWriteCommit;
 import org.pangrova.persistence.api.query.transaction.WriteCommitQuarantineStore;
 import org.pangrova.spi.connector.coordination.WriteCommitEntry;

@@ -82,7 +82,7 @@ class HaLeaseBackendFallbackTest {
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
         var lease = bootstrap.ensureDistributedLease();
         assertThat(lease).isInstanceOf(
-                org.pangrova.coordination.inmemory.InMemoryDistributedLease.class);
+                org.pangrova.persistence.memory.coordination.InMemoryDistributedLease.class);
         assertThat(bootstrap.ensureDistributedLease()).isSameAs(lease);
     }
 
@@ -104,7 +104,7 @@ class HaLeaseBackendFallbackTest {
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
         var lease = bootstrap.ensureDistributedLease();
         assertThat(lease).isInstanceOf(
-                org.pangrova.coordination.inmemory.InMemoryDistributedLease.class);
+                org.pangrova.persistence.memory.coordination.InMemoryDistributedLease.class);
         assertThat(bootstrap.ensureDistributedLease()).isSameAs(lease);
     }
 }

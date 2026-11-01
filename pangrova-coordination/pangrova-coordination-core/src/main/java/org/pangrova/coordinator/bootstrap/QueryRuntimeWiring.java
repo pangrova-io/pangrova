@@ -9,7 +9,6 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.persistence.jdbc.coordination.JdbcWorkerRegistry;
-import org.pangrova.query.adapter.audit.LogAuditStore;
 import org.pangrova.query.core.audit.QueryAuditService;
 import org.pangrova.security.core.audit.AuditEventEmitter;
 import org.pangrova.security.assembly.audit.AuditWriterConfig;
@@ -17,7 +16,7 @@ import org.pangrova.security.assembly.audit.AuditWriterFactory;
 import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.spi.query.state.StateJournalConfig;
 import org.pangrova.persistence.api.coordination.WorkerRegistry;
-import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.pangrova.spi.observability.TracingProvider;
 import org.slf4j.Logger;
@@ -46,7 +45,7 @@ final class QueryRuntimeWiring {
 
     QueryStateJournal createStateJournal() {
         if (dependencies.metadataDataSource() == null) {
-            return new org.pangrova.query.store.memory.InMemoryQueryStateJournal();
+            return new org.pangrova.persistence.memory.query.state.InMemoryQueryStateJournal();
         }
         var config = new StateJournalConfig("JDBC", null, StateJournalConfig.NONE.flushIntervalMs(),
                 StateJournalConfig.NONE.batchSize(), StateJournalConfig.NONE.retentionHours(),
@@ -87,7 +86,7 @@ final class QueryRuntimeWiring {
                 dependencies.moduleWiring().getTenantResolver(),
                 dependencies.moduleWiring().getQuotaChecker(),
                 dependencies.moduleWiring().getLineageEmitter(), auditEmitter,
-                new QueryAuditService(LogAuditStore.shared()),
+                dependencies.queryAuditService(),
                 dependencies.moduleWiring().getResilienceRegistry(),
                 new org.pangrova.planner.throttle.QueryThrottlingService(1000, 100.0, DEFAULT_THROTTLE_BURST),
                 stateJournal, null, null, asyncConfig, asyncExecutor);
@@ -103,7 +102,8 @@ final class QueryRuntimeWiring {
             TracingProvider tracingProvider,
             MetricsProvider metricsProvider,
             ModuleIntegrationBootstrap moduleWiring,
-            DataSource metadataDataSource) {
+            DataSource metadataDataSource,
+            QueryAuditService queryAuditService) {
     }
 
     record QueryManagerResult(

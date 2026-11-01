@@ -46,7 +46,7 @@ class WebUiResourceIntegrationTest {
 
     @BeforeAll
     static void startServer() throws Exception {
-        workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry());
+        workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.persistence.memory.coordination.InMemoryWorkerRegistry());
         queryManager = org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture.create(
                 workerManager, new org.pangrova.coordinator.task.CoordinatorTaskTracker());
 
