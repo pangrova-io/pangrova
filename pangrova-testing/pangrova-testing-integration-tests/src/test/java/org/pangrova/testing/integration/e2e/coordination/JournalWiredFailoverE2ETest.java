@@ -5,7 +5,7 @@ import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
+import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
 import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.spi.query.state.QueryStateEvent;

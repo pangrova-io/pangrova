@@ -21,7 +21,7 @@ import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmission;
 import org.pangrova.spi.connector.coordination.WriteCommitEntry;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.planner.generation.GenerationPlan;
 import org.pangrova.planner.generation.GeneratedValueGenerationPlan;
 import org.pangrova.planner.generation.GeneratedValueGenerationPlanBuilder;

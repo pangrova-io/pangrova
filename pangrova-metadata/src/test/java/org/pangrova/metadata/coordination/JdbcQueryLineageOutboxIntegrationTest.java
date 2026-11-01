@@ -1,6 +1,6 @@
 package org.pangrova.metadata.coordination;
-import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
-import org.pangrova.query.store.jdbc.lineage.JdbcQueryLineageOutbox;
+import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
+import org.pangrova.persistence.jdbc.query.lineage.JdbcQueryLineageOutbox;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.query.state.JournalEventContext;
 import org.pangrova.spi.connector.coordination.JournalWriteException;

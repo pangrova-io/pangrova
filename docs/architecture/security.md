@@ -540,10 +540,10 @@ policy reader uses the same guard. Stable principal expressions such as
 `current_user()` remain available.
 
 The immutable deferred permission, connector-definition and model observations
-are owned by `org.pangrova.security.api.authz.DeferredAuthorizationScope`.
+are owned by `org.pangrova.spi.security.authz.DeferredAuthorizationScope`.
 They describe previously admitted work and do not confer current authority.
-The Security-owned persistence contract,
-`org.pangrova.security.protocol.DeferredAuthorizationScopeCodec`, handles
+The canonical metadata encoding owned by Persistence JDBC,
+`org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec`, handles
 encoding, decoding, write receipts and canonical SHA-256 digests. API values do
 not depend on the codec or Jackson; callers that need a persisted identity use
 `DeferredAuthorizationScopeCodec.sha256(scope)`.

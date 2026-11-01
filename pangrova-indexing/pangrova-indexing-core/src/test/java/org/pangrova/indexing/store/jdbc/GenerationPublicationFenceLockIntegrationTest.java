@@ -31,7 +31,7 @@ import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
 import org.pangrova.generation.api.GenerationExecutionKind;
 import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;

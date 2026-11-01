@@ -3,7 +3,7 @@ package org.pangrova.coordinator.coordination;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 
 import java.time.Duration;
 

@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory write commit journal for single-node or non-HA deployments.
  *
  * <p>Provides idempotency within a single JVM lifetime but does not survive
- * process restarts. Use {@link org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal}
+ * process restarts. Use {@link org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal}
  * for crash-recovery durability.</p>
  */
 public final class InMemoryWriteCommitJournal implements WriteCommitJournal {

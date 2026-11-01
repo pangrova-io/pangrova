@@ -327,7 +327,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                         org.pangrova.governance.store.jdbc.QualityRuleStores.jdbc(dataSource),
                         java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry"));
         lineageEmitter = LineageBackendConfiguration.createEmitter(
-                new org.pangrova.query.store.jdbc.lineage.JdbcQueryLineageOutbox(dataSource));
+                new org.pangrova.persistence.jdbc.query.lineage.JdbcQueryLineageOutbox(dataSource));
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         channelRegistry.register(new LogAlertChannel());
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);

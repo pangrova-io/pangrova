@@ -43,7 +43,7 @@ import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.spi.security.tenant.Tenant;
 import org.pangrova.spi.security.tenant.TenantRole;
 import org.pangrova.spi.security.tenant.TenantStatus;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
 import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
 import org.pangrova.testing.testkit.ContainerTestBase;

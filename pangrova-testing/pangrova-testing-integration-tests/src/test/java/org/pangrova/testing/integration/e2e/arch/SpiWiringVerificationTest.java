@@ -15,8 +15,8 @@ package org.pangrova.testing.integration.e2e.arch;
 
 import org.pangrova.scheduler.api.placement.NoOpSchedulerControlLoop;
 import org.pangrova.testing.testkit.TestProjectPaths;
-import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
 
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -179,7 +179,7 @@ class SpiWiringVerificationTest {
             "org.pangrova.metadata.checkpoint.JdbcCheckpointStore",
             "org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry",
             "org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease",
-            "org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal",
+            "org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal",
             "org.pangrova.persistence.jdbc.coordination.JdbcWorkerRegistry",
             "org.pangrova.metadata.service.DefaultConnectorSession",
             // Resilience — checkpoint removed per streaming positioning clarification
@@ -245,11 +245,11 @@ class SpiWiringVerificationTest {
             // the durable write-commit journal when a metadata datasource is configured — A-COMMIT-01).
             // It stays listed here only because the reachability roots (QueryManager/WorkerBootstrap)
             // do not traverse bootstrap wiring classes, same as the other Jdbc* bootstrap-wired impls.
-            "org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal",
+            "org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal",
             // Metadata — pending metadata service wiring
             "org.pangrova.metadata.service.DefaultMetadataService",
             // Observability — pending event listener wiring
-            "org.pangrova.query.store.jdbc.event.JdbcQueryEventListener",
+            "org.pangrova.persistence.jdbc.query.event.JdbcQueryEventListener",
             "org.pangrova.observability.sdk.logging.provider.mdc.MdcTaskWrapping",
             // Resilience — pending checkpoint wiring
             "org.pangrova.coordinator.resilience.checkpoint.InMemoryCheckpointStore",

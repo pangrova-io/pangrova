@@ -7,7 +7,7 @@ import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.spi.security.AuthorizationDeniedException;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;

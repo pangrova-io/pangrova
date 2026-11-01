@@ -6,8 +6,8 @@ import com.google.protobuf.ByteString;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
@@ -34,7 +34,7 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.protocol.v2.WritePreparationOutcome;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.spi.security.policy.Privilege;
 import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.spi.security.policy.Role;
@@ -102,7 +102,7 @@ public final class LanceManagedSourceFixture {
 
     LanceManagedSourceFixture(String catalogName, java.nio.file.Path warehouse) {
         this(catalogName, warehouse, GenerationAuthorityFixtures.modelAuthority(),
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence());
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
     }
 
     LanceManagedSourceFixture(String catalogName, java.nio.file.Path warehouse,

@@ -5,7 +5,7 @@ import java.sql.SQLException;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
+import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
 import org.pangrova.spi.query.state.StateJournalConfig;
 import org.postgresql.ds.PGSimpleDataSource;
 

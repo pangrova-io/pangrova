@@ -2,9 +2,9 @@ package org.pangrova.metadata.source.jdbc;
 
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.persistence.api.query.transaction.ExecutionTransactionFence;
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
 import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
 import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;

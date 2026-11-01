@@ -1,5 +1,5 @@
 package org.pangrova.metadata.coordination;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

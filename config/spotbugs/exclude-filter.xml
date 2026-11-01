@@ -448,7 +448,7 @@
          derived from executionIds.size(); no caller text reaches the statement. Every
          execution id itself is bound. -->
     <Match>
-        <Class name="org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal"/>
+        <Class name="org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal"/>
         <Method name="replayPendingEntries" params="java.util.Set" returns="java.util.List"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>

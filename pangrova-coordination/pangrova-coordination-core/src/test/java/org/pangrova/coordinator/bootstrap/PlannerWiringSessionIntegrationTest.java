@@ -54,7 +54,7 @@ class PlannerWiringSessionIntegrationTest {
                                 new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                                 ignored -> { throw new IllegalStateException("No write execution in this read fixture"); },
-                                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence(),
+                                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence(),
                                 ModelAuthorityFixtures.models())));
         MetadataBootstrap metadata = MetadataBootstrap.initialize(store, factory);
         try {

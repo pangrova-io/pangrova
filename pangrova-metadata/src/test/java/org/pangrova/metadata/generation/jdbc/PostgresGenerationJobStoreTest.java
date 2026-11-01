@@ -9,7 +9,7 @@ import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostExcepti
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.generation.spi.jdbc.GenerationJobSubmissionTransactions;
 import org.pangrova.generation.store.postgresql.query.PostgresGenerationQueries;
@@ -291,12 +291,12 @@ class PostgresGenerationJobStoreTest {
     void processRestartUsesTheSameDurableRouteAndRejectsOldNativeOwnerEvenAtTheSameControlTerm() {
         store.createJob(job(1), dispatchSpec(TENANT, pages(1)), pages(1));
         var key = new GenerationJobKey(TENANT, "job-1");
-        var anchors = new org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore(dataSource);
+        var anchors = new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore(dataSource);
         var first = anchors.tryAcquire(key.executionId(), "coordinator", "process-before-restart", Duration.ofMinutes(1)).orElseThrow();
         var oldPage = store.claimNextPage(TENANT, key.jobId(), first, 1, Duration.ofSeconds(10), START).orElseThrow();
         var restarted = GenerationAuthorityFixtures.artifacts().builds(dataSource);
         assertThat(restarted.findExecutionJob(key.executionId())).contains(key);
-        var recoveredAnchors = new org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore(dataSource);
+        var recoveredAnchors = new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore(dataSource);
         assertThat(recoveredAnchors.current(key.executionId())).contains(first);
         assertThat(recoveredAnchors.tryAcquire(key.executionId(), "coordinator", "process-after-restart",
                 Duration.ofMinutes(1))).isEmpty();
@@ -350,7 +350,7 @@ class PostgresGenerationJobStoreTest {
     void ownerGateHoldsTheSameBackendRowAgainstTakeoverUntilTheMetadataTransactionEnds() throws Exception {
         store.createJob(job(1), dispatchSpec(TENANT, pages(1)), pages(1));
         var anchor = executions.takeOwnership(TENANT, "job-1", "coordinator", 1);
-        var anchors = new org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore(dataSource);
+        var anchors = new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore(dataSource);
         var executor = Executors.newSingleThreadExecutor();
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -829,7 +829,7 @@ class PostgresGenerationJobStoreTest {
                     (connection, executionId, ownerId, incarnation, token) -> {
                         assertThat(connection).isSameAs(caller);
                         calls.incrementAndGet();
-                        return new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence()
+                        return new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence()
                                 .requireCurrent(connection, executionId, ownerId, incarnation, token);
                     });
             var expected = new org.pangrova.generation.api.execution.GenerationExecutionOwner(

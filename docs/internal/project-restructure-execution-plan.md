@@ -2876,3 +2876,101 @@ ServiceLoader实际参数/注册发现6与static通过。上述最近范围不�
 不增加baseline或注解隐藏它们。Module依赖、API隔离、annotation/stability、命名/enum、
 包图与源码引用、stub及工具回归按本节日志保留终态；本检查点没有使所有CI变绿，也没有
 完成全store/全API/全文件审查或云端生产验收。下一批继续Query及其后续领域持久化整合。
+
+## 50. Query JDBC 归并与闲置审计路径清理（2026-11-01）
+
+本批推进统一Persistence目标，不把前一批基础模块落地等同于全store迁移完成。
+Query仍有四个内存存储和日志审计缓存待迁入独立后端；其他领域store/API及四个SCC继续处理。
+
+### 50.1 实际归属与边界
+
+12个活动Query JDBC实现/协作者迁入`pangrova-persistence-jdbc`，按职责分为
+`query.coordination`（锚点及借用事务fence）、`query.state`（query/task journal及写入生命周期）、
+`query.lineage`（outbox及确切payload核对）、`query.event`（完成事件/split profile）、
+`query.transaction`（写提交日志、quarantine）。业务服务仍归Query，后端选择工厂改归
+`org.pangrova.query.assembly.state`。没有旧包转发或双实现路径。
+
+授权范围的持久化JSON codec从Security迁入Persistence JDBC的`security.codec`。
+它编码已观察的权限、定义和模型快照，不决定当前授权；当前权限校验仍由Security负责。
+Query和Generation PostgreSQL去掉Security实现依赖，Query也去掉Protocol依赖。
+SPI/API不依赖JSON codec、Query、Security或JDBC实现。所有调用者显式引用新owner。
+既有授权golden字节和SHA-256测试随codec归位，fixture内容未变。
+
+`JdbcAuditStore`只有专属测试实例化，没有生产工厂/注册/调用；已删除该闲置异步队列及其
+三个专属测试源。实际生产仍由`QueryAuditService(LogAuditStore.shared())`连接审计与profile，
+完成/split事件仍使用`JdbcQueryEventListener`的`query_events/query_split_profiles`。
+这几种记录不是同一持久账本，不能声称已有durable resource-usage audit。
+历史`query_audit_records`数据库迁移不删除、不改字节；实际服务、缓存及事件测试保留。
+文档同步纠正原先把未接线队列描述成当前生产后端的说法。
+
+### 50.2 验证证据及边界
+
+- `/tmp/pangrova-query-persistence-focused.log`：首次定向17项通过，涵盖授权字节/摘要、
+  队列与SQL操作生命周期、真实PG借用事务fence。
+- `/tmp/pangrova-query-persistence-reactor.log`：68项clean install通过，包括全仓主源与
+  测试源编译；跳过测试执行，不是全仓测试通过。
+- `/tmp/pangrova-query-persistence-owners.log`：Persistence JDBC214、Security327全部通过
+  且static通过；Generation6测试通过后遇到新FQN导致的LineLength，Query尚未运行。
+  `/tmp/pangrova-query-persistence-owners-corrected.log`保留修长行时漏import的编译失败。
+  补齐import后`owners-final.log`中Generation6和Query43及static全部通过。
+- `/tmp/pangrova-query-persistence-coordinator.log`：115项中113通过，两个Lance实际SDK恢复
+  用例因缺少`pangrova.lance.fixture.tool`在夹具初始化处报错；不能算通过或归为业务失败。
+- `/tmp/pangrova-query-persistence-e2e.log`：日志回放、JournalWiredFailover与ActivationSmoke
+  共21项及static通过，运行真实SQL→Planner→Worker/JNI→Native→结果及持久日志链路。
+  使用与前批同源的已验证dylib；本批未修改Native/Proto，不声称重新完成C++/ASan全回归。
+- `/tmp/pangrova-query-persistence-kit.log`：模块边界/命名/状态枚举14项及static通过；
+  `cycles.log`中源码引用与包图17项通过，包无环1项仍失败。四个SCC成员与前批完全相同。
+- `/tmp/pangrova-query-persistence-wiring.log`：8项中6通过、两个架构测试失败。
+  其中真实QueryOnlyWriteAuthority2项通过；闲置审计删除后剩四个不可达store实现
+  （JdbcTenantStore、InMemoryRoleStore、StaticGrantStore、EmptyRowPolicyStore）及
+  ResultExpirationScheduler。未添加baseline/注解豁免或无用途的工厂入口。
+- `/tmp/pangrova-query-persistence-artifacts.log`：21个迁移Java源仅发生package/import替换；
+  52个当前main JAR中每个迁移生产类恰有一个新定义，旧类及已删除audit实现均不存在；
+  canonical schema、Native及Proto源码未变化。模块manifest、stub检查与diff空白检查通过。
+
+当前精确台账为51个Java叶子、3,617主源文件、695主源包、2,395测试源文件。
+Persistence发现候选333个（包括注册表等非持久存储，仍须逐文件判断），不是完成审查的计数。
+
+### 50.3 Native恢复测试前置条件
+
+查找当前工作区、SDK cohort及临时目录未找到Lance fixture executable。尝试现有CMake目标
+失败于缺失固定版本`liblance_c_ffi.a`，保留`/tmp/pangrova-query-lance-fixture-build.log`。
+按仓库`build-lance-ffi.sh`重新构建，日志为`/tmp/pangrova-query-lance-ffi-build.log`；
+必须以构建终态及实际恢复用例结果补齐此项，不能用已存在的Worker dylib冒充独立fixture工具。
+
+### 50.4 内存隔离记录的实际语义修复
+
+继续检查未迁移内存后端时确认：`InMemoryWriteCommitQuarantineStore`原先仅以queryId为key，
+第二个不同指纹被`putIfAbsent`丢弃，与Persistence API的确切意图契约及JDBC复合主键不同。
+新增三个回归用例：同query多指纹、重复同指纹保留原决策、并发16个不同意图。
+`/tmp/pangrova-query-quarantine-red.log`在旧实现上3项中2失败，确实复现记录丢失。
+修复为不可变复合key；每个意图独立原子写入；按query查询选择quarantinedAt最新的决策，
+与JDBC的时间排序相同。进程重启仍会丢失内存状态，不将其宣传成durable backend。
+
+Coordinator static首次遇到QueryMaterializationWiring迁移后长行及DispatchCanceller既有长行，
+均用明确import修正；`/tmp/pangrova-query-persistence-coordinator-static-final.log`已通过。
+
+修复后的`/tmp/pangrova-query-quarantine-green.log`包含完整Query46及static通过；
+`quarantine-repeated.log`再次运行三个确切意图/并发回归及static，全部通过。
+Lance FFI固定依赖已按原脚本构建完成（5m34s，provenance seal成功），没有修改Rust/Native源。
+
+### 50.5 最终检查点与未完成验证
+
+最终`/tmp/pangrova-query-persistence-reactor-final.log`再次68项install通过（1m04s，skipTests），
+包括内存复合意图修复与最终import整理；52 JAR重复/旧类型检查仍通过。
+完整Query46之后额外重复3项回归及static通过；前述JDBC214/Security327/Generation6及
+SQL/JNI21的通过范围不外推成全仓生产回归。
+
+Lance FFI脚本已成功生成并seal 185MiB archive；随后
+`/tmp/pangrova-query-lance-fixture-rebuild.log`记录CMake拒绝现有Velox SDK cohort：
+`Registration source provenance failed: SDK source lacks the complete patch or has unreviewed drift`。
+未关闭该校验、未改SDK工作树、未以不匹配的工具代替。两个真实SDK恢复用例仍缺有效fixture，
+不称为通过。此环境前置条件需在后续独立准备合格SDK/fixture后补验；并不阻止继续审查
+其余Persistence与SPI职责。当前没有继续运行的Native构建任务。
+
+下一批继续Query内存后端、日志缓存及Coordination非JDBC后端的统一归属，再推进Generation
+等领域；四个SCC、五个不可达实现/调度器、上述两个测试、前批Worker TLS首次异常与真实
+云端资格验证均保留，不以此检查点替代完整目标。
+
+最终`/tmp/pangrova-query-persistence-gates-final.log`再次确认ModuleDependency7通过、
+PackageDependencyAcyclicity1失败且仍仅原四SCC；当前原始包图含最终源码行号，已同步保存。

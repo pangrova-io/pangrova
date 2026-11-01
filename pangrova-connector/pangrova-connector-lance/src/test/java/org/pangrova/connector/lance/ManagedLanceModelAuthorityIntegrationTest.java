@@ -6,7 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.testing.testkit.ContainerTestBase;

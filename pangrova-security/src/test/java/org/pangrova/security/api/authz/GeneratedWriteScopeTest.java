@@ -2,7 +2,7 @@ package org.pangrova.security.api.authz;
 
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;

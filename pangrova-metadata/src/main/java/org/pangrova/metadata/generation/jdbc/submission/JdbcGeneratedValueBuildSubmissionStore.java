@@ -9,7 +9,7 @@ import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.generation.spi.jdbc.GenerationJobSubmissionTransactions;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmission;
 import org.pangrova.spi.security.AuthorizationDeniedException;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
 import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 

@@ -5,7 +5,7 @@ import org.pangrova.generation.api.job.GenerationLease;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.spi.storage.CurrentGenerationAuthority;
 import org.pangrova.observability.sdk.tracing.ExecutionTraceContext;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 
 import java.util.Map;
 import java.util.Objects;

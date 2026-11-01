@@ -39,7 +39,7 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
                         jobId, GenerationStageGraphCodec.decode(
                                 result.getBytes("stage_graph_bytes"), result.getString("stage_graph_sha256")),
                         result.getString("tenant_id"), result.getString("principal"),
-                        org.pangrova.security.protocol.DeferredAuthorizationScopeCodec.decode(
+                        org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec.decode(
                                 result.getBytes("authorization_scope_bytes")),
                         result.getLong("max_memory_bytes"), result.getInt("max_threads"),
                         result.getLong("max_spill_bytes"),

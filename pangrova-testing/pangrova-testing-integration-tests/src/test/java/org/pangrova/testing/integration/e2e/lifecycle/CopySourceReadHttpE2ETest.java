@@ -38,7 +38,7 @@ import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
 import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.http.endpoint.copy.CopySourceWireLoggingPolicy;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
 import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
 import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
@@ -575,7 +575,7 @@ class CopySourceReadHttpE2ETest extends ContainerTestBase {
                     new RowLevelSecurityFilter(new JdbcRowPolicyStore(source)),
                     new ColumnMaskingProcessor(new JdbcColumnMaskStore(source)));
             admissions = JdbcCopySourceReadAdmissions.forLoopbackTest(source, access,
-                    new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence());
+                    new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
             processAuthority = new CoordinatorExecutionAuthority(new JdbcExecutionAnchorStore(source),
                     "coordinator-one", "incarnation-one", Duration.ofMinutes(5));
             coordination = new HighAvailabilityCoordinationService(new JdbcDistributedLease(source));

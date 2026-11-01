@@ -35,7 +35,7 @@ import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
 import org.pangrova.spi.security.policy.Privilege;
 import org.pangrova.spi.security.policy.PrivilegeGrant;

@@ -1,6 +1,7 @@
 package org.pangrova.generation.store.postgresql.job;
 
 import org.pangrova.generation.protocol.GenerationStageGraphCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.job.GenerationJobState;
@@ -52,7 +53,7 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
             statement.setInt(parameter++, spec.maxThreads());
             statement.setLong(parameter++, spec.maxSpillBytes());
             statement.setLong(parameter++, spec.taskTimeoutMillis());
-            statement.setBytes(parameter, org.pangrova.security.protocol.DeferredAuthorizationScopeCodec.encode(
+            statement.setBytes(parameter, DeferredAuthorizationScopeCodec.encode(
                     spec.authorizationScope()));
             statement.executeUpdate();
         }

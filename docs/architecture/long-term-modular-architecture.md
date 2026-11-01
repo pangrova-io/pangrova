@@ -1650,9 +1650,16 @@ Control Plane 是部署和运行视角，不是代码 parent。Metadata、Query�
 
 Query Core 不发送 HTTP，不直接创建 Worker client，不执行 JDBC，不加载 Connector class。
 
-#### `org.pangrova.query.store.jdbc`
+#### `org.pangrova.persistence.jdbc.query`
 
-拥有 query/task journal、execution attempt、result registration、query history 的 migration 和 repository。所有 update 带 owner/epoch 或 version CAS。
+Query 持久化实现统一归 Persistence：`coordination` 保存执行锚点并校验借用事务的所有权，
+`state` 保存 query/task journal，`lineage` 管理 outbox，`event` 保存完成事件和 split profile，
+`transaction` 管理写提交日志和隔离记录。契约归 Persistence API 与 SPI；
+Query 的 `assembly` 选择后端，业务服务不执行 JDBC。历史 migration 仍只归
+`pangrova-schema-migrations`，迁移 Java 所有权不重写数据库版本。
+
+非持久部署的写隔离内存后端也必须按 `(queryId, commitFingerprint)` 保存每个确切意图，
+重复记录保留第一次决策；按 queryId 查询返回时间最新的已记录决策，不能吞掉同一查询的后续不同指纹。
 
 #### `org.pangrova.scheduler.placement`
 

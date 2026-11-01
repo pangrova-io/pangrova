@@ -19,7 +19,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;

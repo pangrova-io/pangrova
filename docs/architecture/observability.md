@@ -651,7 +651,7 @@ public class ProfilerEndpoint {
 │  │  }                                                                       │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
-│  Storage: PostgreSQL (query_audit_records table), retained for 30 days              │
+│  Current storage: structured log plus bounded process-local profile cache              │
 │  Purpose: cost allocation, capacity planning, anomalous-query detection, SLA reporting │
 
 
@@ -661,13 +661,12 @@ public class ProfilerEndpoint {
 
 ### Resource audit admission and shutdown
 
-Query audit contracts live in `pangrova-query-api`: `QueryAuditRecord`,
-`QueryAuditSink` and `QueryAuditStore` are in `org.pangrova.query.api.audit`.
-Domain callers consume the admission-only sink; storage lookup and retention are
-separate store operations. The runtime service is
-`org.pangrova.query.core.audit.QueryAuditService` in `pangrova-query`; JDBC and
-log stores implement the API port directly. Constructing or loading the query
-contracts does not require the audit service, its storage implementation or cache.
+Query audit values and the admission sink live in `pangrova-spi` under
+`org.pangrova.spi.query.audit`; the storage port lives in `pangrova-persistence-api`
+under `org.pangrova.persistence.api.query.audit`. The runtime service remains
+`org.pangrova.query.core.audit.QueryAuditService`. Current process assembly uses
+`LogAuditStore.shared()` for resource-record admission and profile lookup.
+API consumers do not load the service, cache or JDBC backend.
 
 Terminal query records preserve the query-owned submitting principal and resolved
 tenant for both success and failure. Anonymous rejection is explicitly attributed
@@ -677,23 +676,14 @@ identity when the event backend is absent. This does not yet close the resource
 audit integration gap: terminal resource records currently lack actual stage/task
 and Native usage aggregation, and zero placeholders are not measured usage.
 
-`JdbcAuditStore.save` admits records into a bounded in-memory queue without caller-thread
-JDBC. Capacity includes queued and in-flight records: failed batches keep their permits
-and are retried without competing with new producers for space. Exhausted capacity or
-five consecutive flush failures explicitly rejects new admissions; `QueryAuditService`
-wraps rejection as `OBS_AUDIT_PERSISTENCE_FAILED`. A successful flush releases capacity
-and resets the failure count.
-
-Flush ownership is claimed atomically; JDBC executes without holding a monitor.
-Concurrent flush requests do not wait on database I/O. Shutdown joins the actual
-in-flight completion before draining subsequent batches.
-
-Shutdown prevents further admissions, waits for in-flight flushing, and drains all
-remaining batches. If persistence still fails, `close` reports unpersisted records rather
-than acknowledging a successful drain. This is not a durable audit ledger: a process
-crash can lose admitted in-memory records, and an ambiguous database commit response
-does not provide exactly-once retry semantics. Those guarantees require a durable
-admission and reconciliation design beyond this queue.
+The unused asynchronous `JdbcAuditStore` implementation has been removed: no production
+constructor, factory or service registration selected it. Its private queue tests were
+removed with it; the active audit-service and shared-cache tests remain. The historical
+`query_audit_records` migration is preserved byte-for-byte, but this table is not the
+current resource-audit persistence path. Durable completion/split events use
+`org.pangrova.persistence.jdbc.query.event.JdbcQueryEventListener` and the separate
+`query_events` / `query_split_profiles` tables. These facts must not be presented as
+a durable resource-usage audit ledger.
 
 Metric getters intentionally expose the same registered live instrument, JVM collectors
 retain live management beans, and no-op instruments are stateless shared singletons.
@@ -1043,11 +1033,12 @@ Pangrova has two complementary audit subsystems:
 | Aspect | Security Audit ([12 §6](./security.md)) | Resource Audit (§4.5) |
 |--------|---------------------------------------------|----------------------|
 | Scope | Who did what (authentication, authorization, DDL, data access) | How much was consumed (CPU, memory, I/O, shuffle) |
-| Storage | `audit_logs` table | `query_audit_records` table |
+| Storage | `audit_logs` table | Structured log and bounded process-local cache |
 | Key fields | principal, clientIp, sql, success, accessedObjects | cpuTimeMs, peakMemoryBytes, spilledBytes, inputRows |
-| Owner | SecurityModule | ObservabilityModule |
+| Owner | Security audit service / Persistence JDBC | Query audit service / `LogAuditStore` |
 
-Both tables share a common `AuditEvent` base schema (see [12 §6.3](./security.md)) and can be joined via `query_id` for full audit trail.
+The active security events and resource records use distinct contracts. Query identifiers
+allow correlation, but the process-local resource cache is not a durable SQL join source.
 
 Query lifecycle security events retain the submitting principal in the query-owned
 state machine before ownership acquisition. Completion and failure use that captured

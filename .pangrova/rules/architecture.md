@@ -15,7 +15,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-filesystem/pangrova-filesystem-s3` | S3 blob/object transfer, cancellation, SDK clients and presigners |
 | `pangrova-filesystem/pangrova-filesystem-oss` | OSS blob publication, owned SDK/transport and encryption; OSS object/COPY support remains pending |
 | `pangrova-persistence/pangrova-persistence-api` | Store ports and storage facts, organized by domain/capability; initially File, Query, Coordination and Security |
-| `pangrova-persistence/pangrova-persistence-jdbc` | JDBC backend implementations; initially File, Coordination and Security transaction gate |
+| `pangrova-persistence/pangrova-persistence-jdbc` | JDBC backend implementations; File, Coordination, Security and Query backend implementations |
 | `pangrova-materialization/pangrova-materialization-core` | Unified Dynamic Table / Materialized View domain kernel: definitions, generations, attempts, publication protocol, scheduling, and extension ports |
 | `pangrova-materialization/pangrova-materialization-store-jdbc` | Relational materialization repositories for deployments that externalize state; never imported by the kernel |
 | `pangrova-shuffle/pangrova-shuffle-core` | Shuffle contract and engine-side exchange orchestration |
@@ -27,7 +27,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-generation/pangrova-generation-core` | Generation-job contracts, storage SPI and immutable evidence, canonical codecs, pure construction factories and publication routing; no JDBC transaction/provider dependency |
 | `pangrova-generation/pangrova-generation-transaction-spi` | Internal borrowed-connection authority, submission, input-reading, candidate and execution-fence contracts; callers retain transaction ownership |
 | `pangrova-generation/pangrova-generation-store-postgresql` | PostgreSQL job/page/stage/exchange state, route/fence and fresh authority resolution; implements core and transaction ports |
-| `pangrova-query` | Query runtime services, profiling/audit orchestration, journal factories and JDBC/in-memory state stores; consumes Query SPI and Persistence API |
+| `pangrova-query` | Query runtime services, profiling/audit orchestration and journal assembly; JDBC stores belong to Persistence, process-local stores await backend relocation |
 | `pangrova-operations` | DDL/DML operation execution |
 | `pangrova-coordination/pangrova-coordination-inmemory` | Process-local lease and registry implementations over Coordination API; suitable for single-process use and tests |
 | `pangrova-coordination/pangrova-coordination-core` | Control plane only: parse, bind, authorize, admit, schedule, fence, validate terminal metadata and audit |

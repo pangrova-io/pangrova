@@ -5,7 +5,7 @@ import org.pangrova.generation.spi.jdbc.GenerationTransactionInputs;
 import org.pangrova.generation.store.postgresql.query.PostgresGenerationQueries;
 import org.pangrova.generation.store.postgresql.execution.PostgresGenerationExecutionFence;
 import org.pangrova.generation.spi.jdbc.GenerationExecutionTransactionFence;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence;
 import org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority;
 import org.pangrova.metadata.adapter.generation.MetadataGenerationPublicationCandidates;
 import org.pangrova.generation.spi.jdbc.GenerationPublicationCandidates;

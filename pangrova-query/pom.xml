@@ -12,13 +12,18 @@
 
     <artifactId>pangrova-query</artifactId>
     <name>Pangrova Query</name>
-    <description>Query durable state: audit, events, profiles, and lifecycle persistence</description>
+    <description>Query audit and profile services and state-journal assembly</description>
 
     <properties>
         <module.name>org.pangrova.query</module.name>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-jdbc</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-persistence-api</artifactId>
@@ -30,16 +35,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-protocol</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
         </dependency>
 
         <dependency>

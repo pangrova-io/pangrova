@@ -30,8 +30,8 @@ class QueryApiClasspathTest {
                 LoggerFactory.class.getProtectionDomain().getCodeSource().getLocation()};
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {
             for (String absent : List.of("org.pangrova.query.core.audit.QueryAuditService",
-                    "org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore",
-                    "org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence",
+                    "org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore",
+                    "org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence",
                     "org.postgresql.Driver",
                     "org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate", "com.fasterxml.jackson.databind.ObjectMapper",
                     "com.github.benmanes.caffeine.cache.Caffeine")) {

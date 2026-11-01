@@ -5,11 +5,11 @@
 装配工厂和领域适配器也可能命中；命中不等于确认它是持久化实现，未命中也不等于完成审查。
 逐文件验收必须继续追踪调用者、实现、装配、事务、SQL/编解码、异常与最近测试。
 
-已归位的File、Coordination和Security JDBC实现在Persistence中；Query只有端口已迁入，
+已归位的File、Coordination、Security和Query JDBC实现在Persistence中；Query内存后端尚待迁入，
 其他领域存储仍待实施。Security保留行过滤/掩码渲染和权限判断，数据库事实读取归JDBC。
 内存/文件/仲裁等非JDBC后端须单独确定能力与模块落位，不能混入API或伪称JDBC。
 
-后续迁移顺序：Query事务与journal/audit/lineage → Generation → Materialization/Table →
+后续迁移顺序：Query内存存储与日志缓存 → Generation → Materialization/Table →
 Metadata/Catalog/source authority → Indexing/AI/Semantic/Governance/Streaming/Operations →
 Worker与其余运行时持久化候选。每批先消除实现反向依赖，再原样迁移SQL与事务语义；不能
 通过增加API→实现依赖、取消真实数据库测试或恢复旧包转发来完成搬迁。
@@ -417,7 +417,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 ## pangrova-persistence-jdbc
 
-22 个主源候选。
+35 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
@@ -431,7 +431,20 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcStorageProfileRegistry.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/profile/JdbcStorageProfileRegistry.java) | `org.pangrova.persistence.jdbc.file.profile` | 已在目标owner；继续语义/装配验收 |
 | [JdbcFileSpaceAuthority.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/space/JdbcFileSpaceAuthority.java) | `org.pangrova.persistence.jdbc.file.space` | 已在目标owner；继续语义/装配验收 |
 | [JdbcFileSpaceRegistry.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/space/JdbcFileSpaceRegistry.java) | `org.pangrova.persistence.jdbc.file.space` | 已在目标owner；继续语义/装配验收 |
+| [JdbcExecutionAnchorStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/coordination/JdbcExecutionAnchorStore.java) | `org.pangrova.persistence.jdbc.query.coordination` | 已在目标owner；继续语义/装配验收 |
+| [JdbcExecutionTransactionFence.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/coordination/JdbcExecutionTransactionFence.java) | `org.pangrova.persistence.jdbc.query.coordination` | 已在目标owner；继续语义/装配验收 |
+| [JdbcQueryEventListener.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/event/JdbcQueryEventListener.java) | `org.pangrova.persistence.jdbc.query.event` | 已在目标owner；继续语义/装配验收 |
+| [JdbcQueryLineageOutbox.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/lineage/JdbcQueryLineageOutbox.java) | `org.pangrova.persistence.jdbc.query.lineage` | 已在目标owner；继续语义/装配验收 |
+| [QueryLineageFactSql.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/lineage/QueryLineageFactSql.java) | `org.pangrova.persistence.jdbc.query.lineage` | 已在目标owner；继续语义/装配验收 |
+| [JdbcQueryStateJournal.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/state/JdbcQueryStateJournal.java) | `org.pangrova.persistence.jdbc.query.state` | 已在目标owner；继续语义/装配验收 |
+| [JournalEventSql.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/state/JournalEventSql.java) | `org.pangrova.persistence.jdbc.query.state` | 已在目标owner；继续语义/装配验收 |
+| [JournalFlushOwner.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/state/JournalFlushOwner.java) | `org.pangrova.persistence.jdbc.query.state` | 已在目标owner；继续语义/装配验收 |
+| [JournalPendingWrites.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/state/JournalPendingWrites.java) | `org.pangrova.persistence.jdbc.query.state` | 已在目标owner；继续语义/装配验收 |
+| [JournalSqlOperation.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/state/JournalSqlOperation.java) | `org.pangrova.persistence.jdbc.query.state` | 已在目标owner；继续语义/装配验收 |
+| [JdbcWriteCommitJournal.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/transaction/JdbcWriteCommitJournal.java) | `org.pangrova.persistence.jdbc.query.transaction` | 已在目标owner；继续语义/装配验收 |
+| [JdbcWriteCommitQuarantineStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/transaction/JdbcWriteCommitQuarantineStore.java) | `org.pangrova.persistence.jdbc.query.transaction` | 已在目标owner；继续语义/装配验收 |
 | [JdbcAuditEventWriter.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/audit/JdbcAuditEventWriter.java) | `org.pangrova.persistence.jdbc.security.audit` | 已在目标owner；继续语义/装配验收 |
+| [DeferredAuthorizationScopeCodec.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/codec/DeferredAuthorizationScopeCodec.java) | `org.pangrova.persistence.jdbc.security.codec` | 已在目标owner；继续语义/装配验收 |
 | [PolicyRoleCodec.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/codec/PolicyRoleCodec.java) | `org.pangrova.persistence.jdbc.security.codec` | 已在目标owner；继续语义/装配验收 |
 | [JdbcColumnMaskStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/mask/JdbcColumnMaskStore.java) | `org.pangrova.persistence.jdbc.security.mask` | 已在目标owner；继续语义/装配验收 |
 | [JdbcCurrentDirectRoleReader.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/policy/JdbcCurrentDirectRoleReader.java) | `org.pangrova.persistence.jdbc.security.policy` | 已在目标owner；继续语义/装配验收 |
@@ -463,24 +476,11 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 ## pangrova-query
 
-18 个主源候选。
+5 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
 | [LogAuditStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/adapter/audit/LogAuditStore.java) | `org.pangrova.query.adapter.audit` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcExecutionAnchorStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/anchor/JdbcExecutionAnchorStore.java) | `org.pangrova.query.store.jdbc.anchor` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcExecutionTransactionFence.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/anchor/JdbcExecutionTransactionFence.java) | `org.pangrova.query.store.jdbc.anchor` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcAuditStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/audit/JdbcAuditStore.java) | `org.pangrova.query.store.jdbc.audit` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcQueryEventListener.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/event/JdbcQueryEventListener.java) | `org.pangrova.query.store.jdbc.event` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcQueryStateJournal.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/journal/JdbcQueryStateJournal.java) | `org.pangrova.query.store.jdbc.journal` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JournalEventSql.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/journal/JournalEventSql.java) | `org.pangrova.query.store.jdbc.journal` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JournalFlushOwner.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/journal/JournalFlushOwner.java) | `org.pangrova.query.store.jdbc.journal` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JournalPendingWrites.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/journal/JournalPendingWrites.java) | `org.pangrova.query.store.jdbc.journal` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JournalSqlOperation.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/journal/JournalSqlOperation.java) | `org.pangrova.query.store.jdbc.journal` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcQueryLineageOutbox.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/lineage/JdbcQueryLineageOutbox.java) | `org.pangrova.query.store.jdbc.lineage` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [QueryLineageFactSql.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/lineage/QueryLineageFactSql.java) | `org.pangrova.query.store.jdbc.lineage` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcWriteCommitJournal.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/transaction/JdbcWriteCommitJournal.java) | `org.pangrova.query.store.jdbc.transaction` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [JdbcWriteCommitQuarantineStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/transaction/JdbcWriteCommitQuarantineStore.java) | `org.pangrova.query.store.jdbc.transaction` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryExecutionAnchorStore.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory/InMemoryExecutionAnchorStore.java) | `org.pangrova.query.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryQueryStateJournal.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory/InMemoryQueryStateJournal.java) | `org.pangrova.query.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |
 | [InMemoryWriteCommitJournal.java](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory/InMemoryWriteCommitJournal.java) | `org.pangrova.query.store.memory` | 候选；待逐文件确认职责并迁移/留调用方 |

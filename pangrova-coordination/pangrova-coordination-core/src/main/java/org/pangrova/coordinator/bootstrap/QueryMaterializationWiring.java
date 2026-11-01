@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
+
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 
@@ -52,7 +54,7 @@ final class QueryMaterializationWiring {
                 new SnapshotGenerationSplitPlanner(catalog), workerSelector(),
                 dependencies.config().baseIndexPath(), catalog);
         var coordinator = new GeneratedValueMaterializationCoordinator(catalog, service,
-                dependencies.metadataDataSource(), new org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal(
+                dependencies.metadataDataSource(), new JdbcWriteCommitJournal(
                         dependencies.metadataDataSource()), dependencies.modelAuthority());
         var registeredCatalogs = indexing.registerDurableCommitProcessor(coordinator);
         coordinator.activateCatalogs(registeredCatalogs);

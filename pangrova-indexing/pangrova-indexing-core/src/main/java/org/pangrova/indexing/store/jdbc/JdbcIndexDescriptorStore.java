@@ -6,7 +6,7 @@ import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 import org.pangrova.spi.indexing.state.IndexState;
 import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
-import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
+import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;

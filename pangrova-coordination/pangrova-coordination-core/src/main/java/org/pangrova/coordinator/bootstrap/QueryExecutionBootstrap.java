@@ -158,7 +158,7 @@ final class QueryExecutionBootstrap {
             rtd.setCopySourceBinder(new CopySourceTaskBinder(
                     new org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions(metadataDataSource,
                             accessControl,
-                            new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence()),
+                            new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence()),
                     coordinationService::requireExecutionAnchor));
         }
         this.remoteTaskDispatcher = rtd;

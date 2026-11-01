@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+
 import java.util.List;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -102,7 +104,7 @@ public final class DispatchCanceller {
     }
 
     /** Journals the same frozen fact retained by the sole issued-attempt authority. */
-    public void journalScheduledTask(org.pangrova.persistence.api.query.state.QueryStateJournal journal, String taskId) {
+    public void journalScheduledTask(QueryStateJournal journal, String taskId) {
         journal.appendTaskEvent(taskTracker.scheduledJournalEvent(taskId));
     }
 

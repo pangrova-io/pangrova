@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.file.storage.FileStorageException;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
 import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
@@ -76,7 +76,7 @@ class JdbcCopySourceReadAdmissionsTest {
         }
         assertThat(fixture.redeem(ticket, scope).profile().profile().bucket()).isEqualTo("bucket");
         assertThat(new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence())
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence())
                 .redeem(ticket, scope, fixture.anchor()).profile().profile().bucket()).isEqualTo("bucket");
         try (var connection = fixture.source().getConnection();
                 var statement = connection.prepareStatement(
@@ -281,7 +281,7 @@ class JdbcCopySourceReadAdmissionsTest {
         var scope = fixture.scope();
         var ticket = fixture.issue(scope, ALICE);
         var other = new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence());
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
         var executor = Executors.newFixedThreadPool(2);
         try {
             var calls = java.util.List.<Callable<String>>of(
@@ -427,7 +427,7 @@ class JdbcCopySourceReadAdmissionsTest {
         assertThat(fixture.redeem(ticket, scope).stagedSource()).isEmpty();
         assertThat(fixture.recordStagedSource(ticket, scope, staged)).isEqualTo(staged);
         var restarted = new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence());
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
         assertThat(restarted.redeem(ticket, scope, fixture.anchor()).stagedSource()).contains(staged);
         assertThat(restarted.redeem(ticket, scope, fixture.anchor()).stagedSource().orElseThrow()
                 .managedObjectUri()).isEqualTo(staged.managedObjectUri());
@@ -557,7 +557,7 @@ class JdbcCopySourceReadAdmissionsTest {
             assertThat(rows.getString(3)).hasSize(64).isNotEqualTo(bound.ticket().nonce());
         }
         var restarted = new JdbcCopySourceReadAdmissions(fixture.source(), fixture.accessControl(),
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence());
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence());
         var redelivered = restarted.issueFrozenInput(attempt, fixture.anchor());
         assertThat(redelivered.ticket()).isNotEqualTo(bound.ticket());
         assertThat(redelivered.scope()).isEqualTo(bound.scope());
@@ -727,7 +727,7 @@ class JdbcCopySourceReadAdmissionsTest {
                 System.currentTimeMillis() + 60_000);
         return new Fixture(source, profiles, grants, access,
                 new JdbcCopySourceReadAdmissions(source, access,
-                        new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence()), scope, anchor);
+                        new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence()), scope, anchor);
     }
 
     private static StorageProfile profile() {

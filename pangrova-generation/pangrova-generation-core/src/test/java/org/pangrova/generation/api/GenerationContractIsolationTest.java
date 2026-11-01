@@ -55,7 +55,7 @@ class GenerationContractIsolationTest {
                     "org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore",
                     "org.pangrova.generation.store.postgresql.execution.PostgresCurrentGenerationAuthority",
                     "org.pangrova.coordinator.bootstrap.CoordinatorBootstrap",
-                    "org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore",
+                    "org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore",
                     "org.postgresql.Driver",
                     "org.pangrova.metadata.store.jdbc.catalog.MetadataJsonMapper")) {
                 assertThatThrownBy(() -> loader.loadClass(missing)).isInstanceOf(ClassNotFoundException.class);

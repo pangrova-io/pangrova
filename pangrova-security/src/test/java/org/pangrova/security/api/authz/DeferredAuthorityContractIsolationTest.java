@@ -34,7 +34,7 @@ class DeferredAuthorityContractIsolationTest {
             }
         }) {
             for (String missing : List.of("com.fasterxml.jackson.databind.ObjectMapper",
-                    "org.pangrova.security.protocol.DeferredAuthorizationScopeCodec",
+                    "org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec",
                     "org.pangrova.security.core.authz.deferred.DeferredAuthorization")) {
                 assertThatThrownBy(() -> loader.loadClass(missing)).isInstanceOf(ClassNotFoundException.class);
             }

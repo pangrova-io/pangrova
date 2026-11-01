@@ -16,7 +16,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
-import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
+import org.pangrova.persistence.jdbc.query.state.JdbcQueryStateJournal;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.error.ErrorDetail;
 import org.pangrova.spi.query.state.QueryStateEvent;

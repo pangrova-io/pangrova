@@ -1,5 +1,5 @@
 package org.pangrova.metadata.coordination;
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.spi.connector.coordination.JournalWriteException;
 import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;

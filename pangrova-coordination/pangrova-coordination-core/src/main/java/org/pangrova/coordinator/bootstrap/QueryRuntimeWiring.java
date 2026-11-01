@@ -51,7 +51,7 @@ final class QueryRuntimeWiring {
         var config = new StateJournalConfig("JDBC", null, StateJournalConfig.NONE.flushIntervalMs(),
                 StateJournalConfig.NONE.batchSize(), StateJournalConfig.NONE.retentionHours(),
                 StateJournalConfig.NONE.maxResidentEvents());
-        return org.pangrova.query.core.state.QueryStateJournalFactory.create(
+        return org.pangrova.query.assembly.state.QueryStateJournalFactory.create(
                 config, dependencies.metadataDataSource());
     }
 

@@ -6,7 +6,7 @@ import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
@@ -158,7 +158,7 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
                 new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                 execution -> e2eCoordinationForTest().requireExecutionAnchor(execution),
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence(),
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence(),
                 ModelAuthorityFixtures.models());
         var key = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableKey(table.tenantId(), table.table());
         var actual = authority.load(key).orElseThrow();

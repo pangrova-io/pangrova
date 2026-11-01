@@ -50,7 +50,7 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
                 new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                         catalog.name(), catalog.incarnationId(), catalog.revision()),
                 executionId -> requireStarted(dependencies.fencer().get()).currentAnchor(executionId),
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence(), modelAuthority);
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence(), modelAuthority);
     }
 
     private static <T> T requireStarted(T service) {

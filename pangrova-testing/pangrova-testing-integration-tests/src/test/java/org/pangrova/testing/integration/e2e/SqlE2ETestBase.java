@@ -4,8 +4,8 @@ import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 import org.pangrova.testing.integration.e2e.file.LocalFileDeployment;
 import org.pangrova.testing.integration.e2e.file.S3FileDeployment;
 
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
 import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.pangrova.coordinator.query.execution.AsyncSubmitConfig;
@@ -1853,7 +1853,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease(
                         stateStoreDataSource));
         coordination.setExecutionAnchorStore(
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore(
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore(
                         stateStoreDataSource));
         coordination.start(E2E_COORDINATOR_ID);
         if (!coordination.isLeader(E2E_COORDINATOR_ID)
@@ -2671,7 +2671,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             MetadataSchemaInitializer.createSchema(ds);
             System.err.println("[E2E-DEBUG] initializeMetadata: schema created");
             stateStoreDataSource = ds;
-            sharedWriteCommitJournal = new org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal(ds);
+            sharedWriteCommitJournal = new org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal(ds);
             sharedDatasetControlClient = new org.pangrova.coordinator.metadata.NativeDatasetControlClient(
                     E2E_INTERNAL_AUTH_SECRET);
             sharedArtifactBuildStore = ModelAuthorityFixtures.artifacts().builds(ds);
@@ -2688,7 +2688,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                             new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                                     descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                             E2E_WRITE_COMMIT_FENCER::currentAnchor,
-                            new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence(),
+                            new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence(),
                             ModelAuthorityFixtures.models());
             TestConnectorHandleFactory connectorFactory = new TestConnectorHandleFactory(descriptor ->
                     java.util.Optional.of(new org.pangrova.coordinator.metadata.WorkerNativeDatasetControl(

@@ -168,7 +168,7 @@ public final class CoordinatorBootstrap {
         return new org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource(
                 new org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions(
                         metadataDataSource, security.accessControl(),
-                        new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence()),
+                        new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence()),
                 ha.haService());
     }
 
@@ -423,7 +423,7 @@ public final class CoordinatorBootstrap {
             return;
         }
         executionAuthority = new org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority(
-                new org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore(metadataDataSource),
+                new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore(metadataDataSource),
                 config.coordinatorId(), java.util.UUID.randomUUID().toString(), EXECUTION_OWNER_LEASE_TTL);
     }
 

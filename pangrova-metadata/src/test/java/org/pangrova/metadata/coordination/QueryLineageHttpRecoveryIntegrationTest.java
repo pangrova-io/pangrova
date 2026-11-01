@@ -1,5 +1,5 @@
 package org.pangrova.metadata.coordination;
-import org.pangrova.query.store.jdbc.lineage.JdbcQueryLineageOutbox;
+import org.pangrova.persistence.jdbc.query.lineage.JdbcQueryLineageOutbox;
 
 import io.openlineage.client.transports.HttpConfig;
 import org.junit.jupiter.api.AfterAll;

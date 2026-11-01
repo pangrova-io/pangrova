@@ -1,5 +1,5 @@
 package org.pangrova.metadata.coordination;
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures;

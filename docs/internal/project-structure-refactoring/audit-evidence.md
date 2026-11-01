@@ -599,3 +599,18 @@ Module7/包图14/引用3和enum/naming通过；Python62、annotation150零gap、
 ServiceLoader6/static通过。当前52main JAR与526迁移类型、16个Docker runtime owner检查通过，
 无旧类型/重复类型/service残留，schema字节未改。原四SCC、五store/一调度器未触达、首次TLS
 异常归因及全量迁移/云端资格继续开放；未将检查点写成全部目标完成。
+
+## 50. Query JDBC 归并证据
+
+见[执行记录第50节](../project-restructure-execution-plan.md#50-query-jdbc-归并与闲置审计路径清理2026-11-01)。
+`/tmp/pangrova-query-persistence-{focused,reactor,owners,owners-corrected,owners-final,coordinator,e2e,kit,cycles,wiring,artifacts,manifest,stubs}.log`
+保留每阶段原始输出；成功不覆盖早期失败。实际SQL/事务/授权字节未改变，13个生产后端/codec
+与1个Query装配工厂改变物理owner或包，旧路径已从当前52个JAR排除。未接线Query异步审计
+实现删除，历史SQL迁移保留，当前活动审计路径与未完成持久资源账本在架构文档中分开说明。
+四个包环和其余五个不可达实现/调度器仍是公开的未通过项，不能把此批当作整个目标完成。
+
+内存隔离记录新增回归先红后绿：`/tmp/pangrova-query-quarantine-red.log`3项2失败，
+`quarantine-green.log`完整Query46通过，`quarantine-repeated.log`再次3项及static通过。
+最终68项构建见`/tmp/pangrova-query-persistence-reactor-final.log`。Lance固定FFI构建成功，
+fixture重建被既有Velox SDK provenance拒绝（`/tmp/pangrova-query-lance-fixture-rebuild.log`），
+因此两项Native SDK恢复测试仍未通过；不得从其他21项SQL/JNI通过推导这两项也通过。

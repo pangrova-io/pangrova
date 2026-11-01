@@ -333,7 +333,6 @@ artifacts:
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
         - pangrova-protocol
-        - pangrova-query
         - pangrova-security
         - pangrova-spi
         - pangrova-testing-kit
@@ -849,7 +848,7 @@ artifacts:
       pangrova-generation-core: compile
       pangrova-generation-transaction-spi: compile
       pangrova-persistence-api: compile
-      pangrova-security: compile
+      pangrova-persistence-jdbc: compile
       pangrova-spi: compile
       pangrova-testing-kit: test
     imports:
@@ -858,7 +857,7 @@ artifacts:
         - pangrova-generation-core
         - pangrova-generation-transaction-spi
         - pangrova-persistence-api
-        - pangrova-security
+        - pangrova-persistence-jdbc
         - pangrova-spi
       test:
         - pangrova-common
@@ -1005,16 +1004,15 @@ artifacts:
         - pangrova-persistence-jdbc
         - pangrova-planner
         - pangrova-protocol
-        - pangrova-security
         - pangrova-spi
       test:
         - pangrova-common
         - pangrova-generation-core
         - pangrova-generation-store-postgresql
         - pangrova-metadata
+        - pangrova-persistence-jdbc
         - pangrova-planner
         - pangrova-protocol
-        - pangrova-query
         - pangrova-spi
         - pangrova-testing-kit
     exportedPackages:
@@ -1156,7 +1154,6 @@ artifacts:
         - pangrova-governance
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
-        - pangrova-query
         - pangrova-security
         - pangrova-spi
         - pangrova-table
@@ -1168,7 +1165,6 @@ artifacts:
         - pangrova-governance
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
-        - pangrova-query
         - pangrova-security
         - pangrova-spi
         - pangrova-streaming
@@ -1371,6 +1367,11 @@ artifacts:
       - org.pangrova.persistence.jdbc.file.directory
       - org.pangrova.persistence.jdbc.file.profile
       - org.pangrova.persistence.jdbc.file.space
+      - org.pangrova.persistence.jdbc.query.coordination
+      - org.pangrova.persistence.jdbc.query.event
+      - org.pangrova.persistence.jdbc.query.lineage
+      - org.pangrova.persistence.jdbc.query.state
+      - org.pangrova.persistence.jdbc.query.transaction
       - org.pangrova.persistence.jdbc.security.audit
       - org.pangrova.persistence.jdbc.security.codec
       - org.pangrova.persistence.jdbc.security.mask
@@ -1404,7 +1405,12 @@ artifacts:
       - org.pangrova.persistence.jdbc.file.directory
       - org.pangrova.persistence.jdbc.file.profile
       - org.pangrova.persistence.jdbc.file.space
+      - org.pangrova.persistence.jdbc.query.coordination
+      - org.pangrova.persistence.jdbc.query.lineage
+      - org.pangrova.persistence.jdbc.query.state
+      - org.pangrova.persistence.jdbc.query.transaction
       - org.pangrova.persistence.jdbc.security.audit
+      - org.pangrova.persistence.jdbc.security.codec
       - org.pangrova.persistence.jdbc.security.mask
       - org.pangrova.persistence.jdbc.security.policy
       - org.pangrova.persistence.jdbc.security.rowfilter
@@ -1594,45 +1600,35 @@ artifacts:
     mainPackages:
       - org.pangrova.query.adapter
       - org.pangrova.query.adapter.audit
+      - org.pangrova.query.assembly
+      - org.pangrova.query.assembly.state
       - org.pangrova.query.core
       - org.pangrova.query.core.audit
       - org.pangrova.query.core.profiling
-      - org.pangrova.query.core.state
       - org.pangrova.query.store
-      - org.pangrova.query.store.jdbc.anchor
-      - org.pangrova.query.store.jdbc.audit
-      - org.pangrova.query.store.jdbc.event
-      - org.pangrova.query.store.jdbc.journal
-      - org.pangrova.query.store.jdbc.lineage
-      - org.pangrova.query.store.jdbc.transaction
       - org.pangrova.query.store.memory
     pomDependencies:
       pangrova-common: compile
       pangrova-persistence-api: compile
-      pangrova-protocol: compile
-      pangrova-security: compile
+      pangrova-persistence-jdbc: compile
       pangrova-spi: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
         - pangrova-persistence-api
-        - pangrova-security
+        - pangrova-persistence-jdbc
         - pangrova-spi
       test:
         - pangrova-common
         - pangrova-persistence-api
+        - pangrova-persistence-jdbc
         - pangrova-spi
-        - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.query.adapter.audit
+      - org.pangrova.query.assembly.state
       - org.pangrova.query.core.audit
       - org.pangrova.query.core.profiling
-      - org.pangrova.query.core.state
-      - org.pangrova.query.store.jdbc.anchor
-      - org.pangrova.query.store.jdbc.journal
-      - org.pangrova.query.store.jdbc.lineage
-      - org.pangrova.query.store.jdbc.transaction
       - org.pangrova.query.store.memory
     providers:
       {}
@@ -1717,7 +1713,6 @@ artifacts:
       - org.pangrova.security.core.secret.provider.file
       - org.pangrova.security.core.session
       - org.pangrova.security.core.tenant
-      - org.pangrova.security.protocol
       - org.pangrova.security.spi.jdbc
     pomDependencies:
       pangrova-common: compile
@@ -1754,7 +1749,6 @@ artifacts:
       - org.pangrova.security.core.secret.provider.env
       - org.pangrova.security.core.secret.provider.file
       - org.pangrova.security.core.tenant
-      - org.pangrova.security.protocol
       - org.pangrova.security.spi.jdbc
     providers:
       {}

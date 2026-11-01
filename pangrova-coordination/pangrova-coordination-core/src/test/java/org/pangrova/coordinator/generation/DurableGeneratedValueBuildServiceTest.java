@@ -2,7 +2,7 @@ package org.pangrova.coordinator.generation;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,7 +87,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
         dataSource = SharedPostgresContainer.migratedDataSource(
                 "durable_generated_values");
         store = ModelAuthorityFixtures.artifacts().builds(dataSource);
-        writeJournal = new org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal(dataSource);
+        writeJournal = new org.pangrova.persistence.jdbc.query.transaction.JdbcWriteCommitJournal(dataSource);
         executions = new org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures(dataSource);
         submissions = ModelAuthorityFixtures.artifacts().generatedSubmissions(dataSource);
 

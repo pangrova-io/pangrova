@@ -3,7 +3,7 @@ package org.pangrova.testing.integration.e2e.write;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
-import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 
 import com.google.protobuf.Any;
 import org.junit.jupiter.api.Test;
@@ -115,7 +115,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
             var control = fixture.control();
             tasks.requireControlEpochHandshake();
             tasks.observeControlEpoch(2);
-            var anchors = new org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore(stateStoreDataSource());
+            var anchors = new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore(stateStoreDataSource());
             String execution = "control-recovery-" + java.util.UUID.randomUUID();
             var previous = anchors.tryAcquire(execution, "control-original", java.util.UUID.randomUUID().toString(),
                     java.time.Duration.ofSeconds(60)).orElseThrow();

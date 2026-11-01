@@ -1,8 +1,5 @@
 /**
- * Query-owned persistence implementations for execution anchors, journals, lineage and audit.
- *
- * <p>JDBC and in-memory stores implement the Query API contracts and own their
- * transactions, admitted operations and resource closure. They do not own SQL
- * planning or process bootstrap; application assembly selects and closes them.</p>
+ * Process-local Query stores awaiting relocation to the dedicated Persistence memory backend.
+ * Implementations own their admitted state and lifecycle, never query scheduling or JDBC.
  */
 package org.pangrova.query.store;
