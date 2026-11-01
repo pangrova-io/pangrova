@@ -1,12 +1,12 @@
 package org.pangrova.metadata.generation.jdbc.submission;
 
-import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionAuthority;
 
 import org.pangrova.metadata.generation.jdbc.JdbcGeneratedValueDescriptorStore;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.exception.MetastoreException;
 
-import org.pangrova.generation.spi.jdbc.GenerationJobSubmissionTransactions;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationJobSubmissionTransactions;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmission;
 import org.pangrova.spi.security.AuthorizationDeniedException;
 import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;

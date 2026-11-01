@@ -629,3 +629,20 @@ wiring6项中4通过、2失败，仍四store加一调度器不可达。当前包
 制品、manifest、stub、filter精确边界、8项manifest工具测试及Docker RUN语法/17个runtime
 owner JAR检查通过；没有构建生产镜像。详细日志路径与首次编译失败见第51节。
 其余store/API迁移、完整文件审查和已有未通过项继续开放，不能由这一批通过推导全部目标完成。
+
+## 52. Generation 统一归属证据
+
+见[执行记录第52节](../project-restructure-execution-plan.md#52-generation-契约与-postgresql-后端归并2026-11-01)。
+53个生产类型归入中央SPI、Persistence API/JDBC，两个旧制品删除；core保留共用规范编码、
+构造和发布路由，移除无用Security依赖。真实SPI/API/core classpath与无过滤最小loader验证
+依赖边界，50个当前main JAR不存在迁移类型的旧定义或重复定义。SQL/Native/Proto/golden
+资源未变，既有filter精确项只重定位，没有增加豁免。
+
+SPI521、API5、core27、JDBC220、Indexing27、AI Control71及各static通过；Metadata61与
+Coordinator55测试通过，随后长行static失败已用import修复，单独static verify通过。
+真实SQL/JNI/索引代际与回滚10项及static通过。66项安装编译通过，首次test范围遮蔽compile
+依赖失败及修正日志均保留。详细原始输出使用`/tmp/pangrova-generation-`前缀，见执行记录。
+
+最终架构检查31项通过、包无环1项失败，仍原四SCC；wiring6项中4通过2失败，仍原四store
+及一调度器。全量Store/API迁移与生产资格未完成。用户新要求删除所有空包/package-info，
+将在独立后续批次同步清理实际源码、旧文档要求及门禁，保持这一批可单独审查。

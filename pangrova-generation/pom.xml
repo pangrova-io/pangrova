@@ -11,10 +11,8 @@
     <artifactId>pangrova-generation</artifactId>
     <packaging>pom</packaging>
     <name>Pangrova Generation</name>
-    <description>Derived-data generation jobs, transaction contracts and PostgreSQL persistence</description>
+    <description>Derived-data graph construction, canonical codecs and publication routing</description>
     <modules>
         <module>pangrova-generation-core</module>
-        <module>pangrova-generation-transaction-spi</module>
-        <module>pangrova-generation-store-postgresql</module>
     </modules>
 </project>

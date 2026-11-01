@@ -16,9 +16,9 @@ package org.pangrova.testing.integration.e2e.index;
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationOutput;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationOutput;
 import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.protocol.generation.PublishedGenerationBindingChecksum;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;

@@ -309,16 +309,16 @@ class FeatureViewSqlIntegrationTest {
             var terminal = spec.stageGraph().stages().stream().filter(value -> value.publicationOutput())
                     .findFirst().orElseThrow();
             assertThat(terminal.parallelism()).isEqualTo(1);
-            var key = new org.pangrova.generation.api.job.GenerationJobKey(TENANT, jobId);
+            var key = new org.pangrova.spi.generation.job.GenerationJobKey(TENANT, jobId);
             var progress = stages.inspectPartition(key, anchor, terminal.stageId(), 0);
             assertThat(progress.pageOrdinal()).isPositive();
-            assertThat(stages.preparePartition(new org.pangrova.generation.spi.storage
+            assertThat(stages.preparePartition(new org.pangrova.persistence.api.generation.execution
                     .GenerationStageExecutionStore.PartitionClaim(
                             key, anchor, terminal.stageId(), 0, progress.pageOrdinal(),
                             4, java.time.Duration.ofMinutes(1), Instant.now()),
                     evidence -> evidence.lease())).isEmpty();
             var frozen = stages.prepareExecution(
-                    new org.pangrova.generation.api.job.GenerationJobKey(TENANT, jobId), anchor);
+                    new org.pangrova.spi.generation.job.GenerationJobKey(TENANT, jobId), anchor);
             assertThat(GenerationStageGraphCodec.sha256(frozen.authority().dispatchSpec().stageGraph())).isEqualTo(GenerationStageGraphCodec.sha256(spec.stageGraph()));
         }
         assertPinnedPageCoverage(jobId, snapshot);
@@ -385,7 +385,7 @@ class FeatureViewSqlIntegrationTest {
     }
 
     /** Independent component oracle with a real engine-issued, state-bound and explicitly closed lifetime. */
-    private List<org.pangrova.generation.api.job.GenerationSplit> enumeratePinnedCoverage(long snapshot) {
+    private List<org.pangrova.spi.generation.job.GenerationSplit> enumeratePinnedCoverage(long snapshot) {
         String queryId = "feature-coverage";
         var state = new QueryStateMachine();
         var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));

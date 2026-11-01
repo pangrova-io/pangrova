@@ -10,11 +10,16 @@
     </parent>
     <artifactId>pangrova-generation-core</artifactId>
     <name>Pangrova Generation Core</name>
-    <description>Generation-job contracts, immutable graph codecs and storage-independent orchestration primitives</description>
+    <description>Immutable generation graph codecs, construction factories and publication routing</description>
     <properties>
         <module.name>org.pangrova.generation.core</module.name>
     </properties>
     <dependencies>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-api</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
@@ -22,10 +27,6 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-security</artifactId>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

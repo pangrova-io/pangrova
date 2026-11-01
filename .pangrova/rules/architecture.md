@@ -24,9 +24,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-planner` | Calcite logical plan → physical plan conversion |
 | `pangrova-protocol` | Network protocol layer (gRPC / Arrow Flight) |
 | `pangrova-observability/pangrova-observability-sdk` | OpenTelemetry providers, SDK configuration, and transport adapters |
-| `pangrova-generation/pangrova-generation-core` | Generation-job contracts, storage SPI and immutable evidence, canonical codecs, pure construction factories and publication routing; no JDBC transaction/provider dependency |
-| `pangrova-generation/pangrova-generation-transaction-spi` | Internal borrowed-connection authority, submission, input-reading, candidate and execution-fence contracts; callers retain transaction ownership |
-| `pangrova-generation/pangrova-generation-store-postgresql` | PostgreSQL job/page/stage/exchange state, route/fence and fresh authority resolution; implements core and transaction ports |
+| `pangrova-generation/pangrova-generation-core` | Canonical graph/evidence codecs, pure construction factories and publication routing; shared values belong to SPI and storage ports to Persistence API; no provider or Security dependency |
 | `pangrova-query` | Query runtime services, profiling/audit orchestration and explicit backend assembly; all Query stores belong to Persistence |
 | `pangrova-operations` | DDL/DML operation execution |
 | `pangrova-persistence/pangrova-persistence-memory` | Instance-owned Coordination and Query stores, bounded audit cache and explicit structured logging; no state survives restart |
@@ -167,17 +165,21 @@ The authoritative per-artifact allow-list (`packageRoots`, `exports`,
 in `.pangrova/modules.yaml`; `.pangrova/module-baseline.yaml` records generated
 facts. Do not restate the matrix here — a duplicated table drifts from policy.
 
-Generation-job composition roots currently use the exported `org.pangrova.generation.assembly`
-factory ports and pass `org.pangrova.generation.api` contracts to domain consumers. The routing
-implementation in `org.pangrova.generation.core.publication` is not exported.
-The `pangrova-generation` family separates core, transaction-spi and store-postgresql
-artifacts. Core must not depend on either transaction-spi or the provider, including
-through its test classpath. JDBC cooperation contracts live in `spi.jdbc` in the
-transaction artifact; the actual PostgreSQL provider is selected by assembly.
-This generation-job family does not own Dynamic Table or Materialized View
-lifecycles, which remain in `pangrova-materialization`.
-Stage/exchange consumers use `org.pangrova.generation.spi.storage` rather than
-JDBC provider types or nested provider records. A returned current-authority view
+Generation-job composition roots use `org.pangrova.generation.assembly` factories and
+pass `org.pangrova.spi.generation` values to consumers. The routing implementation
+in `org.pangrova.generation.core.publication` is not exported. Storage ports belong
+to `org.pangrova.persistence.api.generation`, with caller-owned JDBC cooperation
+explicitly under `transaction.jdbc`. Actual PostgreSQL providers belong to
+`org.pangrova.persistence.jdbc.generation`, selected by application assembly.
+Generation Core retains backend-independent canonical codecs and construction/routing;
+Persistence JDBC may use those codecs, but Core must never depend on Persistence
+implementations or Security, including through its test classpath. SPI values do
+not depend on Persistence API or Generation Core. API classpath and minimal-loader
+tests verify values/ports without serialization or backend implementations.
+Generation does not own Dynamic Table or Materialized View lifecycles, which remain
+in `pangrova-materialization`. Stage/exchange consumers use capability-specific
+Persistence API ports rather than provider types or nested provider records.
+A returned current-authority view
 is process-local preparation evidence, never a credential accepted by a store.
 Providers establish fresh authority on every operation. Partition preparation
 callbacks run before transaction locks are released and must not perform network

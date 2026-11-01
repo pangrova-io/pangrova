@@ -20,7 +20,7 @@ package org.pangrova.coordinator.feature;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
-import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
 
 import com.google.protobuf.ByteString;
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -30,16 +30,16 @@ import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.coordinator.generation.ProtectedSourceSchemaVerifier;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.job.GenerationSplit;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.job.GenerationSplit;
 import org.pangrova.ai.control.feature.CatalogExportBuildStore;
-import org.pangrova.generation.api.GenerationDependencySet;
-import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.GenerationExecutionKind;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.GenerationDependencySet;
+import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
+import org.pangrova.spi.generation.GenerationExecutionKind;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.ai.control.feature.FeatureCatalogStore.FeatureViewVersion;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
 import org.pangrova.ai.control.feature.CatalogExportRequest.ObjectKind;

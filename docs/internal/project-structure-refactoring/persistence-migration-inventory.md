@@ -5,11 +5,11 @@
 装配工厂和领域适配器也可能命中；命中不等于确认它是持久化实现，未命中也不等于完成审查。
 逐文件验收必须继续追踪调用者、实现、装配、事务、SQL/编解码、异常与最近测试。
 
-已归位的File、Coordination、Security、Query JDBC及Query/Coordination内存后端在Persistence中；
+已归位的File、Coordination、Security、Query、Generation JDBC及Query/Coordination内存后端在Persistence中；
 其他领域存储仍待实施。Security保留行过滤/掩码渲染和权限判断，数据库事实读取归JDBC。
 内存/文件/仲裁等非JDBC后端须单独确定能力与模块落位，不能混入API或伪称JDBC。
 
-后续迁移顺序：Generation → Materialization/Table →
+后续迁移顺序：Generation领域适配 → Materialization/Table →
 Metadata/Catalog/source authority → Indexing/AI/Semantic/Governance/Streaming/Operations →
 Worker与其余运行时持久化候选。每批先消除实现反向依赖，再原样迁移SQL与事务语义；不能
 通过增加API→实现依赖、取消真实数据库测试或恢复旧包转发来完成搬迁。
@@ -188,54 +188,6 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [S3ObjectStoreAccessor.java](../../../pangrova-filesystem/pangrova-filesystem-s3/src/main/java/org/pangrova/filesystem/s3/object/S3ObjectStoreAccessor.java) | `org.pangrova.filesystem.s3.object` | 物理文件能力，保持Filesystem边界 |
 | [S3ObjectStoreAccessorProvider.java](../../../pangrova-filesystem/pangrova-filesystem-s3/src/main/java/org/pangrova/filesystem/s3/object/S3ObjectStoreAccessorProvider.java) | `org.pangrova.filesystem.s3.object` | 物理文件能力，保持Filesystem边界 |
 
-## pangrova-generation-core
-
-4 个主源候选。
-
-| 文件 | 当前能力包 | 状态 |
-|---|---|---|
-| [GenerationJobStore.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job/GenerationJobStore.java) | `org.pangrova.generation.api.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationPublicationStore.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/publication/GenerationPublicationStore.java) | `org.pangrova.generation.api.publication` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationStageExchangeStore.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/spi/storage/GenerationStageExchangeStore.java) | `org.pangrova.generation.spi.storage` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationStageExecutionStore.java](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/spi/storage/GenerationStageExecutionStore.java) | `org.pangrova.generation.spi.storage` | 候选；待逐文件确认职责并迁移/留调用方 |
-
-## pangrova-generation-store-postgresql
-
-18 个主源候选。
-
-| 文件 | 当前能力包 | 状态 |
-|---|---|---|
-| [PostgresGenerationStageExchangeStore.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/exchange/PostgresGenerationStageExchangeStore.java) | `org.pangrova.generation.store.postgresql.exchange` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresCurrentGenerationAuthority.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/PostgresCurrentGenerationAuthority.java) | `org.pangrova.generation.store.postgresql.execution` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationExecutionFence.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/PostgresGenerationExecutionFence.java) | `org.pangrova.generation.store.postgresql.execution` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationExecutionRoutes.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution/PostgresGenerationExecutionRoutes.java) | `org.pangrova.generation.store.postgresql.execution` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationAdmission.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationAdmission.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationCompletion.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationCompletion.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationJobInsertion.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobInsertion.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationJobReader.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobReader.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationJobStore.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobStore.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationJobStoreMappings.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobStoreMappings.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationJobStoreSupport.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationJobStoreSupport.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationOutputQueries.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationOutputQueries.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationPageClaim.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationPageClaim.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationPageSelection.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationPageSelection.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationPublishedInputs.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationPublishedInputs.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationRevocation.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationRevocation.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationStageExecutionStore.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job/PostgresGenerationStageExecutionStore.java) | `org.pangrova.generation.store.postgresql.job` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [PostgresGenerationQueries.java](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/query/PostgresGenerationQueries.java) | `org.pangrova.generation.store.postgresql.query` | 候选；待逐文件确认职责并迁移/留调用方 |
-
-## pangrova-generation-transaction-spi
-
-5 个主源候选。
-
-| 文件 | 当前能力包 | 状态 |
-|---|---|---|
-| [GenerationExecutionTransactionFence.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/GenerationExecutionTransactionFence.java) | `org.pangrova.generation.spi.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationJobSubmissionTransactions.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/GenerationJobSubmissionTransactions.java) | `org.pangrova.generation.spi.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationPublicationCandidates.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/GenerationPublicationCandidates.java) | `org.pangrova.generation.spi.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationTransactionAuthority.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/GenerationTransactionAuthority.java) | `org.pangrova.generation.spi.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-| [GenerationTransactionInputs.java](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc/GenerationTransactionInputs.java) | `org.pangrova.generation.spi.jdbc` | 候选；待逐文件确认职责并迁移/留调用方 |
-
 ## pangrova-governance
 
 15 个主源候选。
@@ -386,7 +338,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 ## pangrova-persistence-api
 
-15 个主源候选。
+24 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
@@ -395,6 +347,15 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [CopyFileClaimStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/file/claim/CopyFileClaimStore.java) | `org.pangrova.persistence.api.file.claim` | 已在目标owner；继续语义/装配验收 |
 | [StorageProfileRegistry.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/file/profile/StorageProfileRegistry.java) | `org.pangrova.persistence.api.file.profile` | 已在目标owner；继续语义/装配验收 |
 | [FileSpaceRegistry.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/file/space/FileSpaceRegistry.java) | `org.pangrova.persistence.api.file.space` | 已在目标owner；继续语义/装配验收 |
+| [GenerationStageExchangeStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/exchange/GenerationStageExchangeStore.java) | `org.pangrova.persistence.api.generation.exchange` | 已在目标owner；继续语义/装配验收 |
+| [GenerationStageExecutionStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/execution/GenerationStageExecutionStore.java) | `org.pangrova.persistence.api.generation.execution` | 已在目标owner；继续语义/装配验收 |
+| [GenerationJobStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/job/GenerationJobStore.java) | `org.pangrova.persistence.api.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [GenerationPublicationStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/publication/GenerationPublicationStore.java) | `org.pangrova.persistence.api.generation.publication` | 已在目标owner；继续语义/装配验收 |
+| [GenerationExecutionTransactionFence.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/transaction/jdbc/GenerationExecutionTransactionFence.java) | `org.pangrova.persistence.api.generation.transaction.jdbc` | 已在目标owner；继续语义/装配验收 |
+| [GenerationJobSubmissionTransactions.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/transaction/jdbc/GenerationJobSubmissionTransactions.java) | `org.pangrova.persistence.api.generation.transaction.jdbc` | 已在目标owner；继续语义/装配验收 |
+| [GenerationPublicationCandidates.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/transaction/jdbc/GenerationPublicationCandidates.java) | `org.pangrova.persistence.api.generation.transaction.jdbc` | 已在目标owner；继续语义/装配验收 |
+| [GenerationTransactionAuthority.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/transaction/jdbc/GenerationTransactionAuthority.java) | `org.pangrova.persistence.api.generation.transaction.jdbc` | 已在目标owner；继续语义/装配验收 |
+| [GenerationTransactionInputs.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/generation/transaction/jdbc/GenerationTransactionInputs.java) | `org.pangrova.persistence.api.generation.transaction.jdbc` | 已在目标owner；继续语义/装配验收 |
 | [QueryAuditStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/audit/QueryAuditStore.java) | `org.pangrova.persistence.api.query.audit` | 已在目标owner；继续语义/装配验收 |
 | [ExecutionAnchorStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/coordination/ExecutionAnchorStore.java) | `org.pangrova.persistence.api.query.coordination` | 已在目标owner；继续语义/装配验收 |
 | [WriteCommitQuarantineStore.java](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/transaction/WriteCommitQuarantineStore.java) | `org.pangrova.persistence.api.query.transaction` | 已在目标owner；继续语义/装配验收 |
@@ -408,7 +369,7 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 
 ## pangrova-persistence-jdbc
 
-35 个主源候选。
+53 个主源候选。
 
 | 文件 | 当前能力包 | 状态 |
 |---|---|---|
@@ -422,6 +383,24 @@ Worker与其余运行时持久化候选。每批先消除实现反向依赖，�
 | [JdbcStorageProfileRegistry.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/profile/JdbcStorageProfileRegistry.java) | `org.pangrova.persistence.jdbc.file.profile` | 已在目标owner；继续语义/装配验收 |
 | [JdbcFileSpaceAuthority.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/space/JdbcFileSpaceAuthority.java) | `org.pangrova.persistence.jdbc.file.space` | 已在目标owner；继续语义/装配验收 |
 | [JdbcFileSpaceRegistry.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/space/JdbcFileSpaceRegistry.java) | `org.pangrova.persistence.jdbc.file.space` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationStageExchangeStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/exchange/PostgresGenerationStageExchangeStore.java) | `org.pangrova.persistence.jdbc.generation.exchange` | 已在目标owner；继续语义/装配验收 |
+| [PostgresCurrentGenerationAuthority.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/execution/PostgresCurrentGenerationAuthority.java) | `org.pangrova.persistence.jdbc.generation.execution` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationExecutionFence.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/execution/PostgresGenerationExecutionFence.java) | `org.pangrova.persistence.jdbc.generation.execution` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationExecutionRoutes.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/execution/PostgresGenerationExecutionRoutes.java) | `org.pangrova.persistence.jdbc.generation.execution` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationAdmission.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationAdmission.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationCompletion.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationCompletion.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationJobInsertion.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationJobInsertion.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationJobReader.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationJobReader.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationJobStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationJobStore.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationJobStoreMappings.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationJobStoreMappings.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationJobStoreSupport.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationJobStoreSupport.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationOutputQueries.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationOutputQueries.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationPageClaim.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationPageClaim.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationPageSelection.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationPageSelection.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationPublishedInputs.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationPublishedInputs.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationRevocation.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationRevocation.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationStageExecutionStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/job/PostgresGenerationStageExecutionStore.java) | `org.pangrova.persistence.jdbc.generation.job` | 已在目标owner；继续语义/装配验收 |
+| [PostgresGenerationQueries.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/generation/query/PostgresGenerationQueries.java) | `org.pangrova.persistence.jdbc.generation.query` | 已在目标owner；继续语义/装配验收 |
 | [JdbcExecutionAnchorStore.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/coordination/JdbcExecutionAnchorStore.java) | `org.pangrova.persistence.jdbc.query.coordination` | 已在目标owner；继续语义/装配验收 |
 | [JdbcExecutionTransactionFence.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/coordination/JdbcExecutionTransactionFence.java) | `org.pangrova.persistence.jdbc.query.coordination` | 已在目标owner；继续语义/装配验收 |
 | [JdbcQueryEventListener.java](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/query/event/JdbcQueryEventListener.java) | `org.pangrova.persistence.jdbc.query.event` | 已在目标owner；继续语义/装配验收 |

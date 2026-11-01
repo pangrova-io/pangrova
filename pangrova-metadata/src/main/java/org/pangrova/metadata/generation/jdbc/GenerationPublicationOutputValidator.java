@@ -1,12 +1,12 @@
 package org.pangrova.metadata.generation.jdbc;
 
-import org.pangrova.generation.spi.jdbc.GenerationTransactionInputs;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.api.format.GenerationOutputFormatContracts;
-import org.pangrova.generation.api.format.GenerationOutputFormatContracts.FormatContract;
-import org.pangrova.generation.api.format.GenerationOutputFormatContracts.RoleContract;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionInputs;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.spi.generation.format.GenerationOutputFormatContracts;
+import org.pangrova.spi.generation.format.GenerationOutputFormatContracts.FormatContract;
+import org.pangrova.spi.generation.format.GenerationOutputFormatContracts.RoleContract;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -39,7 +39,7 @@ final class GenerationPublicationOutputValidator {
                 throw new IllegalStateException("Empty artifact generation unexpectedly has outputs");
             }
             if (job.emptyPartitionPolicy()
-                    != org.pangrova.generation.api.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
+                    != org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS
                     || !GenerationOutputFormatContracts.require(job.formatId(), job.artifactType())
                             .supportsEmptyPartitions()) {
                 throw new IllegalStateException(
@@ -54,7 +54,7 @@ final class GenerationPublicationOutputValidator {
         return outputs.stream().map(PageOutput::output)
                 .filter(output -> output.scope() != GenerationOutputScope.WORK_UNIT
                         || job.artifactType().equals(
-                                org.pangrova.generation.api.GenerationOutputTypeIds.TABULAR_EXPORT))
+                                org.pangrova.spi.generation.GenerationOutputTypeIds.TABULAR_EXPORT))
                 .toList();
     }
 
@@ -125,7 +125,7 @@ final class GenerationPublicationOutputValidator {
                 java.util.stream.Collectors.groupingBy(
                         PageOutput::pageId, LinkedHashMap::new,
                         java.util.stream.Collectors.toList()));
-        if (job.artifactType().equals(org.pangrova.generation.api.GenerationOutputTypeIds.TABULAR_EXPORT)) {
+        if (job.artifactType().equals(org.pangrova.spi.generation.GenerationOutputTypeIds.TABULAR_EXPORT)) {
             validateRelationalTerminalPages(connection, job, pages, contract);
             return;
         }
@@ -153,7 +153,7 @@ final class GenerationPublicationOutputValidator {
             Map<String, List<PageOutput>> outputs, FormatContract contract) throws SQLException {
         var graph = inputs.findDispatchSpec(connection, job.tenantId(), job.jobId())
                 .orElseThrow(() -> new IllegalStateException("Export has no persisted stage graph")).stageGraph();
-        if (graph.purpose() != org.pangrova.generation.api.execution.GenerationStageGraph.Purpose.RELATIONAL_EXPORT) {
+        if (graph.purpose() != org.pangrova.spi.generation.execution.GenerationStageGraph.Purpose.RELATIONAL_EXPORT) {
             throw new IllegalStateException("Tabular export requires the relational terminal purpose");
         }
         var pages = inputs.loadPages(connection, job.tenantId(), job.jobId());
@@ -206,7 +206,7 @@ final class GenerationPublicationOutputValidator {
         }
         if (output.rowCount() == 0
                 && (job.emptyPartitionPolicy()
-                        != org.pangrova.generation.api.GenerationEmptyPartitionPolicy
+                        != org.pangrova.spi.generation.GenerationEmptyPartitionPolicy
                                 .ALLOW_ZERO_ROWS
                         || !GenerationOutputFormatContracts.require(
                                 job.formatId(), job.artifactType())

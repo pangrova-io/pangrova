@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.generation;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobStore;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.publication.GenerationPublicationStore;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,7 +102,7 @@ public final class DurableGenerationPublisher implements AutoCloseable {
     }
 
     private void publishOne(String tenantId, String jobId, Instant now) {
-        var key = new org.pangrova.generation.api.job.GenerationJobKey(tenantId, jobId);
+        var key = new org.pangrova.spi.generation.job.GenerationJobKey(tenantId, jobId);
         var anchor = executionOwnership.acquire(key);
         if (anchor.isEmpty()) {
             return;
@@ -131,7 +131,7 @@ public final class DurableGenerationPublisher implements AutoCloseable {
             executionOwnership.release(key);
             LOG.warn("event=artifact_publication_revoked jobId={} tenantId={} reason={}",
                     jobId, tenantId, revoked.getMessage());
-        } catch (org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException staleOwner) {
+        } catch (org.pangrova.spi.generation.execution.GenerationExecutionOwnerLostException staleOwner) {
             LOG.warn("event=artifact_publication_owner_lost jobId={} tenantId={}", jobId, tenantId);
         } catch (RuntimeException failure) {
             if (claim == null) throw failure;

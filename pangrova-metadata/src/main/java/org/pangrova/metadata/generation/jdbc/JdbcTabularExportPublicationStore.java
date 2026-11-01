@@ -17,19 +17,19 @@
  */
 package org.pangrova.metadata.generation.jdbc;
 
-import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
-import org.pangrova.generation.spi.jdbc.GenerationExecutionTransactionFence;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionAuthority;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationExecutionTransactionFence;
 
-import org.pangrova.generation.spi.jdbc.GenerationTransactionInputs;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.GenerationExecutionKind;
-import org.pangrova.generation.api.format.GenerationOutputFormatContracts;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionInputs;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.GenerationExecutionKind;
+import org.pangrova.spi.generation.format.GenerationOutputFormatContracts;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.exception.MetastoreException;
 
 import javax.sql.DataSource;
@@ -152,11 +152,11 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
                 result.getString("artifact_type"), result.getString("staging_generation"),
                 result.getString("source_id"), result.getString("source_snapshot"),
                 GenerationExecutionKind.valueOf(result.getString("execution_kind")),
-                new org.pangrova.generation.api.GenerationDependencySet(
+                new org.pangrova.spi.generation.GenerationDependencySet(
                         inputs.loadJobDependencies(
                                 connection, tenantId, jobId),
                         result.getString("dependency_set_sha256")),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.valueOf(
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.valueOf(
                         result.getString("empty_partition_policy")),
                 result.getString("format_id"), result.getInt("format_major"),
                 result.getInt("format_minor"), result.getString("schema_sha256"),
@@ -375,8 +375,8 @@ public final class JdbcTabularExportPublicationStore implements GenerationPublic
             String tenantId, String jobId, String artifactId, String artifactType,
             String generation, String sourceId, String sourceSnapshot,
             GenerationExecutionKind executionKind,
-            org.pangrova.generation.api.GenerationDependencySet dependencySet,
-            org.pangrova.generation.api.GenerationEmptyPartitionPolicy emptyPartitionPolicy,
+            org.pangrova.spi.generation.GenerationDependencySet dependencySet,
+            org.pangrova.spi.generation.GenerationEmptyPartitionPolicy emptyPartitionPolicy,
             String formatId, int formatMajor, int formatMinor, String schemaSha256,
             String writerBuildId, String encryptionKeyRef, int expectedPages,
             int completedPages, long publicationFence,

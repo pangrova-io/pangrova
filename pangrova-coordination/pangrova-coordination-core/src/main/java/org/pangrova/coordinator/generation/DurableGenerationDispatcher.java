@@ -8,8 +8,8 @@ import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.generation.api.job.GenerationLease;
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.spi.generation.job.GenerationLease;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +43,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     private final String coordinatorId;
     private final LongSupplier epochSupplier;
     private final GenerationExecutionOwnership executionOwnership;
-    private final ConcurrentHashMap<org.pangrova.generation.api.job.GenerationJobKey,
+    private final ConcurrentHashMap<org.pangrova.spi.generation.job.GenerationJobKey,
             org.pangrova.spi.query.coordination.ExecutionAnchor> ownedJobs = new ConcurrentHashMap<>();
     private final Duration leaseDuration;
     private final Duration retryBackoff;
@@ -65,8 +65,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             String coordinatorId,
             LongSupplier epochSupplier,
             GenerationExecutionOwnership executionOwnership,
-            org.pangrova.generation.spi.storage.GenerationStageExecutionStore stages,
-            org.pangrova.generation.spi.storage.GenerationStageExchangeStore exchanges,
+            org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore stages,
+            org.pangrova.persistence.api.generation.exchange.GenerationStageExchangeStore exchanges,
             org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine) {}
 
     /** Bounded lease and concurrency settings for durable artifact dispatch. */
@@ -150,7 +150,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             return 0;
         }
         int dispatched = 0;
-        Map<org.pangrova.generation.api.job.GenerationJobKey, Long> memoryGrants =
+        Map<org.pangrova.spi.generation.job.GenerationJobKey, Long> memoryGrants =
                 new java.util.HashMap<>();
         boolean madeProgress;
         do {
@@ -190,7 +190,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     }
 
     private java.util.Optional<GenerationLease> claimAuthorizedPage(
-            org.pangrova.generation.api.job.GenerationJobKey job, long epoch, Instant now) {
+            org.pangrova.spi.generation.job.GenerationJobKey job, long epoch, Instant now) {
         try {
             var anchor = executionOwnership.acquire(job);
             if (anchor.isEmpty()) {
@@ -215,7 +215,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         }
     }
 
-    private void settleOwnedJob(org.pangrova.generation.api.job.GenerationJobKey key,
+    private void settleOwnedJob(org.pangrova.spi.generation.job.GenerationJobKey key,
             org.pangrova.spi.query.coordination.ExecutionAnchor anchor) {
         boolean activePage = active.values().stream().anyMatch(attempt ->
                 attempt.lease.tenantId().equals(key.tenantId()) && attempt.lease.jobId().equals(key.jobId()));

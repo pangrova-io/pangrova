@@ -16,10 +16,10 @@ import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryCon
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;

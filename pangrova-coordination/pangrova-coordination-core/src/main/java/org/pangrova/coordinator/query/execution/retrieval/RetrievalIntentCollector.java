@@ -14,7 +14,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.Retrieval
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalMergeIntent;
 import org.pangrova.scheduler.core.placement.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.retrieval.RetrievalMergeBinding;

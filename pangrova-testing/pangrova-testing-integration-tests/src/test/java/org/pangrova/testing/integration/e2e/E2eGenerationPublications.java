@@ -3,8 +3,8 @@ package org.pangrova.testing.integration.e2e;
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationPublicationFactory;
-import org.pangrova.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 
 import javax.sql.DataSource;
 import java.util.Map;

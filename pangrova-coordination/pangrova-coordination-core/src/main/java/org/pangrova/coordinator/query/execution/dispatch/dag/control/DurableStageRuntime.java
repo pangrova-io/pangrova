@@ -10,13 +10,13 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.job.GenerationLease;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PreparedExecution;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PartitionProgress;
-import org.pangrova.generation.spi.storage.GenerationStageExchangeStore;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.spi.generation.job.GenerationLease;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PreparedExecution;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PartitionProgress;
+import org.pangrova.persistence.api.generation.exchange.GenerationStageExchangeStore;
 import org.pangrova.planner.ShuffleType;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
@@ -93,7 +93,7 @@ public final class DurableStageRuntime {
     public org.pangrova.coordinator.generation.DurableStageShuffleEvidence shuffleEvidence() {
         return new org.pangrova.coordinator.generation.DurableStageShuffleEvidence(dependencies.exchanges(),
                 execution.authority().dispatchSpec(), execution.job().sourceSnapshot(),
-                () -> org.pangrova.generation.api.execution.GenerationExecutionOwner.from(
+                () -> org.pangrova.spi.generation.execution.GenerationExecutionOwner.from(
                         execution.authority().executionAnchor()));
     }
 

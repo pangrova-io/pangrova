@@ -1,7 +1,7 @@
 package org.pangrova.metadata.adapter.generation;
 
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.spi.jdbc.GenerationPublicationCandidates;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationPublicationCandidates;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.sql.Connection;

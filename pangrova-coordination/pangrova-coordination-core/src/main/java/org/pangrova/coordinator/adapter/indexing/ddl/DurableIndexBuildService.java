@@ -3,11 +3,11 @@ package org.pangrova.coordinator.adapter.indexing.ddl;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.api.job.GenerationSplit;
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
@@ -163,7 +163,7 @@ public final class DurableIndexBuildService {
             level.add(pageId);
         }
         if (!artifactType.equals(
-                org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX)
+                org.pangrova.spi.generation.GenerationOutputTypeIds.TEXT_INDEX)
                 || level.isEmpty()) {
             return List.copyOf(pages);
         }
@@ -204,7 +204,7 @@ public final class DurableIndexBuildService {
             }
             return new NativeBuildSpec(
                     Bm25GenerationPlanBuilder.build(tableName, column),
-                    org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX,
+                    org.pangrova.spi.generation.GenerationOutputTypeIds.TEXT_INDEX,
                     List.of(stringProperty("analyzer", analyzer)));
         }
         String algorithm = normalizedAlgorithm(descriptor);
@@ -220,7 +220,7 @@ public final class DurableIndexBuildService {
                 VectorGenerationPlanBuilder.build(
                         tableName, column, buildCapability,
                         BuiltInCapabilityCatalog.vectorArtifactFormat(algorithm)),
-                org.pangrova.generation.api.GenerationOutputTypeIds.VECTOR_INDEX,
+                org.pangrova.spi.generation.GenerationOutputTypeIds.VECTOR_INDEX,
                 vectorProperties(
                         buildCapability, descriptor.properties(), vector.dimension(), metric));
     }

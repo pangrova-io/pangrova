@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query.task.report;
 
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.job.GenerationJobStore;
-import org.pangrova.generation.api.job.GenerationPageCompletion;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.spi.generation.job.GenerationPageCompletion;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.ArtifactWorkReport;
 import org.pangrova.protocol.v2.Checksum;
@@ -61,7 +61,7 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
                 report.getOutputsList().stream()
                         .map(DurableGenerationWorkReportSink::toOutput)
                         .toList(),
-                clock.instant(), new org.pangrova.generation.api.execution.GenerationExecutionOwner(
+                clock.instant(), new org.pangrova.spi.generation.execution.GenerationExecutionOwner(
                         status.getAttempt().getExecutionOwner().getOwnerId(),
                         status.getAttempt().getExecutionOwner().getOwnerIncarnation(),
                         status.getAttempt().getExecutionOwner().getFencingToken())));
@@ -77,12 +77,12 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
         }).orElse(false);
     }
 
-    private boolean completeProducer(org.pangrova.generation.api.job.GenerationJobKey job,
+    private boolean completeProducer(org.pangrova.spi.generation.job.GenerationJobKey job,
             TaskReport status, byte[] bytes) {
         var attempt = status.getAttempt();
         var owner = attempt.getExecutionOwner();
         return stages.completeProducer(new GenerationStageExecutionStore.ProducerCompletion(job,
-                new org.pangrova.generation.api.execution.GenerationExecutionOwner(
+                new org.pangrova.spi.generation.execution.GenerationExecutionOwner(
                         owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken()),
                 attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(), attempt.getAttemptId(),
                 attempt.getFencingToken(), attempt.getControlEpoch(), bytes, clock.instant()));

@@ -4,23 +4,23 @@ import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.coordinator.generation.DurableGenerationPublisher;
 import org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.generation.assembly.GenerationPublicationFactory;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.GenerationDependencySet;
-import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.GenerationDependencySet;
+import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
+import org.pangrova.spi.generation.GenerationExecutionKind;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
@@ -76,22 +76,22 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
                 new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
                         GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
                         List.of(GenerationStageGraph.StagePlan.of(0, 1,
-                                org.pangrova.generation.api.GenerationPageKind.RELATIONAL_PARTITION,
+                                org.pangrova.spi.generation.GenerationPageKind.RELATIONAL_PARTITION,
                                 new byte[] {1}, GenerationStageTemplate.of(new byte[] {2}, List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),
                 job.tenantId(), "alice", scope, new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
-        builds.createJob(job, spec, List.of(new org.pangrova.generation.api.job.GenerationPage(
+        builds.createJob(job, spec, List.of(new org.pangrova.spi.generation.job.GenerationPage(
                 job.jobId(), "terminal-0", 0, 0, 0,
-                org.pangrova.generation.api.GenerationPageKind.RELATIONAL_PARTITION,
+                org.pangrova.spi.generation.GenerationPageKind.RELATIONAL_PARTITION,
                 List.of(), List.of(), 3)));
         var lease = builds.claimNextPage(job.tenantId(), job.jobId(), executions.takeOwnership(job.tenantId(), job.jobId(), "dispatcher", 1), 1,
                 Duration.ofSeconds(30), job.createdAt()).orElseThrow();
         byte[] report = new byte[] {1, 2};
-        assertThat(builds.completePage(new org.pangrova.generation.api.job.GenerationPageCompletion(
+        assertThat(builds.completePage(new org.pangrova.spi.generation.job.GenerationPageCompletion(
                 job.tenantId(), job.jobId(), lease.pageId(), lease.fencingToken(), lease.ownerEpoch(), report,
                 org.pangrova.common.util.DigestUtils.sha256Hex(report),
-                List.of(new org.pangrova.generation.api.job.GenerationOutput("object-terminal-0",
+                List.of(new org.pangrova.spi.generation.job.GenerationOutput("object-terminal-0",
                         job.stagingUri() + "/terminal-0", "TABULAR_DATA", "terminal-0", 0,
-                        org.pangrova.generation.api.GenerationOutputScope.WORK_UNIT, 7, 0,
+                        org.pangrova.spi.generation.GenerationOutputScope.WORK_UNIT, 7, 0,
                         "a".repeat(64), "")), Instant.now(), executions.reportedOwner(job.tenantId(), job.jobId(), lease.ownerEpoch())))).isTrue();
         var router = GenerationPublicationFactory.route(Map.of(
                 GenerationOutputTypeIds.VECTOR_INDEX, ModelAuthorityFixtures.artifacts().indexPublications(dataSource),

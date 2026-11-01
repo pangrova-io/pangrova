@@ -3,7 +3,7 @@ package org.pangrova.coordinator.generation;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.generation.GeneratedValueBuildMetadataStore;
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;

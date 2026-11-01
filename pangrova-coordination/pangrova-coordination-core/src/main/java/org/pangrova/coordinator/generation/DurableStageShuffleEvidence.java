@@ -6,12 +6,12 @@ import org.pangrova.generation.protocol.GenerationStageGraphCodec;
 
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.ShuffleLifecycleEvidence;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.execution.GenerationExchangeFinalization;
-import org.pangrova.generation.api.execution.GenerationExchangeRegistration;
-import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.generation.spi.storage.GenerationStageExchangeStore;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.spi.generation.execution.GenerationExchangeFinalization;
+import org.pangrova.spi.generation.execution.GenerationExchangeRegistration;
+import org.pangrova.spi.generation.execution.GenerationExecutionOwner;
+import org.pangrova.persistence.api.generation.exchange.GenerationStageExchangeStore;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
@@ -107,7 +107,7 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         store.finalizeExchange(job, owner, proof);
     }
 
-    private org.pangrova.generation.api.execution.GenerationStageGraph.Exchange requireStage(
+    private org.pangrova.spi.generation.execution.GenerationStageGraph.Exchange requireStage(
             ShuffleRegistration registration) {
         var edges = spec.stageGraph().exchanges().stream().filter(edge ->
                 edge.upstreamStageId() == registration.stageId()).toList();

@@ -1,9 +1,9 @@
 package org.pangrova.metadata.generation.jdbc;
 
 import java.time.Instant;
-import org.pangrova.generation.api.GenerationDependencySet;
-import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.GenerationExecutionKind;
+import org.pangrova.spi.generation.GenerationDependencySet;
+import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
+import org.pangrova.spi.generation.GenerationExecutionKind;
 
 /** Package-local view shared by type-specific atomic publication adapters. */
 interface GenerationPublicationJob {

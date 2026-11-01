@@ -80,12 +80,12 @@ final class GenerationTaskReportValidator {
             throw invalid("artifact target has incomplete dependency or empty-partition policy");
         }
         var dependencies = output.getDependenciesList().stream()
-                .map(dependency -> new org.pangrova.generation.api.GenerationDependency(
+                .map(dependency -> new org.pangrova.spi.generation.GenerationDependency(
                         dependency.getKind(), dependency.getId(), dependency.getVersion()))
                 .toList();
         String checksum = java.util.HexFormat.of().formatHex(
                 output.getDependencySetChecksum().getDigest().toByteArray());
-        new org.pangrova.generation.api.GenerationDependencySet(dependencies, checksum);
+        new org.pangrova.spi.generation.GenerationDependencySet(dependencies, checksum);
     }
 
     private static ArtifactWriteBinding outputBinding(List<OperatorBinding> bindings) {

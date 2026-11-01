@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.generation.api.job.GenerationLease;
-import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.generation.spi.storage.CurrentGenerationAuthority;
+import org.pangrova.spi.generation.job.GenerationLease;
+import org.pangrova.spi.generation.execution.GenerationExecutionOwner;
+import org.pangrova.persistence.api.generation.execution.CurrentGenerationAuthority;
 import org.pangrova.observability.sdk.tracing.ExecutionTraceContext;
 import org.pangrova.persistence.jdbc.security.codec.DeferredAuthorizationScopeCodec;
 

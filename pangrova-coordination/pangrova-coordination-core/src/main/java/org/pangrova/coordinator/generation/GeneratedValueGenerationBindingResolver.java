@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.generation;
 
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.generation.GeneratedValueBuildMetadataStore;
 import org.pangrova.metadata.generation.GeneratedValueGenerationReference;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
@@ -15,12 +15,12 @@ public final class GeneratedValueGenerationBindingResolver {
 
     private final GeneratedValueBuildMetadataStore metadataStore;
     private final PublishedGenerationBindingResolver artifactResolver;
-    private final org.pangrova.generation.api.job.GenerationJobStore buildStore;
+    private final org.pangrova.persistence.api.generation.job.GenerationJobStore buildStore;
 
     /** Resolves generated templates through the same immutable artifact metadata and partition reader. */
     public GeneratedValueGenerationBindingResolver(
             GeneratedValueBuildMetadataStore metadataStore,
-            org.pangrova.generation.api.job.GenerationJobStore buildStore) {
+            org.pangrova.persistence.api.generation.job.GenerationJobStore buildStore) {
         this.metadataStore = Objects.requireNonNull(
                 metadataStore, "metadataStore must not be null");
         this.artifactResolver = new PublishedGenerationBindingResolver(buildStore);

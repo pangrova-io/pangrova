@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationLease;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationLease;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.time.Duration;

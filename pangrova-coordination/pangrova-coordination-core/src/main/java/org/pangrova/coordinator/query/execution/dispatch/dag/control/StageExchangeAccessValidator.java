@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.generation.api.execution.GenerationExchangeRegistration;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PreparedPartition;
+import org.pangrova.spi.generation.execution.GenerationExchangeRegistration;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.protocol.v2.Checksum;
@@ -89,7 +89,7 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireOutput(PreparedPartition prepared, DurablePartitionRequest.ExchangeAccess access,
-            List<org.pangrova.generation.api.execution.GenerationStageGraph.Exchange> outgoing) {
+            List<org.pangrova.spi.generation.execution.GenerationStageGraph.Exchange> outgoing) {
         if (outgoing.isEmpty()) {
             if (access.output() != null || access.allocation() != null) {
                 throw new IllegalArgumentException("Terminal partition cannot bind an unregistered output exchange");
@@ -104,7 +104,7 @@ final class StageExchangeAccessValidator {
 
     private static void requireProducerAllocation(PreparedPartition prepared,
             DurablePartitionRequest.ExchangeAccess access,
-            org.pangrova.generation.api.execution.GenerationStageGraph.Exchange edge) {
+            org.pangrova.spi.generation.execution.GenerationStageGraph.Exchange edge) {
         var registration = prepared.exchanges().stream().map(value -> value.registration())
                 .filter(value -> value.exchangeId().equals(edge.exchangeId())).findFirst().orElseThrow();
         if (!access.allocation().shuffleId().equals(registration.shuffleId())

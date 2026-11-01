@@ -1,8 +1,8 @@
 package org.pangrova.metadata.generation;
 
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationPage;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationPage;
 
 import java.util.List;
 import java.util.Objects;

@@ -5,21 +5,21 @@ import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import org.pangrova.metadata.generation.jdbc.JdbcIndexGenerationPublicationStore;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.api.job.GenerationSplit;
-import org.pangrova.generation.api.job.GenerationPageCompletion;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.spi.generation.job.GenerationPageCompletion;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 import org.pangrova.spi.indexing.state.IndexState;
@@ -149,10 +149,10 @@ class JdbcIndexGenerationPublicationStoreTest {
         var empty = new GenerationJob(
                 TENANT, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
                 "s3://bucket/staging/index-1/0", "pangrova.diskann.segment", 2, 0,
                 "a".repeat(64), "native-build-1", "kms/key-1", "create-index-request-1",
                 0, 0, GenerationJobState.READY_TO_PUBLISH, 0, START, START, START);
@@ -242,10 +242,10 @@ class JdbcIndexGenerationPublicationStoreTest {
         return new GenerationJob(
                 TENANT, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/index-1/0",
                 "pangrova.diskann.segment", 2, 0, "a".repeat(64),
                 "native-build-1", "kms/key-1", "create-index-request-1",
@@ -258,10 +258,10 @@ class JdbcIndexGenerationPublicationStoreTest {
         return new GenerationJob(
                 TENANT, "job-1", "index-1", GenerationOutputTypeIds.TEXT_INDEX,
                 "0", "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/index-1/0",
                 "pangrova.bm25.segment", 1, 0, "a".repeat(64),
                 "native-build-1", "kms/key-1", "create-index-request-1",

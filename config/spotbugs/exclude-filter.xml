@@ -461,53 +461,53 @@
          No caller SQL or identifier enters a query fragment. Real PostgreSQL build/exchange
          tests cover the queries; the Filter API test rejects altered owners/signatures/bugs. -->
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries"/>
         <Method name="loadOutputsForPages" params="java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String" returns="java.util.List"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries"/>
         <Method name="loadPublishedSourceSplits" params="java.sql.Connection,java.lang.String,java.lang.String,java.util.List" returns="java.util.Map"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries"/>
         <Method name="loadSourceOutputs" params="java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List" returns="void"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries"/>
         <Method name="loadStoredSplits" params="java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map" returns="void"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries"/>
         <Method name="loadSucceededPages" params="java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String" returns="java.util.Set"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection"/>
         <Method name="findPage" params="java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean" returns="java.util.Optional"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection"/>
-        <Method name="selectClaimablePage" params="java.sql.Connection,org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection$Selection" returns="java.util.Optional"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection"/>
+        <Method name="selectClaimablePage" params="java.sql.Connection,org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection$Selection" returns="java.util.Optional"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStoreMappings"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStoreMappings"/>
         <Method name="findJob" params="java.sql.Connection,java.lang.String,java.lang.String,boolean" returns="java.util.Optional"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore"/>
-        <Method name="findEvidence" params="java.sql.Connection,org.pangrova.generation.api.job.GenerationJobKey,java.lang.String,boolean,boolean" returns="java.util.Optional"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.exchange.PostgresGenerationStageExchangeStore"/>
+        <Method name="findEvidence" params="java.sql.Connection,org.pangrova.spi.generation.job.GenerationJobKey,java.lang.String,boolean,boolean" returns="java.util.Optional"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore"/>
-        <Method name="insertEvidence" params="java.sql.Connection,org.pangrova.generation.api.job.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean" returns="void"/>
+        <Class name="org.pangrova.persistence.jdbc.generation.exchange.PostgresGenerationStageExchangeStore"/>
+        <Method name="insertEvidence" params="java.sql.Connection,org.pangrova.spi.generation.job.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean" returns="void"/>
         <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
 
@@ -1216,43 +1216,43 @@
          live collections. Only these method/field/type tuples are classified; mutable arrays,
          borrowed services, other overloads and security findings remain checked. -->
     <Match>
-        <Class name="org.pangrova.generation.api.execution.GenerationExchangeFinalization"/>
+        <Class name="org.pangrova.spi.generation.execution.GenerationExchangeFinalization"/>
         <Method name="partitions" params="" returns="java.util.List"/>
         <Field name="partitions" type="java.util.List"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.api.execution.GenerationExchangeRegistration"/>
+        <Class name="org.pangrova.spi.generation.execution.GenerationExchangeRegistration"/>
         <Method name="endpoints" params="" returns="java.util.List"/>
         <Field name="endpoints" type="java.util.List"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.api.execution.GenerationStageGraph"/>
+        <Class name="org.pangrova.spi.generation.execution.GenerationStageGraph"/>
         <Method name="stages" params="" returns="java.util.List"/>
         <Field name="stages" type="java.util.List"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.api.execution.GenerationStageGraph"/>
+        <Class name="org.pangrova.spi.generation.execution.GenerationStageGraph"/>
         <Method name="exchanges" params="" returns="java.util.List"/>
         <Field name="exchanges" type="java.util.List"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.api.execution.GenerationStageGraph"/>
+        <Class name="org.pangrova.spi.generation.execution.GenerationStageGraph"/>
         <Method name="modelSnapshots" params="" returns="java.util.List"/>
         <Field name="modelSnapshots" type="java.util.List"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.api.execution.template.GenerationStageTemplate"/>
+        <Class name="org.pangrova.spi.generation.execution.template.GenerationStageTemplate"/>
         <Method name="publicationReads" params="" returns="java.util.List"/>
         <Field name="publicationReads" type="java.util.List"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
     <Match>
-        <Class name="org.pangrova.generation.api.GenerationDependencySet"/>
+        <Class name="org.pangrova.spi.generation.GenerationDependencySet"/>
         <Method name="dependencies" params="" returns="java.util.List"/>
         <Field name="dependencies" type="java.util.List"/>
         <Bug pattern="EI_EXPOSE_REP"/>

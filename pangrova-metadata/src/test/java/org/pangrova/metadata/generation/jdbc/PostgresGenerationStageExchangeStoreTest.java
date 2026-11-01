@@ -1,8 +1,8 @@
 package org.pangrova.metadata.generation.jdbc;
 
-import org.pangrova.generation.spi.storage.GenerationStageExchangeStore;
+import org.pangrova.persistence.api.generation.exchange.GenerationStageExchangeStore;
 
-import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
+import org.pangrova.spi.generation.execution.GenerationExecutionOwnerLostException;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
@@ -10,29 +10,29 @@ import org.pangrova.generation.protocol.GenerationExchangeEvidenceCodec;
 
 import org.pangrova.generation.protocol.GenerationStageGraphCodec;
 
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.execution.GenerationExchangeFinalization;
-import org.pangrova.generation.api.execution.GenerationExchangeRegistration;
-import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.generation.api.job.GenerationPageCompletion;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.api.GenerationDependencySet;
-import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.GenerationExecutionKind;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.execution.GenerationExchangeFinalization;
+import org.pangrova.spi.generation.execution.GenerationExchangeRegistration;
+import org.pangrova.spi.generation.execution.GenerationExecutionOwner;
+import org.pangrova.spi.generation.job.GenerationPageCompletion;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.spi.generation.GenerationDependencySet;
+import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
+import org.pangrova.spi.generation.GenerationExecutionKind;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.GenerationExecutionFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
@@ -236,7 +236,7 @@ class PostgresGenerationStageExchangeStoreTest {
     }
 
     private static GenerationStageExecutionStore.ProducerCompletion producerCompletion(
-            org.pangrova.generation.api.job.GenerationLease lease, long epoch, byte[] report) {
+            org.pangrova.spi.generation.job.GenerationLease lease, long epoch, byte[] report) {
         return new GenerationStageExecutionStore.ProducerCompletion(KEY,
                 GenerationExecutionOwner.from(lease.executionAnchor()), lease.stageId(), lease.partitionId(), epoch,
                 lease.attemptId(), lease.fencingToken(), lease.ownerEpoch(), report, NOW.plusSeconds(1));

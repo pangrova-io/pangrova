@@ -4,13 +4,13 @@ import org.pangrova.generation.assembly.GenerationStageGraphFactory;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.execution.GenerationExchangeFinalization;
-import org.pangrova.generation.api.execution.GenerationExchangeRegistration;
-import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
-import org.pangrova.generation.api.GenerationPageKind;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.execution.GenerationExchangeFinalization;
+import org.pangrova.spi.generation.execution.GenerationExchangeRegistration;
+import org.pangrova.spi.generation.execution.GenerationExecutionOwner;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
+import org.pangrova.spi.generation.GenerationPageKind;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.nio.charset.StandardCharsets;

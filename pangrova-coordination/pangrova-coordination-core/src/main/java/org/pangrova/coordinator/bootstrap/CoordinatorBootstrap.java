@@ -443,16 +443,16 @@ public final class CoordinatorBootstrap {
                     artifactStores.builds(
                             metadataDataSource),
                     org.pangrova.generation.assembly.GenerationPublicationFactory.route(java.util.Map.of(
-                            org.pangrova.generation.api.GenerationOutputTypeIds.VECTOR_INDEX,
+                            org.pangrova.spi.generation.GenerationOutputTypeIds.VECTOR_INDEX,
                             artifactStores.indexPublications(
                                     metadataDataSource),
-                            org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX,
+                            org.pangrova.spi.generation.GenerationOutputTypeIds.TEXT_INDEX,
                             artifactStores.indexPublications(
                                     metadataDataSource),
-                            org.pangrova.generation.api.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
+                            org.pangrova.spi.generation.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
                             artifactStores.generatedPublications(
                                     metadataDataSource),
-                            org.pangrova.generation.api.GenerationOutputTypeIds.TABULAR_EXPORT,
+                            org.pangrova.spi.generation.GenerationOutputTypeIds.TABULAR_EXPORT,
                             artifactStores.tabularPublications(
                                     metadataDataSource))),
                     maintenanceLeaderElection);

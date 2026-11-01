@@ -1,5 +1,7 @@
 package org.pangrova.metadata.service;
 
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+
 import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore;
 import org.pangrova.spi.security.AuthorizationDeniedException;
@@ -32,7 +34,7 @@ public final class TableControlDeferredPolicy {
         return DeferredPolicyReader.observe(connection, principal, roles, permission,
                 rows -> TableControlRowPolicyStore.project(tableId, table.catalog(), table.schema(), table.table(),
                         rows, tableId == null ? List.of()
-                                : org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore.list(connection, tableId)),
+                                : JdbcRowPolicyStore.list(connection, tableId)),
                 (column, masks) ->
                 TableControlColumnMaskStore.project(tableId, table.catalog(), table.schema(), table.table(),
                         masks, bindings).stream().filter(mask -> mask.columnName().equals(column)).toList());

@@ -18,7 +18,7 @@ import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.ai.control.assembly.AiInfrastructureStores;
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;

@@ -4,22 +4,22 @@ import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.GenerationDependencySet;
-import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.GenerationExecutionKind;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.GenerationDependencySet;
+import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
+import org.pangrova.spi.generation.GenerationExecutionKind;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 
 import java.nio.charset.StandardCharsets;
@@ -53,17 +53,17 @@ class JdbcTabularExportPublicationStoreTest {
     @Test
     void atomicallyPublishesEmptySnapshotAsDistinctSuccessfulManifest() {
         GenerationJob job = emptyJob();
-        buildStore.createJob(job, dispatch(), List.of(new org.pangrova.generation.api.job.GenerationPage(
+        buildStore.createJob(job, dispatch(), List.of(new org.pangrova.spi.generation.job.GenerationPage(
                 job.jobId(), "terminal-0", 0, 0, 0,
-                org.pangrova.generation.api.GenerationPageKind.RELATIONAL_PARTITION,
+                org.pangrova.spi.generation.GenerationPageKind.RELATIONAL_PARTITION,
                 List.of(), List.of(), 3)));
         var lease = buildStore.claimNextPage(TENANT, job.jobId(), executions.takeOwnership(TENANT, job.jobId(), "worker-dispatch", 1), 1,
                 Duration.ofSeconds(30), START).orElseThrow();
         byte[] report = "validated-terminal-report".getBytes(StandardCharsets.UTF_8);
-        var output = new org.pangrova.generation.api.job.GenerationOutput(
+        var output = new org.pangrova.spi.generation.job.GenerationOutput(
                 "terminal-object", "s3://warehouse/staging/empty-export-job/terminal-0", "TABULAR_DATA", "terminal-0", 0,
-                org.pangrova.generation.api.GenerationOutputScope.WORK_UNIT, 7, 0, "a".repeat(64), "");
-        assertThat(buildStore.completePage(new org.pangrova.generation.api.job.GenerationPageCompletion(
+                org.pangrova.spi.generation.GenerationOutputScope.WORK_UNIT, 7, 0, "a".repeat(64), "");
+        assertThat(buildStore.completePage(new org.pangrova.spi.generation.job.GenerationPageCompletion(
                 TENANT, job.jobId(), lease.pageId(), lease.fencingToken(), lease.ownerEpoch(), report,
                 org.pangrova.common.util.DigestUtils.sha256Hex(report), List.of(output), START, executions.reportedOwner(TENANT, job.jobId(), lease.ownerEpoch())))).isTrue();
         GenerationJob claimed = buildStore.claimReadyForPublication(
@@ -111,7 +111,7 @@ class JdbcTabularExportPublicationStoreTest {
                 "empty-export-job", new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
                         GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
                         List.of(GenerationStageGraph.StagePlan.of(0, 1,
-                                org.pangrova.generation.api.GenerationPageKind.RELATIONAL_PARTITION,
+                                org.pangrova.spi.generation.GenerationPageKind.RELATIONAL_PARTITION,
                                 "substrait-plan".getBytes(StandardCharsets.UTF_8), GenerationStageTemplate.of("operator-binding".getBytes(StandardCharsets.UTF_8), List.of(), List.of()),
                                 List.of(), List.of(), true)), List.of(), List.of()),
                 TENANT, "feature-owner",

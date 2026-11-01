@@ -1,9 +1,9 @@
 package org.pangrova.generation.core.publication;
 
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.publication.GenerationPublicationStore;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
 
-import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJob;
 
 import java.time.Instant;
 import java.util.Map;

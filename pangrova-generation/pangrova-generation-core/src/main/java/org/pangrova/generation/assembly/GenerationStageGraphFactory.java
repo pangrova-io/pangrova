@@ -1,12 +1,12 @@
 package org.pangrova.generation.assembly;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
-import org.pangrova.generation.api.execution.GenerationStageGraph.StagePlan;
-import org.pangrova.generation.api.execution.GenerationStageGraph.Purpose;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
-import org.pangrova.generation.api.GenerationPageKind;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.execution.GenerationStageGraph.StagePlan;
+import org.pangrova.spi.generation.execution.GenerationStageGraph.Purpose;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
+import org.pangrova.spi.generation.GenerationPageKind;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.util.ArrayList;

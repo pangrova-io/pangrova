@@ -8,21 +8,21 @@ import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 import org.pangrova.table.api.control.CatalogDeploymentIdentity;
 import org.pangrova.table.core.control.TableControlService;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.generation.spi.jdbc.GenerationTransactionInputs;
-import org.pangrova.generation.store.postgresql.query.PostgresGenerationQueries;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionInputs;
+import org.pangrova.persistence.jdbc.generation.query.PostgresGenerationQueries;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.GenerationDependencySet;
-import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.GenerationExecutionKind;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.GenerationDependencySet;
+import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
+import org.pangrova.spi.generation.GenerationExecutionKind;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
@@ -322,7 +322,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                 "TABLE", TARGET.catalog(), TARGET.schema(), TARGET.table(), null));
         var graphModel = new ModelSnapshot("graph-model", "graph-incarnation", 1, "deployment-1", "a".repeat(64));
         var stage = GenerationStageGraph.StagePlan.of(0, 1,
-                org.pangrova.generation.api.GenerationPageKind.RELATIONAL_PARTITION,
+                org.pangrova.spi.generation.GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of(), true);
         return GenerationDispatchSpecFactory.create("model-forwarding",
@@ -363,23 +363,23 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                 new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
                         GenerationStageGraph.Purpose.RELATIONAL_EXPORT,
                         List.of(GenerationStageGraph.StagePlan.of(0, 1,
-                                org.pangrova.generation.api.GenerationPageKind.RELATIONAL_PARTITION,
+                                org.pangrova.spi.generation.GenerationPageKind.RELATIONAL_PARTITION,
                                 new byte[] {1}, GenerationStageTemplate.of(new byte[] {2}, List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),
                 TENANT, PRINCIPAL, scope,
                 new GenerationDispatchSpec.ResourceGrant(1024, 1, 1024, 10_000));
-        builds.createJob(job, spec, List.of(new org.pangrova.generation.api.job.GenerationPage(
+        builds.createJob(job, spec, List.of(new org.pangrova.spi.generation.job.GenerationPage(
                 jobId, jobId + ":terminal:0", 0, 0, 0,
-                org.pangrova.generation.api.GenerationPageKind.RELATIONAL_PARTITION,
+                org.pangrova.spi.generation.GenerationPageKind.RELATIONAL_PARTITION,
                 List.of(), List.of(), 3)));
         var lease = builds.claimNextPage(TENANT, jobId, executions.takeOwnership(TENANT, jobId, "dispatcher", 1), 1,
                 Duration.ofSeconds(30), NOW).orElseThrow();
         byte[] report = new byte[] {1, 2};
-        assertThat(builds.completePage(new org.pangrova.generation.api.job.GenerationPageCompletion(
+        assertThat(builds.completePage(new org.pangrova.spi.generation.job.GenerationPageCompletion(
                 TENANT, jobId, lease.pageId(), lease.fencingToken(), lease.ownerEpoch(), report,
                 org.pangrova.common.util.DigestUtils.sha256Hex(report),
-                List.of(new org.pangrova.generation.api.job.GenerationOutput("terminal-object-" + id,
+                List.of(new org.pangrova.spi.generation.job.GenerationOutput("terminal-object-" + id,
                         job.stagingUri() + "/terminal-0", "TABULAR_DATA", lease.pageId(), 0,
-                        org.pangrova.generation.api.GenerationOutputScope.WORK_UNIT,
+                        org.pangrova.spi.generation.GenerationOutputScope.WORK_UNIT,
                         7, 0, "a".repeat(64), "")), NOW, executions.reportedOwner(TENANT, jobId, lease.ownerEpoch())))).isTrue();
         return builds.claimReadyForPublication(TENANT, jobId, executions.takeOwnership(TENANT, jobId, "publisher", 1), 1,
                 Duration.ofMinutes(1), NOW.plusSeconds(1)).orElseThrow();

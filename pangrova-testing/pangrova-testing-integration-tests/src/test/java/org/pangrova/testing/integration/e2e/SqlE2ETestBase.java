@@ -248,7 +248,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // Additional resources that leak if not closed between test classes.
     private static volatile org.apache.arrow.memory.RootAllocator coordinatorArrowAllocator;
     private static volatile org.pangrova.coordinator.bootstrap.IndexingBootstrap sharedIndexingBootstrap;
-    private static volatile org.pangrova.generation.api.job.GenerationJobStore
+    private static volatile org.pangrova.persistence.api.generation.job.GenerationJobStore
             sharedArtifactBuildStore;
     private static volatile org.pangrova.coordinator.generation.DurableGenerationDispatcher
             sharedArtifactBuildDispatcher;
@@ -1284,7 +1284,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         return "no error detail";
     }
-
 
     /**
      * Remaps Arrow/internal column names to SQL-level aliases.

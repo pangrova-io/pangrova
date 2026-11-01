@@ -51,7 +51,8 @@ class StateEnumUniquenessPropertyTest {
     private static final Set<String> SPI_AUTHORITATIVE_ENUMS = Set.of(
             "QueryState",
             "SnapshotState",
-            "TransportStatus"
+            "TransportStatus",
+            "GenerationJobState"
     );
 
     /**
@@ -110,7 +111,6 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
             "pangrova-metadata:SemanticViewValidationState",
             "pangrova-metadata:EvaluationRunState",
-            "pangrova-generation-core:GenerationJobState",
             // Unified materialization kernel lifecycle enums.
             "pangrova-materialization-core:GcLedgerEntry.GcState",
             "pangrova-materialization-core:PinState",

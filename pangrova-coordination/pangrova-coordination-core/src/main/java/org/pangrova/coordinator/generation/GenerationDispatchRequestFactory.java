@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.generation;
 
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
-import org.pangrova.generation.api.job.GenerationLease;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
+import org.pangrova.spi.generation.job.GenerationLease;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.OperatorBinding;
 

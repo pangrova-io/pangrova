@@ -1,6 +1,6 @@
 package org.pangrova.generation.assembly;
 
-import org.pangrova.generation.api.publication.GenerationPublicationStore;
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
 import org.pangrova.generation.core.publication.GenerationPublicationRouter;
 import org.pangrova.common.api.annotation.Internal;
 

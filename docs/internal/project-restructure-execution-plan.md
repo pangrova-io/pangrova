@@ -3044,3 +3044,70 @@ Query后端已归位，`WriteCommitJournal`等存储契约仍在Connector SPI，
 剩余通用API和逐文件语义审查继续推进。四个SCC、五个不可达对象、第50节两项Native
 fixture前置条件、Worker TLS首次异常归因及真实云端资格验证仍未解决。
 此检查点不代表全部模块完成或达到全量生产验收。
+
+## 52. Generation 契约与 PostgreSQL 后端归并（2026-11-01）
+
+### 52.1 实际职责与依赖
+
+53个生产类型归入统一owner：共享job/stage/manifest/format等值契约归SPI的generation包；
+job、execution、exchange、publication存储端口、持久化错误及显式借用JDBC连接的协作端口
+归Persistence API；PostgreSQL实现归Persistence JDBC的generation能力包。
+旧Generation transaction-spi/store-postgresql制品删除，无兼容转发或重复定义。
+
+Generation core保留规范JSON编码、纯图构造和发布路由，不再拥有通用API或存储后端。
+移除无实际引用的Security依赖，JDBC实现单向使用core中的共用规范编码；core只依赖
+Common/SPI/Persistence API与编码库，不能反向依赖Security或Persistence实现。
+发布路由只委派调用方注入的领域适配器，不持有数据库或状态，不冒充独立存储后端。
+Metadata的当前权限/目录发布与AI Control的业务事务装配继续保留领域职责，后续逐类归并
+其真实SQL存储。不能把这53个类型的迁移当作全部Generation关联代码已审查完成。
+
+存储值与契约隔离测试迁到正确owner，最小classloader不再覆写loadClass隐藏实现。
+SPI、Persistence API、Generation core的真实测试classpath分别验证不可反向加载存储端口、
+编码/后端或Security运行时；API同时覆盖classes目录和实际安装JAR。
+规范编码与factory协作测试归core.protocol/assembly，不在其他owner的SPI包内放测试源。
+
+### 52.2 首次失败与修正
+
+`/tmp/pangrova-generation-reactor.log`首次clean install在Indexing编译发现TenantStore不可见：
+旧事务依赖转为显式test范围Persistence API，遮蔽已有JDBC后端的compile传递依赖。
+Indexing及Testing Integration对API/core的声明已按实际后端运行时闭包改为compile。
+`reactor-corrected.log`全66项安装编译通过；没有通过隐藏依赖或回退旧实现解决。
+
+首轮门禁发现GenerationJobState清单仍指向旧core以及Metadata友元限制仍指向旧PG包。
+状态枚举现在登记为SPI唯一权威定义；友元清单列出Metadata实际调用的Generation、Query、
+Security JDBC能力包，不放开整个实现根。首轮filter工具也发现旧包前缀筛选器未同步，
+已修正为新owner；保留同21个精确SQL方法边界，没有新增静态分析豁免。
+
+Metadata61及Coordinator55测试均通过，随后static发现长行：Metadata既有JdbcRowPolicyStore
+全限定名一处，Coordinator迁移后全限定名三处。用明确import修正；
+`/tmp/pangrova-generation-consumer-static.log`两模块verify（skipTests）及static通过，
+不把跳过执行说成再次运行上述116个用例。
+
+### 52.3 验证证据
+
+- `/tmp/pangrova-generation-contracts.log`：首批SPI5/API3定向契约测试通过。
+- `/tmp/pangrova-generation-owners.log`：SPI521、Persistence API5、Generation core27、
+  Persistence JDBC220全部及static通过。包括真实PG取消锁/事务测试及9项规范编码golden验证。
+- `/tmp/pangrova-generation-consumers.log`：Metadata61通过；static首轮失败后修正见上。
+  `/tmp/pangrova-generation-indexing.log`：Indexing代际发布/fence/锁测试27及static通过。
+- `/tmp/pangrova-generation-ai-control.log`：完整AI Control71及static通过。
+- `/tmp/pangrova-generation-coordinator.log`：55项通过，包含真实Feature View SQL授权/
+  编译、持久生产者事件、stage交换证据、发布与调度；static首轮失败后修正见上。
+- `/tmp/pangrova-generation-e2e.log`：真实SQL/JNI ActivationSmoke、索引代际隔离与回滚
+  共10项及static通过；复用第51节同源dylib。没有修改Native/Proto，不外推C++/ASan全验收。
+- `/tmp/pangrova-generation-gates-final.log`：模块/源码引用/命名/状态枚举/包图31项通过，
+  包无环1项仍失败，四SCC成员不变；700包当前原始报告已保存。
+- `/tmp/pangrova-generation-wiring.log`：6项中4通过、2失败，仍四个未触达store和
+  ResultExpirationScheduler，无新baseline或实验注解豁免。
+- `/tmp/pangrova-generation-artifacts.log`：53个迁移生产类型在50个当前main JAR中
+  各有且仅有一个新定义，旧定义不存在。扣除package/import替换和注释后可执行文本一致。
+  schema迁移、Native/Proto、规范编码golden资源未变化；SpotBugs filter仅重定位原精确项。
+- `manifest.log`、`stubs.log`、`filter-corrected.log`（同一generation日志前缀）保存通过结果。
+  最终统一安装编译终态见`/tmp/pangrova-generation-reactor-final.log`。
+
+本批台账为66 reactor＝49 Java叶子＋1资源JAR＋16聚合，3,624主源、700包、2,400测试源。
+331个候选仍是发现清单。其余Store/API迁移、四SCC、五个不可达对象、Native fixture前置
+条件、首次Worker TLS异常归因及真实云端资格继续开放。
+
+用户随后新增“清理所有空包和package-info”的要求；下一独立检查点处理该清理及对应
+门禁/政策/台账，不将此前的package-info要求继续当作目标，也不擅自删除包级运行时语义。

@@ -2,33 +2,33 @@ package org.pangrova.metadata.generation.jdbc;
 
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
-import org.pangrova.generation.store.postgresql.execution.PostgresCurrentGenerationAuthority;
+import org.pangrova.persistence.jdbc.generation.execution.PostgresCurrentGenerationAuthority;
 
-import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
+import org.pangrova.spi.generation.execution.GenerationExecutionOwnerLostException;
 
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.generation.spi.jdbc.GenerationJobSubmissionTransactions;
-import org.pangrova.generation.store.postgresql.query.PostgresGenerationQueries;
-import org.pangrova.generation.spi.jdbc.GenerationTransactionInputs;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationJobSubmissionTransactions;
+import org.pangrova.persistence.jdbc.generation.query.PostgresGenerationQueries;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionInputs;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationSplit;
-import org.pangrova.generation.api.job.GenerationPageCompletion;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.spi.generation.job.GenerationPageCompletion;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 
 import java.nio.charset.StandardCharsets;
@@ -312,10 +312,10 @@ class PostgresGenerationJobStoreTest {
         // Copying the new page fence does not upgrade old immutable process evidence.
         assertThat(restarted.completePage(new GenerationPageCompletion(TENANT, key.jobId(), current.pageId(),
                 current.fencingToken(), current.ownerEpoch(), report, sha256(report), outputs(0), START.plusSeconds(12),
-                org.pangrova.generation.api.execution.GenerationExecutionOwner.from(first)))).isFalse();
+                org.pangrova.spi.generation.execution.GenerationExecutionOwner.from(first)))).isFalse();
         assertThat(restarted.completePage(new GenerationPageCompletion(TENANT, key.jobId(), current.pageId(),
                 current.fencingToken(), current.ownerEpoch(), report, sha256(report), outputs(0), START.plusSeconds(12),
-                org.pangrova.generation.api.execution.GenerationExecutionOwner.from(replacement)))).isTrue();
+                org.pangrova.spi.generation.execution.GenerationExecutionOwner.from(replacement)))).isTrue();
         var publication = restarted.claimReadyForPublication(TENANT, key.jobId(), replacement, 1,
                 Duration.ofSeconds(30), START.plusSeconds(13)).orElseThrow();
         assertThat(recoveredAnchors.yield(replacement)).isTrue();
@@ -570,10 +570,10 @@ class PostgresGenerationJobStoreTest {
         GenerationJob changed = new GenerationJob(
                 TENANT, "job-1", "artifact-other", "DISKANN", "2",
                 "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/job-1", "pangrova.diskann", 1, 0,
                 "a".repeat(64), "writer-1", "kms/key", "request-1",
                 1, 0, GenerationJobState.QUEUED, 0, START, START, START);
@@ -604,10 +604,10 @@ class PostgresGenerationJobStoreTest {
         return new GenerationJob(
                 tenantId, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX, "2",
                 "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/job-1", "pangrova.diskann.segment", 1, 0,
                 "a".repeat(64), "writer-1", "kms/key", "request-1",
                 pages, 0, GenerationJobState.QUEUED, 0, START, START, START);
@@ -617,10 +617,10 @@ class PostgresGenerationJobStoreTest {
         return new GenerationJob(
                 TENANT, "job-1", "index-1", GenerationOutputTypeIds.TEXT_INDEX, "2",
                 "catalog.schema.items", "snapshot-1",
-                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                         "catalog.schema.items", "snapshot-1"),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://bucket/staging/job-1", "pangrova.bm25.segment", 1, 0,
                 "a".repeat(64), "writer-1", "kms/key", "request-1",
                 pages, 0, GenerationJobState.QUEUED, 0, START, START, START);
@@ -672,7 +672,7 @@ class PostgresGenerationJobStoreTest {
     }
 
     private void complete(
-            org.pangrova.generation.api.job.GenerationLease lease,
+            org.pangrova.spi.generation.job.GenerationLease lease,
             List<GenerationOutput> pageOutputs, long second) {
         byte[] report = ("report-" + lease.pageId()).getBytes(StandardCharsets.UTF_8);
         assertThat(completePage(
@@ -756,7 +756,7 @@ class PostgresGenerationJobStoreTest {
     @Test
     void injectedAuthorityFailureAbortsCreationWithoutDurableRows() {
         var denied = new org.pangrova.spi.security.AuthorizationDeniedException("authority backend denied admission");
-        var authority = new org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority() {
+        var authority = new org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionAuthority() {
             @Override
             public GenerationDispatchSpec requireCurrent(java.sql.Connection connection, String tenant, String job) {
                 throw new AssertionError("Creation must validate the explicit compiler-observed specification");
@@ -784,7 +784,7 @@ class PostgresGenerationJobStoreTest {
                 statement.setString(1, TENANT);
                 assertThat(statement.executeUpdate()).isEqualTo(1);
             }
-            var authority = new org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority() {
+            var authority = new org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionAuthority() {
                 @Override
                 public GenerationDispatchSpec requireCurrent(java.sql.Connection connection, String tenant, String job) {
                     throw new AssertionError("Creation must not reread a nonexistent dispatch specification");
@@ -812,7 +812,6 @@ class PostgresGenerationJobStoreTest {
         assertThat(store.findJob(TENANT, "job-1")).isPresent();
     }
 
-
     @Test
     void artifactFenceUsesTheQueryPortOnTheExactCallerTransaction() throws Exception {
         store.createJob(job(1), dispatchSpec(TENANT, pages(1)), pages(1));
@@ -825,14 +824,14 @@ class PostgresGenerationJobStoreTest {
                 update.setString(1, anchor.executionId());
                 assertThat(update.executeUpdate()).isEqualTo(1);
             }
-            var fence = new org.pangrova.generation.store.postgresql.execution.PostgresGenerationExecutionFence(
+            var fence = new org.pangrova.persistence.jdbc.generation.execution.PostgresGenerationExecutionFence(
                     (connection, executionId, ownerId, incarnation, token) -> {
                         assertThat(connection).isSameAs(caller);
                         calls.incrementAndGet();
                         return new org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence()
                                 .requireCurrent(connection, executionId, ownerId, incarnation, token);
                     });
-            var expected = new org.pangrova.generation.api.execution.GenerationExecutionOwner(
+            var expected = new org.pangrova.spi.generation.execution.GenerationExecutionOwner(
                     anchor.ownerId(), anchor.ownerIncarnation(), anchor.fencingToken() + 1);
             var actual = fence.requireCurrent(caller, TENANT, "job-1", expected);
             assertThat(actual.fencingToken()).isEqualTo(expected.fencingToken());
@@ -850,15 +849,15 @@ class PostgresGenerationJobStoreTest {
     void artifactFenceDoesNotTranslateStorageFailureOrMiswiredEvidenceToOwnerLoss() throws Exception {
         store.createJob(job(1), dispatchSpec(TENANT, pages(1)), pages(1));
         var anchor = executions.takeOwnership(TENANT, "job-1", "coordinator", 1);
-        var expected = org.pangrova.generation.api.execution.GenerationExecutionOwner.from(anchor);
+        var expected = org.pangrova.spi.generation.execution.GenerationExecutionOwner.from(anchor);
         try (var caller = dataSource.getConnection()) {
             caller.setAutoCommit(false);
             var failure = new java.sql.SQLException("execution authority unavailable");
-            var unavailable = new org.pangrova.generation.store.postgresql.execution.PostgresGenerationExecutionFence(
+            var unavailable = new org.pangrova.persistence.jdbc.generation.execution.PostgresGenerationExecutionFence(
                     (connection, executionId, ownerId, incarnation, token) -> { throw failure; });
             assertThatThrownBy(() -> unavailable.requireCurrent(caller, TENANT, "job-1", expected))
                     .isSameAs(failure);
-            var miswired = new org.pangrova.generation.store.postgresql.execution.PostgresGenerationExecutionFence(
+            var miswired = new org.pangrova.persistence.jdbc.generation.execution.PostgresGenerationExecutionFence(
                     (connection, executionId, ownerId, incarnation, token) ->
                             new org.pangrova.spi.query.coordination.ExecutionAnchor(
                                     "another-execution", ownerId, incarnation, token,
@@ -875,7 +874,7 @@ class PostgresGenerationJobStoreTest {
     void authorityResultCannotCombineAnotherTenantsSpecWithThisJobsExecutionAnchor() throws Exception {
         store.createJob(job(1), dispatchSpec(TENANT, pages(1)), pages(1));
         var anchor = executions.takeOwnership(TENANT, "job-1", "coordinator", 1);
-        var miswired = new org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority() {
+        var miswired = new org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionAuthority() {
             @Override
             public GenerationDispatchSpec requireCurrent(java.sql.Connection connection, String tenant, String job) {
                 return dispatchSpec("tenant-2");
@@ -890,7 +889,7 @@ class PostgresGenerationJobStoreTest {
             assertThatThrownBy(() -> PostgresCurrentGenerationAuthority.resolve(miswired,
                     org.pangrova.metadata.assembly.generation.GenerationStores.executionFence(),
                     GenerationStores.currentRoles(), connection,
-                    TENANT, "job-1", org.pangrova.generation.api.execution.GenerationExecutionOwner.from(anchor)))
+                    TENANT, "job-1", org.pangrova.spi.generation.execution.GenerationExecutionOwner.from(anchor)))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another tenant or job");
             connection.rollback();
         }
@@ -910,7 +909,7 @@ class PostgresGenerationJobStoreTest {
                         assertThat(principal).isEqualTo("principal-" + TENANT);
                         calls.incrementAndGet();
                         return GenerationStores.currentRoles().requireCurrentRoles(connection, principal);
-                    }, caller, TENANT, "job-1", org.pangrova.generation.api.execution.GenerationExecutionOwner.from(anchor));
+                    }, caller, TENANT, "job-1", org.pangrova.spi.generation.execution.GenerationExecutionOwner.from(anchor));
             assertThat(context.currentDirectRoles())
                     .isEqualTo(GenerationStores.currentRoles().requireCurrentRoles(caller, "principal-" + TENANT));
             assertThat(context.executionAnchor()).isEqualTo(anchor);
@@ -927,7 +926,7 @@ class PostgresGenerationJobStoreTest {
                 }, GenerationStores.publicationCandidates());
         assertThatThrownBy(() -> guarded.claimNextPage(TENANT, "job-1", anchor, 1,
                 Duration.ofMinutes(1), START))
-                .isInstanceOf(org.pangrova.generation.api.GenerationStorageException.class).hasCause(failure);
+                .isInstanceOf(org.pangrova.persistence.api.generation.GenerationStorageException.class).hasCause(failure);
         assertThat(store.findJob(TENANT, "job-1")).contains(job(1));
         assertThat(store.claimNextPage(TENANT, "job-1", anchor, 1, Duration.ofMinutes(1), START)).isPresent();
     }
@@ -947,7 +946,7 @@ class PostgresGenerationJobStoreTest {
         assertThat(store.claimReadyForPublication(TENANT, "job-1", actual, 1,
                 Duration.ofMinutes(1), START.plusSeconds(2))).isPresent();
         assertThat(store.listReadyForPublication(1, START.plusSeconds(4)))
-                .containsExactly(new org.pangrova.generation.api.job.GenerationJobKey("tenant-2", "job-1"));
+                .containsExactly(new org.pangrova.spi.generation.job.GenerationJobKey("tenant-2", "job-1"));
         try (var caller = dataSource.getConnection(); var observer = dataSource.getConnection()) {
             caller.setAutoCommit(false);
             assertThat(GenerationStores.publicationCandidates().hasLiveOwner(caller, TENANT, "job-1")).isTrue();
@@ -959,7 +958,7 @@ class PostgresGenerationJobStoreTest {
             assertThat(GenerationStores.publicationCandidates().hasLiveOwner(caller, TENANT, "job-1")).isFalse();
             assertThat(GenerationStores.publicationCandidates().hasLiveOwner(observer, TENANT, "job-1")).isTrue();
             assertThat(GenerationStores.publicationCandidates().listReady(caller, 1, START.plusSeconds(4)))
-                    .containsExactly(new org.pangrova.generation.api.job.GenerationJobKey(TENANT, "job-1"));
+                    .containsExactly(new org.pangrova.spi.generation.job.GenerationJobKey(TENANT, "job-1"));
             assertThat(caller.getAutoCommit()).isFalse();
             caller.rollback();
             assertThat(GenerationStores.publicationCandidates().hasLiveOwner(caller, TENANT, "job-1")).isTrue();

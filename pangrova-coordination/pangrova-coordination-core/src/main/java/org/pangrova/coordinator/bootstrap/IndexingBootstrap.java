@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.bootstrap;
 
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
+
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+
 import org.pangrova.indexing.assembly.serde.DefaultTypeSerializers;
 
 import org.pangrova.coordinator.adapter.indexing.ddl.IndexDdlExecutor;
@@ -101,8 +105,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     private final String baseIndexPath;
     private final DistributedLease distributedLease;
-    private final org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore;
-    private final org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore;
+    private final GenerationJobStore artifactBuildStore;
+    private final GenerationPublicationStore artifactPublicationStore;
     private final MaintenanceLeaderElection configuredLeaderElection;
     private MaintenanceLeaderElection leaderElection;
     private DurableGenerationPublisher artifactPublisher;
@@ -121,7 +125,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore) {
+            GenerationJobStore artifactBuildStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore, null, null);
     }
 
@@ -129,8 +133,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
-            org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore) {
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore,
                 artifactPublicationStore, null);
     }
@@ -138,8 +142,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
-            org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
-            org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
             MaintenanceLeaderElection configuredLeaderElection) {
         if (baseIndexPath == null || baseIndexPath.isBlank()) {
             throw new IllegalStateException(
@@ -379,18 +383,18 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public ConnectorAccessorResolver getAccessorResolver() { return accessorResolver; }
 
     /** Returns the generic durable artifact store shared by build and query binding. */
-    public org.pangrova.generation.api.job.GenerationJobStore getArtifactBuildStore() {
+    public GenerationJobStore getArtifactBuildStore() {
         return artifactBuildStore;
     }
 
-    static Map<String, org.pangrova.generation.api.publication.GenerationPublicationStore>
+    static Map<String, GenerationPublicationStore>
             artifactPublicationStores(
-                    org.pangrova.generation.api.publication.GenerationPublicationStore store) {
+                    GenerationPublicationStore store) {
         return Map.of(
-                org.pangrova.generation.api.GenerationOutputTypeIds.VECTOR_INDEX, store,
-                org.pangrova.generation.api.GenerationOutputTypeIds.TEXT_INDEX, store,
-                org.pangrova.generation.api.GenerationOutputTypeIds.TABULAR_EXPORT, store,
-                org.pangrova.generation.api.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, store);
+                org.pangrova.spi.generation.GenerationOutputTypeIds.VECTOR_INDEX, store,
+                org.pangrova.spi.generation.GenerationOutputTypeIds.TEXT_INDEX, store,
+                org.pangrova.spi.generation.GenerationOutputTypeIds.TABULAR_EXPORT, store,
+                org.pangrova.spi.generation.GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, store);
     }
 
     /**

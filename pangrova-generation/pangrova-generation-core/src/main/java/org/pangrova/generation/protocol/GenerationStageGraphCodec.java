@@ -2,7 +2,7 @@ package org.pangrova.generation.protocol;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
 
 /** Owns the versioned persisted representation and integrity identity of a durable stage graph. */
 @Internal

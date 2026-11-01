@@ -1,7 +1,7 @@
 package org.pangrova.metadata.testinfra;
 
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.execution.GenerationExecutionOwner;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.spi.generation.execution.GenerationExecutionOwner;
 import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.spi.query.coordination.ExecutionAnchor;
 

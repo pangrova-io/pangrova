@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.spi.connector.index.SnapshotPinProvider;
 import org.pangrova.spi.indexing.state.IndexState;

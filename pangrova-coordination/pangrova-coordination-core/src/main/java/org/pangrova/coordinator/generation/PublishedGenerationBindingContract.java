@@ -2,11 +2,11 @@ package org.pangrova.coordinator.generation;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.pangrova.generation.api.format.GenerationOutputFormatContracts;
-import org.pangrova.generation.api.format.GenerationOutputFormatContracts.FormatContract;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
+import org.pangrova.spi.generation.format.GenerationOutputFormatContracts;
+import org.pangrova.spi.generation.format.GenerationOutputFormatContracts.FormatContract;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;

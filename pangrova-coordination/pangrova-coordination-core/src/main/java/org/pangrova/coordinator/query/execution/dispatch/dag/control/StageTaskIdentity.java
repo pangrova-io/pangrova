@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.generation.api.job.GenerationLease;
+import org.pangrova.spi.generation.job.GenerationLease;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;

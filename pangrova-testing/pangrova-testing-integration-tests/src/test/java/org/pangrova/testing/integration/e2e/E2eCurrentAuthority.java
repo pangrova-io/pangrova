@@ -12,7 +12,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;

@@ -5,7 +5,7 @@
 
 > 当前执行状态、实际模块/包盘点和剩余迁移请参见[项目目录与内部包重构执行计划](../internal/project-restructure-execution-plan.md)。本文中的起点数量和迁移批次属于历史蓝图，不构成当前完成证明。
 
-> **2026-10-31 Generation 落位修订：** 原 Artifact 经被否决的 data-build 中间名，现以 `pangrova-generation` 表达索引、生成列值和导出结果的生成。family 已分为 core、transaction-spi、store-postgresql；通用 job/stage/exchange 与输入读取的真实 PostgreSQL 实现已独立，core 不反向依赖事务或存储制品。catalog export 业务事务归 AI Control，同连接提交/读取/fence 端口已有真实实现；领域 publication SQL 与当前 tenant/table authority 适配仍在 Metadata，继续按 owner 迁移。具体验证状态以执行记录为准，不把物理拆分当作全项目验收。
+> **2026-11-01 Generation 归并修订：** 共享值契约归 `pangrova-spi` 的 `generation` 能力包，job/execution/exchange/publication 存储端口与显式 `transaction.jdbc` 协作端口归 Persistence API，实际 PostgreSQL 后端归 Persistence JDBC。旧 transaction-spi/store-postgresql 制品删除。Generation core 保留规范编码、纯图构造与发布路由，不依赖 Security 或 Persistence 实现；JDBC 后端单向使用这些共用编码。Catalog export 和当前 tenant/table authority 的领域判断仍由调用方负责；相关领域 SQL 后端继续迁移。迁移与测试不代表全项目完成。
 
 > **2026-10-31 Query 边界修订：** 原“Query API/Core 全部合一”的物理目标已由执行计划第 18 节替代。`pangrova-query-api` 独占 `org.pangrova.query.api`；`pangrova-query` 拥有 `.core/.store/.adapter`。这使 File、Governance 和后续 Artifact 消费执行契约时不依赖 Query 运行时，也允许 Query 运行时单向依赖 Artifact。下文历史模块总数不是限制新增这一真实契约制品的理由。
 

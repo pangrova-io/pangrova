@@ -2,8 +2,8 @@ package org.pangrova.generation.protocol;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.generation.api.execution.GenerationExchangeFinalization;
-import org.pangrova.generation.api.execution.GenerationExchangeRegistration;
+import org.pangrova.spi.generation.execution.GenerationExchangeFinalization;
+import org.pangrova.spi.generation.execution.GenerationExchangeRegistration;
 
 /** Canonical external allocation/finalization evidence, without provider access capabilities. */
 @Internal

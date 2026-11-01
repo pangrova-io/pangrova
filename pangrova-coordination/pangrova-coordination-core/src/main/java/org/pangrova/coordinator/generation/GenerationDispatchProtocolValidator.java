@@ -3,8 +3,8 @@ package org.pangrova.coordinator.generation;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.proto.Plan;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationSplit;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationSplit;
 import org.pangrova.planner.substrait.SubstraitProtocolVersion;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.source.RowLocatorContractValidator;
@@ -40,7 +40,7 @@ public final class GenerationDispatchProtocolValidator {
                 && output.getEncryptionKeyRef().equals(job.encryptionKeyRef())
                 && formatMatches(job, output)
                 && (output.hasRowLocator() != job.artifactType().equals(
-                        org.pangrova.generation.api.GenerationOutputTypeIds.TABULAR_EXPORT))
+                        org.pangrova.spi.generation.GenerationOutputTypeIds.TABULAR_EXPORT))
                 && outputStateIsUnbound(output)
                 && output.getExecutionKind() == protocolExecutionKind(job)
                 && output.getEmptyPartitionPolicy() == protocolEmptyPolicy(job)
@@ -126,7 +126,7 @@ public final class GenerationDispatchProtocolValidator {
     }
 
     /** Validates only the canonical executable stage bytes, never SQL reconstructed during replay. */
-    public static void validatePlan(org.pangrova.generation.api.execution.GenerationStageGraph.StagePlan stage) {
+    public static void validatePlan(org.pangrova.spi.generation.execution.GenerationStageGraph.StagePlan stage) {
         try {
             Plan plan = Plan.parseFrom(stage.planBytes());
             if (!plan.getUnknownFields().asMap().isEmpty()

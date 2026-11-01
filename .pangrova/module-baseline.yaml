@@ -50,7 +50,6 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-generation-core: compile
-      pangrova-generation-transaction-spi: compile
       pangrova-persistence-api: compile
       pangrova-persistence-jdbc: compile
       pangrova-security: compile
@@ -59,8 +58,6 @@ artifacts:
     imports:
       main:
         - pangrova-common
-        - pangrova-generation-core
-        - pangrova-generation-transaction-spi
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
         - pangrova-security
@@ -509,8 +506,6 @@ artifacts:
       pangrova-file-core: compile
       pangrova-filesystem-api: compile
       pangrova-generation-core: compile
-      pangrova-generation-store-postgresql: compile
-      pangrova-generation-transaction-spi: compile
       pangrova-governance: compile
       pangrova-indexing-core: compile
       pangrova-materialization-core: compile
@@ -580,7 +575,6 @@ artifacts:
         - pangrova-file-core
         - pangrova-filesystem-api
         - pangrova-generation-core
-        - pangrova-generation-store-postgresql
         - pangrova-governance
         - pangrova-indexing-core
         - pangrova-materialization-core
@@ -780,97 +774,25 @@ artifacts:
   pangrova-generation-core:
     path: pangrova-generation/pangrova-generation-core
     mainPackages:
-      - org.pangrova.generation.api
-      - org.pangrova.generation.api.execution
-      - org.pangrova.generation.api.execution.template
-      - org.pangrova.generation.api.format
-      - org.pangrova.generation.api.job
-      - org.pangrova.generation.api.manifest
-      - org.pangrova.generation.api.publication
       - org.pangrova.generation.assembly
       - org.pangrova.generation.core.publication
       - org.pangrova.generation.protocol
-      - org.pangrova.generation.spi.storage
     pomDependencies:
       pangrova-common: compile
-      pangrova-security: compile
+      pangrova-persistence-api: compile
       pangrova-spi: compile
     imports:
       main:
         - pangrova-common
+        - pangrova-persistence-api
         - pangrova-spi
       test:
         - pangrova-common
+        - pangrova-persistence-api
         - pangrova-spi
     exportedPackages:
-      - org.pangrova.generation.api
-      - org.pangrova.generation.api.execution
-      - org.pangrova.generation.api.execution.template
-      - org.pangrova.generation.api.format
-      - org.pangrova.generation.api.job
-      - org.pangrova.generation.api.manifest
-      - org.pangrova.generation.api.publication
       - org.pangrova.generation.assembly
       - org.pangrova.generation.protocol
-      - org.pangrova.generation.spi.storage
-    providers:
-      {}
-  pangrova-generation-store-postgresql:
-    path: pangrova-generation/pangrova-generation-store-postgresql
-    mainPackages:
-      - org.pangrova.generation.store.postgresql.exchange
-      - org.pangrova.generation.store.postgresql.execution
-      - org.pangrova.generation.store.postgresql.job
-      - org.pangrova.generation.store.postgresql.query
-    pomDependencies:
-      pangrova-common: compile
-      pangrova-generation-core: compile
-      pangrova-generation-transaction-spi: compile
-      pangrova-persistence-api: compile
-      pangrova-persistence-jdbc: compile
-      pangrova-spi: compile
-      pangrova-testing-kit: test
-    imports:
-      main:
-        - pangrova-common
-        - pangrova-generation-core
-        - pangrova-generation-transaction-spi
-        - pangrova-persistence-api
-        - pangrova-persistence-jdbc
-        - pangrova-spi
-      test:
-        - pangrova-common
-        - pangrova-generation-core
-        - pangrova-generation-transaction-spi
-        - pangrova-spi
-        - pangrova-testing-kit
-    exportedPackages:
-      - org.pangrova.generation.store.postgresql.exchange
-      - org.pangrova.generation.store.postgresql.execution
-      - org.pangrova.generation.store.postgresql.job
-      - org.pangrova.generation.store.postgresql.query
-    providers:
-      {}
-  pangrova-generation-transaction-spi:
-    path: pangrova-generation/pangrova-generation-transaction-spi
-    mainPackages:
-      - org.pangrova.generation.spi.jdbc
-    pomDependencies:
-      pangrova-common: compile
-      pangrova-generation-core: compile
-      pangrova-security: test
-      pangrova-spi: compile
-    imports:
-      main:
-        - pangrova-common
-        - pangrova-generation-core
-        - pangrova-spi
-      test:
-        - pangrova-common
-        - pangrova-generation-core
-        - pangrova-spi
-    exportedPackages:
-      - org.pangrova.generation.spi.jdbc
     providers:
       {}
   pangrova-governance:
@@ -965,10 +887,9 @@ artifacts:
       - org.pangrova.indexing.store.jdbc
     pomDependencies:
       pangrova-common: compile
-      pangrova-generation-core: test
-      pangrova-generation-store-postgresql: test
-      pangrova-generation-transaction-spi: test
+      pangrova-generation-core: compile
       pangrova-metadata: compile
+      pangrova-persistence-api: compile
       pangrova-persistence-jdbc: compile
       pangrova-planner: compile
       pangrova-protocol: compile
@@ -987,8 +908,8 @@ artifacts:
       test:
         - pangrova-common
         - pangrova-generation-core
-        - pangrova-generation-store-postgresql
         - pangrova-metadata
+        - pangrova-persistence-api
         - pangrova-persistence-jdbc
         - pangrova-planner
         - pangrova-protocol
@@ -1112,8 +1033,6 @@ artifacts:
       pangrova-common: compile
       pangrova-file-core: test
       pangrova-generation-core: compile
-      pangrova-generation-store-postgresql: compile
-      pangrova-generation-transaction-spi: compile
       pangrova-governance: compile
       pangrova-persistence-api: compile
       pangrova-persistence-jdbc: compile
@@ -1127,9 +1046,6 @@ artifacts:
     imports:
       main:
         - pangrova-common
-        - pangrova-generation-core
-        - pangrova-generation-store-postgresql
-        - pangrova-generation-transaction-spi
         - pangrova-governance
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
@@ -1139,8 +1055,6 @@ artifacts:
       test:
         - pangrova-common
         - pangrova-generation-core
-        - pangrova-generation-store-postgresql
-        - pangrova-generation-transaction-spi
         - pangrova-governance
         - pangrova-persistence-api
         - pangrova-persistence-jdbc
@@ -1294,6 +1208,12 @@ artifacts:
       - org.pangrova.persistence.api.file.directory
       - org.pangrova.persistence.api.file.profile
       - org.pangrova.persistence.api.file.space
+      - org.pangrova.persistence.api.generation
+      - org.pangrova.persistence.api.generation.exchange
+      - org.pangrova.persistence.api.generation.execution
+      - org.pangrova.persistence.api.generation.job
+      - org.pangrova.persistence.api.generation.publication
+      - org.pangrova.persistence.api.generation.transaction.jdbc
       - org.pangrova.persistence.api.query.audit
       - org.pangrova.persistence.api.query.coordination
       - org.pangrova.persistence.api.query.lineage
@@ -1323,6 +1243,12 @@ artifacts:
       - org.pangrova.persistence.api.file.directory
       - org.pangrova.persistence.api.file.profile
       - org.pangrova.persistence.api.file.space
+      - org.pangrova.persistence.api.generation
+      - org.pangrova.persistence.api.generation.exchange
+      - org.pangrova.persistence.api.generation.execution
+      - org.pangrova.persistence.api.generation.job
+      - org.pangrova.persistence.api.generation.publication
+      - org.pangrova.persistence.api.generation.transaction.jdbc
       - org.pangrova.persistence.api.query.audit
       - org.pangrova.persistence.api.query.coordination
       - org.pangrova.persistence.api.query.lineage
@@ -1346,6 +1272,10 @@ artifacts:
       - org.pangrova.persistence.jdbc.file.directory
       - org.pangrova.persistence.jdbc.file.profile
       - org.pangrova.persistence.jdbc.file.space
+      - org.pangrova.persistence.jdbc.generation.exchange
+      - org.pangrova.persistence.jdbc.generation.execution
+      - org.pangrova.persistence.jdbc.generation.job
+      - org.pangrova.persistence.jdbc.generation.query
       - org.pangrova.persistence.jdbc.query.coordination
       - org.pangrova.persistence.jdbc.query.event
       - org.pangrova.persistence.jdbc.query.lineage
@@ -1362,6 +1292,7 @@ artifacts:
     pomDependencies:
       pangrova-common: compile
       pangrova-filesystem-api: compile
+      pangrova-generation-core: compile
       pangrova-persistence-api: compile
       pangrova-spi: compile
       pangrova-testing-kit: test
@@ -1369,6 +1300,7 @@ artifacts:
       main:
         - pangrova-common
         - pangrova-filesystem-api
+        - pangrova-generation-core
         - pangrova-persistence-api
         - pangrova-spi
       test:
@@ -1384,6 +1316,10 @@ artifacts:
       - org.pangrova.persistence.jdbc.file.directory
       - org.pangrova.persistence.jdbc.file.profile
       - org.pangrova.persistence.jdbc.file.space
+      - org.pangrova.persistence.jdbc.generation.exchange
+      - org.pangrova.persistence.jdbc.generation.execution
+      - org.pangrova.persistence.jdbc.generation.job
+      - org.pangrova.persistence.jdbc.generation.query
       - org.pangrova.persistence.jdbc.query.coordination
       - org.pangrova.persistence.jdbc.query.lineage
       - org.pangrova.persistence.jdbc.query.state
@@ -1890,6 +1826,12 @@ artifacts:
       - org.pangrova.spi.function.runtime
       - org.pangrova.spi.function.scalar
       - org.pangrova.spi.function.table
+      - org.pangrova.spi.generation
+      - org.pangrova.spi.generation.execution
+      - org.pangrova.spi.generation.execution.template
+      - org.pangrova.spi.generation.format
+      - org.pangrova.spi.generation.job
+      - org.pangrova.spi.generation.manifest
       - org.pangrova.spi.indexing
       - org.pangrova.spi.indexing.data
       - org.pangrova.spi.indexing.data.bitmap
@@ -1972,6 +1914,12 @@ artifacts:
       - org.pangrova.spi.function.registry
       - org.pangrova.spi.function.runtime
       - org.pangrova.spi.function.scalar
+      - org.pangrova.spi.generation
+      - org.pangrova.spi.generation.execution
+      - org.pangrova.spi.generation.execution.template
+      - org.pangrova.spi.generation.format
+      - org.pangrova.spi.generation.job
+      - org.pangrova.spi.generation.manifest
       - org.pangrova.spi.indexing
       - org.pangrova.spi.indexing.data
       - org.pangrova.spi.indexing.data.bitmap
@@ -2188,9 +2136,7 @@ artifacts:
       pangrova-filesystem-api: test
       pangrova-filesystem-local: test
       pangrova-filesystem-s3: test
-      pangrova-generation-core: test
-      pangrova-generation-store-postgresql: test
-      pangrova-generation-transaction-spi: test
+      pangrova-generation-core: compile
       pangrova-governance: test
       pangrova-indexing-core: test
       pangrova-materialization-core: compile
@@ -2199,7 +2145,7 @@ artifacts:
       pangrova-observability-sdk: compile
       pangrova-operations: compile
       pangrova-parser: test
-      pangrova-persistence-api: test
+      pangrova-persistence-api: compile
       pangrova-persistence-jdbc: compile
       pangrova-persistence-memory: test
       pangrova-planner: test
@@ -2237,8 +2183,6 @@ artifacts:
         - pangrova-filesystem-local
         - pangrova-filesystem-s3
         - pangrova-generation-core
-        - pangrova-generation-store-postgresql
-        - pangrova-generation-transaction-spi
         - pangrova-governance
         - pangrova-indexing-core
         - pangrova-materialization-core

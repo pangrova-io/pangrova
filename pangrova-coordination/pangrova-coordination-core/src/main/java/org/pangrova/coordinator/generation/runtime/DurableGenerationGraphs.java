@@ -3,9 +3,9 @@ package org.pangrova.coordinator.generation.runtime;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.job.GenerationJobStore;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.spi.query.coordination.ExecutionAnchor;
 

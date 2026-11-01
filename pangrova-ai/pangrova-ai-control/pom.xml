@@ -35,11 +35,6 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-generation-transaction-spi</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-common</artifactId>
         </dependency>
         <dependency>

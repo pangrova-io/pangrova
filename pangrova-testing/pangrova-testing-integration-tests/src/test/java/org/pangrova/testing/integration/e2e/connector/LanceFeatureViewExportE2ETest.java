@@ -8,7 +8,7 @@ import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
-import org.pangrova.generation.api.job.GenerationOutput;
+import org.pangrova.spi.generation.job.GenerationOutput;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetId;
 import org.pangrova.ai.control.evaluation.EvaluationDatasetVersion;
 import org.pangrova.ai.control.evaluation.EvaluationMetric;

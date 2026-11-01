@@ -1,13 +1,13 @@
 package org.pangrova.coordinator.generation.template;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationLease;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PreparedPartition;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationLease;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.coordinator.generation.GenerationDispatchProtocolValidator;
 import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.GenerationPartitionResources;

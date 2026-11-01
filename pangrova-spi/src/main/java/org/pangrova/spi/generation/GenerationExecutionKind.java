@@ -1,0 +1,7 @@
+package org.pangrova.spi.generation;
+
+/** Canonical control-plane purpose of one durable artifact job. */
+public enum GenerationExecutionKind {
+    BUILD,
+    EXPORT
+}

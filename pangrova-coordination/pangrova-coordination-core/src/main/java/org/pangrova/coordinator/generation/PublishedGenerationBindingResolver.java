@@ -2,14 +2,14 @@ package org.pangrova.coordinator.generation;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalGenerationIntent;
-import org.pangrova.generation.api.format.GenerationOutputFormatContracts.FormatContract;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.job.GenerationSplit;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.job.GenerationJobStore;
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate.PublicationRead;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PublishedInput;
+import org.pangrova.spi.generation.format.GenerationOutputFormatContracts.FormatContract;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate.PublicationRead;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PublishedInput;
 import org.pangrova.protocol.generation.PublishedGenerationBindingChecksum;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
@@ -295,7 +295,7 @@ public final class PublishedGenerationBindingResolver {
                         "published artifact has no immutable dispatch specification"))
                 .stageGraph().stages().stream()
                 .filter(stage -> stage.pageKind()
-                        == org.pangrova.generation.api.GenerationPageKind.SOURCE_MAP)
+                        == org.pangrova.spi.generation.GenerationPageKind.SOURCE_MAP)
                 .findFirst().orElseThrow(() ->
                         new IllegalStateException("published source artifact has no source stage"))
                 .bindingSetBytes();

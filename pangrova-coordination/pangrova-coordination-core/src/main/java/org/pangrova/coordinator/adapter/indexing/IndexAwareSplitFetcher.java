@@ -4,7 +4,7 @@ import org.pangrova.coordinator.adapter.indexing.ddl.ConnectorAccessorResolver;
 import org.pangrova.coordinator.adapter.indexing.filter.IndexSplitFilter;
 import org.pangrova.coordinator.generation.PublishedGenerationBindingResolver;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.core.eval.IndexEvaluationFailures;

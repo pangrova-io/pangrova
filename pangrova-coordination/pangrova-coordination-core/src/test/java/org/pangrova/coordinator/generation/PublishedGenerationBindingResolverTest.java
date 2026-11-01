@@ -4,16 +4,16 @@ import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalGenerationIntent;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobKey;
-import org.pangrova.generation.api.job.GenerationLease;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.job.GenerationJobStore;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PublishedInput;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobKey;
+import org.pangrova.spi.generation.job.GenerationLease;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PublishedInput;
 import org.pangrova.protocol.generation.PublishedGenerationBindingChecksum;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
@@ -259,10 +259,10 @@ class PublishedGenerationBindingResolverTest {
                     TENANT, "job-1", "index-1",
                     bm25 ? "TEXT_INDEX" : "VECTOR_INDEX", "7",
                     "catalog.schema.table", "snapshot-1",
-                    org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                    org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                    org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                    org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                             "catalog.schema.table", "snapshot-1"),
-                    org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                    org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                     bm25 ? BuiltInCapabilityCatalog.BM25_ARTIFACT_FORMAT_ID
                             : BuiltInCapabilityCatalog.DISKANN_ARTIFACT_FORMAT_ID,
                     bm25 ? BuiltInCapabilityCatalog.BM25_ARTIFACT_FORMAT_MAJOR
@@ -304,7 +304,7 @@ class PublishedGenerationBindingResolverTest {
                                     .ALGORITHM_SHA256)
                             .setDigest(com.google.protobuf.ByteString.copyFrom(
                                     java.util.HexFormat.of().parseHex(
-                                            org.pangrova.generation.api.GenerationDependencySet
+                                            org.pangrova.spi.generation.GenerationDependencySet
                                                     .sourceSnapshot("catalog.schema.table",
                                                             "snapshot-1").sha256()))))
                     .setEmptyPartitionPolicy(org.pangrova.protocol.v2
@@ -352,13 +352,13 @@ class PublishedGenerationBindingResolverTest {
         }
 
         @Override
-        public java.util.Map<String, org.pangrova.generation.api.job.GenerationSplit>
+        public java.util.Map<String, org.pangrova.spi.generation.job.GenerationSplit>
                 loadPublishedSourceSplits(String tenantId, String jobId,
                         java.util.Set<String> sourceObjectIds) {
             if (!sourceObjectIds.equals(Set.of("object-a"))) return java.util.Map.of();
             byte[] bytes = java.util.Base64.getDecoder().decode(split("object-a", "snapshot-1"));
             return java.util.Map.of("object-a",
-                    org.pangrova.generation.api.job.GenerationSplit.of("object-a", bytes));
+                    org.pangrova.spi.generation.job.GenerationSplit.of("object-a", bytes));
         }
 
         @Override public void createJob(GenerationJob job, GenerationDispatchSpec spec,
@@ -373,7 +373,7 @@ class PublishedGenerationBindingResolverTest {
         @Override public boolean renewPage(GenerationLease lease, Duration duration,
                 Instant now) { throw unsupported(); }
         @Override public boolean completePage(
-                org.pangrova.generation.api.job.GenerationPageCompletion completion) {
+                org.pangrova.spi.generation.job.GenerationPageCompletion completion) {
             throw unsupported();
         }
         @Override public boolean retryPage(GenerationLease lease, Instant available,

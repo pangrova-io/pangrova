@@ -91,7 +91,7 @@ final class QueryBootstrap {
     private TaskScheduler taskScheduler;
     private WeightedFairScheduler fairScheduler;
     private org.pangrova.planner.cache.QueryResultCache queryResultCache;
-    private org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore;
+    private org.pangrova.persistence.api.generation.job.GenerationJobStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
     private org.pangrova.ai.control.embedding.EmbeddingModelRegistry

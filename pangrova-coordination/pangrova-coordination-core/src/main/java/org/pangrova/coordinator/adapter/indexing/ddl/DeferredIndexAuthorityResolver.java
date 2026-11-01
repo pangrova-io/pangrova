@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
-import org.pangrova.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;

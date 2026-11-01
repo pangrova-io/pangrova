@@ -23,7 +23,7 @@ import org.pangrova.ai.control.feature.CatalogExportBuildStore;
 import org.pangrova.ai.control.store.jdbc.evaluation.JdbcEvaluationStore;
 import org.pangrova.ai.control.store.jdbc.feature.JdbcFeatureCatalogStore;
 import org.pangrova.ai.control.store.jdbc.feature.JdbcCatalogExportBuildStore;
-import org.pangrova.generation.spi.jdbc.GenerationJobSubmissionTransactions;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationJobSubmissionTransactions;
 
 import javax.sql.DataSource;
 import java.util.Objects;

@@ -1,23 +1,23 @@
 package org.pangrova.metadata.assembly.generation;
 
-import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
-import org.pangrova.generation.spi.jdbc.GenerationTransactionInputs;
-import org.pangrova.generation.store.postgresql.query.PostgresGenerationQueries;
-import org.pangrova.generation.store.postgresql.execution.PostgresGenerationExecutionFence;
-import org.pangrova.generation.spi.jdbc.GenerationExecutionTransactionFence;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionAuthority;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationTransactionInputs;
+import org.pangrova.persistence.jdbc.generation.query.PostgresGenerationQueries;
+import org.pangrova.persistence.jdbc.generation.execution.PostgresGenerationExecutionFence;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationExecutionTransactionFence;
 import org.pangrova.persistence.jdbc.query.coordination.JdbcExecutionTransactionFence;
 import org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority;
 import org.pangrova.metadata.adapter.generation.MetadataGenerationPublicationCandidates;
-import org.pangrova.generation.spi.jdbc.GenerationPublicationCandidates;
+import org.pangrova.persistence.api.generation.transaction.jdbc.GenerationPublicationCandidates;
 import org.pangrova.persistence.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.persistence.jdbc.security.policy.JdbcCurrentDirectRoleReader;
 
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationStageExecutionStore;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
-import org.pangrova.generation.spi.storage.GenerationStageExchangeStore;
-import org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationStageExecutionStore;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
+import org.pangrova.persistence.api.generation.exchange.GenerationStageExchangeStore;
+import org.pangrova.persistence.jdbc.generation.exchange.PostgresGenerationStageExchangeStore;
 import org.pangrova.metadata.generation.jdbc.JdbcIndexGenerationPublicationStore;
 import org.pangrova.metadata.generation.jdbc.JdbcGeneratedValuePublicationStore;
 import org.pangrova.metadata.generation.jdbc.JdbcTabularExportPublicationStore;

@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationSplit;
-import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.spi.generation.GenerationEmptyPartitionPolicy;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.DataSplit;

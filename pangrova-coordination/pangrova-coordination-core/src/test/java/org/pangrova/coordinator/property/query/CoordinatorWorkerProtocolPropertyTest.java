@@ -282,7 +282,7 @@ class CoordinatorWorkerProtocolPropertyTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 java.util.HexFormat.of().parseHex(
-                                        org.pangrova.generation.api.GenerationDependencySet
+                                        org.pangrova.spi.generation.GenerationDependencySet
                                                 .sourceSnapshot("catalog.schema.table",
                                                         "snapshot-1").sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2

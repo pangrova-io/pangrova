@@ -497,16 +497,6 @@
                 <artifactId>pangrova-generation-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-generation-transaction-spi</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-generation-store-postgresql</artifactId>
-                <version>${project.version}</version>
-            </dependency>
 
             <dependency>
                 <groupId>org.pangrova</groupId>

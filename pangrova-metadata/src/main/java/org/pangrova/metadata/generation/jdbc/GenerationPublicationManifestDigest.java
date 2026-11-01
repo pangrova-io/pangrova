@@ -1,6 +1,6 @@
 package org.pangrova.metadata.generation.jdbc;
 
-import org.pangrova.generation.api.job.GenerationOutput;
+import org.pangrova.spi.generation.job.GenerationOutput;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;

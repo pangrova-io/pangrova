@@ -4,24 +4,24 @@ import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
-import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.execution.template.GenerationStageTemplate;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.api.job.GenerationSplit;
-import org.pangrova.generation.api.job.GenerationPageCompletion;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.spi.generation.job.GenerationPageCompletion;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
 import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore;
 import org.pangrova.coordinator.generation.template.FrozenStageBindings;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.metadata.generation.jdbc.JdbcGeneratedValuePublicationStore;
@@ -122,7 +122,7 @@ class GeneratedValuePublicationIntegrationTest {
             pool.setConnectionTimeout(500);
             var claimed = ModelAuthorityFixtures.artifacts().stages(pool).preparePartition(
                     new GenerationStageExecutionStore.PartitionClaim(
-                            new org.pangrova.generation.api.job.GenerationJobKey(TENANT, consumerJob), owner,
+                            new org.pangrova.spi.generation.job.GenerationJobKey(TENANT, consumerJob), owner,
                             0, 0, 0, 10, Duration.ofSeconds(30), START), prepared -> {
                         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
                         var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read), List.of(encoded),
@@ -260,10 +260,10 @@ class GeneratedValuePublicationIntegrationTest {
                 TENANT, JOB_ID, ARTIFACT_ID,
                 GenerationOutputTypeIds.GENERATED_COLUMN_VALUES,
                 GENERATION, SOURCE_ID, SNAPSHOT,
-                org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                         SOURCE_ID, SNAPSHOT),
-                org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                 "s3://warehouse/system/generated-values-test", format.getFormatId(),
                 format.getMajorVersion(), format.getMinorVersion(),
                 HexFormat.of().formatHex(format.getSchemaSha256().toByteArray()),
@@ -289,7 +289,7 @@ class GeneratedValuePublicationIntegrationTest {
                         .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(com.google.protobuf.ByteString.copyFrom(
                                 HexFormat.of().parseHex(
-                                        org.pangrova.generation.api.GenerationDependencySet
+                                        org.pangrova.spi.generation.GenerationDependencySet
                                                 .sourceSnapshot(SOURCE_ID, SNAPSHOT).sha256()))))
                 .setEmptyPartitionPolicy(org.pangrova.protocol.v2.ArtifactEmptyPartitionPolicy
                         .ARTIFACT_EMPTY_PARTITION_POLICY_FORBID)

@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.bootstrap;
 
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
+
+import org.pangrova.persistence.api.generation.job.GenerationJobStore;
+
 import org.pangrova.governance.core.GovernanceDeps;
 import org.pangrova.governance.core.GovernanceContext;
 import org.pangrova.governance.store.jdbc.JdbcGovernanceAuditTrail;
@@ -458,7 +462,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.persistence.api.coordination.DistributedLease lease,
-                       org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore) {
+                       GenerationJobStore artifactBuildStore) {
         startIndexing(metadataStore, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, artifactBuildStore, null);
     }
@@ -469,8 +473,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.persistence.api.coordination.DistributedLease lease,
-                       org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
-                       org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore) {
+                       GenerationJobStore artifactBuildStore,
+                       GenerationPublicationStore artifactPublicationStore) {
         startIndexing(metadataStore, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, artifactBuildStore,
                 artifactPublicationStore, null);
@@ -482,8 +486,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.persistence.api.coordination.DistributedLease lease,
-                       org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
-                       org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore,
+                       GenerationJobStore artifactBuildStore,
+                       GenerationPublicationStore artifactPublicationStore,
                        org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection leaderElection) {
         try {
             indexingBootstrap = new IndexingBootstrap(

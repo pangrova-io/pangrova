@@ -4,7 +4,7 @@ import org.pangrova.coordinator.generation.template.GenerationPartitionBindings;
 import org.pangrova.coordinator.generation.template.PersistedStagePlan;
 import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.generation.spi.storage.GenerationStageExecutionStore.PreparedPartition;
+import org.pangrova.persistence.api.generation.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;

@@ -359,7 +359,7 @@ def main():
         borrowed_manifest.write_text('\n'.join(borrowed_cases), encoding='utf-8')
         jdbc_matches = [match for match in full_filter.getroot()
                         if any(child.tag.endswith('Class') and child.get('name', '').startswith(
-                            ('org.pangrova.client.jdbc.', 'org.pangrova.generation.store.postgresql.')) for child in match)
+                            ('org.pangrova.client.jdbc.', 'org.pangrova.persistence.jdbc.generation.')) for child in match)
                         and any(child.tag.endswith('Bug') and child.get('pattern') == 'SQL_INJECTION_JDBC'
                                 for child in match)]
         expected_jdbc = {
@@ -372,16 +372,16 @@ def main():
             for params in ('java.lang.String,int', 'java.lang.String,int[]', 'java.lang.String,java.lang.String[]')
         }
         expected_jdbc |= {
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadOutputsForPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.List'),
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadPublishedSourceSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List', 'java.util.Map'),
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadSourceOutputs', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List', 'void'),
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadStoredSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map', 'void'),
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.generation.store.postgresql.job.PostgresGenerationPageSelection$Selection', 'java.util.Optional'),
-            ('org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
-            ('org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.generation.api.job.GenerationJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
-            ('org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.generation.api.job.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadOutputsForPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.List'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadPublishedSourceSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List', 'java.util.Map'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadSourceOutputs', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.List', 'void'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadStoredSplits', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.util.Map', 'void'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationOutputQueries', 'loadSucceededPages', 'java.sql.Connection,java.lang.String,java.lang.String,java.util.List,java.lang.String', 'java.util.Set'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection', 'findPage', 'java.sql.Connection,java.lang.String,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection', 'selectClaimablePage', 'java.sql.Connection,org.pangrova.persistence.jdbc.generation.job.PostgresGenerationPageSelection$Selection', 'java.util.Optional'),
+            ('org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStoreMappings', 'findJob', 'java.sql.Connection,java.lang.String,java.lang.String,boolean', 'java.util.Optional'),
+            ('org.pangrova.persistence.jdbc.generation.exchange.PostgresGenerationStageExchangeStore', 'findEvidence', 'java.sql.Connection,org.pangrova.spi.generation.job.GenerationJobKey,java.lang.String,boolean,boolean', 'java.util.Optional'),
+            ('org.pangrova.persistence.jdbc.generation.exchange.PostgresGenerationStageExchangeStore', 'insertEvidence', 'java.sql.Connection,org.pangrova.spi.generation.job.GenerationJobKey,java.lang.String,byte[],java.lang.String,boolean', 'void'),
         }
         if len(jdbc_matches) != len(expected_jdbc):
             raise RuntimeError('Expected 21 exact JDBC forwarding/Artifact SQL classifications')
@@ -444,13 +444,13 @@ def main():
         identity_manifest = temporary / 'jdbc-identity-cases.txt'
         identity_manifest.write_text('\n'.join(identity_cases), encoding='utf-8')
         expected_metadata = {
-            ('org.pangrova.generation.api.execution.GenerationExchangeFinalization', 'partitions', 'java.util.List'),
-            ('org.pangrova.generation.api.execution.GenerationExchangeRegistration', 'endpoints', 'java.util.List'),
-            ('org.pangrova.generation.api.execution.GenerationStageGraph', 'stages', 'java.util.List'),
-            ('org.pangrova.generation.api.execution.GenerationStageGraph', 'exchanges', 'java.util.List'),
-            ('org.pangrova.generation.api.execution.GenerationStageGraph', 'modelSnapshots', 'java.util.List'),
-            ('org.pangrova.generation.api.execution.template.GenerationStageTemplate', 'publicationReads', 'java.util.List'),
-            ('org.pangrova.generation.api.GenerationDependencySet', 'dependencies', 'java.util.List'),
+            ('org.pangrova.spi.generation.execution.GenerationExchangeFinalization', 'partitions', 'java.util.List'),
+            ('org.pangrova.spi.generation.execution.GenerationExchangeRegistration', 'endpoints', 'java.util.List'),
+            ('org.pangrova.spi.generation.execution.GenerationStageGraph', 'stages', 'java.util.List'),
+            ('org.pangrova.spi.generation.execution.GenerationStageGraph', 'exchanges', 'java.util.List'),
+            ('org.pangrova.spi.generation.execution.GenerationStageGraph', 'modelSnapshots', 'java.util.List'),
+            ('org.pangrova.spi.generation.execution.template.GenerationStageTemplate', 'publicationReads', 'java.util.List'),
+            ('org.pangrova.spi.generation.GenerationDependencySet', 'dependencies', 'java.util.List'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'columns', 'java.util.List'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'partitionSpec', 'java.util.Map'),
             ('org.pangrova.metadata.api.object.TableMetadata', 'sortOrder', 'java.util.List'),

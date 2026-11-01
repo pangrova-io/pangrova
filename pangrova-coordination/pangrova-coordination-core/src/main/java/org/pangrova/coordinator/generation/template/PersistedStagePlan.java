@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.generation.template;
 
-import org.pangrova.generation.api.execution.GenerationStageGraph.StagePlan;
+import org.pangrova.spi.generation.execution.GenerationStageGraph.StagePlan;
 import org.pangrova.planner.PlanFragment;
 import org.pangrova.planner.SerializedPlanFragment;
 import org.pangrova.planner.SplitSourceDescriptor;

@@ -7,19 +7,19 @@ import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.job.GenerationJob;
-import org.pangrova.generation.api.job.GenerationJobState;
-import org.pangrova.generation.api.job.GenerationOutput;
-import org.pangrova.generation.api.GenerationOutputScope;
-import org.pangrova.generation.api.job.GenerationPage;
-import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.generation.api.job.GenerationSplit;
-import org.pangrova.generation.api.job.GenerationPageCompletion;
-import org.pangrova.generation.api.GenerationOutputTypeIds;
-import org.pangrova.generation.api.manifest.GenerationManifest;
-import org.pangrova.generation.api.publication.GenerationPublicationStore;
-import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.job.GenerationJob;
+import org.pangrova.spi.generation.job.GenerationJobState;
+import org.pangrova.spi.generation.job.GenerationOutput;
+import org.pangrova.spi.generation.GenerationOutputScope;
+import org.pangrova.spi.generation.job.GenerationPage;
+import org.pangrova.spi.generation.GenerationPageKind;
+import org.pangrova.spi.generation.job.GenerationSplit;
+import org.pangrova.spi.generation.job.GenerationPageCompletion;
+import org.pangrova.spi.generation.GenerationOutputTypeIds;
+import org.pangrova.spi.generation.manifest.GenerationManifest;
+import org.pangrova.persistence.api.generation.publication.GenerationPublicationStore;
+import org.pangrova.persistence.jdbc.generation.job.PostgresGenerationJobStore;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -146,7 +146,7 @@ class DurableGenerationPublisherTest {
 
         executions.ownership("maintenance-a").yield(buildAnchor);
         assertThat(store.listReadyForPublication(10, START.plusSeconds(1)))
-                .containsExactly(new org.pangrova.generation.api.job.GenerationJobKey(TENANT, "job-1"));
+                .containsExactly(new org.pangrova.spi.generation.job.GenerationJobKey(TENANT, "job-1"));
 
         AtomicInteger calls = new AtomicInteger();
         GenerationPublicationStore adapter = (claim, owner, epoch, now) -> {
@@ -178,10 +178,10 @@ class DurableGenerationPublisherTest {
         store.createJob(new GenerationJob(
                         TENANT, "job-1", "artifact-1", TYPE, "generation-1",
                         "catalog.schema.items", "snapshot-1",
-                        org.pangrova.generation.api.GenerationExecutionKind.BUILD,
-                        org.pangrova.generation.api.GenerationDependencySet.sourceSnapshot(
+                        org.pangrova.spi.generation.GenerationExecutionKind.BUILD,
+                        org.pangrova.spi.generation.GenerationDependencySet.sourceSnapshot(
                                 "catalog.schema.items", "snapshot-1"),
-                        org.pangrova.generation.api.GenerationEmptyPartitionPolicy.FORBID,
+                        org.pangrova.spi.generation.GenerationEmptyPartitionPolicy.FORBID,
                         "s3://bucket/staging/artifact-1/generation-1",
                         "pangrova.diskann.segment", 1, 0, "a".repeat(64),
                         "native-build-1", "",

@@ -1,8 +1,8 @@
 package org.pangrova.generation.assembly;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.generation.api.execution.GenerationStageGraph;
+import org.pangrova.spi.generation.job.GenerationDispatchSpec;
+import org.pangrova.spi.generation.execution.GenerationStageGraph;
 import org.pangrova.generation.protocol.GenerationStageGraphCodec;
 import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
