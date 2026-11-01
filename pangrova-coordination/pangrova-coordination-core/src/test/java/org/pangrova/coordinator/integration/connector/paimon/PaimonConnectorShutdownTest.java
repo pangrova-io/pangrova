@@ -13,10 +13,10 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.paimon.PaimonConnector;
 import org.pangrova.connector.paimon.PaimonConnectorFactory;
 import org.pangrova.coordinator.task.TestConnectorQuery;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -72,7 +72,7 @@ class PaimonConnectorShutdownTest {
         var handle = metadata.bindRead(session, metadata.getTableHandle(session, new SchemaTableName("db", "rows")))
                 .handle();
         var columns = List.copyOf(metadata.getColumnHandles(session, handle).values());
-        org.pangrova.connector.spi.metadata.ConnectorSplit split;
+        org.pangrova.spi.connector.metadata.ConnectorSplit split;
         var source = connector.getSplitManager().getSplits(ConnectorTransactionHandle.empty(), session, handle,
                 DynamicFilter.ALL, Constraint.EMPTY);
         try {
@@ -86,7 +86,7 @@ class PaimonConnectorShutdownTest {
             assertThat(connector.lifecycleDiagnostics().activeReaders()).isOne();
             query.seal();
             assertThatThrownBy(connector::shutdown)
-                    .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                    .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                     .cause().isInstanceOf(IllegalStateException.class).hasMessageContaining("active readers");
             assertThatThrownBy(() -> query.authority().cleanupMetadata()).hasMessageContaining("not exited");
             assertThat(connector.lifecycleDiagnostics().activeReaders()).isOne();

@@ -7,8 +7,8 @@ import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.LanceWriteBinding;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.PhysicalFileWriteBinding;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.NativeWriteAllocation;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
 import java.security.MessageDigest;
 
 /** Compares canonical Native bindings to the connector's exact decoded allocation. */

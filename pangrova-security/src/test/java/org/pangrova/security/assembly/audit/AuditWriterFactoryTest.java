@@ -14,12 +14,12 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.audit.AccessedObject;
-import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.api.audit.AuditEventQuery;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.audit.AuditEventWriter;
-import org.pangrova.security.store.jdbc.JdbcAuditEventWriter;
+import org.pangrova.spi.security.audit.AccessedObject;
+import org.pangrova.spi.security.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEventQuery;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventWriter;
+import org.pangrova.persistence.jdbc.security.audit.JdbcAuditEventWriter;
 
 /**
  * Tests for {@link AuditWriterFactory}: verifies backend selection logic including

@@ -126,7 +126,7 @@ public final class DurableGenerationPublisher implements AutoCloseable {
                     manifest.manifestSha256(), manifest.objectCount(), manifest.rowCount(),
                     manifest.totalBytes());
             executionOwnership.release(key);
-        } catch (org.pangrova.security.api.AuthorizationDeniedException revoked) {
+        } catch (org.pangrova.spi.security.AuthorizationDeniedException revoked) {
             buildStore.cancelJob(tenantId, jobId, revoked.getMessage(), clock.instant());
             executionOwnership.release(key);
             LOG.warn("event=artifact_publication_revoked jobId={} tenantId={} reason={}",

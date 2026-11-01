@@ -3,9 +3,9 @@ package org.pangrova.metadata.service;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.primitive.DecimalType;
-import org.pangrova.connector.spi.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.primitive.DecimalType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
 
 import java.util.List;
 import java.util.Map;
@@ -43,7 +43,7 @@ class MetadataColumnDeclarationsTest {
         }
     }
 
-    private static org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata.Column column(ColumnType type) {
+    private static org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata.Column column(ColumnType type) {
         return MetadataColumnDeclarations.connectorColumn(new ColumnMetadata("value", type, true, "", Map.of()));
     }
 }

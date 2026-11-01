@@ -7,7 +7,7 @@ import org.pangrova.parser.ast.Query;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.TableRef;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.parser.PangrovaSqlLexer;
 import org.antlr.v4.runtime.CharStreams;
@@ -99,7 +99,7 @@ public final class DynamicTableSqlRewriter {
             if ((type == PangrovaSqlLexer.FROM || type == PangrovaSqlLexer.JOIN
                     || type == PangrovaSqlLexer.COMMA && fromDepths.contains(depth))
                     && generationTableName(tokens, i + 1)) {
-                throw new org.pangrova.security.api.AccessDeniedException(
+                throw new org.pangrova.spi.security.AccessDeniedException(
                         "Direct access to a Dynamic Table generation is forbidden");
             }
         }

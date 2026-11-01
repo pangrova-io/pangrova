@@ -1,11 +1,11 @@
 package org.pangrova.testing.integration.e2e.streaming;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.write.DataFileSink;
-import org.pangrova.connector.spi.data.write.model.WriteContext;
-import org.pangrova.connector.spi.data.write.model.WriteMode;
-import org.pangrova.connector.spi.data.write.model.WriteRecord;
-import org.pangrova.connector.spi.data.write.model.WriteResult;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.write.DataFileSink;
+import org.pangrova.spi.connector.data.write.model.WriteContext;
+import org.pangrova.spi.connector.data.write.model.WriteMode;
+import org.pangrova.spi.connector.data.write.model.WriteRecord;
+import org.pangrova.spi.connector.data.write.model.WriteResult;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.core.cdc.CdcConsumer;
 import org.pangrova.streaming.core.cdc.CdcConfig;

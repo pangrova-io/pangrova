@@ -1,12 +1,12 @@
 package org.pangrova.query.store.jdbc.transaction;
 
 import org.pangrova.common.api.annotation.ThreadSafe;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
 import org.pangrova.common.file.CopyFileCommitBinding;
 import org.pangrova.common.file.CopyFilePublication;
-import org.pangrova.connector.spi.coordination.NativeWriteFinalization;
+import org.pangrova.spi.connector.coordination.NativeWriteFinalization;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

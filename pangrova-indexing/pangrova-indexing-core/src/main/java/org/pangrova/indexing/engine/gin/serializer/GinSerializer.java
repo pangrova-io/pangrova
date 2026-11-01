@@ -1,6 +1,6 @@
 package org.pangrova.indexing.engine.gin.serializer;
 
-import org.pangrova.indexing.api.data.text.GinIndexData;
+import org.pangrova.spi.indexing.data.text.GinIndexData;
 import org.pangrova.indexing.core.serde.SerdeCodec;
 import org.pangrova.indexing.core.serde.TypeSerializer;
 

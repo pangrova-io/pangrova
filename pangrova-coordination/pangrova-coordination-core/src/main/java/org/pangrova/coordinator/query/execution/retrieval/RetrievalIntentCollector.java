@@ -381,7 +381,7 @@ public final class RetrievalIntentCollector {
 
     private static List<NamedValue> vectorInvocationOptions(
             float[] queryVector, CapabilityRef retrievalCapability, int searchBudget,
-            org.pangrova.indexing.api.vector.DistanceMetric distanceMetric) {
+            org.pangrova.spi.indexing.vector.DistanceMetric distanceMetric) {
         ByteBuffer packed = ByteBuffer.allocate(Math.multiplyExact(
                 queryVector.length, Float.BYTES)).order(ByteOrder.LITTLE_ENDIAN);
         for (float value : queryVector) {

@@ -68,7 +68,7 @@ public final class JdbcTableControlGovernanceBindingStore
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(UPSERT)) {
             conn.setAutoCommit(false);
-            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.lockMutation(conn);
+            org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate.lockMutation(conn);
             ps.setObject(1, binding.bindingId());
             ps.setObject(2, binding.tableId());
             ps.setString(3, binding.bindingType().name());
@@ -139,7 +139,7 @@ public final class JdbcTableControlGovernanceBindingStore
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(DELETE)) {
             conn.setAutoCommit(false);
-            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.lockMutation(conn);
+            org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate.lockMutation(conn);
             ps.setObject(1, tableId);
             ps.setString(2, type.name());
             ps.setString(3, bindingRef);
@@ -156,7 +156,7 @@ public final class JdbcTableControlGovernanceBindingStore
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(DELETE_ALL)) {
             conn.setAutoCommit(false);
-            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.lockMutation(conn);
+            org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate.lockMutation(conn);
             ps.setObject(1, tableId);
             ps.executeUpdate();
             conn.commit();

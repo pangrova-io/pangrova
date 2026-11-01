@@ -2,9 +2,9 @@ package org.pangrova.ai.worker.context;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.worker.embedding.provider.openai.OpenAiEmbeddingConfig;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
@@ -72,7 +72,7 @@ class AiHttpBodyDeadlineTest {
         var singleSlot = new AiTransportTestAdmission.Limits(1, defaults.items(), defaults.attempts(),
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
         try (var budget = new AiTransportTestAdmission(
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING, 3, 1, 1,
+                org.pangrova.spi.ai.capability.AiCapabilityDescriptor.Operation.EMBEDDING, 3, 1, 1,
                 singleSlot, java.time.Instant.now().plusSeconds(30))) {
             var failed = caller.submit(() -> {
                 sendingThread.set(Thread.currentThread());

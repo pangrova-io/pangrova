@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.changelog;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

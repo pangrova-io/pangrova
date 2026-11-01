@@ -19,14 +19,14 @@ import org.pangrova.parser.ast.statement.CreateStageStatement;
 import org.pangrova.parser.ast.statement.DescribeStageStatement;
 import org.pangrova.parser.ast.statement.DropStageStatement;
 import org.pangrova.parser.ast.statement.ShowStagesStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceDefinition;
-import org.pangrova.file.api.space.FileSpaceMutation;
-import org.pangrova.file.api.space.FileSpaceRegistry;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.file.space.FileSpace;
+import org.pangrova.spi.file.space.FileSpaceDefinition;
+import org.pangrova.spi.file.space.FileSpaceMutation;
+import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
 import org.pangrova.common.file.FileSpaceType;
 
 /** Registers the Stage metadata tasks; all operations share one registry row model. */

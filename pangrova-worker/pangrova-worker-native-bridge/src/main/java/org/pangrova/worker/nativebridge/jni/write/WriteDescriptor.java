@@ -38,7 +38,7 @@ public record WriteDescriptor(
      * Semantic DML operation for native write operations.
      *
      * <p>Distinct from the connector-level
-     * {@link org.pangrova.connector.spi.data.write.WriteMode} which models
+     * {@link org.pangrova.spi.connector.data.write.WriteMode} which models
      * append/upsert/overwrite semantics at the storage layer. This enum
      * models the DML operation intent as seen by the native execution engine.
      */

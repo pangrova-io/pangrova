@@ -1,5 +1,11 @@
 package org.pangrova.security.api.tenant;
 
+import org.pangrova.spi.security.tenant.ResolvedTenantContext;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
+
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -10,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies that TenantContext record correctly implements the SPI contract
- * defined in pangrova-security (org.pangrova.security.api.TenantContext).
+ * defined in pangrova-security (org.pangrova.spi.security.TenantContext).
  */
 class TenantContextSpiTest {
 
@@ -22,7 +28,7 @@ class TenantContextSpiTest {
     void implementsSpiInterface() {
         ResolvedTenantContext ctx = createContext(TenantStatus.ACTIVE, TenantRole.ADMIN);
         // Verify the record implements the SPI interface from pangrova-security
-        assertThat(ctx).isInstanceOf(org.pangrova.security.api.TenantContext.class);
+        assertThat(ctx).isInstanceOf(org.pangrova.spi.security.TenantContext.class);
     }
 
     @Test

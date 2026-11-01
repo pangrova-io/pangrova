@@ -100,9 +100,9 @@ public final class ImmutableFilterBoundary {
         Filter full = Filter.parseFilter(fullFilterPath);
         String owner = "org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog";
         String oldParams = "Ljavax/sql/DataSource;"
-                + "Lorg/pangrova/connector/spi/metadata/ManagedSourceCatalog$Deployment;"
+                + "Lorg/pangrova/spi/connector/metadata/ManagedSourceCatalog$Deployment;"
                 + "Ljava/util/function/Function;";
-        String previousParams = oldParams + "Lorg/pangrova/query/api/coordination/jdbc/ExecutionTransactionFence;";
+        String previousParams = oldParams + "Lorg/pangrova/persistence/api/query/transaction/ExecutionTransactionFence;";
         String params = previousParams + "Lorg/pangrova/security/spi/jdbc/CurrentModelAuthority;";
         String sourceType = "Ljavax/sql/DataSource;";
         check(full, owner, "<init>", params, "V", "dataSource", sourceType, "EI_EXPOSE_REP2", true);
@@ -130,7 +130,7 @@ public final class ImmutableFilterBoundary {
                 + manager + ",org.pangrova.indexing.core.serde.IndexSerializer,"
                 + "org.pangrova.indexing.core.build.BuildClaimHandler,"
                 + "org.pangrova.indexing.core.build.GenerationChecker,"
-                + "org.pangrova.connector.spi.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
+                + "org.pangrova.spi.connector.index.SnapshotPinProvider,java.util.concurrent.ExecutorService",
                 "void", "storageManager", manager, "EI_EXPOSE_REP2");
         String evaluationParams = "org.pangrova.indexing.core.registry.IndexEngineRegistry,"
                 + "org.pangrova.indexing.core.storage.IndexCache," + manager + ","
@@ -143,7 +143,7 @@ public final class ImmutableFilterBoundary {
         verifyIndexingMatch(full, cached, "filter", "", bloom,
                 "deserializedFilter", bloom, "EI_EXPOSE_REP");
         verifyIndexingMatch(full, cached, "<init>",
-                "org.pangrova.indexing.api.data.BloomFilterIndexData," + bloom,
+                "org.pangrova.spi.indexing.data.BloomFilterIndexData," + bloom,
                 "void", "deserializedFilter", bloom, "EI_EXPOSE_REP2");
     }
 

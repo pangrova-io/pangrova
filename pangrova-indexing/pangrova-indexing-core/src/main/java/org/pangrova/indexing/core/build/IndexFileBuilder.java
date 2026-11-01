@@ -8,11 +8,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.pangrova.indexing.core.storage.IndexStorageLayout;
-import org.pangrova.connector.spi.index.ColumnValueReader;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.IndexStrategyProvider;
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.connector.index.ColumnValueReader;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.IndexStrategyProvider;
+import org.pangrova.spi.indexing.data.IndexData;
 
 final class IndexFileBuilder {
     private final IndexBuildContext context;

@@ -10,11 +10,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.api.audit.AuditEventQuery;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.audit.AuditEventWriter;
-import org.pangrova.security.api.audit.QueryableAuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEventQuery;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventWriter;
+import org.pangrova.persistence.api.security.audit.QueryableAuditEventWriter;
 
 /**
  * Tests for {@link CompositeAuditEventWriter}: multi-sink fan-out, fault isolation

@@ -2,15 +2,15 @@ package org.pangrova.indexing.store.jdbc;
 
 import org.pangrova.metadata.exception.IndexAlreadyExistsException;
 import org.pangrova.metadata.exception.MetastoreException;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

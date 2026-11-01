@@ -71,7 +71,7 @@ final class GeneratedColumnDefinitionCompiler {
             throw validation(
                     "auto-embedding target '" + column.name() + "' must have VECTOR type");
         }
-        if (vector.elementType() != org.pangrova.connector.spi.data.type.VectorType.ElementType.FLOAT) {
+        if (vector.elementType() != org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT) {
             throw validation("auto-embedding target '" + column.name() + "' must have FLOAT32 VECTOR storage");
         }
         if (column.defaultValue().isPresent()) {

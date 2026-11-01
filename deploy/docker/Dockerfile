@@ -62,10 +62,10 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     test ! -e /dist/lib/pangrova-testing-integration-tests-*.jar; \
     for module in pangrova-standalone pangrova-coordination/pangrova-coordination-core \
         pangrova-worker/pangrova-worker-core pangrova-ai/pangrova-ai-worker \
-        pangrova-file/pangrova-file-api pangrova-file/pangrova-file-core \
-        pangrova-file/pangrova-file-store-jdbc \
-        pangrova-storage/pangrova-storage-api pangrova-storage/pangrova-storage-filesystem \
-        pangrova-storage/pangrova-storage-s3 pangrova-storage/pangrova-storage-oss \
+        pangrova-spi pangrova-file/pangrova-file-core \
+        pangrova-persistence/pangrova-persistence-api pangrova-persistence/pangrova-persistence-jdbc \
+        pangrova-filesystem/pangrova-filesystem-api pangrova-filesystem/pangrova-filesystem-local \
+        pangrova-filesystem/pangrova-filesystem-s3 pangrova-filesystem/pangrova-filesystem-oss \
         pangrova-client/pangrova-client-cli pangrova-connector/pangrova-connector-iceberg \
         pangrova-connector/pangrova-connector-paimon pangrova-connector/pangrova-connector-lance; do \
         properties="$module/target/maven-archiver/pom.properties"; test -f "$properties"; \
@@ -79,21 +79,21 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     test "${#ai_worker_jars[@]}" -eq 1; \
     provider_check="$(mktemp -d)"; \
     (cd "$provider_check"; jar --extract --file "${ai_worker_jars[0]}" \
-        META-INF/services/org.pangrova.function.api.registry.FunctionFactory \
-        META-INF/services/org.pangrova.function.api.runtime.FunctionCallbackScope \
-        META-INF/services/org.pangrova.function.api.runtime.FunctionFailureProjector \
-        META-INF/services/org.pangrova.ai.api.runtime.AiTaskLifecycle \
-        META-INF/services/org.pangrova.ai.api.runtime.AiModelCatalog; \
+        META-INF/services/org.pangrova.spi.function.registry.FunctionFactory \
+        META-INF/services/org.pangrova.spi.function.runtime.FunctionCallbackScope \
+        META-INF/services/org.pangrova.spi.function.runtime.FunctionFailureProjector \
+        META-INF/services/org.pangrova.protocol.execution.AiTaskLifecycle \
+        META-INF/services/org.pangrova.spi.ai.runtime.AiModelCatalog; \
         grep -Fx org.pangrova.ai.worker.function.AiFunctionFactory \
-            META-INF/services/org.pangrova.function.api.registry.FunctionFactory; \
+            META-INF/services/org.pangrova.spi.function.registry.FunctionFactory; \
         grep -Fx org.pangrova.ai.worker.context.WorkerAiCallbackScope \
-            META-INF/services/org.pangrova.function.api.runtime.FunctionCallbackScope; \
+            META-INF/services/org.pangrova.spi.function.runtime.FunctionCallbackScope; \
         grep -Fx org.pangrova.ai.worker.function.AiFunctionFailureProjector \
-            META-INF/services/org.pangrova.function.api.runtime.FunctionFailureProjector; \
+            META-INF/services/org.pangrova.spi.function.runtime.FunctionFailureProjector; \
         grep -Fx org.pangrova.ai.worker.invocation.WorkerAiTaskLifecycle \
-            META-INF/services/org.pangrova.ai.api.runtime.AiTaskLifecycle; \
+            META-INF/services/org.pangrova.protocol.execution.AiTaskLifecycle; \
         grep -Fx org.pangrova.ai.worker.provider.WorkerAiModelCatalog \
-            META-INF/services/org.pangrova.ai.api.runtime.AiModelCatalog); \
+            META-INF/services/org.pangrova.spi.ai.runtime.AiModelCatalog); \
     rm -r "$provider_check"; \
     cli_exec=(pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar); \
     test "${#cli_exec[@]}" -eq 1; test -f "${cli_exec[0]}"; cp "${cli_exec[0]}" /dist/cli/; \
@@ -102,9 +102,9 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     test "${#lance_jars[@]}" -eq 1; \
     provider_check="$(mktemp -d)"; \
     (cd "$provider_check"; jar --extract --file "${lance_jars[0]}" \
-        META-INF/services/org.pangrova.spi.connector.ConnectorFactory; \
+        META-INF/services/org.pangrova.spi.connector.plugin.ConnectorFactory; \
         grep -Fx org.pangrova.connector.lance.LanceConnectorFactory \
-            META-INF/services/org.pangrova.spi.connector.ConnectorFactory); \
+            META-INF/services/org.pangrova.spi.connector.plugin.ConnectorFactory); \
     rm -r "$provider_check"; \
     cp -r bin/. /dist/bin/; cp -r etc/. /dist/config/'
 

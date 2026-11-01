@@ -24,18 +24,18 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -86,7 +86,7 @@ class DefaultMetadataServiceControlTest {
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
 
         assertThatThrownBy(() -> service.resolveTable(session(), ref("orders")))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("catalog deployment");
     }
 
@@ -100,7 +100,7 @@ class DefaultMetadataServiceControlTest {
                 CatalogState.ACTIVE, Map.of(), "", Set.of()));
 
         assertThatThrownBy(() -> service.dropTable(session(), ref("orders")))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("catalog deployment");
         assertThat(connectorMetadata.tables).containsKey("db.orders");
         assertThat(registry.tableControl().find("cat", "db", "orders")).contains(captured);
@@ -115,7 +115,7 @@ class DefaultMetadataServiceControlTest {
         var pending = control.rename(expected, "db", "orders");
 
         assertThatThrownBy(() -> service.resolveTable(session(), ref("orders")))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("rename is incomplete");
         var handle = connectorMetadata.getTableHandle(null, new SchemaTableName("db", "orders"));
         control.completeRename(pending, connectorMetadata.getTableIdentity(null, handle),
@@ -132,7 +132,7 @@ class DefaultMetadataServiceControlTest {
         connectorMetadata.create(new SchemaTableName("db", "orders"), "replacement");
 
         assertThatThrownBy(() -> service.dropTable(session(), ref("orders")))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("identity");
         assertThat(connectorMetadata.tables).containsKey("db.orders");
         assertThat(registry.tableControl().find("cat", "db", "orders").orElseThrow().state())
@@ -273,7 +273,7 @@ class DefaultMetadataServiceControlTest {
     void tagApiResolvesCanonicalColumnsAndChecksTypesWithoutDdlPrechecks() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         declareColumns("orders", List.of(new ConnectorTableMetadata.Column("email",
-                org.pangrova.connector.spi.data.type.PangrovaType.VARCHAR)));
+                org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR)));
         service.setTag(session(), ref("orders"), "EMAIL", "pii_type", "PII_EMAIL");
         assertThat(service.listTags(session(), ref("orders"), "email"))
                 .containsExactly(Map.entry("pii_type", "PII_EMAIL"));
@@ -285,7 +285,7 @@ class DefaultMetadataServiceControlTest {
         assertThat(service.listTags(session(), ref("orders"), "email")).isEmpty();
 
         declareColumns("orders", List.of(new ConnectorTableMetadata.Column("id",
-                org.pangrova.connector.spi.data.type.PangrovaType.BIGINT)));
+                org.pangrova.spi.connector.data.type.PangrovaType.BIGINT)));
         assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "ID", "pii_type", "PII_EMAIL"))
                 .hasMessageContaining("VARCHAR");
         assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "missing", "classification", "private"))
@@ -297,8 +297,8 @@ class DefaultMetadataServiceControlTest {
     void ambiguousCaseFoldedTagTargetIsRejectedWhileExactNamesRemainDistinct() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         declareColumns("orders", List.of(
-                new ConnectorTableMetadata.Column("Email", org.pangrova.connector.spi.data.type.PangrovaType.VARCHAR),
-                new ConnectorTableMetadata.Column("email", org.pangrova.connector.spi.data.type.PangrovaType.VARCHAR)));
+                new ConnectorTableMetadata.Column("Email", org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR),
+                new ConnectorTableMetadata.Column("email", org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR)));
         assertThatThrownBy(() -> service.setTag(session(), ref("orders"), "EMAIL", "pii_type", "PII_EMAIL"))
                 .hasMessageContaining("ambiguous");
         service.setTag(session(), ref("orders"), "Email", "pii_type", "PII_EMAIL");
@@ -404,7 +404,7 @@ class DefaultMetadataServiceControlTest {
         }
 
         @Override
-        public org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle createTable(
+        public org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle createTable(
                 ConnectorSession session, ConnectorTableMetadata table) {
             tables.put(key(table.table()), table);
             uuids.put(key(table.table()), "uuid-" + table.table().table());
@@ -419,10 +419,10 @@ class DefaultMetadataServiceControlTest {
         }
 
         @Override
-        public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) { }
+        public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
 
         @Override
-        public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) { }
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
 
         @Override
         public List<String> listSchemaNames(ConnectorSession session) {

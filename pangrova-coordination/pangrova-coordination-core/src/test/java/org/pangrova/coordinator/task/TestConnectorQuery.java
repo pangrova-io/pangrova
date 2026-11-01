@@ -4,8 +4,8 @@ import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
+import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.Map;
 

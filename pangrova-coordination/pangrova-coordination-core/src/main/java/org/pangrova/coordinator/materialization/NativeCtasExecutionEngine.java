@@ -26,14 +26,14 @@ import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Query;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.statement.CreateTableAsSelectStatement;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.SnapshotRange;
-import org.pangrova.connector.spi.materialization.ChangeSetMode;
-import org.pangrova.connector.spi.materialization.ChangeSetPlan;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.SnapshotRange;
+import org.pangrova.spi.connector.materialization.ChangeSetMode;
+import org.pangrova.spi.connector.materialization.ChangeSetPlan;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Native CTAS execution adapter for one coordinator command.

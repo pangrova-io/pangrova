@@ -2,7 +2,7 @@ package org.pangrova.coordinator.result;
 
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.protocol.transport.DataTicket;
 import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.worker.transport.TransportClient;

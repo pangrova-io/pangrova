@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.util.List;
 import java.util.Map;
@@ -24,18 +24,18 @@ import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -80,7 +80,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
             fixture.metadata.capabilities =
-                    org.pangrova.connector.spi.metadata.table.TableCapabilities.UNSUPPORTED;
+                    org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
 
             assertThatThrownBy(() -> fixture.engine.ensureWriteContextRegistered(
                     session("undeclared-write"), fixture.context()))
@@ -99,9 +99,9 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         try (var fixture = new SchedulingWriteFixture(warehouse, false)) {
             fixture.installOrdinaryAuthority();
             fixture.metadata.capabilities =
-                    new org.pangrova.connector.spi.metadata.table.TableCapabilities(
+                    new org.pangrova.spi.connector.metadata.table.TableCapabilities(
                             true, false, false, true, true, true, Set.of(), Set.of(),
-                            org.pangrova.connector.spi.metadata.table.TableCapabilities.WriterFenceKind
+                            org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
                                     .FORMAT_IDENTITY);
             var context = new DmlWriteContext(
                     new QualifiedTableName("catalog", "schema", "documents"), "DELETE", List.of(),
@@ -126,7 +126,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
             fixture.installOrdinaryAuthority();
             fixture.registry.tableControl().registerCreated(
                     "catalog", "schema", "documents", "alice",
-                    Optional.of(new org.pangrova.connector.spi.metadata.table.TableIdentity(
+                    Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
                             "ICEBERG", "stale-uuid", "s3://stale", "schema")),
                     Optional.empty());
 
@@ -163,15 +163,15 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     @ValueSource(booleans = {false, true})
     void currentPostgresRevocationBlocksOrdinaryAndGeneratedAllocation(boolean generated) throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("write_admission");
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("writer"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "writer"));
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("writer", Privilege.INSERT, "TABLE", "catalog", "schema", "documents", null));
         var authority = new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(dataSource)));
+                new RowLevelSecurityFilter(new JdbcRowPolicyStore(dataSource)),
+                new ColumnMaskingProcessor(new JdbcColumnMaskStore(dataSource)));
         authority.checkCanInsertIntoTable(session("revoked").userIdentity(), "catalog", "schema", "documents");
         grants.revokeGrants("writer", Privilege.INSERT, "catalog", "schema", "documents");
 
@@ -507,7 +507,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         return new DmlWriteContext(table,
                 "INSERT", List.of(), java.util.Optional.of(
                 new WritePolicyObservation(List.of(), Set.of(Privilege.INSERT),
-                        new org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot(SchedulingWriteFixture.TABLE,
+                        new org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot(SchedulingWriteFixture.TABLE,
                                 "a".repeat(64), "b".repeat(64), false))));
     }
 
@@ -517,7 +517,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
         var declaration = request.compiledDeclaration();
         return new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(other, request.session(), request.writeMode(),
                 request.observedReadPermissions(), request.requiredWritePrivileges(),
-                new org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot(other, declaration.schemaSha256(),
+                new org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot(other, declaration.schemaSha256(),
                         declaration.generatedColumnsSha256(), declaration.hasGeneratedColumns()),
                 request.internalMaterializationExecution());
     }

@@ -25,8 +25,8 @@ import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

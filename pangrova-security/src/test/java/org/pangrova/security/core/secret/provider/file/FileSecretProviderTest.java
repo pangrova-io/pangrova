@@ -1,7 +1,7 @@
 package org.pangrova.security.core.secret.provider.file;
 
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.security.api.secret.SecretReference;
+import org.pangrova.spi.security.secret.SecretReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

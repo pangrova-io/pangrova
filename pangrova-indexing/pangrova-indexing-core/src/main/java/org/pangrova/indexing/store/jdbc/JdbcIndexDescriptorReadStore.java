@@ -1,7 +1,7 @@
 package org.pangrova.indexing.store.jdbc;
 
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 
 import javax.sql.DataSource;
 import java.util.HashMap;

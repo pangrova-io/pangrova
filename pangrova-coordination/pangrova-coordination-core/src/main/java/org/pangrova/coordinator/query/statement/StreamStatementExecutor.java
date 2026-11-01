@@ -6,7 +6,7 @@ import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
 import org.pangrova.parser.ast.statement.stream.CreateStreamStatement;
 import org.pangrova.parser.ast.statement.stream.DescribeStreamStatement;
 import org.pangrova.parser.ast.statement.stream.DropStreamStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 import java.util.List;
 

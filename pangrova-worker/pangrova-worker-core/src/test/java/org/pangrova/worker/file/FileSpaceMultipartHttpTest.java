@@ -24,7 +24,7 @@ import org.pangrova.common.file.FileAccessSignature;
 import org.pangrova.common.http.adapter.jetty.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.object.UploadedPart;
+import org.pangrova.filesystem.api.object.UploadedPart;
 import org.pangrova.worker.http.endpoint.InternalAuthFilter;
 import org.pangrova.worker.http.endpoint.WorkerExceptionMapper;
 

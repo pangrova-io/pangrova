@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.generation;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
@@ -168,7 +167,7 @@ class GeneratedValuePublicationIntegrationTest {
         assertThatThrownBy(() -> buildStore.claimReadyForPublication(
                 "tenant-b", JOB_ID, executions.takeOwnership("tenant-b", JOB_ID, "publisher-b", 9), 9,
                 Duration.ofMinutes(1), START.plusSeconds(2)))
-                .isInstanceOf(org.pangrova.security.api.AuthorizationDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class)
                 .hasMessageContaining("no scoped dispatch specification");
         GenerationJob claim = buildStore.claimReadyForPublication(
                 TENANT, JOB_ID, executions.takeOwnership(TENANT, JOB_ID, "publisher-a", 9), 9,
@@ -307,10 +306,10 @@ class GeneratedValuePublicationIntegrationTest {
                                 0, 2, GenerationPageKind.SOURCE_MAP, new byte[] {1},
                                 GenerationStageTemplate.of(OperatorBindingSet.newBuilder().addBindings(sink).build().toByteArray(), List.of(), List.of()), List.of(), List.of(), true)), List.of(), List.of()),
                 TENANT, "alice",
-                org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "sales", "documents"),
+                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "sales", "documents"),
                         java.util.Set.of("text"),
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "sales", "documents")),
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "sales", "documents")),
                 new GenerationDispatchSpec.ResourceGrant(1024, 1, 1024, 10_000));
     }
 

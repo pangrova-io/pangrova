@@ -13,10 +13,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.query.api.state.JournalEventContext;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.state.JournalEventContext;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.spi.query.state.TaskStateEvent;
 
 /** Owns admitted events and entered SQL operations until their actual completion. */
 @ThreadSafe

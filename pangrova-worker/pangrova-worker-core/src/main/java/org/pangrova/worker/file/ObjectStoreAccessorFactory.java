@@ -10,11 +10,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.object.ObjectStoreAccessor;
-import org.pangrova.file.api.object.ObjectStoreAccessorProvider;
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.storage.filesystem.object.FileSystemObjectStoreAccessorProvider;
-import org.pangrova.storage.s3.object.S3ObjectStoreAccessorProvider;
+import org.pangrova.filesystem.api.object.ObjectStoreAccessor;
+import org.pangrova.filesystem.api.object.ObjectStoreAccessorProvider;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.filesystem.local.object.LocalObjectStoreAccessorProvider;
+import org.pangrova.filesystem.s3.object.S3ObjectStoreAccessorProvider;
 
 /** Selects one backend provider and owns its lifecycle for a Worker file endpoint. */
 public final class ObjectStoreAccessorFactory implements AutoCloseable {
@@ -26,7 +26,7 @@ public final class ObjectStoreAccessorFactory implements AutoCloseable {
 
     /** Installs independent LOCAL and S3 providers; each owns its own resources. */
     public ObjectStoreAccessorFactory() {
-        this(List.of(new FileSystemObjectStoreAccessorProvider(), new S3ObjectStoreAccessorProvider()));
+        this(List.of(new LocalObjectStoreAccessorProvider(), new S3ObjectStoreAccessorProvider()));
     }
 
     /** Takes ownership of providers after validating the complete unique backend inventory. */

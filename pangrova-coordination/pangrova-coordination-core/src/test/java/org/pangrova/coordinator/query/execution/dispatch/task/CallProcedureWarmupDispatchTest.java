@@ -25,28 +25,28 @@ import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.statement.maintenance.CallStatement;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSource;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
-import org.pangrova.connector.spi.metadata.SplitProperties;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.ConnectorPageSource;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.SplitProperties;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,7 +94,7 @@ class CallProcedureWarmupDispatchTest {
 
         assertThatThrownBy(() -> task.execute(stmt,
                 org.pangrova.coordinator.query.statement.StatementTestSessions.executionContext()))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("no table-control maintenance policy");
         assertThat(spy.executeProcedureInvocations).isZero();
     }
@@ -109,7 +109,7 @@ class CallProcedureWarmupDispatchTest {
 
         assertThatThrownBy(() -> task.execute(stmt,
                 org.pangrova.coordinator.query.statement.StatementTestSessions.executionContext()))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("OBSERVED");
         assertThat(spy.executeProcedureInvocations).isZero();
     }

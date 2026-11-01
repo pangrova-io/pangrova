@@ -1,6 +1,6 @@
 package org.pangrova.ai.control.embedding;
 
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
 
 import java.util.Objects;
 

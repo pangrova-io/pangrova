@@ -2,12 +2,12 @@ package org.pangrova.metadata.coordination;
 import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
 import org.pangrova.query.store.jdbc.lineage.JdbcQueryLineageOutbox;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.query.api.state.JournalEventContext;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
-import org.pangrova.query.api.lineage.QueryLineageFact;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.StateJournalConfig;
-import org.pangrova.observability.api.event.QueryLineageMetadata;
+import org.pangrova.spi.query.state.JournalEventContext;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.spi.query.lineage.QueryLineageFact;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.spi.query.state.StateJournalConfig;
+import org.pangrova.spi.observability.event.QueryLineageMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

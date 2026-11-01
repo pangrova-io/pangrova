@@ -1,7 +1,7 @@
 package org.pangrova.security.core.mask;
 
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.api.mask.ColumnMaskSource;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.mask.ColumnMaskSource;
 import org.pangrova.security.core.authz.DeferredSubjectContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,8 +9,8 @@ import org.slf4j.LoggerFactory;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.Set;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 
 /**
  * Evaluates column masking policies for a given user, table, and column.

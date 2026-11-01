@@ -18,9 +18,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.file.api.profile.StorageProfileRegistry;
-import org.pangrova.file.api.profile.StorageProfileRevision;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
+import org.pangrova.persistence.api.file.profile.StorageProfileRevision;
 
 /**
  * Thread-safe in-memory implementation of {@link StorageProfileRegistry}.

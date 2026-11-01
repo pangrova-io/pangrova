@@ -1,7 +1,7 @@
 package org.pangrova.ai.worker.inference.provider.openai;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.spi.ai.error.AiInvocationException;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 import org.pangrova.ai.worker.context.AiHttpTransport;
 

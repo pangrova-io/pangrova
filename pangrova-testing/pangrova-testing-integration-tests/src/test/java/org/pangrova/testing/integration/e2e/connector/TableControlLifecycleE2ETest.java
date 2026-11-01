@@ -147,8 +147,8 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         sqlRunner.execute("INSERT INTO " + source + " VALUES (1),(2)");
         var policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
                 new RegistryTablePolicyAuthority(metadataBootstrap.catalogRegistry()),
-                new org.pangrova.security.store.jdbc.PersistentRowPolicyStore(stateStoreDataSource()));
-        policies.savePolicy(new org.pangrova.security.api.rowfilter.RowPolicy(0, "private_rows", PAIMON,
+                new org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore(stateStoreDataSource()));
+        policies.savePolicy(new org.pangrova.spi.security.rowfilter.RowPolicy(0, "private_rows", PAIMON,
                 SCHEMA, table, "id > 1", List.of(), true, 1, null));
         var original = policies.getPolicies(PAIMON, SCHEMA, table).get(0);
         assertThat(sqlRunner.execute("SELECT id FROM " + source))
@@ -162,7 +162,7 @@ class TableControlLifecycleE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + source + " VALUES (0),(3)");
         assertThat(sqlRunner.execute("SELECT id FROM " + source)).hasSize(2);
-        policies.savePolicy(new org.pangrova.security.api.rowfilter.RowPolicy(0, "private_rows", PAIMON,
+        policies.savePolicy(new org.pangrova.spi.security.rowfilter.RowPolicy(0, "private_rows", PAIMON,
                 SCHEMA, table, "id > 2", List.of(), true, 1, null));
         policies.deletePolicy(original.policyId());
         assertThat(sqlRunner.execute("SELECT id FROM " + source))

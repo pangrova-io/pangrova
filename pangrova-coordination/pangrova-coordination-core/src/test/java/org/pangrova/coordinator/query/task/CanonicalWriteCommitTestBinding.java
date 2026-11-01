@@ -2,9 +2,9 @@ package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;

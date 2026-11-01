@@ -1,10 +1,10 @@
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.function.api.scalar.BatchableScalarFunction;
-import org.pangrova.function.api.metadata.FunctionMetadata;
-import org.pangrova.function.api.scalar.ScalarFunction;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.function.scalar.BatchableScalarFunction;
+import org.pangrova.spi.function.metadata.FunctionMetadata;
+import org.pangrova.spi.function.scalar.ScalarFunction;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;

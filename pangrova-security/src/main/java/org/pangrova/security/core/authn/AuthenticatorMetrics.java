@@ -1,7 +1,7 @@
 package org.pangrova.security.core.authn;
 
 import java.util.Objects;
-import org.pangrova.security.api.authn.AuthenticatorHealthStatus;
+import org.pangrova.spi.security.authn.AuthenticatorHealthStatus;
 
 /**
  * Immutable snapshot of authentication metrics for a single authenticator.

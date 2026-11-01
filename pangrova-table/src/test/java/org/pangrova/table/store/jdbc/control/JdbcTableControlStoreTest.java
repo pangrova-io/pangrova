@@ -7,7 +7,6 @@ import org.pangrova.table.api.control.TableControlRenameIntent;
 import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.api.control.TableVersionObservation;
 
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

@@ -41,16 +41,16 @@ import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;
 import org.pangrova.parser.ast.statement.PublishSemanticViewStatement;
 import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
 import org.pangrova.security.core.authz.StaticGrantStore;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -160,7 +160,7 @@ class SemanticViewSqlIntegrationTest {
 
         assertThatThrownBy(() -> deniedDispatcher.tryDispatch(
                 null, createSql(1, false, "gross_revenue"), "q-denied", session))
-                .isInstanceOf(org.pangrova.security.api.AuthorizationDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class);
         assertThat(store.listVersions(VIEW)).isEmpty();
 
         var noAccessControl = new SemanticViewStatementService(store, null);

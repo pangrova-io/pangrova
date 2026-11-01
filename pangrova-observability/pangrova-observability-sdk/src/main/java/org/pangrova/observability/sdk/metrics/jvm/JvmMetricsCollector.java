@@ -1,7 +1,7 @@
 package org.pangrova.observability.sdk.metrics.jvm;
 
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.ObservableDoubleGauge;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.ObservableDoubleGauge;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;

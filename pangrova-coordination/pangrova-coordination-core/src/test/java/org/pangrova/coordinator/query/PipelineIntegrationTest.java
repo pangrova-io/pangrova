@@ -26,7 +26,7 @@ import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.client.core.error.ErrorDetail;
 import org.pangrova.client.core.protocol.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;

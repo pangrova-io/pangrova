@@ -1,12 +1,12 @@
 package org.pangrova.indexing.core.planner.vector;
 
 import org.pangrova.planner.PlanTable;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.vector.DistanceMetric;
-import org.pangrova.indexing.api.vector.RecallEstimationHint;
-import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.vector.DistanceMetric;
+import org.pangrova.spi.indexing.vector.RecallEstimationHint;
+import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.apache.calcite.plan.RelOptUtil;

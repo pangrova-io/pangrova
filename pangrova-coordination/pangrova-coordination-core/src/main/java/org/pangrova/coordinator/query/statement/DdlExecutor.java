@@ -19,14 +19,14 @@ import org.pangrova.parser.ast.statement.DropCatalogStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -104,7 +104,7 @@ public final class DdlExecutor {
      * would silently stop masking the moved table and a drop would leave its
      * masks behind for the next table that reuses the name.
      */
-    public void setColumnMaskStore(org.pangrova.security.api.mask.ColumnMaskStore store) {
+    public void setColumnMaskStore(org.pangrova.persistence.api.security.mask.ColumnMaskStore store) {
         tableControlOperations.setColumnMaskStore(store);
     }
 
@@ -409,7 +409,7 @@ public final class DdlExecutor {
                                 java.time.Duration.ofDays(1).toMillis()))
                         : java.util.OptionalLong.empty();
                 m.createBranch(s, h, branch.branchName(),
-                        new org.pangrova.connector.spi.metadata.BranchCreationOptions(
+                        new org.pangrova.spi.connector.metadata.BranchCreationOptions(
                                 java.util.OptionalLong.empty(), java.util.Optional.empty(), age));
             },
             AlterTableStatement.DropBranch.class,

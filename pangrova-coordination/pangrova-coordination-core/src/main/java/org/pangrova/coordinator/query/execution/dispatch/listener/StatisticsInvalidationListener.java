@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.listener;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionListener;

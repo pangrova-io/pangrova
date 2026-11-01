@@ -2,9 +2,9 @@ package org.pangrova.coordinator.adapter.indexing.ddl;
 
 import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.connector.spi.index.SnapshotPinProvider;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.List;
 import java.util.Objects;

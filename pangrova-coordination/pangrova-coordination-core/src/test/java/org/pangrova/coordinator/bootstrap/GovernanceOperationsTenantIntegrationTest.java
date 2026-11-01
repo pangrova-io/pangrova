@@ -18,17 +18,17 @@ import org.pangrova.governance.core.quality.InMemoryQualityRuleStore;
 import org.pangrova.governance.api.quality.QualityRuleStore;
 import org.pangrova.governance.core.quality.CronScheduler;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.security.core.tenant.QuotaCheckResult;
 import org.pangrova.security.core.tenant.QuotaChecker;
 import org.pangrova.security.core.tenant.TenantUsage;
 import org.pangrova.security.core.tenant.TenantResolver;
 import org.pangrova.security.core.tenant.InMemoryTenantStore;
-import org.pangrova.security.api.tenant.ResolvedTenantContext;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.tenant.ResolvedTenantContext;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -60,7 +60,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * </ul>
  */
 class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
-    private static final java.util.Map<org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID>
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
             tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
 
 

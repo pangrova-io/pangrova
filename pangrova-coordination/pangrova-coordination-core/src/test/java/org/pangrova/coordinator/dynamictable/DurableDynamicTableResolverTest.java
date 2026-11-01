@@ -5,7 +5,7 @@ import org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.util.List;
 

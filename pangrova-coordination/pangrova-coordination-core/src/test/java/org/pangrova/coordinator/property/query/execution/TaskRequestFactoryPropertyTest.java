@@ -17,7 +17,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

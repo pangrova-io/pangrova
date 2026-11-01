@@ -11,19 +11,19 @@ import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
 import org.pangrova.metadata.service.TableControlRowPolicyStore;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -48,7 +48,7 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
 
     private String table;
     private String role;
-    private PersistentRoleStore roles;
+    private JdbcRoleStore roles;
     private TableControlRowPolicyStore policies;
     private TableControlColumnMaskStore masks;
     private TableControlService previousControl;
@@ -160,18 +160,18 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
                 assertThat(current.status()).isEqualTo(TenantStatus.ACTIVE));
         assertThat(tenants.getTenantForUser(session.getUser())).hasValueSatisfying(membership ->
                 assertThat(membership.tenant().tenantId()).isEqualTo(tenant));
-        roles = new PersistentRoleStore(stateStoreDataSource());
+        roles = new JdbcRoleStore(stateStoreDataSource());
         roles.initSchema();
         role = "cow_policy_" + UUID.randomUUID();
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(UserRoleAssignment.of(session.getUser(), role));
-        var grants = new PersistentGrantStore(stateStoreDataSource());
+        var grants = new JdbcGrantStore(stateStoreDataSource());
         grants.addGrant(PrivilegeGrant.of(role, Privilege.ALL, "SCHEMA", CATALOG, SCHEMA, null, null));
         var registry = metadataBootstrap.catalogRegistry();
         policies = new TableControlRowPolicyStore(new RegistryTablePolicyAuthority(registry),
-                new PersistentRowPolicyStore(stateStoreDataSource()));
+                new JdbcRowPolicyStore(stateStoreDataSource()));
         masks = new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(registry),
-                new PersistentColumnMaskStore(stateStoreDataSource()));
+                new JdbcColumnMaskStore(stateStoreDataSource()));
         policies.savePolicy(new RowPolicy(0, "cow_tenant_rows", CATALOG, SCHEMA, table,
                 "tenant=1", List.of(role), true, 1, null));
         masks.saveColumnMask(new ColumnMask(0, "cow_score_zero", CATALOG, SCHEMA, table, "score",

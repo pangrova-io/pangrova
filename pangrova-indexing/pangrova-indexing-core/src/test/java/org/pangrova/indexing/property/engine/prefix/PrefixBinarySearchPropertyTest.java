@@ -6,10 +6,10 @@ import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
 
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.data.text.PrefixEntry;
-import org.pangrova.indexing.api.data.text.PrefixIndexData;
-import org.pangrova.connector.spi.index.predicate.LikePattern;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.data.text.PrefixEntry;
+import org.pangrova.spi.indexing.data.text.PrefixIndexData;
+import org.pangrova.spi.connector.index.predicate.LikePattern;
 import org.pangrova.indexing.engine.prefix.provider.PrefixStrategyProvider;
 
 import java.util.ArrayList;

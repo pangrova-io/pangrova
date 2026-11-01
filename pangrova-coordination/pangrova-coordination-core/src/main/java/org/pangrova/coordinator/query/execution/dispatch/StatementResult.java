@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch;
 
 import java.util.List;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

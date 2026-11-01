@@ -1,8 +1,8 @@
 package org.pangrova.planner.stats;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.planner.cost.StatisticsBasedCostEstimator;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;

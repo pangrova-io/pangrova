@@ -7,9 +7,9 @@ import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,7 +23,7 @@ class MetadataResolvedTableVectorTypeTest {
                 new ConnectorTableMetadata.Column("double_vector", PangrovaType.VECTOR,
                         OptionalInt.empty(), new VectorType(3, VectorType.ElementType.DOUBLE)));
         var metadata = new ConnectorTableMetadata(
-                new org.pangrova.connector.spi.metadata.table.SchemaTableName("schema", "vectors"),
+                new org.pangrova.spi.connector.metadata.table.SchemaTableName("schema", "vectors"),
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, java.util.Map.of());
         var table = new MetadataResolvedTable(metadata);
 

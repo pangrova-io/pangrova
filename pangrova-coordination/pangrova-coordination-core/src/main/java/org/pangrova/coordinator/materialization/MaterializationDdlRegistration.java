@@ -26,7 +26,7 @@ import org.pangrova.parser.ast.statement.ShowMaterializationGcHistoryStatement;
 import org.pangrova.parser.ast.statement.ShowMaterializationRefreshHistoryStatement;
 import org.pangrova.parser.ast.statement.ShowMaterializationsStatement;
 import org.pangrova.parser.ast.statement.ShowMaterializedViewsStatement;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 
 /** Registers the unified materialization DDL handlers in one metadata factory. */
 public final class MaterializationDdlRegistration {

@@ -45,8 +45,8 @@ class PlanExecutionFactoryDeleteCompilationTest {
             var definitions = org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec.decode(actual.properties());
             assertThat(write.dmlWriteTarget()).contains(
                     new DmlWriteTarget(TABLE_NAME.parts(), DmlWriteTarget.DmlOperation.DELETE,
-                            java.util.Optional.of(org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot.capture(
-                                    new org.pangrova.connector.spi.metadata.table.QualifiedTableName(CATALOG, SCHEMA,
+                            java.util.Optional.of(org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot.capture(
+                                    new org.pangrova.spi.connector.metadata.table.QualifiedTableName(CATALOG, SCHEMA,
                                             PlanExecutionFactoryDeleteTestSupport.TABLE.table()),
                                     actual, definitions.toByteArray(), false))));
             try {
@@ -123,7 +123,7 @@ class PlanExecutionFactoryDeleteCompilationTest {
         }
 
         @Override
-        public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId();
             throw new AssertionError("Compilation must not end a metadata transaction");
         }

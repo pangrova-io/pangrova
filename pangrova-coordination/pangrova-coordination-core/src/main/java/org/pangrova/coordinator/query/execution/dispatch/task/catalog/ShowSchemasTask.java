@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.ShowDescribeExecutor;
 import org.pangrova.parser.ast.ShowSchemasStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes SHOW SCHEMAS by delegating to {@link ShowDescribeExecutor#executeShowSchemas}.

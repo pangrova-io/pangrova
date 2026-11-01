@@ -9,7 +9,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes ALTER TABLE by delegating to {@link DdlExecutor#executeAlterTable}.

@@ -19,9 +19,9 @@ import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.StateJournalConfig;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.spi.query.state.StateJournalConfig;
+import org.pangrova.spi.query.state.TaskStateEvent;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -131,11 +131,11 @@ class JournalRecoveryServiceTest {
         }
 
         private void query(String query, String state) {
-            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), query, "SELECT 1", "{}", state));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), query, "SELECT 1", "{}", state));
         }
 
         private void task(String query, String task, String worker, String state, long sequence) {
-            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), query, task, worker, state, 0, sequence));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), query, task, worker, state, 0, sequence));
         }
 
         private int queryRows(String query) throws SQLException { return count("query_state_journal", query); }

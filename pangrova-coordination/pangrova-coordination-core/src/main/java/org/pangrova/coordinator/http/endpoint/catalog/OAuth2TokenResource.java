@@ -8,8 +8,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

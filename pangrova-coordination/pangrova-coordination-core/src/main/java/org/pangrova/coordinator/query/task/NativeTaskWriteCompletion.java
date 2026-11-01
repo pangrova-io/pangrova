@@ -16,13 +16,13 @@ import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.CopyFilePublicationMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
-import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
 import org.pangrova.common.file.CopyFilePublication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -236,7 +236,7 @@ final class NativeTaskWriteCompletion {
         long baseSnapshotId = outputHandle.writeBaseSnapshotId().orElse(-1L);
         byte[] writeOutputBinding = writeState.writeOutputBinding();
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
                         queryId,
                         tenantId,
                         writeState.catalogName(),

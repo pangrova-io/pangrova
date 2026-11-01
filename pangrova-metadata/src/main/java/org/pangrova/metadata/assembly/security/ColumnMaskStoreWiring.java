@@ -6,7 +6,7 @@ import java.util.Objects;
 
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 
 /**
  * Metadata owner wiring entry for the column-mask projection onto stable table identities.

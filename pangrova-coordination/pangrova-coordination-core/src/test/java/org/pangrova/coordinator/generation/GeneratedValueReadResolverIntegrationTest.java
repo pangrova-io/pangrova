@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.generation;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import io.substrait.proto.Plan;
@@ -38,11 +37,11 @@ import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.base.ConnectorException;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;

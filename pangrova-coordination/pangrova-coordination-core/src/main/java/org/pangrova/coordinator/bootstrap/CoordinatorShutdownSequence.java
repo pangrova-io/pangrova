@@ -38,7 +38,7 @@ final class CoordinatorShutdownSequence {
             PluginConnectorHandleFactory connectorHandleFactory,
             org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority,
             DataSource metadataDataSource, SecurityBootstrap security, ObservabilityBootstrap observability,
-            org.pangrova.coordination.api.CoordinationProvider zkLeaseProvider) {}
+            org.pangrova.persistence.api.coordination.CoordinationProvider zkLeaseProvider) {}
 
     static void closeOwnedResources(CoordinatorLifecycleAdmission lifecycle,
             ShutdownOwners owners) {
@@ -98,7 +98,7 @@ final class CoordinatorShutdownSequence {
                 () -> lifecycle.step("observability",
                         present(owners.observability(), ObservabilityBootstrap::shutdown)),
                 () -> lifecycle.step("quorum", present(owners.zkLeaseProvider(),
-                        org.pangrova.coordination.api.CoordinationProvider::close)));
+                        org.pangrova.persistence.api.coordination.CoordinationProvider::close)));
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorShutdownSequence.class);

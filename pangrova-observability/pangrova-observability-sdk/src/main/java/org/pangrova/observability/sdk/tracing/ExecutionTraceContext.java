@@ -7,7 +7,7 @@ import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.sdk.trace.IdGenerator;
-import org.pangrova.observability.api.Scope;
+import org.pangrova.spi.observability.Scope;
 
 import java.util.Objects;
 import java.util.HashMap;

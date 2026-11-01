@@ -25,7 +25,7 @@ import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
@@ -188,7 +188,7 @@ class SpeculativeExecutionWiringTest {
         fragments.registerWriteContext(
                 QID,
                 "catalog",
-                new org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle() { },
+                new org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle() { },
                 new org.pangrova.coordinator.query.statement.StatementConnectorSession(
                         "catalog", "default"),
                 new byte[]{42},

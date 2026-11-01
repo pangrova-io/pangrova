@@ -28,12 +28,12 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
 import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.file.api.directory.FileListing;
-import org.pangrova.file.api.directory.FileStat;
-import org.pangrova.file.api.object.MultipartUpload;
-import org.pangrova.file.api.object.ObjectLocation;
-import org.pangrova.file.api.object.ObjectStoreAccessor;
-import org.pangrova.file.api.object.UploadedPart;
+import org.pangrova.filesystem.api.object.FileListing;
+import org.pangrova.filesystem.api.object.FileStat;
+import org.pangrova.filesystem.api.object.MultipartUpload;
+import org.pangrova.filesystem.api.object.ObjectLocation;
+import org.pangrova.filesystem.api.object.ObjectStoreAccessor;
+import org.pangrova.filesystem.api.object.UploadedPart;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -286,7 +286,7 @@ public final class FileSpaceFileResource implements AutoCloseable {
     }
 
     static PresignedUrl admitProviderUrl(FileAccessDescriptor grant,
-            org.pangrova.file.api.object.PresignedObjectUrl url, long now) {
+            org.pangrova.filesystem.api.object.PresignedObjectUrl url, long now) {
         grant.requireUnexpired(now);
         if (url.expiresAtEpochMillis() <= now || url.expiresAtEpochMillis() > grant.expiresAtEpochMillis()) {
             throw new PangrovaException(PangrovaErrorCode.ACCESS_DENIED,

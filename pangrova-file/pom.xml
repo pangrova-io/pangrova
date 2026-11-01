@@ -16,8 +16,8 @@
     <description>Volume, Stage, directory, upload, and COPY claim/publication owner</description>
 
     <modules>
-        <module>pangrova-file-api</module>
+
         <module>pangrova-file-core</module>
-        <module>pangrova-file-store-jdbc</module>
+
     </modules>
 </project>

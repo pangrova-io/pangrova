@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.adapter.indexing.filter;
 
 import org.pangrova.indexing.core.planner.IndexHint;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
-import org.pangrova.connector.spi.index.predicate.InList;
-import org.pangrova.connector.spi.index.predicate.RangeQuery;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics.ComparisonOp;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.predicate.InList;
+import org.pangrova.spi.connector.index.predicate.RangeQuery;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics.ComparisonOp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

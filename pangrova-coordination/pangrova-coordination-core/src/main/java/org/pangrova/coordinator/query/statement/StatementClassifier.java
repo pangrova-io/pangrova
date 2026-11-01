@@ -35,7 +35,7 @@ import org.pangrova.parser.ast.statement.maintenance.CallStatement;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.util.Map;
 import java.util.function.Function;

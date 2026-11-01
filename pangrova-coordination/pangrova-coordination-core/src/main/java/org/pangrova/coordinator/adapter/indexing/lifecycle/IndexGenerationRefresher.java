@@ -8,10 +8,10 @@ import org.pangrova.indexing.core.build.DataFileInfo;
 import org.pangrova.indexing.core.build.IndexBuildCoordinator;
 import org.pangrova.indexing.core.build.IndexBuildResult;
 import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.connector.spi.index.ColumnValueReader;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.connector.index.ColumnValueReader;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

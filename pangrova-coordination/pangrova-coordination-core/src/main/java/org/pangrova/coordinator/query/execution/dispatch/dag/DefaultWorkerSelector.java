@@ -184,8 +184,8 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     public org.pangrova.protocol.v2.ModelAvailability resolveExactModel(
             String modelName,
             org.pangrova.protocol.v2.CapabilityRef capability,
-            org.pangrova.security.api.UserIdentity user) {
-        org.pangrova.ai.api.embedding.EmbeddingModelDescriptor descriptor = null;
+            org.pangrova.spi.security.UserIdentity user) {
+        org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor descriptor = null;
         if (EmbeddingModelExecutionAdmission.isEmbeddingCapability(capability)) {
             if (embeddingModelRegistry == null) {
                 throw new NoAvailableWorkerException(
@@ -205,7 +205,7 @@ public final class DefaultWorkerSelector implements WorkerSelector {
 
     /**
      * F-CHAIN-CACHE-02: Selects the active worker whose
-     * {@link org.pangrova.coordination.api.CacheCatalogSummary#cachedFilePaths()}
+     * {@link org.pangrova.spi.coordination.CacheCatalogSummary#cachedFilePaths()}
      * (reported via heartbeat) covers the most of the requested file paths.
      * Membership is evaluated per-candidate (no constant locality term that
      * cancels out), so the score actually differentiates workers. Returns

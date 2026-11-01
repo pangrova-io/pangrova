@@ -1,7 +1,7 @@
 package org.pangrova.governance.core.lineage;
 
-import org.pangrova.query.api.lineage.QueryLineageFact;
-import org.pangrova.observability.api.event.QueryLineageMetadata;
+import org.pangrova.spi.query.lineage.QueryLineageFact;
+import org.pangrova.spi.observability.event.QueryLineageMetadata;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageEvent;
 

@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.bootstrap;
 
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;

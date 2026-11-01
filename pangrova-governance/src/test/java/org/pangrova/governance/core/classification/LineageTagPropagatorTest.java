@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * source column must trigger masking on derived objects produced by CTAS/INSERT...SELECT.
  */
 class LineageTagPropagatorTest {
-    private final java.util.Map<org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID>
+    private final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
             tableIds = new java.util.HashMap<>();
 
     private ColumnTagService tagService;

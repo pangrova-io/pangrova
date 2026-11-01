@@ -31,7 +31,7 @@ final class TaskIdentityRegistry {
         connectorOperationExited = java.util.Objects.requireNonNull(listener);
     }
 
-    synchronized org.pangrova.connector.spi.ConnectorQueryAuthority openQuery(String queryId) {
+    synchronized org.pangrova.spi.connector.ConnectorQueryAuthority openQuery(String queryId) {
         if (queryId == null || queryId.isBlank()) throw new IllegalArgumentException("queryId must not be blank");
         purgeRetiredQueries();
         if (!scopes.containsKey(queryId) && scopes.size()
@@ -198,7 +198,7 @@ final class TaskIdentityRegistry {
         Scope scope = scopes.get(canonicalAttempt.getQueryOrJobId());
         var scheduled = scope.scheduled.get(taskId);
         if (scheduled == null) {
-            scheduled = new org.pangrova.query.api.state.TaskStateEvent(
+            scheduled = new org.pangrova.spi.query.state.TaskStateEvent(
                     TaskJournalEventContext.create(canonicalAttempt, 0L, System.currentTimeMillis()),
                     canonicalAttempt.getQueryOrJobId(), taskId, null, "SCHEDULED", canonicalAttempt.getStageId(), 0L);
         }
@@ -210,7 +210,7 @@ final class TaskIdentityRegistry {
     }
 
     private void publishRequest(String taskId, SubmitTaskRequest request, TaskAttemptDescriptor issued,
-            Scope scope, org.pangrova.query.api.state.TaskStateEvent scheduled) {
+            Scope scope, org.pangrova.spi.query.state.TaskStateEvent scheduled) {
         Identity existing = identities.get(taskId);
         requireSameAttempt(taskId, existing, issued);
         if (existing != null && existing.request() != null && !existing.request().equals(request)) {
@@ -232,7 +232,7 @@ final class TaskIdentityRegistry {
         }
     }
 
-    synchronized org.pangrova.query.api.state.TaskStateEvent scheduledEvent(String taskId) {
+    synchronized org.pangrova.spi.query.state.TaskStateEvent scheduledEvent(String taskId) {
         Identity identity = identities.get(taskId);
         if (identity == null || identity.workerId() == null) {
             throw new IllegalStateException("Scheduled fact lacks its exact issued dispatch target");
@@ -241,7 +241,7 @@ final class TaskIdentityRegistry {
                 : identity.drainReceipt().getAttempt().getQueryOrJobId();
         var fact = scopes.get(queryId).scheduled.get(taskId);
         if (fact == null) throw new IllegalStateException("Issued task lacks its frozen scheduled fact");
-        return new org.pangrova.query.api.state.TaskStateEvent(fact.context(), fact.queryId(), fact.taskId(),
+        return new org.pangrova.spi.query.state.TaskStateEvent(fact.context(), fact.queryId(), fact.taskId(),
                 identity.workerId(), fact.state(), fact.stageId(), fact.reportSequence());
     }
 
@@ -564,9 +564,9 @@ final class TaskIdentityRegistry {
     }
 
     private final class Scope {
-        private final org.pangrova.connector.spi.ConnectorQueryAuthority connectorAuthority;
+        private final org.pangrova.spi.connector.ConnectorQueryAuthority connectorAuthority;
         private final Set<String> tasks = new HashSet<>();
-        private final HashMap<String, org.pangrova.query.api.state.TaskStateEvent> scheduled = new HashMap<>();
+        private final HashMap<String, org.pangrova.spi.query.state.TaskStateEvent> scheduled = new HashMap<>();
         private boolean sealed;
         private boolean retired;
         private boolean recoveryUnresolved;
@@ -580,7 +580,7 @@ final class TaskIdentityRegistry {
         }
     }
 
-    private final class IssuedConnectorAuthority implements org.pangrova.connector.spi.ConnectorQueryAuthority {
+    private final class IssuedConnectorAuthority implements org.pangrova.spi.connector.ConnectorQueryAuthority {
         private final String queryId;
         private final Scope scope;
 
@@ -611,7 +611,7 @@ final class TaskIdentityRegistry {
         }
 
         @Override
-        public org.pangrova.connector.spi.ConnectorQueryOperation enterOperation() {
+        public org.pangrova.spi.connector.ConnectorQueryOperation enterOperation() {
             synchronized (TaskIdentityRegistry.this) {
                 if (scope.sealed || scope.retired || scope.cleanupClaimed || scopes.get(queryId) != scope) {
                     throw new IllegalStateException("Connector query admission is closed: " + queryId);

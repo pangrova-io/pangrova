@@ -5,18 +5,18 @@ import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,9 +28,9 @@ final class GeneratedBuildTestConnectors {
     private GeneratedBuildTestConnectors() {}
 
     static List<ConnectorTableMetadata.Column> sdkColumns() {
-        return List.of(new ConnectorTableMetadata.Column("title", org.pangrova.connector.spi.data.type.PangrovaType.VARCHAR),
-                new ConnectorTableMetadata.Column("body", org.pangrova.connector.spi.data.type.PangrovaType.VARCHAR),
-                new ConnectorTableMetadata.Column("embedding", org.pangrova.connector.spi.data.type.PangrovaType.VARBINARY));
+        return List.of(new ConnectorTableMetadata.Column("title", org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR),
+                new ConnectorTableMetadata.Column("body", org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR),
+                new ConnectorTableMetadata.Column("embedding", org.pangrova.spi.connector.data.type.PangrovaType.VARBINARY));
     }
 
     static final class SnapshotConnector implements Connector {

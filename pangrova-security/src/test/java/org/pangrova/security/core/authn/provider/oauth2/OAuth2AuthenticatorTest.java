@@ -18,8 +18,8 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
 
 /**
  * Tests OAuth2Authenticator JWT validation logic with real token structures.

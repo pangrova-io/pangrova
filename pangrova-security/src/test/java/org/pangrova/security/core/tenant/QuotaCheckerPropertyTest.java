@@ -4,7 +4,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
-import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.ResourceQuota;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

@@ -9,15 +9,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.IcebergConnector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.ConnectorQueryAuthority;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator;
 import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier;
 import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier.WriteAuthorityRequest;
@@ -34,18 +34,18 @@ import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
@@ -82,13 +82,13 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
     private IcebergConnector connector;
     private CatalogRegistry catalogs;
     private ConnectorMetadata metadata;
-    private PersistentGrantStore grants;
+    private JdbcGrantStore grants;
     private GeneratedWriteAuthoritySupplier authority;
 
     @BeforeEach
     void createRealCatalogAndCurrentAuthorityWithoutMaterializationOwner() throws Exception {
         dataSource = MigratedPostgres.create();
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of(ROLE));
         roles.grantRoleToUser(UserRoleAssignment.of(PRINCIPAL, ROLE));
@@ -97,7 +97,7 @@ class QueryOnlyWriteAuthorityIntegrationTest extends ContainerTestBase {
         tenants.createTenant(new Tenant(TENANT, TENANT, TenantStatus.ACTIVE, null,
                 List.of(), List.of(), null, Map.of(), Instant.EPOCH, PRINCIPAL));
         tenants.addUserToTenant(TENANT, PRINCIPAL, TenantRole.MEMBER);
-        grants = new PersistentGrantStore(dataSource);
+        grants = new JdbcGrantStore(dataSource);
         for (var privilege : List.of(Privilege.SELECT, Privilege.INSERT)) {
             grants.addGrant(PrivilegeGrant.of(ROLE, privilege, "TABLE",
                     TABLE.catalog(), TABLE.schema(), TABLE.table(), null));

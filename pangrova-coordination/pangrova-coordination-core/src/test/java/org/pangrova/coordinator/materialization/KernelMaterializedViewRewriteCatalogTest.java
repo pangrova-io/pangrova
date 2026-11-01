@@ -24,10 +24,10 @@ import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PublishedMaterialization;
 import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
 
 class KernelMaterializedViewRewriteCatalogTest {
 
@@ -169,7 +169,7 @@ class KernelMaterializedViewRewriteCatalogTest {
             }
 
             @Override
-            public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+            public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
                 return Optional.empty();
             }
         };

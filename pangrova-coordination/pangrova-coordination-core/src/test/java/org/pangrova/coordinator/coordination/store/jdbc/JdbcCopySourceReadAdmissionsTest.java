@@ -3,33 +3,33 @@ package org.pangrova.coordinator.coordination.store.jdbc;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordination.jdbc.JdbcDistributedLease;
+import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.file.api.storage.FileStorageException;
+import org.pangrova.spi.file.storage.FileStorageException;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
-import org.pangrova.file.store.jdbc.copy.JdbcCopySourceReadAdmissions;
-import org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry;
+import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
+import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 
 import javax.sql.DataSource;
@@ -502,7 +502,7 @@ class JdbcCopySourceReadAdmissionsTest {
     @Test
     void freshMigrationThenSecurityBootstrapTracksDirectAuthorityMutations() throws Exception {
         var source = SharedPostgresContainer.migratedDataSource("copy_source_authority_fresh");
-        new PersistentRoleStore(source).initSchema();
+        new JdbcRoleStore(source).initSchema();
         assertDirectMutationBumpsRevision(source);
     }
 
@@ -511,7 +511,7 @@ class JdbcCopySourceReadAdmissionsTest {
         var source = SharedPostgresContainer.isolatedDataSource("copy_source_authority_upgrade");
         Flyway.configure().dataSource(source).locations("classpath:db/migration")
                 .target(MigrationVersion.fromVersion("58")).load().migrate();
-        new PersistentRoleStore(source).initSchema();
+        new JdbcRoleStore(source).initSchema();
         Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
         assertDirectMutationBumpsRevision(source);
     }
@@ -519,7 +519,7 @@ class JdbcCopySourceReadAdmissionsTest {
     @Test
     void directSqlCannotResetOrEraseAuthorizationRevision() throws Exception {
         var source = SharedPostgresContainer.migratedDataSource("copy_source_authority_immutable");
-        new PersistentRoleStore(source).initSchema();
+        new JdbcRoleStore(source).initSchema();
         long before = authorityRevision(source);
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             for (String mutation : new String[]{
@@ -696,7 +696,7 @@ class JdbcCopySourceReadAdmissionsTest {
     }
 
     static Fixture fixture(DataSource source) throws Exception {
-        var roles = new PersistentRoleStore(source);
+        var roles = new JdbcRoleStore(source);
         roles.initSchema();
         var tenants = new JdbcTenantStore(source);
         tenants.createTenant(new Tenant("tenant-a", "Tenant A", TenantStatus.ACTIVE,
@@ -705,14 +705,14 @@ class JdbcCopySourceReadAdmissionsTest {
         tenants.addUserToTenant("tenant-a", "alice", TenantRole.MEMBER);
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
-        var grants = new PersistentGrantStore(source);
+        var grants = new JdbcGrantStore(source);
         var profiles = new JdbcStorageProfileRegistry(source);
         assertThat(profiles.createIfAbsent(profile())).isTrue();
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
                 "STORAGE_PROFILE", "incoming", null, null, null));
         var access = new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(source)),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(source)));
+                new RowLevelSecurityFilter(new JdbcRowPolicyStore(source)),
+                new ColumnMaskingProcessor(new JdbcColumnMaskStore(source)));
         var revision = profiles.getCurrentRevision("incoming").orElseThrow();
         ExecutionAnchor anchor = new JdbcExecutionAnchorStore(source).tryAcquire(
                 "execution-one", "coordinator-one", "incarnation-one", Duration.ofMinutes(5))
@@ -759,7 +759,7 @@ class JdbcCopySourceReadAdmissionsTest {
     }
 
     record Fixture(DataSource source, JdbcStorageProfileRegistry profiles,
-                           PersistentGrantStore grants, DynamicRbacAccessControl accessControl,
+                           JdbcGrantStore grants, DynamicRbacAccessControl accessControl,
                            JdbcCopySourceReadAdmissions admissions,
                            JdbcCopySourceReadAdmissions.Scope scope, ExecutionAnchor anchor) {
         JdbcCopySourceReadAdmissions.Ticket issue(JdbcCopySourceReadAdmissions.Scope requested,

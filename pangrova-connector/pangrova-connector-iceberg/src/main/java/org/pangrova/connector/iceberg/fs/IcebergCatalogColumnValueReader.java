@@ -14,7 +14,7 @@
 package org.pangrova.connector.iceberg.fs;
 
 import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.connector.spi.index.ColumnValueReader;
+import org.pangrova.spi.connector.index.ColumnValueReader;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;

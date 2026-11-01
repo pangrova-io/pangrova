@@ -2,13 +2,13 @@ package org.pangrova.indexing.engine.ngram.provider;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.indexing.engine.ngram.serializer.NGramTokenizer;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.indexing.api.data.text.NGramBloomIndexData;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
-import org.pangrova.connector.spi.index.predicate.LikePattern;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.IndexStrategyProvider;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.indexing.data.text.NGramBloomIndexData;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.predicate.LikePattern;
 
 import java.util.Iterator;
 import java.util.List;

@@ -18,7 +18,7 @@ import java.util.Set;
  * <ul>
  *   <li>{@link #BROAD} — current default, maximum compatibility with
  *       connectors that rely on engine-provided libraries.</li>
- *   <li>{@link #NARROW} — shares only {@code org.pangrova.connector.spi},
+ *   <li>{@link #NARROW} — shares only {@code org.pangrova.spi},
  *       {@code org.pangrova.common}, {@code org.pangrova.protocol}, plus
  *       logging and Arrow/Substrait (required for the data plane). Connectors
  *       must bundle their own Guava/Hadoop/etc.</li>
@@ -50,7 +50,7 @@ public enum SharedPackagePolicy {
 
     /** Packages always shared regardless of policy (the SPI contract). */
     public static final Set<String> SPI_PACKAGES = Set.of(
-            "org.pangrova.connector.spi",
+            "org.pangrova.spi", "org.pangrova.filesystem.api", "org.pangrova.persistence.api",
             "org.pangrova.common", "org.pangrova.protocol");
 
     /** Packages shared by both BROAD and NARROW (engine data-plane essentials). */

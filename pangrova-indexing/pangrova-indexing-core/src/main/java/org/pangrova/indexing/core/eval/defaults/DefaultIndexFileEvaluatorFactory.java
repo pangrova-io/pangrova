@@ -9,8 +9,8 @@ import org.pangrova.indexing.core.serde.IndexSerializer;
 import org.pangrova.indexing.core.serde.TypeSerializerRegistry;
 import org.pangrova.indexing.core.storage.IndexCache;
 import org.pangrova.indexing.core.storage.IndexStorageManager;
-import org.pangrova.indexing.api.eval.IndexFileEvaluator;
-import org.pangrova.indexing.api.eval.IndexFileEvaluatorFactory;
+import org.pangrova.spi.indexing.eval.IndexFileEvaluator;
+import org.pangrova.spi.indexing.eval.IndexFileEvaluatorFactory;
 
 /**
  * Default factory that self-bootstraps all indexing dependencies.

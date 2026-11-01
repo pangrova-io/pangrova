@@ -6,7 +6,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
 
 import java.util.Arrays;
 

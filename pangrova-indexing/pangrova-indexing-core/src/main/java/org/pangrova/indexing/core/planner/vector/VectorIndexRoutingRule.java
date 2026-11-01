@@ -1,11 +1,11 @@
 package org.pangrova.indexing.core.planner.vector;
 
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.vector.DistanceMetric;
-import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy;
-import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy.Mode;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.vector.DistanceMetric;
+import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy;
+import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy.Mode;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.slf4j.Logger;

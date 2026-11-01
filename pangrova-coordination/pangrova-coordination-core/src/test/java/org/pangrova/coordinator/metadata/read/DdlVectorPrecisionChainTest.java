@@ -18,10 +18,10 @@ import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.connector.spi.data.type.ArrayType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.data.type.ArrayType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.util.List;
 import java.util.Map;

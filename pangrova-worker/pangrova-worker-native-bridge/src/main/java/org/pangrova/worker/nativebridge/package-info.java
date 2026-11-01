@@ -7,8 +7,8 @@
  *
  * <p>This module owns every {@code Java_org_pangrova_*} symbol exported by the
  * native library. Host artifacts assemble behavior by installing
- * {@link org.pangrova.function.api.runtime.FunctionCallbackScope} and
- * {@link org.pangrova.function.api.runtime.FunctionFailureProjector}
+ * {@link org.pangrova.spi.function.runtime.FunctionCallbackScope} and
+ * {@link org.pangrova.spi.function.runtime.FunctionFailureProjector}
  * providers; the bridge itself has no dependency on Worker or AI packages.</p>
  */
 package org.pangrova.worker.nativebridge;

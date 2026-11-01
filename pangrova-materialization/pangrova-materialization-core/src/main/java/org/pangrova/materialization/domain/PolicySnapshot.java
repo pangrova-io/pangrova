@@ -3,7 +3,7 @@ package org.pangrova.materialization.domain;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.TreeMap;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 /**
  * Policy fingerprints observed for every source of a definition.

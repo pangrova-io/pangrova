@@ -19,20 +19,20 @@ import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -372,7 +372,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
         public void finishDistributedWrite(ConnectorSession session,
                                            ConnectorOutputTableHandle outputHandle,
                                            List<byte[]> fragments,
-                                           org.pangrova.connector.spi.coordination.DistributedWriteCommitContext context) {
+                                           org.pangrova.spi.connector.coordination.DistributedWriteCommitContext context) {
             finishDistributedWrite(session, outputHandle, fragments);
         }
 

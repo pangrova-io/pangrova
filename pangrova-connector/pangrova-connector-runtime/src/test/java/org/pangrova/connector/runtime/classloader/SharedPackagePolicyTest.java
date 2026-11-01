@@ -75,7 +75,7 @@ class SharedPackagePolicyTest {
     @Test
     void spiPackagesContainsCoreModules() {
         assertThat(SharedPackagePolicy.SPI_PACKAGES).containsExactlyInAnyOrder(
-                "org.pangrova.connector.spi",
+                "org.pangrova.spi", "org.pangrova.filesystem.api", "org.pangrova.persistence.api",
                 "org.pangrova.common", "org.pangrova.protocol");
     }
 

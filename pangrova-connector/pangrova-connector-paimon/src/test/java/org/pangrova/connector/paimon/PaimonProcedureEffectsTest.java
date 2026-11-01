@@ -14,7 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.spi.connector.base.ConnectorException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

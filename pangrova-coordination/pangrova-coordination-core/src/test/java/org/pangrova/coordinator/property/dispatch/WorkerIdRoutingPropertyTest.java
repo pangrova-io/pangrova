@@ -10,7 +10,7 @@ import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.coordination.api.WorkerSnapshot;
+import org.pangrova.spi.coordination.WorkerSnapshot;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 
 import java.time.Instant;

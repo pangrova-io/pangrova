@@ -16,7 +16,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import org.pangrova.security.api.session.SessionConfig;
+import org.pangrova.spi.security.session.SessionConfig;
 
 /**
  * Tracks active user sessions with configurable idle timeout, absolute timeout,

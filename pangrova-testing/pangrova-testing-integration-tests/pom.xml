@@ -21,24 +21,21 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordination-api</artifactId>
+            <artifactId>pangrova-connector-runtime</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordination-jdbc</artifactId>
+            <artifactId>pangrova-persistence-api</artifactId>
             <scope>test</scope>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-coordination-inmemory</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-ai-api</artifactId>
-            <scope>test</scope>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-metadata</artifactId>
@@ -70,17 +67,7 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-query-api</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-indexing-api</artifactId>
-            <scope>test</scope>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
 
         <dependency>
@@ -121,10 +108,7 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-shuffle-core</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-observability-api</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-observability-sdk</artifactId>
@@ -173,17 +157,17 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-api</artifactId>
+            <artifactId>pangrova-filesystem-api</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-filesystem</artifactId>
+            <artifactId>pangrova-filesystem-local</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-s3</artifactId>
+            <artifactId>pangrova-filesystem-s3</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -200,10 +184,6 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-transport</artifactId>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-function</artifactId>
         </dependency>
 
         <dependency>
@@ -223,17 +203,14 @@
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-table</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-api</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-file-core</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-store-jdbc</artifactId>
+            <artifactId>pangrova-persistence-jdbc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

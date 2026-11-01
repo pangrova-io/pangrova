@@ -13,8 +13,8 @@
  */
 package org.pangrova.ai.control.embedding;
 
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

@@ -4,7 +4,7 @@ package org.pangrova.worker.nativebridge.jni.write;
  * JNI bridge interface for native-to-Java write operations.
  *
  * <p>Native workers call these methods via JNI to write data through Java
- * connector {@link org.pangrova.connector.spi.data.ConnectorPageSink}
+ * connector {@link org.pangrova.spi.connector.data.ConnectorPageSink}
  * implementations. This is the write-path counterpart of the existing
  * native read bridge, maintaining architectural symmetry.
  *

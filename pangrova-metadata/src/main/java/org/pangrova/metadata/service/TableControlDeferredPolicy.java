@@ -2,10 +2,10 @@ package org.pangrova.metadata.service;
 
 import org.pangrova.metadata.adapter.security.TableControlColumnMaskStore;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlGovernanceBindingStore;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.security.store.jdbc.DeferredPolicyReader;
-import org.pangrova.security.store.jdbc.PersistentDeferredAuthorization;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.security.core.authz.deferred.DeferredPolicyReader;
+import org.pangrova.security.core.authz.deferred.DeferredAuthorization;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -19,7 +19,7 @@ public final class TableControlDeferredPolicy {
 
     public static void requireCurrent(Connection connection, String principal, DeferredAuthorizationScope scope)
             throws SQLException {
-        PersistentDeferredAuthorization.requireCurrent(
+        DeferredAuthorization.requireCurrent(
                 connection, principal, scope, TableControlDeferredPolicy::observe);
     }
 
@@ -32,7 +32,7 @@ public final class TableControlDeferredPolicy {
         return DeferredPolicyReader.observe(connection, principal, roles, permission,
                 rows -> TableControlRowPolicyStore.project(tableId, table.catalog(), table.schema(), table.table(),
                         rows, tableId == null ? List.of()
-                                : org.pangrova.security.store.jdbc.PersistentRowPolicyStore.list(connection, tableId)),
+                                : org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore.list(connection, tableId)),
                 (column, masks) ->
                 TableControlColumnMaskStore.project(tableId, table.catalog(), table.schema(), table.table(),
                         masks, bindings).stream().filter(mask -> mask.columnName().equals(column)).toList());

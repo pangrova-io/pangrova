@@ -42,11 +42,11 @@ import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.index.CommitEvent;
-import org.pangrova.connector.spi.index.CommitEventType;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.index.CommitEvent;
+import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.spi.security.UserIdentity;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -80,7 +80,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
     private GeneratedValueBuildSubmissionStore submissions;
     private CatalogHandle catalogHandle;
     private javax.sql.DataSource dataSource;
-    private org.pangrova.connector.spi.coordination.WriteCommitJournal writeJournal;
+    private org.pangrova.spi.connector.coordination.WriteCommitJournal writeJournal;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -361,7 +361,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
                 .hasMessageContaining("lake");
     }
 
-    private org.pangrova.security.api.authz.DeferredAuthorizationScope authorizationScope() {
+    private org.pangrova.spi.security.authz.DeferredAuthorizationScope authorizationScope() {
         return GeneratedAuthorityTestFixtures.scope(dataSource, TABLE,
                 catalogHandle.getMetadata(session()).getTableMetadata(session(), new SnapshotTableHandle(-1)), definitions());
     }
@@ -387,7 +387,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
     private static ConnectorSession session() {
         return new ConnectorSession() {
             @Override
-            public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
                 return java.util.Optional.empty();
             }
 

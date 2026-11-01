@@ -3,7 +3,7 @@ package org.pangrova.connector.paimon.write;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.protocol.batch.ColumnarBatch;
 import org.pangrova.protocol.batch.ColumnarPageSink;
-import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;

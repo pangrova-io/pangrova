@@ -1,6 +1,6 @@
 package org.pangrova.indexing.core.serde;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.util.EnumMap;
 import java.util.Map;

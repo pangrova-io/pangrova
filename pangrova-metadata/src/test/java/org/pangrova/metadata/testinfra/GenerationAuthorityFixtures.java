@@ -5,15 +5,15 @@ import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import java.sql.Connection;
 import java.util.Set;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -51,7 +51,7 @@ public final class GenerationAuthorityFixtures {
     /** Provisions the real subject, active tenant and exact permissions used by a fixture. */
     public static void provision(DataSource dataSource, String tenantId, String principal,
                                  DeferredAuthorizationScope scope) {
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("artifact_builder"));
         roles.grantRoleToUser(UserRoleAssignment.of(principal, "artifact_builder"));
@@ -60,7 +60,7 @@ public final class GenerationAuthorityFixtures {
         tenants.createTenant(new Tenant(tenantId, tenantId, TenantStatus.ACTIVE,
                 null, List.of(), List.of(), null, Map.of(), Instant.EPOCH, principal));
         tenants.addUserToTenant(tenantId, principal, TenantRole.MEMBER);
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         for (var permission : scope.permissions()) {
             var table = permission.table();
             grants.addGrant(PrivilegeGrant.of("artifact_builder", permission.privilege(), "TABLE",

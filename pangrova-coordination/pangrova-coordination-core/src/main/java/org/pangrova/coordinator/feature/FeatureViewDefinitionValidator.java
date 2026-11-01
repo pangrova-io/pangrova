@@ -26,8 +26,8 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.metadata.store.jdbc.catalog.MetadataJsonMapper;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;

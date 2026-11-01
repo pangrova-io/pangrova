@@ -14,10 +14,10 @@ import org.pangrova.protocol.v2.PaimonMergeEngine;
 import org.pangrova.protocol.v2.PaimonReadMode;
 import org.pangrova.protocol.v2.PaimonSplitDetail;
 import org.pangrova.protocol.v2.SchemaEvolution;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.SplitConstraint;
-import org.pangrova.connector.spi.metadata.table.ColumnMapping;
-import org.pangrova.connector.spi.metadata.table.TypePromotion;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.SplitConstraint;
+import org.pangrova.spi.connector.metadata.table.ColumnMapping;
+import org.pangrova.spi.connector.metadata.table.TypePromotion;
 
 /**
  * Paimon split descriptor for data reading.

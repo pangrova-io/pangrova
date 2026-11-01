@@ -4,7 +4,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.result.CoordinatorResultService.ControlPlaneDispatchResult;
 import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

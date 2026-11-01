@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.adaptive;
 
-import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
 
 import java.time.Duration;
 import java.util.List;

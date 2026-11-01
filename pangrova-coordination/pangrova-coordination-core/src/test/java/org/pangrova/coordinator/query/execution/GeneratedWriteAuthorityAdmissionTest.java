@@ -9,14 +9,14 @@ import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.List;
 import java.util.Map;
@@ -176,7 +176,7 @@ class GeneratedWriteAuthorityAdmissionTest {
 
     private record TestSession(String getUser) implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

@@ -17,13 +17,13 @@ import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.RefreshKind;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
@@ -418,11 +418,11 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
         String originalHead = published(logical).physicalTable().qualifiedName();
 
         String role = "dt_scoped_" + suffix;
-        var roles = new PersistentRoleStore(stateStoreDataSource());
+        var roles = new JdbcRoleStore(stateStoreDataSource());
         roles.initSchema();
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(UserRoleAssignment.of(authenticatedCatalogSession(CATALOG).getUser(), role));
-        var grants = new PersistentGrantStore(stateStoreDataSource());
+        var grants = new JdbcGrantStore(stateStoreDataSource());
         grants.addGrant(PrivilegeGrant.of(role, Privilege.SELECT,
                 "TABLE", CATALOG, SCHEMA, sourceTable, null));
         grants.addGrant(PrivilegeGrant.of(role, Privilege.SELECT,

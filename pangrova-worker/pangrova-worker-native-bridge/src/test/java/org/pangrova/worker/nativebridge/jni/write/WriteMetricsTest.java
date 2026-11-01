@@ -1,15 +1,15 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
-import org.pangrova.observability.api.noop.NoOpMetricsProvider;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
-import org.pangrova.observability.api.DoubleHistogram;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.MetricAttributes;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.LongUpDownCounter;
-import org.pangrova.observability.api.ObservableDoubleGauge;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.spi.observability.DoubleHistogram;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.MetricAttributes;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.LongUpDownCounter;
+import org.pangrova.spi.observability.ObservableDoubleGauge;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.TracingProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

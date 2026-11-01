@@ -1,8 +1,8 @@
 package org.pangrova.planner;
 
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.Domain;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.Domain;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.TableScan;
@@ -63,7 +63,7 @@ public final class PlanSplitSourceExtractor {
             descriptors.add(new SplitSourceDescriptor(
                     ref.catalogName(), ref.schemaName(), ref.tableName(),
                     constraint, columns, java.util.Optional.ofNullable(PlanTable.require(ref.scan())
-                            .unwrap(org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.class))));
+                            .unwrap(org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.class))));
         }
         return descriptors;
     }
@@ -111,7 +111,7 @@ public final class PlanSplitSourceExtractor {
     }
 
     private static void requireSameReadSource(TableScanRef previous, TableScanRef current) {
-        var type = org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.class;
+        var type = org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.class;
         if (!java.util.Objects.equals(PlanTable.require(previous.scan()).unwrap(type),
                 PlanTable.require(current.scan()).unwrap(type))
                 || !previous.scan().getRowType().equals(current.scan().getRowType())) {

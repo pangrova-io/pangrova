@@ -14,7 +14,7 @@ import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.statement.AlterCatalogStatement;
 import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

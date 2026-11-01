@@ -2,8 +2,8 @@ package org.pangrova.coordinator.coordination;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.store.memory.InMemoryExecutionAnchorStore;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.coordination.ExecutionAnchorStore;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.query.coordination.ExecutionAnchorStore;
 
 import java.time.Duration;
 import java.util.List;

@@ -7,7 +7,7 @@ import org.pangrova.materialization.domain.Principal;
 import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.domain.MaterializationWriteCapability;
 import org.pangrova.materialization.domain.GenerationId;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 /**
  * Authorization boundary of the materialization kernel.

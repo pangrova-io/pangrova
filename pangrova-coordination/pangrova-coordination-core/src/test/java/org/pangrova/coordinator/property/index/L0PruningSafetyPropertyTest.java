@@ -6,8 +6,8 @@ import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics.ComparisonOp;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics.ComparisonOp;
 
 import java.util.List;
 

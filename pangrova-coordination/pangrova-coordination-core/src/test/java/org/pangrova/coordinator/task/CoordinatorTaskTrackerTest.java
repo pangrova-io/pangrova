@@ -2,7 +2,6 @@ package org.pangrova.coordinator.task;
 
 import org.pangrova.scheduler.api.placement.TaskDuration;
 
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

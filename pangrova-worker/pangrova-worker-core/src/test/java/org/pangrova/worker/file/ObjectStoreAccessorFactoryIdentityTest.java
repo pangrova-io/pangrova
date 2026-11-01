@@ -8,8 +8,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.file.api.object.ObjectLocation;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.filesystem.api.object.ObjectLocation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

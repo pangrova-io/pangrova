@@ -2,7 +2,7 @@ package org.pangrova.streaming.core.cdc;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.connector.spi.data.write.model.WriteResult;
+import org.pangrova.spi.connector.data.write.model.WriteResult;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcRecordConversionException;
 import org.pangrova.streaming.api.cdc.CdcWriteResult;

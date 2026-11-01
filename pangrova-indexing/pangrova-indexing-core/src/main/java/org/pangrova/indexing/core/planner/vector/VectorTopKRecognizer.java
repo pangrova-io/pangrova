@@ -1,7 +1,7 @@
 package org.pangrova.indexing.core.planner.vector;
 
 import org.pangrova.planner.PlanTable;
-import org.pangrova.indexing.api.vector.DistanceMetric;
+import org.pangrova.spi.indexing.vector.DistanceMetric;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalSort;

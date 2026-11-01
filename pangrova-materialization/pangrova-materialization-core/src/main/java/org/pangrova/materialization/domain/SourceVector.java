@@ -4,8 +4,8 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 
 /**
  * Exact set of source snapshots a generation was computed from.

@@ -15,10 +15,10 @@ import java.util.stream.Collectors;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
-import org.pangrova.security.api.authn.AuthenticatorHealthStatus;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
+import org.pangrova.spi.security.authn.AuthenticatorHealthStatus;
 
 /**
  * Orchestrates authentication by delegating to the first matching Authenticator in order.

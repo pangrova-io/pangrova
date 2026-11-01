@@ -1,7 +1,7 @@
 package org.pangrova.indexing.engine.rtree.serializer;
 
-import org.pangrova.indexing.api.data.spatial.BoundingBox;
-import org.pangrova.indexing.api.data.spatial.RTreeNode;
+import org.pangrova.spi.indexing.data.spatial.BoundingBox;
+import org.pangrova.spi.indexing.data.spatial.RTreeNode;
 
 import java.util.ArrayList;
 import java.util.Comparator;

@@ -13,11 +13,11 @@
  */
 package org.pangrova.transport;
 
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
-import org.pangrova.connector.spi.data.page.NativePage;
-import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;

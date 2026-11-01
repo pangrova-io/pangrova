@@ -208,7 +208,7 @@ public final class CatalogRestOperations {
             metadataService.dropTable(session, tableRef);
             LOG.info("event=drop_table namespace={} table={}", namespace, table);
             return true;
-        } catch (org.pangrova.security.api.AccessDeniedException denied) {
+        } catch (org.pangrova.spi.security.AccessDeniedException denied) {
             throw denied;
         } catch (RuntimeException e) {
             LOG.debug("event=drop_table_not_found namespace={} table={} error={}",

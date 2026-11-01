@@ -9,7 +9,7 @@ import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.worker.task.memory.MemoryRefs;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 
 import java.util.concurrent.ExecutorService;
 

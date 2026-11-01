@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.security;
 
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.planner.PlannedQuery;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.util.Objects;
 import java.util.TreeSet;

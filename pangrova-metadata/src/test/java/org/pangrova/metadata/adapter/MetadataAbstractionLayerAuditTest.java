@@ -10,23 +10,23 @@ import org.pangrova.metadata.core.catalog.handle.internal.InternalCatalogHandle;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
-import org.pangrova.connector.spi.metadata.HealthCheckResult;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.data.ConnectorPageSource;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.HealthCheckResult;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.data.ConnectorPageSource;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -142,7 +142,7 @@ class MetadataAbstractionLayerAuditTest {
         INSTANCE;
 
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

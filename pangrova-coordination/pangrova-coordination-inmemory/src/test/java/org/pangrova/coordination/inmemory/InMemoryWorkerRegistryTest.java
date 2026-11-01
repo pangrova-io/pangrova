@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.util.List;
 
-import org.pangrova.coordination.api.WorkerSnapshot;
+import org.pangrova.spi.coordination.WorkerSnapshot;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordination.api.HeartbeatSnapshot;
+import org.pangrova.spi.coordination.HeartbeatSnapshot;
 /**
  * Unit tests for {@link InMemoryWorkerRegistry}.
  *

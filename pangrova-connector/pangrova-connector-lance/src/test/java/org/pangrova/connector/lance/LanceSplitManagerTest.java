@@ -4,11 +4,11 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileFormat;
-import org.pangrova.connector.spi.metadata.NativeDatasetScanPage;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.NativeDatasetScanPage;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
 import java.util.Map;
 import java.util.Optional;
 
@@ -68,7 +68,7 @@ class LanceSplitManagerTest extends org.pangrova.testing.testkit.ContainerTestBa
     static ConnectorSession session(String tenant) {
         return new ConnectorSession() {
             @Override
-            public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
                 return java.util.Optional.empty();
             }
 

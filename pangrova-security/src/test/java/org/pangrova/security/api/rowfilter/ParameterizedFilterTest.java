@@ -1,7 +1,9 @@
 package org.pangrova.security.api.rowfilter;
 
-import org.pangrova.security.api.rowfilter.ParameterizedFilter.BoundParameter;
-import org.pangrova.security.api.rowfilter.ParameterizedFilter.ParameterType;
+import org.pangrova.spi.security.rowfilter.ParameterizedFilter;
+
+import org.pangrova.spi.security.rowfilter.ParameterizedFilter.BoundParameter;
+import org.pangrova.spi.security.rowfilter.ParameterizedFilter.ParameterType;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

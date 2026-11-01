@@ -6,8 +6,8 @@ import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.generation.spi.jdbc.GenerationTransactionInputs;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
-import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
+import org.pangrova.spi.security.AuthorizationDeniedException;
 
 import java.sql.Connection;
 import java.sql.SQLException;

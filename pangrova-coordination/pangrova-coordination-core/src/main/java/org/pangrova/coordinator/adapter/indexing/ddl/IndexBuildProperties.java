@@ -2,7 +2,7 @@ package org.pangrova.coordinator.adapter.indexing.ddl;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;

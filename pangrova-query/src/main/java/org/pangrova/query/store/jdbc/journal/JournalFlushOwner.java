@@ -2,7 +2,7 @@ package org.pangrova.query.store.jdbc.journal;
 
 import java.sql.Connection;
 import javax.sql.DataSource;
-import org.pangrova.query.api.state.StateJournalConfig;
+import org.pangrova.spi.query.state.StateJournalConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,15 +1,15 @@
 package org.pangrova.security.core.tenant;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import org.pangrova.security.api.tenant.ResolvedTenantContext;
-import org.pangrova.security.api.tenant.TenantStore;
+import org.pangrova.spi.security.tenant.ResolvedTenantContext;
+import org.pangrova.persistence.api.security.tenant.TenantStore;
 
 /**
  * In-memory TenantStore for testing and bootstrap scenarios.

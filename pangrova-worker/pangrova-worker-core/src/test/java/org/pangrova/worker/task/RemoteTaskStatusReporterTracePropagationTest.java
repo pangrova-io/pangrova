@@ -2,15 +2,15 @@ package org.pangrova.worker.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.observability.api.Context;
+import org.pangrova.spi.observability.Context;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.SpanKind;
-import org.pangrova.observability.api.TextMapGetter;
-import org.pangrova.observability.api.TextMapSetter;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.TextMapGetter;
+import org.pangrova.spi.observability.TextMapSetter;
+import org.pangrova.spi.observability.TracingProvider;
 import org.junit.jupiter.api.Test;
 
 /**

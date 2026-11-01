@@ -1,5 +1,7 @@
 package org.pangrova.security.api;
 
+import org.pangrova.spi.security.AccessDeniedException;
+
 import org.pangrova.common.exception.PangrovaException;
 
 import org.junit.jupiter.api.Test;
@@ -27,7 +29,7 @@ class PolicyContractIsolationTest {
             @Override
             protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
                 if (name.startsWith("org.pangrova.")
-                        && !name.startsWith("org.pangrova.security.api.")
+                        && !name.startsWith("org.pangrova.spi.security.")
                         && !name.startsWith("org.pangrova.common.")) {
                     throw new ClassNotFoundException("Implementation unavailable: " + name);
                 }
@@ -37,7 +39,7 @@ class PolicyContractIsolationTest {
             assertThatThrownBy(() -> loader.loadClass("org.pangrova.security.core.authz.SecurityStatementHandler"))
                     .isInstanceOf(ClassNotFoundException.class);
             for (String policy : List.of("rowfilter.RowPolicy", "mask.ColumnMask")) {
-                Class<?> type = loader.loadClass("org.pangrova.security.api." + policy);
+                Class<?> type = loader.loadClass("org.pangrova.spi.security." + policy);
                 Constructor<?> constructor = type.getDeclaredConstructor(Arrays.stream(type.getRecordComponents())
                         .map(component -> component.getType()).toArray(Class<?>[]::new));
                 Object[] valid = arguments(type, "drop_count > 0");
@@ -48,7 +50,7 @@ class PolicyContractIsolationTest {
                 } catch (InvocationTargetException error) {
                     Throwable rejection = error.getCause();
                     assertThat(rejection.getClass().getName())
-                            .isEqualTo("org.pangrova.security.api.AuthorizationDeniedException");
+                            .isEqualTo("org.pangrova.spi.security.AuthorizationDeniedException");
                     assertThat(rejection.getClass().getMethod("getErrorCode").invoke(rejection).toString())
                             .isEqualTo("ACCESS_DENIED");
                 }

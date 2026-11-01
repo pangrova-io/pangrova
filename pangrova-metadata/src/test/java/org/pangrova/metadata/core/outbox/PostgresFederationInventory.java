@@ -6,7 +6,7 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.core.object.TableMetadataSerializer;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

@@ -1,9 +1,9 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -33,7 +33,7 @@ class IcebergLimitPushdownTest {
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -104,7 +104,7 @@ class IcebergLimitPushdownTest {
 
         ConnectorTableHandle handle = metadata.getTableHandle(SESSION, new SchemaTableName("db4", "events"));
         Optional<ConnectorTableHandle> result = metadata.applyFilter(
-                SESSION, handle, org.pangrova.connector.spi.metadata.Constraint.EMPTY);
+                SESSION, handle, org.pangrova.spi.connector.metadata.Constraint.EMPTY);
 
         assertThat(result).isEmpty();
     }
@@ -120,9 +120,9 @@ class IcebergLimitPushdownTest {
         var columnHandles = metadata.getColumnHandles(SESSION, handle);
         var idColumn = columnHandles.get("id");
 
-        var topN = new org.pangrova.connector.spi.metadata.TopNInfo(
-                java.util.List.of(new org.pangrova.connector.spi.metadata.TopNInfo.SortColumn(
-                        idColumn, org.pangrova.connector.spi.metadata.TopNInfo.SortOrder.ASC_NULLS_LAST)),
+        var topN = new org.pangrova.spi.connector.metadata.TopNInfo(
+                java.util.List.of(new org.pangrova.spi.connector.metadata.TopNInfo.SortColumn(
+                        idColumn, org.pangrova.spi.connector.metadata.TopNInfo.SortOrder.ASC_NULLS_LAST)),
                 5);
 
         Optional<ConnectorTableHandle> result = metadata.applyTopN(SESSION, handle, topN);

@@ -2,9 +2,9 @@ package org.pangrova.indexing.core.serde;
 
 import org.pangrova.indexing.assembly.serde.DefaultTypeSerializers;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;

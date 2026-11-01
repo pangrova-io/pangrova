@@ -1,16 +1,16 @@
 package org.pangrova.streaming.core.cdc;
 
-import org.pangrova.connector.spi.data.write.model.WriteContext;
-import org.pangrova.connector.spi.data.write.model.WriteMode;
-import org.pangrova.connector.spi.data.write.model.WriteResult;
-import org.pangrova.connector.spi.data.write.model.TableFormat;
-import org.pangrova.connector.spi.data.write.TableWriter;
-import org.pangrova.connector.spi.data.write.model.WriteRecord;
-import org.pangrova.observability.api.DoubleHistogram;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.LongUpDownCounter;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.ObservableDoubleGauge;
+import org.pangrova.spi.connector.data.write.model.WriteContext;
+import org.pangrova.spi.connector.data.write.model.WriteMode;
+import org.pangrova.spi.connector.data.write.model.WriteResult;
+import org.pangrova.spi.connector.data.write.model.TableFormat;
+import org.pangrova.spi.connector.data.write.TableWriter;
+import org.pangrova.spi.connector.data.write.model.WriteRecord;
+import org.pangrova.spi.observability.DoubleHistogram;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.LongUpDownCounter;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.ObservableDoubleGauge;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.junit.jupiter.api.Test;
 

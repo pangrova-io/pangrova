@@ -9,8 +9,8 @@ import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.WriteTaskOptions;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.worker.nativebridge.jni.write.catalog.WorkerCatalogRuntime;
 
 import java.util.Set;

@@ -10,7 +10,7 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.protocol.execution.QueryId;
+import org.pangrova.spi.query.identity.QueryId;
 import org.pangrova.protocol.execution.Split;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;

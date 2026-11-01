@@ -111,7 +111,10 @@ class WorkerCopyTaskTlsTest {
         HttpResponse<String> plaintext = HttpClient.newHttpClient().send(
                 request("http://localhost:" + server.getPort(), body),
                 HttpResponse.BodyHandlers.ofString());
-        assertThat(plaintext.statusCode()).isEqualTo(403);
+        assertThat(plaintext.statusCode())
+                .as("plain COPY listener=%s secure listener=%s response=%s",
+                        server.getPort(), server.getCopyTaskTlsPort(), plaintext.body())
+                .isEqualTo(403);
         assertThat(plaintext.body()).contains("COPY_SECURE_TRANSPORT_REQUIRED");
 
         HttpResponse<String> rejectedBeforeJson = HttpClient.newHttpClient().send(

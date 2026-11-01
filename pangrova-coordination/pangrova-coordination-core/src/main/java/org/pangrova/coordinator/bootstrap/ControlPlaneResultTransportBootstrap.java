@@ -11,7 +11,7 @@ import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.result.CoordinatorResultWriter;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.client.core.protocol.ResultProtocol;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
 import org.pangrova.worker.transport.TransportServer;

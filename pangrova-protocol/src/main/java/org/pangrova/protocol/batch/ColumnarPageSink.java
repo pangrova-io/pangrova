@@ -1,6 +1,6 @@
 package org.pangrova.protocol.batch;
 
-import org.pangrova.connector.spi.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
 
 /** Explicit synchronous columnar capability without changing the connector SPI. */
 public interface ColumnarPageSink extends ConnectorPageSink {

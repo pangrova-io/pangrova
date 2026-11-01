@@ -13,11 +13,11 @@
  */
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.api.invocation.InferenceProvider;
-import org.pangrova.ai.api.invocation.InferenceResult;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.function.api.scalar.ScalarFunction;
+import org.pangrova.spi.ai.invocation.GenerationParameters;
+import org.pangrova.spi.ai.invocation.InferenceProvider;
+import org.pangrova.spi.ai.invocation.InferenceResult;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.function.scalar.ScalarFunction;
 import org.pangrova.protocol.function.GovernedBindingProjection;
 import org.pangrova.protocol.function.GovernedScalarValue;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
@@ -276,7 +276,7 @@ class AiFunctionFactoryTest {
             List<ColumnValue> changed = new java.util.ArrayList<>(first);
             changed.set(2 + FunctionBindingDeclarations.governedLayout("AI_MODEL")
                     .ordinal("provider_items"), new ColumnValue.StringValue("1"));
-            return ((org.pangrova.function.api.scalar.BatchableScalarFunction) function)
+            return ((org.pangrova.spi.function.scalar.BatchableScalarFunction) function)
                     .invokeBatch(List.of(first, changed));
         }));
     }

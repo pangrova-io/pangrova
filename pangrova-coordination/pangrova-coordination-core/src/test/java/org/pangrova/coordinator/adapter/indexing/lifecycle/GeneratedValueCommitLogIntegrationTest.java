@@ -13,10 +13,10 @@ import org.pangrova.indexing.core.build.IndexBuildCoordinator;
 import org.pangrova.indexing.core.config.IndexingConfig;
 import org.pangrova.indexing.core.serde.IndexSerializer;
 import org.pangrova.indexing.core.storage.IndexStorageManager;
-import org.pangrova.coordination.jdbc.JdbcDistributedLease;
+import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
 import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
-import org.pangrova.connector.spi.index.CommitEvent;
-import org.pangrova.connector.spi.index.CommitEventType;
+import org.pangrova.spi.connector.index.CommitEvent;
+import org.pangrova.spi.connector.index.CommitEventType;
 
 import java.nio.file.Path;
 import java.time.Instant;

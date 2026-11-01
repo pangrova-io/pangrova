@@ -21,6 +21,16 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-generation-core</artifactId>
         </dependency>
         <dependency>
@@ -34,7 +44,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-ai-api</artifactId>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -42,11 +52,7 @@
         </dependency>
 
         <!-- Test -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
-            <scope>test</scope>
-        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

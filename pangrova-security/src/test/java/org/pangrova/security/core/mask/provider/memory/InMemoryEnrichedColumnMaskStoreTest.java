@@ -5,7 +5,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.mask.ColumnMask;
 
 class InMemoryEnrichedColumnMaskStoreTest {
     @Test

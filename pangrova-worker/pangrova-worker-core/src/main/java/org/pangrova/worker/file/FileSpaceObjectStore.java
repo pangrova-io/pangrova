@@ -5,12 +5,12 @@ import java.util.Optional;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.file.api.profile.StorageProfileRegistry;
-import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceLayout;
-import org.pangrova.file.api.object.ObjectLocation;
-import org.pangrova.file.api.object.ObjectStoreAccessor;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
+import org.pangrova.spi.file.space.FileSpace;
+import org.pangrova.spi.file.space.FileSpaceLayout;
+import org.pangrova.filesystem.api.object.ObjectLocation;
+import org.pangrova.filesystem.api.object.ObjectStoreAccessor;
 
 /**
  * Maps a Volume or Stage to a concrete object-store root and backend.

@@ -11,7 +11,7 @@ import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.api.execution.GenerationStageGraph;
 import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
 import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -118,8 +118,8 @@ class GenerationEncodingCompatibilityTest {
     @Test
     void submissionFactoryRejectsOversizedGraphBeforeReturningASpecification() {
         var graph = GenerationStageGraphFactory.forArtifactPages(new byte[12 * 1024 * 1024], new byte[]{1}, List.of(), List.of());
-        var table = new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "schema", "items");
-        var scope = org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(table, java.util.Set.of("id"), table);
+        var table = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "schema", "items");
+        var scope = org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(table, java.util.Set.of("id"), table);
         assertThatThrownBy(() -> org.pangrova.generation.assembly.GenerationDispatchSpecFactory.create(
                 "job", graph, "tenant", "principal", scope, new GenerationDispatchSpec.ResourceGrant(1, 1, 1, 1)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("size limit");

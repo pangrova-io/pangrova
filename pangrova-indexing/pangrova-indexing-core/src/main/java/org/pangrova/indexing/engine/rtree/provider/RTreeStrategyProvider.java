@@ -1,16 +1,16 @@
 package org.pangrova.indexing.engine.rtree.provider;
 
 import org.pangrova.indexing.engine.rtree.serializer.RTreeBuilder;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.indexing.api.data.spatial.BoundingBox;
-import org.pangrova.indexing.api.data.spatial.RTreeIndexData;
-import org.pangrova.indexing.api.data.spatial.RTreeNode;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
-import org.pangrova.connector.spi.index.predicate.SpatialOp;
-import org.pangrova.connector.spi.index.predicate.SpatialQuery;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.IndexStrategyProvider;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.indexing.data.spatial.BoundingBox;
+import org.pangrova.spi.indexing.data.spatial.RTreeIndexData;
+import org.pangrova.spi.indexing.data.spatial.RTreeNode;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.predicate.SpatialOp;
+import org.pangrova.spi.connector.index.predicate.SpatialQuery;
 
 import java.util.ArrayList;
 import java.util.Iterator;

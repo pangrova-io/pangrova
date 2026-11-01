@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.Table;

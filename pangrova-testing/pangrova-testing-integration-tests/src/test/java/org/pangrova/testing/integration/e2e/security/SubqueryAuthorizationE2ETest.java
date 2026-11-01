@@ -10,18 +10,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
 import org.pangrova.table.core.control.TableControlService;
 import org.pangrova.table.core.control.TableControlSettings;
@@ -41,8 +41,8 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
     private String visible;
     private String hidden;
     private String role;
-    private PersistentRoleStore roles;
-    private PersistentGrantStore grants;
+    private JdbcRoleStore roles;
+    private JdbcGrantStore grants;
     private TableControlRowPolicyStore policies;
     private TableControlColumnMaskStore masks;
     private TableControlService previousControl;
@@ -66,16 +66,16 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE TABLE " + qualified(table) + " (id BIGINT, amount BIGINT)");
             sqlRunner.execute("INSERT INTO " + qualified(table) + " VALUES (1, 10), (2, 20)");
         }
-        roles = new PersistentRoleStore(stateStoreDataSource());
+        roles = new JdbcRoleStore(stateStoreDataSource());
         roles.initSchema();
         role = "subquery_reader_" + unique;
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(UserRoleAssignment.of(authenticatedCatalogSession(CATALOG).getUser(), role));
-        grants = new PersistentGrantStore(stateStoreDataSource());
+        grants = new JdbcGrantStore(stateStoreDataSource());
         policies = new TableControlRowPolicyStore(new RegistryTablePolicyAuthority(registry),
-                new PersistentRowPolicyStore(stateStoreDataSource()));
+                new JdbcRowPolicyStore(stateStoreDataSource()));
         masks = new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(registry),
-                new PersistentColumnMaskStore(stateStoreDataSource()));
+                new JdbcColumnMaskStore(stateStoreDataSource()));
         grant(visible);
     }
 

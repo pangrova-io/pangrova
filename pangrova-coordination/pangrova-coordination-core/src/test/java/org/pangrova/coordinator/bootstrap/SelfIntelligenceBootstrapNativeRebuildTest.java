@@ -2,9 +2,9 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.time.Instant;
 import java.util.List;

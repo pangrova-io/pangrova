@@ -8,7 +8,7 @@ import org.pangrova.table.api.statistics.TableControlStatisticsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.jdbc.JdbcSupport;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

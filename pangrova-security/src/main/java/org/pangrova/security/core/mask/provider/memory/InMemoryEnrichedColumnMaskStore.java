@@ -3,8 +3,8 @@ package org.pangrova.security.core.mask.provider.memory;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 
 /**
  * Thread-safe in-memory column mask store implementing the enriched interface.
@@ -14,7 +14,7 @@ import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
  *
  * <p>Masks stored here are transient — they do not survive coordinator restart.
  * For persistent masking, configure a JDBC datasource so that SecurityBootstrap
- * uses {@link org.pangrova.security.store.jdbc.PersistentColumnMaskStore} instead.</p>
+ * uses {@link org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore} instead.</p>
  */
 public final class InMemoryEnrichedColumnMaskStore implements EnrichedColumnMaskStore {
 

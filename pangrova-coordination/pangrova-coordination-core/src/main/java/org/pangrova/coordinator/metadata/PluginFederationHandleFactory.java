@@ -7,8 +7,8 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.core.catalog.handle.federation.FederationCatalogHandle;
 import org.pangrova.metadata.core.catalog.handle.federation.FederationHandleFactory;
 import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
-import org.pangrova.security.api.secret.SecretResolver;
-import org.pangrova.security.api.secret.SecretTemplates;
+import org.pangrova.spi.security.secret.SecretResolver;
+import org.pangrova.spi.security.secret.SecretTemplates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

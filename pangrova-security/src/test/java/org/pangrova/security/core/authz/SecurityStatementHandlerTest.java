@@ -1,8 +1,8 @@
 package org.pangrova.security.core.authz;
 
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.event.SecurityPolicyChangeEvent;
-import org.pangrova.security.api.event.SecurityPolicyEventPublisher;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.event.SecurityPolicyChangeEvent;
+import org.pangrova.spi.security.event.SecurityPolicyEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -11,11 +11,11 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.api.security.policy.GrantStore;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 
 /**
  * Tests the GRANT/REVOKE DDL execution path through {@link SecurityStatementHandler}.
@@ -121,12 +121,12 @@ class SecurityStatementHandlerTest {
                 grantStore, roles, rlsFilter, maskProcessor);
 
         // Initially denied
-        var user = new org.pangrova.security.api.UserIdentity(
+        var user = new org.pangrova.spi.security.UserIdentity(
                 "alice", java.util.Set.of("analyst"),
                 java.util.Map.of(), java.time.Instant.now());
         assertThatThrownBy(() ->
                 accessControl.checkCanSelectFromTable(user, "iceberg", "default", "orders"))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
 
         // GRANT via handler
         handler.executeGrant("SELECT", ORDERS, "analyst", false, "admin");
@@ -142,7 +142,7 @@ class SecurityStatementHandlerTest {
         // Event triggers cache refresh — denied again
         assertThatThrownBy(() ->
                 accessControl.checkCanSelectFromTable(user, "iceberg", "default", "orders"))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
     }
 
     @Test

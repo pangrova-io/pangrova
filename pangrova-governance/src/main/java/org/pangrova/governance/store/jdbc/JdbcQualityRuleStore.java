@@ -149,14 +149,14 @@ public final class JdbcQualityRuleStore implements IdentityQualityRuleStore {
         try (Connection conn = dataSource.getConnection();
              var stmt = conn.createStatement()) {
             conn.setAutoCommit(false);
-            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.lockMutation(conn);
+            org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate.lockMutation(conn);
             stmt.execute(DDL_RULE_IDENTITIES);
             stmt.execute(DDL_QUALITY_RULES);
             stmt.execute(DDL_QUALITY_CHECK_RESULTS);
             stmt.execute("ALTER TABLE quality_rules ADD COLUMN IF NOT EXISTS table_id UUID");
             stmt.execute("ALTER TABLE quality_check_results ADD COLUMN IF NOT EXISTS table_id UUID");
             stmt.execute("CREATE INDEX IF NOT EXISTS quality_rule_table_identity ON quality_rules(table_id)");
-            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.initialize(conn);
+            org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate.initialize(conn);
             conn.commit();
             LOG.info("event=quality_rule_schema_initialized");
         } catch (SQLException e) {
@@ -203,8 +203,8 @@ public final class JdbcQualityRuleStore implements IdentityQualityRuleStore {
         }
     }
 
-    private static org.pangrova.security.api.AccessDeniedException changedOwner() {
-        return new org.pangrova.security.api.AccessDeniedException(
+    private static org.pangrova.spi.security.AccessDeniedException changedOwner() {
+        return new org.pangrova.spi.security.AccessDeniedException(
                 "Quality rule ID belongs to another stable table identity");
     }
 

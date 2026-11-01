@@ -20,14 +20,14 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.core.schema.SchemaChange;
 import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.core.schema.SchemaValidationResult;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -233,7 +233,7 @@ public class DefaultMetadataService implements MetadataService {
         if (control.enabled() && control.find(tableRef.catalog(), tableRef.schema(), tableRef.table())
                 .filter(record -> record.state() == org.pangrova.table.api.control.TableControlState.RENAMING)
                 .isPresent()) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Table rename is incomplete for " + tableRef
                             + "; wait for completion or reconcile the DDL before querying");
         }
@@ -429,7 +429,7 @@ public class DefaultMetadataService implements MetadataService {
     }
 
     @Override
-    public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+    public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         QueryLifecycleReport report = queryLifecycles.cleanup(authority);
         recordCleanupQueryMetrics(report);
         if (report.hasFailures()) {

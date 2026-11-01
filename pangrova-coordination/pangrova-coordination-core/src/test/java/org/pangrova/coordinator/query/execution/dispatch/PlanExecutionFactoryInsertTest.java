@@ -28,20 +28,20 @@ import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -159,7 +159,7 @@ class PlanExecutionFactoryInsertTest {
         final CatalogRegistry registry = new InsertCatalogRegistry(metadata);
         java.util.function.Consumer<String> callback = ignored -> events.add("callback");
         final CoordinatorSessionContext session = new CoordinatorSessionContext(
-                "insert-query", Map.of(), new org.pangrova.security.api.UserIdentity(
+                "insert-query", Map.of(), new org.pangrova.spi.security.UserIdentity(
                         "insert-user", Set.of(), Map.of(), java.time.Instant.EPOCH), "tenant");
         QueryStateMachine stateMachine;
 

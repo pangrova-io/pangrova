@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.clustering;
 
-import org.pangrova.connector.spi.clustering.ClusteringCapability;
-import org.pangrova.connector.spi.clustering.ClusteringDescriptor;
-import org.pangrova.connector.spi.clustering.ClusteringState;
-import org.pangrova.connector.spi.clustering.ColumnMinMax;
-import org.pangrova.connector.spi.clustering.FileClusteringStats;
-import org.pangrova.connector.spi.clustering.ClusteringTableRef;
+import org.pangrova.spi.connector.clustering.ClusteringCapability;
+import org.pangrova.spi.connector.clustering.ClusteringDescriptor;
+import org.pangrova.spi.connector.clustering.ClusteringState;
+import org.pangrova.spi.connector.clustering.ColumnMinMax;
+import org.pangrova.spi.connector.clustering.FileClusteringStats;
+import org.pangrova.spi.connector.clustering.ClusteringTableRef;
 
 import java.util.List;
 

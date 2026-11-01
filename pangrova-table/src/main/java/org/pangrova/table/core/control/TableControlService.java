@@ -10,9 +10,9 @@ import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.api.control.TableControlStore;
 import org.pangrova.table.api.control.TableControlView;
 import org.pangrova.table.api.control.TableVersionObservation;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -304,14 +304,14 @@ public final class TableControlService {
      * entry points cannot register incompletely.
      */
     public Optional<TableControlRecord> registerCreatedFromConnector(
-            org.pangrova.connector.spi.metadata.ConnectorMetadata metadata,
-            org.pangrova.connector.spi.ConnectorSession session,
+            org.pangrova.spi.connector.metadata.ConnectorMetadata metadata,
+            org.pangrova.spi.connector.ConnectorSession session,
             String catalog, String schema, String table, String ownerPrincipal) {
         if (!settings.enabled()) {
             return Optional.empty();
         }
-        var name = new org.pangrova.connector.spi.metadata.table.SchemaTableName(schema, table);
-        org.pangrova.connector.spi.metadata.table.ConnectorTableHandle handle =
+        var name = new org.pangrova.spi.connector.metadata.table.SchemaTableName(schema, table);
+        org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle =
                 metadata.getTableHandle(session, name);
         if (handle == null) {
             throw new TableControlException(

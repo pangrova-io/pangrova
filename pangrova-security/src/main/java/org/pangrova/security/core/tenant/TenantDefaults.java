@@ -1,6 +1,6 @@
 package org.pangrova.security.core.tenant;
 
-import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.ResourceQuota;
 
 final class TenantDefaults {
 

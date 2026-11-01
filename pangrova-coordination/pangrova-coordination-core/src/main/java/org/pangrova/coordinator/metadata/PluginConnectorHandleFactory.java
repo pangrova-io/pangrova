@@ -9,12 +9,12 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorHandleFactory;
 import org.pangrova.metadata.exception.catalog.CatalogProviderNotFoundException;
-import org.pangrova.security.api.secret.SecretResolver;
-import org.pangrova.security.api.secret.SecretTemplates;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.plugin.ConnectorContext;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.spi.security.secret.SecretResolver;
+import org.pangrova.spi.security.secret.SecretTemplates;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.plugin.ConnectorContext;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,7 +38,7 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
     private final ConnectorFactoryRegistry factories;
     private final SecretResolver secretResolver;
     private final Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl;
-    private final Function<CatalogDescriptor, Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog>>
+    private final Function<CatalogDescriptor, Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog>>
             sourceCatalog;
     private final Map<String, ClassLoader> classLoaders = new ConcurrentHashMap<>();
 
@@ -51,7 +51,7 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
     /** Creates a factory with managed source publication wiring. */
     public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver,
             Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl,
-            Function<CatalogDescriptor, Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog>>
+            Function<CatalogDescriptor, Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog>>
                     sourceCatalog) {
         this(spiClassLoader, secretResolver, nativeControl, sourceCatalog,
                 new DefaultConnectorClassLoaderFactory());
@@ -60,7 +60,7 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
     /** Creates a factory with an explicit classloader isolation policy. */
     public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver,
             Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl,
-            Function<CatalogDescriptor, Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog>>
+            Function<CatalogDescriptor, Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog>>
                     sourceCatalog,
             ConnectorClassLoaderFactory classLoaderFactory) {
         this.spiClassLoader = spiClassLoader;
@@ -105,7 +105,7 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
         var source = java.util.Objects.requireNonNull(sourceCatalog.apply(descriptor));
         ConnectorContext context = new ConnectorContext() {
             @Override public Optional<NativeDatasetControlPlane> nativeDatasetControlPlane() { return port; }
-            @Override public Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog> managedSourceCatalog() { return source; }
+            @Override public Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> managedSourceCatalog() { return source; }
         };
         return factory.create(descriptor.name(), resolvedProps, context);
     }

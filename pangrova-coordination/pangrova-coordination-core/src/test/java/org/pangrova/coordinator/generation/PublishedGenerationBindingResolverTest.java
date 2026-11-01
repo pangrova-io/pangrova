@@ -322,10 +322,10 @@ class PublishedGenerationBindingResolverTest {
                     jobId, org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
                             new byte[] {1}, OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(), List.of(), java.util.List.of()),
                     TENANT, "principal",
-                    org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                            new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "table"),
+                    org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                            new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "table"),
                             java.util.Set.of("embedding"),
-                            new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "table")),
+                            new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "table")),
                     new GenerationDispatchSpec.ResourceGrant(1, 1, 1, 1)));
         }
 
@@ -368,7 +368,7 @@ class PublishedGenerationBindingResolverTest {
         @Override public List<GenerationJobKey> listReadyForPublication(
                 int limit, Instant now) { throw unsupported(); }
         @Override public Optional<GenerationLease> claimNextPage(
-                String tenantId, String jobId, org.pangrova.query.api.coordination.ExecutionAnchor owner,
+                String tenantId, String jobId, org.pangrova.spi.query.coordination.ExecutionAnchor owner,
                 long epoch, Duration duration, Instant now) { throw unsupported(); }
         @Override public boolean renewPage(GenerationLease lease, Duration duration,
                 Instant now) { throw unsupported(); }
@@ -387,7 +387,7 @@ class PublishedGenerationBindingResolverTest {
                 String tenantId, String jobId) { throw unsupported(); }
         @Override public Optional<GenerationJob> claimReadyForPublication(
                 String tenantId, String jobId,
-                org.pangrova.query.api.coordination.ExecutionAnchor owner, long epoch, Duration duration, Instant now) { throw unsupported(); }
+                org.pangrova.spi.query.coordination.ExecutionAnchor owner, long epoch, Duration duration, Instant now) { throw unsupported(); }
         @Override public boolean deferPublication(
                 GenerationJob claim, String owner, long epoch,
                 Instant available, String reason, Instant now) { throw unsupported(); }

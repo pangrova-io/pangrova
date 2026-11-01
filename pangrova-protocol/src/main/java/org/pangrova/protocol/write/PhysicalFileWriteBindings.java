@@ -15,8 +15,8 @@ import org.pangrova.protocol.v2.PhysicalFileWriteBinding;
 import org.pangrova.protocol.v2.PhysicalWriteColumn;
 import org.pangrova.protocol.v2.PhysicalWritePolicy;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.connector.spi.metadata.NativePhysicalFileAllocation;
-import org.pangrova.connector.spi.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.spi.connector.metadata.NativePhysicalFileAllocation;
+import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
 
 import java.io.IOException;
 import java.security.MessageDigest;

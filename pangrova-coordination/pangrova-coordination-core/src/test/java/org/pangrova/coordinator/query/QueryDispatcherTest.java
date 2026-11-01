@@ -16,7 +16,7 @@ import org.pangrova.scheduler.core.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.testing.testkit.TestObservability;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;

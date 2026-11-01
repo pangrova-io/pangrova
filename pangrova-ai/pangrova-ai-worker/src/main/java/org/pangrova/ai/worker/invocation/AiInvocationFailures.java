@@ -2,8 +2,8 @@ package org.pangrova.ai.worker.invocation;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.invocation.AiInvocationRequest;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.invocation.AiInvocationRequest;
 
 /** Central failure classification for the Worker AI invocation path. */
 final class AiInvocationFailures {

@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.runner;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.junit.jupiter.api.BeforeEach;

@@ -1,6 +1,6 @@
 package org.pangrova.indexing.core.planner.vector;
 
-import org.pangrova.indexing.api.vector.DistanceMetric;
+import org.pangrova.spi.indexing.vector.DistanceMetric;
 
 /**
  * Recognized VectorTopK query pattern extracted from a Calcite logical plan.

@@ -2,13 +2,13 @@ package org.pangrova.observability.sdk.tracing.adapter.http;
 
 import io.opentelemetry.api.trace.SpanContext;
 import org.pangrova.observability.sdk.logging.provider.mdc.LogContext;
-import org.pangrova.observability.api.Context;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.SpanKind;
-import org.pangrova.observability.api.StatusCode;
-import org.pangrova.observability.api.TextMapGetter;
-import org.pangrova.observability.api.TextMapSetter;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.Context;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.StatusCode;
+import org.pangrova.spi.observability.TextMapGetter;
+import org.pangrova.spi.observability.TextMapSetter;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.observability.sdk.tracing.provider.otel.OtelContextWrapper;
 import org.pangrova.observability.sdk.tracing.provider.otel.OtelSpanWrapper;
 

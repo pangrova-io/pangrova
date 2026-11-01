@@ -17,8 +17,8 @@ import org.apache.calcite.sql2rel.StandardConvertletTable;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
-import org.pangrova.connector.spi.metadata.table.ConnectorDerivedTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.ConnectorDerivedTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 
 /** Expands frozen connector definitions before policy application, without consulting a live catalog. */
 final class DerivedQueryExpansion extends RelShuttleImpl {

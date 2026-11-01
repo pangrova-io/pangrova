@@ -18,7 +18,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.ai.control.assembly.AiInfrastructureStores;
 import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

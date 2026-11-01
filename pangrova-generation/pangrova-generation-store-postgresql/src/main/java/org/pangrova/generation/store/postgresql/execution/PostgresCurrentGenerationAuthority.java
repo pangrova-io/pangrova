@@ -6,8 +6,8 @@ import org.pangrova.generation.spi.storage.CurrentGenerationAuthority;
 
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.security.policy.CurrentDirectRoleReader;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;

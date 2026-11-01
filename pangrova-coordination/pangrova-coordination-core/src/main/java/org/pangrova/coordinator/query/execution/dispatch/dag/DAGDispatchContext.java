@@ -11,7 +11,7 @@ import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.resilience.provider.resilience4j.ResilienceRegistry;
-import org.pangrova.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;

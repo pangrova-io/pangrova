@@ -7,8 +7,8 @@ import io.grpc.ClientInterceptor;
 import io.grpc.ForwardingClientCall;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
-import org.pangrova.observability.api.TextMapSetter;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TextMapSetter;
+import org.pangrova.spi.observability.TracingProvider;
 
 /**
  * gRPC {@link ClientInterceptor} that injects W3C trace context (traceparent/tracestate)

@@ -19,7 +19,7 @@ import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;

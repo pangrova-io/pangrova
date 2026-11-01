@@ -1,12 +1,12 @@
 package org.pangrova.worker.clustering;
 
-import org.pangrova.connector.spi.clustering.ClusteringCapability;
-import org.pangrova.connector.spi.clustering.ClusteringMode;
-import org.pangrova.connector.spi.clustering.ClusteringRequest;
-import org.pangrova.connector.spi.clustering.ClusteringResult;
-import org.pangrova.connector.spi.clustering.ClusteringTableRef;
-import org.pangrova.connector.spi.clustering.FileClusteringStats;
-import org.pangrova.connector.spi.clustering.ReclusterTask;
+import org.pangrova.spi.connector.clustering.ClusteringCapability;
+import org.pangrova.spi.connector.clustering.ClusteringMode;
+import org.pangrova.spi.connector.clustering.ClusteringRequest;
+import org.pangrova.spi.connector.clustering.ClusteringResult;
+import org.pangrova.spi.connector.clustering.ClusteringTableRef;
+import org.pangrova.spi.connector.clustering.FileClusteringStats;
+import org.pangrova.spi.connector.clustering.ReclusterTask;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

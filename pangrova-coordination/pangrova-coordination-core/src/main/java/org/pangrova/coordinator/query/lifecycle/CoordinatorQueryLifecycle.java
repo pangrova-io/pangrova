@@ -8,9 +8,9 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.util.UUID;
 
-import org.pangrova.protocol.execution.QueryId;
-import org.pangrova.query.api.state.QueryLifecycle;
-import org.pangrova.observability.api.event.QueryState;
+import org.pangrova.spi.query.identity.QueryId;
+import org.pangrova.spi.query.state.QueryLifecycle;
+import org.pangrova.spi.observability.event.QueryState;
 import org.pangrova.common.session.SessionContext;
 
 /**

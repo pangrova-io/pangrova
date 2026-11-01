@@ -16,7 +16,7 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
     @FunctionalInterface
     public interface MetadataListingResolver {
         org.pangrova.planner.MetadataTableQuery resolve(java.util.List<String> parts,
-                org.pangrova.connector.spi.metadata.MetadataTableKind kind,
+                org.pangrova.spi.connector.metadata.MetadataTableKind kind,
                 org.pangrova.coordinator.query.session.CoordinatorSessionContext session);
     }
 

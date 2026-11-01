@@ -9,16 +9,16 @@ import org.pangrova.indexing.store.CommitEventRequest;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.indexing.store.IndexGenerationManifest;
-import org.pangrova.connector.spi.index.CommitEvent;
-import org.pangrova.connector.spi.index.CommitEventType;
-import org.pangrova.connector.spi.index.CommitListener;
-import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
-import org.pangrova.connector.spi.index.SnapshotDataFile;
-import org.pangrova.connector.spi.index.SnapshotFileDelta;
-import org.pangrova.connector.spi.index.SnapshotRelation;
+import org.pangrova.spi.connector.index.CommitEvent;
+import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.spi.connector.index.CommitListener;
+import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
+import org.pangrova.spi.connector.index.SnapshotDataFile;
+import org.pangrova.spi.connector.index.SnapshotFileDelta;
+import org.pangrova.spi.connector.index.SnapshotRelation;
 import org.pangrova.metadata.core.schema.SchemaChange;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -284,7 +284,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
     private void collectFileStatistics(IndexMetadataStore store, MergedCommitFiles files,
                                        ConnectorAccessorResolver accessors) {
         try {
-            List<org.pangrova.connector.spi.index.statistics.DataFileStatistics> statistics =
+            List<org.pangrova.spi.connector.index.statistics.DataFileStatistics> statistics =
                     accessors.resolveFileStatistics(
                             files.catalog, files.schema, files.table, files.addedFiles);
             if (statistics.isEmpty()) {
@@ -298,7 +298,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                             + "filesRequested={} statsReturned={}",
                     files.catalog, files.schema, files.table,
                     files.addedFiles.size(), statistics.size());
-        } catch (org.pangrova.security.api.AccessDeniedException denied) {
+        } catch (org.pangrova.spi.security.AccessDeniedException denied) {
             // Missing or revoked maintenance authority is not a best-effort
             // statistics failure: the durable commit event must remain pending.
             throw denied;

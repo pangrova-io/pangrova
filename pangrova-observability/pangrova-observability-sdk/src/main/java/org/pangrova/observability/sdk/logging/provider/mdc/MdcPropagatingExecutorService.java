@@ -9,7 +9,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.pangrova.observability.api.Context;
+import org.pangrova.spi.observability.Context;
 
 /**
  * An {@link ExecutorService} wrapper that propagates MDC context for every submitted task.

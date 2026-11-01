@@ -7,7 +7,7 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.spi.query.audit.QueryAuditRecord;
 import org.pangrova.query.core.audit.QueryAuditService;
 import org.slf4j.LoggerFactory;
 

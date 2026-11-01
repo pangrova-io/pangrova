@@ -21,8 +21,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

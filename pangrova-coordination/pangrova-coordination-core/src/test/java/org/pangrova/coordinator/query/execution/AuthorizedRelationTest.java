@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.PolicySnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.PolicySnapshot;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
 import io.substrait.proto.NamedStruct;

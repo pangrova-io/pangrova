@@ -5,8 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.pangrova.connector.spi.data.page.BatchFormat;
-import org.pangrova.connector.spi.data.page.NativePage;
+import org.pangrova.spi.connector.data.page.BatchFormat;
+import org.pangrova.spi.connector.data.page.NativePage;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -15,16 +15,16 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -313,9 +313,9 @@ class QueryLifecycleFailureAggregationTest {
         final CopyOnWriteArrayList<String> beginQueryIds = new CopyOnWriteArrayList<>();
         final CopyOnWriteArrayList<String> cleanupQueryIds = new CopyOnWriteArrayList<>();
 
-        @Override public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        @Override public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId(); beginQueryIds.add(queryId); }
-        @Override public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        @Override public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId(); cleanupQueryIds.add(queryId); }
         @Override public List<String> listSchemaNames(ConnectorSession s) { return List.of(); }
         @Override public List<SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
@@ -331,9 +331,9 @@ class QueryLifecycleFailureAggregationTest {
 
         FailingMetadata(String errorMessage) { this.errorMessage = errorMessage; }
 
-        @Override public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        @Override public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId(); throw new RuntimeException(errorMessage); }
-        @Override public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        @Override public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId(); /* no-op */ }
         @Override public List<String> listSchemaNames(ConnectorSession s) { return List.of(); }
         @Override public List<SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
@@ -350,9 +350,9 @@ class QueryLifecycleFailureAggregationTest {
 
         CleanupFailingMetadata(String errorMessage) { this.failure = new RuntimeException(errorMessage); }
 
-        @Override public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        @Override public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId(); /* no-op */ }
-        @Override public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        @Override public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId();
             if (!recovered) throw failure;
         }

@@ -3,7 +3,7 @@ package org.pangrova.worker.file;
 import java.util.Map;
 import java.util.Objects;
 
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 
 /**

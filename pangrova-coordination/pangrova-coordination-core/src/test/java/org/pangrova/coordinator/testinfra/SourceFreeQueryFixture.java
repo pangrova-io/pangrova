@@ -13,7 +13,7 @@ import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;

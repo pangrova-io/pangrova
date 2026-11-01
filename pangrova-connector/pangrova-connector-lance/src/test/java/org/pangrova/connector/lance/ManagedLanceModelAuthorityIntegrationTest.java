@@ -3,11 +3,11 @@ package org.pangrova.connector.lance;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.testing.testkit.ContainerTestBase;
 

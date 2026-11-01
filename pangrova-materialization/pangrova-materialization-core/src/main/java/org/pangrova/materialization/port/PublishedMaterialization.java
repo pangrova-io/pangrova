@@ -9,7 +9,7 @@ import org.pangrova.materialization.domain.OutputSchema;
 import org.pangrova.materialization.domain.PhysicalTableRef;
 import org.pangrova.materialization.domain.RefreshKind;
 import org.pangrova.materialization.domain.SourceVector;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 /**
  * Read-only projection of a published materialization, consumed by the planner bridge.

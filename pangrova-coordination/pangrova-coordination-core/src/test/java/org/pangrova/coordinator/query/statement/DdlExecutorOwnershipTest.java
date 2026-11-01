@@ -29,26 +29,26 @@ import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.coordinator.query.audit.TableControlAuditEmitter;
 import org.pangrova.parser.SqlParser;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.audit.AuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventWriter;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -693,7 +693,7 @@ class DdlExecutorOwnershipTest {
 
         @Override
         public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
-                String columnName, org.pangrova.connector.spi.data.type.PangrovaType type,
+                String columnName, org.pangrova.spi.connector.data.type.PangrovaType type,
                 Object defaultValue) {
             altered = true;
         }

@@ -2,7 +2,7 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ScheduledExecutorService;

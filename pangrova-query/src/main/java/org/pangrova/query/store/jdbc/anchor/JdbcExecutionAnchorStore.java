@@ -1,7 +1,7 @@
 package org.pangrova.query.store.jdbc.anchor;
 
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.coordination.ExecutionAnchorStore;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.query.coordination.ExecutionAnchorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -6,7 +6,6 @@ import org.pangrova.table.core.control.TableControlService;
 import org.pangrova.table.core.control.TableControlSettings;
 import org.pangrova.table.store.jdbc.control.JdbcTableControlStore;
 
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -16,8 +15,8 @@ import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

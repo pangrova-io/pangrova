@@ -3,7 +3,7 @@ package org.pangrova.planner.mv;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 /**
  * Resolves Dynamic Table names to their published physical generations.
@@ -53,7 +53,7 @@ public final class DynamicTableRewriter {
     }
 
     /** Reads the reserved internal-execution binding from a converted session. */
-    public static boolean isInternalExecution(org.pangrova.connector.spi.ConnectorSession session) {
+    public static boolean isInternalExecution(org.pangrova.spi.connector.ConnectorSession session) {
         return "true".equals(session.getProperties().get(INTERNAL_EXECUTION_PROPERTY));
     }
 

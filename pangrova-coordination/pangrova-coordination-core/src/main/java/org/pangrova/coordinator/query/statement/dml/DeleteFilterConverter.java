@@ -11,7 +11,7 @@ import org.pangrova.parser.ast.expression.InExpression;
 import org.pangrova.parser.ast.expression.IsNullExpression;
 import org.pangrova.parser.ast.expression.NotExpression;
 import org.pangrova.parser.ast.expression.NotInExpression;
-import org.pangrova.connector.spi.metadata.DeleteFilter;
+import org.pangrova.spi.connector.metadata.DeleteFilter;
 
 import java.util.List;
 

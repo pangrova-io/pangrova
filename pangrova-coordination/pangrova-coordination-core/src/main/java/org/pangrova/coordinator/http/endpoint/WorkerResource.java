@@ -213,9 +213,9 @@ public final class WorkerResource {
                 || request.cacheMaxBytes() > 0
                 || request.cacheHitCount() > 0
                 || request.cacheMissCount() > 0;
-        org.pangrova.coordination.api.CacheCatalogSummary cacheSummary =
+        org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary =
                 hasCacheReport
-                        ? new org.pangrova.coordination.api.CacheCatalogSummary(
+                        ? new org.pangrova.spi.coordination.CacheCatalogSummary(
                                 request.cachedFilePaths(),
                                 request.cacheUsedBytes(),
                                 request.cacheMaxBytes(),

@@ -20,8 +20,8 @@ import org.pangrova.indexing.store.IndexGenerationFormat;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.indexing.store.IndexGenerationManifest;
 import org.pangrova.indexing.store.IndexPublicationRequest;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
 
 import static org.pangrova.common.jdbc.JdbcSupport.canonicalInstant;
 import static org.pangrova.common.jdbc.JdbcSupport.getInstant;

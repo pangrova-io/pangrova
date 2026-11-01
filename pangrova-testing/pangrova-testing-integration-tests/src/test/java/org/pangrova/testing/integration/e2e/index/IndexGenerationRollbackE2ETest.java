@@ -2,10 +2,10 @@ package org.pangrova.testing.integration.e2e.index;
 
 import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.index.SnapshotPinProvider;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;

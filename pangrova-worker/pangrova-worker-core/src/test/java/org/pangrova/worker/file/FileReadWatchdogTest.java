@@ -54,12 +54,12 @@ class FileReadWatchdogTest {
             @Override public String serviceName() { return "s3"; }
             @Override public void close() { }
         };
-        var location = new org.pangrova.file.api.object.ObjectLocation(
-                new org.pangrova.file.api.profile.StorageProfile("test", org.pangrova.common.storage.StorageType.S3,
+        var location = new org.pangrova.filesystem.api.object.ObjectLocation(
+                new org.pangrova.filesystem.api.profile.StorageProfile("test", org.pangrova.common.storage.StorageType.S3,
                         "bucket", "", "", "us-east-1", java.util.Map.of(), java.util.Map.of()), "");
         var reader = Executors.newSingleThreadExecutor();
         try (var owner = new FileReadWatchdog(alarm);
-                var input = owner.open(new org.pangrova.storage.s3.object.S3ObjectStoreAccessor(client)
+                var input = owner.open(new org.pangrova.filesystem.s3.object.S3ObjectStoreAccessor(client)
                         .openRange(location, "item", 0, 1, null), 2_000, () -> 1_000)) {
             var result = reader.submit(() -> input.read());
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();

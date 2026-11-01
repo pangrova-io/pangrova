@@ -1,6 +1,6 @@
 package org.pangrova.indexing.core.serde;
 
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.indexing.data.IndexData;
 
 /**
  * Type-specific serializer for a particular {@link IndexData} implementation.

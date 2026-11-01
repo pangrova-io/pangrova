@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.planner.AuthorizedStageGraph;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.PolicySnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.PolicySnapshot;
 
 import java.util.HashMap;
 import java.util.List;

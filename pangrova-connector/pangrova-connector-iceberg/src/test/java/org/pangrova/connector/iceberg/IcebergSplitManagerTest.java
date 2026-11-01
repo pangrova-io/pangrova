@@ -4,12 +4,12 @@ import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.IcebergReadMode;
@@ -47,7 +47,7 @@ class IcebergSplitManagerTest {
                 Types.NestedField.required(1, "id", Types.LongType.get()),
                 Types.NestedField.optional(2, "future", Types.UnknownType.get()));
         var mappings = IcebergTaskToSplit.withNullOnlyColumns(schema,
-                List.of(new org.pangrova.connector.spi.metadata.table.ColumnMapping(
+                List.of(new org.pangrova.spi.connector.metadata.table.ColumnMapping(
                         2, 2, "old_future", "future")));
         assertThat(mappings).hasSize(2);
         assertThat(mappings.get(1).sourceFieldId()).isEqualTo(-1);
@@ -66,7 +66,7 @@ class IcebergSplitManagerTest {
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -139,7 +139,7 @@ class IcebergSplitManagerTest {
 
         org.assertj.core.api.Assertions.assertThatThrownBy(
                 () -> drainSplits(handleFor("db", "equality_delete", table)))
-                .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                 .hasMessageContaining("equality deletes are not supported")
                 .hasMessageContaining("db.equality_delete")
                 .hasMessageContaining(Long.toString(table.currentSnapshot().snapshotId()))

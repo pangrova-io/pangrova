@@ -147,7 +147,7 @@ class WorkerBootstrapE2ETest extends ContainerTestBase {
     }
 
     private WorkerBootstrap startWorker(
-            String workerId, String coordinatorUrl, Path shuffleSpillDirectory) {
+            String workerId, String coordinatorUrl, Path shuffleSpillDirectory) throws java.io.IOException {
         var defaults = WorkerBootstrapConfig.ResourceConfig.defaults();
         var resources = new WorkerBootstrapConfig.ResourceConfig(
                 defaults.memoryBudgetBytes(), defaults.systemReservedBytes(),
@@ -165,7 +165,7 @@ class WorkerBootstrapE2ETest extends ContainerTestBase {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 100, 1000),
                 null, authority.secret(),
                 null, null,
-                null,
+                org.pangrova.testing.testkit.network.TestNetworkAddresses.routableIpv4().getHostAddress(),
                 null,
                 org.pangrova.worker.nativebridge.jni.NativeFunctionConfig.DEFAULT,
                 WorkerBootstrapConfig.TransportSecurityConfig.disabled(), org.pangrova.testing.nativefixture.TestShuffleServiceConfig.admissionDirectory());

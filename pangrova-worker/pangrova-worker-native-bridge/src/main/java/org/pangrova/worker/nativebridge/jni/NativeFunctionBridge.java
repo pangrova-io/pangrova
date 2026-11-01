@@ -1,13 +1,13 @@
 package org.pangrova.worker.nativebridge.jni;
 
 import org.pangrova.common.api.annotation.ThreadSafe;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.function.api.aggregate.AggregateFunction;
-import org.pangrova.function.api.runtime.FunctionCallbackScope;
-import org.pangrova.function.api.runtime.FunctionFailureProjector;
-import org.pangrova.function.api.scalar.BatchableScalarFunction;
-import org.pangrova.function.api.metadata.FunctionMetadata;
-import org.pangrova.function.api.scalar.ScalarFunction;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.function.aggregate.AggregateFunction;
+import org.pangrova.spi.function.runtime.FunctionCallbackScope;
+import org.pangrova.spi.function.runtime.FunctionFailureProjector;
+import org.pangrova.spi.function.scalar.BatchableScalarFunction;
+import org.pangrova.spi.function.metadata.FunctionMetadata;
+import org.pangrova.spi.function.scalar.ScalarFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,7 +28,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <p>This bridge has two responsibilities:
  * <ol>
  *   <li><b>Registration:</b> At worker startup, it collects function descriptors
- *       from {@link org.pangrova.function.api.registry.FunctionFactory} instances and
+ *       from {@link org.pangrova.spi.function.registry.FunctionFactory} instances and
  *       registers them with the native engine via JNI. The native side creates
  *       proxy functions that route evaluation back to Java.</li>
  *   <li><b>Evaluation callback:</b> When the native engine encounters a registered

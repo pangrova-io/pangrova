@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon.schema;
 
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
@@ -24,8 +24,8 @@ class PaimonSchemaBuilderTest {
 
     @Test
     void lanceVectorKeepsDimensionAndDoubleElementInActualSdkSchema() {
-        var vector = new org.pangrova.connector.spi.data.type.VectorType(3,
-                org.pangrova.connector.spi.data.type.VectorType.ElementType.DOUBLE);
+        var vector = new org.pangrova.spi.connector.data.type.VectorType(3,
+                org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE);
         var schema = schema(new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR,
                 OptionalInt.empty(), vector), Map.of("file.format", "lance"));
         var actual = (org.apache.paimon.types.VectorType) schema.fields().get(0).type();
@@ -37,7 +37,7 @@ class PaimonSchemaBuilderTest {
 
     @Test
     void parquetVectorKeepsExistingArrayStorageWithDeclaredDimensionMetadata() {
-        var vector = new org.pangrova.connector.spi.data.type.VectorType(9, null);
+        var vector = new org.pangrova.spi.connector.data.type.VectorType(9, null);
         var schema = schema(new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR,
                 OptionalInt.empty(), vector), Map.of());
         assertThat(schema.fields().get(0).type()).isEqualTo(
@@ -48,7 +48,7 @@ class PaimonSchemaBuilderTest {
 
     @Test
     void vectorPropertyCannotOverrideTheDeclaredDimension() {
-        var vector = new org.pangrova.connector.spi.data.type.VectorType(3, null);
+        var vector = new org.pangrova.spi.connector.data.type.VectorType(3, null);
         var column = new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR,
                 OptionalInt.empty(), vector);
         assertThatThrownBy(() -> schema(column, Map.of("pangrova.vector.dimension.embedding", "4")))
@@ -57,14 +57,14 @@ class PaimonSchemaBuilderTest {
 
     @Test
     void nestedArrayMapRowKeepsAllFieldsDecimalAndCharacterParameters() {
-        var row = new org.pangrova.connector.spi.data.type.RowType(List.of(
-                new org.pangrova.connector.spi.data.type.RowField("amount",
-                        new org.pangrova.connector.spi.data.type.primitive.DecimalType(38, 17)),
-                new org.pangrova.connector.spi.data.type.RowField("label",
-                        new org.pangrova.connector.spi.data.type.primitive.VarcharType(27))));
-        var nested = new org.pangrova.connector.spi.data.type.ArrayType(
-                new org.pangrova.connector.spi.data.type.MapType(
-                        new org.pangrova.connector.spi.data.type.primitive.CharType(7), row));
+        var row = new org.pangrova.spi.connector.data.type.RowType(List.of(
+                new org.pangrova.spi.connector.data.type.RowField("amount",
+                        new org.pangrova.spi.connector.data.type.primitive.DecimalType(38, 17)),
+                new org.pangrova.spi.connector.data.type.RowField("label",
+                        new org.pangrova.spi.connector.data.type.primitive.VarcharType(27))));
+        var nested = new org.pangrova.spi.connector.data.type.ArrayType(
+                new org.pangrova.spi.connector.data.type.MapType(
+                        new org.pangrova.spi.connector.data.type.primitive.CharType(7), row));
         var schema = schema(new ConnectorTableMetadata.Column("items", PangrovaType.ARRAY,
                 OptionalInt.empty(), nested), Map.of());
         var array = (org.apache.paimon.types.ArrayType) schema.fields().get(0).type();
@@ -86,7 +86,7 @@ class PaimonSchemaBuilderTest {
     void buildPaimonSchema_decimalColumn_preservesDeclaredPrecisionAndScale() {
         ConnectorTableMetadata.Column decimalCol = new ConnectorTableMetadata.Column(
                 "amount", PangrovaType.DECIMAL, OptionalInt.empty(),
-                new org.pangrova.connector.spi.data.type.primitive.DecimalType(12, 4));
+                new org.pangrova.spi.connector.data.type.primitive.DecimalType(12, 4));
         ConnectorTableMetadata metadata = new ConnectorTableMetadata(
                 new SchemaTableName("db", "t"),
                 List.of("amount"),

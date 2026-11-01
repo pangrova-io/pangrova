@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.split;
 
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
 
 import java.util.ArrayList;
 import java.util.List;

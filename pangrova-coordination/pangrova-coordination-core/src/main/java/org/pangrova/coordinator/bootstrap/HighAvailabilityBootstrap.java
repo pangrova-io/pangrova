@@ -12,12 +12,12 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.coordination.jdbc.JdbcCoordinatorRegistry;
-import org.pangrova.coordination.api.DistributedLease;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.coordination.api.CoordinatorRegistry;
+import org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
 import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
-import org.pangrova.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -364,7 +364,7 @@ final class HighAvailabilityBootstrap {
     }
 
     /** Returns the coordinator registry, or null if not configured (no DataSource). */
-    org.pangrova.coordination.api.CoordinatorRegistry coordinatorRegistry() {
+    org.pangrova.persistence.api.coordination.CoordinatorRegistry coordinatorRegistry() {
         return haService != null ? haService.coordinatorRegistry() : null;
     }
 

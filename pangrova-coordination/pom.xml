@@ -16,8 +16,7 @@
     <description>Coordination contracts, JDBC/in-memory/ZooKeeper backends and the Coordinator process</description>
 
     <modules>
-        <module>pangrova-coordination-api</module>
-        <module>pangrova-coordination-jdbc</module>
+
         <module>pangrova-coordination-inmemory</module>
         <module>pangrova-coordination-core</module>
         <module>pangrova-coordination-zookeeper</module>

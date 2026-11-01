@@ -8,12 +8,12 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
 import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -152,18 +152,18 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
         }
     }
 
-    private static org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot snapshot(LanceTableHandle table) {
+    private static org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot(LanceTableHandle table) {
         var descriptor = metadataBootstrap.catalogRegistry().getCatalog(CATALOG).getDescriptor();
         var authority = new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(stateStoreDataSource(),
-                new org.pangrova.connector.spi.metadata.ManagedSourceCatalog.Deployment(
+                new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                 execution -> e2eCoordinationForTest().requireExecutionAnchor(execution),
                 new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence(),
                 ModelAuthorityFixtures.models());
-        var key = new org.pangrova.connector.spi.metadata.ManagedSourceCatalog.TableKey(table.tenantId(), table.table());
+        var key = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableKey(table.tenantId(), table.table());
         var actual = authority.load(key).orElseThrow();
         assertThat(actual.tableId()).isEqualTo(table.tableId());
-        var selector = new org.pangrova.connector.spi.metadata.ManagedSourceCatalog.TableState(actual.key(), actual.tableId(),
+        var selector = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableState(actual.key(), actual.tableId(),
                 actual.datasetUri(), actual.generation(), actual.revision(), table.version(), actual.rows(),
                 actual.schemaSha256(), actual.payload());
         return authority.snapshot(selector).reference();

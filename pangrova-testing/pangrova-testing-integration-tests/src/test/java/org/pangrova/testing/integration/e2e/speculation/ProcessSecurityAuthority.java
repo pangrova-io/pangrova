@@ -2,18 +2,18 @@ package org.pangrova.testing.integration.e2e.speculation;
 
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.api.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
 import org.pangrova.security.core.authn.provider.ldap.LdapAuthenticator;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.testing.integration.e2e.SharedTestContainers;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.GenericContainer;
@@ -93,11 +93,11 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     }
 
     private void initializePermissions() {
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("spec_process_operator"));
         roles.grantRoleToUser(UserRoleAssignment.of(USER, "spec_process_operator"));
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("spec_process_operator", Privilege.ALL, "CATALOG", "spec_catalog", "*", "*", null));
         var tenants = new JdbcTenantStore(dataSource);
         tenants.initSchema();

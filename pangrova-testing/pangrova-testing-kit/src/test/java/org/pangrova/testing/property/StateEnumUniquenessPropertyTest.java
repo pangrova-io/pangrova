@@ -10,6 +10,8 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import org.yaml.snakeyaml.Yaml;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -56,13 +58,7 @@ class StateEnumUniquenessPropertyTest {
      * Stable upstream contract modules where SPI state enums must be defined.
      * Mirrors the {@code -api}/{@code -spi} artifacts in {@code .pangrova/modules.yaml}.
      */
-    private static final Set<String> STABLE_UPSTREAM_MODULES = Set.of(
-            "pangrova-protocol",
-            "pangrova-connector-spi",
-            "pangrova-observability-api",
-            "pangrova-indexing-api",
-            "pangrova-ai-api"
-    );
+    private static final Set<String> STABLE_UPSTREAM_MODULES = stableUpstreamModules();
 
     /**
      * Known internal state enums that are intentionally module-scoped.
@@ -86,21 +82,21 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-table:MaintenanceRunState",  // control-plane maintenance run lifecycle
             "pangrova-streaming:CdcStreamState",
             "pangrova-streaming:WatermarkState",
-            "pangrova-security:TenantStatus",
+            "pangrova-spi:TenantStatus",
             "pangrova-coordination-core:CircuitBreaker.State",
             "pangrova-coordination-core:SplitRetryManager.SplitState",
-            "pangrova-connector-spi:HealthCheckResult.HealthStatus",
+            "pangrova-spi:HealthCheckResult.HealthStatus",
             "pangrova-protocol:TaskStatus.TaskState",
-            "pangrova-observability-api:StatusCode",
+            "pangrova-spi:StatusCode",
             "pangrova-planner:ValidationStatus",
             "pangrova-coordination-core:SchedulerCancelResult.Status",
-            "pangrova-security:AuthenticatorHealthStatus",
+            "pangrova-spi:AuthenticatorHealthStatus",
             "pangrova-worker-core:TaskCancelResult.Status",
             "pangrova-streaming:StreamLifecycleState",
             "pangrova-semantic:SemanticViewValidationState",
             "pangrova-ai-control:EvaluationRunState",
-            "pangrova-connector-spi:ClusteringState",
-            "pangrova-indexing-api:IndexState",
+            "pangrova-spi:ClusteringState",
+            "pangrova-spi:IndexState",
             "pangrova-common:StateStoreType",  // moved from pangrova-config in cbe99e06 module merge
             "pangrova-config:StateStoreType",  // legacy copy retained for StateStoreFactory/CoordinatorOptions
             "pangrova-streaming:CdcRegistration.CdcStreamState",
@@ -111,7 +107,7 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-operations:JfrState",  // JFR profiling lifecycle
             "pangrova-coordination-core:SettableDynamicFilter.State",  // adaptive dynamic filter state
             "pangrova-indexing-core:IndexFileReadResult.Status",  // index file read result status
-            "pangrova-connector-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
+            "pangrova-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
             "pangrova-metadata:SemanticViewValidationState",
             "pangrova-metadata:EvaluationRunState",
             "pangrova-generation-core:GenerationJobState",
@@ -212,6 +208,24 @@ class StateEnumUniquenessPropertyTest {
     // -----------------------------------------------------------------------
     // Scanning
     // -----------------------------------------------------------------------
+
+    private static Set<String> stableUpstreamModules() {
+        try (var input = Files.newInputStream(PROJECT_ROOT.resolve(".pangrova/modules.yaml"))) {
+            Map<?, ?> manifest = new Yaml().load(input);
+            Map<?, ?> artifacts = (Map<?, ?>) manifest.get("artifacts");
+            var modules = new java.util.HashSet<String>();
+            modules.add("pangrova-protocol");
+            for (Object key : artifacts.keySet()) {
+                String name = (String) key;
+                if (name.equals("pangrova-spi") || name.endsWith("-api") || name.endsWith("-spi")) {
+                    modules.add(name);
+                }
+            }
+            return Set.copyOf(modules);
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Cannot read contract owners", failure);
+        }
+    }
 
     private static List<StateEnumEntry> scanStateEnums() {
         List<StateEnumEntry> entries = new ArrayList<>();

@@ -1,16 +1,16 @@
 package org.pangrova.coordinator.clustering;
 
-import org.pangrova.connector.spi.clustering.ClusteringCapability;
-import org.pangrova.connector.spi.clustering.ClusteringDescriptor;
-import org.pangrova.connector.spi.clustering.ClusteringRequest;
-import org.pangrova.connector.spi.clustering.ClusteringResult;
-import org.pangrova.connector.spi.clustering.ColumnMinMax;
-import org.pangrova.connector.spi.clustering.FileClusteringStats;
-import org.pangrova.connector.spi.index.CommitEvent;
-import org.pangrova.connector.spi.index.CommitEventType;
-import org.pangrova.connector.spi.index.CommitListener;
-import org.pangrova.coordination.api.DistributedLease;
-import org.pangrova.coordination.api.LeaseEntry;
+import org.pangrova.spi.connector.clustering.ClusteringCapability;
+import org.pangrova.spi.connector.clustering.ClusteringDescriptor;
+import org.pangrova.spi.connector.clustering.ClusteringRequest;
+import org.pangrova.spi.connector.clustering.ClusteringResult;
+import org.pangrova.spi.connector.clustering.ColumnMinMax;
+import org.pangrova.spi.connector.clustering.FileClusteringStats;
+import org.pangrova.spi.connector.index.CommitEvent;
+import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.spi.connector.index.CommitListener;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

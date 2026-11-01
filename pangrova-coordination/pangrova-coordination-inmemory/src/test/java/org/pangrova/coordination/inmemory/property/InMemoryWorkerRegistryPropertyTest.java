@@ -12,9 +12,9 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.coordination.api.HeartbeatSnapshot;
+import org.pangrova.spi.coordination.HeartbeatSnapshot;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.coordination.api.WorkerSnapshot;
+import org.pangrova.spi.coordination.WorkerSnapshot;
 
 /**
  * Property-based tests for {@link InMemoryWorkerRegistry}.

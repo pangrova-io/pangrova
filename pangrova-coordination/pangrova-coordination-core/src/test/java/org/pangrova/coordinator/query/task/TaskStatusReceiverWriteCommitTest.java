@@ -2,7 +2,6 @@ package org.pangrova.coordinator.query.task;
 
 import org.pangrova.scheduler.api.placement.TaskDuration;
 
-
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 import org.pangrova.coordinator.query.task.report.GenerationWorkReportSink;
@@ -29,27 +28,27 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.client.core.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 import org.pangrova.query.store.memory.InMemoryWriteCommitJournal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -517,8 +516,8 @@ class TaskStatusReceiverWriteCommitTest {
                 .as("the replacement owner still needs the write context or durable intent")
                 .isTrue();
         assertThat(writeCommitJournal.getEntry(QUERY_ID)).get()
-                .extracting(org.pangrova.connector.spi.coordination.WriteCommitEntry::state)
-                .isEqualTo(org.pangrova.connector.spi.coordination.WriteCommitEntry.State.PENDING);
+                .extracting(org.pangrova.spi.connector.coordination.WriteCommitEntry::state)
+                .isEqualTo(org.pangrova.spi.connector.coordination.WriteCommitEntry.State.PENDING);
     }
 
     @Test
@@ -590,8 +589,8 @@ class TaskStatusReceiverWriteCommitTest {
 
         assertThat(recordingMetadata.finishCalls).isEmpty();
         assertThat(writeCommitJournal.getEntry(QUERY_ID)).get()
-                .extracting(org.pangrova.connector.spi.coordination.WriteCommitEntry::state)
-                .isEqualTo(org.pangrova.connector.spi.coordination.WriteCommitEntry.State.PENDING);
+                .extracting(org.pangrova.spi.connector.coordination.WriteCommitEntry::state)
+                .isEqualTo(org.pangrova.spi.connector.coordination.WriteCommitEntry.State.PENDING);
     }
 
     private static ExecutionAnchor anchor(String ownerId, long token) {
@@ -817,7 +816,7 @@ class TaskStatusReceiverWriteCommitTest {
     /** Minimal session for test wiring. */
     static final class TestConnectorSession implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

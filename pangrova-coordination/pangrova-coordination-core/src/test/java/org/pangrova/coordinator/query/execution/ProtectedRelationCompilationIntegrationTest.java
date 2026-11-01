@@ -20,19 +20,19 @@ import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.time.Instant;
@@ -46,9 +46,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Actual planning and PostgreSQL policy authority; not a Native execution test. */
 class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
 
-    private PersistentRowPolicyStore rowPolicies;
-    private PersistentColumnMaskStore masks;
-    private PersistentGrantStore grants;
+    private JdbcRowPolicyStore rowPolicies;
+    private JdbcColumnMaskStore masks;
+    private JdbcGrantStore grants;
     private QueryPipelineExecutor pipeline;
     private final CoordinatorSessionContext actor = new CoordinatorSessionContext(
             "protected-compilation", Map.of("catalog", "default", "schema", "default"),
@@ -57,15 +57,15 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
     @BeforeEach
     void initializeAuthority() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("protected_compile");
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("feature-reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "feature-reader"));
-        grants = new PersistentGrantStore(dataSource);
+        grants = new JdbcGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("feature-reader", Privilege.SELECT,
                 "TABLE", "default", "default", "orders", null));
-        rowPolicies = new PersistentRowPolicyStore(dataSource);
-        masks = new PersistentColumnMaskStore(dataSource);
+        rowPolicies = new JdbcRowPolicyStore(dataSource);
+        masks = new JdbcColumnMaskStore(dataSource);
         var authority = new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(rowPolicies), new ColumnMaskingProcessor(masks));
         var security = new SecurityPolicyApplier(compiler(), new AccessControlEnforcer(authority),
@@ -108,7 +108,7 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
         assertThat(third.effectivePlanDigest()).isNotEqualTo(second.effectivePlanDigest());
         grants.revokeGrants("feature-reader", Privilege.SELECT, "default", "default", "orders");
         assertThatThrownBy(() -> pipeline.compileAuthorizedRelation("SELECT id FROM orders", actor))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
     }
 
     @Test
@@ -124,7 +124,7 @@ class ProtectedRelationCompilationIntegrationTest extends ContainerTestBase {
     @Test
     void rejectsAnonymousAndWriteIntents() {
         assertThatThrownBy(() -> pipeline.compileAuthorizedRelation("SELECT id FROM orders", null))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
         assertThatThrownBy(() -> pipeline.compileAuthorizedRelation("DELETE FROM orders", actor))
                 .hasMessageContaining("read-only query");
     }

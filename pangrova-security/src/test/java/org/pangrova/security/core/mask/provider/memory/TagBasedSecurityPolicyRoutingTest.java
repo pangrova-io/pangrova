@@ -1,8 +1,8 @@
 package org.pangrova.security.core.mask.provider.memory;
 
-import org.pangrova.security.api.mask.ColumnMaskRecord;
-import org.pangrova.security.api.mask.ColumnMaskStore;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.mask.ColumnMaskRecord;
+import org.pangrova.persistence.api.security.mask.ColumnMaskStore;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

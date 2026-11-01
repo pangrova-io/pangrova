@@ -23,7 +23,7 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.observability.sdk.tracing.QueryTracer;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -176,7 +176,7 @@ public class QueryDispatcher {
     }
 
     /** Registers the exact public state-bound lifetime before planning can perform connector I/O. */
-    public org.pangrova.connector.spi.metadata.ConnectorMetadataScope bindConnectorAuthority(
+    public org.pangrova.spi.connector.metadata.ConnectorMetadataScope bindConnectorAuthority(
             QueryStateMachine state, String queryId) {
         var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));
         ownershipTracker.registerConnectorAuthority(authority);
@@ -224,7 +224,7 @@ public class QueryDispatcher {
         return ownershipTracker.acquireQueryOwnership(queryId);
     }
 
-    public org.pangrova.connector.spi.ConnectorQueryAuthority openQueryIssuance(String queryId) {
+    public org.pangrova.spi.connector.ConnectorQueryAuthority openQueryIssuance(String queryId) {
         return taskTracker.openQueryIssuance(queryId);
     }
 

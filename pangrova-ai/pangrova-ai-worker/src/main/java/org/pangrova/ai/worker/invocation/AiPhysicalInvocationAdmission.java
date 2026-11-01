@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.ai.api.capability.AiRequestConstraints;
+import org.pangrova.spi.ai.capability.AiRequestConstraints;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 
 import java.time.Instant;

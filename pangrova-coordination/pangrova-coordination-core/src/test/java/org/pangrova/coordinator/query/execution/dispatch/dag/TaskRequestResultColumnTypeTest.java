@@ -17,7 +17,7 @@ import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ResultColumnLogicalType;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

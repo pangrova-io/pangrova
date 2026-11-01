@@ -35,8 +35,8 @@ import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.statement.CreateFeatureViewStatement;
 import org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
 import org.pangrova.parser.ast.statement.PublishFeatureViewStatement;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Clock;
 import java.util.List;
@@ -203,23 +203,23 @@ public final class FeatureViewStatementService {
 
     private void authorizeSource(
             UserIdentity user,
-            org.pangrova.connector.spi.metadata.table.QualifiedTableName source) {
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName source) {
         accessControl.checkCanSelectFromTable(
                 user, source.catalog(), source.schema(), source.table());
     }
 
-    private static org.pangrova.connector.spi.metadata.table.QualifiedTableName source(
+    private static org.pangrova.spi.connector.metadata.table.QualifiedTableName source(
             FeatureViewVersion version) {
         String[] parts = version.sourceTable().split("\\.", -1);
         if (parts.length != 3 || java.util.Arrays.stream(parts).anyMatch(String::isBlank)) {
             throw invalid("Persisted Feature View source identity is invalid");
         }
-        return new org.pangrova.connector.spi.metadata.table.QualifiedTableName(
+        return new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
                 parts[0], parts[1], parts[2]);
     }
 
     private static CoordinatorSessionContext sourceSession(CoordinatorSessionContext session,
-            org.pangrova.connector.spi.metadata.table.QualifiedTableName source) {
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName source) {
         var properties = new java.util.HashMap<>(session.sessionProperties());
         properties.put("catalog", source.catalog());
         properties.put("schema", source.schema());

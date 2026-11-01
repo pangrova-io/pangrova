@@ -8,11 +8,11 @@ import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.pangrova.query.api.state.JournalEventContext;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.query.api.state.StateJournalConfig;
+import org.pangrova.spi.query.state.JournalEventContext;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.query.state.StateJournalConfig;
 
 import static org.junit.jupiter.api.Assertions.*;
 

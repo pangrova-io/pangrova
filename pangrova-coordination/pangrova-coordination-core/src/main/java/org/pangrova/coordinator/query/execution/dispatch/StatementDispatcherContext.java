@@ -4,7 +4,7 @@ import java.util.List;
 
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

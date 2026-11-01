@@ -19,7 +19,7 @@ import org.pangrova.worker.resource.spill.SpillManager;
 import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.protocol.execution.QueryId;
+import org.pangrova.spi.query.identity.QueryId;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;

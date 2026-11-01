@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.metrics.provider.otel;
 
-import org.pangrova.observability.api.ObservableDoubleGauge;
+import org.pangrova.spi.observability.ObservableDoubleGauge;
 
 /**
  * Wraps OTel's observable gauge registration behind Pangrova's SPI.

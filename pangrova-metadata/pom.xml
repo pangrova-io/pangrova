@@ -21,6 +21,11 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-persistence-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-schema-migrations</artifactId>
             <scope>runtime</scope>
         </dependency>
@@ -40,19 +45,7 @@
 
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-query-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-observability-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-indexing-api</artifactId>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
 
         <!-- Internal modules -->
@@ -174,11 +167,7 @@
             <scope>test</scope>
         </dependency>
         <!-- Cross-provider File authority tests use Metadata's real tenant store. -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-api</artifactId>
-            <scope>test</scope>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-file-core</artifactId>
@@ -186,8 +175,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-store-jdbc</artifactId>
-            <scope>test</scope>
+            <artifactId>pangrova-persistence-jdbc</artifactId>
         </dependency>
         <!-- Streaming-owned stores are exercised against the metadata migration chain. -->
         <dependency>

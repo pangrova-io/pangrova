@@ -427,3 +427,11 @@ also applies when `PANGROVA_JAVA_OPTS` replaces the configured JVM sizing option
 otherwise a Native write can fail on its first Arrow IPC batch under JDK 17.
 
 **See Also:** [Configuration model](index.md), [Coordinator](coordinator.md), [Quick Reference](reference.md)
+
+LOCAL object mutation and multipart durability use the
+[Filesystem provider protocol](../architecture/file-storage.md). Providers cooperate
+across JVMs on the same host; this does not qualify network filesystems. Before
+upgrading LOCAL writers, drain or abort existing multipart sessions and deploy a
+consistent writer cohort. Legacy unbound sessions cannot complete. An uncertain
+completion must not be replayed over a later writer; inspect the published object
+and start a new authorized upload when needed.

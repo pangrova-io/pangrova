@@ -3,9 +3,9 @@ package org.pangrova.coordinator.adapter.indexing.lifecycle.gc;
 import org.pangrova.indexing.core.config.IndexingConfig;
 import org.pangrova.indexing.core.storage.IndexStorageManager;
 import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
-import org.pangrova.connector.spi.index.SnapshotPinProvider;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 
 import java.util.function.Function;
 

@@ -171,7 +171,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
                         .setSha256(ProtocolChecksums.sha256(metadata))).build();
     }
 
-    private static ExecutionOwnerIdentity owner(org.pangrova.query.api.coordination.ExecutionAnchor anchor) {
+    private static ExecutionOwnerIdentity owner(org.pangrova.spi.query.coordination.ExecutionAnchor anchor) {
         return ExecutionOwnerIdentity.newBuilder().setOwnerId(anchor.ownerId()).setOwnerIncarnation(anchor.ownerIncarnation())
                 .setFencingToken(anchor.fencingToken()).build();
     }

@@ -14,15 +14,15 @@ import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.ConnectorSplitSource;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.indexing.api.eval.IndexEvaluatedSplit;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.indexing.eval.IndexEvaluatedSplit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -205,7 +205,7 @@ public final class SplitFetcher {
             metadata.validateColumnAccess(session, tableHandle, projectedColumns);
         }
 
-        if (binding.state() == org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
+        if (binding.state() == org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
             return List.of();
         }
 

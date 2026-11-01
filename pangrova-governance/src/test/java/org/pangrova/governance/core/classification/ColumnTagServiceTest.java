@@ -1,7 +1,7 @@
 package org.pangrova.governance.core.classification;
 
-import org.pangrova.security.api.mask.ColumnMaskRecord;
-import org.pangrova.security.api.mask.ColumnMaskStore;
+import org.pangrova.spi.security.mask.ColumnMaskRecord;
+import org.pangrova.persistence.api.security.mask.ColumnMaskStore;
 import org.pangrova.governance.api.classification.AuditConfigStore;
 import org.pangrova.governance.api.classification.TagChangedEvent;
 import org.pangrova.governance.api.classification.TagChangedEventListener;
@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * and that the auto-mask pipeline (TagBasedSecurityPolicy) activates on tag changes.
  */
 class ColumnTagServiceTest {
-    private final java.util.Map<org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID>
+    private final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
             tableIds = new java.util.HashMap<>();
 
     private ColumnTagService tagService;

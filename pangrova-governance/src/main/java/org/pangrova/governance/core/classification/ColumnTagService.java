@@ -21,18 +21,18 @@ public class ColumnTagService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ColumnTagService.class);
 
-    private final java.util.function.Function<org.pangrova.connector.spi.metadata.table.QualifiedTableName,
+    private final java.util.function.Function<org.pangrova.spi.connector.metadata.table.QualifiedTableName,
             java.util.UUID> tableIdentities;
 
     /** Names are resolved through the authoritative control plane, never an event-built name cache. */
     public ColumnTagService(java.util.function.Function<
-            org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID> tableIdentities) {
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID> tableIdentities) {
         this.tableIdentities = java.util.Objects.requireNonNull(tableIdentities, "tableIdentities");
     }
 
     private java.util.UUID identity(String catalog, String schema, String table) {
         return java.util.Objects.requireNonNull(tableIdentities.apply(
-                new org.pangrova.connector.spi.metadata.table.QualifiedTableName(catalog, schema, table)), "tableId");
+                new org.pangrova.spi.connector.metadata.table.QualifiedTableName(catalog, schema, table)), "tableId");
     }
 
     private final List<TagChangedEventListener> listeners = new CopyOnWriteArrayList<>();

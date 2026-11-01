@@ -4,10 +4,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import org.pangrova.observability.api.event.QueryCompletedEvent;
-import org.pangrova.observability.api.event.QueryCreatedEvent;
-import org.pangrova.observability.api.event.QueryEventListener;
-import org.pangrova.observability.api.event.QueryLineageMetadata;
+import org.pangrova.spi.observability.event.QueryCompletedEvent;
+import org.pangrova.spi.observability.event.QueryCreatedEvent;
+import org.pangrova.spi.observability.event.QueryEventListener;
+import org.pangrova.spi.observability.event.QueryLineageMetadata;
 import org.pangrova.governance.api.lineage.DatasetRef;
 import org.pangrova.governance.api.lineage.LineageEvent;
 

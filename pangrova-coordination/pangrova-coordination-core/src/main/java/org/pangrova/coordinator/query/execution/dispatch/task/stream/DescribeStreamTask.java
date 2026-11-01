@@ -10,7 +10,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.streaming.adapter.coordinator.StreamDdlExecutor;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.parser.ast.statement.stream.DescribeStreamStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes DESCRIBE STREAM by delegating to {@link StreamDdlExecutor#describe}.

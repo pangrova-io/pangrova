@@ -3,9 +3,9 @@ package org.pangrova.coordinator.query.audit;
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.adapter.audit.LogAuditStore;
 import org.pangrova.query.core.audit.QueryAuditService;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventType;
 
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;

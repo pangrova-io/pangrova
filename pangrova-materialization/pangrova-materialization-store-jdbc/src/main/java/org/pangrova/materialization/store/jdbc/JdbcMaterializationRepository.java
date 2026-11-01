@@ -37,7 +37,7 @@ import org.pangrova.materialization.port.MaterializationRepository;
 import org.pangrova.materialization.port.PublicationResult;
 import org.pangrova.materialization.port.PublishCommand;
 import org.pangrova.materialization.port.ReclaimableSourcePin;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
 
 import static org.pangrova.common.jdbc.JdbcSupport.canonicalInstant;
 import static org.pangrova.common.jdbc.JdbcSupport.setInstant;

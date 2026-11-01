@@ -7,12 +7,12 @@ import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.ServerInterceptor;
 import io.grpc.Status;
-import org.pangrova.observability.api.Context;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.SpanKind;
-import org.pangrova.observability.api.StatusCode;
-import org.pangrova.observability.api.TextMapGetter;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.Context;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.StatusCode;
+import org.pangrova.spi.observability.TextMapGetter;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.observability.sdk.tracing.provider.otel.OtelContextWrapper;
 
 /**

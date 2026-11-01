@@ -1,13 +1,13 @@
 package org.pangrova.metadata.core.catalog.handle.connector;
 
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.HealthCheckResult;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.HealthCheckResult;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogHealthStatus;
@@ -49,7 +49,7 @@ public final class ConnectorCatalogHandle implements CatalogHandle {
     }
 
     @Override
-    public void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
+    public void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
         connector.registerCommitListener(listener);
     }
 
@@ -72,7 +72,7 @@ public final class ConnectorCatalogHandle implements CatalogHandle {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.spi.materialization.SourceProvider>
+    public java.util.Optional<org.pangrova.spi.connector.materialization.SourceProvider>
             getMaterializationSourceProvider() {
         return connector.getMaterializationSourceProvider();
     }

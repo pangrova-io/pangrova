@@ -12,11 +12,11 @@ import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 import org.pangrova.metadata.core.event.MetadataEvent;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.audit.AuditEventWriter;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventWriter;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.time.Duration;
 import java.time.Instant;

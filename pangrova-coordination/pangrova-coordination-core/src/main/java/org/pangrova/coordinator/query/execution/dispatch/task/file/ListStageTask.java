@@ -8,19 +8,19 @@ import java.util.regex.PatternSyntaxException;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.file.api.access.FileListingClient;
+import org.pangrova.spi.file.access.FileListingClient;
 import org.pangrova.file.core.space.FileSpaceAccessService;
-import org.pangrova.file.api.access.FileAccessGrant;
+import org.pangrova.spi.file.access.FileAccessGrant;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.ListStageStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.directory.FileListing;
-import org.pangrova.file.api.directory.FileStat;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.filesystem.api.object.FileListing;
+import org.pangrova.filesystem.api.object.FileStat;
 
 /**
  * Executes {@code LIST @stage[/path]}; the Coordinator issues one read ticket and the

@@ -8,8 +8,8 @@ import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.util.List;
-import org.pangrova.security.api.audit.AuditEventWriter;
-import org.pangrova.security.store.jdbc.JdbcAuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEventWriter;
+import org.pangrova.persistence.jdbc.security.audit.JdbcAuditEventWriter;
 
 /**
  * Creates the configured {@link AuditEventWriter} backend.

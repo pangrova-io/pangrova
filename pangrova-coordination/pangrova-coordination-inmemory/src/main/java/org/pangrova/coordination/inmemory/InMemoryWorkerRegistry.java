@@ -1,9 +1,9 @@
 package org.pangrova.coordination.inmemory;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.coordination.api.HeartbeatSnapshot;
-import org.pangrova.coordination.api.WorkerRegistry;
-import org.pangrova.coordination.api.WorkerSnapshot;
+import org.pangrova.spi.coordination.HeartbeatSnapshot;
+import org.pangrova.persistence.api.coordination.WorkerRegistry;
+import org.pangrova.spi.coordination.WorkerSnapshot;
 
 import java.time.Duration;
 import java.util.List;

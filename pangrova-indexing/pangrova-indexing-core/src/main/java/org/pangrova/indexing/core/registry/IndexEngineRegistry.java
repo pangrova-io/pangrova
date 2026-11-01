@@ -1,7 +1,7 @@
 package org.pangrova.indexing.core.registry;
 
-import org.pangrova.indexing.api.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.IndexStrategyProvider;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

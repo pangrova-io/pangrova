@@ -1,10 +1,10 @@
 package org.pangrova.metadata.api.catalog;
 
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
 
 /**
  * Unified handle for accessing a registered catalog regardless of its type.
@@ -25,7 +25,7 @@ public interface CatalogHandle {
     ConnectorMetadata getMetadata(ConnectorSession session);
 
     /** Registers a lifecycle callback; this port grants no data or table access. */
-    default void registerCommitListener(org.pangrova.connector.spi.index.CommitListener listener) {
+    default void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
         throw new UnsupportedOperationException("Catalog does not publish commit events");
     }
 
@@ -49,7 +49,7 @@ public interface CatalogHandle {
      *
      * @return source contract, or empty if this catalog cannot serve one
      */
-    default java.util.Optional<org.pangrova.connector.spi.materialization.SourceProvider>
+    default java.util.Optional<org.pangrova.spi.connector.materialization.SourceProvider>
             getMaterializationSourceProvider() {
         return java.util.Optional.empty();
     }

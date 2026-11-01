@@ -55,7 +55,7 @@ import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.util.ArrayList;
 import java.util.HashMap;

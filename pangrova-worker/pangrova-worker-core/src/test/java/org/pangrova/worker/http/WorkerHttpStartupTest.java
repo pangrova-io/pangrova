@@ -73,7 +73,7 @@ class WorkerHttpStartupTest {
         try {
             withFiles.start();
             withFiles.stop();
-            var profile = new org.pangrova.file.api.profile.StorageProfile("closed",
+            var profile = new org.pangrova.filesystem.api.profile.StorageProfile("closed",
                     org.pangrova.common.storage.StorageType.LOCAL, "/tmp", "", "", "us-east-1",
                     java.util.Map.of(), java.util.Map.of());
             assertThatThrownBy(() -> factory.accessor(profile)).hasMessageContaining("closed");

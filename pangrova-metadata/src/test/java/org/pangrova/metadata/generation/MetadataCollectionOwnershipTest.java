@@ -18,7 +18,7 @@ import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.store.jdbc.catalog.MetadataJsonMapper;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;

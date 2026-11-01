@@ -17,9 +17,9 @@ import org.pangrova.streaming.store.jdbc.checkpoint.JdbcStreamStateStore;
 import org.pangrova.streaming.api.checkpoint.StreamOffsetStore;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.streaming.api.cdc.CdcWriteSink;
 import org.pangrova.streaming.core.cdc.CdcRecordConverterRegistry;
 import org.pangrova.streaming.core.commit.JdbcCdcCommitStateStore;
@@ -202,7 +202,7 @@ final class StreamingBootstrap implements AutoCloseable {
     private record StreamConnectorSession(
             String catalog, String schema, String tenantId) implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

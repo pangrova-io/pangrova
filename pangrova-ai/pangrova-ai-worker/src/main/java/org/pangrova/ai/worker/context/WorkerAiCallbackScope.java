@@ -13,7 +13,7 @@
  */
 package org.pangrova.ai.worker.context;
 
-import org.pangrova.function.api.runtime.FunctionCallbackScope;
+import org.pangrova.spi.function.runtime.FunctionCallbackScope;
 
 import java.util.function.Supplier;
 

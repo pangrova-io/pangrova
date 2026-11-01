@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.client.core.protocol.SubmitQueryRequest;
 import org.pangrova.client.core.protocol.SubmitQueryResponse;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
 import org.junit.jupiter.api.BeforeAll;

@@ -1,7 +1,7 @@
 package org.pangrova.query.store.memory;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import java.time.Clock;
 import java.time.Duration;

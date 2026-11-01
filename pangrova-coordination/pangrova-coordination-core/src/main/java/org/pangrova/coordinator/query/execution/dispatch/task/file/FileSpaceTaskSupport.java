@@ -7,12 +7,12 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.parser.ast.Identifier;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceRegistry;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.file.space.FileSpace;
+import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
 import org.pangrova.common.file.FileSpaceType;
 
 /** Shared resolution rules for Volume and Stage metadata tasks. */

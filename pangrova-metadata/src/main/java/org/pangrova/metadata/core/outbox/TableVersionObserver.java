@@ -11,12 +11,12 @@ import org.pangrova.metadata.core.event.MetadataEvent;
 import org.pangrova.metadata.core.event.MetadataEventDispatcher;
 import org.pangrova.metadata.service.DefaultConnectorSession;
 import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

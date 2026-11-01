@@ -9,7 +9,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
 import org.pangrova.parser.ast.statement.ReclusterTableStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes RECLUSTER TABLE by delegating to {@link ClusteringDdlExecutor#executeReclusterTable}.

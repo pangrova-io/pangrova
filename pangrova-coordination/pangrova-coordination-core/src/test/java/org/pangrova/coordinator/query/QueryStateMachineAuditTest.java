@@ -4,7 +4,7 @@ import org.pangrova.coordinator.query.admission.QueryRejectedException;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.Map;

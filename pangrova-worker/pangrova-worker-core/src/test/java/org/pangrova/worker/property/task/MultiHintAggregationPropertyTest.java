@@ -5,7 +5,7 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
-import org.pangrova.connector.spi.index.IndexEvalResult;
+import org.pangrova.spi.connector.index.IndexEvalResult;
 import org.pangrova.worker.task.index.IndexEvalSplitFilter;
 
 import java.util.List;

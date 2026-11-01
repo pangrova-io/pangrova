@@ -4,12 +4,12 @@ import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.file.api.claim.CopyFileClaim;
-import org.pangrova.file.api.claim.CopyFileClaimStore;
-import org.pangrova.file.store.jdbc.claim.JdbcCopyFileClaimStore;
+import org.pangrova.persistence.api.file.claim.CopyFileClaim;
+import org.pangrova.persistence.api.file.claim.CopyFileClaimStore;
+import org.pangrova.persistence.jdbc.file.claim.JdbcCopyFileClaimStore;
 import org.pangrova.common.file.CopyFilePublication;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

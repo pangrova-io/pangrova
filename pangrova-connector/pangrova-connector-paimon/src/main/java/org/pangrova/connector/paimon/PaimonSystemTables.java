@@ -8,7 +8,7 @@ import org.pangrova.connector.paimon.system.PaimonOptionsSystemTable;
 import org.pangrova.connector.paimon.system.PaimonSchemasSystemTable;
 import org.pangrova.connector.paimon.system.PaimonSnapshotsSystemTable;
 import org.pangrova.connector.paimon.system.PaimonTagsSystemTable;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
+import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
 import org.apache.paimon.table.Table;
 
 import java.util.Optional;

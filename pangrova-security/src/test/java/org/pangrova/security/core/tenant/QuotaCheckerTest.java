@@ -1,6 +1,6 @@
 package org.pangrova.security.core.tenant;
 
-import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.ResourceQuota;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

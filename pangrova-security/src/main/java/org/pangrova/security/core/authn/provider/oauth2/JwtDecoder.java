@@ -1,6 +1,6 @@
 package org.pangrova.security.core.authn.provider.oauth2;
 
-import org.pangrova.security.api.authn.TokenValidationException;
+import org.pangrova.spi.security.authn.TokenValidationException;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;

@@ -13,8 +13,8 @@
  */
 package org.pangrova.ai.worker.provider;
 
-import org.pangrova.ai.api.model.AiModelDescriptor;
-import org.pangrova.ai.api.runtime.AiModelCatalog;
+import org.pangrova.spi.ai.model.AiModelDescriptor;
+import org.pangrova.spi.ai.runtime.AiModelCatalog;
 import org.pangrova.ai.worker.config.AiFunctionActivation;
 
 import java.util.List;

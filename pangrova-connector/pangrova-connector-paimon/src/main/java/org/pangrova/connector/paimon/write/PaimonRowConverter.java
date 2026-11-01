@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;

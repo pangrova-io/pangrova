@@ -20,7 +20,7 @@ import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.coordinator.task.QueryIssuanceOperation;
 import org.pangrova.client.core.error.ErrorDetail;
 import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.query.api.state.QueryStateEvent;
+import org.pangrova.spi.query.state.QueryStateEvent;
 
 /**
  * CAS-based state machine for query lifecycle.
@@ -62,16 +62,16 @@ public class QueryStateMachine {
     private final AtomicBoolean physicalCleanupApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
     private volatile Runnable admissionRelease;
-    private final AtomicReference<org.pangrova.query.api.lineage.QueryLineageFact> lineageStart =
+    private final AtomicReference<org.pangrova.spi.query.lineage.QueryLineageFact> lineageStart =
             new AtomicReference<>();
-    private final AtomicReference<org.pangrova.query.api.lineage.QueryLineageFact> lineageTerminal =
+    private final AtomicReference<org.pangrova.spi.query.lineage.QueryLineageFact> lineageTerminal =
             new AtomicReference<>();
-    private org.pangrova.observability.api.event.QueryLineageMetadata lineageMetadata =
-            org.pangrova.observability.api.event.QueryLineageMetadata.empty();
+    private org.pangrova.spi.observability.event.QueryLineageMetadata lineageMetadata =
+            org.pangrova.spi.observability.event.QueryLineageMetadata.empty();
 
     /** Holds authorized plan lineage for the full query lifetime, independent of diagnostic cache eviction. */
     public synchronized void bindLineageMetadata(
-            org.pangrova.observability.api.event.QueryLineageMetadata metadata) {
+            org.pangrova.spi.observability.event.QueryLineageMetadata metadata) {
         java.util.Objects.requireNonNull(metadata, "metadata");
         if (connectorAdmissionClosed() || lineageTerminal.get() != null) {
             throw new java.util.concurrent.CancellationException("Query lineage admission has closed");
@@ -80,14 +80,14 @@ public class QueryStateMachine {
     }
 
     /** Returns the immutable authorized plan lineage retained by this query owner. */
-    public synchronized org.pangrova.observability.api.event.QueryLineageMetadata lineageMetadata() {
+    public synchronized org.pangrova.spi.observability.event.QueryLineageMetadata lineageMetadata() {
         return lineageMetadata;
     }
 
-    synchronized org.pangrova.query.api.lineage.QueryLineageFact freezeLineage(
-            org.pangrova.query.api.lineage.QueryLineageFact.Phase phase,
-            java.util.function.Supplier<org.pangrova.query.api.lineage.QueryLineageFact> create) {
-        var slot = phase == org.pangrova.query.api.lineage.QueryLineageFact.Phase.START
+    synchronized org.pangrova.spi.query.lineage.QueryLineageFact freezeLineage(
+            org.pangrova.spi.query.lineage.QueryLineageFact.Phase phase,
+            java.util.function.Supplier<org.pangrova.spi.query.lineage.QueryLineageFact> create) {
+        var slot = phase == org.pangrova.spi.query.lineage.QueryLineageFact.Phase.START
                 ? lineageStart : lineageTerminal;
         var retained = slot.get();
         if (retained == null) {
@@ -100,7 +100,7 @@ public class QueryStateMachine {
         return retained;
     }
 
-    org.pangrova.query.api.lineage.QueryLineageFact lineageStart() { return lineageStart.get(); }
+    org.pangrova.spi.query.lineage.QueryLineageFact lineageStart() { return lineageStart.get(); }
 
     void retainAdmissionRelease(Runnable release) { admissionRelease = release; }
 
@@ -132,8 +132,8 @@ public class QueryStateMachine {
     private QueryConnectorAuthority connectorAuthority;
 
     /** Binds exactly once to this query's real issued scope, never to a later query-ID lookup. */
-    public synchronized org.pangrova.connector.spi.metadata.ConnectorMetadataScope bindConnectorAuthority(
-            org.pangrova.connector.spi.ConnectorQueryAuthority issued) {
+    public synchronized org.pangrova.spi.connector.metadata.ConnectorMetadataScope bindConnectorAuthority(
+            org.pangrova.spi.connector.ConnectorQueryAuthority issued) {
         java.util.Objects.requireNonNull(issued, "issued");
         if (connectorAdmissionClosed() || issued.isClosed()) {
             throw new IllegalStateException("Connector query admission is closed: " + issued.queryId());
@@ -151,15 +151,15 @@ public class QueryStateMachine {
     }
 
     /** Returns the exact connector lifetime bound during engine query creation. */
-    public synchronized org.pangrova.connector.spi.metadata.ConnectorMetadataScope connectorAuthority() {
+    public synchronized org.pangrova.spi.connector.metadata.ConnectorMetadataScope connectorAuthority() {
         if (connectorAuthority == null) {
             throw new IllegalStateException("Query has no issued connector authority");
         }
         return connectorAuthority;
     }
 
-    synchronized org.pangrova.connector.spi.ConnectorQueryOperation enterConnectorOperation(
-            org.pangrova.connector.spi.ConnectorQueryAuthority issued) {
+    synchronized org.pangrova.spi.connector.ConnectorQueryOperation enterConnectorOperation(
+            org.pangrova.spi.connector.ConnectorQueryAuthority issued) {
         if (connectorAdmissionClosed()) {
             throw new IllegalStateException("Connector query admission is closed: " + issued.queryId());
         }
@@ -302,8 +302,8 @@ public class QueryStateMachine {
         transitionOperations = java.util.Objects.requireNonNull(operations);
     }
 
-    org.pangrova.query.api.state.QueryStateEvent journalEvent(State target,
-            java.util.function.Supplier<org.pangrova.query.api.state.QueryStateEvent> create) {
+    org.pangrova.spi.query.state.QueryStateEvent journalEvent(State target,
+            java.util.function.Supplier<org.pangrova.spi.query.state.QueryStateEvent> create) {
         var existing = journalFacts.get(target);
         if (existing != null) return existing;
         var candidate = create.get();

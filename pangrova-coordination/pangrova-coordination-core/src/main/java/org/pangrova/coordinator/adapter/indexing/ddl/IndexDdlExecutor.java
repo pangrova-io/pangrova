@@ -13,16 +13,16 @@ import org.pangrova.parser.ast.statement.AlterIndexStatement;
 import org.pangrova.parser.ast.statement.CreateIndexStatement;
 import org.pangrova.parser.ast.statement.DropIndexStatement;
 import org.pangrova.parser.ast.statement.ShowIndexesStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.index.SnapshotAwareMetadata;
-import org.pangrova.connector.spi.index.SnapshotDataFile;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
+import org.pangrova.spi.connector.index.SnapshotDataFile;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,7 +79,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
             return;
         }
         if (user == null) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Anonymous access denied for index DDL on " + tableRef);
         }
         if (requireAlter) {

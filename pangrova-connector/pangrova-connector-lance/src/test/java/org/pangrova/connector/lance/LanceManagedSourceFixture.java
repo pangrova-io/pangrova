@@ -33,30 +33,30 @@ import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.protocol.v2.WritePreparationOutcome;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
-import org.pangrova.connector.spi.metadata.NativeWriteAllocation;
-import org.pangrova.connector.spi.metadata.SourceObjectPage;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.coordination.jdbc.ExecutionTransactionFence;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
+import org.pangrova.spi.connector.metadata.SourceObjectPage;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.query.transaction.ExecutionTransactionFence;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import java.nio.charset.StandardCharsets;
@@ -91,9 +91,9 @@ public final class LanceManagedSourceFixture {
     private final CatalogExecutionBinding catalog;
     private final Map<String, ExecutionAnchor> owned = new ConcurrentHashMap<>();
     private final Map<String, Allocation> allocations = new ConcurrentHashMap<>();
-    private final Map<String, org.pangrova.connector.spi.metadata.SourcePrepareInvocation> invocations = new ConcurrentHashMap<>();
-    private final Map<String, org.pangrova.connector.spi.metadata.SourceCleanupBatch> cleanupBatches = new ConcurrentHashMap<>();
-    private final Map<String, org.pangrova.connector.spi.metadata.SourcePublicationReservation> reservations
+    private final Map<String, org.pangrova.spi.connector.metadata.SourcePrepareInvocation> invocations = new ConcurrentHashMap<>();
+    private final Map<String, org.pangrova.spi.connector.metadata.SourceCleanupBatch> cleanupBatches = new ConcurrentHashMap<>();
+    private final Map<String, org.pangrova.spi.connector.metadata.SourcePublicationReservation> reservations
             = new ConcurrentHashMap<>();
 
     public LanceManagedSourceFixture() {
@@ -308,7 +308,7 @@ public final class LanceManagedSourceFixture {
         return acceptRegistered(execution, publication);
     }
 
-    org.pangrova.connector.spi.metadata.PreparedSourcePublication registerObjects(
+    org.pangrova.spi.connector.metadata.PreparedSourcePublication registerObjects(
             String execution, PrepareDistributedWriteResult result) {
         var reservation = Optional.ofNullable(reservations.get(execution)).orElseThrow();
         if (result.getOutcome() != WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_PREPARED
@@ -327,7 +327,7 @@ public final class LanceManagedSourceFixture {
         authority.acknowledgePreparation(reservation, invocation,
                 ProtocolChecksums.sha256(result.toByteArray()).getDigest().toByteArray());
         var header = result.getPublication();
-        var publication = new org.pangrova.connector.spi.metadata.PreparedSourcePublication(
+        var publication = new org.pangrova.spi.connector.metadata.PreparedSourcePublication(
                 SourceSnapshotBindings.decode(header.getCandidate(), catalog), header.getRowCount(), header.getObjectsCount(),
                 sha(header.getObjectsSha256()), header.getInheritedMembership());
         authority.registerObjects(reservation, publication, new SourceObjectPage(page.getPageIndex(), page.getAfterPath(),
@@ -337,7 +337,7 @@ public final class LanceManagedSourceFixture {
     }
 
     AcceptedSourceSnapshotRef acceptRegistered(String execution,
-            org.pangrova.connector.spi.metadata.PreparedSourcePublication publication) {
+            org.pangrova.spi.connector.metadata.PreparedSourcePublication publication) {
         var reservation = Optional.ofNullable(reservations.get(execution)).orElseThrow();
         var allocation = allocation(execution);
         long rows = journal.getEntry(execution).orElseThrow().fragments().stream().mapToLong(bytes -> {
@@ -361,7 +361,7 @@ public final class LanceManagedSourceFixture {
         return SourceSnapshotBindings.encode(store.loadSnapshot(selector).reference(), catalog);
     }
 
-    public org.pangrova.connector.spi.metadata.DistributedWriteAbortReceipt abort(String execution) {
+    public org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abort(String execution) {
         var entry = journal.getEntry(execution).orElseThrow();
         return store.abort(allocation(execution).output(), entry.commitContext());
     }
@@ -375,7 +375,7 @@ public final class LanceManagedSourceFixture {
         }
     }
 
-    org.pangrova.connector.spi.plugin.Connector connector() {
+    org.pangrova.spi.connector.plugin.Connector connector() {
         var descriptor = new JdbcMetadataStore(dataSource).getCatalogDescriptor(catalog.getCatalogName()).orElseThrow();
         return new LanceConnector(descriptor.name(), descriptor.properties().get("warehouse"), descriptor.properties(),
                 Optional.empty(), Optional.of(authority));
@@ -459,7 +459,7 @@ public final class LanceManagedSourceFixture {
     }
 
     public WriteOutputBinding allocatedBinding(String execution) { return allocation(execution).binding(); }
-    org.pangrova.connector.spi.metadata.SourcePublicationReservation reservation(String execution) {
+    org.pangrova.spi.connector.metadata.SourcePublicationReservation reservation(String execution) {
         return Optional.ofNullable(reservations.get(execution)).orElseThrow();
     }
 
@@ -508,7 +508,7 @@ public final class LanceManagedSourceFixture {
 
     private static WriteAuthorizationReceipt receipt(LanceTableHandle table) {
         var name = new QualifiedTableName(table.catalog(), table.table().schema(), table.table().table());
-        var metadata = new org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata(table.table(),
+        var metadata = new org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata(table.table(),
                 table.columns().stream().map(LanceColumn::name).toList(), table.columns().stream().map(LanceColumn::metadata).toList(), Map.of());
         var declaration = WriteDeclarationSnapshot.capture(name, metadata, GeneratedColumnSet.newBuilder().setSchemaVersion(1).build().toByteArray(), false);
         return DeferredAuthorizationScopeCodec.encodeWriteReceipt(new DeferredAuthorizationScope(List.of(
@@ -518,7 +518,7 @@ public final class LanceManagedSourceFixture {
     }
 
     private void provisionSubject() {
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         if (roles.findRole("lance_sdk_writer").isEmpty()) roles.createRole(Role.of("lance_sdk_writer"));
         roles.grantRoleToUser(UserRoleAssignment.of(PRINCIPAL, "lance_sdk_writer"));
@@ -530,7 +530,7 @@ public final class LanceManagedSourceFixture {
     }
 
     private void grant(SchemaTableName table) {
-        new PersistentGrantStore(dataSource).addGrant(PrivilegeGrant.of("lance_sdk_writer", Privilege.INSERT, "TABLE",
+        new JdbcGrantStore(dataSource).addGrant(PrivilegeGrant.of("lance_sdk_writer", Privilege.INSERT, "TABLE",
                 catalog.getCatalogName(), table.schema(), table.table(), null));
     }
 

@@ -7,20 +7,20 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -76,7 +76,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 new TestOutputHandle(new SchemaTableName("sales", "orders"), writeMode, false))
                 .toByteArray();
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
                         "q1",
                         "tenant-a",
                         CATALOG,
@@ -283,7 +283,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         @Override
         public void finishDistributedWrite(ConnectorSession session,
                 ConnectorOutputTableHandle outputHandle, List<byte[]> fragments,
-                org.pangrova.connector.spi.coordination.DistributedWriteCommitContext context) {
+                org.pangrova.spi.connector.coordination.DistributedWriteCommitContext context) {
             if (tableGone) {
                 throw new NoSuchTableException();
             }
@@ -344,9 +344,9 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         }
 
         @Override
-        public Optional<org.pangrova.connector.spi.metadata.NativeWriteAllocation> nativeWriteAllocation() {
-            return nativeOutput ? Optional.of(new org.pangrova.connector.spi.metadata.NativeWriteAllocation(
-                    "file:///warehouse/orders", org.pangrova.connector.spi.metadata.NativeWriteAllocation.Operation.APPEND,
+        public Optional<org.pangrova.spi.connector.metadata.NativeWriteAllocation> nativeWriteAllocation() {
+            return nativeOutput ? Optional.of(new org.pangrova.spi.connector.metadata.NativeWriteAllocation(
+                    "file:///warehouse/orders", org.pangrova.spi.connector.metadata.NativeWriteAllocation.Operation.APPEND,
                     37L, new byte[32], "write-1", "transactions/write-1", "generation-1", List.of("id")))
                     : Optional.empty();
         }

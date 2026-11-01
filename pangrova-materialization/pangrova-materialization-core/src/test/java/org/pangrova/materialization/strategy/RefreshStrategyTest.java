@@ -27,11 +27,11 @@ import org.pangrova.materialization.domain.RefreshPlan;
 import org.pangrova.materialization.domain.SourceVector;
 import org.pangrova.materialization.extension.RefreshContext;
 import org.pangrova.materialization.extension.RefreshStrategy;
-import org.pangrova.connector.spi.materialization.ChangeProof;
-import org.pangrova.connector.spi.materialization.ChangeSetMode;
-import org.pangrova.connector.spi.materialization.ChangeSetPlan;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.ChangeProof;
+import org.pangrova.spi.connector.materialization.ChangeSetMode;
+import org.pangrova.spi.connector.materialization.ChangeSetPlan;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 
 class RefreshStrategyTest {
 

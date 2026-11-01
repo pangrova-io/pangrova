@@ -17,7 +17,7 @@ import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
 import org.pangrova.protocol.v2.ValueEncoding;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

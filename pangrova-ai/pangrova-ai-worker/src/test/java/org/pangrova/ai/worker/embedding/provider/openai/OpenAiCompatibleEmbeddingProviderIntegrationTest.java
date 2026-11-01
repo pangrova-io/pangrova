@@ -7,9 +7,9 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.ai.worker.OllamaIntegrationTestModels;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
@@ -124,7 +124,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
         var defaults = AiTransportTestAdmission.Limits.defaults();
         var limits = new AiTransportTestAdmission.Limits(defaults.concurrency(), defaults.items(), 1,
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
-        try (var budget = new AiTransportTestAdmission(org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING,
+        try (var budget = new AiTransportTestAdmission(org.pangrova.spi.ai.capability.AiCapabilityDescriptor.Operation.EMBEDDING,
                 384, 1, 1, limits, Instant.now().plusSeconds(20))) {
             assertThatThrownBy(() -> budget.call("deny-retry", () -> provider(true).embed(
                     request(EmbeddingPurpose.RAW, List.of("denied")))))
@@ -156,7 +156,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
     @Test
     void absoluteTaskDeadlineDoesNotReplayAnUnknownPost() throws IOException {
         proxy.toxics().timeout("blocked-response", ToxicDirection.DOWNSTREAM, 0);
-        try (var budget = new AiTransportTestAdmission(org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING,
+        try (var budget = new AiTransportTestAdmission(org.pangrova.spi.ai.capability.AiCapabilityDescriptor.Operation.EMBEDDING,
                 384, 1, 1, AiTransportTestAdmission.Limits.defaults(), Instant.now().plusSeconds(2))) {
             assertThatThrownBy(() -> budget.call("deadline",
                     () -> provider(true).embed(request(EmbeddingPurpose.RAW, List.of("deadline")))))
@@ -221,7 +221,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
         var singleSlot = new AiTransportTestAdmission.Limits(1, defaults.items(), defaults.attempts(),
                 defaults.requestBytes(), defaults.responseBytes(), defaults.mediaBytes(), defaults.constraints());
         try (var budget = new AiTransportTestAdmission(
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.EMBEDDING, 384, 1, 1,
+                org.pangrova.spi.ai.capability.AiCapabilityDescriptor.Operation.EMBEDDING, 384, 1, 1,
                 singleSlot, java.time.Instant.now().plusSeconds(30))) {
             var outcome = caller.submit(() -> {
                 try {
@@ -292,7 +292,7 @@ class OpenAiCompatibleEmbeddingProviderIntegrationTest extends ContainerTestBase
         }
     }
 
-    private static org.pangrova.ai.api.embedding.EmbeddingBatchResult embed(boolean proxied, EmbeddingBatchRequest request) {
+    private static org.pangrova.spi.ai.embedding.EmbeddingBatchResult embed(boolean proxied, EmbeddingBatchRequest request) {
         try (var budget = AiTransportTestAdmission.embedding(384, request.inputs().size(), 1)) {
             return budget.call("embedding-reference", () -> provider(proxied).embed(request));
         }

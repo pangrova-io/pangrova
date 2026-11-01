@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -59,12 +59,12 @@ public final class PlanningSnapshotSelectors {
 
     private record SelectedSession(String user, Optional<String> catalog, Optional<String> schema,
             Map<String, String> properties,
-            Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
+            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
         @Override public String getUser() { return user; }
         @Override public Optional<String> getCatalog() { return catalog; }
         @Override public Optional<String> getSchema() { return schema; }
         @Override public Map<String, String> getProperties() { return properties; }
-        @Override public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return queryAuthority;
         }
     }

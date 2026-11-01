@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.observability.api.LongCounter;
+import org.pangrova.spi.observability.LongCounter;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
 

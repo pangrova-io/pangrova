@@ -31,12 +31,12 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.parser.ast.SetSessionStatement;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.streaming.core.maintenance.MaintenanceScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -156,7 +156,7 @@ final class QueryExecutionBootstrap {
         }
         if (metadataDataSource != null && accessControl != null && coordinationService != null) {
             rtd.setCopySourceBinder(new CopySourceTaskBinder(
-                    new org.pangrova.file.store.jdbc.copy.JdbcCopySourceReadAdmissions(metadataDataSource,
+                    new org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions(metadataDataSource,
                             accessControl,
                             new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence()),
                     coordinationService::requireExecutionAnchor));
@@ -246,7 +246,7 @@ final class QueryExecutionBootstrap {
                 && (config.securityEnabled() || config.governanceEnabled())) {
             ddlExecutor.setColumnMaskStore(
                     org.pangrova.metadata.assembly.security.ColumnMaskStoreWiring.tableControl(
-                            new org.pangrova.security.store.jdbc.PersistentColumnMaskStore(metadataDataSource),
+                            new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(metadataDataSource),
                             catalog));
         }
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
@@ -529,7 +529,7 @@ final class QueryExecutionBootstrap {
         if (metadataDataSource == null) {
             return;
         }
-        var registry = new org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry(metadataDataSource);
+        var registry = new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(metadataDataSource);
         factory.registerTask(org.pangrova.parser.ast.statement.CreateStorageProfileStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.CreateStorageProfileTask(registry));
         factory.registerTask(org.pangrova.parser.ast.statement.DropStorageProfileStatement.class,
@@ -546,7 +546,7 @@ final class QueryExecutionBootstrap {
         if (source == null) {
             return;
         }
-        var registry = new org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry(source);
+        var registry = new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry(source);
         var audit = new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(auditOutput);
         org.pangrova.coordinator.query.execution.dispatch.task.file.VolumeTasks.register(
                 factory, registry, authorization, audit);
@@ -556,7 +556,7 @@ final class QueryExecutionBootstrap {
                         .create(config.internalAuthSecret());
         var refresh = access == null ? null
                 : new org.pangrova.file.core.directory.StageDirectoryRefreshService(
-                        new org.pangrova.file.store.jdbc.directory.JdbcFileDirectoryIndex(source),
+                        new org.pangrova.persistence.jdbc.file.directory.JdbcFileDirectoryIndex(source),
                         access, client, authorization);
         org.pangrova.coordinator.query.execution.dispatch.task.file.StageTasks.register(
                 factory, registry, authorization, audit, refresh);
@@ -569,7 +569,7 @@ final class QueryExecutionBootstrap {
     }
 
     private org.pangrova.file.core.space.FileSpaceAccessService fileSpaceAccessService(
-            org.pangrova.file.api.space.FileSpaceRegistry registry, AccessControl authorization,
+            org.pangrova.persistence.api.file.space.FileSpaceRegistry registry, AccessControl authorization,
             javax.sql.DataSource source,
             org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter audit) {
         if (authorization == null || config.internalAuthSecret() == null
@@ -584,10 +584,10 @@ final class QueryExecutionBootstrap {
                                                 + worker.httpPort())
                                         .toList(),
                         audit, config.internalAuthSecret(),
-                        new org.pangrova.file.store.jdbc.space.JdbcFileSpaceAuthority(source,
+                        new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(source,
                                 new org.pangrova.metadata.tenant.JdbcTenantStore(source)));
         return new org.pangrova.file.core.space.FileSpaceAccessService(registry,
-                new org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry(source),
+                new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(source),
                 authorization, context);
     }
 
@@ -596,7 +596,7 @@ final class QueryExecutionBootstrap {
             return null;
         }
         return table -> ms.onWriteComplete(
-                table, new org.pangrova.connector.spi.data.write.model.WriteResult(
+                table, new org.pangrova.spi.connector.data.write.model.WriteResult(
                         table, 0, 0, 0, 0, java.time.Instant.now()));
     }
 

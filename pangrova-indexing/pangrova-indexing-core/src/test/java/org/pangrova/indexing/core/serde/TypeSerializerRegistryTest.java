@@ -1,7 +1,7 @@
 package org.pangrova.indexing.core.serde;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.pangrova.indexing.engine.bloom.serializer.BloomFilterSerializer;
 
 import static org.assertj.core.api.Assertions.assertThat;

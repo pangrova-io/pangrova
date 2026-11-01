@@ -6,11 +6,11 @@ import java.util.List;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import org.pangrova.observability.api.event.QueryState;
-import org.pangrova.observability.api.event.QueryCompletedEvent;
-import org.pangrova.observability.api.event.QueryCreatedEvent;
-import org.pangrova.observability.api.event.QueryLineageMetadata;
-import org.pangrova.observability.api.event.QueryStatistics;
+import org.pangrova.spi.observability.event.QueryState;
+import org.pangrova.spi.observability.event.QueryCompletedEvent;
+import org.pangrova.spi.observability.event.QueryCreatedEvent;
+import org.pangrova.spi.observability.event.QueryLineageMetadata;
+import org.pangrova.spi.observability.event.QueryStatistics;
 import org.pangrova.governance.lineage.provider.openlineage.OpenLineageHttpTransport;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -145,7 +145,7 @@ class LineageQueryEventListenerTest {
 
     @Test
     void borrowedDispatcherDoesNotRetainAnotherManagersLineageListener() throws Exception {
-        var parent = org.pangrova.observability.api.event.QueryEventDispatcher.of();
+        var parent = org.pangrova.spi.observability.event.QueryEventDispatcher.of();
         var first = new LineageEventEmitter(backend.transport());
         var second = new LineageEventEmitter(backend.transport());
         var firstOwner = parent.withListener(new LineageQueryEventListener(first));

@@ -7,7 +7,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.connector.spi.metadata.table.SnapshotRange;
+import org.pangrova.spi.connector.metadata.table.SnapshotRange;
 
 /** Trusted incremental-range selectors derived from a proven change set. */
 class PlanningIncrementalSelectorsTest {

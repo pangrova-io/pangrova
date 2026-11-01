@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.impl.AbstractTable;
@@ -18,7 +18,7 @@ import java.util.Objects;
 final class MetadataResolvedTable extends AbstractTable {
 
     private final ConnectorTableMetadata metadata;
-    private final java.util.function.Supplier<org.pangrova.connector.spi.metadata.table.ConnectorReadBinding> binding;
+    private final java.util.function.Supplier<org.pangrova.spi.connector.metadata.table.ConnectorReadBinding> binding;
 
     MetadataResolvedTable(ConnectorTableMetadata metadata) {
         this.metadata = Objects.requireNonNull(metadata, "metadata");
@@ -26,7 +26,7 @@ final class MetadataResolvedTable extends AbstractTable {
     }
 
     MetadataResolvedTable(ConnectorTableMetadata metadata,
-            java.util.function.Supplier<org.pangrova.connector.spi.metadata.table.ConnectorReadBinding> binding) {
+            java.util.function.Supplier<org.pangrova.spi.connector.metadata.table.ConnectorReadBinding> binding) {
         this.metadata = Objects.requireNonNull(metadata, "metadata");
         this.binding = Objects.requireNonNull(binding, "binding");
     }

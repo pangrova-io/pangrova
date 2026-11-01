@@ -13,8 +13,8 @@ import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
 import org.pangrova.parser.ast.statement.stream.*;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Duration;
 import java.time.Instant;

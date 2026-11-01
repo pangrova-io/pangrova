@@ -355,7 +355,7 @@ class QueryManagerAsyncSubmitTest {
 
             assertThatThrownBy(() -> manager.submitQuery(queryId, "THIS IS NOT VALID SQL !!!",
                     new CoordinatorSessionContext(queryId, java.util.Map.of(),
-                            new org.pangrova.security.api.UserIdentity("test-user", java.util.Set.of("public"),
+                            new org.pangrova.spi.security.UserIdentity("test-user", java.util.Set.of("public"),
                                     java.util.Map.of(), java.time.Instant.EPOCH), "default")))
                     .isInstanceOf(org.pangrova.parser.ParseException.class);
             assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FAILED);
@@ -380,7 +380,7 @@ class QueryManagerAsyncSubmitTest {
                 state.tryTransition(QueryStateMachine.State.RUNNING);
                 state.markWriteDispatchReady();
                 await(failDispatch);
-                throw new org.pangrova.security.api.AccessDeniedException("publication permission revoked");
+                throw new org.pangrova.spi.security.AccessDeniedException("publication permission revoked");
             }
         };
         var dependencies = SlowQueryDispatcher.buildMinimalContext(compiler);

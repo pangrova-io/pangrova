@@ -17,8 +17,8 @@ import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 
 import java.time.Instant;
 import java.util.HexFormat;
@@ -50,7 +50,7 @@ record DurableIndexBuildSubmission(
                         OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(),
                         definition.pages(), java.util.List.of()),
                 definition.tenantId(), definition.principal(),
-                org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
+                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
                         definition.table(), java.util.Set.copyOf(definition.descriptor().columnNames()),
                         definition.table()),
                 definition.resourceGrant());

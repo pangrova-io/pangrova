@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-11-01，第48节对象传输provider与S3条件删除工作区。669 包 / 58 Java 叶子 / 3,599 主源文件 / 2,391 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
+当前台账：2026-11-01，第49节三类基础模块与LOCAL并发工作区。696 包 / 51 Java 叶子 / 3,612 主源文件 / 2,397 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。位置与编译通过不代表逐文件语义验收完成。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -22,18 +22,13 @@
 
 动作含义：保留＝当前结构无充分理由移动，继续语义审查；迁移＝已有清晰 owner/落位；按类拆分＝当前包混合职责；改依赖＝位置可保留，必须反转调用边。各行列出目标动作；只有执行记录中具备迁移与验证证据的部分可以标记完成，其余仍为“待实施/验收”。
 
-## pangrova-ai-api
+第49节按新的明确目标建立Filesystem api/local/s3/oss、Persistence api/jdbc和中央SPI。已迁入的包以实际源码为准；剩余所有store及领域通用API继续迁移，不能沿用旧台账的保留动作作为架构例外。见[持久化候选清单](persistence-migration-inventory.md)。
 
-路径：`pangrova-ai/pangrova-ai-api`。主源文件 33，主源包 6，本叶子测试源文件 10（不是测试用例数）。
+第49节按新的明确目标建立Filesystem api/local/s3/oss、Persistence api/jdbc和中央SPI。已迁入的包以实际源码为准；剩余所有store及领域通用API继续迁移，不能沿用旧台账的保留动作作为架构例外。见[持久化候选清单](persistence-migration-inventory.md)。
 
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.ai.api.capability](../../../pangrova-ai/pangrova-ai-api/src/main/java/org/pangrova/ai/api/capability) | 4 | 保留 / P8 | `pangrova-ai-api`：`org.pangrova.ai.api.capability` | 无 provider SDK、模型/调用契约与跨执行端隔离 |
-| [org.pangrova.ai.api.embedding](../../../pangrova-ai/pangrova-ai-api/src/main/java/org/pangrova/ai/api/embedding) | 7 | 保留 / P8 | `pangrova-ai-api`：`org.pangrova.ai.api.embedding` | 无 provider SDK、模型/调用契约与跨执行端隔离 |
-| [org.pangrova.ai.api.error](../../../pangrova-ai/pangrova-ai-api/src/main/java/org/pangrova/ai/api/error) | 2 | 保留 / P8 | `pangrova-ai-api`：`org.pangrova.ai.api.error` | 无 provider SDK、模型/调用契约与跨执行端隔离 |
-| [org.pangrova.ai.api.invocation](../../../pangrova-ai/pangrova-ai-api/src/main/java/org/pangrova/ai/api/invocation) | 11 | 保留 / P8 | `pangrova-ai-api`：`org.pangrova.ai.api.invocation` | 无 provider SDK、模型/调用契约与跨执行端隔离 |
-| [org.pangrova.ai.api.model](../../../pangrova-ai/pangrova-ai-api/src/main/java/org/pangrova/ai/api/model) | 6 | 保留 / P8 | `pangrova-ai-api`：`org.pangrova.ai.api.model` | 无 provider SDK、模型/调用契约与跨执行端隔离 |
-| [org.pangrova.ai.api.runtime](../../../pangrova-ai/pangrova-ai-api/src/main/java/org/pangrova/ai/api/runtime) | 3 | 保留 / P8 | `pangrova-ai-api`：`org.pangrova.ai.api.runtime` | 无 provider SDK、模型/调用契约与跨执行端隔离 |
+第49节按新的明确目标建立Filesystem api/local/s3/oss、Persistence api/jdbc和中央SPI。已迁入的包以实际源码为准；剩余所有store及领域通用API继续迁移，不能沿用旧台账的保留动作作为架构例外。见[持久化候选清单](persistence-migration-inventory.md)。
+
+第49节按新的明确目标建立Filesystem api/local/s3/oss、Persistence api/jdbc和中央SPI。已迁入的包以实际源码为准；剩余所有store及领域通用API继续迁移，不能沿用旧台账的保留动作作为架构例外。见[持久化候选清单](persistence-migration-inventory.md)。
 
 ## pangrova-ai-control
 
@@ -42,14 +37,14 @@
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.ai.control](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control) | 1 | 保留 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control` | 领域根说明；工厂已归 assembly，不承载运行实现 |
-| [org.pangrova.ai.control.api](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/api) | 2 | 保留 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api` | 模型/evaluation/feature 权威和 Generation 同事务关联 |
+| [org.pangrova.ai.control.api](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/api) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 模型/evaluation/feature 权威和 Generation 同事务关联 |
 | [org.pangrova.ai.control.assembly](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/assembly) | 2 | 保留 / P3 | `pangrova-ai-control`：`org.pangrova.ai.control.assembly` | 组合根显式传入真实事务 authority；无 Metadata 发现或缺省授权实现 |
 | [org.pangrova.ai.control.embedding](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/embedding) | 11 | 按类拆分 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.model / core.model / store.memory.model` | registry 契约/值与 concurrent-map 实现分开 |
 | [org.pangrova.ai.control.evaluation](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/evaluation) | 12 | 按类拆分 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.evaluation / core.evaluation` | 值和 store port 不依赖决策/校验实现 |
 | [org.pangrova.ai.control.feature](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/feature) | 3 | 迁移 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.feature` | Feature/export 契约，与 JDBC 关联 adapter 分离 |
-| [org.pangrova.ai.control.store.jdbc.embedding](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/embedding) | 3 | 保留 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.store.jdbc.embedding` | 模型/evaluation/feature 权威和 Generation 同事务关联 |
-| [org.pangrova.ai.control.store.jdbc.evaluation](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/evaluation) | 3 | 保留 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.store.jdbc.evaluation` | 模型/evaluation/feature 权威和 Generation 同事务关联 |
-| [org.pangrova.ai.control.store.jdbc.feature](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/feature) | 3 | 保留 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.store.jdbc.feature` | 模型/evaluation/feature 权威和 Generation 同事务关联 |
+| [org.pangrova.ai.control.store.jdbc.embedding](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/embedding) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.ai.control.store.jdbc.evaluation](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/evaluation) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.ai.control.store.jdbc.feature](../../../pangrova-ai/pangrova-ai-control/src/main/java/org/pangrova/ai/control/store/jdbc/feature) | 3 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 模型/evaluation/feature 权威和 Generation 同事务关联；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-ai-worker
 
@@ -75,48 +70,6 @@
 | [org.pangrova.ai.worker.rerank.provider.openai](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/rerank/provider/openai) | 1 | 保留 / P8 | `pangrova-ai-worker`：`org.pangrova.ai.worker.rerank.provider.openai` | 受控 provider 调用、取消/超时、资源释放、ServiceLoader |
 | [org.pangrova.ai.worker.text](../../../pangrova-ai/pangrova-ai-worker/src/main/java/org/pangrova/ai/worker/text) | 2 | 保留 / P8 | `pangrova-ai-worker`：`org.pangrova.ai.worker.text` | 受控 provider 调用、取消/超时、资源释放、ServiceLoader |
 
-## pangrova-generation-core
-
-路径：`pangrova-generation/pangrova-generation-core`。主源文件 48，主源包 11，本叶子测试源文件 8（不是测试用例数）。
-
-任务/阶段/交换 SPI、8 个不可变 DTO、只读 `CurrentGenerationAuthority` 和 canonical codec 已独立。core 的主源与测试 classpath 均不得反向依赖 transaction-spi 或 provider；3 个 golden 保留 `artifact/encoding` 路径与原字节。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.generation.api](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api) | 9 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.api` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.api.job](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job) | 11 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.api.job` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.api.execution](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution) | 6 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.api.execution` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.api.execution.template](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/template) | 2 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.api.execution.template` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.api.format](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/format) | 2 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.api.format` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.api.manifest](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/manifest) | 2 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.api.manifest` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.api.publication](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/publication) | 2 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.api.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.assembly](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/assembly) | 4 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.assembly` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.core.publication](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/core/publication) | 2 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.core.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.protocol](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/protocol) | 4 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.protocol` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.spi.storage](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/spi/storage) | 4 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.spi.storage` | S1 已分离两个业务 storage 契约、只读当前权限视图与8个DTO；无 JDBC/provider 类型泄漏，受限加载与真实回调回滚验证分别保留 |
-
-## pangrova-generation-transaction-spi
-
-路径：`pangrova-generation/pangrova-generation-transaction-spi`。主源文件 6，主源包 1，本叶子测试源文件 1（不是测试用例数）。
-
-5 个实际 `@Internal` 同连接端口与包说明独立成制品。提交、authority、候选、输入读取与执行 fence 使用调用方 Connection；隔离测试归本叶子，不由 core 反向引入。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.generation.spi.jdbc](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc) | 6 | 保留 / P3 | `pangrova-generation-transaction-spi`：`org.pangrova.generation.spi.jdbc` | 同连接事务端口独立制品；仅依赖 core、Common、Query API 合同和 JDK JDBC，core 不反向依赖，调用方保留事务与连接所有权 |
-
-## pangrova-generation-store-postgresql
-
-路径：`pangrova-generation/pangrova-generation-store-postgresql`。主源文件 22，主源包 4，本叶子测试源文件 3（不是测试用例数）。
-
-真实 PostgreSQL job/stage/exchange/query/fence 实现与 SQL helper 已落位，fresh resolve 保留私有构造与锁/事务顺序；取消锁测试从 Metadata 归回此 owner。领域 publication writer 和跨域装配仍待后续批次。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.generation.store.postgresql.query](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/query) | 2 | 保留 / P3 | `pangrova-generation-store-postgresql`：`org.pangrova.generation.store.postgresql.query` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
-| [org.pangrova.generation.store.postgresql.execution](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution) | 4 | 保留 / P3 | `pangrova-generation-store-postgresql`：`org.pangrova.generation.store.postgresql.execution` | route/fence/context 已迁入；Query 锁端口与 Security 当前角色端口显式注入，context 私有构造 |
-| [org.pangrova.generation.store.postgresql.job](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job) | 14 | 保留 / P3 | `pangrova-generation-store-postgresql`：`org.pangrova.generation.store.postgresql.job` | 通用 job/page/stage、撤销与输出读取已迁入；真实跨域 PostgreSQL 测试仍在 Metadata，待独立迁移 fixture |
-| [org.pangrova.generation.store.postgresql.exchange](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/exchange) | 2 | 保留 / P3 | `pangrova-generation-store-postgresql`：`org.pangrova.generation.store.postgresql.exchange` | exchange 登记/finalize/barrier 的 PostgreSQL 实现归 provider；同事务 scope/fence/roles 显式注入，消费者只依赖业务 storage 契约 |
 ## pangrova-client-cli
 
 路径：`pangrova-client/pangrova-client-cli`。主源文件 8，主源包 1，本叶子测试源文件 7（不是测试用例数）。
@@ -132,7 +85,7 @@
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.client.core](../../../pangrova-client/pangrova-client-core/src/main/java/org/pangrova/client/core) | 1 | 保留 / P8 | `pangrova-client-core`：`org.pangrova.client.core` | API-only classpath、错误/会话/结果契约 |
-| [org.pangrova.client.core.api](../../../pangrova-client/pangrova-client-core/src/main/java/org/pangrova/client/core/api) | 4 | 保留 / P8 | `pangrova-client-core`：`org.pangrova.client.core.api` | API-only classpath、错误/会话/结果契约 |
+| [org.pangrova.client.core.api](../../../pangrova-client/pangrova-client-core/src/main/java/org/pangrova/client/core/api) | 4 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | API-only classpath、错误/会话/结果契约 |
 | [org.pangrova.client.core.error](../../../pangrova-client/pangrova-client-core/src/main/java/org/pangrova/client/core/error) | 5 | 保留 / P8 | `pangrova-client-core`：`org.pangrova.client.core.error` | API-only classpath、错误/会话/结果契约 |
 | [org.pangrova.client.core.protocol](../../../pangrova-client/pangrova-client-core/src/main/java/org/pangrova/client/core/protocol) | 7 | 保留 / P8 | `pangrova-client-core`：`org.pangrova.client.core.protocol` | API-only classpath、错误/会话/结果契约 |
 | [org.pangrova.client.core.session](../../../pangrova-client/pangrova-client-core/src/main/java/org/pangrova/client/core/session) | 2 | 保留 / P8 | `pangrova-client-core`：`org.pangrova.client.core.session` | API-only classpath、错误/会话/结果契约 |
@@ -143,31 +96,31 @@
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.client.jdbc](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc) | 16 | 按类拆分 / P8 | `pangrova-client-jdbc`：`org.pangrova.client.jdbc；子能力 connection/statement/result` | Driver 稳定入口保留；同包协作按状态所有权分，不机械逐类建包 |
-| [org.pangrova.client.jdbc.value](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/value) | 1 | 保留 / P8 | `pangrova-client-jdbc`：`org.pangrova.client.jdbc.value` | Driver discovery、JDBC 状态机、ResultSet 和资源关闭 |
+| [org.pangrova.client.jdbc](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc) | 16 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | Driver 稳定入口保留；同包协作按状态所有权分，不机械逐类建包；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.client.jdbc.value](../../../pangrova-client/pangrova-client-jdbc/src/main/java/org/pangrova/client/jdbc/value) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | Driver discovery、JDBC 状态机、ResultSet 和资源关闭；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-common
 
-路径：`pangrova-common`。主源文件 75，主源包 21，本叶子测试源文件 37（不是测试用例数）。
+路径：`pangrova-common`。主源文件 76，主源包 21，本叶子测试源文件 38（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.common](../../../pangrova-common/src/main/java/org/pangrova/common) | 2 | 保留 / P1 | `pangrova-common`：`org.pangrova.common` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.activation](../../../pangrova-common/src/main/java/org/pangrova/common/activation) | 2 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.activation` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.annotation](../../../pangrova-common/src/main/java/org/pangrova/common/annotation) | 2 | 按类拆分 / P1 | `pangrova-common`：`原能力包；注解统一 org.pangrova.common.api.annotation` | 核对 retention、参数和 gate 后统一同义注解；并发工具留原包 |
-| [org.pangrova.common.api.annotation](../../../pangrova-common/src/main/java/org/pangrova/common/api/annotation) | 4 | 按类拆分 / P1 | `pangrova-common`：`原能力包；注解统一 org.pangrova.common.api.annotation` | 核对 retention、参数和 gate 后统一同义注解；并发工具留原包 |
+| [org.pangrova.common.api.annotation](../../../pangrova-common/src/main/java/org/pangrova/common/api/annotation) | 4 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 核对 retention、参数和 gate 后统一同义注解；并发工具留原包 |
 | [org.pangrova.common.bloom](../../../pangrova-common/src/main/java/org/pangrova/common/bloom) | 1 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.bloom` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
-| [org.pangrova.common.concurrent](../../../pangrova-common/src/main/java/org/pangrova/common/concurrent) | 8 | 按类拆分 / P1 | `pangrova-common`：`原能力包；注解统一 org.pangrova.common.api.annotation` | 核对 retention、参数和 gate 后统一同义注解；并发工具留原包 |
+| [org.pangrova.common.concurrent](../../../pangrova-common/src/main/java/org/pangrova/common/concurrent) | 9 | 按类拆分 / P1 | `pangrova-common`：`原能力包；注解统一 org.pangrova.common.api.annotation` | 核对 retention、参数和 gate 后统一同义注解；并发工具留原包 |
 | [org.pangrova.common.exception](../../../pangrova-common/src/main/java/org/pangrova/common/exception) | 12 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.exception` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.file](../../../pangrova-common/src/main/java/org/pangrova/common/file) | 5 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.file` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.http](../../../pangrova-common/src/main/java/org/pangrova/common/http) | 6 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.http` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.http.adapter.jetty](../../../pangrova-common/src/main/java/org/pangrova/common/http/adapter/jetty) | 1 | 迁移 / P1 | `pangrova-transport`：`org.pangrova.transport.server.http` | Jetty server adapter 迁出，共同 HTTP 值不强搬 |
-| [org.pangrova.common.jdbc](../../../pangrova-common/src/main/java/org/pangrova/common/jdbc) | 1 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.jdbc` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
+| [org.pangrova.common.jdbc](../../../pangrova-common/src/main/java/org/pangrova/common/jdbc) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 | [org.pangrova.common.json](../../../pangrova-common/src/main/java/org/pangrova/common/json) | 2 | 按类拆分 / P1 | `pangrova-serialization-json / pangrova-common`：`org.pangrova.serialization.json.jackson；JDK JsonEscaper 留原能力` | Jackson 实现与公开技术类型移出 Common；保持 canonical 配置 |
 | [org.pangrova.common.json.provider.jackson](../../../pangrova-common/src/main/java/org/pangrova/common/json/provider/jackson) | 1 | 按类拆分 / P1 | `pangrova-serialization-json / pangrova-common`：`org.pangrova.serialization.json.jackson；JDK JsonEscaper 留原能力` | Jackson 实现与公开技术类型移出 Common；保持 canonical 配置 |
 | [org.pangrova.common.lifecycle](../../../pangrova-common/src/main/java/org/pangrova/common/lifecycle) | 11 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.lifecycle` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.resilience](../../../pangrova-common/src/main/java/org/pangrova/common/resilience) | 2 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.resilience` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
-| [org.pangrova.common.resilience.api](../../../pangrova-common/src/main/java/org/pangrova/common/resilience/api) | 2 | 迁移 / P1 | `pangrova-query-api`：`org.pangrova.query.api.checkpoint` | QueryCheckpoint/CheckpointStore 属 Query 恢复契约 |
+| [org.pangrova.common.resilience.api](../../../pangrova-common/src/main/java/org/pangrova/common/resilience/api) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | QueryCheckpoint/CheckpointStore 属 Query 恢复契约 |
 | [org.pangrova.common.resilience.policy](../../../pangrova-common/src/main/java/org/pangrova/common/resilience/policy) | 4 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.resilience.policy` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.session](../../../pangrova-common/src/main/java/org/pangrova/common/session) | 1 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.session` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
 | [org.pangrova.common.storage](../../../pangrova-common/src/main/java/org/pangrova/common/storage) | 1 | 保留 / P1 | `pangrova-common`：`org.pangrova.common.storage` | 公共原语最小 classpath；第三方实现移出；共享值语义与 canonical bytes |
@@ -234,44 +187,6 @@
 | [org.pangrova.connector.runtime.discovery](../../../pangrova-connector/pangrova-connector-runtime/src/main/java/org/pangrova/connector/runtime/discovery) | 1 | 保留 / P8 | `pangrova-connector-runtime`：`org.pangrova.connector.runtime.discovery` | 类加载隔离、唯一 provider、发现/关闭 |
 | [org.pangrova.connector.runtime.lifecycle](../../../pangrova-connector/pangrova-connector-runtime/src/main/java/org/pangrova/connector/runtime/lifecycle) | 1 | 保留 / P8 | `pangrova-connector-runtime`：`org.pangrova.connector.runtime.lifecycle` | 类加载隔离、唯一 provider、发现/关闭 |
 
-## pangrova-connector-spi
-
-路径：`pangrova-connector/pangrova-connector-spi`。主源文件 221，主源包 23，本叶子测试源文件 38（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.connector.spi](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi) | 8 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.base](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/base) | 2 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.base` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.base.protocol](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/base/protocol) | 1 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.base.protocol` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.base.split](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/base/split) | 1 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.base.split` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.clustering](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/clustering) | 10 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.clustering` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.coordination](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/coordination) | 9 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.coordination` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data) | 5 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.block](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/block) | 10 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.block` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.page](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/page) | 6 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.page` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.type](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/type) | 12 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.type` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.type.mapping](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/type/mapping) | 2 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.type.mapping` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.type.primitive](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/type/primitive) | 12 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.type.primitive` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.type.primitive.temporal](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/type/primitive/temporal) | 5 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.type.primitive.temporal` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.value](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/value) | 3 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.value` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.write](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/write) | 2 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.write` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.data.write.model](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/data/write/model) | 5 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.data.write.model` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.index](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/index) | 16 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.index` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.index.predicate](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/index/predicate) | 15 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.index.predicate` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.index.statistics](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/index/statistics) | 2 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.index.statistics` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.materialization](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/materialization) | 13 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.materialization` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.metadata](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/metadata) | 60 | 按类拆分 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.metadata.{catalog,table,read,write,codec}` | 按消费者契约拆；保留一次 commit 所需接口内聚，不按类数拆 |
-| [org.pangrova.connector.spi.metadata.table](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/metadata/table) | 18 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.metadata.table` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-| [org.pangrova.connector.spi.plugin](../../../pangrova-connector/pangrova-connector-spi/src/main/java/org/pangrova/connector/spi/plugin) | 4 | 保留 / P8 | `pangrova-connector-spi`：`org.pangrova.connector.spi.plugin` | 共同调用场景、无格式 SDK 类型、读写/commit 契约 |
-
-## pangrova-coordination-api
-
-路径：`pangrova-coordination/pangrova-coordination-api`。主源文件 12，主源包 1，本叶子测试源文件 1（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.coordination.api](../../../pangrova-coordination/pangrova-coordination-api/src/main/java/org/pangrova/coordination/api) | 12 | 保留 / P5 | `pangrova-coordination-api`：`org.pangrova.coordination.api` | 第34节独立契约，API最小classpath及真实JDBC/ZK provider验证 |
-
 ## pangrova-coordination-core
 
 路径：`pangrova-coordination/pangrova-coordination-core`。主源文件 579，主源包 96，本叶子测试源文件 577（不是测试用例数）。
@@ -290,9 +205,6 @@
 | [org.pangrova.coordinator.ai.embedding](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/embedding) | 9 | 按类拆分 / P5 | `pangrova-ai-control / pangrova-query`：`org.pangrova.ai.control.core.<能力> / adapter.generation；query.adapter.ai` | 模型/Feature 权威归 AI Control，SQL 编排归 Query adapter |
 | [org.pangrova.coordinator.ai.layout](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/layout) | 1 | 按类拆分 / P5 | `pangrova-ai-control / pangrova-query`：`org.pangrova.ai.control.core.<能力> / adapter.generation；query.adapter.ai` | 模型/Feature 权威归 AI Control，SQL 编排归 Query adapter |
 | [org.pangrova.coordinator.ai.model](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/ai/model) | 1 | 按类拆分 / P5 | `pangrova-ai-control / pangrova-query`：`org.pangrova.ai.control.core.<能力> / adapter.generation；query.adapter.ai` | 模型/Feature 权威归 AI Control，SQL 编排归 Query adapter |
-| [org.pangrova.coordinator.generation](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation) | 15 | 按类拆分 / P5 | `pangrova-generation-core / pangrova-query`：`org.pangrova.generation.core.execution；query.adapter.generation` | 通用图/模板归 Generation；绑定与 Worker dispatch 归 Query adapter |
-| [org.pangrova.coordinator.generation.runtime](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/runtime) | 1 | 按类拆分 / P5 | `pangrova-generation-core / pangrova-query`：`org.pangrova.generation.core.execution；query.adapter.generation` | 通用图/模板归 Generation；绑定与 Worker dispatch 归 Query adapter |
-| [org.pangrova.coordinator.generation.template](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/template) | 4 | 按类拆分 / P5 | `pangrova-generation-core / pangrova-query`：`org.pangrova.generation.core.execution；query.adapter.generation` | 通用图/模板归 Generation；绑定与 Worker dispatch 归 Query adapter |
 | [org.pangrova.coordinator.bootstrap](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap) | 33 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.assembly` | 抽 assembly module contract；phase 返回 owned resources，去反向容器访问 |
 | [org.pangrova.coordinator.bootstrap.lifecycle](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/lifecycle) | 5 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.assembly.lifecycle` | 抽 assembly module contract；phase 返回 owned resources，去反向容器访问 |
 | [org.pangrova.coordinator.bootstrap.module](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/bootstrap/module) | 7 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.assembly.module` | 抽 assembly module contract；phase 返回 owned resources，去反向容器访问 |
@@ -303,13 +215,16 @@
 | [org.pangrova.coordinator.embedding](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/embedding) | 1 | 保留 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.embedding` | 按能力迁出；同一状态机/事务不拆开，核对真实装配和下游 |
 | [org.pangrova.coordinator.feature](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/feature) | 6 | 按类拆分 / P5 | `pangrova-ai-control / pangrova-query`：`org.pangrova.ai.control.core.<能力> / adapter.generation；query.adapter.ai` | 模型/Feature 权威归 AI Control，SQL 编排归 Query adapter |
 | [org.pangrova.coordinator.file](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/file) | 1 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.adapter.file` | 进程只保留调用 owner API 的入口/组合；发现权威逻辑归还对应 owner |
+| [org.pangrova.coordinator.generation](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation) | 15 | 按类拆分 / P5 | `pangrova-generation-core / pangrova-query`：`org.pangrova.generation.core.execution；query.adapter.generation` | 通用图/模板归 Generation；绑定与 Worker dispatch 归 Query adapter |
+| [org.pangrova.coordinator.generation.runtime](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/runtime) | 1 | 按类拆分 / P5 | `pangrova-generation-core / pangrova-query`：`org.pangrova.generation.core.execution；query.adapter.generation` | 通用图/模板归 Generation；绑定与 Worker dispatch 归 Query adapter |
+| [org.pangrova.coordinator.generation.template](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/generation/template) | 4 | 按类拆分 / P5 | `pangrova-generation-core / pangrova-query`：`org.pangrova.generation.core.execution；query.adapter.generation` | 通用图/模板归 Generation；绑定与 Worker dispatch 归 Query adapter |
 | [org.pangrova.coordinator.governance](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/governance) | 1 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.adapter.governance` | 进程只保留调用 owner API 的入口/组合；发现权威逻辑归还对应 owner |
 | [org.pangrova.coordinator.http](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http) | 5 | 按类拆分 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.server.http / adapter.http` | server 只装配 endpoint；endpoint 不依赖完整 HttpServerContext |
 | [org.pangrova.coordinator.http.endpoint](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint) | 16 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.endpoint` | 入口映射留进程，只消费能力 API 与 HTTP primitives |
 | [org.pangrova.coordinator.http.endpoint.catalog](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/catalog) | 11 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.endpoint.catalog` | 入口映射留进程，只消费能力 API 与 HTTP primitives |
 | [org.pangrova.coordinator.http.endpoint.copy](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/copy) | 3 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.endpoint.copy` | 入口映射留进程，只消费能力 API 与 HTTP primitives |
 | [org.pangrova.coordinator.http.endpoint.file](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/endpoint/file) | 1 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.endpoint.file` | 入口映射留进程，只消费能力 API 与 HTTP primitives |
-| [org.pangrova.coordinator.http.jdbc](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc) | 7 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.endpoint.jdbc` | JDBC-over-HTTP 入口留应用 |
+| [org.pangrova.coordinator.http.jdbc](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/http/jdbc) | 7 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | JDBC-over-HTTP 入口留应用；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 | [org.pangrova.coordinator.maintenance](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/maintenance) | 2 | 按类拆分 / P5 | `pangrova-table / pangrova-query`：`org.pangrova.table.core.maintenance；query.adapter.maintenance` | 维护事实归 Table，任务执行编排由 Query adapter |
 | [org.pangrova.coordinator.materialization](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/materialization) | 20 | 迁移 / P5 | `pangrova-query`：`org.pangrova.query.adapter.materialization` | 实现 Materialization port；kernel 不依赖 Query/Coordinator 实现 |
 | [org.pangrova.coordinator.metadata](../../../pangrova-coordination/pangrova-coordination-core/src/main/java/org/pangrova/coordinator/metadata) | 9 | 迁移 / P5 | `pangrova-coordination-core`：`org.pangrova.coordinator.adapter.metadata` | 进程只保留调用 owner API 的入口/组合；发现权威逻辑归还对应 owner |
@@ -379,21 +294,9 @@
 
 路径：`pangrova-coordination/pangrova-coordination-inmemory`。主源文件 4，主源包 1，本叶子测试源文件 6（不是测试用例数）。
 
-`InMemoryDistributedLease`、`InMemoryCoordinatorRegistry`、`InMemoryWorkerRegistry` 已从 Core 的 `org.pangrova.coordinator.coordination.provider.memory` 迁入本叶子；生产依赖仅 Coordination API 与 Common。纯 provider 单测及属性测试随实现迁入，`LeaseEpochRenewalTest` 的 HA 消费者用例、Query 和 WorkerManager 消费者测试仍留 Core；不保留旧包转发实现。
-
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.coordination.inmemory](../../../pangrova-coordination/pangrova-coordination-inmemory/src/main/java/org/pangrova/coordination/inmemory) | 4 | 保留 / P5 | `pangrova-coordination-inmemory`：`org.pangrova.coordination.inmemory` | 三种实现与包说明；保留 Clock、原子 map 更新和 epoch 语义，受限及真实 classpath 均隔离 Core/Metadata/数据库与 quorum SDK |
-
-## pangrova-coordination-jdbc
-
-路径：`pangrova-coordination/pangrova-coordination-jdbc`。主源文件 5，主源包 1，本叶子测试源文件 8（不是测试用例数）。
-
-`JdbcDistributedLease`、`JdbcCoordinatorRegistry`、`JdbcWorkerRegistry` 已从 Core 的 `org.pangrova.coordinator.coordination.store.jdbc` 迁入本叶子；新增本域 `CoordinationStorageException`，解除 Metadata 异常依赖。生产依赖 Coordination API、Common、Jackson 与 SLF4J；数据源和 schema 迁移由进程装配持有，纯 provider 测试使用 Testing Kit，不依赖 Core/Metadata 的生产或测试制品。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.coordination.jdbc](../../../pangrova-coordination/pangrova-coordination-jdbc/src/main/java/org/pangrova/coordination/jdbc) | 5 | 保留 / P5 | `pangrova-coordination-jdbc`：`org.pangrova.coordination.jdbc` | 三种实现、本域异常与包说明；保留租约锁后活时钟、fencing epoch、注册事务、错误码/原因及资源所有权，真实 PostgreSQL 和 classpath 隔离验收 |
 
 ## pangrova-coordination-zookeeper
 
@@ -403,29 +306,9 @@
 |---|---:|---|---|---|
 | [org.pangrova.coordination.zookeeper](../../../pangrova-coordination/pangrova-coordination-zookeeper/src/main/java/org/pangrova/coordination/zookeeper) | 4 | 保留 / P5 | `pangrova-coordination-zookeeper`：`org.pangrova.coordination.zookeeper` | 保留包；POM 改依赖 coordination-api，lease/registry 通过公开契约 |
 
-## pangrova-file-api
-
-路径：`pangrova-file/pangrova-file-api`。主源文件 29，主源包 9，本叶子测试源文件 4（不是测试用例数）。
-
-Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.file.api](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.access](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/access) | 5 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.access` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.claim](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/claim) | 2 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.claim` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.copy](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/copy) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.copy` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.directory](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/directory) | 4 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.directory` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.object](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/object) | 6 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.object` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.profile](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/profile) | 3 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.profile` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.space](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/space) | 6 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.space` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-| [org.pangrova.file.api.storage](../../../pangrova-file/pangrova-file-api/src/main/java/org/pangrova/file/api/storage) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-api`：`org.pangrova.file.api.storage` | Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDirectoryIndex端口；受限loader加载全部API类型。 |
-
 ## pangrova-file-core
 
-路径：`pangrova-file/pangrova-file-core`。主源文件 8，主源包 5，本叶子测试源文件 0（不是测试用例数）。
-
-授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。
+路径：`pangrova-file/pangrova-file-core`。主源文件 6，主源包 4，本叶子测试源文件 0（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -433,35 +316,80 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.file.core](../../../pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/core) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-core`：`org.pangrova.file.core` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
 | [org.pangrova.file.core.directory](../../../pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/core/directory) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-core`：`org.pangrova.file.core.directory` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
 | [org.pangrova.file.core.space](../../../pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/core/space) | 2 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-core`：`org.pangrova.file.core.space` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
-| [org.pangrova.file.spi.authority](../../../pangrova-file/pangrova-file-core/src/main/java/org/pangrova/file/spi/authority) | 2 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-core`：`org.pangrova.file.spi.authority` | 授权与URL服务、目录刷新编排、Worker HTTP adapter及依赖Security的Internal authority SPI；禁止依赖JDBC store。 |
 
-## pangrova-file-store-jdbc
+## pangrova-filesystem-api
 
-路径：`pangrova-file/pangrova-file-store-jdbc`。主源文件 7，主源包 6，本叶子测试源文件 4（不是测试用例数）。
-
-6个实际PostgreSQL实现；38项owner测试随实现迁入，使用Kit canonical migration；同事务Query/Security端口保留。
+路径：`pangrova-filesystem/pangrova-filesystem-api`。主源文件 15，主源包 4，本叶子测试源文件 4（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.file.store.jdbc](../../../pangrova-file/pangrova-file-store-jdbc/src/main/java/org/pangrova/file/store/jdbc) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-store-jdbc`：`org.pangrova.file.store.jdbc` | 6个实际PostgreSQL实现；38项owner测试随实现迁入，使用Kit canonical migration；同事务Query/Security端口保留。 |
-| [org.pangrova.file.store.jdbc.claim](../../../pangrova-file/pangrova-file-store-jdbc/src/main/java/org/pangrova/file/store/jdbc/claim) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-store-jdbc`：`org.pangrova.file.store.jdbc.claim` | 6个实际PostgreSQL实现；38项owner测试随实现迁入，使用Kit canonical migration；同事务Query/Security端口保留。 |
-| [org.pangrova.file.store.jdbc.copy](../../../pangrova-file/pangrova-file-store-jdbc/src/main/java/org/pangrova/file/store/jdbc/copy) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-store-jdbc`：`org.pangrova.file.store.jdbc.copy` | 6个实际PostgreSQL实现；38项owner测试随实现迁入，使用Kit canonical migration；同事务Query/Security端口保留。 |
-| [org.pangrova.file.store.jdbc.directory](../../../pangrova-file/pangrova-file-store-jdbc/src/main/java/org/pangrova/file/store/jdbc/directory) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-store-jdbc`：`org.pangrova.file.store.jdbc.directory` | 6个实际PostgreSQL实现；38项owner测试随实现迁入，使用Kit canonical migration；同事务Query/Security端口保留。 |
-| [org.pangrova.file.store.jdbc.profile](../../../pangrova-file/pangrova-file-store-jdbc/src/main/java/org/pangrova/file/store/jdbc/profile) | 1 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-store-jdbc`：`org.pangrova.file.store.jdbc.profile` | 6个实际PostgreSQL实现；38项owner测试随实现迁入，使用Kit canonical migration；同事务Query/Security端口保留。 |
-| [org.pangrova.file.store.jdbc.space](../../../pangrova-file/pangrova-file-store-jdbc/src/main/java/org/pangrova/file/store/jdbc/space) | 2 | 已拆分 / 第47节，继续语义验收 | `pangrova-file-store-jdbc`：`org.pangrova.file.store.jdbc.space` | 6个实际PostgreSQL实现；38项owner测试随实现迁入，使用Kit canonical migration；同事务Query/Security端口保留。 |
+| [org.pangrova.filesystem.api](../../../pangrova-filesystem/pangrova-filesystem-api/src/main/java/org/pangrova/filesystem/api) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-api`：`org.pangrova.filesystem.api` | 物理I/O、资源所有权与错误语义 |
+| [org.pangrova.filesystem.api.blob](../../../pangrova-filesystem/pangrova-filesystem-api/src/main/java/org/pangrova/filesystem/api/blob) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-api`：`org.pangrova.filesystem.api.blob` | 物理I/O、资源所有权与错误语义 |
+| [org.pangrova.filesystem.api.object](../../../pangrova-filesystem/pangrova-filesystem-api/src/main/java/org/pangrova/filesystem/api/object) | 8 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-api`：`org.pangrova.filesystem.api.object` | 物理I/O、资源所有权与错误语义 |
+| [org.pangrova.filesystem.api.profile](../../../pangrova-filesystem/pangrova-filesystem-api/src/main/java/org/pangrova/filesystem/api/profile) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-api`：`org.pangrova.filesystem.api.profile` | 物理I/O、资源所有权与错误语义 |
 
-## pangrova-function
+## pangrova-filesystem-local
 
-路径：`pangrova-function`。主源文件 17，主源包 6，本叶子测试源文件 2（不是测试用例数）。
+路径：`pangrova-filesystem/pangrova-filesystem-local`。主源文件 7，主源包 2，本叶子测试源文件 6（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.function.api.aggregate](../../../pangrova-function/src/main/java/org/pangrova/function/api/aggregate) | 2 | 保留 / P8 | `pangrova-function`：`org.pangrova.function.api.aggregate` | 函数声明与 provider discovery；回调错误和关闭 |
-| [org.pangrova.function.api.metadata](../../../pangrova-function/src/main/java/org/pangrova/function/api/metadata) | 2 | 保留 / P8 | `pangrova-function`：`org.pangrova.function.api.metadata` | 函数声明与 provider discovery；回调错误和关闭 |
-| [org.pangrova.function.api.registry](../../../pangrova-function/src/main/java/org/pangrova/function/api/registry) | 2 | 保留 / P8 | `pangrova-function`：`org.pangrova.function.api.registry` | 函数声明与 provider discovery；回调错误和关闭 |
-| [org.pangrova.function.api.runtime](../../../pangrova-function/src/main/java/org/pangrova/function/api/runtime) | 3 | 保留 / P8 | `pangrova-function`：`org.pangrova.function.api.runtime` | 函数声明与 provider discovery；回调错误和关闭 |
-| [org.pangrova.function.api.scalar](../../../pangrova-function/src/main/java/org/pangrova/function/api/scalar) | 3 | 保留 / P8 | `pangrova-function`：`org.pangrova.function.api.scalar` | 函数声明与 provider discovery；回调错误和关闭 |
-| [org.pangrova.function.api.table](../../../pangrova-function/src/main/java/org/pangrova/function/api/table) | 5 | 保留 / P8 | `pangrova-function`：`org.pangrova.function.api.table` | 函数声明与 provider discovery；回调错误和关闭 |
+| [org.pangrova.filesystem.local.blob](../../../pangrova-filesystem/pangrova-filesystem-local/src/main/java/org/pangrova/filesystem/local/blob) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-local`：`org.pangrova.filesystem.local.blob` | 物理I/O、资源所有权与错误语义 |
+| [org.pangrova.filesystem.local.object](../../../pangrova-filesystem/pangrova-filesystem-local/src/main/java/org/pangrova/filesystem/local/object) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-local`：`org.pangrova.filesystem.local.object` | 物理I/O、资源所有权与错误语义 |
+
+## pangrova-filesystem-oss
+
+路径：`pangrova-filesystem/pangrova-filesystem-oss`。主源文件 6，主源包 1，本叶子测试源文件 3（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.filesystem.oss.blob](../../../pangrova-filesystem/pangrova-filesystem-oss/src/main/java/org/pangrova/filesystem/oss/blob) | 6 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-oss`：`org.pangrova.filesystem.oss.blob` | 物理I/O、资源所有权与错误语义 |
+
+## pangrova-filesystem-s3
+
+路径：`pangrova-filesystem/pangrova-filesystem-s3`。主源文件 8，主源包 2，本叶子测试源文件 11（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.filesystem.s3.blob](../../../pangrova-filesystem/pangrova-filesystem-s3/src/main/java/org/pangrova/filesystem/s3/blob) | 4 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-s3`：`org.pangrova.filesystem.s3.blob` | 物理I/O、资源所有权与错误语义 |
+| [org.pangrova.filesystem.s3.object](../../../pangrova-filesystem/pangrova-filesystem-s3/src/main/java/org/pangrova/filesystem/s3/object) | 4 | 已迁入 / P49；语义验收继续 | `pangrova-filesystem-s3`：`org.pangrova.filesystem.s3.object` | 物理I/O、资源所有权与错误语义 |
+
+## pangrova-generation-core
+
+路径：`pangrova-generation/pangrova-generation-core`。主源文件 48，主源包 11，本叶子测试源文件 8（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.generation.api](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api) | 9 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.api.execution](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution) | 6 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.api.execution.template](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/execution/template) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.api.format](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/format) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.api.job](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/job) | 11 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.api.manifest](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/manifest) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.api.publication](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/api/publication) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.assembly](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/assembly) | 4 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.assembly` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.core.publication](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/core/publication) | 2 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.core.publication` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.protocol](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/protocol) | 4 | 保留 / P3 | `pangrova-generation-core`：`org.pangrova.generation.protocol` | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布 |
+| [org.pangrova.generation.spi.storage](../../../pangrova-generation/pangrova-generation-core/src/main/java/org/pangrova/generation/spi/storage) | 4 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | S1 已分离两个业务 storage 契约、只读当前权限视图与8个DTO；无 JDBC/provider 类型泄漏，受限加载与真实回调回滚验证分别保留 |
+
+## pangrova-generation-store-postgresql
+
+路径：`pangrova-generation/pangrova-generation-store-postgresql`。主源文件 22，主源包 4，本叶子测试源文件 3（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.generation.store.postgresql.exchange](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/exchange) | 2 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | exchange 登记/finalize/barrier 的 PostgreSQL 实现归 provider；同事务 scope/fence/roles 显式注入，消费者只依赖业务 storage 契约；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.generation.store.postgresql.execution](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/execution) | 4 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | route/fence/context 已迁入；Query 锁端口与 Security 当前角色端口显式注入，context 私有构造；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.generation.store.postgresql.job](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/job) | 14 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 通用 job/page/stage、撤销与输出读取已迁入；真实跨域 PostgreSQL 测试仍在 Metadata，待独立迁移 fixture；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.generation.store.postgresql.query](../../../pangrova-generation/pangrova-generation-store-postgresql/src/main/java/org/pangrova/generation/store/postgresql/query) | 2 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | authority→anchor→job 锁序；tenant/job、canonical bytes、原子发布；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+
+## pangrova-generation-transaction-spi
+
+路径：`pangrova-generation/pangrova-generation-transaction-spi`。主源文件 6，主源包 1，本叶子测试源文件 1（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.generation.spi.jdbc](../../../pangrova-generation/pangrova-generation-transaction-spi/src/main/java/org/pangrova/generation/spi/jdbc) | 6 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 同连接事务端口独立制品；仅依赖 core、Common、Query API 合同和 JDK JDBC，core 不反向依赖，调用方保留事务与连接所有权；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-governance
 
@@ -470,11 +398,11 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.governance](../../../pangrova-governance/src/main/java/org/pangrova/governance) | 1 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance` | quality gate 与 lineage 发布分离；分类/审计 owner |
-| [org.pangrova.governance.api.audit](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/audit) | 3 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance.api.audit` | quality gate 与 lineage 发布分离；分类/审计 owner |
-| [org.pangrova.governance.api.catalog](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/catalog) | 1 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance.api.catalog` | quality gate 与 lineage 发布分离；分类/审计 owner |
-| [org.pangrova.governance.api.classification](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/classification) | 4 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance.api.classification` | quality gate 与 lineage 发布分离；分类/审计 owner |
-| [org.pangrova.governance.api.lineage](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/lineage) | 5 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance.api.lineage` | quality gate 与 lineage 发布分离；分类/审计 owner |
-| [org.pangrova.governance.api.quality](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/quality) | 15 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance.api.quality` | quality gate 与 lineage 发布分离；分类/审计 owner |
+| [org.pangrova.governance.api.audit](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/audit) | 3 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | quality gate 与 lineage 发布分离；分类/审计 owner |
+| [org.pangrova.governance.api.catalog](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/catalog) | 1 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | quality gate 与 lineage 发布分离；分类/审计 owner |
+| [org.pangrova.governance.api.classification](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/classification) | 4 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | quality gate 与 lineage 发布分离；分类/审计 owner |
+| [org.pangrova.governance.api.lineage](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/lineage) | 5 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | quality gate 与 lineage 发布分离；分类/审计 owner |
+| [org.pangrova.governance.api.quality](../../../pangrova-governance/src/main/java/org/pangrova/governance/api/quality) | 15 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | quality gate 与 lineage 发布分离；分类/审计 owner |
 | [org.pangrova.governance.core](../../../pangrova-governance/src/main/java/org/pangrova/governance/core) | 2 | 按类拆分 / P7 | `pangrova-governance`：`org.pangrova.governance.assembly；各 core 能力` | GovernanceDeps/Context 只在组合入口，防服务容器扩散 |
 | [org.pangrova.governance.core.audit](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/audit) | 1 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance.core.audit` | quality gate 与 lineage 发布分离；分类/审计 owner |
 | [org.pangrova.governance.core.classification](../../../pangrova-governance/src/main/java/org/pangrova/governance/core/classification) | 7 | 保留 / P7 | `pangrova-governance`：`org.pangrova.governance.core.classification` | quality gate 与 lineage 发布分离；分类/审计 owner |
@@ -484,26 +412,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.governance.lineage.provider.openlineage](../../../pangrova-governance/src/main/java/org/pangrova/governance/lineage/provider/openlineage) | 1 | 迁移 / P7 | `pangrova-governance`：`org.pangrova.governance.adapter.lineage.provider.openlineage` | provider/executor adapter 消费 API；不暗中补缺省执行能力 |
 | [org.pangrova.governance.quality.executor.sql](../../../pangrova-governance/src/main/java/org/pangrova/governance/quality/executor/sql) | 1 | 迁移 / P7 | `pangrova-governance`：`org.pangrova.governance.adapter.quality.executor.sql` | provider/executor adapter 消费 API；不暗中补缺省执行能力 |
 | [org.pangrova.governance.quality.executor.unconfigured](../../../pangrova-governance/src/main/java/org/pangrova/governance/quality/executor/unconfigured) | 1 | 迁移 / P7 | `pangrova-governance`：`org.pangrova.governance.adapter.quality.executor.unconfigured` | provider/executor adapter 消费 API；不暗中补缺省执行能力 |
-| [org.pangrova.governance.store.jdbc](../../../pangrova-governance/src/main/java/org/pangrova/governance/store/jdbc) | 4 | 按类拆分 / P7 | `pangrova-governance`：`org.pangrova.governance.store.jdbc.{audit,classification,quality}；governance.assembly` | store 与 factory 分开，各能力唯一 writer |
-
-## pangrova-indexing-api
-
-路径：`pangrova-indexing/pangrova-indexing-api`。主源文件 42，主源包 12，本叶子测试源文件 8（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.indexing.api](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api) | 2 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.data](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data) | 5 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.data` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.data.bitmap](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/bitmap) | 1 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.data.bitmap` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.data.spatial](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/spatial) | 5 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.data.spatial` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.data.text](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/data/text) | 4 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.data.text` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.descriptor](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/descriptor) | 5 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.descriptor` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.eval](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/eval) | 6 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.eval` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.pruning](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/pruning) | 6 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.pruning` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.publish](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/publish) | 1 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.publish` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.state](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/state) | 1 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.state` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.statistics](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/statistics) | 3 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.statistics` | 索引能力契约、无 core/provider 泄漏 |
-| [org.pangrova.indexing.api.vector](../../../pangrova-indexing/pangrova-indexing-api/src/main/java/org/pangrova/indexing/api/vector) | 3 | 保留 / P7 | `pangrova-indexing-api`：`org.pangrova.indexing.api.vector` | 索引能力契约、无 core/provider 泄漏 |
+| [org.pangrova.governance.store.jdbc](../../../pangrova-governance/src/main/java/org/pangrova/governance/store/jdbc) | 4 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | store 与 factory 分开，各能力唯一 writer；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-indexing-core
 
@@ -545,8 +454,8 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.indexing.engine.rtree.serializer](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/engine/rtree/serializer) | 2 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.engine.rtree.serializer` | generation/publication/GC、唯一注册与关闭索引的行为 |
 | [org.pangrova.indexing.engine.sparse.provider](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/engine/sparse/provider) | 1 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.engine.sparse.provider` | generation/publication/GC、唯一注册与关闭索引的行为 |
 | [org.pangrova.indexing.engine.sparse.serializer](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/engine/sparse/serializer) | 1 | 保留 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.engine.sparse.serializer` | generation/publication/GC、唯一注册与关闭索引的行为 |
-| [org.pangrova.indexing.store](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store) | 14 | 按类拆分 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.api.{generation,publication,commit} / spi.gc` | 按跨域消费者区分 API 与内部 store port，拒绝整棵 store 导出 |
-| [org.pangrova.indexing.store.jdbc](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc) | 13 | 按类拆分 / P7 | `pangrova-indexing-core`：`org.pangrova.indexing.store.jdbc.{generation,publication,commit,gc}` | 领域唯一 writer；通用 build 状态通过 Generation 同事务口 |
+| [org.pangrova.indexing.store](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store) | 14 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 按跨域消费者区分 API 与内部 store port，拒绝整棵 store 导出；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.indexing.store.jdbc](../../../pangrova-indexing/pangrova-indexing-core/src/main/java/org/pangrova/indexing/store/jdbc) | 13 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 领域唯一 writer；通用 build 状态通过 Generation 同事务口；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-materialization-core
 
@@ -567,14 +476,11 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.materialization.store.jdbc](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc) | 10 | 按类拆分 / P7 | `pangrova-materialization-store-jdbc`：`org.pangrova.materialization.store.jdbc.{definition,generation,attempt,publication,schedule,pin}` | 仓储对应能力；迁移 owner 测试，资源制品 P2 先行 |
+| [org.pangrova.materialization.store.jdbc](../../../pangrova-materialization/pangrova-materialization-store-jdbc/src/main/java/org/pangrova/materialization/store/jdbc) | 10 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 仓储对应能力；迁移 owner 测试，资源制品 P2 先行；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-metadata
 
 路径：`pangrova-metadata`。主源文件 132，主源包 34，本叶子测试源文件 87（不是测试用例数）。
-
-目标依据：[Metadata、Catalog 与生成任务存储边界设计](metadata-catalog-storage-design.md)。以下新制品/包是待实施目标：Catalog 承接技术目录能力，Security/Table/AI/Indexing 收回各自权威，跨域事务与 provider 选择归进程基础设施，当前 Metadata 最终归零退役。Generation 三叶已实际落位，公共任务的目标 owner 使用 `pangrova-generation-core / pangrova-generation-store-postgresql`；保留既有 SQL/协议标识。动作列已同步本次 owner 决策：职责完整的包迁移至真实 owner，混合职责按类拆分；实际范围、事务约束和验收以专项设计为准。
-
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -583,13 +489,10 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.metadata.adapter.generation](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/generation) | 2 | 迁移 / P7 | 进程 PostgreSQL 事务适配：`org.pangrova.coordinator.adapter.generation.postgresql` | 组合 tenant/table/model 当前授权与 Query publication-owner 读投影；依赖窄 transaction SPI，复用调用者 Connection，不复制领域 SQL |
 | [org.pangrova.metadata.adapter.governance](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/governance) | 2 | 按类拆分 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.adapter.governance`；wiring 归进程组合根 | 按类拆 quality-rule adapter 与实例装配；仅将名称解析为 stable Table identity，规则权威仍在 Governance/Table |
 | [org.pangrova.metadata.adapter.security](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/adapter/security) | 1 | 迁移 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.adapter.security` | 列掩码适配只负责名称到 stable Table identity；Security/Table 继续拥有策略与绑定权威 |
-| [org.pangrova.metadata.api.cache](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/cache) | 6 | 按类拆分 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.api.cache / spi.cache` | 缓存、失效进度与监听契约归 Catalog；接口不能绑定 PostgreSQL provider |
-| [org.pangrova.metadata.api.catalog](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/catalog) | 8 | 按类拆分 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.api / spi.{definition,inventory,sync}` | 定义/incarnation/revision/handle 归 Catalog；MetadataStore 拆 current/history、技术库存、sync ports，删除默认 history-empty 能力假象 |
-| [org.pangrova.metadata.api.object](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/object) | 12 | 迁移 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.api.object` | 技术表/列/资产 read model；Model/MV/Function/Volume DTO 不构成第二套领域写入权威，按真实调用保留 |
-| [org.pangrova.metadata.api.relation](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation) | 7 | 按类拆分 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.api.relation / spi.relation` | 技术对象依赖图契约；领域对象实际删除经各 owner adapter，不能把维护 hook 当作已接线级联事务 |
-| [org.pangrova.metadata.generation](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation) | 5 | 按类拆分 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.generated / spi.generated` | 5 个生成值 descriptor/submission/generation-reference 合同归 AI；调用者依赖无 SQL port，不引入 Metadata |
-| [org.pangrova.metadata.generation.jdbc](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc) | 7 | 按类拆分 / P7 | `pangrova-generation-core / pangrova-generation-store-postgresql` 的 publication；Indexing/AI 的 `store.postgresql.publication`；通用关系导出 adapter | 3 个公共 job/digest/output validator 按纯逻辑与 SQL 拆；Index/Generated 发布归领域；Tabular 不因 Feature caller 归 AI；领域指针与 job 终态同连接原子提交 |
-| [org.pangrova.metadata.generation.jdbc.submission](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission) | 1 | 迁移 / P7 | AI PostgreSQL provider：`org.pangrova.ai.control.store.postgresql.generated`；Query journal 通过事务 SPI | 生成值提交、全部任务/descriptor 写入与 COMMITTED redo acknowledgement 同事务；通过 borrowed-connection port 替代具体 JDBC static helper |
+| [org.pangrova.metadata.api.cache](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/cache) | 6 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 缓存、失效进度与监听契约归 Catalog；接口不能绑定 PostgreSQL provider |
+| [org.pangrova.metadata.api.catalog](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/catalog) | 8 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 定义/incarnation/revision/handle 归 Catalog；MetadataStore 拆 current/history、技术库存、sync ports，删除默认 history-empty 能力假象 |
+| [org.pangrova.metadata.api.object](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/object) | 12 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 技术表/列/资产 read model；Model/MV/Function/Volume DTO 不构成第二套领域写入权威，按真实调用保留 |
+| [org.pangrova.metadata.api.relation](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/api/relation) | 7 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 技术对象依赖图契约；领域对象实际删除经各 owner adapter，不能把维护 hook 当作已接线级联事务 |
 | [org.pangrova.metadata.assembly.generation](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/generation) | 1 | 迁移 / P7 | `pangrova-coordination-core`：进程 `bootstrap.generation` / `adapter.generation.postgresql` | GenerationStores 的真实 provider 选择、创建和跨域注入归进程；公共任务工厂不反向创建 Metadata/AI/Index provider |
 | [org.pangrova.metadata.assembly.security](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/assembly/security) | 2 | 迁移 / P7 | `pangrova-coordination-core`：进程 `bootstrap.security` | ColumnMaskStoreWiring 与包说明归组合根；Catalog 只保留名称解析 adapter，真实 Security/Table providers 显式注入 |
 | [org.pangrova.metadata.checkpoint](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/checkpoint) | 1 | 迁移 / P7 | Coordinator resilience PostgreSQL provider：`org.pangrova.coordinator.store.postgresql.checkpoint` | 实现 Common CheckpointStore；当前无生产构造点，实际恢复流程在 Coordinator；先验证 durable wiring，不归 Catalog 或凭名称搬到 Query |
@@ -605,27 +508,20 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.metadata.core.schema](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/core/schema) | 4 | 按类拆分 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.api.schema / core.schema` | Schema change/result/strictness 合同与演进校验分开；物理表 publication 仍由 Table/Connector owner |
 | [org.pangrova.metadata.exception](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/exception) | 7 | 按类拆分 / P7 | `pangrova-catalog-core` 的 `org.pangrova.catalog.api.error`；Indexing API；各 owner storage error | IndexAlreadyExistsException 归 Indexing；MetastoreException 按 owner 替换，解除 Indexing→Metadata；保持原因/错误语义 |
 | [org.pangrova.metadata.exception.catalog](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/exception/catalog) | 6 | 迁移 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.api.error` | Catalog 公开错误归定义/生命周期能力，不依赖 storage implementation |
+| [org.pangrova.metadata.generation](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation) | 5 | 按类拆分 / P7 | `pangrova-ai-control`：`org.pangrova.ai.control.api.generated / spi.generated` | 5 个生成值 descriptor/submission/generation-reference 合同归 AI；调用者依赖无 SQL port，不引入 Metadata |
+| [org.pangrova.metadata.generation.jdbc](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc) | 7 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 3 个公共 job/digest/output validator 按纯逻辑与 SQL 拆；Index/Generated 发布归领域；Tabular 不因 Feature caller 归 AI；领域指针与 job 终态同连接原子提交；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.metadata.generation.jdbc.submission](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/generation/jdbc/submission) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 生成值提交、全部任务/descriptor 写入与 COMMITTED redo acknowledgement 同事务；通过 borrowed-connection port 替代具体 JDBC static helper；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 | [org.pangrova.metadata.provider.memory.relation](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/provider/memory/relation) | 1 | 迁移 / P7 | Catalog Memory dependency provider：`org.pangrova.catalog.provider.memory.relation` | 真实 InMemoryObjectDependencyStore 与 PG 共享契约测试；不据此宣称完整 durable Catalog Memory 后端 |
 | [org.pangrova.metadata.service](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/service) | 16 | 按类拆分 / P7 | `pangrova-catalog-core`：`org.pangrova.catalog.api.resolution / core.resolution / core.lifecycle / adapter.{security,governance,connector}`；同事务 adapter 归 PG 基础设施 | 16 类按专项设计逐项归位；技术解析/query begin-cleanup 归 Catalog；名称→stable identity→策略适配不复制领域权威；同连接 catalog/table 校验保留 |
-| [org.pangrova.metadata.source.jdbc](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc) | 5 | 迁移 / P7 | Table PostgreSQL provider：`org.pangrova.table.store.postgresql.source` | 5 个 managed-source head/schema/publication/object/cleanup 实现归 Table；先抽 Catalog current-deployment 与 Query journal 事务 port，禁止 Table 引入 Metadata/Query runtime |
-| [org.pangrova.metadata.store.jdbc.cache](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/cache) | 1 | 迁移 / P7 | `pangrova-catalog-store-postgresql`：`org.pangrova.catalog.store.postgresql.invalidation` | JdbcInvalidationPoller 负责 durable log 读取/清理；定义/库存 writer 的 invalidation 必须保留共同事务 |
-| [org.pangrova.metadata.store.jdbc.catalog](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog) | 5 | 按类拆分 / P7 | `pangrova-catalog-store-postgresql`：`org.pangrova.catalog.store.postgresql.{definition,inventory,sync}`；进程 `bootstrap.persistence`；owner codec/testinfra | JdbcMetadataStore 拆定义/历史、库存、同步 ports；pool/Flyway 归进程，EmbeddedDataSource 归测试，MetadataJsonMapper 按 owner 拆；SQL 迁移资源保持 canonical 位置/版本 |
-| [org.pangrova.metadata.store.jdbc.object](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/object) | 1 | 迁移 / P7 | `pangrova-catalog-store-postgresql`：`org.pangrova.catalog.store.postgresql.relation` | 真实 ObjectDependencyStore SQL provider；与 Memory 共用契约测试，不拥有各领域对象删除 |
+| [org.pangrova.metadata.source.jdbc](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/source/jdbc) | 5 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 5 个 managed-source head/schema/publication/object/cleanup 实现归 Table；先抽 Catalog current-deployment 与 Query journal 事务 port，禁止 Table 引入 Metadata/Query runtime；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.metadata.store.jdbc.cache](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/cache) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | JdbcInvalidationPoller 负责 durable log 读取/清理；定义/库存 writer 的 invalidation 必须保留共同事务；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.metadata.store.jdbc.catalog](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/catalog) | 5 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | JdbcMetadataStore 拆定义/历史、库存、同步 ports；pool/Flyway 归进程，EmbeddedDataSource 归测试，MetadataJsonMapper 按 owner 拆；SQL 迁移资源保持 canonical 位置/版本；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.metadata.store.jdbc.object](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/store/jdbc/object) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 真实 ObjectDependencyStore SQL provider；与 Memory 共用契约测试，不拥有各领域对象删除；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 | [org.pangrova.metadata.tenant](../../../pangrova-metadata/src/main/java/org/pangrova/metadata/tenant) | 1 | 迁移 / P7 | Security PostgreSQL provider：`org.pangrova.security.store.postgresql.tenant` | 实际写 tenants/memberships；current tenant/membership 与 scope 验证归 Security，保留借用 Connection 的撤权一致性 |
-## pangrova-observability-api
-
-路径：`pangrova-observability/pangrova-observability-api`。主源文件 37，主源包 4，本叶子测试源文件 2（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.observability.api](../../../pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api) | 18 | 保留 / P1 | `pangrova-observability-api`：`org.pangrova.observability.api` | 无 SDK 的加载与 no-op 行为 |
-| [org.pangrova.observability.api.event](../../../pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/event) | 8 | 保留 / P1 | `pangrova-observability-api`：`org.pangrova.observability.api.event` | 无 SDK 的加载与 no-op 行为 |
-| [org.pangrova.observability.api.noop](../../../pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/noop) | 10 | 保留 / P1 | `pangrova-observability-api`：`org.pangrova.observability.api.noop` | 无 SDK 的加载与 no-op 行为 |
-| [org.pangrova.observability.api.profiling](../../../pangrova-observability/pangrova-observability-api/src/main/java/org/pangrova/observability/api/profiling) | 1 | 保留 / P1 | `pangrova-observability-api`：`org.pangrova.observability.api.profiling` | 无 SDK 的加载与 no-op 行为 |
 
 ## pangrova-observability-sdk
 
-路径：`pangrova-observability/pangrova-observability-sdk`。主源文件 47，主源包 16，本叶子测试源文件 26（不是测试用例数）。
+路径：`pangrova-observability/pangrova-observability-sdk`。主源文件 57，主源包 17，本叶子测试源文件 27（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -639,6 +535,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.observability.sdk.metrics.jvm](../../../pangrova-observability/pangrova-observability-sdk/src/main/java/org/pangrova/observability/sdk/metrics/jvm) | 2 | 保留 / P1 | `pangrova-observability-sdk`：`org.pangrova.observability.sdk.metrics.jvm` | provider 装配、上下文传播与关闭 |
 | [org.pangrova.observability.sdk.metrics.nativebridge](../../../pangrova-observability/pangrova-observability-sdk/src/main/java/org/pangrova/observability/sdk/metrics/nativebridge) | 3 | 保留 / P1 | `pangrova-observability-sdk`：`org.pangrova.observability.sdk.metrics.nativebridge` | provider 装配、上下文传播与关闭 |
 | [org.pangrova.observability.sdk.metrics.provider.otel](../../../pangrova-observability/pangrova-observability-sdk/src/main/java/org/pangrova/observability/sdk/metrics/provider/otel) | 6 | 保留 / P1 | `pangrova-observability-sdk`：`org.pangrova.observability.sdk.metrics.provider.otel` | provider 装配、上下文传播与关闭 |
+| [org.pangrova.observability.sdk.noop](../../../pangrova-observability/pangrova-observability-sdk/src/main/java/org/pangrova/observability/sdk/noop) | 10 | 待验收 / P49 | `pangrova-observability-sdk`：`org.pangrova.observability.sdk.noop` | 新增职责包；检查调用、事务、异常与资源所有权 |
 | [org.pangrova.observability.sdk.profiling](../../../pangrova-observability/pangrova-observability-sdk/src/main/java/org/pangrova/observability/sdk/profiling) | 1 | 保留 / P1 | `pangrova-observability-sdk`：`org.pangrova.observability.sdk.profiling` | provider 装配、上下文传播与关闭 |
 | [org.pangrova.observability.sdk.tracing](../../../pangrova-observability/pangrova-observability-sdk/src/main/java/org/pangrova/observability/sdk/tracing) | 2 | 保留 / P1 | `pangrova-observability-sdk`：`org.pangrova.observability.sdk.tracing` | provider 装配、上下文传播与关闭 |
 | [org.pangrova.observability.sdk.tracing.adapter.grpc](../../../pangrova-observability/pangrova-observability-sdk/src/main/java/org/pangrova/observability/sdk/tracing/adapter/grpc) | 2 | 保留 / P1 | `pangrova-observability-sdk`：`org.pangrova.observability.sdk.tracing.adapter.grpc` | provider 装配、上下文传播与关闭 |
@@ -676,6 +573,52 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.parser.ast.statement.stream](../../../pangrova-parser/src/main/java/org/pangrova/parser/ast/statement/stream) | 6 | 保留 / P4 | `pangrova-parser`：`org.pangrova.parser.ast.statement.stream` | SQL AST 正反例、round-trip、内置类型归属 |
 | [org.pangrova.parser.ast.type](../../../pangrova-parser/src/main/java/org/pangrova/parser/ast/type) | 6 | 保留 / P4 | `pangrova-parser`：`org.pangrova.parser.ast.type` | SQL AST 正反例、round-trip、内置类型归属 |
 
+## pangrova-persistence-api
+
+路径：`pangrova-persistence/pangrova-persistence-api`。主源文件 30，主源包 16，本叶子测试源文件 2（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.persistence.api](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.coordination](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/coordination) | 4 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.coordination` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.file.claim](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/file/claim) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.file.claim` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.file.directory](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/file/directory) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.file.directory` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.file.profile](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/file/profile) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.file.profile` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.file.space](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/file/space) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.file.space` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.query.audit](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/audit) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.query.audit` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.query.coordination](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/coordination) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.query.coordination` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.query.lineage](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/lineage) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.query.lineage` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.query.state](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/state) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.query.state` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.query.transaction](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/query/transaction) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.query.transaction` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.security.audit](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/audit) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.security.audit` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.security.mask](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/mask) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.security.mask` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.security.policy](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/policy) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.security.policy` | CurrentDirectRoleReader / CurrentModelAuthority 借用调用方事务；Security 实现当前角色读取，AI Control 实现模型当前态校验；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.persistence.api.security.rowfilter](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/rowfilter) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.security.rowfilter` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.api.security.tenant](../../../pangrova-persistence/pangrova-persistence-api/src/main/java/org/pangrova/persistence/api/security/tenant) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-api`：`org.pangrova.persistence.api.security.tenant` | 领域契约或持久化职责；事务与调用方装配边界 |
+
+## pangrova-persistence-jdbc
+
+路径：`pangrova-persistence/pangrova-persistence-jdbc`。主源文件 25，主源包 16，本叶子测试源文件 19（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.persistence.jdbc](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.coordination](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/coordination) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.coordination` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.file](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.file` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.file.claim](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/claim) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.file.claim` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.file.copy](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/copy) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.file.copy` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.file.directory](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/directory) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.file.directory` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.file.profile](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/profile) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.file.profile` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.file.space](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/file/space) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.file.space` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.audit](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/audit) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.audit` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.codec](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/codec) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.codec` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.mask](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/mask) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.mask` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.policy](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/policy) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.policy` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.rowfilter](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/rowfilter) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.rowfilter` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.support](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/support) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.support` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.tenant](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/tenant) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.tenant` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.persistence.jdbc.security.transaction](../../../pangrova-persistence/pangrova-persistence-jdbc/src/main/java/org/pangrova/persistence/jdbc/security/transaction) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-persistence-jdbc`：`org.pangrova.persistence.jdbc.security.transaction` | 领域契约或持久化职责；事务与调用方装配边界 |
+
 ## pangrova-planner
 
 路径：`pangrova-planner`。主源文件 281，主源包 35，本叶子测试源文件 179（不是测试用例数）。
@@ -685,7 +628,6 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.planner](../../../pangrova-planner/src/main/java/org/pangrova/planner) | 40 | 按类拆分 / P4 | `pangrova-planner`：`org.pangrova.planner.api / compile / binding.table / plan` | 主计划 §4.2：PlanTable、PlannerException、PlanFragment、PlannedQuery 与编译驱动分别落位 |
 | [org.pangrova.planner.adaptive](../../../pangrova-planner/src/main/java/org/pangrova/planner/adaptive) | 15 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.adaptive` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.advisor](../../../pangrova-planner/src/main/java/org/pangrova/planner/advisor) | 1 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.advisor` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
-| [org.pangrova.planner.generation](../../../pangrova-planner/src/main/java/org/pangrova/planner/generation) | 7 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.generation` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.branch](../../../pangrova-planner/src/main/java/org/pangrova/planner/branch) | 2 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.branch` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.cache](../../../pangrova-planner/src/main/java/org/pangrova/planner/cache) | 12 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.cache` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.cost](../../../pangrova-planner/src/main/java/org/pangrova/planner/cost) | 17 | 按类拆分 / P4 | `pangrova-planner`：`org.pangrova.planner.cost.model / plan.physical / optimization.cost` | cost config/估计与规则注册拆开，不把环整体迁包 |
@@ -698,6 +640,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.planner.embedding](../../../pangrova-planner/src/main/java/org/pangrova/planner/embedding) | 7 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.embedding` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.exchange](../../../pangrova-planner/src/main/java/org/pangrova/planner/exchange) | 1 | 按类拆分 / P4 | `pangrova-planner`：`org.pangrova.planner.plan.physical / plan.trait / plan.fragment；cost.model` | 节点/trait 不反向依赖 optimization；成本模型独立 |
 | [org.pangrova.planner.extension](../../../pangrova-planner/src/main/java/org/pangrova/planner/extension) | 2 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.extension` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
+| [org.pangrova.planner.generation](../../../pangrova-planner/src/main/java/org/pangrova/planner/generation) | 7 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.generation` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.incremental](../../../pangrova-planner/src/main/java/org/pangrova/planner/incremental) | 4 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.incremental` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.lineage](../../../pangrova-planner/src/main/java/org/pangrova/planner/lineage) | 8 | 保留 / P4 | `pangrova-planner`：`org.pangrova.planner.lineage` | 绑定身份、权限/重写次数、计划 golden 和 Calcite 不泄漏 |
 | [org.pangrova.planner.metadata](../../../pangrova-planner/src/main/java/org/pangrova/planner/metadata) | 2 | 迁移 / P4 | `pangrova-planner`：`org.pangrova.planner.binding.metadata` | 编译绑定和版本校验不引用门面根包 |
@@ -725,7 +668,6 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.protocol](../../../pangrova-protocol/src/main/java/org/pangrova/protocol) | 1 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol` | canonical schema、N/N-1、生成输入与双端 codec |
-| [org.pangrova.protocol.generation](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/generation) | 3 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.generation` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.batch](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/batch) | 4 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.batch` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.capability](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/capability) | 2 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.capability` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.capability.inventory](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/capability/inventory) | 2 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.capability.inventory` | canonical schema、N/N-1、生成输入与双端 codec |
@@ -739,6 +681,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.protocol.function.declaration](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/function/declaration) | 11 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.function.declaration` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.function.formula](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/function/formula) | 2 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.function.formula` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.function.selection](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/function/selection) | 3 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.function.selection` | canonical schema、N/N-1、生成输入与双端 codec |
+| [org.pangrova.protocol.generation](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/generation) | 3 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.generation` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.index](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/index) | 3 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.index` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.metadata](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/metadata) | 2 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.metadata` | canonical schema、N/N-1、生成输入与双端 codec |
 | [org.pangrova.protocol.resource](../../../pangrova-protocol/src/main/java/org/pangrova/protocol/resource) | 4 | 保留 / P4 | `pangrova-protocol`：`org.pangrova.protocol.resource` | canonical schema、N/N-1、生成输入与双端 codec |
@@ -775,29 +718,14 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.query.core.audit](../../../pangrova-query/src/main/java/org/pangrova/query/core/audit) | 2 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.core.audit` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
 | [org.pangrova.query.core.profiling](../../../pangrova-query/src/main/java/org/pangrova/query/core/profiling) | 1 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.core.profiling` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
 | [org.pangrova.query.core.state](../../../pangrova-query/src/main/java/org/pangrova/query/core/state) | 1 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.core.state` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store](../../../pangrova-query/src/main/java/org/pangrova/query/store) | 1 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store.jdbc.anchor](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/anchor) | 2 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store.jdbc.anchor` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store.jdbc.audit](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/audit) | 1 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store.jdbc.audit` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store.jdbc.event](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/event) | 1 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store.jdbc.event` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store.jdbc.journal](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/journal) | 5 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store.jdbc.journal` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store.jdbc.lineage](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/lineage) | 2 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store.jdbc.lineage` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store.jdbc.transaction](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/transaction) | 2 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store.jdbc.transaction` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-| [org.pangrova.query.store.memory](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory) | 4 | 保留 / P3 | `pangrova-query`：`org.pangrova.query.store.memory` | 单写者、取消/终态、journal/fence、恢复及同事务回滚 |
-
-## pangrova-query-api
-
-路径：`pangrova-query-api`。主源文件 20，主源包 7，本叶子测试源文件 2（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.query.api](../../../pangrova-query-api/src/main/java/org/pangrova/query/api) | 1 | 保留 / P3 | `pangrova-query-api`：`org.pangrova.query.api` | 最小 classpath、身份和状态契约，不包含运行时实现 |
-| [org.pangrova.query.api.audit](../../../pangrova-query-api/src/main/java/org/pangrova/query/api/audit) | 3 | 保留 / P3 | `pangrova-query-api`：`org.pangrova.query.api.audit` | 最小 classpath、身份和状态契约，不包含运行时实现 |
-| [org.pangrova.query.api.coordination](../../../pangrova-query-api/src/main/java/org/pangrova/query/api/coordination) | 3 | 保留 / P3 | `pangrova-query-api`：`org.pangrova.query.api.coordination` | 最小 classpath、身份和状态契约，不包含运行时实现 |
-| [org.pangrova.query.api.lineage](../../../pangrova-query-api/src/main/java/org/pangrova/query/api/lineage) | 2 | 保留 / P3 | `pangrova-query-api`：`org.pangrova.query.api.lineage` | 最小 classpath、身份和状态契约，不包含运行时实现 |
-| [org.pangrova.query.api.state](../../../pangrova-query-api/src/main/java/org/pangrova/query/api/state) | 7 | 保留 / P3 | `pangrova-query-api`：`org.pangrova.query.api.state` | 最小 classpath、身份和状态契约，不包含运行时实现 |
-| [org.pangrova.query.api.transaction](../../../pangrova-query-api/src/main/java/org/pangrova/query/api/transaction) | 2 | 保留 / P3 | `pangrova-query-api`：`org.pangrova.query.api.transaction` | 最小 classpath、身份和状态契约，不包含运行时实现 |
-| [org.pangrova.query.api.coordination.jdbc](../../../pangrova-query-api/src/main/java/org/pangrova/query/api/coordination/jdbc) | 2 | 保留 / P3 | `pangrova-query-api`：`org.pangrova.query.api.coordination.jdbc` | Query 所有事务 SPI 已落位；不持有数据源，不提交/关闭调用方事务，最小 classpath 验证 |
-
+| [org.pangrova.query.store](../../../pangrova-query/src/main/java/org/pangrova/query/store) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.query.store.jdbc.anchor](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/anchor) | 2 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.query.store.jdbc.audit](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/audit) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.query.store.jdbc.event](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/event) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.query.store.jdbc.journal](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/journal) | 5 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.query.store.jdbc.lineage](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/lineage) | 2 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.query.store.jdbc.transaction](../../../pangrova-query/src/main/java/org/pangrova/query/store/jdbc/transaction) | 2 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.query.store.memory](../../../pangrova-query/src/main/java/org/pangrova/query/store/memory) | 4 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 单写者、取消/终态、journal/fence、恢复及同事务回滚；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-scheduler
 
@@ -806,9 +734,9 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.scheduler](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler) | 1 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler` | 资源准入、公平性、placement、speculation 与恰一次释放 |
-| [org.pangrova.scheduler.api.placement](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/api/placement) | 15 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.api.placement` | 资源准入、公平性、placement、speculation 与恰一次释放 |
-| [org.pangrova.scheduler.api.quota](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/api/quota) | 1 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.api.quota` | 资源准入、公平性、placement、speculation 与恰一次释放 |
-| [org.pangrova.scheduler.api.resource](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/api/resource) | 5 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.api.resource` | 资源准入、公平性、placement、speculation 与恰一次释放 |
+| [org.pangrova.scheduler.api.placement](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/api/placement) | 15 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 资源准入、公平性、placement、speculation 与恰一次释放 |
+| [org.pangrova.scheduler.api.quota](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/api/quota) | 1 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 资源准入、公平性、placement、speculation 与恰一次释放 |
+| [org.pangrova.scheduler.api.resource](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/api/resource) | 5 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 资源准入、公平性、placement、speculation 与恰一次释放 |
 | [org.pangrova.scheduler.core.admission](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/core/admission) | 7 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.core.admission` | 资源准入、公平性、placement、speculation 与恰一次释放 |
 | [org.pangrova.scheduler.core.failure](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/core/failure) | 5 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.core.failure` | 资源准入、公平性、placement、speculation 与恰一次释放 |
 | [org.pangrova.scheduler.core.placement](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/core/placement) | 2 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.core.placement` | 资源准入、公平性、placement、speculation 与恰一次释放 |
@@ -818,27 +746,16 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.scheduler.core.strategy.fair](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/core/strategy/fair) | 1 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.core.strategy.fair` | 资源准入、公平性、placement、speculation 与恰一次释放 |
 | [org.pangrova.scheduler.core.strategy.loadbalanced](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/core/strategy/loadbalanced) | 1 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.core.strategy.loadbalanced` | 资源准入、公平性、placement、speculation 与恰一次释放 |
 | [org.pangrova.scheduler.resource](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/resource) | 1 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.resource` | 资源准入、公平性、placement、speculation 与恰一次释放 |
-| [org.pangrova.scheduler.store.jdbc.admission](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/store/jdbc/admission) | 1 | 保留 / P5 | `pangrova-scheduler`：`org.pangrova.scheduler.store.jdbc.admission` | 资源准入、公平性、placement、speculation 与恰一次释放 |
+| [org.pangrova.scheduler.store.jdbc.admission](../../../pangrova-scheduler/src/main/java/org/pangrova/scheduler/store/jdbc/admission) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 资源准入、公平性、placement、speculation 与恰一次释放；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-security
 
-路径：`pangrova-security`。主源文件 137，主源包 33，本叶子测试源文件 49（不是测试用例数）。
+路径：`pangrova-security`。主源文件 65，主源包 22，本叶子测试源文件 42（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.security](../../../pangrova-security/src/main/java/org/pangrova/security) | 1 | 保留 / P7 | `pangrova-security`：`org.pangrova.security` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.adapter.kms](../../../pangrova-security/src/main/java/org/pangrova/security/adapter/kms) | 1 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.adapter.kms` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api](../../../pangrova-security/src/main/java/org/pangrova/security/api) | 14 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.audit](../../../pangrova-security/src/main/java/org/pangrova/security/api/audit) | 6 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.audit` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.authn](../../../pangrova-security/src/main/java/org/pangrova/security/api/authn) | 5 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.authn` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.authz](../../../pangrova-security/src/main/java/org/pangrova/security/api/authz) | 2 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.authz` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.event](../../../pangrova-security/src/main/java/org/pangrova/security/api/event) | 2 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.event` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.mask](../../../pangrova-security/src/main/java/org/pangrova/security/api/mask) | 5 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.mask` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.policy](../../../pangrova-security/src/main/java/org/pangrova/security/api/policy) | 9 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.policy` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.rowfilter](../../../pangrova-security/src/main/java/org/pangrova/security/api/rowfilter) | 5 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.rowfilter` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.secret](../../../pangrova-security/src/main/java/org/pangrova/security/api/secret) | 5 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.secret` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.session](../../../pangrova-security/src/main/java/org/pangrova/security/api/session) | 1 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.session` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.api.tenant](../../../pangrova-security/src/main/java/org/pangrova/security/api/tenant) | 8 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.api.tenant` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.assembly.audit](../../../pangrova-security/src/main/java/org/pangrova/security/assembly/audit) | 3 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.assembly.audit` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.core.audit](../../../pangrova-security/src/main/java/org/pangrova/security/core/audit) | 4 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.core.audit` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.core.authn](../../../pangrova-security/src/main/java/org/pangrova/security/core/authn) | 4 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.core.authn` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
@@ -846,6 +763,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.security.core.authn.provider.ldap](../../../pangrova-security/src/main/java/org/pangrova/security/core/authn/provider/ldap) | 1 | 迁移 / P7 | `pangrova-security`：`org.pangrova.security.adapter.authn.provider.ldap` | provider 实现移出核心；保持实际选择和拒绝语义 |
 | [org.pangrova.security.core.authn.provider.oauth2](../../../pangrova-security/src/main/java/org/pangrova/security/core/authn/provider/oauth2) | 9 | 迁移 / P7 | `pangrova-security`：`org.pangrova.security.adapter.authn.provider.oauth2` | provider 实现移出核心；保持实际选择和拒绝语义 |
 | [org.pangrova.security.core.authz](../../../pangrova-security/src/main/java/org/pangrova/security/core/authz) | 6 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.core.authz` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
+| [org.pangrova.security.core.authz.deferred](../../../pangrova-security/src/main/java/org/pangrova/security/core/authz/deferred) | 2 | 待验收 / P49 | `pangrova-security`：`org.pangrova.security.core.authz.deferred` | 新增职责包；检查调用、事务、异常与资源所有权 |
 | [org.pangrova.security.core.crypto](../../../pangrova-security/src/main/java/org/pangrova/security/core/crypto) | 4 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.core.crypto` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.core.mask](../../../pangrova-security/src/main/java/org/pangrova/security/core/mask) | 2 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.core.mask` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.core.mask.provider.empty](../../../pangrova-security/src/main/java/org/pangrova/security/core/mask/provider/empty) | 1 | 迁移 / P7 | `pangrova-security`：`org.pangrova.security.adapter.mask.provider.empty` | provider 实现移出核心；保持实际选择和拒绝语义 |
@@ -857,9 +775,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.security.core.session](../../../pangrova-security/src/main/java/org/pangrova/security/core/session) | 1 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.core.session` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.core.tenant](../../../pangrova-security/src/main/java/org/pangrova/security/core/tenant) | 15 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.core.tenant` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
 | [org.pangrova.security.protocol](../../../pangrova-security/src/main/java/org/pangrova/security/protocol) | 2 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.protocol` | 当前权限、租户/角色隔离、撤权、secret 与 adapter 最小依赖 |
-| [org.pangrova.security.store.jdbc](../../../pangrova-security/src/main/java/org/pangrova/security/store/jdbc) | 11 | 按类拆分 / P7 | `pangrova-security`：`org.pangrova.security.store.jdbc.{tenant,role,authz,audit}` | 按持久权威能力分；同事务门闩不拆开 |
-| [org.pangrova.security.spi.jdbc](../../../pangrova-security/src/main/java/org/pangrova/security/spi/jdbc) | 3 | 保留 / P7 | `pangrova-security`：`org.pangrova.security.spi.jdbc` | CurrentDirectRoleReader / CurrentModelAuthority 借用调用方事务；Security 实现当前角色读取，AI Control 实现模型当前态校验 |
-
+| [org.pangrova.security.spi.jdbc](../../../pangrova-security/src/main/java/org/pangrova/security/spi/jdbc) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | CurrentDirectRoleReader / CurrentModelAuthority 借用调用方事务；Security 实现当前角色读取，AI Control 实现模型当前态校验；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-semantic
 
@@ -868,9 +784,9 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.semantic](../../../pangrova-semantic/src/main/java/org/pangrova/semantic) | 1 | 保留 / P7 | `pangrova-semantic`：`org.pangrova.semantic` | View 定义权威、编译和授权；不扩展新 ontology 功能 |
-| [org.pangrova.semantic.api.view](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/api/view) | 8 | 保留 / P7 | `pangrova-semantic`：`org.pangrova.semantic.api.view` | View 定义权威、编译和授权；不扩展新 ontology 功能 |
+| [org.pangrova.semantic.api.view](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/api/view) | 8 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | View 定义权威、编译和授权；不扩展新 ontology 功能 |
 | [org.pangrova.semantic.core.view](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/core/view) | 1 | 保留 / P7 | `pangrova-semantic`：`org.pangrova.semantic.core.view` | View 定义权威、编译和授权；不扩展新 ontology 功能 |
-| [org.pangrova.semantic.store.jdbc](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/store/jdbc) | 1 | 保留 / P7 | `pangrova-semantic`：`org.pangrova.semantic.store.jdbc` | View 定义权威、编译和授权；不扩展新 ontology 功能 |
+| [org.pangrova.semantic.store.jdbc](../../../pangrova-semantic/src/main/java/org/pangrova/semantic/store/jdbc) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | View 定义权威、编译和授权；不扩展新 ontology 功能；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-shuffle-core
 
@@ -878,7 +794,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.shuffle.api](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/api) | 26 | 保留 / P6 | `pangrova-shuffle-core`：`org.pangrova.shuffle.api` | exchange/spool owner、ticket、spill 和失败清理 |
+| [org.pangrova.shuffle.api](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/api) | 26 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | exchange/spool owner、ticket、spill 和失败清理 |
 | [org.pangrova.shuffle.core](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/core) | 4 | 保留 / P6 | `pangrova-shuffle-core`：`org.pangrova.shuffle.core` | exchange/spool owner、ticket、spill 和失败清理 |
 | [org.pangrova.shuffle.exchange](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/exchange) | 15 | 保留 / P6 | `pangrova-shuffle-core`：`org.pangrova.shuffle.exchange` | exchange/spool owner、ticket、spill 和失败清理 |
 | [org.pangrova.shuffle.provider](../../../pangrova-shuffle/pangrova-shuffle-core/src/main/java/org/pangrova/shuffle/provider) | 1 | 保留 / P6 | `pangrova-shuffle-core`：`org.pangrova.shuffle.provider` | exchange/spool owner、ticket、spill 和失败清理 |
@@ -903,6 +819,90 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.shuffle.server.persistence](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/server/persistence) | 1 | 保留 / P6 | `pangrova-shuffle-service`：`org.pangrova.shuffle.server.persistence` | 远端协议、durable spool、authority、重启和关闭 |
 | [org.pangrova.shuffle.transport](../../../pangrova-shuffle/pangrova-shuffle-service/src/main/java/org/pangrova/shuffle/transport) | 5 | 保留 / P6 | `pangrova-shuffle-service`：`org.pangrova.shuffle.transport` | 远端协议、durable spool、authority、重启和关闭 |
 
+## pangrova-spi
+
+路径：`pangrova-spi`。主源文件 431，主源包 77，本叶子测试源文件 62（不是测试用例数）。
+
+| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
+|---|---:|---|---|---|
+| [org.pangrova.spi](../../../pangrova-spi/src/main/java/org/pangrova/spi) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.ai.capability](../../../pangrova-spi/src/main/java/org/pangrova/spi/ai/capability) | 4 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.ai.capability` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.ai.embedding](../../../pangrova-spi/src/main/java/org/pangrova/spi/ai/embedding) | 7 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.ai.embedding` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.ai.error](../../../pangrova-spi/src/main/java/org/pangrova/spi/ai/error) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.ai.error` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.ai.invocation](../../../pangrova-spi/src/main/java/org/pangrova/spi/ai/invocation) | 11 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.ai.invocation` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.ai.model](../../../pangrova-spi/src/main/java/org/pangrova/spi/ai/model) | 6 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.ai.model` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.ai.runtime](../../../pangrova-spi/src/main/java/org/pangrova/spi/ai/runtime) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.ai.runtime` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector) | 8 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.base](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/base) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.base` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.base.protocol](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/base/protocol) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.base.protocol` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.base.split](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/base/split) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.base.split` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.clustering](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/clustering) | 10 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.clustering` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.coordination](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/coordination) | 9 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.coordination` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.block](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/block) | 10 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.block` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.page](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/page) | 6 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.page` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.type](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/type) | 12 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.type` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.type.mapping](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/type/mapping) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.type.mapping` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.type.primitive](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/type/primitive) | 12 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.type.primitive` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.type.primitive.temporal](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/type/primitive/temporal) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.type.primitive.temporal` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.value](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/value) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.value` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.write](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/write) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.write` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.data.write.model](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/data/write/model) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.data.write.model` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.index](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/index) | 16 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.index` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.index.predicate](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/index/predicate) | 15 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.index.predicate` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.index.statistics](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/index/statistics) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.index.statistics` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.materialization](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/materialization) | 13 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.materialization` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.metadata](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/metadata) | 60 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.metadata` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.metadata.table](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/metadata/table) | 18 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.metadata.table` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.connector.plugin](../../../pangrova-spi/src/main/java/org/pangrova/spi/connector/plugin) | 4 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.connector.plugin` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.coordination](../../../pangrova-spi/src/main/java/org/pangrova/spi/coordination) | 8 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.coordination` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.file](../../../pangrova-spi/src/main/java/org/pangrova/spi/file) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.file` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.file.access](../../../pangrova-spi/src/main/java/org/pangrova/spi/file/access) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.file.access` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.file.authority](../../../pangrova-spi/src/main/java/org/pangrova/spi/file/authority) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.file.authority` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.file.copy](../../../pangrova-spi/src/main/java/org/pangrova/spi/file/copy) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.file.copy` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.file.directory](../../../pangrova-spi/src/main/java/org/pangrova/spi/file/directory) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.file.directory` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.file.space](../../../pangrova-spi/src/main/java/org/pangrova/spi/file/space) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.file.space` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.file.storage](../../../pangrova-spi/src/main/java/org/pangrova/spi/file/storage) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.file.storage` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.function.aggregate](../../../pangrova-spi/src/main/java/org/pangrova/spi/function/aggregate) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.function.aggregate` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.function.metadata](../../../pangrova-spi/src/main/java/org/pangrova/spi/function/metadata) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.function.metadata` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.function.registry](../../../pangrova-spi/src/main/java/org/pangrova/spi/function/registry) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.function.registry` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.function.runtime](../../../pangrova-spi/src/main/java/org/pangrova/spi/function/runtime) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.function.runtime` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.function.scalar](../../../pangrova-spi/src/main/java/org/pangrova/spi/function/scalar) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.function.scalar` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.function.table](../../../pangrova-spi/src/main/java/org/pangrova/spi/function/table) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.function.table` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.data](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/data) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.data` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.data.bitmap](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/data/bitmap) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.data.bitmap` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.data.spatial](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/data/spatial) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.data.spatial` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.data.text](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/data/text) | 4 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.data.text` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.descriptor](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/descriptor) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.descriptor` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.eval](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/eval) | 6 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.eval` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.pruning](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/pruning) | 6 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.pruning` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.publish](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/publish) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.publish` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.state](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/state) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.state` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.statistics](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/statistics) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.statistics` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.indexing.vector](../../../pangrova-spi/src/main/java/org/pangrova/spi/indexing/vector) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.indexing.vector` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.observability](../../../pangrova-spi/src/main/java/org/pangrova/spi/observability) | 18 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.observability` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.observability.event](../../../pangrova-spi/src/main/java/org/pangrova/spi/observability/event) | 8 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.observability.event` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.observability.profiling](../../../pangrova-spi/src/main/java/org/pangrova/spi/observability/profiling) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.observability.profiling` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.query](../../../pangrova-spi/src/main/java/org/pangrova/spi/query) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.query` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.query.audit](../../../pangrova-spi/src/main/java/org/pangrova/spi/query/audit) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.query.audit` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.query.coordination](../../../pangrova-spi/src/main/java/org/pangrova/spi/query/coordination) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.query.coordination` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.query.identity](../../../pangrova-spi/src/main/java/org/pangrova/spi/query/identity) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.query.identity` | canonical schema、N/N-1、生成输入与双端 codec |
+| [org.pangrova.spi.query.lineage](../../../pangrova-spi/src/main/java/org/pangrova/spi/query/lineage) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.query.lineage` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.query.state](../../../pangrova-spi/src/main/java/org/pangrova/spi/query/state) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.query.state` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.query.transaction](../../../pangrova-spi/src/main/java/org/pangrova/spi/query/transaction) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.query.transaction` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security](../../../pangrova-spi/src/main/java/org/pangrova/spi/security) | 14 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.audit](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/audit) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.audit` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.authn](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/authn) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.authn` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.authz](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/authz) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.authz` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.event](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/event) | 2 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.event` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.mask](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/mask) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.mask` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.policy](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/policy) | 7 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.policy` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.rowfilter](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/rowfilter) | 3 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.rowfilter` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.secret](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/secret) | 5 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.secret` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.session](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/session) | 1 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.session` | 领域契约或持久化职责；事务与调用方装配边界 |
+| [org.pangrova.spi.security.tenant](../../../pangrova-spi/src/main/java/org/pangrova/spi/security/tenant) | 7 | 已迁入 / P49；语义验收继续 | `pangrova-spi`：`org.pangrova.spi.security.tenant` | 领域契约或持久化职责；事务与调用方装配边界 |
+
 ## pangrova-standalone
 
 路径：`pangrova-standalone`。主源文件 2，主源包 1，本叶子测试源文件 0（不是测试用例数）。
@@ -910,40 +910,6 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.standalone](../../../pangrova-standalone/src/main/java/org/pangrova/standalone) | 2 | 保留 / P8 | `pangrova-standalone`：`org.pangrova.standalone` | embedding 装配、启动失败回滚、完整关闭与 SQL |
-
-## pangrova-storage-api
-
-路径：`pangrova-storage/pangrova-storage-api`。主源文件 5，主源包 1，本叶子测试源文件 1（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.storage.api.blob](../../../pangrova-storage/pangrova-storage-api/src/main/java/org/pangrova/storage/api/blob) | 5 | 保留 / P7 | `pangrova-storage-api`：`org.pangrova.storage.api.blob` | 第44节：对象身份、发布与 admitted managed I/O；实际 classpath 和最小 loader 无云 SDK/JDBC/provider |
-
-## pangrova-storage-filesystem
-
-路径：`pangrova-storage/pangrova-storage-filesystem`。主源文件 5，主源包 2，本叶子测试源文件 3（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.storage.filesystem.blob](../../../pangrova-storage/pangrova-storage-filesystem/src/main/java/org/pangrova/storage/filesystem/blob) | 2 | 保留 / P7 | `pangrova-storage-filesystem`：`org.pangrova.storage.filesystem.blob` | 第44节：独立复制、校验、原子不覆盖发布；8 项真实文件/并发回归，管理员受控 root 与共享 namespace 边界 |
-| [org.pangrova.storage.filesystem.object](../../../pangrova-storage/pangrova-storage-filesystem/src/main/java/org/pangrova/storage/filesystem/object) | 3 | 已迁移 / 第48节，继续语义验收 | `pangrova-storage-filesystem`：`org.pangrova.storage.filesystem.object` | 独立File API对象访问、缓存与生命周期；无Worker/Core/JDBC依赖；LOCAL根约束、流式版本校验和multipart。 |
-
-## pangrova-storage-s3
-
-路径：`pangrova-storage/pangrova-storage-s3`。主源文件 8，主源包 2，本叶子测试源文件 11（不是测试用例数）。
-
-| 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
-|---|---:|---|---|---|
-| [org.pangrova.storage.s3.blob](../../../pangrova-storage/pangrova-storage-s3/src/main/java/org/pangrova/storage/s3/blob) | 4 | 保留 / P7 | `pangrova-storage-s3`：`org.pangrova.storage.s3.blob` | 第44节：AWS SDK、加密、配置与后端指纹，COPY I/O grant 与取消边界；OSS 独立归下一制品，不以endpoint替换混用 |
-| [org.pangrova.storage.s3.object](../../../pangrova-storage/pangrova-storage-s3/src/main/java/org/pangrova/storage/s3/object) | 4 | 已迁移 / 第48节，继续语义验收 | `pangrova-storage-s3`：`org.pangrova.storage.s3.object` | 独立File API对象访问、缓存与生命周期；无Worker/Core/JDBC依赖；S3 SDK owner、不可变版本/条件DELETE、非拥有credentials视图。 |
-
-## pangrova-storage-oss
-
-路径：`pangrova-storage/pangrova-storage-oss`。主源文件 6，主源包 1，本叶子测试源文件 3（不是测试用例数）。
-
-| 当前 package | 文件数 | 动作 / 批次 | 目标 owner / package | 审查重点 |
-|---|---:|---|---|---|
-| [org.pangrova.storage.oss.blob](../../../pangrova-storage/pangrova-storage-oss/src/main/java/org/pangrova/storage/oss/blob) | 6 | 保留 / P7 | `pangrova-storage-oss`：`org.pangrova.storage.oss.blob` | 第46节：独立官方SDK、private upload snapshot、never-versioned发布、SSE与流式校验、真实HTTPS取消；云端OSS SQL与多Worker资格仍开放 |
 
 ## pangrova-streaming
 
@@ -953,11 +919,11 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 |---|---:|---|---|---|
 | [org.pangrova.streaming](../../../pangrova-streaming/src/main/java/org/pangrova/streaming) | 1 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
 | [org.pangrova.streaming.adapter.coordinator](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/adapter/coordinator) | 9 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.adapter.coordinator` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.api.aggregation](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/aggregation) | 5 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.api.aggregation` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.api.cdc](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/cdc) | 12 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.api.cdc` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.api.checkpoint](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint) | 6 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.api.checkpoint` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.api.source](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/source) | 2 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.api.source` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.api.watermark](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/watermark) | 1 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.api.watermark` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
+| [org.pangrova.streaming.api.aggregation](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/aggregation) | 5 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
+| [org.pangrova.streaming.api.cdc](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/cdc) | 12 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
+| [org.pangrova.streaming.api.checkpoint](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/checkpoint) | 6 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
+| [org.pangrova.streaming.api.source](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/source) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
+| [org.pangrova.streaming.api.watermark](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/api/watermark) | 1 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
 | [org.pangrova.streaming.core.aggregation](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/core/aggregation) | 4 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.core.aggregation` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
 | [org.pangrova.streaming.core.cdc](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/core/cdc) | 27 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.core.cdc` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
 | [org.pangrova.streaming.core.commit](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/core/commit) | 9 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.core.commit` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
@@ -971,11 +937,11 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.streaming.provider.writer.incremental](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/provider/writer/incremental) | 2 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.provider.writer.incremental` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
 | [org.pangrova.streaming.provider.writer.lake](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/provider/writer/lake) | 1 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.provider.writer.lake` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
 | [org.pangrova.streaming.provider.writer.mergetree](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/provider/writer/mergetree) | 1 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.provider.writer.mergetree` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.store.jdbc.cdc](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/cdc) | 1 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.store.jdbc.cdc` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.store.jdbc.checkpoint](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/checkpoint) | 1 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.store.jdbc.checkpoint` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.store.jdbc.offset](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/offset) | 1 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.store.jdbc.offset` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.store.jdbc.watermark](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/watermark) | 2 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.store.jdbc.watermark` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
-| [org.pangrova.streaming.store.memory](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/memory) | 2 | 保留 / P7 | `pangrova-streaming`：`org.pangrova.streaming.store.memory` | checkpoint/offset/watermark 恢复、CDC sink 确认与事务 |
+| [org.pangrova.streaming.store.jdbc.cdc](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/cdc) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | checkpoint/offset/watermark 恢复、CDC sink 确认与事务；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.streaming.store.jdbc.checkpoint](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/checkpoint) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | checkpoint/offset/watermark 恢复、CDC sink 确认与事务；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.streaming.store.jdbc.offset](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/offset) | 1 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | checkpoint/offset/watermark 恢复、CDC sink 确认与事务；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.streaming.store.jdbc.watermark](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/jdbc/watermark) | 2 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | checkpoint/offset/watermark 恢复、CDC sink 确认与事务；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.streaming.store.memory](../../../pangrova-streaming/src/main/java/org/pangrova/streaming/store/memory) | 2 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | checkpoint/offset/watermark 恢复、CDC sink 确认与事务；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-table
 
@@ -984,16 +950,16 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
 | [org.pangrova.table](../../../pangrova-table/src/main/java/org/pangrova/table) | 1 | 保留 / P7 | `pangrova-table`：`org.pangrova.table` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
-| [org.pangrova.table.api.control](../../../pangrova-table/src/main/java/org/pangrova/table/api/control) | 11 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.api.control` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
-| [org.pangrova.table.api.governancebinding](../../../pangrova-table/src/main/java/org/pangrova/table/api/governancebinding) | 3 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.api.governancebinding` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
-| [org.pangrova.table.api.maintenance](../../../pangrova-table/src/main/java/org/pangrova/table/api/maintenance) | 5 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.api.maintenance` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
-| [org.pangrova.table.api.policy](../../../pangrova-table/src/main/java/org/pangrova/table/api/policy) | 1 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.api.policy` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
-| [org.pangrova.table.api.statistics](../../../pangrova-table/src/main/java/org/pangrova/table/api/statistics) | 2 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.api.statistics` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
+| [org.pangrova.table.api.control](../../../pangrova-table/src/main/java/org/pangrova/table/api/control) | 11 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
+| [org.pangrova.table.api.governancebinding](../../../pangrova-table/src/main/java/org/pangrova/table/api/governancebinding) | 3 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
+| [org.pangrova.table.api.maintenance](../../../pangrova-table/src/main/java/org/pangrova/table/api/maintenance) | 5 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
+| [org.pangrova.table.api.policy](../../../pangrova-table/src/main/java/org/pangrova/table/api/policy) | 1 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
+| [org.pangrova.table.api.statistics](../../../pangrova-table/src/main/java/org/pangrova/table/api/statistics) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
 | [org.pangrova.table.core.control](../../../pangrova-table/src/main/java/org/pangrova/table/core/control) | 4 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.core.control` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
 | [org.pangrova.table.core.maintenance](../../../pangrova-table/src/main/java/org/pangrova/table/core/maintenance) | 1 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.core.maintenance` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
 | [org.pangrova.table.core.statistics](../../../pangrova-table/src/main/java/org/pangrova/table/core/statistics) | 1 | 保留 / P7 | `pangrova-table`：`org.pangrova.table.core.statistics` | 控制身份、policy binding、维护/统计；迁回 owner 测试 |
-| [org.pangrova.table.store.jdbc.control](../../../pangrova-table/src/main/java/org/pangrova/table/store/jdbc/control) | 4 | 按类拆分 / P7 | `pangrova-table`：`org.pangrova.table.store.jdbc.{control,maintenance,statistics,governancebinding}` | 按实现能力拆；同事务绑定与独立 owner 测试不变 |
-| [org.pangrova.table.store.memory.control](../../../pangrova-table/src/main/java/org/pangrova/table/store/memory/control) | 4 | 按类拆分 / P7 | `pangrova-table`：`org.pangrova.table.store.memory.{control,maintenance,statistics,governancebinding}` | 按实现能力拆；同事务绑定与独立 owner 测试不变 |
+| [org.pangrova.table.store.jdbc.control](../../../pangrova-table/src/main/java/org/pangrova/table/store/jdbc/control) | 4 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 按实现能力拆；同事务绑定与独立 owner 测试不变；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
+| [org.pangrova.table.store.memory.control](../../../pangrova-table/src/main/java/org/pangrova/table/store/memory/control) | 4 | 按类迁移 / P49-Persistence | `pangrova-persistence-{api,jdbc}`，按领域/能力拆分 | 按实现能力拆；同事务绑定与独立 owner 测试不变；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence；领域判断留调用方，SQL与存储编解码归Persistence |
 
 ## pangrova-testing-benchmark
 
@@ -1014,7 +980,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 
 ## pangrova-testing-integration-tests
 
-路径：`pangrova-testing/pangrova-testing-integration-tests`。主源文件 22，主源包 7，本叶子测试源文件 402（不是测试用例数）。
+路径：`pangrova-testing/pangrova-testing-integration-tests`。主源文件 22，主源包 7，本叶子测试源文件 403（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -1028,7 +994,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 
 ## pangrova-testing-kit
 
-路径：`pangrova-testing/pangrova-testing-kit`。主源文件 26，主源包 7，本叶子测试源文件 29（不是测试用例数）。
+路径：`pangrova-testing/pangrova-testing-kit`。主源文件 27，主源包 8，本叶子测试源文件 29（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -1036,6 +1002,7 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.testing.testkit.architecture](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/architecture) | 1 | 保留 / P9 | `pangrova-testing-kit`：`org.pangrova.testing.testkit.architecture` | fixture 唯一包根、真实依赖、deterministic discovery 与 scanner |
 | [org.pangrova.testing.testkit.function](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/function) | 2 | 保留 / P9 | `pangrova-testing-kit`：`org.pangrova.testing.testkit.function` | fixture 唯一包根、真实依赖、deterministic discovery 与 scanner |
 | [org.pangrova.testing.testkit.lineage](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/lineage) | 1 | 保留 / P9 | `pangrova-testing-kit`：`org.pangrova.testing.testkit.lineage` | fixture 唯一包根、真实依赖、deterministic discovery 与 scanner |
+| [org.pangrova.testing.testkit.network](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/network) | 1 | 待验收 / P49 | `pangrova-testing-kit`：`org.pangrova.testing.testkit.network` | 新增职责包；检查调用、事务、异常与资源所有权 |
 | [org.pangrova.testing.testkit.postgres](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/postgres) | 3 | 保留 / P9 | `pangrova-testing-kit`：`org.pangrova.testing.testkit.postgres` | fixture 唯一包根、真实依赖、deterministic discovery 与 scanner |
 | [org.pangrova.testing.testkit.result](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/result) | 2 | 保留 / P9 | `pangrova-testing-kit`：`org.pangrova.testing.testkit.result` | fixture 唯一包根、真实依赖、deterministic discovery 与 scanner |
 | [org.pangrova.testing.testkit.security](../../../pangrova-testing/pangrova-testing-kit/src/main/java/org/pangrova/testing/testkit/security) | 3 | 保留 / P9 | `pangrova-testing-kit`：`org.pangrova.testing.testkit.security` | fixture 唯一包根、真实依赖、deterministic discovery 与 scanner |
@@ -1061,10 +1028,10 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 | [org.pangrova.worker](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker) | 3 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.bootstrap](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap) | 5 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap` | 第43节：进程入口、启动顺序与清理准入；phase 不反向依赖编排器 |
 | [org.pangrova.worker.bootstrap.config](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/config) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.config` | 第43节：不可变部署配置，供启动阶段与部署适配器消费 |
-| [org.pangrova.worker.bootstrap.ownership](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/ownership) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.ownership` | 第43节：组件引用与部分初始化资源账本，不执行 phase；删除五组无消费者字段 |
-| [org.pangrova.worker.bootstrap.registration](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/registration) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.registration` | 第43节：注册/注销 HTTP 通信，不持有装配器或资源容器 |
 | [org.pangrova.worker.bootstrap.lifecycle](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/lifecycle) | 5 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.lifecycle` | 第43节：readiness、drain 与共享资源释放；关闭参数只保留真实 owner |
+| [org.pangrova.worker.bootstrap.ownership](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/ownership) | 4 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.ownership` | 第43节：组件引用与部分初始化资源账本，不执行 phase；删除五组无消费者字段 |
 | [org.pangrova.worker.bootstrap.phase](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/phase) | 7 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.phase` | 第43节：按阶段执行装配与发布资源，不引用顶层编排器 |
+| [org.pangrova.worker.bootstrap.registration](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/bootstrap/registration) | 2 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.bootstrap.registration` | 第43节：注册/注销 HTTP 通信，不持有装配器或资源容器 |
 | [org.pangrova.worker.buffer](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/buffer) | 9 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.buffer` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.cache](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/cache) | 3 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.cache` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
 | [org.pangrova.worker.clustering](../../../pangrova-worker/pangrova-worker-core/src/main/java/org/pangrova/worker/clustering) | 1 | 保留 / P6 | `pangrova-worker-core`：`org.pangrova.worker.clustering` | native handle、buffer、lease 单一 owner；取消与关闭竞争 |
@@ -1108,16 +1075,10 @@ Common/JDK纯契约；对象传输集中在api.object，目录刷新通过FileDi
 |---|---:|---|---|---|
 | [org.pangrova.worker.nativebridge](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge) | 1 | 保留 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge` | JNI symbol/descriptor、catalog pin、回调线程与资源关闭 |
 | [org.pangrova.worker.nativebridge.connector.session](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/connector/session) | 2 | 保留 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.connector.session` | 不可变任务会话，不依赖JNI write/catalog runtime |
-| [org.pangrova.worker.nativebridge.connector.spi](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/connector/spi) | 2 | 保留 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.connector.spi` | 精确任务资源端口，write和catalog共同消费；资源owner不变 |
+| [org.pangrova.worker.nativebridge.connector.spi](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/connector/spi) | 2 | 按类拆分 / P49-SPI | 通用契约→`pangrova-spi`，store端口→Persistence API；协议特有契约保留Protocol | 精确任务资源端口，write和catalog共同消费；资源owner不变 |
 | [org.pangrova.worker.nativebridge.jni](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni) | 10 | 保留 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.jni` | JNI symbol/descriptor、catalog pin、回调线程与资源关闭 |
 | [org.pangrova.worker.nativebridge.jni.write](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write) | 10 | 按类拆分 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.jni.write；nativebridge.connector.session` | TaskConnectorSession 迁低层能力；native 方法 FQN 非必要不动 |
 | [org.pangrova.worker.nativebridge.jni.write.catalog](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write/catalog) | 10 | 按类拆分 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.connector.spi / connector.catalog` | resolver 与 runtime 分离，write→SPI←catalog；catalog pin/close 不变 |
 | [org.pangrova.worker.nativebridge.jni.write.secret](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write/secret) | 1 | 保留 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.jni.write.secret` | JNI symbol/descriptor、catalog pin、回调线程与资源关闭 |
 | [org.pangrova.worker.nativebridge.jni.write.secret.env](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/jni/write/secret/env) | 1 | 保留 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.jni.write.secret.env` | JNI symbol/descriptor、catalog pin、回调线程与资源关闭 |
 | [org.pangrova.worker.nativebridge.memory](../../../pangrova-worker/pangrova-worker-native-bridge/src/main/java/org/pangrova/worker/nativebridge/memory) | 1 | 保留 / P6 | `pangrova-worker-native-bridge`：`org.pangrova.worker.nativebridge.memory` | JNI symbol/descriptor、catalog pin、回调线程与资源关闭 |
-
-## 台账覆盖核对
-
-共 658 行，动作分布：保留 470；按类拆分 74；改依赖 2；迁移 112。53 个当前 Java 叶子合计 3,574 个主源文件、2,375 个测试源文件；逐叶子统计与各包文件数之和一致。Generation 三叶及 Worker 新能力包已按真实源码登记，源文件落位不等于本批完整运行时验收通过。
-
-当前 Java 叶子已包含 serialization-json、coordination-api、coordination-jdbc 和 coordination-inmemory；六种协调实现已在新 provider 包登记，旧 Core 实现包不再占行。schema-migrations 仅承接 SQL 资源，不计入 Java 叶子或主源包。新增窄 SPI、assembly package 和 package-info 随具体批次补入事实清单。

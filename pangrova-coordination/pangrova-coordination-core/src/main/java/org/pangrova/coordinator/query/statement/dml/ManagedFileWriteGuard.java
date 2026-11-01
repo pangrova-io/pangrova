@@ -9,7 +9,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.ValidationException;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Literal;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 /**
  * Fail-closed guard for {@code FILE MANAGED} columns.

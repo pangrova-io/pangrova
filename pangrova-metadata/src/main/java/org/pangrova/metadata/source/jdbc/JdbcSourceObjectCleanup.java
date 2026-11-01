@@ -1,8 +1,8 @@
 package org.pangrova.metadata.source.jdbc;
 
-import org.pangrova.connector.spi.metadata.SourceCleanupBatch;
-import org.pangrova.connector.spi.metadata.SourceObjectPage;
-import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
+import org.pangrova.spi.connector.metadata.SourceCleanupBatch;
+import org.pangrova.spi.connector.metadata.SourceObjectPage;
+import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;

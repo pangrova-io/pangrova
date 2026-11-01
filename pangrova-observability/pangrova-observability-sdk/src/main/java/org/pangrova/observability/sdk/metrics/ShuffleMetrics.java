@@ -1,10 +1,10 @@
 package org.pangrova.observability.sdk.metrics;
 
-import org.pangrova.observability.api.DoubleHistogram;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.LongUpDownCounter;
-import org.pangrova.observability.api.MetricAttributes;
-import org.pangrova.observability.api.MetricsProvider;
+import org.pangrova.spi.observability.DoubleHistogram;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.LongUpDownCounter;
+import org.pangrova.spi.observability.MetricAttributes;
+import org.pangrova.spi.observability.MetricsProvider;
 
 import java.util.List;
 import java.util.Map;

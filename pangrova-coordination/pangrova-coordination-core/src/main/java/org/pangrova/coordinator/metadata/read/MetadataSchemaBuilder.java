@@ -3,7 +3,7 @@ package org.pangrova.coordinator.metadata.read;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.schema.impl.AbstractSchema;
 
@@ -55,7 +55,7 @@ public final class MetadataSchemaBuilder {
         MetadataSessionContext metadataSession = new MetadataSessionContext(
                 session.getUser(), session.getCatalog().orElse(null), session.getSchema().orElse(null),
                 null, null, session.getProperties(), session.getProperties().get("tenant_id"), null,
-                session.getQueryAuthority().map(org.pangrova.connector.spi.ConnectorQueryAuthority::queryId)
+                session.getQueryAuthority().map(org.pangrova.spi.connector.ConnectorQueryAuthority::queryId)
                         .orElseGet(() -> session.getProperties().get("queryId")), session.getQueryAuthority());
         Map<String, org.apache.calcite.schema.Schema> catalogSchemas = new ConcurrentHashMap<>();
         AbstractSchema root = new AbstractSchema() {

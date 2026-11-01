@@ -1,6 +1,5 @@
 package org.pangrova.indexing.store.jdbc;
 
-
 import org.pangrova.generation.assembly.GenerationStageGraphFactory;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
@@ -35,12 +34,12 @@ import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;

@@ -9,7 +9,7 @@ import net.jqwik.api.constraints.Size;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.indexing.core.storage.CachedBloomFilterIndexData;
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
 
 import java.util.List;
 import java.util.Set;

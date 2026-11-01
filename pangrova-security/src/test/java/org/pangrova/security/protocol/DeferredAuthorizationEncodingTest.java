@@ -1,11 +1,11 @@
 package org.pangrova.security.protocol;
 
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

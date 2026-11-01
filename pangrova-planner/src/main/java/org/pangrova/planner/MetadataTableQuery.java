@@ -12,7 +12,7 @@ import org.pangrova.parser.ast.Query;
 import org.pangrova.parser.ast.SystemTableReference;
 import org.pangrova.parser.ast.TableRef;
 import org.pangrova.parser.ast.expression.BinaryExpression;
-import org.pangrova.connector.spi.metadata.MetadataTableListing;
+import org.pangrova.spi.connector.metadata.MetadataTableListing;
 
 /** Typed utility expansion; names and values never round-trip through generated SQL. */
 public record MetadataTableQuery(List<String> baseTable, MetadataTableListing listing) {

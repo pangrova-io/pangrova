@@ -2,7 +2,7 @@ package org.pangrova.ai.worker.blob;
 
 import java.nio.file.Path;
 import java.util.Set;
-import org.pangrova.storage.filesystem.blob.FileSystemBlobStorage;
+import org.pangrova.filesystem.local.blob.FileSystemBlobStorage;
 
 /** Test fixture for the filesystem implementation of the durable blob contract. */
 public final class BlobTestStores {

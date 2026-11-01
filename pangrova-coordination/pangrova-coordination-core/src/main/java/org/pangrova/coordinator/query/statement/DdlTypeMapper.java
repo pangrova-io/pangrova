@@ -3,16 +3,16 @@ package org.pangrova.coordinator.query.statement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.type.BaseType;
 import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.connector.spi.data.type.ArrayType;
-import org.pangrova.connector.spi.data.type.MapType;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.mapping.PangrovaTypeMapping;
-import org.pangrova.connector.spi.data.type.RowField;
-import org.pangrova.connector.spi.data.type.RowType;
-import org.pangrova.connector.spi.data.type.Type;
-import org.pangrova.connector.spi.data.type.primitive.BigIntType;
-import org.pangrova.connector.spi.data.type.primitive.VarcharType;
-import org.pangrova.connector.spi.data.type.primitive.temporal.TimestampType;
+import org.pangrova.spi.connector.data.type.ArrayType;
+import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.mapping.PangrovaTypeMapping;
+import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.spi.connector.data.type.Type;
+import org.pangrova.spi.connector.data.type.primitive.BigIntType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.data.type.primitive.temporal.TimestampType;
 
 import java.util.List;
 import java.util.Map;
@@ -95,11 +95,11 @@ final class DdlTypeMapper {
             return FILE_STRUCT_TYPE;
         }
         if (spec instanceof DataTypeSpec.DecimalType decimal) {
-            return new org.pangrova.connector.spi.data.type.primitive.DecimalType(
+            return new org.pangrova.spi.connector.data.type.primitive.DecimalType(
                     decimal.precision(), decimal.scale());
         }
         if (spec instanceof DataTypeSpec.VectorType vector) {
-            return new org.pangrova.connector.spi.data.type.VectorType(vector.dimension(), vector.elementType());
+            return new org.pangrova.spi.connector.data.type.VectorType(vector.dimension(), vector.elementType());
         }
         return PangrovaTypeMapping.toType(map(spec));
     }

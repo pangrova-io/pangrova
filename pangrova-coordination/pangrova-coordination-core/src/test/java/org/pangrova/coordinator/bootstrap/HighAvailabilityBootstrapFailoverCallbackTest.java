@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
-import org.pangrova.coordination.api.DistributedLease;
+import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
-import org.pangrova.coordination.api.LeaseEntry;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

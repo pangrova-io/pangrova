@@ -1,14 +1,14 @@
 package org.pangrova.indexing.engine.gin.provider;
 
 import org.pangrova.indexing.engine.gin.serializer.ElementExtractor;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.text.GinIndexData;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.connector.spi.index.predicate.ContainmentMode;
-import org.pangrova.connector.spi.index.predicate.ContainsElement;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.IndexStrategyProvider;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.text.GinIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.connector.index.predicate.ContainmentMode;
+import org.pangrova.spi.connector.index.predicate.ContainsElement;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
 
 import java.util.ArrayList;
 import java.util.HashMap;

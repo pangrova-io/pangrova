@@ -1,10 +1,10 @@
 package org.pangrova.query.adapter.audit;
 
-import org.pangrova.query.api.audit.QueryAuditStore;
+import org.pangrova.persistence.api.query.audit.QueryAuditStore;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.spi.query.audit.QueryAuditRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

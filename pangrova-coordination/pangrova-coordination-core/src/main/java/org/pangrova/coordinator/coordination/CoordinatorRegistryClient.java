@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.coordination;
 
-import org.pangrova.coordination.api.CoordinatorRegistry;
-import org.pangrova.coordination.api.CoordinatorRole;
-import org.pangrova.coordination.api.CoordinatorSnapshot;
+import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
+import org.pangrova.spi.coordination.CoordinatorRole;
+import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

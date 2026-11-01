@@ -32,9 +32,9 @@ import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;
 import org.pangrova.parser.ast.statement.PublishSemanticViewStatement;
 import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Clock;
 import java.util.List;

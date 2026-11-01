@@ -15,7 +15,7 @@ import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.statement.DropCatalogStatement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
 import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.coordination.api.CoordinatorSnapshot;
+import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

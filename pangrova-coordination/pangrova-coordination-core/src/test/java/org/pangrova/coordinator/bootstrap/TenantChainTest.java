@@ -8,17 +8,17 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.security.core.tenant.QuotaCheckResult;
 import org.pangrova.security.core.tenant.QuotaChecker;
 import org.pangrova.security.core.tenant.TenantUsage;
 import org.pangrova.security.core.tenant.TenantResolver;
 import org.pangrova.security.core.tenant.TenantLifecycleManager;
 import org.pangrova.security.core.tenant.InMemoryTenantStore;
-import org.pangrova.security.api.tenant.ResolvedTenantContext;
+import org.pangrova.spi.security.tenant.ResolvedTenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -141,7 +141,7 @@ class TenantChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoord
         lifecycle.onboard("t-suspend", "Suspend Test", "admin");
         lifecycle.suspend("t-suspend");
 
-        Optional<org.pangrova.security.api.tenant.Tenant> tenant = store.getTenant("t-suspend");
+        Optional<org.pangrova.spi.security.tenant.Tenant> tenant = store.getTenant("t-suspend");
         assertThat(tenant).isPresent();
         assertThat(tenant.get().status()).isEqualTo(TenantStatus.SUSPENDED);
     }

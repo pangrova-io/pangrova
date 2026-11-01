@@ -9,8 +9,8 @@ import io.opentelemetry.sdk.testing.junit5.OpenTelemetryExtension;
 import java.util.Map;
 import org.pangrova.observability.sdk.tracing.provider.otel.OtelTracingProvider;
 import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
-import org.pangrova.observability.api.TextMapGetter;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TextMapGetter;
+import org.pangrova.spi.observability.TracingProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -86,7 +86,7 @@ class MdcTraceCorrelationTest {
         String traceparent = "00-" + traceId + "-" + parentSpanId + "-01";
         Map<String, String> headers = Map.of("traceparent", traceparent);
 
-        org.pangrova.observability.api.Span span = filter.startServerSpan(
+        org.pangrova.spi.observability.Span span = filter.startServerSpan(
                 "GET /api/query", headers, MAP_GETTER);
         try {
             testLogger.info("handling request");

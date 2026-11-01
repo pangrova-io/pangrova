@@ -21,8 +21,8 @@ import org.pangrova.planner.runtimefilter.RuntimeFilter;
 import org.pangrova.planner.runtimefilter.RuntimeFilterGenerator;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

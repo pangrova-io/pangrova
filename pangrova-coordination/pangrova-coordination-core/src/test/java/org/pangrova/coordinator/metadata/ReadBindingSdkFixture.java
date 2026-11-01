@@ -17,9 +17,9 @@ import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -77,11 +77,11 @@ public final class ReadBindingSdkFixture implements AutoCloseable {
         }
     }
 
-    public List<org.pangrova.connector.spi.metadata.ConnectorSplit> splits(
-            org.pangrova.connector.spi.metadata.table.ConnectorReadBinding binding,
+    public List<org.pangrova.spi.connector.metadata.ConnectorSplit> splits(
+            org.pangrova.spi.connector.metadata.table.ConnectorReadBinding binding,
             Map<String, Long> overrides) {
         var descriptor = new org.pangrova.planner.SplitSourceDescriptor("bound", "db",
-                binding.declaration().metadata().table().table(), org.pangrova.connector.spi.metadata.Constraint.EMPTY,
+                binding.declaration().metadata().table().table(), org.pangrova.spi.connector.metadata.Constraint.EMPTY,
                 binding.declaration().metadata().columns(), Optional.of(binding));
         var tracker = new org.pangrova.coordinator.task.CoordinatorTaskTracker();
         var state = new org.pangrova.coordinator.query.QueryStateMachine();

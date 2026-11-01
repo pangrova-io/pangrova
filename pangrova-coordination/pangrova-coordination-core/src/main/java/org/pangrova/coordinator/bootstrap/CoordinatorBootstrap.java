@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap;
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.ai.control.store.jdbc.embedding.JdbcCurrentModelAuthority;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.security.store.jdbc.JdbcCurrentDirectRoleReader;
+import org.pangrova.persistence.jdbc.security.policy.JdbcCurrentDirectRoleReader;
 
 import org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
@@ -17,11 +17,11 @@ import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.store.jdbc.catalog.PooledDataSourceFactory;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
-import org.pangrova.security.api.secret.SecretResolver;
+import org.pangrova.spi.security.secret.SecretResolver;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
 import org.pangrova.security.core.secret.provider.env.EnvSecretProvider;
 import org.pangrova.security.core.secret.provider.file.FileSecretProvider;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
 import org.slf4j.Logger;
@@ -57,8 +57,8 @@ public final class CoordinatorBootstrap {
     private NativeDatasetControlBootstrap nativeDatasetControl;
     private DataSource metadataDataSource;
     private AiInfrastructureStores aiInfrastructureStores;
-    private org.pangrova.coordination.api.DistributedLease distributedLease;
-    private org.pangrova.coordination.api.CoordinationProvider zkLeaseProvider;
+    private org.pangrova.persistence.api.coordination.DistributedLease distributedLease;
+    private org.pangrova.persistence.api.coordination.CoordinationProvider zkLeaseProvider;
     private SecurityBootstrap security;
     private ModuleIntegrationBootstrap moduleWiring;
     private StreamingBootstrap streamingBootstrap;
@@ -108,12 +108,12 @@ public final class CoordinatorBootstrap {
     private void startRoleSubsystems() {
         security = new SecurityBootstrap(config, metadataDataSource, source ->
                 org.pangrova.metadata.assembly.security.ColumnMaskStoreWiring.tableControl(
-                        new org.pangrova.security.store.jdbc.PersistentColumnMaskStore(source),
+                        new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source),
                         metadataBootstrap.catalogRegistry()),
                 source -> new org.pangrova.metadata.service.TableControlRowPolicyStore(
                         new org.pangrova.metadata.service.RegistryTablePolicyAuthority(
                                 metadataBootstrap.catalogRegistry()),
-                        new org.pangrova.security.store.jdbc.PersistentRowPolicyStore(source)));
+                        new org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore(source)));
         security.start();
         validateInternalAuthSecret();
         startModules();
@@ -166,7 +166,7 @@ public final class CoordinatorBootstrap {
             return null;
         }
         return new org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource(
-                new org.pangrova.file.store.jdbc.copy.JdbcCopySourceReadAdmissions(
+                new org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions(
                         metadataDataSource, security.accessControl(),
                         new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence()),
                 ha.haService());
@@ -191,11 +191,11 @@ public final class CoordinatorBootstrap {
                 new org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter(
                         query.auditEmitter()),
                 config.internalAuthSecret(),
-                new org.pangrova.file.store.jdbc.space.JdbcFileSpaceAuthority(metadataDataSource,
+                new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(metadataDataSource,
                         new org.pangrova.metadata.tenant.JdbcTenantStore(metadataDataSource)));
         var access = new org.pangrova.file.core.space.FileSpaceAccessService(
-                new org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry(metadataDataSource),
-                new org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry(metadataDataSource),
+                new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry(metadataDataSource),
+                new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(metadataDataSource),
                 security.accessControl(), context);
         return new org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource(
                 access,
@@ -206,7 +206,7 @@ public final class CoordinatorBootstrap {
     }
 
     private HighAvailabilityBootstrap buildHighAvailabilityBootstrap() {
-        org.pangrova.coordination.api.DistributedLease lease = ensureDistributedLease();
+        org.pangrova.persistence.api.coordination.DistributedLease lease = ensureDistributedLease();
         var haBootstrap = new HighAvailabilityBootstrap(config, query.queryManager(), query.workerManager(),
                 query.taskTracker(), query.schedulerExecutor(), lease, modelAuthority);
         if (metadataDataSource != null) {
@@ -338,7 +338,7 @@ public final class CoordinatorBootstrap {
      * on a ZooKeeper quorum. Durable execution still requires the relational metadata backend.
      * The ZooKeeper client is owned by this bootstrap and released in {@link #shutdown()}.
      */
-    private org.pangrova.coordination.api.DistributedLease resolveDistributedLease(DataSource source) {
+    private org.pangrova.persistence.api.coordination.DistributedLease resolveDistributedLease(DataSource source) {
         var binding = CoordinatorLeaseBootstrap.resolve(source);
         zkLeaseProvider = binding.quorumProvider();
         return binding.lease();
@@ -347,7 +347,7 @@ public final class CoordinatorBootstrap {
     private void startModules() {
         moduleWiring = new ModuleIntegrationBootstrap();
         if (config.role().isMaintenance()) {
-            org.pangrova.coordination.api.DistributedLease lease = ensureDistributedLease();
+            org.pangrova.persistence.api.coordination.DistributedLease lease = ensureDistributedLease();
             String processOwner = config.coordinatorId() + "/"
                     + java.util.UUID.randomUUID();
             maintenanceLeaderElection =
@@ -433,9 +433,9 @@ public final class CoordinatorBootstrap {
                     new org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore(metadataDataSource);
             org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalogRegistry =
                     metadataBootstrap.catalogRegistry();
-            org.pangrova.observability.api.MetricsProvider metricsProvider =
+            org.pangrova.spi.observability.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
-            org.pangrova.security.api.AccessControl accessControl =
+            org.pangrova.spi.security.AccessControl accessControl =
                     security != null ? security.accessControl() : null;
             moduleWiring.startIndexing(
                     indexMetadataStore, catalogRegistry, metricsProvider, accessControl,
@@ -466,7 +466,7 @@ public final class CoordinatorBootstrap {
         try {
             org.pangrova.indexing.store.IndexMetadataStore indexMetadataStore =
                     new org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore(metadataDataSource);
-            org.pangrova.observability.api.MetricsProvider metricsProvider =
+            org.pangrova.spi.observability.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
             moduleWiring.startIndexQuery(indexMetadataStore, metricsProvider);
             LOG.info("event=phase_started phase=index_query");
@@ -535,7 +535,7 @@ public final class CoordinatorBootstrap {
         maintenanceLeadership.start();
     }
 
-    org.pangrova.coordination.api.DistributedLease ensureDistributedLease() {
+    org.pangrova.persistence.api.coordination.DistributedLease ensureDistributedLease() {
         if (distributedLease != null) {
             return distributedLease;
         }

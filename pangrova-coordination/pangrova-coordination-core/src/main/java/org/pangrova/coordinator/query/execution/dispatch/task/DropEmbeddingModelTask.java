@@ -23,8 +23,8 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.DropEmbeddingModelStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Routes DROP EMBEDDING MODEL to the registry. The registry currently rejects

@@ -9,19 +9,19 @@ import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.index.CommitEvent;
-import org.pangrova.connector.spi.index.CommitListener;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
-import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.index.CommitEvent;
+import org.pangrova.spi.connector.index.CommitListener;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.security.AuthorizationDeniedException;
 import javax.sql.DataSource;
 
 import java.util.Map;
@@ -177,7 +177,7 @@ public final class GeneratedValueMaterializationCoordinator implements CommitLis
     private record MaterializationSession(QualifiedTableName table, String principal, String tenant)
             implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

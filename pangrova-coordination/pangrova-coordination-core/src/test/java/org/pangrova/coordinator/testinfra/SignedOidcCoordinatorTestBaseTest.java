@@ -4,7 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
-import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.ResourceQuota;
 
 import java.net.URI;
 import java.net.http.HttpClient;

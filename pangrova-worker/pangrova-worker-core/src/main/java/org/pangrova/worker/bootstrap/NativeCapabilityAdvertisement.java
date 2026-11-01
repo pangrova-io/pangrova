@@ -10,11 +10,11 @@ import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.model.AiModelDescriptor;
-import org.pangrova.ai.api.model.AiModelIdentity;
-import org.pangrova.ai.api.embedding.EmbeddingModelBindingIdentity;
-import org.pangrova.ai.api.runtime.AiModelCatalog;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.model.AiModelDescriptor;
+import org.pangrova.spi.ai.model.AiModelIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelBindingIdentity;
+import org.pangrova.spi.ai.runtime.AiModelCatalog;
 import org.pangrova.worker.nativebridge.jni.NativeCapabilityLoader;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;
 

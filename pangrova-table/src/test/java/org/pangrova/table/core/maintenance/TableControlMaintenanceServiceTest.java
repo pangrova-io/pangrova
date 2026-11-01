@@ -10,9 +10,8 @@ import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 import org.pangrova.table.store.memory.control.InMemoryTableControlMaintenanceStore;
 
-
 import org.junit.jupiter.api.Test;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.time.Clock;
 import java.time.Duration;

@@ -10,7 +10,7 @@ import org.pangrova.protocol.v2.FunctionKind;
 import org.pangrova.protocol.v2.FunctionTypeTemplate;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.TypedValue;
-import org.pangrova.function.api.metadata.FunctionMetadata;
+import org.pangrova.spi.function.metadata.FunctionMetadata;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

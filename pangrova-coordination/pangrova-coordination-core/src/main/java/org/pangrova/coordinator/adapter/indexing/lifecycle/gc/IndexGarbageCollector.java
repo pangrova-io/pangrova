@@ -5,10 +5,10 @@ import org.pangrova.coordinator.adapter.indexing.lifecycle.IndexLifecycleMetrics
 import org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
-import org.pangrova.connector.spi.index.SnapshotPinProvider;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

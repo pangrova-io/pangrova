@@ -13,7 +13,7 @@ import org.pangrova.protocol.v2.LanceWriteOperation;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
 import java.util.HexFormat;
 import java.util.List;
 

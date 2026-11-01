@@ -5,7 +5,6 @@ import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
 import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
 import org.pangrova.scheduler.core.speculation.StragglerDetector;
 
-
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.adapter.scheduler.SpeculationAdapters;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -14,7 +13,7 @@ import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 
 import java.time.Instant;

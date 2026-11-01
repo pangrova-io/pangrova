@@ -1,6 +1,8 @@
 package org.pangrova.security.api.policy;
 
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.policy.SqlIdentifierValidator;
+
+import org.pangrova.spi.security.AccessDeniedException;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

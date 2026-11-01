@@ -40,8 +40,8 @@ import org.pangrova.connector.paimon.handle.PaimonBranchSystemTableSplit;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -53,22 +53,22 @@ class PaimonNativeSystemTableBindingIntegrationTest {
     void listingsUseTheNativePaimonMetadataSchemas() throws Exception {
         try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
             var metadata = new PaimonMetadata(catalog, "paimon", registry);
-            for (var kind : List.of(org.pangrova.connector.spi.metadata.MetadataTableKind.TAGS,
-                    org.pangrova.connector.spi.metadata.MetadataTableKind.BRANCHES,
-                    org.pangrova.connector.spi.metadata.MetadataTableKind.FILES)) {
+            for (var kind : List.of(org.pangrova.spi.connector.metadata.MetadataTableKind.TAGS,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.BRANCHES,
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.FILES)) {
                 var listing = metadata.getMetadataListing(SESSION, kind).orElseThrow();
                 assertThat(listing.source()).isEqualTo(kind);
                 assertThat(listing.equalityFilters()).isEmpty();
             }
             assertThat(metadata.getMetadataListing(SESSION,
-                    org.pangrova.connector.spi.metadata.MetadataTableKind.ENTRIES)).isEmpty();
+                    org.pangrova.spi.connector.metadata.MetadataTableKind.ENTRIES)).isEmpty();
         }
     }
     @TempDir
     Path warehouse;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
-        @Override public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority>
+        @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
                 getQueryAuthority() { return Optional.empty(); }
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("paimon"); }
@@ -386,7 +386,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             var metadata = new PaimonMetadata(catalog, "paimon", registry);
             var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders"));
             metadata.createBranch(SESSION, handle, "from_release",
-                    new org.pangrova.connector.spi.metadata.BranchCreationOptions(
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
                             java.util.OptionalLong.empty(), Optional.of("release"), java.util.OptionalLong.empty()));
             var branch = table.copy(Map.of("branch", "from_release"));
             assertThat(branch.snapshotManager().latestSnapshotId()).isEqualTo(1L);
@@ -403,9 +403,9 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             var metadata = new PaimonMetadata(catalog, "paimon", registry);
             var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "orders"));
             for (var options : List.of(
-                    new org.pangrova.connector.spi.metadata.BranchCreationOptions(
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
                             java.util.OptionalLong.of(1), Optional.empty(), java.util.OptionalLong.empty()),
-                    new org.pangrova.connector.spi.metadata.BranchCreationOptions(
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
                             java.util.OptionalLong.empty(), Optional.empty(), java.util.OptionalLong.of(1)))) {
                 assertThatThrownBy(() -> metadata.createBranch(SESSION, handle, "unsupported", options))
                         .isInstanceOf(UnsupportedOperationException.class);
@@ -468,7 +468,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             var historical = metadata.bindRead(SESSION, selector.withTimeTravelSnapshot(1));
             assertThat(historical.snapshotId()).hasValue(1);
             assertThat(historical.state()).isEqualTo(
-                    org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT);
+                    org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT);
             assertThat(historical.sourceIdentity()).isEqualTo(first.sourceIdentity());
         }
     }

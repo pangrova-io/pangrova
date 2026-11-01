@@ -29,7 +29,7 @@ import org.pangrova.parser.ast.statement.dml.DeleteStatement;
 import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
 import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

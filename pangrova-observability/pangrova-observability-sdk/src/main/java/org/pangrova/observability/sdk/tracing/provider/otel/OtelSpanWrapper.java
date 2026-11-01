@@ -1,8 +1,8 @@
 package org.pangrova.observability.sdk.tracing.provider.otel;
 
-import org.pangrova.observability.api.Scope;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.StatusCode;
+import org.pangrova.spi.observability.Scope;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.StatusCode;
 
 /**
  * Wraps {@link io.opentelemetry.api.trace.Span} behind Pangrova's SPI {@link Span}.

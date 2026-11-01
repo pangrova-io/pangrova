@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -12,13 +11,13 @@ import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.planner.generation.VectorGenerationPlanBuilder;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;

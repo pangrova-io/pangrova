@@ -50,10 +50,10 @@ public final class PhysicalRetrievalIdentityRewriter {
             return false;
         }
         var binding = table.unwrap(
-                org.pangrova.connector.spi.metadata.table.ConnectorReadBinding.class);
-        if (binding == null || binding.state() != org.pangrova.connector.spi.metadata.table
+                org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.class);
+        if (binding == null || binding.state() != org.pangrova.spi.connector.metadata.table
                 .ConnectorReadBinding.SnapshotState.SNAPSHOT || binding.sourceIdentity().isBlank()
-                || binding.declaration().declarationEvidence() != org.pangrova.connector.spi.metadata.table
+                || binding.declaration().declarationEvidence() != org.pangrova.spi.connector.metadata.table
                 .ConnectorTableReadMetadata.DeclarationEvidence.EXACT) {
             return false;
         }

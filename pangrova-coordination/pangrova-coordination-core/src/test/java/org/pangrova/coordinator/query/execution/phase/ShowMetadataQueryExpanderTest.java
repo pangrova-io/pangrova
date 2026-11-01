@@ -8,8 +8,8 @@ import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.planner.MetadataTableQuery;
-import org.pangrova.connector.spi.metadata.MetadataTableKind;
-import org.pangrova.connector.spi.metadata.MetadataTableListing;
+import org.pangrova.spi.connector.metadata.MetadataTableKind;
+import org.pangrova.spi.connector.metadata.MetadataTableListing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

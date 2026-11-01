@@ -9,10 +9,10 @@ import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.indexing.store.IndexFileSelection;
 import org.pangrova.indexing.store.IndexGenerationManifest;
 import org.pangrova.indexing.store.IndexPublicationRequest;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 
 import javax.sql.DataSource;
 import java.time.Instant;

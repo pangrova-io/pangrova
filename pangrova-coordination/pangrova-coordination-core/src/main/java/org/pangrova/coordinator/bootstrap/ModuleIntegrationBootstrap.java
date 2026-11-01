@@ -29,7 +29,7 @@ import org.pangrova.streaming.core.watermark.WatermarkTracker;
 import org.pangrova.security.core.tenant.QuotaChecker;
 import org.pangrova.security.core.tenant.TenantResolver;
 import org.pangrova.security.core.tenant.InMemoryTenantStore;
-import org.pangrova.coordination.api.MaintenanceLeaderAware;
+import org.pangrova.spi.coordination.MaintenanceLeaderAware;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,7 +65,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     // Tenant
     private TenantResolver tenantResolver;
     private QuotaChecker quotaChecker;
-    private org.pangrova.security.api.tenant.TenantStore tenantStore;
+    private org.pangrova.persistence.api.security.tenant.TenantStore tenantStore;
 
     // Operations
     private org.pangrova.operations.recovery.RecoveryPlaybookFramework recoveryPlaybook;
@@ -92,7 +92,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     private volatile ScheduledFuture<?> invalidationCleanupTask;
 
     // Distributed lease (shared across indexing and DT refresh)
-    private org.pangrova.coordination.api.DistributedLease distributedLease;
+    private org.pangrova.persistence.api.coordination.DistributedLease distributedLease;
 
     private static final long METADATA_SYNC_INTERVAL_SECONDS = 60;
 
@@ -393,7 +393,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         LOG.info("Phase: tenant — initialized");
     }
 
-    public org.pangrova.security.api.tenant.TenantStore getTenantStore() {
+    public org.pangrova.persistence.api.security.tenant.TenantStore getTenantStore() {
         return tenantStore;
     }
 
@@ -423,14 +423,14 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     org.pangrova.operations.recovery.RecoveryPlaybookFramework getRecoveryPlaybook() { return recoveryPlaybook; }
     IndexingBootstrap getIndexingBootstrap() { return indexingBootstrap; }
     IndexQueryBootstrap getIndexQueryBootstrap() { return indexQueryBootstrap; }
-    org.pangrova.coordination.api.DistributedLease getDistributedLease() { return distributedLease; }
+    org.pangrova.persistence.api.coordination.DistributedLease getDistributedLease() { return distributedLease; }
 
-    void setDistributedLease(org.pangrova.coordination.api.DistributedLease lease) {
+    void setDistributedLease(org.pangrova.persistence.api.coordination.DistributedLease lease) {
         this.distributedLease = lease;
     }
 
     void startIndexQuery(org.pangrova.indexing.store.IndexMetadataStore metadataStore,
-                         org.pangrova.observability.api.MetricsProvider metricsProvider) {
+                         org.pangrova.spi.observability.MetricsProvider metricsProvider) {
         try {
             indexQueryBootstrap = new IndexQueryBootstrap(
                     metadataStore, metricsProvider, INDEX_EVAL_TIMEOUT_MS, 0);
@@ -444,20 +444,20 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     void startIndexing(org.pangrova.indexing.store.IndexMetadataStore metadataStore,
                        org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.api.MetricsProvider metricsProvider,
-                       org.pangrova.security.api.AccessControl accessControl,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.coordination.api.DistributedLease lease) {
+                       org.pangrova.persistence.api.coordination.DistributedLease lease) {
         startIndexing(metadataStore, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, null);
     }
 
     void startIndexing(org.pangrova.indexing.store.IndexMetadataStore metadataStore,
                        org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.api.MetricsProvider metricsProvider,
-                       org.pangrova.security.api.AccessControl accessControl,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.coordination.api.DistributedLease lease,
+                       org.pangrova.persistence.api.coordination.DistributedLease lease,
                        org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore) {
         startIndexing(metadataStore, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, artifactBuildStore, null);
@@ -465,10 +465,10 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     void startIndexing(org.pangrova.indexing.store.IndexMetadataStore metadataStore,
                        org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.api.MetricsProvider metricsProvider,
-                       org.pangrova.security.api.AccessControl accessControl,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.coordination.api.DistributedLease lease,
+                       org.pangrova.persistence.api.coordination.DistributedLease lease,
                        org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
                        org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore) {
         startIndexing(metadataStore, catalog, metricsProvider, accessControl,
@@ -478,10 +478,10 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     void startIndexing(org.pangrova.indexing.store.IndexMetadataStore metadataStore,
                        org.pangrova.metadata.core.catalog.registry.CatalogRegistry catalog,
-                       org.pangrova.observability.api.MetricsProvider metricsProvider,
-                       org.pangrova.security.api.AccessControl accessControl,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
-                       org.pangrova.coordination.api.DistributedLease lease,
+                       org.pangrova.persistence.api.coordination.DistributedLease lease,
                        org.pangrova.generation.api.job.GenerationJobStore artifactBuildStore,
                        org.pangrova.generation.api.publication.GenerationPublicationStore artifactPublicationStore,
                        org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection leaderElection) {

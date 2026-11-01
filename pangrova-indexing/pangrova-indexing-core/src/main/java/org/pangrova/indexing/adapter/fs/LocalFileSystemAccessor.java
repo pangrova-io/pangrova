@@ -1,6 +1,6 @@
 package org.pangrova.indexing.adapter.fs;
 
-import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
 
 import java.io.IOException;
 import java.io.InputStream;

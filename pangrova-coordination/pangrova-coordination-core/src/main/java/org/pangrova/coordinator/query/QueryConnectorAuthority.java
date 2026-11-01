@@ -1,10 +1,10 @@
 package org.pangrova.coordinator.query;
 
-import org.pangrova.connector.spi.ConnectorQueryAuthority;
-import org.pangrova.connector.spi.ConnectorQueryOperation;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
-import org.pangrova.connector.spi.metadata.ConnectorQueryCleanupResult;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.spi.connector.ConnectorQueryOperation;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
+import org.pangrova.spi.connector.metadata.ConnectorQueryCleanupResult;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

@@ -10,7 +10,7 @@ import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.api.execution.template.GenerationStageTemplate.PublicationRead;
 import org.pangrova.generation.api.manifest.GenerationManifest;
 import org.pangrova.generation.spi.storage.GenerationStageExchangeStore.ExchangeEvidence;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import java.time.Duration;
 import java.time.Instant;

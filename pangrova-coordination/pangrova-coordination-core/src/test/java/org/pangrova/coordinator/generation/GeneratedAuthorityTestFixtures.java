@@ -4,20 +4,20 @@ import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.ai.control.store.jdbc.embedding.JdbcEmbeddingModelRegistry;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.security.UserIdentity;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -32,7 +32,7 @@ final class GeneratedAuthorityTestFixtures {
     private GeneratedAuthorityTestFixtures() {}
 
     static void provisionModel(DataSource dataSource) {
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("model_owner"));
         roles.createRole(Role.of("model_invoker"));

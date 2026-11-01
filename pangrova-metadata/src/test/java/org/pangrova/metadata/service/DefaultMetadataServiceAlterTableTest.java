@@ -16,17 +16,17 @@ import org.pangrova.metadata.core.schema.SchemaChange;
 import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -220,10 +220,10 @@ class DefaultMetadataServiceAlterTableTest {
         }
 
         @Override
-        public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) { }
+        public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
 
         @Override
-        public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) { }
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
 
         @Override
         public List<String> listSchemaNames(ConnectorSession session) {

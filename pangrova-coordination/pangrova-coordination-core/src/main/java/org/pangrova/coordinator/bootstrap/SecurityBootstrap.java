@@ -2,21 +2,21 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.common.lifecycle.BootstrapFailedException;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.security.api.authn.Authenticator;
+import org.pangrova.spi.security.authn.Authenticator;
 import org.pangrova.security.core.authn.provider.bypass.BypassAuthenticator;
 import org.pangrova.security.core.authn.provider.ldap.LdapAuthenticator;
 import org.pangrova.security.core.authn.provider.oauth2.OAuth2Authenticator;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.scheduler.core.admission.ClusterConcurrencySlots;
 import org.pangrova.scheduler.store.jdbc.admission.JdbcClusterConcurrencySlots;
 import org.pangrova.scheduler.core.admission.TenantQuotaAdmissionController;
-import org.pangrova.security.api.tenant.TenantStore;
+import org.pangrova.persistence.api.security.tenant.TenantStore;
 import org.pangrova.scheduler.api.quota.GlobalTenantUsageView;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,19 +36,19 @@ final class SecurityBootstrap {
     private final CoordinatorBootstrapConfig config;
     private final DataSource dataSource;
     private final java.util.function.Function<DataSource,
-            org.pangrova.security.api.mask.EnrichedColumnMaskStore> maskStores;
+            org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore> maskStores;
 
     private final java.util.function.Function<DataSource,
-            org.pangrova.security.api.rowfilter.RowPolicyStore> rowPolicyStores;
+            org.pangrova.persistence.api.security.rowfilter.RowPolicyStore> rowPolicyStores;
 
     private AuthenticationManager authenticationManager;
     private AccessControl accessControl;
 
     SecurityBootstrap(CoordinatorBootstrapConfig config, DataSource dataSource,
             java.util.function.Function<DataSource,
-                    org.pangrova.security.api.mask.EnrichedColumnMaskStore> maskStores,
+                    org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore> maskStores,
             java.util.function.Function<DataSource,
-                    org.pangrova.security.api.rowfilter.RowPolicyStore> rowPolicyStores) {
+                    org.pangrova.persistence.api.security.rowfilter.RowPolicyStore> rowPolicyStores) {
         this.config = config;
         this.dataSource = dataSource;
         this.maskStores = java.util.Objects.requireNonNull(maskStores, "maskStores");
@@ -122,9 +122,9 @@ final class SecurityBootstrap {
         if (dataSource == null) {
             throw new IllegalStateException("Security requires the authoritative PostgreSQL datasource");
         }
-        PersistentRoleStore roles = new PersistentRoleStore(dataSource);
+        JdbcRoleStore roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
-        PersistentGrantStore grants = new PersistentGrantStore(dataSource);
+        JdbcGrantStore grants = new JdbcGrantStore(dataSource);
         // A missing or unavailable authority prevents the process from serving secured traffic.
         roles.listRoles();
         grants.listGrants();

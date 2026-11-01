@@ -16,17 +16,17 @@ import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.index.CommitEventType;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -79,7 +79,7 @@ class IndexCommitHandlerStatisticsTest {
         var files = merged(CommitEventType.OVERWRITE, List.of("f1.parquet"), List.of("old.parquet"));
 
         assertThatThrownBy(() -> env.handler.processTableCommit(files))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("trusted authorization scope");
         assertThat(env.store.insertedStats).isEmpty();
         assertThat(env.store.deletedStatsPaths).isEmpty();
@@ -272,7 +272,7 @@ class IndexCommitHandlerStatisticsTest {
             // operation identity; production maintenance still requires a
             // persisted subject and current security reauthorization.
             resolver = resolver.forSession(new ConnectorSession() {
-                @Override public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority>
+                @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority>
                         getQueryAuthority() { return Optional.empty(); }
                 @Override public String getUser() { return "statistics-fixture-reader"; }
                 @Override public Optional<String> getCatalog() { return Optional.of("cat"); }
@@ -317,7 +317,7 @@ class IndexCommitHandlerStatisticsTest {
 
         @Override public String loadAuthorizedBuildPrincipal(IndexDescriptor descriptor) {
             if (!authorizedFixture) {
-                throw new org.pangrova.security.api.AccessDeniedException(
+                throw new org.pangrova.spi.security.AccessDeniedException(
                         "Index connector access requires a trusted authorization scope");
             }
             return "statistics-fixture-reader";
@@ -383,11 +383,11 @@ class IndexCommitHandlerStatisticsTest {
         }
 
         @Override public List<String> listSchemaNames(ConnectorSession s) { return List.of(); }
-        @Override public List<org.pangrova.connector.spi.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
-        @Override public org.pangrova.connector.spi.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.connector.spi.metadata.table.SchemaTableName n) { return null; }
-        @Override public org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) { return null; }
-        @Override public Map<String, org.pangrova.connector.spi.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) { return Map.of(); }
-        @Override public org.pangrova.connector.spi.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) { return org.pangrova.connector.spi.metadata.table.TableStatistics.UNKNOWN; }
+        @Override public List<org.pangrova.spi.connector.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
+        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.spi.connector.metadata.table.SchemaTableName n) { return null; }
+        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return null; }
+        @Override public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return Map.of(); }
+        @Override public org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN; }
     }
 
     /** ConnectorMetadata that throws on getFileStatistics. */
@@ -399,11 +399,11 @@ class IndexCommitHandlerStatisticsTest {
         }
 
         @Override public List<String> listSchemaNames(ConnectorSession s) { return List.of(); }
-        @Override public List<org.pangrova.connector.spi.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
-        @Override public org.pangrova.connector.spi.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.connector.spi.metadata.table.SchemaTableName n) { return null; }
-        @Override public org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) { return null; }
-        @Override public Map<String, org.pangrova.connector.spi.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) { return Map.of(); }
-        @Override public org.pangrova.connector.spi.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) { return org.pangrova.connector.spi.metadata.table.TableStatistics.UNKNOWN; }
+        @Override public List<org.pangrova.spi.connector.metadata.table.SchemaTableName> listTables(ConnectorSession s, Optional<String> schema) { return List.of(); }
+        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableHandle getTableHandle(ConnectorSession s, org.pangrova.spi.connector.metadata.table.SchemaTableName n) { return null; }
+        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return null; }
+        @Override public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return Map.of(); }
+        @Override public org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) { return org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN; }
     }
 
     /** Minimal Connector delegating to a ConnectorMetadata. */

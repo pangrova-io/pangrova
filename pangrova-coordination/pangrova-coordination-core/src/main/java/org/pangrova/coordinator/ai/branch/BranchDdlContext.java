@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.ai.branch;
 
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

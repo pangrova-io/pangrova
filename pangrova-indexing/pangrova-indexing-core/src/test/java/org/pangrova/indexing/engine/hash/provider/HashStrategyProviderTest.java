@@ -1,12 +1,12 @@
 package org.pangrova.indexing.engine.hash.provider;
 
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
-import org.pangrova.indexing.api.data.HashIndexData;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.predicate.InList;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.HashIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.predicate.InList;
 
 import org.junit.jupiter.api.Test;
 

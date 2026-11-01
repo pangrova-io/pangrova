@@ -6,8 +6,8 @@ import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.planner.substrait.SubstraitProtocolVersion;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.metadata.Constraint;
 
 import java.util.List;
 import java.util.Map;

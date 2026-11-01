@@ -2,11 +2,11 @@ package org.pangrova.connector.paimon.index;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.pangrova.connector.spi.index.NativeIndexCapability;
-import org.pangrova.connector.spi.index.NativeIndexType;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.predicate.RangeQuery;
+import org.pangrova.spi.connector.index.NativeIndexCapability;
+import org.pangrova.spi.connector.index.NativeIndexType;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.predicate.RangeQuery;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

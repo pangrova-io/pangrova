@@ -1,6 +1,6 @@
 package org.pangrova.connector.iceberg.write;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.data.GenericRecord;

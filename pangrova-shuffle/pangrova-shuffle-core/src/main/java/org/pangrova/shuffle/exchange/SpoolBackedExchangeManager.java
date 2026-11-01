@@ -6,8 +6,8 @@ import java.util.Objects;
 import org.pangrova.shuffle.spool.SpoolReader;
 import org.pangrova.shuffle.spool.SpoolStore;
 import org.pangrova.shuffle.spool.SpoolWriter;
-import org.pangrova.connector.spi.data.page.BatchFormat;
-import org.pangrova.connector.spi.data.page.NativePage;
+import org.pangrova.spi.connector.data.page.BatchFormat;
+import org.pangrova.spi.connector.data.page.NativePage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

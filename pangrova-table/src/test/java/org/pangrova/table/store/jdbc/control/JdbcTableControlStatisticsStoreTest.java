@@ -2,13 +2,12 @@ package org.pangrova.table.store.jdbc.control;
 
 import org.pangrova.table.api.statistics.TableControlStatistics;
 
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

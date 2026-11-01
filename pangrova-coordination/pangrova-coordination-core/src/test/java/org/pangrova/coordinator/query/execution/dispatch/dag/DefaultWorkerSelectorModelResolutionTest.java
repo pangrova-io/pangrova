@@ -27,10 +27,10 @@ import org.pangrova.protocol.v2.ModelCapabilityContract;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.ai.api.embedding.EmbeddingModelBindingIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.ai.embedding.EmbeddingModelBindingIdentity;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.HexFormat;

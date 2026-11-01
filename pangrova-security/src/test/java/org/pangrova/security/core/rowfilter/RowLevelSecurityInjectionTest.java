@@ -1,6 +1,6 @@
 package org.pangrova.security.core.rowfilter;
 
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -13,9 +13,9 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.rowfilter.ParameterizedFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.api.rowfilter.RowPolicyStore;
+import org.pangrova.spi.security.rowfilter.ParameterizedFilter;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
 
 /**
  * Validates: Requirements A.5 — RLS expressions must use parameterized queries

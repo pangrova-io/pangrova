@@ -1,7 +1,7 @@
 package org.pangrova.query.store.jdbc.lineage;
 
-import org.pangrova.query.api.lineage.QueryLineageFact;
-import org.pangrova.query.api.lineage.QueryLineageOutbox;
+import org.pangrova.spi.query.lineage.QueryLineageFact;
+import org.pangrova.persistence.api.query.lineage.QueryLineageOutbox;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

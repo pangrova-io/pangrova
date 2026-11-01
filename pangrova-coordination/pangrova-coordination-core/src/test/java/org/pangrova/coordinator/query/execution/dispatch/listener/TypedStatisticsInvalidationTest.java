@@ -8,8 +8,8 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.planner.stats.PlannerTableStatistics;
 import org.pangrova.planner.stats.StatisticsCollector;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;

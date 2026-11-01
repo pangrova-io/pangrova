@@ -75,7 +75,7 @@ public final class RuntimeFilterStageHandler implements StageLifecycleHandler {
      */
     public void registerFilterTarget(String buildStageId, String probeStageId,
                                      String buildColumn, String probeColumn,
-                                     org.pangrova.connector.spi.data.type.PangrovaType buildColumnType) {
+                                     org.pangrova.spi.connector.data.type.PangrovaType buildColumnType) {
         filterTargets.put(buildStageId, new FilterTarget(probeStageId, buildColumn, probeColumn, buildColumnType));
         LOG.debug("event=runtime_filter_target_registered buildStageId={} probeStageId={} "
                         + "buildColumn={} probeColumn={}",
@@ -176,7 +176,7 @@ public final class RuntimeFilterStageHandler implements StageLifecycleHandler {
      * Immutable target descriptor for a runtime filter propagation path.
      */
     record FilterTarget(String probeStageId, String buildColumn, String probeColumn,
-                        org.pangrova.connector.spi.data.type.PangrovaType buildColumnType) {
+                        org.pangrova.spi.connector.data.type.PangrovaType buildColumnType) {
 
         FilterTarget {
             checkNotNull(probeStageId, "probeStageId must not be null");

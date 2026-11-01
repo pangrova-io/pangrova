@@ -2,7 +2,6 @@ package org.pangrova.metadata.generation.jdbc;
 
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
-
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
@@ -116,10 +115,10 @@ class JdbcTabularExportPublicationStoreTest {
                                 "substrait-plan".getBytes(StandardCharsets.UTF_8), GenerationStageTemplate.of("operator-binding".getBytes(StandardCharsets.UTF_8), List.of(), List.of()),
                                 List.of(), List.of(), true)), List.of(), List.of()),
                 TENANT, "feature-owner",
-                org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "raw", "customers"),
+                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "raw", "customers"),
                         java.util.Set.of("customer_id"),
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "features", "customer_features")),
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "features", "customer_features")),
                 new GenerationDispatchSpec.ResourceGrant(
                         4096, 1, 4096, 60_000));
     }

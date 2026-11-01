@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.Statement;
 

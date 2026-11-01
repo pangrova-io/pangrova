@@ -13,9 +13,9 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.TaskKind;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.query.state.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -210,7 +210,7 @@ public final class TaskStatusReceiver {
         try {
             return artifactWorkReportSink.commit(request.taskRequest().getSecurity().getTenantId(),
                     status, report.canonicalTaskReport());
-        } catch (org.pangrova.security.api.AuthorizationDeniedException
+        } catch (org.pangrova.spi.security.AuthorizationDeniedException
                 | org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException fenced) {
             LOG.warn("event=durable_report_rejected_authority queryId={} taskId={} reason={}",
                     report.queryId(), report.taskId(), fenced.getMessage());

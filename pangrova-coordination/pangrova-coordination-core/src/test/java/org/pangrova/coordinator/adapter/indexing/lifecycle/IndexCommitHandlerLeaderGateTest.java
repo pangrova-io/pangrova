@@ -19,17 +19,17 @@ import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.CommitLogEntry;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.metadata.api.catalog.MetadataStore;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.index.CommitEvent;
-import org.pangrova.connector.spi.index.CommitEventType;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.coordination.api.DistributedLease;
-import org.pangrova.coordination.api.LeaseEntry;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.index.CommitEvent;
+import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -115,7 +115,7 @@ class IndexCommitHandlerLeaderGateTest {
         poller = env.poller;
         env.store.readyIndexes = List.of(new IndexDescriptor(
                 "index-1", "test-index", "cat", "sch", "tbl", List.of("col1"),
-                org.pangrova.indexing.api.descriptor.IndexType.BLOOM_FILTER, Map.of(), IndexState.READY,
+                org.pangrova.spi.indexing.descriptor.IndexType.BLOOM_FILTER, Map.of(), IndexState.READY,
                 null, 0, "snap-0", "snap-0", Instant.now(), Instant.now(), "tenant-a"));
         env.store.seedCommitLogEntry(new CommitLogEntry(
                 1L, "tenant-a", "cat", "sch", "tbl", "snap-1",
@@ -375,23 +375,23 @@ class IndexCommitHandlerLeaderGateTest {
         @Override public List<String> listSchemaNames(ConnectorSession s) {
             return List.of();
         }
-        @Override public List<org.pangrova.connector.spi.metadata.table.SchemaTableName> listTables(
+        @Override public List<org.pangrova.spi.connector.metadata.table.SchemaTableName> listTables(
                 ConnectorSession s, Optional<String> schema) { return List.of(); }
-        @Override public org.pangrova.connector.spi.metadata.table.ConnectorTableHandle getTableHandle(
-                ConnectorSession s, org.pangrova.connector.spi.metadata.table.SchemaTableName n) {
+        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableHandle getTableHandle(
+                ConnectorSession s, org.pangrova.spi.connector.metadata.table.SchemaTableName n) {
             return null;
         }
-        @Override public org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata getTableMetadata(
-                ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) {
+        @Override public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(
+                ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) {
             return null;
         }
-        @Override public Map<String, org.pangrova.connector.spi.metadata.table.ColumnHandle> getColumnHandles(
-                ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) {
+        @Override public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(
+                ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) {
             return Map.of();
         }
-        @Override public org.pangrova.connector.spi.metadata.table.TableStatistics getTableStatistics(
-                ConnectorSession s, org.pangrova.connector.spi.metadata.table.ConnectorTableHandle t) {
-            return org.pangrova.connector.spi.metadata.table.TableStatistics.UNKNOWN;
+        @Override public org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(
+                ConnectorSession s, org.pangrova.spi.connector.metadata.table.ConnectorTableHandle t) {
+            return org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN;
         }
     }
 

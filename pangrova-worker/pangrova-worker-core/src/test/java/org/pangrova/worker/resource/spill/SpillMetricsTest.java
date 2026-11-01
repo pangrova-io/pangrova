@@ -1,11 +1,11 @@
 package org.pangrova.worker.resource.spill;
 
-import org.pangrova.observability.api.DoubleHistogram;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.LongUpDownCounter;
-import org.pangrova.observability.api.MetricAttributes;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.ObservableDoubleGauge;
+import org.pangrova.spi.observability.DoubleHistogram;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.LongUpDownCounter;
+import org.pangrova.spi.observability.MetricAttributes;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.ObservableDoubleGauge;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

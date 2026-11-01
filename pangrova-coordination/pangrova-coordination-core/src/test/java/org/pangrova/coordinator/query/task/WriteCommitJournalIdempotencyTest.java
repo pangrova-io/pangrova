@@ -23,28 +23,28 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
-import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -213,7 +213,7 @@ class WriteCommitJournalIdempotencyTest {
         // markCommitted, and pending replay must exclude committed entries.
         java.util.List<byte[]> fragments = java.util.List.of(new byte[]{9, 8, 7});
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
                         "q-replayable",
                         "tenant-test",
                         CATALOG_NAME,
@@ -330,7 +330,7 @@ class WriteCommitJournalIdempotencyTest {
             WriteCommitEntry.State state, long timestampMs) {
         String mode = "INSERT";
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
                         queryId,
                         "tenant-test",
                         catalog,
@@ -556,7 +556,7 @@ class WriteCommitJournalIdempotencyTest {
 
     static final class TestConnectorSession implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

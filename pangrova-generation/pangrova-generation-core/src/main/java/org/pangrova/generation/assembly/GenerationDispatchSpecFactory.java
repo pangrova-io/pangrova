@@ -4,7 +4,7 @@ import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.execution.GenerationStageGraph;
 import org.pangrova.generation.protocol.GenerationStageGraphCodec;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 /** Admits a compiled graph before any durable build submission or transaction is started. */
 @Internal

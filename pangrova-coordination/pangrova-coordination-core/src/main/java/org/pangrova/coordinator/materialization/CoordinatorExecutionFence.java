@@ -10,7 +10,7 @@ import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.port.FenceValidator;
 import org.pangrova.materialization.port.LeaseService;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 /**
  * Fence adapter backed by the query execution anchor and the live control term.

@@ -1,7 +1,7 @@
 package org.pangrova.streaming.core.pipeline;
 
-import org.pangrova.connector.spi.data.write.TableWriter;
-import org.pangrova.connector.spi.data.write.model.*;
+import org.pangrova.spi.connector.data.write.TableWriter;
+import org.pangrova.spi.connector.data.write.model.*;
 import org.pangrova.streaming.core.maintenance.*;
 import org.pangrova.streaming.store.memory.InMemoryWatermarkStore;
 import org.pangrova.streaming.core.watermark.WatermarkTracker;

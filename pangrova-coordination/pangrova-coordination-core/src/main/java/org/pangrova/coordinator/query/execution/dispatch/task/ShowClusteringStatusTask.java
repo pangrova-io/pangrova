@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.ShowClusteringStatusStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes SHOW CLUSTERING STATUS by delegating to {@link ClusteringDdlExecutor#executeShowClusteringStatus}.

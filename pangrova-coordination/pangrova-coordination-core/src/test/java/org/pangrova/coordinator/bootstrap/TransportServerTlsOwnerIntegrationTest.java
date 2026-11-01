@@ -75,8 +75,8 @@ class TransportServerTlsOwnerIntegrationTest {
             try {
                 var completed = new java.util.concurrent.atomic.AtomicBoolean();
                 var result = started.service().dispatchControlPlaneRows("tls-ack",
-                        java.util.List.of(org.pangrova.connector.spi.data.value.TypedRow.of(java.util.Map.of(
-                                "status", new org.pangrova.connector.spi.data.value.ColumnValue.StringValue("OK")))),
+                        java.util.List.of(org.pangrova.spi.connector.data.value.TypedRow.of(java.util.Map.of(
+                                "status", new org.pangrova.spi.connector.data.value.ColumnValue.StringValue("OK")))),
                         java.util.List.of("status"), () -> completed.set(true));
                 check(completed.get() && result.resultEndpoint().protocol().equals("grpc+tls")
                         && result.resultEndpoint().port() == started.server().getPort(),

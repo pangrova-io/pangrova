@@ -6,9 +6,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;

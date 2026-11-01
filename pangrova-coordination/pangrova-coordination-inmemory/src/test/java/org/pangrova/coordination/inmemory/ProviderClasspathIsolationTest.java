@@ -2,7 +2,8 @@ package org.pangrova.coordination.inmemory;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.coordination.api.DistributedLease;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -21,7 +22,9 @@ class ProviderClasspathIsolationTest {
     void providersConstructAndOperateWithOnlyTheirApiCommonAndJdk() throws Exception {
         URL[] locations = {
                 InMemoryDistributedLease.class.getProtectionDomain().getCodeSource().getLocation(),
+                LeaseEntry.class.getProtectionDomain().getCodeSource().getLocation(),
                 DistributedLease.class.getProtectionDomain().getCodeSource().getLocation(),
+                LeaseEntry.class.getProtectionDomain().getCodeSource().getLocation(),
                 Internal.class.getProtectionDomain().getCodeSource().getLocation()
         };
         try (var loader = new URLClassLoader(locations, ClassLoader.getPlatformClassLoader())) {

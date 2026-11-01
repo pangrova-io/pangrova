@@ -247,9 +247,9 @@ class ClusterConcurrencySlotsTest extends ContainerTestBase {
 
     private static TenantQuotaAdmissionController controller(ClusterConcurrencySlots slots) {
         var tenants = new org.pangrova.security.core.tenant.InMemoryTenantStore();
-        var quota = new org.pangrova.security.api.tenant.ResourceQuota(1000, 2, 1, 100, 100, 100, 100, 100);
-        tenants.createTenant(new org.pangrova.security.api.tenant.Tenant("t", "Tenant",
-                org.pangrova.security.api.tenant.TenantStatus.ACTIVE, quota, java.util.List.of(),
+        var quota = new org.pangrova.spi.security.tenant.ResourceQuota(1000, 2, 1, 100, 100, 100, 100, 100);
+        tenants.createTenant(new org.pangrova.spi.security.tenant.Tenant("t", "Tenant",
+                org.pangrova.spi.security.tenant.TenantStatus.ACTIVE, quota, java.util.List.of(),
                 java.util.List.of(), null, java.util.Map.of(), java.time.Instant.EPOCH, "admin"));
         return new TenantQuotaAdmissionController(tenants, null, slots);
     }

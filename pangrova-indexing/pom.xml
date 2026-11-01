@@ -16,7 +16,7 @@
     <description>Indexing parent for Pangrova: indexing contracts and implementation</description>
 
     <modules>
-        <module>pangrova-indexing-api</module>
+
         <module>pangrova-indexing-core</module>
     </modules>
 </project>

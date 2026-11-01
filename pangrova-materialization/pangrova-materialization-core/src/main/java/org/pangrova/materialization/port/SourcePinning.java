@@ -1,11 +1,11 @@
 package org.pangrova.materialization.port;
 
-import org.pangrova.connector.spi.materialization.ChangeProof;
-import org.pangrova.connector.spi.materialization.ChangeSetMode;
-import org.pangrova.connector.spi.materialization.ChangeSetPlan;
-import org.pangrova.connector.spi.materialization.PinnedSource;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.ChangeProof;
+import org.pangrova.spi.connector.materialization.ChangeSetMode;
+import org.pangrova.spi.connector.materialization.ChangeSetPlan;
+import org.pangrova.spi.connector.materialization.PinnedSource;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 
 /**
  * Physical holds on exact source snapshots for one attempt.

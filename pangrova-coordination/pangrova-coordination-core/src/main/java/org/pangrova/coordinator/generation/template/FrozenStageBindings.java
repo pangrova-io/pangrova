@@ -11,7 +11,7 @@ import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
 import org.pangrova.protocol.v2.ResultColumnLogicalType;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.util.Arrays;

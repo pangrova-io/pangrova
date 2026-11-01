@@ -20,7 +20,7 @@ class MaterializationArchitectureTest {
     private static final DescribedPredicate<JavaClass> CONNECTOR_IMPLEMENTATION =
             DescribedPredicate.describe("connector implementation packages",
                     type -> type.getPackageName().startsWith("org.pangrova.connector.")
-                            && !type.getPackageName().startsWith("org.pangrova.connector.spi"));
+                            && !type.getPackageName().startsWith("org.pangrova.spi.connector"));
 
     @Test
     void kernelDependsOnlyOnJdkCommonAndConnectorSpi() {
@@ -29,7 +29,7 @@ class MaterializationArchitectureTest {
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
                         "java..",
                         "org.pangrova.materialization..",
-                        "org.pangrova.connector.spi..",
+                        "org.pangrova.spi.connector..",
                         "org.pangrova.common..")
                 .check(KERNEL);
     }

@@ -6,7 +6,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.type.DataTypeSpec;
-import org.pangrova.connector.spi.data.type.RowType;
+import org.pangrova.spi.connector.data.type.RowType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

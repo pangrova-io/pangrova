@@ -1,8 +1,8 @@
 package org.pangrova.query.core.audit;
 
-import org.pangrova.query.api.audit.QueryAuditRecord;
-import org.pangrova.query.api.audit.QueryAuditSink;
-import org.pangrova.query.api.audit.QueryAuditStore;
+import org.pangrova.spi.query.audit.QueryAuditRecord;
+import org.pangrova.spi.query.audit.QueryAuditSink;
+import org.pangrova.persistence.api.query.audit.QueryAuditStore;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;

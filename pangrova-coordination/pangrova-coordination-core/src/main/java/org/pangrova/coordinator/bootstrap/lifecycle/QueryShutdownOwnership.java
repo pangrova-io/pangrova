@@ -4,7 +4,7 @@ import java.util.function.Supplier;
 import java.util.function.Consumer;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
 
 /** Query-side dependency barriers. Successful result streams drain naturally; shutdown does not DELETE them. */
 @ThreadSafe

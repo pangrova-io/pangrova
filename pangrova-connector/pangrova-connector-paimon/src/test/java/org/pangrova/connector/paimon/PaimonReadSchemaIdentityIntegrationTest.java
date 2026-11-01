@@ -5,9 +5,9 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadSchemaIdentity;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadSchemaIdentity;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

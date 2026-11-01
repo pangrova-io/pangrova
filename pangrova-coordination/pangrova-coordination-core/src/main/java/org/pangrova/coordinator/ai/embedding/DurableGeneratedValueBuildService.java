@@ -20,7 +20,7 @@ import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.generation.GeneratedValueBuildDescriptor;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmissionStore;
 import org.pangrova.metadata.generation.GeneratedValueBuildSubmission;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
 import org.pangrova.planner.generation.GenerationPlan;
 import org.pangrova.planner.generation.GeneratedValueGenerationPlan;
@@ -37,10 +37,10 @@ import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
 import org.pangrova.protocol.v2.TypedValue;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -130,9 +130,9 @@ public final class DurableGeneratedValueBuildService {
                 || !write.principal().equals(connectorSession.getUser())
                 || !write.tenantId().equals(connectorSession.getProperties().get("tenant_id"))
                 || !write.authorizationReceipt().declaration().generatedColumnsSha256().equals(
-                        org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot.generatedColumnsDigest(
+                        org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot.generatedColumnsDigest(
                                 definitions.toByteArray()))) {
-            throw new org.pangrova.security.api.AuthorizationDeniedException(
+            throw new org.pangrova.spi.security.AuthorizationDeniedException(
                     "Generated maintenance must preserve its exact committed writer, tenant and declaration");
         }
         var user = new UserIdentity(write.principal(), java.util.Set.of(),
@@ -266,10 +266,10 @@ public final class DurableGeneratedValueBuildService {
         sourceSchemaVerifier.verify(table, sourceSnapshot, connectorSession, source.relation());
         var declaredReads = authorizationScope.permissions().stream().filter(permission ->
                 permission.table().equals(table)
-                        && permission.privilege() == org.pangrova.security.api.policy.Privilege.SELECT)
+                        && permission.privilege() == org.pangrova.spi.security.policy.Privilege.SELECT)
                 .toList();
         if (!declaredReads.contains(source.permission())) {
-            throw new org.pangrova.security.api.AuthorizationDeniedException(
+            throw new org.pangrova.spi.security.AuthorizationDeniedException(
                     "Generated source policies changed since admission; securely resubmit the write intent");
         }
         return GeneratedValueGenerationPlanBuilder.build(
@@ -434,7 +434,7 @@ public final class DurableGeneratedValueBuildService {
 
     private record GeneratedInputSession(QualifiedTableName table, UserIdentity user) implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

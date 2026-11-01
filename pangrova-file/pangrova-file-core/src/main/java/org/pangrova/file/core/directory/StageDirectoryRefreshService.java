@@ -3,12 +3,12 @@ package org.pangrova.file.core.directory;
 import java.util.Objects;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.file.api.access.FileListingClient;
+import org.pangrova.spi.file.access.FileListingClient;
 import org.pangrova.file.core.space.FileSpaceAccessService;
-import org.pangrova.file.api.directory.FileDirectoryIndex;
-import org.pangrova.security.api.FileSpaceAccessControl;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.persistence.api.file.directory.FileDirectoryIndex;
+import org.pangrova.spi.security.FileSpaceAccessControl;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.file.space.FileSpace;
 
 /** Refreshes directory metadata through authorized Worker pages, without opening file bytes. */
 public final class StageDirectoryRefreshService {

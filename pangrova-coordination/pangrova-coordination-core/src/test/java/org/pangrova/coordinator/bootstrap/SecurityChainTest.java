@@ -14,10 +14,10 @@ import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.SecurityConfig;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -286,7 +286,7 @@ class SecurityChainTest extends ContainerTestBase {
                 null, null, null,
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                         org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                        new org.pangrova.observability.api.noop.NoOpTracingProvider()),
+                        new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
                 new org.pangrova.scheduler.core.placement.TaskScheduler(
                         new org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer()),
                 workerManager, taskTracker, null, null, null, 0L));
@@ -294,7 +294,7 @@ class SecurityChainTest extends ContainerTestBase {
                 deps, null, null);
         var queryManager = new org.pangrova.coordinator.query.QueryManager(
                 org.pangrova.coordinator.query.QueryManagerContext.minimal(
-                        orchestrator, new org.pangrova.observability.api.noop.NoOpTracingProvider()));
+                        orchestrator, new org.pangrova.observability.sdk.noop.NoOpTracingProvider()));
         var receiver = new org.pangrova.coordinator.query.task.TaskStatusReceiver(
                 org.pangrova.coordinator.query.task.TaskStatusReceiverContext.withoutSpeculation(
                         queryManager, taskTracker, workerManager));

@@ -21,12 +21,14 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
+            <artifactId>pangrova-persistence-api</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-indexing-api</artifactId>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-worker-native-bridge</artifactId>
@@ -57,44 +59,32 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-api</artifactId>
+            <artifactId>pangrova-filesystem-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-s3</artifactId>
+            <artifactId>pangrova-filesystem-s3</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-filesystem</artifactId>
+            <artifactId>pangrova-filesystem-local</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-ai-api</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-config</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-api</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-security</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-function</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-operations</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-observability-api</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-observability-sdk</artifactId>

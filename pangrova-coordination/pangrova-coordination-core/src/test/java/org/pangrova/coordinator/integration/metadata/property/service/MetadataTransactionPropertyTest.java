@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.integration.metadata.property.service;
 
-
 import org.pangrova.metadata.service.DefaultMetadataService;
 
 import net.jqwik.api.ForAll;
@@ -20,15 +19,15 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.core.schema.SchemaEvolutionValidator;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.*;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.*;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import java.time.Instant;
 import java.util.*;
@@ -159,13 +158,13 @@ class MetadataTransactionPropertyTest {
         final AtomicInteger cleanupCount = new AtomicInteger();
 
         @Override
-        public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId();
             beginCount.incrementAndGet();
         }
 
         @Override
-        public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
             String queryId = authority.queryId();
             cleanupCount.incrementAndGet();
         }

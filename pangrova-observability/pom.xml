@@ -16,7 +16,7 @@
     <description>Observability parent for Pangrova: API contracts, SDK, and runtime</description>
 
     <modules>
-        <module>pangrova-observability-api</module>
+
         <module>pangrova-observability-sdk</module>
     </modules>
 </project>

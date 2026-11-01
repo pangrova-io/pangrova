@@ -6,12 +6,12 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import org.pangrova.observability.api.event.QueryState;
-import org.pangrova.observability.api.event.QueryCompletedEvent;
-import org.pangrova.observability.api.event.QueryCreatedEvent;
-import org.pangrova.observability.api.event.QueryEventListener;
-import org.pangrova.observability.api.event.QueryStatistics;
-import org.pangrova.observability.api.event.SplitCompletedEvent;
+import org.pangrova.spi.observability.event.QueryState;
+import org.pangrova.spi.observability.event.QueryCompletedEvent;
+import org.pangrova.spi.observability.event.QueryCreatedEvent;
+import org.pangrova.spi.observability.event.QueryEventListener;
+import org.pangrova.spi.observability.event.QueryStatistics;
+import org.pangrova.spi.observability.event.SplitCompletedEvent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.observability.api.event.QueryEventDispatcher;
+import org.pangrova.spi.observability.event.QueryEventDispatcher;
 
 /**
  * Validates the durable EventListener contract (#181): a completed query fired through

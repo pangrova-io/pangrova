@@ -7,7 +7,7 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.spi.connector.base.ConnectorException;
 
 import java.util.Set;
 

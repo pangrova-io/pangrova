@@ -2,8 +2,8 @@ package org.pangrova.materialization.port;
 
 import org.pangrova.materialization.domain.AttemptId;
 import org.pangrova.materialization.domain.TenantId;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 
 /**
  * An acquired source pin whose owning attempt settled or whose hold expired.

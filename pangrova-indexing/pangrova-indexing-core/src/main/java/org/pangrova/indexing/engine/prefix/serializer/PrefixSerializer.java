@@ -1,7 +1,7 @@
 package org.pangrova.indexing.engine.prefix.serializer;
 
-import org.pangrova.indexing.api.data.text.PrefixEntry;
-import org.pangrova.indexing.api.data.text.PrefixIndexData;
+import org.pangrova.spi.indexing.data.text.PrefixEntry;
+import org.pangrova.spi.indexing.data.text.PrefixIndexData;
 
 import java.util.ArrayList;
 import org.pangrova.indexing.core.serde.SerdeCodec;

@@ -1,17 +1,17 @@
 package org.pangrova.testing.integration.e2e.security;
 
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
 import org.pangrova.security.core.authz.StaticGrantStore;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;

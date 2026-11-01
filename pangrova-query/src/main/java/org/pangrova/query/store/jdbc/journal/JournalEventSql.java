@@ -7,9 +7,9 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.UUID;
 import org.pangrova.query.store.jdbc.lineage.QueryLineageFactSql;
-import org.pangrova.query.api.state.JournalEventContext;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.state.JournalEventContext;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.spi.query.state.TaskStateEvent;
 
 /** Single SQL encoding and exact event reconciliation for the two authoritative journal tables. */
 final class JournalEventSql {

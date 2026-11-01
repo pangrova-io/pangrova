@@ -7,13 +7,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.observability.api.Context;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.SpanKind;
-import org.pangrova.observability.api.StatusCode;
-import org.pangrova.observability.api.TextMapGetter;
-import org.pangrova.observability.api.TextMapSetter;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.Context;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.StatusCode;
+import org.pangrova.spi.observability.TextMapGetter;
+import org.pangrova.spi.observability.TextMapSetter;
+import org.pangrova.spi.observability.TracingProvider;
 import org.junit.jupiter.api.Test;
 
 /**

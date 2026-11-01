@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -10,7 +10,7 @@ import java.util.Optional;
 record PlanningConnectorSession(
         String user, Optional<String> catalog, Optional<String> schema,
         Map<String, String> properties,
-        Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
+        Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
 
     PlanningConnectorSession {
         if (user == null || user.isBlank()) {
@@ -42,7 +42,7 @@ record PlanningConnectorSession(
     @Override public Optional<String> getCatalog() { return catalog; }
     @Override public Optional<String> getSchema() { return schema; }
     @Override public Map<String, String> getProperties() { return properties; }
-    @Override public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+    @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
         return queryAuthority;
     }
 }

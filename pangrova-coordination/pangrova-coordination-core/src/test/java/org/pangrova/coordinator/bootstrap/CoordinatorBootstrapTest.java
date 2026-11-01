@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.bootstrap;
 
-
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;

@@ -6,7 +6,7 @@ import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.generation.api.job.GenerationJobKey;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.util.HashMap;

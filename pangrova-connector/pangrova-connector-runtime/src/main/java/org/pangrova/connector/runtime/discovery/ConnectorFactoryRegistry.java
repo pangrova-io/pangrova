@@ -2,7 +2,7 @@ package org.pangrova.connector.runtime.discovery;
 
 import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

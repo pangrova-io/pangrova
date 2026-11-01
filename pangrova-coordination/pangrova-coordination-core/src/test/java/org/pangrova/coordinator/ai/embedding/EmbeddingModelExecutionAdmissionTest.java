@@ -22,8 +22,8 @@ import org.pangrova.protocol.v2.CapabilityLimits;
 import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
 import org.pangrova.protocol.v2.VersionedRef;
-import org.pangrova.ai.api.embedding.EmbeddingModelBindingIdentity;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.ai.embedding.EmbeddingModelBindingIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

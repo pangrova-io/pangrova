@@ -10,9 +10,9 @@ import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.generation.GeneratedValuesOverlayPlanBinder;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -86,10 +86,10 @@ public final class GeneratedValueReadResolver {
         }
     }
 
-    private static org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata declarationMetadata(
-            org.pangrova.connector.spi.metadata.ConnectorMetadata metadata,
-            org.pangrova.connector.spi.metadata.table.ConnectorTableHandle handle,
-            org.pangrova.connector.spi.ConnectorSession session, String snapshot, Long historicalVersion) {
+    private static org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata declarationMetadata(
+            org.pangrova.spi.connector.metadata.ConnectorMetadata metadata,
+            org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle,
+            org.pangrova.spi.connector.ConnectorSession session, String snapshot, Long historicalVersion) {
         if (historicalVersion == null) return metadata.getTableMetadata(session, handle);
         if (parseSnapshot(snapshot) != historicalVersion) {
             throw new IllegalStateException("Historical generated read split differs from its declared snapshot");
@@ -114,7 +114,7 @@ public final class GeneratedValueReadResolver {
     }
 
     private static void requireSchema(io.substrait.proto.ReadRel read,
-                                      org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata table) {
+                                      org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata table) {
         var actual = org.pangrova.planner.substrait.NativeDatasetSchemaCompiler.compile(table.typedColumns()).schema();
         if (!read.hasBaseSchema() || !(read.getBaseSchema().equals(actual)
                 || hasExactRetrievalIdentity(read.getBaseSchema(), actual))) {

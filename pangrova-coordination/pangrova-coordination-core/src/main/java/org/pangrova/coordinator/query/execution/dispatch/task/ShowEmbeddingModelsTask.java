@@ -24,9 +24,9 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.ShowEmbeddingModelsStatement;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Executes SHOW EMBEDDING MODELS by listing all models from the

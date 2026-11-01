@@ -1,16 +1,16 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 import java.util.Objects;
 import java.util.List;
 import java.util.Set;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.TablePermission;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.TablePermission;
+import org.pangrova.spi.security.policy.Privilege;
 
 /** Resolves durable generated-write authority before allocating a connector write. */
 @Internal
@@ -43,7 +43,7 @@ public interface GeneratedWriteAuthoritySupplier {
                 throw new IllegalArgumentException("Original write actions must be explicit");
             }
             if (observedReadPermissions.stream().anyMatch(permission -> permission.privilege() != Privilege.SELECT
-                    || permission.readMode() != org.pangrova.security.api.authz.DeferredAuthorizationScope
+                    || permission.readMode() != org.pangrova.spi.security.authz.DeferredAuthorizationScope
                             .ReadMode.SECURITY_TRANSFORMED)) {
                 throw new IllegalArgumentException("Write reads require actual protected compilation observations");
             }

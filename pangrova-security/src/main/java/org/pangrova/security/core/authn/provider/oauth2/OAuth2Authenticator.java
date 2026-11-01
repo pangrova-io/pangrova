@@ -12,13 +12,13 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
-import org.pangrova.security.api.authn.TokenValidationException;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
+import org.pangrova.spi.security.authn.TokenValidationException;
 
 /**
  * OAuth2/OIDC token-based authenticator with JJWT-backed JWT validation.

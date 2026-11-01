@@ -29,13 +29,13 @@ import org.pangrova.client.core.error.ErrorDetail;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.client.core.protocol.SubmitQueryResponse;
 import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.SpanKind;
-import org.pangrova.observability.api.Scope;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.Scope;
+import org.pangrova.spi.observability.TracingProvider;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

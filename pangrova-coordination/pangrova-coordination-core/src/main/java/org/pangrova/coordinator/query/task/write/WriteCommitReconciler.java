@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.task.write;
 
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 
 /**
  * Decides the recovery outcome for a durable write-commit intent found {@code PENDING}

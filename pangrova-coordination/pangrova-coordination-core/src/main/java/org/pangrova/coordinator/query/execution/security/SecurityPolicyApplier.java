@@ -94,7 +94,7 @@ public class SecurityPolicyApplier {
     /** Applies the same authority while retaining the exact policy values consumed. */
     public ObservedPlan applyPoliciesObserved(PlannedQuery plan, CoordinatorSessionContext session) {
         if (accessControlEnforcer == null || columnMaskApplier == null || rowFilterApplier == null) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Protected compilation requires complete authorization and policy enforcement");
         }
         var physicalToLogical = plan.physicalToLogicalDynamicTables();
@@ -112,7 +112,7 @@ public class SecurityPolicyApplier {
     /** One protected plan and observations from exactly that policy application. */
     public record ObservedPlan(PlannedQuery plan,
             java.util.Map<String,
-                    org.pangrova.security.api.authz.DeferredAuthorizationScope.PolicySnapshot> policies) {
+                    org.pangrova.spi.security.authz.DeferredAuthorizationScope.PolicySnapshot> policies) {
         public ObservedPlan {
             policies = java.util.Map.copyOf(policies);
         }

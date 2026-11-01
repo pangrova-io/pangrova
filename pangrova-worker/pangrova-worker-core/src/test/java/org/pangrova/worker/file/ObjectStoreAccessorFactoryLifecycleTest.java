@@ -2,11 +2,11 @@ package org.pangrova.worker.file;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.object.ObjectStoreAccessor;
-import org.pangrova.file.api.object.ObjectStoreAccessorProvider;
-import org.pangrova.storage.filesystem.object.LocalObjectStoreAccessor;
+import org.pangrova.filesystem.api.object.ObjectStoreAccessor;
+import org.pangrova.filesystem.api.object.ObjectStoreAccessorProvider;
+import org.pangrova.filesystem.local.object.LocalObjectStoreAccessor;
 
 import java.nio.file.Path;
 import java.util.ArrayList;

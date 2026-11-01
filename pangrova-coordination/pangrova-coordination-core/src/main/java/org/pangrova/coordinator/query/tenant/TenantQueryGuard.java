@@ -2,14 +2,14 @@ package org.pangrova.coordinator.query.tenant;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.security.core.tenant.QuotaCheckResult;
 import org.pangrova.security.core.tenant.QuotaChecker;
 import org.pangrova.security.core.tenant.TenantQuotaExceededException;
 import org.pangrova.security.core.tenant.TenantUsage;
 import org.pangrova.security.core.tenant.TenantResolver;
-import org.pangrova.security.api.tenant.ResolvedTenantContext;
+import org.pangrova.spi.security.tenant.ResolvedTenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

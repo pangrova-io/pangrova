@@ -1,6 +1,6 @@
 package org.pangrova.security.core.audit;
 
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 
 /**
  * Facade for audit logging. Delegates to {@link AuditEventEmitter} for async write.

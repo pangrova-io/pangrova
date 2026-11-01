@@ -5,15 +5,15 @@ import org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier.
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.security.UserIdentity;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -86,7 +86,7 @@ final class GeneratedWriteAuthorityResolver {
         String principal = request.session().getUser();
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            org.pangrova.security.store.jdbc.AuthorizationTransactionGate.lockPublication(connection);
+            org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate.lockPublication(connection);
             var models = modelNames.isEmpty() ? List.<DeferredAuthorizationScope.ModelSnapshot>of()
                     : modelAuthority.observe(connection, principal, modelNames);
             var permissions = new ArrayList<>(reads);

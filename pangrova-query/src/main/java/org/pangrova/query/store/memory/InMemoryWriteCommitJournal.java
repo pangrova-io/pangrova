@@ -1,9 +1,9 @@
 package org.pangrova.query.store.memory;
 
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
 import org.pangrova.common.file.CopyFilePublication;
-import org.pangrova.connector.spi.coordination.NativeWriteFinalization;
+import org.pangrova.spi.connector.coordination.NativeWriteFinalization;
 
 import java.util.List;
 import java.util.Optional;

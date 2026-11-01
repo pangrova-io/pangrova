@@ -1,14 +1,14 @@
 package org.pangrova.indexing.engine.btree.evaluator;
 
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.data.BTreeIndexData;
-import org.pangrova.indexing.api.data.BTreePage;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.predicate.InList;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
-import org.pangrova.connector.spi.index.predicate.IsNotNull;
-import org.pangrova.connector.spi.index.predicate.IsNull;
-import org.pangrova.connector.spi.index.predicate.RangeQuery;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.data.BTreeIndexData;
+import org.pangrova.spi.indexing.data.BTreePage;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.predicate.InList;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.predicate.IsNotNull;
+import org.pangrova.spi.connector.index.predicate.IsNull;
+import org.pangrova.spi.connector.index.predicate.RangeQuery;
 
 import java.util.List;
 

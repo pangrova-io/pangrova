@@ -1,6 +1,6 @@
 package org.pangrova.planner.runtimefilter;
 
-import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;

@@ -1,9 +1,9 @@
 package org.pangrova.file.adapter.worker;
 
-import org.pangrova.file.api.access.FileUrlClient;
-import org.pangrova.file.api.access.FileDeletionClient;
-import org.pangrova.file.api.access.FileListingClient;
-import org.pangrova.file.api.access.FileAccessGrant;
+import org.pangrova.spi.file.access.FileUrlClient;
+import org.pangrova.spi.file.access.FileDeletionClient;
+import org.pangrova.spi.file.access.FileListingClient;
+import org.pangrova.spi.file.access.FileAccessGrant;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,7 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.file.api.directory.FileListing;
+import org.pangrova.filesystem.api.object.FileListing;
 
 /**
  * Performs Worker file-plane calls that the Coordinator delegates instead of imitating.

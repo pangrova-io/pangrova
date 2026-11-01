@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.file;
 
-import org.pangrova.file.api.access.FileAccessGrant;
+import org.pangrova.spi.file.access.FileAccessGrant;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -16,20 +16,20 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.FileSpaceAccessControl;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.FileSpaceAccessControl;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceDefinition;
-import org.pangrova.file.api.space.FileSpaceMutation;
-import org.pangrova.file.api.space.FileSpaceRegistry;
+import org.pangrova.spi.file.space.FileSpace;
+import org.pangrova.spi.file.space.FileSpaceDefinition;
+import org.pangrova.spi.file.space.FileSpaceMutation;
+import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
 import org.pangrova.common.file.FileSpaceType;
-import org.pangrova.file.api.access.FileUrlClient;
+import org.pangrova.spi.file.access.FileUrlClient;
 import org.pangrova.file.core.space.FileSpaceAccessService;
 import org.pangrova.file.core.space.FileUrlService;
 

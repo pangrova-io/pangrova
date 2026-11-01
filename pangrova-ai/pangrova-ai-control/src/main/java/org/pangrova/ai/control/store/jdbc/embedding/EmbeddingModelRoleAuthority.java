@@ -2,9 +2,9 @@ package org.pangrova.ai.control.store.jdbc.embedding;
 
 import org.pangrova.ai.control.embedding.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.ai.control.embedding.ModelNotFoundException;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.store.jdbc.JdbcCurrentDirectRoleReader;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.persistence.jdbc.security.policy.JdbcCurrentDirectRoleReader;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.sql.Connection;
 import java.sql.SQLException;

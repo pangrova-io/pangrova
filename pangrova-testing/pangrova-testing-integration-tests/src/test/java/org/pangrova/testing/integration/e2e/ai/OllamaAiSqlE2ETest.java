@@ -20,7 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.connector.spi.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.ColumnValue;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.integration.e2e.file.S3FileDeployment;
@@ -398,7 +398,7 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
         return sharedAiProvider().requestCount("/v1/embeddings");
     }
 
-    private static String scalarString(List<org.pangrova.connector.spi.data.value.TypedRow> rows) {
+    private static String scalarString(List<org.pangrova.spi.connector.data.value.TypedRow> rows) {
         assertThat(rows).hasSize(1);
         Object value = ColumnValue.toRaw(rows.get(0).values().values().iterator().next());
         assertThat(value).isInstanceOf(String.class);

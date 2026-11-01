@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 /**
  * Immutable definition revision of a materialization.

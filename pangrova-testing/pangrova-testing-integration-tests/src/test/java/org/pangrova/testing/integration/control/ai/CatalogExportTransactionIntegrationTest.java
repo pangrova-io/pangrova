@@ -1,6 +1,5 @@
 package org.pangrova.testing.integration.control.ai;
 
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.ai.control.feature.CatalogExportRequest;
@@ -20,13 +19,13 @@ import org.pangrova.generation.api.job.GenerationPage;
 import org.pangrova.generation.api.execution.GenerationStageGraph;
 import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
 import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

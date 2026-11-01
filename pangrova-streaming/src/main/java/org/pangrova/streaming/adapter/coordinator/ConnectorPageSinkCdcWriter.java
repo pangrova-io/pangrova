@@ -1,10 +1,10 @@
 package org.pangrova.streaming.adapter.coordinator;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcRow;
 import org.pangrova.streaming.api.cdc.CdcWriteResult;
@@ -158,7 +158,7 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
     }
 
     private PhaseStage stagePhase(ConnectorPageSink sink, Page page,
-                                  org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle handle) {
+                                  org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle handle) {
         try {
             sink.appendPage(page);
             byte[] metadata = sink.finishWithMetadata();
@@ -202,7 +202,7 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
 
     /** One staged write phase (INSERT or DELETE) — its handle and unpublished fragment. */
     private record PhaseStage(
-            org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle handle, byte[] fragment) {}
+            org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle handle, byte[] fragment) {}
 
     private enum PublicationState { PREPARED, PUBLISHING, PUBLISHED, UNKNOWN, DISCARDED }
 
@@ -225,24 +225,24 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
     /**
      * Resolves the fully-qualified CDC target ({@code catalog.schema.table},
      * {@code schema.table}, or a bare {@code table}) into a
-     * {@link org.pangrova.connector.spi.metadata.table.SchemaTableName}.
+     * {@link org.pangrova.spi.connector.metadata.table.SchemaTableName}.
      *
      * <p>F-STREAM-001: the schema was previously hardcoded to {@code "default"}, so a CDC stream
      * targeting any non-default schema silently wrote to {@code default.TABLE} instead of the
      * intended table. The schema is now taken from the qualified target; the catalog segment is
      * ignored here because it is bound to the connector session/metadata.</p>
      */
-    private static org.pangrova.connector.spi.metadata.table.SchemaTableName toSchemaTableName(String targetTable) {
+    private static org.pangrova.spi.connector.metadata.table.SchemaTableName toSchemaTableName(String targetTable) {
         String[] parts = targetTable.split("\\.");
         if (parts.length >= 3) {
-            return new org.pangrova.connector.spi.metadata.table.SchemaTableName(
+            return new org.pangrova.spi.connector.metadata.table.SchemaTableName(
                     parts[parts.length - 2], parts[parts.length - 1]);
         }
         if (parts.length == 2) {
-            return new org.pangrova.connector.spi.metadata.table.SchemaTableName(parts[0], parts[1]);
+            return new org.pangrova.spi.connector.metadata.table.SchemaTableName(parts[0], parts[1]);
         }
         // Unqualified target: no schema information available; fall back to the conventional default.
-        return new org.pangrova.connector.spi.metadata.table.SchemaTableName("default", parts[0]);
+        return new org.pangrova.spi.connector.metadata.table.SchemaTableName("default", parts[0]);
     }
 
     /**

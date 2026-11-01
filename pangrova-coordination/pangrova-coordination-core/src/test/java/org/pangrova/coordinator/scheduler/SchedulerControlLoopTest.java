@@ -5,7 +5,6 @@ package org.pangrova.coordinator.scheduler;
 
 import org.pangrova.scheduler.api.placement.NoOpSchedulerControlLoop;
 
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;

@@ -1,8 +1,8 @@
 package org.pangrova.testfixtures.tableformat;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 /** Immutable receipt for serialization contracts only, not authorization or actual SDK declaration evidence. */
 public final class PaimonWriteReceiptFixtures {

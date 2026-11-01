@@ -3,8 +3,8 @@ package org.pangrova.security.assembly.audit;
 import org.pangrova.security.core.audit.LoggingAuditEventWriter;
 
 import java.util.Locale;
-import org.pangrova.security.api.audit.AuditEventWriter;
-import org.pangrova.security.store.jdbc.JdbcAuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEventWriter;
+import org.pangrova.persistence.jdbc.security.audit.JdbcAuditEventWriter;
 
 /**
  * Configuration selecting which {@link AuditEventWriter} backend to use.

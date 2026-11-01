@@ -6,7 +6,7 @@ import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 import org.pangrova.worker.memory.NativeMemoryCoordinator;
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.protocol.execution.QueryId;
+import org.pangrova.spi.query.identity.QueryId;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;

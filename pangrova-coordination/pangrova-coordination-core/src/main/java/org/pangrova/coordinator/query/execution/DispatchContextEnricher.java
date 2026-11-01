@@ -28,9 +28,9 @@ import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.rerank.RerankerInjectionRule;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.planner.rerank.FullTextScoringNode;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

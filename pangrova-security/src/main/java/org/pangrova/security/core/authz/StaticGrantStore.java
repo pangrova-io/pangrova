@@ -1,9 +1,9 @@
 package org.pangrova.security.core.authz;
 
 import java.util.List;
-import org.pangrova.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.persistence.api.security.policy.GrantStore;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
 
 /**
  * Immutable, config-based grant store. Used as the backward-compatible fallback when no

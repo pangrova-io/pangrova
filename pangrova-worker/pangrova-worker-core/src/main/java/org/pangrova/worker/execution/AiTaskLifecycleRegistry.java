@@ -13,7 +13,7 @@
  */
 package org.pangrova.worker.execution;
 
-import org.pangrova.ai.api.runtime.AiTaskLifecycle;
+import org.pangrova.protocol.execution.AiTaskLifecycle;
 
 import java.util.ServiceLoader;
 

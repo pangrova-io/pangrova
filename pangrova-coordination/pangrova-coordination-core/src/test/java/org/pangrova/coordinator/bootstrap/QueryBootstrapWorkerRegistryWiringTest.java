@@ -6,7 +6,7 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.common.value.MemoryPressure;
 import org.junit.jupiter.api.Test;
 

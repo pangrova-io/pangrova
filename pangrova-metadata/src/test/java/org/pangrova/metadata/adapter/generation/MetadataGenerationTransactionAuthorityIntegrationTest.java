@@ -3,7 +3,6 @@ package org.pangrova.metadata.adapter.generation;
 import org.pangrova.metadata.assembly.generation.GenerationStores;
 import org.pangrova.metadata.generation.jdbc.JdbcTabularExportPublicationStore;
 
-
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import org.pangrova.table.api.control.CatalogDeploymentIdentity;
@@ -27,17 +26,17 @@ import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
@@ -87,7 +86,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                         new org.pangrova.table.api.control.CatalogDeploymentIdentity(
                                 descriptor.incarnationId(), descriptor.revision()));
         sourceTableId = control.registerCreated(SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), PRINCIPAL,
-                Optional.of(new org.pangrova.connector.spi.metadata.table.TableIdentity(
+                Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
                         "TEST", "authority-source", "file:/authority-source", "schema")), Optional.empty())
                 .orElseThrow().tableId();
         builds = GenerationAuthorityFixtures.artifacts().builds(dataSource);
@@ -182,7 +181,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                         DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())), Optional.empty());
         var raw = createClaim("raw-policy", RAW);
         var secure = createClaim("transformed-policy", transformed);
-        new PersistentRowPolicyStore(dataSource).savePolicy(new RowPolicy(0, "scope_filter",
+        new JdbcRowPolicyStore(dataSource).savePolicy(new RowPolicy(0, "scope_filter",
                 SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), "value > 10", List.of("artifact_builder"), true, 1, sourceTableId));
         assertThatThrownBy(() -> publisher.publishClaimed(raw, "publisher", 1, NOW.plusSeconds(2)))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("Raw artifact reads");
@@ -192,7 +191,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
 
     @Test
     void observedPolicyContentCanPublishAndLaterRevokeDoesNotHidePublishedArtifact() throws Exception {
-        new PersistentRowPolicyStore(dataSource).savePolicy(new RowPolicy(0, "scope_filter",
+        new JdbcRowPolicyStore(dataSource).savePolicy(new RowPolicy(0, "scope_filter",
                 SOURCE.catalog(), SOURCE.schema(), SOURCE.table(), "value > 10", List.of("artifact_builder"), true, 1, sourceTableId));
         var scope = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(SOURCE, Set.of("value"), Privilege.SELECT,
@@ -319,7 +318,7 @@ class MetadataGenerationTransactionAuthorityIntegrationTest extends ContainerTes
                 new DeferredAuthorizationScope.TablePermission(TARGET, Set.of(), Privilege.INSERT,
                         DeferredAuthorizationScope.ReadMode.NONE, DeferredAuthorizationScope.PolicySnapshot.empty())),
                 Optional.of(new DeferredAuthorizationScope.DefinitionSnapshot(declaration, List.of(definitionModel))));
-        new PersistentGrantStore(dataSource).addGrant(PrivilegeGrant.of("artifact_builder", Privilege.INSERT,
+        new JdbcGrantStore(dataSource).addGrant(PrivilegeGrant.of("artifact_builder", Privilege.INSERT,
                 "TABLE", TARGET.catalog(), TARGET.schema(), TARGET.table(), null));
         var graphModel = new ModelSnapshot("graph-model", "graph-incarnation", 1, "deployment-1", "a".repeat(64));
         var stage = GenerationStageGraph.StagePlan.of(0, 1,

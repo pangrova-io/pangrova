@@ -2,9 +2,9 @@ package org.pangrova.security.core.tenant;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.security.api.tenant.TenantStore;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.persistence.api.security.tenant.TenantStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

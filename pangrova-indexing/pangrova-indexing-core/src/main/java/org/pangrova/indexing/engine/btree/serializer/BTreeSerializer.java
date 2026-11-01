@@ -1,7 +1,7 @@
 package org.pangrova.indexing.engine.btree.serializer;
 
-import org.pangrova.indexing.api.data.BTreeIndexData;
-import org.pangrova.indexing.api.data.BTreePage;
+import org.pangrova.spi.indexing.data.BTreeIndexData;
+import org.pangrova.spi.indexing.data.BTreePage;
 
 import java.util.ArrayList;
 import java.util.List;

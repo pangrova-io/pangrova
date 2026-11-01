@@ -5,7 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.catalog.MetadataChange;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,8 +1,8 @@
 package org.pangrova.indexing.core.planner.vector;
 
 import org.pangrova.protocol.v2.CapabilityRef;
-import org.pangrova.indexing.api.vector.DistanceMetric;
-import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy;
+import org.pangrova.spi.indexing.vector.DistanceMetric;
+import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy;
 
 import java.util.List;
 

@@ -23,8 +23,8 @@ import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.planner.runtimefilter.RuntimeFilterGenerator;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.client.core.protocol.ResultEndpoint;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -79,7 +79,7 @@ class DynamicFilterWiringTest {
         for (var descriptor : descriptors) {
             handler.registerFilterTarget(buildStageId, probeStageId,
                     descriptor.buildColumn(), descriptor.probeColumn(),
-                    org.pangrova.connector.spi.data.type.PangrovaType.INTEGER);
+                    org.pangrova.spi.connector.data.type.PangrovaType.INTEGER);
         }
 
         // Setup probe-side tasks
@@ -171,7 +171,7 @@ class DynamicFilterWiringTest {
 
         // Register filter target from descriptor
         handler.registerFilterTarget("0", "1", "order_id", "order_id",
-                org.pangrova.connector.spi.data.type.PangrovaType.INTEGER);
+                org.pangrova.spi.connector.data.type.PangrovaType.INTEGER);
 
         StageNode s0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyFragment(), 1, "COMPUTE", List.of());

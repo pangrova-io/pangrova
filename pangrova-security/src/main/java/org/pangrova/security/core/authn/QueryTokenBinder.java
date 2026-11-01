@@ -1,9 +1,9 @@
 package org.pangrova.security.core.authn;
 
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.util.UUID;
-import org.pangrova.security.api.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.AuthenticationResult;
 
 /**
  * Binds a successful authentication result to a query-scoped security context,

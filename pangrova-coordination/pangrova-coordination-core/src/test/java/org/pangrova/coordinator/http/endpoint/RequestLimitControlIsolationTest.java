@@ -26,10 +26,10 @@ import org.pangrova.common.http.adapter.jetty.EmbeddedHttpServerFactory;
 import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
+import org.pangrova.spi.security.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

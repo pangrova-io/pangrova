@@ -70,9 +70,9 @@ import org.pangrova.materialization.port.PublishCommand;
 import org.pangrova.materialization.port.PublishedMaterialization;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 /**

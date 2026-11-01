@@ -2,7 +2,7 @@ package org.pangrova.coordinator.metadata.read;
 
 import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
 import org.pangrova.coordinator.metadata.ReadBindingSdkFixture;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.paimon.catalog.Identifier;
@@ -11,7 +11,7 @@ import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.v2.DataSplit;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
@@ -70,7 +70,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var registry = fixture.bootstrap.catalogRegistry();
             var metadata = registry.getCatalog("bound").getMetadata(fixture.session);
             var handle = metadata.getTableHandle(fixture.session,
-                    new org.pangrova.connector.spi.metadata.table.SchemaTableName("db", "read_owner"));
+                    new org.pangrova.spi.connector.metadata.table.SchemaTableName("db", "read_owner"));
             var record = registry.tableControl().adopt("bound", "db", "read_owner", "reader",
                     metadata.getTableIdentity(fixture.session, handle), metadata.observeVersion(fixture.session, handle));
             assertThat(new PlanningReadBindings(registry, fixture.session).resolve("bound", "db", "read_owner"))
@@ -92,7 +92,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var registry = fixture.bootstrap.catalogRegistry();
             var metadata = registry.getCatalog("bound").getMetadata(fixture.session);
             var handle = metadata.getTableHandle(fixture.session,
-                    new org.pangrova.connector.spi.metadata.table.SchemaTableName("db", "cached_owner"));
+                    new org.pangrova.spi.connector.metadata.table.SchemaTableName("db", "cached_owner"));
             var identity = metadata.getTableIdentity(fixture.session, handle);
             var version = metadata.observeVersion(fixture.session, handle);
             var observed = new PlanningReadBindings(registry, fixture.session);
@@ -121,7 +121,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             var registry = fixture.bootstrap.catalogRegistry();
             var metadata = registry.getCatalog("bound").getMetadata(fixture.session);
             var handle = metadata.getTableHandle(fixture.session,
-                    new org.pangrova.connector.spi.metadata.table.SchemaTableName("db", "cached_data"));
+                    new org.pangrova.spi.connector.metadata.table.SchemaTableName("db", "cached_data"));
             var original = registry.tableControl().adopt("bound", "db", "cached_data", "reader",
                     metadata.getTableIdentity(fixture.session, handle), metadata.observeVersion(fixture.session, handle));
             var owner = new PlanningReadBindings(registry, fixture.session);
@@ -262,7 +262,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                     .build();
             controlStore.save(record);
             statisticsService.record("bound", "db", "analyzed",
-                    new org.pangrova.connector.spi.metadata.table.TableStatistics(999, 123_456),
+                    new org.pangrova.spi.connector.metadata.table.TableStatistics(999, 123_456),
                     "ANALYZE");
 
             var name = new QualifiedTableName("bound", "db", "analyzed");
@@ -317,7 +317,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
                     .resolve("bound", "db", "conflict").orElseThrow();
             assertThat(first.snapshotId()).isNotEqualTo(second.snapshotId());
             var sources = java.util.stream.Stream.of(first, second).map(binding -> new org.pangrova.planner.SplitSourceDescriptor(
-                    "bound", "db", "conflict", org.pangrova.connector.spi.metadata.Constraint.EMPTY,
+                    "bound", "db", "conflict", org.pangrova.spi.connector.metadata.Constraint.EMPTY,
                     binding.declaration().metadata().columns(), java.util.Optional.of(binding))).toList();
             assertThatThrownBy(() -> org.pangrova.coordinator.query.execution.split.SplitFetcher.fetchRawConnectorSplits(
                     sources, fixture.bootstrap.catalogRegistry(), Map.of(), List.of("id"), fixture.context))
@@ -336,7 +336,7 @@ class PlanningReadBindingsIntegrationTest extends ContainerTestBase {
             ReadBindingSdkFixture.write(table, 3);
             assertThat(table.fileIO().delete(table.snapshotManager().snapshotPath(binding.snapshotId().orElseThrow()), false)).isTrue();
             assertThatThrownBy(() -> fixture.splits(binding, Map.of()))
-                    .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                    .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                     .hasMessageContaining("unavailable");
             assertThat(owner.resolve("bound", "db", "expired").orElseThrow()).isSameAs(binding);
         }

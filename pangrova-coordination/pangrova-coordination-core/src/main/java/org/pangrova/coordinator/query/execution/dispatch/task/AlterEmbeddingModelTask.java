@@ -15,9 +15,9 @@ import org.pangrova.parser.ast.statement.AlterEmbeddingModelStatement;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.ModelAvailability;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.util.List;
 import java.util.Map;

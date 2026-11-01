@@ -18,7 +18,7 @@ import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.LiteralValue;
 import org.pangrova.parser.ast.statement.maintenance.CallStatement;
 import org.pangrova.coordinator.query.statement.ControlledTableMaintenance;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

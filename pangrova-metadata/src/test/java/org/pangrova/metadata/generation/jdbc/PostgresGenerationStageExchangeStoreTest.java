@@ -4,7 +4,6 @@ import org.pangrova.generation.spi.storage.GenerationStageExchangeStore;
 
 import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
 
-
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
 
 import org.pangrova.generation.protocol.GenerationExchangeEvidenceCodec;
@@ -37,7 +36,7 @@ import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.metadata.testinfra.GenerationExecutionFixtures;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.time.Duration;
@@ -258,7 +257,7 @@ class PostgresGenerationStageExchangeStoreTest {
         }
         var stages = GenerationAuthorityFixtures.artifacts().stages(dataSource);
         assertThatThrownBy(() -> stages.preparePartition(partitionClaim(1, 0, 0), value -> value.lease()))
-                .isInstanceOf(org.pangrova.security.api.AuthorizationDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class)
                 .hasMessageContaining("securely resubmit");
         assertThatThrownBy(() -> builds.findDispatchSpec(KEY.tenantId(), KEY.jobId()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("invalid")
@@ -369,9 +368,9 @@ class PostgresGenerationStageExchangeStoreTest {
                                     GenerationStageGraph.Exchange.Distribution.SINGLETON,
                                     List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true)), List.of());
         return GenerationDispatchSpecFactory.create(KEY.jobId(), graph, KEY.tenantId(), "stage-principal",
-                org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "raw", "items"), Set.of("id"),
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "features", "output")),
+                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "raw", "items"), Set.of("id"),
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "features", "output")),
                 new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
     }
 

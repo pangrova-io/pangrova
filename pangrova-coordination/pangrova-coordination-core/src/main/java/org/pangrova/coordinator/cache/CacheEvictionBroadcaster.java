@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.cache;
 
 import org.pangrova.common.api.annotation.ThreadSafe;
-import org.pangrova.connector.spi.CacheEvictionListener;
+import org.pangrova.spi.connector.CacheEvictionListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

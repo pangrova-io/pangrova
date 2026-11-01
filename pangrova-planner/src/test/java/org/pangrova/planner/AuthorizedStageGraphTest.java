@@ -24,7 +24,7 @@ import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ResultColumnLogicalType;
 import org.pangrova.planner.type.PlannerTypeFactory;
-import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.Constraint;
 
 import java.math.BigDecimal;
 import java.util.List;

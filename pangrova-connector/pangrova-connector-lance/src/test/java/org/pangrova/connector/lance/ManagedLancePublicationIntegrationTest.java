@@ -14,7 +14,7 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.protocol.v2.AcceptedSourceSnapshotRef;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Files;
@@ -464,20 +464,20 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
         byte[] secondFragment = sdk.write(secondInput, second);
         var request = fixture.reserve(first.executionId(), List.of(secondFragment, firstFragment));
         var entry = fixture.journal().getEntry(first.executionId()).orElseThrow();
-        var identity = new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
+        var identity = new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
                 entry.catalogName(), entry.tableName(), entry.writeMode(), entry.baseSnapshotId(), entry.writeOutputBinding(),
                 entry.principal(), entry.authorizationReceipt(), null);
-        assertThat(org.pangrova.connector.spi.coordination.WriteCommitFingerprint.compute(identity, List.of(firstFragment, secondFragment)))
+        assertThat(org.pangrova.spi.connector.coordination.WriteCommitFingerprint.compute(identity, List.of(firstFragment, secondFragment)))
                 .isEqualTo(entry.commitFingerprint());
         var pages = sdk.prepare(request);
         var reordered = request.toBuilder().clearFragments().addFragments(request.getFragments(1)).addFragments(request.getFragments(0)).build();
         assertThat(withoutInvocation(sdk.prepare(reordered))).containsExactlyElementsOf(withoutInvocation(pages));
         var nextBinding = request.getOutputBinding().toBuilder().setLance(request.getOutputBinding().getLance().toBuilder()
                 .setGeneration("generation-2")).build();
-        var nextIdentity = new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
+        var nextIdentity = new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
                 entry.catalogName(), entry.tableName(), entry.writeMode(), entry.baseSnapshotId(), nextBinding.toByteArray(),
                 entry.principal(), entry.authorizationReceipt(), null);
-        String nextFingerprint = org.pangrova.connector.spi.coordination.WriteCommitFingerprint.compute(nextIdentity, entry.fragments());
+        String nextFingerprint = org.pangrova.spi.connector.coordination.WriteCommitFingerprint.compute(nextIdentity, entry.fragments());
         assertThat(nextFingerprint).isNotEqualTo(entry.commitFingerprint());
         var invalid = request.toBuilder().setOutputBinding(nextBinding).setCommitFingerprint(nextFingerprint)
                 .setReservation(request.getReservation().toBuilder().setManifestRelativePath("_pangrova/prepared/" + nextFingerprint + ".manifest"))
@@ -493,7 +493,7 @@ class ManagedLancePublicationIntegrationTest extends ContainerTestBase {
     }
 
     private static RaceResult acceptRace(LanceManagedSourceFixture fixture, String execution,
-            org.pangrova.connector.spi.metadata.PreparedSourcePublication prepared,
+            org.pangrova.spi.connector.metadata.PreparedSourcePublication prepared,
             CountDownLatch ready, CountDownLatch start) throws Exception {
         ready.countDown();
         if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Actual PG race did not start");

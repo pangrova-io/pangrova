@@ -18,7 +18,7 @@ import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 

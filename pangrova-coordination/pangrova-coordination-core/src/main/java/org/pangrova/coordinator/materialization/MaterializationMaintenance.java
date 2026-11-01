@@ -39,7 +39,7 @@ import org.pangrova.materialization.usecase.RefreshMaterialization;
 import org.pangrova.materialization.usecase.SourcePinSweeper;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

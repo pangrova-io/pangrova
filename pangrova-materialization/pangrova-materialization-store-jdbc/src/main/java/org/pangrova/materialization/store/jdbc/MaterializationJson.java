@@ -18,8 +18,8 @@ import org.pangrova.materialization.domain.MaterializationException;
 import org.pangrova.materialization.domain.OutputSchema;
 import org.pangrova.materialization.domain.PolicySnapshot;
 import org.pangrova.materialization.domain.SourceVector;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 
 /** Stable JSON codecs for materialization persisted structures. */
 final class MaterializationJson {

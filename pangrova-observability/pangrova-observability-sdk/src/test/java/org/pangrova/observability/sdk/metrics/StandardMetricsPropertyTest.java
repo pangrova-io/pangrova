@@ -6,12 +6,12 @@ import net.jqwik.api.constraints.DoubleRange;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
 import org.pangrova.observability.sdk.metrics.jvm.JvmMetricsCollector;
-import org.pangrova.observability.api.noop.NoOpMetricsProvider;
-import org.pangrova.observability.api.DoubleHistogram;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.LongUpDownCounter;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.ObservableDoubleGauge;
+import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
+import org.pangrova.spi.observability.DoubleHistogram;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.LongUpDownCounter;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.ObservableDoubleGauge;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;

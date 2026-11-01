@@ -29,21 +29,21 @@ import org.pangrova.protocol.v2.RuntimeCommandResponse;
 import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
-import org.pangrova.connector.spi.metadata.NativeWritePreparation;
-import org.pangrova.connector.spi.metadata.PreparedSourcePublication;
-import org.pangrova.connector.spi.metadata.SourceObjectPage;
-import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
-import org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot;
-import org.pangrova.connector.spi.metadata.NativeWriteAllocation;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
+import org.pangrova.spi.connector.metadata.NativeWritePreparation;
+import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
+import org.pangrova.spi.connector.metadata.SourceObjectPage;
+import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
+import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
 
 import java.net.URI;
 import java.util.Arrays;
@@ -104,7 +104,7 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
     }
 
     @Override
-    public org.pangrova.connector.spi.metadata.NativeDatasetScanPage scanPartitions(
+    public org.pangrova.spi.connector.metadata.NativeDatasetScanPage scanPartitions(
             ConnectorSession session, AcceptedSourceSnapshot snapshot,
             java.util.OptionalLong afterPartitionId, int pageSize) {
         long version = snapshot.version();

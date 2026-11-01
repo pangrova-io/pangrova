@@ -11,7 +11,7 @@ import net.jqwik.api.Combinators;
 
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

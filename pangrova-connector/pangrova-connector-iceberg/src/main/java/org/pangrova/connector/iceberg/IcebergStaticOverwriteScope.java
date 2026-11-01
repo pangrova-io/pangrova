@@ -1,7 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Expression;

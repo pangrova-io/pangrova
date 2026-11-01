@@ -1,8 +1,8 @@
 package org.pangrova.connector.iceberg;
 
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.base.ConnectorException;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -55,7 +55,7 @@ class IcebergMaintenanceProceduresTest {
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

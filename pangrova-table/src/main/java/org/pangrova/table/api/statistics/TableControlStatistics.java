@@ -1,6 +1,6 @@
 package org.pangrova.table.api.statistics;
 
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import java.time.Instant;
 import java.util.Objects;

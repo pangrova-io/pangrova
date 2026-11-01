@@ -12,7 +12,7 @@ import org.apache.calcite.rel.RelNode;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 
 /**
  * End-to-end SQL compilation: SQL text → Substrait Plan bytes.

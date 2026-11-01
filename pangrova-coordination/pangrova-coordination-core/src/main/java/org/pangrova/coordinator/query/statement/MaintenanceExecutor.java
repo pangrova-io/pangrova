@@ -5,7 +5,7 @@ import org.pangrova.table.api.maintenance.MaintenanceOperation;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,14 +1,14 @@
 package org.pangrova.governance.core.classification;
 
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
 import org.pangrova.security.core.authz.StaticGrantStore;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.api.rowfilter.RowPolicyStore;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

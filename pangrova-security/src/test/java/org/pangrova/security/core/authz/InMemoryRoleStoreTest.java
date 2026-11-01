@@ -5,10 +5,10 @@ import org.junit.jupiter.api.Test;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.security.api.policy.GroupRoleMapping;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.RoleStore;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.GroupRoleMapping;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.persistence.api.security.policy.RoleStore;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 
 /**
  * Validates the in-memory {@link RoleStore} used by tests and standalone deployments.

@@ -18,7 +18,7 @@ import org.pangrova.parser.ast.statement.ShowMaterializationDependenciesStatemen
 import org.pangrova.parser.ast.statement.ShowMaterializationGcHistoryStatement;
 import org.pangrova.parser.ast.statement.ShowMaterializationRefreshHistoryStatement;
 import org.pangrova.parser.ast.statement.ShowMaterializationsStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Read-only system surfaces over the durable materialization kernel.

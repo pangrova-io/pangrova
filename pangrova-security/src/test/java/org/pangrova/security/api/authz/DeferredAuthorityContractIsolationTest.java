@@ -1,8 +1,10 @@
 package org.pangrova.security.api.authz;
 
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -25,7 +27,7 @@ class DeferredAuthorityContractIsolationTest {
             @Override
             protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
                 if (name.startsWith("org.pangrova.security.")
-                        && !name.startsWith("org.pangrova.security.api.")) {
+                        && !name.startsWith("org.pangrova.spi.security.")) {
                     throw new ClassNotFoundException("Security implementation unavailable: " + name);
                 }
                 return super.loadClass(name, resolve);
@@ -33,7 +35,7 @@ class DeferredAuthorityContractIsolationTest {
         }) {
             for (String missing : List.of("com.fasterxml.jackson.databind.ObjectMapper",
                     "org.pangrova.security.protocol.DeferredAuthorizationScopeCodec",
-                    "org.pangrova.security.store.jdbc.PersistentDeferredAuthorization")) {
+                    "org.pangrova.security.core.authz.deferred.DeferredAuthorization")) {
                 assertThatThrownBy(() -> loader.loadClass(missing)).isInstanceOf(ClassNotFoundException.class);
             }
             Class<?> scopeType = loader.loadClass(DeferredAuthorizationScope.class.getName());

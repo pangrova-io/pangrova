@@ -82,7 +82,7 @@ public final class CopySourceReadClient {
         if (profile == null || !scope.profileName().equals(profile.name())
                 || !scope.profileIncarnationId().equals(profile.incarnationId())
                 || scope.profileRevision() != profile.revision()
-                || !new org.pangrova.file.api.profile.StorageProfile(profile.name(), profile.type(),
+                || !new org.pangrova.filesystem.api.profile.StorageProfile(profile.name(), profile.type(),
                         profile.bucket(), profile.prefix(), profile.endpoint(), profile.region(),
                         java.util.Map.of(), java.util.Map.of(
                                 "path-style-access", Boolean.toString(profile.pathStyleAccess())))

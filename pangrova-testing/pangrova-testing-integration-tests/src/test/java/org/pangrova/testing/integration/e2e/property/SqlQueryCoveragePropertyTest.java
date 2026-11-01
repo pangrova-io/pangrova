@@ -1,7 +1,7 @@
 package org.pangrova.testing.integration.e2e.property;
 
 import net.jqwik.api.*;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import net.jqwik.api.lifecycle.BeforeContainer;

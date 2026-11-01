@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import org.pangrova.query.api.state.StateJournalConfig;
+import org.pangrova.spi.query.state.StateJournalConfig;
 
 /**
  * Unit tests for {@link StateJournalConfig} record validation and defaults.

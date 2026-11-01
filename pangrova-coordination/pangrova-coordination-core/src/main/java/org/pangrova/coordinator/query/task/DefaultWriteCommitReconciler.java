@@ -8,14 +8,14 @@ import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandl
 import org.pangrova.protocol.catalog.CatalogDeploymentFingerprint;
 import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 import org.pangrova.protocol.v2.WriteOutputBinding;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
 import org.pangrova.common.file.CopyFilePublication;
-import org.pangrova.connector.spi.metadata.CopyFilePublicationMetadata;
+import org.pangrova.spi.connector.metadata.CopyFilePublicationMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -137,12 +137,12 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
 
     private static boolean mayConfirmOrdinaryAbort(WriteCommitEntry entry, RuntimeException failure) {
         return entry.copyFile() == null && (failure
-                instanceof org.pangrova.connector.spi.metadata.SourceTableUnavailableException
+                instanceof org.pangrova.spi.connector.metadata.SourceTableUnavailableException
                 || isTableGone(failure));
     }
 
     private static void confirmRecordedCopyPublication(
-            org.pangrova.connector.spi.metadata.ConnectorMetadata metadata,
+            org.pangrova.spi.connector.metadata.ConnectorMetadata metadata,
             ConnectorSession session,
             ConnectorOutputTableHandle handle,
             WriteCommitEntry entry,
@@ -257,7 +257,7 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
     private record RecoveryConnectorSession(
             String catalog, String schema, String tenantId, String principal) implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

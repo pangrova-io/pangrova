@@ -6,9 +6,9 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;

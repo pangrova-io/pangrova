@@ -9,8 +9,8 @@ import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.core.control.TableControlService;
 import org.pangrova.table.core.control.TableControlSettings;
 import org.pangrova.table.api.control.TableControlState;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 
 import java.util.Map;
 import java.util.Optional;

@@ -4,7 +4,7 @@ import org.pangrova.generation.store.postgresql.execution.PostgresCurrentGenerat
 
 import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
 import org.pangrova.generation.spi.storage.GenerationStageExchangeStore;
-import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
+import org.pangrova.persistence.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.generation.spi.jdbc.GenerationExecutionTransactionFence;
 
 import org.pangrova.generation.protocol.GenerationExchangeEvidenceCodec;

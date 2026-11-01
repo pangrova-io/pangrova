@@ -9,7 +9,7 @@ import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.client.core.error.ErrorDetail;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

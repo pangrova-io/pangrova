@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.execution.security;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.Optional;
 

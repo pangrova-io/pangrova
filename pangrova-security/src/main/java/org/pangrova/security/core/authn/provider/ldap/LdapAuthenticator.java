@@ -24,12 +24,12 @@ import javax.naming.directory.SearchResult;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
 
 /**
  * LDAP-based authenticator with real directory bind and group search.

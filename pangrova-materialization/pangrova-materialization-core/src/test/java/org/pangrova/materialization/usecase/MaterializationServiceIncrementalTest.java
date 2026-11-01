@@ -50,9 +50,9 @@ import org.pangrova.materialization.port.PlannedDefinition;
 import org.pangrova.materialization.port.PlanningRequest;
 import org.pangrova.materialization.port.PublishedMaterialization;
 import org.pangrova.materialization.port.PublicationVerification;
-import org.pangrova.connector.spi.materialization.ChangeSetMode;
-import org.pangrova.connector.spi.materialization.MaterializationSourceException;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.ChangeSetMode;
+import org.pangrova.spi.connector.materialization.MaterializationSourceException;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 class MaterializationServiceIncrementalTest {
 
@@ -252,8 +252,8 @@ class MaterializationServiceIncrementalTest {
         planner.vector = MaterializationTestFixtures.vector(
                 Map.of(ORDERS, MaterializationTestFixtures.snapshot(ORDERS, "snap-2")), 2);
         pins.respondWithPartitions(List.of(
-                new org.pangrova.connector.spi.materialization.PartitionChange(List.of(
-                        new org.pangrova.connector.spi.materialization.PartitionValue("region", "'eu'")))));
+                new org.pangrova.spi.connector.materialization.PartitionChange(List.of(
+                        new org.pangrova.spi.connector.materialization.PartitionValue("region", "'eu'")))));
 
         MaterializationOutcome refreshed = service().refresh(new RefreshMaterialization(
                 OBJECT, MaterializationTestFixtures.REQUESTER, TriggerKind.MANUAL,

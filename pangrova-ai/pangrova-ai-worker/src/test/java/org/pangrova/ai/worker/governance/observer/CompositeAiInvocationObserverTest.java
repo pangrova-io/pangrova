@@ -28,30 +28,30 @@ class CompositeAiInvocationObserverTest {
         AiInvocationObserver failing = new AiInvocationObserver() {
             @Override
             public void onSuccess(
-                    org.pangrova.ai.api.invocation.AiInvocationRequest request,
-                    org.pangrova.ai.api.invocation.AiInvocationResult result) {
+                    org.pangrova.spi.ai.invocation.AiInvocationRequest request,
+                    org.pangrova.spi.ai.invocation.AiInvocationResult result) {
                 throw new IllegalStateException("first failure");
             }
 
             @Override
             public void onFailure(
-                    org.pangrova.ai.api.invocation.AiInvocationRequest request,
-                    org.pangrova.ai.api.error.AiInvocationException failure) {
+                    org.pangrova.spi.ai.invocation.AiInvocationRequest request,
+                    org.pangrova.spi.ai.error.AiInvocationException failure) {
                 throw new IllegalStateException("first failure");
             }
         };
         AiInvocationObserver succeeding = new AiInvocationObserver() {
             @Override
             public void onSuccess(
-                    org.pangrova.ai.api.invocation.AiInvocationRequest request,
-                    org.pangrova.ai.api.invocation.AiInvocationResult result) {
+                    org.pangrova.spi.ai.invocation.AiInvocationRequest request,
+                    org.pangrova.spi.ai.invocation.AiInvocationResult result) {
                 delivered.incrementAndGet();
             }
 
             @Override
             public void onFailure(
-                    org.pangrova.ai.api.invocation.AiInvocationRequest request,
-                    org.pangrova.ai.api.error.AiInvocationException failure) {
+                    org.pangrova.spi.ai.invocation.AiInvocationRequest request,
+                    org.pangrova.spi.ai.error.AiInvocationException failure) {
                 delivered.incrementAndGet();
             }
         };

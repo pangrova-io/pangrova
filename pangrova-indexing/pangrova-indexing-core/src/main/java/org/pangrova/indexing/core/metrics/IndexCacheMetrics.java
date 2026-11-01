@@ -1,7 +1,7 @@
 package org.pangrova.indexing.core.metrics;
 
 import org.pangrova.indexing.core.storage.IndexCache;
-import org.pangrova.observability.api.MetricsProvider;
+import org.pangrova.spi.observability.MetricsProvider;
 
 /**
  * Registers observable gauges for index cache statistics.

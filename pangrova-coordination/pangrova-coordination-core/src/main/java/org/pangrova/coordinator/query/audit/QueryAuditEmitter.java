@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.audit;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.query.api.audit.QueryAuditRecord;
-import org.pangrova.query.api.audit.QueryAuditSink;
-import org.pangrova.security.api.audit.AccessedObject;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.query.audit.QueryAuditRecord;
+import org.pangrova.spi.query.audit.QueryAuditSink;
+import org.pangrova.spi.security.audit.AccessedObject;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventType;
 
 import java.time.Instant;
 import java.util.List;

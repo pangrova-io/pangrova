@@ -5,9 +5,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.metadata.store.jdbc.catalog.MetadataJsonMapper;
 import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

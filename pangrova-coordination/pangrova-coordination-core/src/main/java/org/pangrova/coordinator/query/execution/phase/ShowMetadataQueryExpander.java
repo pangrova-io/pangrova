@@ -9,7 +9,7 @@ import org.pangrova.parser.ast.statement.ShowBranchesStatement;
 import org.pangrova.parser.ast.statement.ShowMetadataStatement;
 import org.pangrova.parser.ast.statement.ShowTagsStatement;
 import org.pangrova.planner.MetadataTableQuery;
-import org.pangrova.connector.spi.metadata.MetadataTableKind;
+import org.pangrova.spi.connector.metadata.MetadataTableKind;
 
 /** Expands SHOW into a typed query over the connector's declared Native metadata source. */
 final class ShowMetadataQueryExpander {

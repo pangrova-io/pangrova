@@ -1,21 +1,21 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.connector.spi.data.type.ArrayType;
-import org.pangrova.connector.spi.data.type.MapType;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.mapping.PangrovaTypeMapping;
-import org.pangrova.connector.spi.data.type.RowField;
-import org.pangrova.connector.spi.data.type.RowType;
-import org.pangrova.connector.spi.data.type.Type;
-import org.pangrova.connector.spi.data.type.TypeSignature;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.data.type.primitive.CharType;
-import org.pangrova.connector.spi.data.type.primitive.DecimalType;
-import org.pangrova.connector.spi.data.type.primitive.RealType;
-import org.pangrova.connector.spi.data.type.primitive.VarcharType;
-import org.pangrova.connector.spi.data.type.primitive.temporal.IntervalDayTimeType;
-import org.pangrova.connector.spi.data.type.primitive.temporal.IntervalYearMonthType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.type.ArrayType;
+import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.mapping.PangrovaTypeMapping;
+import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.spi.connector.data.type.Type;
+import org.pangrova.spi.connector.data.type.TypeSignature;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.data.type.primitive.CharType;
+import org.pangrova.spi.connector.data.type.primitive.DecimalType;
+import org.pangrova.spi.connector.data.type.primitive.RealType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.data.type.primitive.temporal.IntervalDayTimeType;
+import org.pangrova.spi.connector.data.type.primitive.temporal.IntervalYearMonthType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import java.util.List;
 import java.util.OptionalInt;
 

@@ -1,13 +1,13 @@
 package org.pangrova.ai.worker.provider.governed;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.invocation.AiInvocationRequest;
-import org.pangrova.ai.api.invocation.AiInvocationResult;
-import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
-import org.pangrova.ai.api.invocation.EmbeddingProvider;
-import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
-import org.pangrova.ai.api.capability.Modality;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.invocation.AiInvocationRequest;
+import org.pangrova.spi.ai.invocation.AiInvocationResult;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
+import org.pangrova.spi.ai.invocation.EmbeddingProvider;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchResult;
+import org.pangrova.spi.ai.capability.Modality;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 
 import java.util.List;

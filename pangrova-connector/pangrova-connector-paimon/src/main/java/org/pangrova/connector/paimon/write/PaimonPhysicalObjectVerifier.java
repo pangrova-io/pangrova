@@ -2,7 +2,7 @@ package org.pangrova.connector.paimon.write;
 
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.table.FileStoreTable;
-import org.pangrova.connector.spi.metadata.NativePhysicalFileReceipt;
+import org.pangrova.spi.connector.metadata.NativePhysicalFileReceipt;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;

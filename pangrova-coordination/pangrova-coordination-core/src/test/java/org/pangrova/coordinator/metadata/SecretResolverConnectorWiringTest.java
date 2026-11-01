@@ -4,7 +4,7 @@ import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
-import org.pangrova.security.api.secret.SecretTemplates;
+import org.pangrova.spi.security.secret.SecretTemplates;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
 import org.pangrova.security.core.secret.provider.env.EnvSecretProvider;
 import org.pangrova.security.core.secret.provider.file.FileSecretProvider;

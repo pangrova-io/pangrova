@@ -102,7 +102,7 @@ public final class DispatchCanceller {
     }
 
     /** Journals the same frozen fact retained by the sole issued-attempt authority. */
-    public void journalScheduledTask(org.pangrova.query.api.state.QueryStateJournal journal, String taskId) {
+    public void journalScheduledTask(org.pangrova.persistence.api.query.state.QueryStateJournal journal, String taskId) {
         journal.appendTaskEvent(taskTracker.scheduledJournalEvent(taskId));
     }
 

@@ -5,7 +5,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

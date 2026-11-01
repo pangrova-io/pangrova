@@ -1,8 +1,8 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.coordination.api.DistributedLease;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;

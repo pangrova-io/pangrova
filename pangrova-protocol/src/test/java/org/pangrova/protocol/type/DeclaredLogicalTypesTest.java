@@ -2,8 +2,8 @@ package org.pangrova.protocol.type;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.data.type.TypeSignature;
-import org.pangrova.connector.spi.data.type.DeclaredType;
+import org.pangrova.spi.connector.data.type.TypeSignature;
+import org.pangrova.spi.connector.data.type.DeclaredType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

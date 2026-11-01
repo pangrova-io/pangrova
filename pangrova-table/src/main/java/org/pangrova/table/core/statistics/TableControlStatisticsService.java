@@ -9,8 +9,8 @@ import org.pangrova.table.api.statistics.TableControlStatisticsStore;
 import org.pangrova.table.core.control.TableControlService;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.time.Clock;
 import java.util.Objects;
@@ -101,7 +101,7 @@ public final class TableControlStatisticsService {
         }
         if (!versionToken.equals(record.versionToken())) {
             ObservationOutcome outcome = control.observeVersion(record, Optional.empty(),
-                    Optional.of(new org.pangrova.connector.spi.metadata.table.TableVersionToken(
+                    Optional.of(new org.pangrova.spi.connector.metadata.table.TableVersionToken(
                             record.format(), versionToken)),
                     source, clock.instant());
             if (outcome != ObservationOutcome.VERSION_CHANGED

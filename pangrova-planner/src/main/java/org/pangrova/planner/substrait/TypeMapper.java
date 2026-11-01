@@ -3,10 +3,10 @@ package org.pangrova.planner.substrait;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.mapping.PangrovaTypeMapping;
-import org.pangrova.connector.spi.data.type.primitive.DecimalType;
-import org.pangrova.connector.spi.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.mapping.PangrovaTypeMapping;
+import org.pangrova.spi.connector.data.type.primitive.DecimalType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.pangrova.planner.type.PlannerTypeSystem;
@@ -28,7 +28,7 @@ public class TypeMapper {
 
     /**
      * Converts a Calcite RelDataType to the parameterized Pangrova
-     * {@link org.pangrova.connector.spi.data.Type}. For DECIMAL and VARCHAR,
+     * {@link org.pangrova.spi.connector.data.Type}. For DECIMAL and VARCHAR,
      * preserves precision/scale/length. For simple types, bridges via
      * {@link PangrovaTypeMapping}.
      *
@@ -36,13 +36,13 @@ public class TypeMapper {
      * @return the corresponding parameterized Pangrova Type
      * @throws SubstraitConversionException for unsupported types
      */
-    public org.pangrova.connector.spi.data.type.Type toPangrovaParameterizedType(
+    public org.pangrova.spi.connector.data.type.Type toPangrovaParameterizedType(
             RelDataType calciteType) {
         SqlTypeName sqlType = calciteType.getSqlTypeName();
         return mapToParameterized(sqlType, calciteType);
     }
 
-    private org.pangrova.connector.spi.data.type.Type mapToParameterized(
+    private org.pangrova.spi.connector.data.type.Type mapToParameterized(
             SqlTypeName sqlType, RelDataType calciteType) {
         return switch (sqlType) {
             case DECIMAL -> {
@@ -55,7 +55,7 @@ public class TypeMapper {
         };
     }
 
-    private org.pangrova.connector.spi.data.type.Type resolveVarchar(RelDataType calciteType) {
+    private org.pangrova.spi.connector.data.type.Type resolveVarchar(RelDataType calciteType) {
         int precision = calciteType.getPrecision();
         if (precision <= 0 || precision == Integer.MAX_VALUE) {
             return VarcharType.UNBOUNDED;
@@ -63,7 +63,7 @@ public class TypeMapper {
         return new VarcharType(precision);
     }
 
-    private org.pangrova.connector.spi.data.type.Type bridgeViaPangrovaType(SqlTypeName sqlType) {
+    private org.pangrova.spi.connector.data.type.Type bridgeViaPangrovaType(SqlTypeName sqlType) {
         String name = sqlType.getName();
         try {
             PangrovaType pangrovaType = PangrovaType.fromSqlTypeName(name);

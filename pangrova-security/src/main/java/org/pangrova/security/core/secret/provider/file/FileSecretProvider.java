@@ -2,8 +2,8 @@ package org.pangrova.security.core.secret.provider.file;
 
 import org.pangrova.common.exception.ConfigurationException;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.security.api.secret.SecretProvider;
-import org.pangrova.security.api.secret.SecretReference;
+import org.pangrova.spi.security.secret.SecretProvider;
+import org.pangrova.spi.security.secret.SecretReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

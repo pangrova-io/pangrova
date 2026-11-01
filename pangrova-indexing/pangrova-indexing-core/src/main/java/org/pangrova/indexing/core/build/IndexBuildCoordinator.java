@@ -16,9 +16,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.indexing.core.metrics.IndexBuildMetrics;
-import org.pangrova.connector.spi.index.ColumnValueReader;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.index.ColumnValueReader;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

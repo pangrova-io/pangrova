@@ -8,7 +8,7 @@ import org.pangrova.generation.spi.jdbc.GenerationPublicationCandidates;
 import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
 import org.pangrova.generation.spi.jdbc.GenerationExecutionTransactionFence;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 

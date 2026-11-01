@@ -20,21 +20,21 @@ import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ReadMode;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ReadMode;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.time.Instant;
@@ -50,9 +50,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class WritePolicyObservationTest extends ContainerTestBase {
     private SqlCompiler compiler;
     private SecurityPolicyApplier security;
-    private PersistentRowPolicyStore rowPolicies;
-    private PersistentColumnMaskStore masks;
-    private PersistentGrantStore grants;
+    private JdbcRowPolicyStore rowPolicies;
+    private JdbcColumnMaskStore masks;
+    private JdbcGrantStore grants;
     @TempDir private java.nio.file.Path warehouse;
     private org.pangrova.coordinator.metadata.MetadataBootstrap metadata;
     private org.pangrova.coordinator.metadata.PluginConnectorHandleFactory connectorFactory;
@@ -63,16 +63,16 @@ class WritePolicyObservationTest extends ContainerTestBase {
     @BeforeEach
     void initializeCurrentAuthority() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("write_observation");
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("writer"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "writer"));
-        grants = new PersistentGrantStore(dataSource);
+        grants = new JdbcGrantStore(dataSource);
         for (String table : List.of("target_rows", "source_rows")) {
             grants.addGrant(PrivilegeGrant.of("writer", Privilege.SELECT, "TABLE", "default", "default", table, null));
         }
-        rowPolicies = new PersistentRowPolicyStore(dataSource);
-        masks = new PersistentColumnMaskStore(dataSource);
+        rowPolicies = new JdbcRowPolicyStore(dataSource);
+        masks = new JdbcColumnMaskStore(dataSource);
         var authority = new org.pangrova.security.core.authz.DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(rowPolicies), new ColumnMaskingProcessor(masks));
         compiler = compiler(dataSource);

@@ -3,9 +3,9 @@ package org.pangrova.coordinator.adapter.indexing.lifecycle;
 import org.pangrova.indexing.core.build.IndexBuildResult;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

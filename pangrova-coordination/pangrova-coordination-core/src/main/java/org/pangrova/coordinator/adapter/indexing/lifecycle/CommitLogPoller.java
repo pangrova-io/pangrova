@@ -3,7 +3,7 @@ package org.pangrova.coordinator.adapter.indexing.lifecycle;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.indexing.store.CommitLogEntry;
 import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.connector.spi.index.CommitEventType;
+import org.pangrova.spi.connector.index.CommitEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

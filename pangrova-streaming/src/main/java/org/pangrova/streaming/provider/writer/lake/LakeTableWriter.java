@@ -1,12 +1,12 @@
 package org.pangrova.streaming.provider.writer.lake;
 
-import org.pangrova.connector.spi.data.write.DataFileSink;
-import org.pangrova.connector.spi.data.write.model.WriteContext;
-import org.pangrova.connector.spi.data.write.model.WriteMode;
-import org.pangrova.connector.spi.data.write.model.WriteResult;
-import org.pangrova.connector.spi.data.write.model.TableFormat;
-import org.pangrova.connector.spi.data.write.TableWriter;
-import org.pangrova.connector.spi.data.write.model.WriteRecord;
+import org.pangrova.spi.connector.data.write.DataFileSink;
+import org.pangrova.spi.connector.data.write.model.WriteContext;
+import org.pangrova.spi.connector.data.write.model.WriteMode;
+import org.pangrova.spi.connector.data.write.model.WriteResult;
+import org.pangrova.spi.connector.data.write.model.TableFormat;
+import org.pangrova.spi.connector.data.write.TableWriter;
+import org.pangrova.spi.connector.data.write.model.WriteRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

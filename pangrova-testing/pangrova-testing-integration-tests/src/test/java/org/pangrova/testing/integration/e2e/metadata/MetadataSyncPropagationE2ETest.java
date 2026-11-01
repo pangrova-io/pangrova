@@ -5,7 +5,7 @@ import org.pangrova.metadata.store.jdbc.cache.JdbcInvalidationPoller;
 import org.pangrova.metadata.api.cache.MetadataCache;
 import org.pangrova.metadata.api.cache.CacheStats;
 import org.pangrova.metadata.api.object.TableMetadata;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.setup.MetadataSchemaInitializer;

@@ -1,5 +1,7 @@
 package org.pangrova.protocol.execution;
 
+import org.pangrova.spi.query.identity.QueryId;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.util.List;

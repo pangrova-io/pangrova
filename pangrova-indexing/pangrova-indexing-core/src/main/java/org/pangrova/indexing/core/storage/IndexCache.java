@@ -6,8 +6,8 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

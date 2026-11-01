@@ -12,9 +12,9 @@ import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.query.state.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

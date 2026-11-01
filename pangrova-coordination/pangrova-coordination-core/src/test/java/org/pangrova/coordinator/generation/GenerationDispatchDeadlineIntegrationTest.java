@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.generation;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
@@ -35,9 +34,9 @@ import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;

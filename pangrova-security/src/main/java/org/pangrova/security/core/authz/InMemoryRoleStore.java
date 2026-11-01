@@ -7,17 +7,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import org.pangrova.security.api.policy.GroupRoleMapping;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.RoleStore;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.GroupRoleMapping;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.persistence.api.security.policy.RoleStore;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 
 /**
  * Thread-safe in-memory {@link RoleStore} for tests and dev/standalone deployments
  * where no shared SQL state is configured. Mutations are atomic at the per-key level;
  * read methods return defensive copies.
  *
- * <p>Production deployments should use {@link org.pangrova.security.store.jdbc.PersistentRoleStore}
+ * <p>Production deployments should use {@link org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore}
  * for cross-coordinator consistency.
  */
 public final class InMemoryRoleStore implements RoleStore {

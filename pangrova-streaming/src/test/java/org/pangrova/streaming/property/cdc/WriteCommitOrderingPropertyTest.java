@@ -8,7 +8,7 @@ import org.pangrova.streaming.api.cdc.*;
 import org.pangrova.streaming.api.checkpoint.*;
 import org.pangrova.streaming.api.source.*;
 import org.pangrova.streaming.api.watermark.*;
-import org.pangrova.connector.spi.data.write.model.WriteResult;
+import org.pangrova.spi.connector.data.write.model.WriteResult;
 import org.pangrova.streaming.core.cdc.*;
 import org.pangrova.streaming.core.maintenance.*;
 import org.pangrova.streaming.core.watermark.WatermarkTracker;

@@ -11,12 +11,12 @@ import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -70,19 +70,19 @@ class ConnectorAccessorResolverDataFileInfoTest {
     @Test
     void processResourceCannotReadMetadataWithoutCurrentAuthority() {
         assertThatThrownBy(() -> processResolver.listDataFiles(CATALOG, SCHEMA, TABLE))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("reauthorize");
         assertThatThrownBy(processResolver::resolveSnapshotPinProvider)
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
     }
 
     @Test
     void queryScopeCannotReadAnotherCatalogOrSchema() {
         assertThatThrownBy(() -> resolver.listDataFiles("other-catalog", SCHEMA, TABLE))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("catalog");
         assertThatThrownBy(() -> resolver.resolveFileStatistics(CATALOG, "other-schema", TABLE, List.of()))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                 .hasMessageContaining("schema");
     }
 
@@ -90,7 +90,7 @@ class ConnectorAccessorResolverDataFileInfoTest {
     void missingTenantCannotBecomeAnAuthorizedIndexScope() {
         ConnectorSession incomplete = new ConnectorSession() {
             @Override
-            public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
                 return java.util.Optional.empty();
             }
 
@@ -100,7 +100,7 @@ class ConnectorAccessorResolverDataFileInfoTest {
             @Override public Map<String, String> getProperties() { return Map.of(); }
         };
         assertThatThrownBy(() -> processResolver.forSession(incomplete))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
     }
 
     @Test
@@ -235,30 +235,30 @@ class ConnectorAccessorResolverDataFileInfoTest {
 
         // ── Required abstract methods with no-op implementations ──
         @Override
-        public org.pangrova.connector.spi.metadata.table.ConnectorTableHandle getTableHandle(
+        public org.pangrova.spi.connector.metadata.table.ConnectorTableHandle getTableHandle(
                 ConnectorSession session,
-                org.pangrova.connector.spi.metadata.table.SchemaTableName tableName) {
+                org.pangrova.spi.connector.metadata.table.SchemaTableName tableName) {
             return null;
         }
 
         @Override
-        public org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata getTableMetadata(
+        public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(
                 ConnectorSession session,
-                org.pangrova.connector.spi.metadata.table.ConnectorTableHandle table) {
+                org.pangrova.spi.connector.metadata.table.ConnectorTableHandle table) {
             return null;
         }
 
         @Override
-        public Map<String, org.pangrova.connector.spi.metadata.table.ColumnHandle> getColumnHandles(
+        public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(
                 ConnectorSession session,
-                org.pangrova.connector.spi.metadata.table.ConnectorTableHandle table) {
+                org.pangrova.spi.connector.metadata.table.ConnectorTableHandle table) {
             return Map.of();
         }
 
         @Override
-        public org.pangrova.connector.spi.metadata.table.TableStatistics getTableStatistics(
+        public org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(
                 ConnectorSession session,
-                org.pangrova.connector.spi.metadata.table.ConnectorTableHandle table) {
+                org.pangrova.spi.connector.metadata.table.ConnectorTableHandle table) {
             return null;
         }
 
@@ -268,7 +268,7 @@ class ConnectorAccessorResolverDataFileInfoTest {
         }
 
         @Override
-        public List<org.pangrova.connector.spi.metadata.table.SchemaTableName> listTables(
+        public List<org.pangrova.spi.connector.metadata.table.SchemaTableName> listTables(
                 ConnectorSession session, Optional<String> schemaName) {
             return List.of();
         }

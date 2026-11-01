@@ -13,9 +13,9 @@ import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,7 +76,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         this.tracingProvider = tracingProvider;
         this.internalAuthSecret = normalizeSecret(internalAuthSecret);
         this.reportFailedCounter =
-                new org.pangrova.observability.api.noop.NoOpMetricsProvider()
+                new org.pangrova.observability.sdk.noop.NoOpMetricsProvider()
                         .createCounter("noop", "noop", "1");
     }
 

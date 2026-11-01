@@ -2,10 +2,10 @@ package org.pangrova.streaming.property.writer.provider;
 
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.write.DataFileSink;
-import org.pangrova.connector.spi.data.write.model.WriteMode;
-import org.pangrova.connector.spi.data.write.model.WriteRecord;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.write.DataFileSink;
+import org.pangrova.spi.connector.data.write.model.WriteMode;
+import org.pangrova.spi.connector.data.write.model.WriteRecord;
 import org.pangrova.streaming.provider.writer.lake.LakeTableWriter;
 
 import java.time.Instant;

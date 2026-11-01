@@ -1,6 +1,6 @@
 package org.pangrova.metadata.generation;
 
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 
 import java.util.List;
 

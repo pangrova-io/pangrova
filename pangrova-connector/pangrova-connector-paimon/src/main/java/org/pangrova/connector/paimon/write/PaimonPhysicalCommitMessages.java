@@ -10,7 +10,7 @@ import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageImpl;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
-import org.pangrova.connector.spi.metadata.NativePhysicalFileReceipt;
+import org.pangrova.spi.connector.metadata.NativePhysicalFileReceipt;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;

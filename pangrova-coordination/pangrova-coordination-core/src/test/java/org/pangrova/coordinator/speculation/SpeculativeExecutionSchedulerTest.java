@@ -6,7 +6,6 @@ import org.pangrova.scheduler.core.speculation.SpeculativeStageHandler;
 import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
 import org.pangrova.scheduler.core.speculation.StragglerDetector;
 
-
 import java.time.Instant;
 import java.util.List;
 
@@ -27,7 +26,7 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.protocol.v2.TaskKind;

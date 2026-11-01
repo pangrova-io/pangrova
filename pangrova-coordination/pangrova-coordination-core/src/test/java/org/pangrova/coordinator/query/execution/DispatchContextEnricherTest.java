@@ -8,9 +8,9 @@ import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.planner.rerank.RerankerValidationException;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.lang.reflect.Proxy;
 import java.time.Instant;

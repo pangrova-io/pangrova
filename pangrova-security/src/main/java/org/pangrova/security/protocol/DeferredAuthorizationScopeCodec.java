@@ -1,13 +1,13 @@
 package org.pangrova.security.protocol;
 
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -16,7 +16,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.spi.security.policy.Privilege;
 
 /** Canonical metadata encoding of exact deferred permissions, without credentials or identity groups. */
 public final class DeferredAuthorizationScopeCodec {
@@ -44,15 +44,15 @@ public final class DeferredAuthorizationScopeCodec {
     }
 
     /** Builds one receipt from the same scope observation, without a second connector lookup. */
-    public static org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt encodeWriteReceipt(
+    public static org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt encodeWriteReceipt(
             DeferredAuthorizationScope scope) {
         var declaration = scope.definitionSnapshot().orElseThrow(() -> new IllegalArgumentException(
                 "A write receipt requires its actual connector definition snapshot")).declaration();
-        return new org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt(encode(scope), declaration);
+        return new org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt(encode(scope), declaration);
     }
 
     /** Restores the declaration from the sole persisted scope, rejecting historical unscoped write records. */
-    public static org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt decodeWriteReceipt(byte[] bytes) {
+    public static org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt decodeWriteReceipt(byte[] bytes) {
         var scope = decode(bytes);
         var receipt = encodeWriteReceipt(scope);
         if (!java.util.Arrays.equals(receipt.authorizationScope(), bytes)) {

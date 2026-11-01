@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.session;
 
-import org.pangrova.connector.spi.metadata.table.SnapshotRange;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.connector.spi.ConnectorQueryAuthority;
+import org.pangrova.spi.connector.metadata.table.SnapshotRange;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
 import org.pangrova.observability.sdk.tracing.ExecutionTraceContext;
 
 import java.util.Map;

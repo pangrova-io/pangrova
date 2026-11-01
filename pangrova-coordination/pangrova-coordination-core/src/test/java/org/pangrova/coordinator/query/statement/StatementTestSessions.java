@@ -3,8 +3,8 @@ package org.pangrova.coordinator.query.statement;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.Map;

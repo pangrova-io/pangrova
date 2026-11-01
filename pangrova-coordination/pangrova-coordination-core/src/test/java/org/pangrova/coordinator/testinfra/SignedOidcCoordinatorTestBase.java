@@ -6,10 +6,10 @@ import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.spi.security.tenant.ResourceQuota;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import java.time.Instant;

@@ -12,8 +12,8 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.connector.spi.data.page.BatchFormat;
-import org.pangrova.connector.spi.data.page.NativePage;
+import org.pangrova.spi.connector.data.page.BatchFormat;
+import org.pangrova.spi.connector.data.page.NativePage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;

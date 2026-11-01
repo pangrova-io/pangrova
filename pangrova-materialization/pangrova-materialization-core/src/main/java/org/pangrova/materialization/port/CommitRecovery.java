@@ -1,7 +1,7 @@
 package org.pangrova.materialization.port;
 
 import org.pangrova.materialization.domain.RefreshAttempt;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
 
 /**
  * Connector-side reconciliation of an attempt whose outcome is unknown.

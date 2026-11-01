@@ -41,19 +41,19 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.GroupRoleMapping;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
+import org.pangrova.spi.security.policy.GroupRoleMapping;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -231,15 +231,15 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
     }
 
     private static DynamicRbacAccessControl createAuthority(DataSource dataSource) {
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of(READER));
         roles.mapGroupToRole(GroupRoleMapping.of(READER, READER));
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of(READER, Privilege.SELECT, "TABLE", CATALOG, SCHEMA, TABLE, null));
         return new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(dataSource)));
+                new RowLevelSecurityFilter(new JdbcRowPolicyStore(dataSource)),
+                new ColumnMaskingProcessor(new JdbcColumnMaskStore(dataSource)));
     }
 
     private IcebergMetadata connectorMetadata(String catalog, CoordinatorSessionContext session) {
@@ -248,7 +248,7 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
     }
 
     private void beginAndPin(IcebergMetadata connector,
-            org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+            org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         connector.beginQuery(authority);
         pin(connector, authority.queryId());
     }

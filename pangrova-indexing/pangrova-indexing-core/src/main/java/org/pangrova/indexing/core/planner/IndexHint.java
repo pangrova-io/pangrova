@@ -1,7 +1,7 @@
 package org.pangrova.indexing.core.planner;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
 
 import java.util.Objects;
 

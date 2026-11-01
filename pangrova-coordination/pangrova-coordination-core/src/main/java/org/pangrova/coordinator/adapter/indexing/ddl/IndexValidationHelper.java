@@ -5,14 +5,14 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.adapter.indexing.IndexTypeCompatibility;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.index.NativeIndexCapability;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.index.NativeIndexCapability;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -115,7 +115,7 @@ final class IndexValidationHelper {
     }
 
     private static boolean nativeTypeOverlaps(
-            org.pangrova.connector.spi.index.NativeIndexType nativeType, IndexType indexType) {
+            org.pangrova.spi.connector.index.NativeIndexType nativeType, IndexType indexType) {
         return switch (nativeType) {
             case MIN_MAX -> indexType == IndexType.BTREE || indexType == IndexType.SPARSE;
             case BLOOM_FILTER -> indexType == IndexType.BLOOM_FILTER;

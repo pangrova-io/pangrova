@@ -16,12 +16,12 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.query.state.TaskStateEvent;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -48,11 +48,11 @@ class JournalRecoveryOwnerScopeTest {
     void ownerScopedRecoveryOnlyReplaysOwnedQueries() {
         var journal = new org.pangrova.query.store.memory.InMemoryQueryStateJournal();
         // Query owned by coord-1 (the failed leader)
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-owned", "SELECT 1", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-owned", "SELECT 1", "{}", "RUNNING"));
         // Query owned by coord-2 (a different coordinator, should NOT be replayed)
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), "coord-2"), "q-other", "SELECT 2", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "coord-2"), "q-other", "SELECT 2", "{}", "RUNNING"));
         // Query with no owner (legacy, should NOT be replayed when scoped)
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-legacy", "SELECT 3", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-legacy", "SELECT 3", "{}", "RUNNING"));
 
         QueryManager qm = buildQueryManager(journal);
         JournalRecoveryService recovery = new JournalRecoveryService(
@@ -71,8 +71,8 @@ class JournalRecoveryOwnerScopeTest {
     @Test
     void explicitQueryFenceDoesNotReplayLiveQueryFromReusedOwnerId() {
         var journal = new org.pangrova.query.store.memory.InMemoryQueryStateJournal();
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-orphan", "SELECT 1", "{}", "RUNNING"));
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-live", "SELECT 2", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-orphan", "SELECT 1", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-live", "SELECT 2", "{}", "RUNNING"));
 
         QueryManager queryManager = buildQueryManager(journal);
         JournalRecoveryService recovery = new JournalRecoveryService(
@@ -89,8 +89,8 @@ class JournalRecoveryOwnerScopeTest {
     @Test
     void unscopedRecoveryReplaysAllQueries() {
         var journal = new org.pangrova.query.store.memory.InMemoryQueryStateJournal();
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-1", "SELECT 1", "{}", "RUNNING"));
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), "coord-2"), "q-2", "SELECT 2", "{}", "SCHEDULING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "coord-2"), "q-2", "SELECT 2", "{}", "SCHEDULING"));
 
         QueryManager qm = buildQueryManager(journal);
         // previousLeaderId = null → unscoped
@@ -107,8 +107,8 @@ class JournalRecoveryOwnerScopeTest {
     @Test
     void graceWindowDoesNotFailUnknownWorkers() {
         var journal = new org.pangrova.query.store.memory.InMemoryQueryStateJournal();
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
-        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L));
 
         QueryManager qm = buildQueryManager(journal);
         // WorkerManager with no registered workers — w-unknown evaluates to UNKNOWN
@@ -127,8 +127,8 @@ class JournalRecoveryOwnerScopeTest {
     @Test
     void noGraceWindowFailsUnknownWorkers() {
         var journal = new org.pangrova.query.store.memory.InMemoryQueryStateJournal();
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
-        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L));
 
         QueryManager qm = buildQueryManager(journal);
 
@@ -144,8 +144,8 @@ class JournalRecoveryOwnerScopeTest {
     @Test
     void graceWindowStillFailsTrulyDeadWorkers() {
         var journal = new org.pangrova.query.store.memory.InMemoryQueryStateJournal();
-        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
-        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-dead", "RUNNING", 0, 1L));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-dead", "RUNNING", 0, 1L));
 
         QueryManager qm = buildQueryManager(journal);
 
@@ -171,19 +171,19 @@ class JournalRecoveryOwnerScopeTest {
 
     @Test
     void coordinatorIdFieldOnQueryStateEvent() {
-        QueryStateEvent withOwner = new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(12345L, "coord-1"), "q-1", "sql", "{}", "RUNNING");
+        QueryStateEvent withOwner = new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(12345L, "coord-1"), "q-1", "sql", "{}", "RUNNING");
         assertEquals("coord-1", withOwner.context().coordinatorId());
 
-        QueryStateEvent withoutOwner = new QueryStateEvent(org.pangrova.query.api.state.JournalEventContext.create(12345L, null), "q-2", "sql", "{}", "RUNNING");
+        QueryStateEvent withoutOwner = new QueryStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(12345L, null), "q-2", "sql", "{}", "RUNNING");
         assertNull(withoutOwner.context().coordinatorId());
     }
 
     @Test
     void coordinatorIdFieldOnTaskStateEvent() {
-        TaskStateEvent withOwner = new TaskStateEvent(org.pangrova.query.api.state.JournalEventContext.create(12345L, "coord-1"), "q-1", "t-1", "w-1", "RUNNING", 0, 1L);
+        TaskStateEvent withOwner = new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(12345L, "coord-1"), "q-1", "t-1", "w-1", "RUNNING", 0, 1L);
         assertEquals("coord-1", withOwner.context().coordinatorId());
 
-        TaskStateEvent withoutOwner = new TaskStateEvent(org.pangrova.query.api.state.JournalEventContext.create(12345L, null), "q-1", "t-1", "w-1", "RUNNING", 0, 1L);
+        TaskStateEvent withoutOwner = new TaskStateEvent(org.pangrova.spi.query.state.JournalEventContext.create(12345L, null), "q-1", "t-1", "w-1", "RUNNING", 0, 1L);
         assertNull(withoutOwner.context().coordinatorId());
     }
 

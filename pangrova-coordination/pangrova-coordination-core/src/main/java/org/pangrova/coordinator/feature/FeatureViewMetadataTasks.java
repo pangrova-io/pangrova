@@ -24,7 +24,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.CreateFeatureViewStatement;
 import org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
 import org.pangrova.parser.ast.statement.PublishFeatureViewStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 import java.util.List;
 import java.util.Objects;

@@ -23,8 +23,8 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.ValidationException;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 /**
  * Enforces the per-table FILE-column MIME whitelist on INSERT (F-MM-GOV).

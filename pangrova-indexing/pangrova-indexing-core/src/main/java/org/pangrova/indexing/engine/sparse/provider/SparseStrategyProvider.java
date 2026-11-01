@@ -1,13 +1,13 @@
 package org.pangrova.indexing.engine.sparse.provider;
 
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.indexing.api.data.spatial.SparseEntry;
-import org.pangrova.indexing.api.data.spatial.SparseIndexData;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
-import org.pangrova.connector.spi.index.predicate.RangeQuery;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.IndexStrategyProvider;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.indexing.data.spatial.SparseEntry;
+import org.pangrova.spi.indexing.data.spatial.SparseIndexData;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.predicate.RangeQuery;
 
 import java.util.ArrayList;
 import java.util.Iterator;

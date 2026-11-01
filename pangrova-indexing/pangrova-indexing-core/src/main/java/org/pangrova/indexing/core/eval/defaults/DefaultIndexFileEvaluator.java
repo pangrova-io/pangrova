@@ -1,12 +1,12 @@
 package org.pangrova.indexing.core.eval.defaults;
 
 import org.pangrova.indexing.core.eval.IndexEvaluationService;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.eval.IndexEvalDescriptor;
-import org.pangrova.indexing.api.eval.IndexFileEvaluator;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.eval.IndexEvalDescriptor;
+import org.pangrova.spi.indexing.eval.IndexFileEvaluator;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
 
 import java.util.Objects;
 

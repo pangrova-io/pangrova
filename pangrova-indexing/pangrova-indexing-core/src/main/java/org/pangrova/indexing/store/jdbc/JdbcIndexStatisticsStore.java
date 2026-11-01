@@ -2,8 +2,8 @@ package org.pangrova.indexing.store.jdbc;
 
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

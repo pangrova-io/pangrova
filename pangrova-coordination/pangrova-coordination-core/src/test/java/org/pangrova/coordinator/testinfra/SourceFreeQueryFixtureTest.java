@@ -45,9 +45,9 @@ class SourceFreeQueryFixtureTest {
         var policy = SourceFreeQueryFixture.withPolicies(unprotected()).accessControlEnforcer();
         assertThatThrownBy(() -> policy.checkTableAccess(List.of(List.of("lake", "public", "facts")),
                 List.of(), SourceFreeQueryFixture.session("fixture-query").userIdentity()))
-                .isInstanceOf(org.pangrova.security.api.AuthorizationDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class);
         assertThatThrownBy(() -> policy.checkTableAccess(List.of(), List.of(), null))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
     }
 
     @Test

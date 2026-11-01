@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon.scan;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.metadata.table.ColumnMapping;
-import org.pangrova.connector.spi.metadata.table.TypePromotion;
+import org.pangrova.spi.connector.metadata.table.ColumnMapping;
+import org.pangrova.spi.connector.metadata.table.TypePromotion;
 
 import java.util.ArrayList;
 import java.util.List;

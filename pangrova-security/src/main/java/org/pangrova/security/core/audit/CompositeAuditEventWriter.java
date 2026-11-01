@@ -5,10 +5,10 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
-import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.api.audit.AuditEventQuery;
-import org.pangrova.security.api.audit.AuditEventWriter;
-import org.pangrova.security.api.audit.QueryableAuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEventQuery;
+import org.pangrova.spi.security.audit.AuditEventWriter;
+import org.pangrova.persistence.api.security.audit.QueryableAuditEventWriter;
 
 /**
  * An {@link AuditEventWriter} that fans out each audit event to multiple sinks.

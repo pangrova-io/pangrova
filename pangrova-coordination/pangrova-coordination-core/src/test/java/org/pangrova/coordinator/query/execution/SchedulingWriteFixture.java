@@ -34,33 +34,33 @@ import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -135,16 +135,16 @@ final class SchedulingWriteFixture implements AutoCloseable {
 
     WritePolicyObservation compileProtectedWrite(CoordinatorSessionContext actor, String sql) throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("write_read_binding");
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of(actor.userIdentity().principal(), "reader"));
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "catalog", "schema", "other", null));
-        var policies = new PersistentRowPolicyStore(dataSource);
+        var policies = new JdbcRowPolicyStore(dataSource);
         policies.savePolicy(new RowPolicy(0, "positive-id", "catalog", "schema", "other",
                 "id > 0", List.of("reader"), true, 1, null));
-        var masks = new PersistentColumnMaskStore(dataSource);
+        var masks = new JdbcColumnMaskStore(dataSource);
         masks.saveColumnMask(new ColumnMask(0, "hide-title", "catalog", "schema", "other", "title",
                 "'masked'", List.of("reader"), List.of(), true, null));
         var authority = new DynamicRbacAccessControl(grants, roles,
@@ -167,7 +167,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
 
     WriteDeclarationSnapshot declaration() {
         var session = SessionContextConverter.toConnectorSession(new CoordinatorSessionContext(
-                "fixture-compilation", Map.of(), new org.pangrova.security.api.UserIdentity(
+                "fixture-compilation", Map.of(), new org.pangrova.spi.security.UserIdentity(
                         "alice", Set.of(), Map.of(), java.time.Instant.EPOCH), "tenant-1"));
         var handle = metadata.getTableHandle(session, new SchemaTableName(TABLE.schema(), TABLE.table()));
         var actual = metadata.getTableMetadata(session, handle);
@@ -221,13 +221,13 @@ final class SchedulingWriteFixture implements AutoCloseable {
         Map<String, String> partition = Map.of();
         boolean failOverwrite;
         Runnable beforeInsert = () -> { };
-        org.pangrova.connector.spi.metadata.table.TableCapabilities capabilities =
+        org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities =
                 org.pangrova.connector.iceberg.handle.IcebergTableHandle.CAPABILITIES;
 
         CountingMetadata(HadoopCatalog catalog) { super(catalog, "catalog"); }
 
         @Override
-        public org.pangrova.connector.spi.metadata.table.TableCapabilities getTableCapabilities(
+        public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
                 ConnectorSession session, ConnectorTableHandle table) {
             return capabilities;
         }

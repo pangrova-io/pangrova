@@ -3,15 +3,15 @@ package org.pangrova.coordinator.query.security;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.TableScanColumnUsage;
 import org.pangrova.planner.security.expression.MaskExpressionParser;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.core.authz.DefaultAccessControl;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
 import org.pangrova.security.core.authz.StaticGrantStore;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
@@ -258,10 +258,10 @@ class ColumnMaskApplierTest {
             @Override public void saveColumnMask(ColumnMask m) { }
             @Override public void deleteMask(long id) { }
             @Override
-            public List<org.pangrova.security.api.mask.ColumnMaskRecord> getMasks(String c, String s, String t, String col) {
+            public List<org.pangrova.spi.security.mask.ColumnMaskRecord> getMasks(String c, String s, String t, String col) {
                 return getColumnMasks(c, s, t, col).stream().map(ColumnMask::toRecord).toList();
             }
-            @Override public void saveMask(org.pangrova.security.api.mask.ColumnMaskRecord m) { }
+            @Override public void saveMask(org.pangrova.spi.security.mask.ColumnMaskRecord m) { }
         };
         return new DynamicRbacAccessControl(
                 new StaticGrantStore(List.of()),

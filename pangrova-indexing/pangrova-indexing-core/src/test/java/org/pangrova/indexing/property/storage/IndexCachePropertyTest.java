@@ -6,9 +6,9 @@ import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
 
 import org.pangrova.indexing.core.storage.IndexCache;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

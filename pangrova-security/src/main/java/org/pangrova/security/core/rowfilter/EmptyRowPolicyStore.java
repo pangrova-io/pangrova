@@ -1,8 +1,8 @@
 package org.pangrova.security.core.rowfilter;
 
 import java.util.List;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.api.rowfilter.RowPolicyStore;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
 
 /**
  * No-op RowPolicyStore that returns empty policies. Used when RLS is not configured.

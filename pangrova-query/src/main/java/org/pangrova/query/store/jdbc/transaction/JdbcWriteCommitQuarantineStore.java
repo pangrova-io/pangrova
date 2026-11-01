@@ -1,7 +1,7 @@
 package org.pangrova.query.store.jdbc.transaction;
 
-import org.pangrova.query.api.transaction.QuarantinedWriteCommit;
-import org.pangrova.query.api.transaction.WriteCommitQuarantineStore;
+import org.pangrova.spi.query.transaction.QuarantinedWriteCommit;
+import org.pangrova.persistence.api.query.transaction.WriteCommitQuarantineStore;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

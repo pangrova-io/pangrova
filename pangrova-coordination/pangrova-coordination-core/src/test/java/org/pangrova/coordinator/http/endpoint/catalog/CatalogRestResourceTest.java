@@ -205,6 +205,6 @@ class CatalogRestResourceTest {
         public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) {}
 
         @Override
-        public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {}
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {}
     }
 }

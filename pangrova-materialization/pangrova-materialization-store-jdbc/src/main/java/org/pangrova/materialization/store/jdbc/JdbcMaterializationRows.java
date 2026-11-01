@@ -43,9 +43,9 @@ import org.pangrova.materialization.domain.TargetLag;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.domain.TriggerKind;
 import org.pangrova.materialization.port.ReclaimableSourcePin;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 
 import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
 

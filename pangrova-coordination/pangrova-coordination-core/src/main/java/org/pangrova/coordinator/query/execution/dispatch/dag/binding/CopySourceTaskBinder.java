@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.file.store.jdbc.copy.JdbcCopySourceReadAdmissions;
+import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.TaskKind;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import java.util.HexFormat;
 import java.util.Objects;

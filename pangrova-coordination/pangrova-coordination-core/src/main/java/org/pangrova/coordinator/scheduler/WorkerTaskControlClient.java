@@ -13,7 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.protocol.rest.task.InjectDynamicFilterRequest;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

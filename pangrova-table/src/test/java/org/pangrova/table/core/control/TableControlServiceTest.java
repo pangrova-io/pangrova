@@ -8,11 +8,10 @@ import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
 
-
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.time.Clock;
 import java.time.Instant;

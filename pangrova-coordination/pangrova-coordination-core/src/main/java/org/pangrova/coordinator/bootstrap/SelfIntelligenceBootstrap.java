@@ -15,7 +15,7 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRecommendationEngine;
 import org.pangrova.coordinator.adapter.indexing.ai.lifecycle.VectorIndexHealthAssessor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,11 +94,11 @@ final class SelfIntelligenceBootstrap {
     }
 
     private void initIndexRebuildScheduler() {
-        org.pangrova.coordination.api.DistributedLease lease = moduleWiring != null
+        org.pangrova.persistence.api.coordination.DistributedLease lease = moduleWiring != null
                 ? moduleWiring.getDistributedLease() : null;
         String coordId = config.coordinatorId();
         IndexingBootstrap indexing = moduleWiring != null ? moduleWiring.getIndexingBootstrap() : null;
-        java.util.function.BiFunction<org.pangrova.indexing.api.descriptor.IndexDescriptor,
+        java.util.function.BiFunction<org.pangrova.spi.indexing.descriptor.IndexDescriptor,
                 org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
                 java.util.concurrent.CompletableFuture<Void>> rebuildFn = buildRebuildFunction(indexing);
         indexRebuildScheduler = new org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler(
@@ -106,7 +106,7 @@ final class SelfIntelligenceBootstrap {
         LOG.info("event=index_rebuild_scheduler_initialized coordinatorId={}", coordId);
     }
 
-    static java.util.function.BiFunction<org.pangrova.indexing.api.descriptor.IndexDescriptor,
+    static java.util.function.BiFunction<org.pangrova.spi.indexing.descriptor.IndexDescriptor,
             org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.RebuildAction,
             java.util.concurrent.CompletableFuture<Void>> buildRebuildFunction(IndexingBootstrap indexing) {
         if (indexing == null || indexing.getDdlExecutor() == null) {
@@ -114,7 +114,7 @@ final class SelfIntelligenceBootstrap {
                     new IllegalStateException("durable Native AI index build service is not configured"));
         }
         return (descriptor, action) -> java.util.concurrent.CompletableFuture.failedFuture(
-                new org.pangrova.security.api.AccessDeniedException(
+                new org.pangrova.spi.security.AccessDeniedException(
                         "Scheduled index rebuild requires current trusted authorization for "
                                 + descriptor.indexId() + "; a service principal cannot be synthesized"));
     }
@@ -196,21 +196,21 @@ final class SelfIntelligenceBootstrap {
         }
     }
 
-    private static List<org.pangrova.indexing.api.descriptor.IndexDescriptor> collectVectorIndexes(
-            Iterable<org.pangrova.indexing.api.descriptor.IndexDescriptor> ready,
-            Iterable<org.pangrova.indexing.api.descriptor.IndexDescriptor> stale) {
-        var result = new ArrayList<org.pangrova.indexing.api.descriptor.IndexDescriptor>();
+    private static List<org.pangrova.spi.indexing.descriptor.IndexDescriptor> collectVectorIndexes(
+            Iterable<org.pangrova.spi.indexing.descriptor.IndexDescriptor> ready,
+            Iterable<org.pangrova.spi.indexing.descriptor.IndexDescriptor> stale) {
+        var result = new ArrayList<org.pangrova.spi.indexing.descriptor.IndexDescriptor>();
         for (var idx : ready) {
-            if (idx.indexType() == org.pangrova.indexing.api.descriptor.IndexType.VECTOR) result.add(idx);
+            if (idx.indexType() == org.pangrova.spi.indexing.descriptor.IndexType.VECTOR) result.add(idx);
         }
         for (var idx : stale) {
-            if (idx.indexType() == org.pangrova.indexing.api.descriptor.IndexType.VECTOR) result.add(idx);
+            if (idx.indexType() == org.pangrova.spi.indexing.descriptor.IndexType.VECTOR) result.add(idx);
         }
         return result;
     }
 
     private List<org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.IndexWithAssessment>
-            identifyCriticalIndexes(List<org.pangrova.indexing.api.descriptor.IndexDescriptor> descriptors) {
+            identifyCriticalIndexes(List<org.pangrova.spi.indexing.descriptor.IndexDescriptor> descriptors) {
         var result = new ArrayList<
                 org.pangrova.coordinator.adapter.indexing.ai.lifecycle.IndexRebuildScheduler.IndexWithAssessment>();
         for (var descriptor : descriptors) {
@@ -234,7 +234,7 @@ final class SelfIntelligenceBootstrap {
         var readyIndexes = indexing.getMetadataStore().findIndexesByState(IndexState.READY);
         int evaluated = 0;
         for (var descriptor : readyIndexes) {
-            if (descriptor.indexType() != org.pangrova.indexing.api.descriptor.IndexType.VECTOR) {
+            if (descriptor.indexType() != org.pangrova.spi.indexing.descriptor.IndexType.VECTOR) {
                 continue;
             }
             evaluated += evaluateIndexRecommendation(descriptor);
@@ -242,7 +242,7 @@ final class SelfIntelligenceBootstrap {
         LOG.debug("event=index_recommendation_cycle evaluated={}", evaluated);
     }
 
-    private int evaluateIndexRecommendation(org.pangrova.indexing.api.descriptor.IndexDescriptor descriptor) {
+    private int evaluateIndexRecommendation(org.pangrova.spi.indexing.descriptor.IndexDescriptor descriptor) {
         int dimension = Integer.parseInt(descriptor.properties().getOrDefault("dimension", "128"));
         long vectorCount = Long.parseLong(descriptor.properties().getOrDefault("vector_count", "0"));
         long availableMemory = Long.parseLong(

@@ -9,7 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.spi.connector.data.page.Page;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures;
 
 class PageDecoderComplexTypesTest {

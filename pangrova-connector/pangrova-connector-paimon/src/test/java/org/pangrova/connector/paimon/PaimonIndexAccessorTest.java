@@ -1,8 +1,8 @@
 package org.pangrova.connector.paimon;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.index.ColumnValueReader;
-import org.pangrova.connector.spi.index.SnapshotDataFile;
+import org.pangrova.spi.connector.index.ColumnValueReader;
+import org.pangrova.spi.connector.index.SnapshotDataFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

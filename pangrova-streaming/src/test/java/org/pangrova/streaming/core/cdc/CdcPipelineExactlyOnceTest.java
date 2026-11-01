@@ -1,7 +1,7 @@
 package org.pangrova.streaming.core.cdc;
 
 import org.pangrova.common.concurrent.BackoffStrategy;
-import org.pangrova.connector.spi.data.write.model.WriteResult;
+import org.pangrova.spi.connector.data.write.model.WriteResult;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcOperation;
 import org.pangrova.streaming.api.cdc.CdcRecordConverter;

@@ -23,7 +23,7 @@ import org.pangrova.materialization.domain.SourceVector;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 import static org.pangrova.common.jdbc.JdbcSupport.getInstant;
 

@@ -2,8 +2,8 @@ package org.pangrova.query.store.jdbc.anchor;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.query.api.coordination.ExecutionOwnerLostException;
-import org.pangrova.query.api.coordination.ExecutionOwnerLostException.Reason;
+import org.pangrova.spi.query.coordination.ExecutionOwnerLostException;
+import org.pangrova.spi.query.coordination.ExecutionOwnerLostException.Reason;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
 

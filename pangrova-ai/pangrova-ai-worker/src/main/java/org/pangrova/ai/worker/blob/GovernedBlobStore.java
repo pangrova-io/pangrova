@@ -1,10 +1,10 @@
 package org.pangrova.ai.worker.blob;
 
-import org.pangrova.storage.api.blob.BlobObjectId;
+import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.ai.api.embedding.BlobReference;
+import org.pangrova.spi.ai.embedding.BlobReference;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 
@@ -32,7 +32,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import org.pangrova.storage.api.blob.BlobStorage;
+import org.pangrova.filesystem.api.blob.BlobStorage;
 
 /**
  * Immutable, tenant-scoped content-addressed FILE store.

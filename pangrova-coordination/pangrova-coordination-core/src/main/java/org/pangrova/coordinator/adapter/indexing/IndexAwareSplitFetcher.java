@@ -14,10 +14,10 @@ import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.indexing.core.planner.IndexHint;
 import org.pangrova.indexing.core.planner.IndexPredicateAnalyzer;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 import org.apache.calcite.rel.RelNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,7 +101,7 @@ public final class IndexAwareSplitFetcher {
      * @param columnName column name to look up indexes for
      * @return matching index descriptors, or empty list if metadata store is unavailable
      */
-    public List<org.pangrova.indexing.api.descriptor.IndexDescriptor> lookupIndexes(
+    public List<org.pangrova.spi.indexing.descriptor.IndexDescriptor> lookupIndexes(
             String tenantId, String tableName, String columnName) {
         if (metadataStore == null) {
             return List.of();
@@ -194,7 +194,7 @@ public final class IndexAwareSplitFetcher {
             }
             return filterSplitsByTable(
                     splits, tableHints, snapshotOverrides, queryId, session);
-        } catch (org.pangrova.security.api.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             IndexEvaluationFailures.propagateIfTerminal(e);
@@ -320,7 +320,7 @@ public final class IndexAwareSplitFetcher {
             if (stats != null && !stats.isEmpty()) {
                 return stats;
             }
-        } catch (org.pangrova.security.api.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=file_statistics_fetch_failed catalog={} schema={} table={} error={}",
@@ -358,7 +358,7 @@ public final class IndexAwareSplitFetcher {
                 }
             }
             return result;
-        } catch (org.pangrova.security.api.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=connector_file_stats_failed catalog={} schema={} table={} error={}",

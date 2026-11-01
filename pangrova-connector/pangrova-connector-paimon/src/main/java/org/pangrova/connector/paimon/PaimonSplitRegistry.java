@@ -1,12 +1,12 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.ConnectorQueryAuthority;
-import org.pangrova.connector.spi.ConnectorQueryOperation;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.spi.connector.ConnectorQueryOperation;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;

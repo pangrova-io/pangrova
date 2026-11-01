@@ -20,16 +20,16 @@ import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.NamedValue;
 import org.pangrova.protocol.v2.TypedValue;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -97,7 +97,7 @@ public final class DurableIndexBuildService {
                 || !table.catalog().equals(descriptor.catalogName())
                 || !table.schema().equals(descriptor.schemaName())
                 || !table.table().equals(descriptor.tableName())) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Native index build scope does not match its durable descriptor");
         }
         ConnectorSession session = SessionContextConverter.toConnectorSession(

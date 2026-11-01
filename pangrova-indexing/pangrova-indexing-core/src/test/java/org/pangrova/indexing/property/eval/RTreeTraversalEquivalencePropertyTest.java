@@ -8,13 +8,13 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 
 import org.pangrova.indexing.engine.rtree.provider.RTreeStrategyProvider;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.indexing.api.data.spatial.BoundingBox;
-import org.pangrova.indexing.api.data.spatial.RTreeIndexData;
-import org.pangrova.indexing.api.data.spatial.RTreeNode;
-import org.pangrova.connector.spi.index.predicate.SpatialOp;
-import org.pangrova.connector.spi.index.predicate.SpatialQuery;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.indexing.data.spatial.BoundingBox;
+import org.pangrova.spi.indexing.data.spatial.RTreeIndexData;
+import org.pangrova.spi.indexing.data.spatial.RTreeNode;
+import org.pangrova.spi.connector.index.predicate.SpatialOp;
+import org.pangrova.spi.connector.index.predicate.SpatialQuery;
 
 import java.util.ArrayList;
 import java.util.List;

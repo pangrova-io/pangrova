@@ -4,8 +4,8 @@ import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -18,8 +18,8 @@ import static org.pangrova.security.testinfra.SecurityRoleFixtures.mappedRoles;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
 
 /**
  * Validates: Requirements 18.2 — RBAC access control resolves privileges by role grants.

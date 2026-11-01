@@ -4,7 +4,6 @@ import org.pangrova.scheduler.core.speculation.SpeculativeTaskLauncher;
 import org.pangrova.scheduler.core.speculation.StragglerDetector;
 import org.pangrova.scheduler.core.speculation.DuplicateTaskResolver;
 
-
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.scheduler.api.placement.TaskDuration;

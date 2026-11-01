@@ -3,7 +3,7 @@ package org.pangrova.indexing.store.jdbc;
 import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

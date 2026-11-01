@@ -1,6 +1,6 @@
 package org.pangrova.indexing.engine.bloom.serializer;
 
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
 import org.pangrova.indexing.core.serde.SerdeCodec;
 import org.pangrova.indexing.core.serde.TypeSerializer;
 

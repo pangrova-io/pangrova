@@ -1,6 +1,6 @@
 package org.pangrova.planner;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;

@@ -28,7 +28,7 @@ import com.google.protobuf.Any;
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;
 import io.substrait.proto.ExchangeRel;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.List;

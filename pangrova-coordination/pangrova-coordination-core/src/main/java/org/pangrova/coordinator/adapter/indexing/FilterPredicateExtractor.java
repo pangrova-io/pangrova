@@ -1,16 +1,16 @@
 package org.pangrova.coordinator.adapter.indexing;
 
-import org.pangrova.connector.spi.index.predicate.ContainmentMode;
-import org.pangrova.connector.spi.index.predicate.ContainsElement;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
-import org.pangrova.connector.spi.index.predicate.InList;
-import org.pangrova.connector.spi.index.predicate.IsNotNull;
-import org.pangrova.connector.spi.index.predicate.IsNull;
-import org.pangrova.connector.spi.index.predicate.LikePattern;
-import org.pangrova.connector.spi.index.predicate.RangeQuery;
-import org.pangrova.connector.spi.index.predicate.SpatialOp;
-import org.pangrova.connector.spi.index.predicate.SpatialQuery;
+import org.pangrova.spi.connector.index.predicate.ContainmentMode;
+import org.pangrova.spi.connector.index.predicate.ContainsElement;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.predicate.InList;
+import org.pangrova.spi.connector.index.predicate.IsNotNull;
+import org.pangrova.spi.connector.index.predicate.IsNull;
+import org.pangrova.spi.connector.index.predicate.LikePattern;
+import org.pangrova.spi.connector.index.predicate.RangeQuery;
+import org.pangrova.spi.connector.index.predicate.SpatialOp;
+import org.pangrova.spi.connector.index.predicate.SpatialQuery;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.TableScan;

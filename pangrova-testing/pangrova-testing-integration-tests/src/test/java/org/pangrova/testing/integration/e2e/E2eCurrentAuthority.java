@@ -16,22 +16,22 @@ import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
+import org.pangrova.spi.security.AccessControl;
 
 import javax.sql.DataSource;
 import java.time.Instant;
@@ -71,7 +71,7 @@ final class E2eCurrentAuthority {
         var roles = roles(dataSource);
         roles.createRole(Role.of(SQL_ROLE));
         roles.grantRoleToUser(UserRoleAssignment.of(principal, SQL_ROLE));
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         if (grants.listGrantsForRole(SQL_ROLE).isEmpty()) {
             grants.addGrant(PrivilegeGrant.of(SQL_ROLE, Privilege.ALL, "TABLE", "*", "*", "*", null));
         }
@@ -83,10 +83,10 @@ final class E2eCurrentAuthority {
         }
         return new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(new org.pangrova.metadata.service.TableControlRowPolicyStore(
-                        new RegistryTablePolicyAuthority(catalogs), new PersistentRowPolicyStore(dataSource))),
+                        new RegistryTablePolicyAuthority(catalogs), new JdbcRowPolicyStore(dataSource))),
                 new ColumnMaskingProcessor(new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
                         new RegistryTablePolicyAuthority(catalogs),
-                        new PersistentColumnMaskStore(dataSource))));
+                        new JdbcColumnMaskStore(dataSource))));
     }
 
     static void removeDefault(DataSource dataSource, String principal) {
@@ -111,8 +111,8 @@ final class E2eCurrentAuthority {
                 services.dataSource(), services.journal(), ModelAuthorityFixtures.models());
     }
 
-    private static PersistentRoleStore roles(DataSource dataSource) {
-        var roles = new PersistentRoleStore(dataSource);
+    private static JdbcRoleStore roles(DataSource dataSource) {
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         return roles;
     }

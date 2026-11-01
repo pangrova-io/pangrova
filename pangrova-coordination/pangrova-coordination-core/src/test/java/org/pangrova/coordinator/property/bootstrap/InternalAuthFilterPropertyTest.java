@@ -7,8 +7,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
 
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.MultivaluedHashMap;

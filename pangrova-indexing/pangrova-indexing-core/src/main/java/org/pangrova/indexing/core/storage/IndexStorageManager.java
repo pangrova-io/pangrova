@@ -1,6 +1,6 @@
 package org.pangrova.indexing.core.storage;
 
-import org.pangrova.connector.spi.index.FileSystemAccessor;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

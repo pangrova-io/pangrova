@@ -31,10 +31,10 @@ class GenerationContractTest {
                 "job-1", org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
                         "plan".getBytes(StandardCharsets.UTF_8), "binding".getBytes(StandardCharsets.UTF_8), java.util.List.of(), java.util.List.of()),
                 "tenant-a", "",
-                org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items"),
+                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items"),
                         java.util.Set.of("embedding"),
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items")),
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items")),
                 new GenerationDispatchSpec.ResourceGrant(1, 1, 1, 1)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("principal must not be blank");

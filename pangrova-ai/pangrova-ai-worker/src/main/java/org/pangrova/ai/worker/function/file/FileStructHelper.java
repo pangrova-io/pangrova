@@ -13,10 +13,10 @@
  */
 package org.pangrova.ai.worker.function.file;
 
-import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.ai.api.invocation.ContentPart;
-import org.pangrova.ai.api.invocation.MultimodalPrompt;
-import org.pangrova.connector.spi.data.value.ColumnValue;
+import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.invocation.ContentPart;
+import org.pangrova.spi.ai.invocation.MultimodalPrompt;
+import org.pangrova.spi.connector.data.value.ColumnValue;
 
 import java.time.LocalDateTime;
 import java.util.List;

@@ -1,6 +1,6 @@
 package org.pangrova.indexing.engine.ngram.serializer;
 
-import org.pangrova.indexing.api.data.text.NGramBloomIndexData;
+import org.pangrova.spi.indexing.data.text.NGramBloomIndexData;
 import org.pangrova.indexing.core.serde.SerdeCodec;
 import org.pangrova.indexing.core.serde.TypeSerializer;
 

@@ -1,8 +1,8 @@
 package org.pangrova.materialization.domain;
 
 import java.util.Map;
-import org.pangrova.connector.spi.materialization.ChangeSetPlan;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.ChangeSetPlan;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 /**
  * Executable plan produced by a refresh strategy.

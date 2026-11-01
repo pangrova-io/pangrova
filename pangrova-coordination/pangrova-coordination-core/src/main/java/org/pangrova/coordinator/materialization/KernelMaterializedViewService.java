@@ -37,7 +37,7 @@ import org.pangrova.parser.ast.statement.DescribeMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.DropMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.RefreshMaterializedViewStatement;
 import org.pangrova.parser.ast.statement.ShowMaterializedViewsStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Materialized View DDL served exclusively by the unified materialization

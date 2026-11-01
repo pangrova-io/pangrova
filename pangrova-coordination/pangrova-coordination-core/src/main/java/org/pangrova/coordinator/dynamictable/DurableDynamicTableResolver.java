@@ -5,7 +5,7 @@ import org.pangrova.materialization.domain.QualifiedName;
 import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.util.ArrayList;
 import java.util.List;

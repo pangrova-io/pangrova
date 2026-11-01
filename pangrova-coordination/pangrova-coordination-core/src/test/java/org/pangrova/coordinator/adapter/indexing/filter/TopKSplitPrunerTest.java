@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.adapter.indexing.filter;
 
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.indexing.api.pruning.TopKBoundary;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.indexing.pruning.TopKBoundary;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

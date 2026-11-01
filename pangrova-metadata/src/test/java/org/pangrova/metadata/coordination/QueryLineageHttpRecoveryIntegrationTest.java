@@ -11,8 +11,8 @@ import org.pangrova.governance.api.lineage.LineageEvent;
 import org.pangrova.governance.core.lineage.LineageEventEmitter;
 import org.pangrova.governance.lineage.provider.openlineage.OpenLineageHttpTransport;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.query.api.lineage.QueryLineageFact;
-import org.pangrova.observability.api.event.QueryLineageMetadata;
+import org.pangrova.spi.query.lineage.QueryLineageFact;
+import org.pangrova.spi.observability.event.QueryLineageMetadata;
 import org.pangrova.testing.testkit.lineage.ReferenceLineageBackend;
 
 import javax.sql.DataSource;
@@ -28,7 +28,7 @@ import static org.awaitility.Awaitility.await;
 
 /** Real SDK HTTP, PostgreSQL lock/acknowledgement and successor delivery; no replacement backend. */
 class QueryLineageHttpRecoveryIntegrationTest {
-    private static final java.util.Map<org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID>
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
             tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static final int FORMAL_HTTP_TIMEOUT_MS = 5000;

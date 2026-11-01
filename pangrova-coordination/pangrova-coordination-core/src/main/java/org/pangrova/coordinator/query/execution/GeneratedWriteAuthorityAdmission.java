@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt;
 
 import java.util.Objects;
 
@@ -27,7 +27,7 @@ public final class GeneratedWriteAuthorityAdmission {
         if (!receipt.declaration().equals(request.compiledDeclaration())
                 || receipt.declaration().hasGeneratedColumns() != (definitions.getDefinitionsCount() != 0)
                 || !receipt.declaration().generatedColumnsSha256().equals(
-                        org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot.generatedColumnsDigest(
+                        org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot.generatedColumnsDigest(
                                 definitions.toByteArray()))) {
             throw new AccessDeniedException("Write authority differs from the current table declaration");
         }

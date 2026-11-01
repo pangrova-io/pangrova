@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.fs;
 
 import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.connector.spi.index.ColumnValueReader;
+import org.pangrova.spi.connector.index.ColumnValueReader;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;

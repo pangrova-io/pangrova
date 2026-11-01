@@ -38,13 +38,13 @@ import org.pangrova.materialization.port.PlannedDefinition;
 import org.pangrova.materialization.port.PublicationResult;
 import org.pangrova.materialization.port.PublicationVerification;
 import org.pangrova.materialization.port.PublishCommand;
-import org.pangrova.connector.spi.materialization.ChangeProof;
-import org.pangrova.connector.spi.materialization.ChangeSetMode;
-import org.pangrova.connector.spi.materialization.ChangeSetPlan;
-import org.pangrova.connector.spi.materialization.MaterializationSourceException;
-import org.pangrova.connector.spi.materialization.PinnedSource;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
+import org.pangrova.spi.connector.materialization.ChangeProof;
+import org.pangrova.spi.connector.materialization.ChangeSetMode;
+import org.pangrova.spi.connector.materialization.ChangeSetPlan;
+import org.pangrova.spi.connector.materialization.MaterializationSourceException;
+import org.pangrova.spi.connector.materialization.PinnedSource;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
 
 /**
  * Runs one reserved refresh attempt through the data plane and publishes it.

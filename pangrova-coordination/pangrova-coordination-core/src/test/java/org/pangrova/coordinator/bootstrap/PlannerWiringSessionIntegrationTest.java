@@ -2,7 +2,7 @@ package org.pangrova.coordinator.bootstrap;
 
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,10 +23,10 @@ import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -51,7 +51,7 @@ class PlannerWiringSessionIntegrationTest {
         var factory = new PluginConnectorHandleFactory(ConnectorFactory.class.getClassLoader(),
                 new SecretResolverRegistry(), ignored -> Optional.empty(), descriptor -> Optional.of(
                         new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(dataSource,
-                                new org.pangrova.connector.spi.metadata.ManagedSourceCatalog.Deployment(
+                                new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                                         descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
                                 ignored -> { throw new IllegalStateException("No write execution in this read fixture"); },
                                 new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence(),

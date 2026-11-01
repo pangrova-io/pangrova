@@ -13,9 +13,9 @@ import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.v2.DataSplit;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;

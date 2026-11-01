@@ -1,8 +1,8 @@
 package org.pangrova.streaming.adapter.coordinator;
 
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 
 import java.util.Objects;
 

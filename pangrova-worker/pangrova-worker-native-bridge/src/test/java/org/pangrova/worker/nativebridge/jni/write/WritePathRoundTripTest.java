@@ -3,16 +3,16 @@ package org.pangrova.worker.nativebridge.jni.write;
 import org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver;
 import org.pangrova.protocol.batch.ColumnarBatch;
 import org.pangrova.protocol.batch.ColumnarPageSink;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.page.Page;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
@@ -257,7 +257,7 @@ class WritePathRoundTripTest {
         }
 
         @Override
-        public Map<String, org.pangrova.connector.spi.metadata.table.ColumnHandle> getColumnHandles(
+        public Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(
                 ConnectorSession session, ConnectorTableHandle table) {
             return Map.of();
         }
@@ -275,7 +275,7 @@ class WritePathRoundTripTest {
 
     private static final class StubSession implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

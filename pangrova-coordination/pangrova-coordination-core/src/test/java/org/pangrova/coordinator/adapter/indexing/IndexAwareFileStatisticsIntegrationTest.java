@@ -6,11 +6,11 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.indexing.core.planner.IndexHint;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 
 import java.util.List;
 

@@ -9,8 +9,8 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
 import org.apache.paimon.data.DataGetters;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;

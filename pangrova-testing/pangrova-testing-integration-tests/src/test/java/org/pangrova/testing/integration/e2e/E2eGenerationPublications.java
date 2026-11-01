@@ -1,6 +1,5 @@
 package org.pangrova.testing.integration.e2e;
 
-
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationPublicationFactory;

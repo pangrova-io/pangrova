@@ -1,6 +1,6 @@
 package org.pangrova.file.core.space;
 
-import org.pangrova.file.api.access.FileAccessGrant;
+import org.pangrova.spi.file.access.FileAccessGrant;
 
 import java.time.Duration;
 import java.util.Base64;
@@ -19,17 +19,17 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
 import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
-import org.pangrova.file.api.space.FileOperationAudit;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.FileSpaceAccessControl;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.file.api.profile.StorageProfileRegistry;
-import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceLayout;
-import org.pangrova.file.api.space.FileSpaceRegistry;
+import org.pangrova.spi.file.space.FileOperationAudit;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.FileSpaceAccessControl;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
+import org.pangrova.spi.file.space.FileSpace;
+import org.pangrova.spi.file.space.FileSpaceLayout;
+import org.pangrova.persistence.api.file.space.FileSpaceRegistry;
 import org.pangrova.common.file.FileSpaceType;
-import org.pangrova.file.api.object.ObjectLocation;
+import org.pangrova.filesystem.api.object.ObjectLocation;
 
 /**
  * Authorizes one file operation and issues the signed, credential-free descriptor the
@@ -213,7 +213,7 @@ public final class FileSpaceAccessService {
         return "write".equals(operation) || "delete".equals(operation);
     }
 
-    private org.pangrova.file.api.profile.StorageProfileRevision profileFor(FileSpace space) {
+    private org.pangrova.persistence.api.file.profile.StorageProfileRevision profileFor(FileSpace space) {
         String name = space.storageProfile().isBlank()
                 ? context.managedProfileName() : space.storageProfile();
         if (name.isBlank()) {
@@ -327,7 +327,7 @@ public final class FileSpaceAccessService {
     public record FileSpaceAccessContext(String managedProfileName, Duration ttl,
             LongSupplier clock, Supplier<List<String>> workerEndpoints,
             FileOperationAudit audit, String signingSecret,
-            org.pangrova.file.spi.authority.FileSpaceAuthority authority) {
+            org.pangrova.spi.file.authority.FileSpaceAuthority authority) {
 
         public FileSpaceAccessContext {
             Objects.requireNonNull(ttl, "ttl must not be null");
@@ -347,7 +347,7 @@ public final class FileSpaceAccessService {
         /** Convenience factory with the standard five-minute descriptor lifetime. */
         public static FileSpaceAccessContext of(String managedProfileName,
                 Supplier<List<String>> workerEndpoints, FileOperationAudit audit,
-                String signingSecret, org.pangrova.file.spi.authority.FileSpaceAuthority authority) {
+                String signingSecret, org.pangrova.spi.file.authority.FileSpaceAuthority authority) {
             return new FileSpaceAccessContext(managedProfileName, Duration.ofMinutes(5),
                     System::currentTimeMillis, workerEndpoints, audit, signingSecret, authority);
         }

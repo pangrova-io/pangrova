@@ -2,10 +2,10 @@ package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
-import org.pangrova.coordination.jdbc.JdbcCoordinatorRegistry;
+import org.pangrova.persistence.jdbc.coordination.JdbcCoordinatorRegistry;
 import org.pangrova.metadata.store.jdbc.catalog.EmbeddedDataSource;
-import org.pangrova.coordination.api.CoordinatorSnapshot;
-import org.pangrova.coordination.api.DistributedLease;
+import org.pangrova.spi.coordination.CoordinatorSnapshot;
+import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.integration.e2e.fixture.RegistryTestSchemaHelper;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;

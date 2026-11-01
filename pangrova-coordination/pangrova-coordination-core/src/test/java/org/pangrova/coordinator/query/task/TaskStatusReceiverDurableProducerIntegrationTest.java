@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.query.task;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
@@ -51,7 +50,7 @@ import org.pangrova.generation.api.GenerationExecutionKind;
 import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
 import org.pangrova.planner.SqlCompiler;
@@ -65,9 +64,9 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 
 import javax.sql.DataSource;

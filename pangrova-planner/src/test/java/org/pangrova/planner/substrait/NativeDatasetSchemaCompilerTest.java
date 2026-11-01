@@ -4,13 +4,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.RowField;
-import org.pangrova.connector.spi.data.type.RowType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.data.type.primitive.BigIntType;
-import org.pangrova.connector.spi.data.type.primitive.DecimalType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.data.type.primitive.BigIntType;
+import org.pangrova.spi.connector.data.type.primitive.DecimalType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 import java.util.List;
 import java.util.OptionalInt;
@@ -62,7 +62,7 @@ class NativeDatasetSchemaCompilerTest {
                 new ConnectorTableMetadata.Column("x", PangrovaType.BIGINT)))).isInstanceOf(IllegalArgumentException.class);
     }
     private static ConnectorTableMetadata.Column column(String name, PangrovaType type,
-            org.pangrova.connector.spi.data.type.Type parameters) {
+            org.pangrova.spi.connector.data.type.Type parameters) {
         return new ConnectorTableMetadata.Column(name, type, OptionalInt.empty(), parameters);
     }
 }

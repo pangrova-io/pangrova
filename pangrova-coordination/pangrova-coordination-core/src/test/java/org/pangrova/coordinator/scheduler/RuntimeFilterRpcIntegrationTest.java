@@ -16,12 +16,12 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.runtimefilter.RuntimeFilter;
 import org.pangrova.planner.runtimefilter.RuntimeFilterGenerator;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
-import org.pangrova.observability.api.TracingProvider;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
@@ -75,7 +75,7 @@ class RuntimeFilterRpcIntegrationTest {
                 generator, registry, dispatcher, tracker, collector);
 
         handler.registerFilterTarget("0", "1", "customer_id", "customer_id",
-                org.pangrova.connector.spi.data.type.PangrovaType.INTEGER);
+                org.pangrova.spi.connector.data.type.PangrovaType.INTEGER);
 
         StageNode s0 = new StageNode(0, dummyPlan(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyPlan(), 2, "COMPUTE", List.of());
@@ -130,7 +130,7 @@ class RuntimeFilterRpcIntegrationTest {
                 generator, registry, dispatcher, tracker, collector);
 
         handler.registerFilterTarget("0", "1", "order_id", "order_id",
-                org.pangrova.connector.spi.data.type.PangrovaType.INTEGER);
+                org.pangrova.spi.connector.data.type.PangrovaType.INTEGER);
 
         StageNode s0 = new StageNode(0, dummyPlan(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyPlan(), 1, "COMPUTE", List.of());

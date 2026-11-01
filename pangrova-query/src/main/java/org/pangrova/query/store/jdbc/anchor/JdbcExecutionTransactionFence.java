@@ -1,9 +1,9 @@
 package org.pangrova.query.store.jdbc.anchor;
 
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.coordination.ExecutionOwnerLostException;
-import org.pangrova.query.api.coordination.ExecutionOwnerLostException.Reason;
-import org.pangrova.query.api.coordination.jdbc.ExecutionTransactionFence;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionOwnerLostException;
+import org.pangrova.spi.query.coordination.ExecutionOwnerLostException.Reason;
+import org.pangrova.persistence.api.query.transaction.ExecutionTransactionFence;
 
 import java.sql.Connection;
 import java.sql.SQLException;

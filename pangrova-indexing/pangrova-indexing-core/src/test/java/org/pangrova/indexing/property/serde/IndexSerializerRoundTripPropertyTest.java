@@ -10,8 +10,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.indexing.core.serde.IndexSerializer;
 import org.pangrova.indexing.core.serde.TypeSerializerRegistry;
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
 
 import java.util.Optional;
 

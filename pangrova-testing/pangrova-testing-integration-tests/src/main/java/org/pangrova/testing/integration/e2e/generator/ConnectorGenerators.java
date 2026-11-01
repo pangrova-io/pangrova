@@ -7,7 +7,7 @@ import net.jqwik.api.Provide;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * jqwik generators for connector-level data scenarios.

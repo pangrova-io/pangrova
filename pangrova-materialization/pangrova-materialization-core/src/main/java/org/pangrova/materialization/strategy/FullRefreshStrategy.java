@@ -8,7 +8,7 @@ import org.pangrova.materialization.extension.RefreshContext;
 import org.pangrova.materialization.domain.RefreshPlan;
 import org.pangrova.materialization.extension.RefreshStrategy;
 import org.pangrova.materialization.extension.StrategyCompatibility;
-import org.pangrova.connector.spi.materialization.ChangeProof;
+import org.pangrova.spi.connector.materialization.ChangeProof;
 
 /**
  * Recomputes the whole result from the exact planned source snapshots.

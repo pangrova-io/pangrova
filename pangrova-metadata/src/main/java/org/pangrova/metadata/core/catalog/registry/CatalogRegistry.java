@@ -371,7 +371,7 @@ public class CatalogRegistry {
                     .orElseThrow(() -> new CatalogNotFoundException("Catalog '" + name + "' was removed"));
             if (!current.incarnationId().equals(local.incarnationId())
                     || current.revision() != local.revision()) {
-                throw new org.pangrova.security.api.AccessDeniedException(
+                throw new org.pangrova.spi.security.AccessDeniedException(
                         "Catalog deployment changed for " + name + "; reload the local catalog before admission");
             }
             return new CatalogDeploymentIdentity(current.incarnationId(), current.revision());

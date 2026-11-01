@@ -22,7 +22,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.DropStorageProfileStatement;
-import org.pangrova.file.api.profile.StorageProfileRegistry;
+import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
 
 /**
  * Executes {@code DROP STORAGE PROFILE [IF EXISTS] name}.

@@ -1,9 +1,9 @@
 package org.pangrova.planner.cache;
 
-import org.pangrova.security.api.event.SecurityPolicyChangeEvent;
-import org.pangrova.security.api.event.SecurityPolicyChangeEvent.ColumnMaskChanged;
-import org.pangrova.security.api.event.SecurityPolicyChangeEvent.RlsPolicyChanged;
-import org.pangrova.security.api.event.SecurityPolicyChangeEvent.RoleAssignmentChanged;
+import org.pangrova.spi.security.event.SecurityPolicyChangeEvent;
+import org.pangrova.spi.security.event.SecurityPolicyChangeEvent.ColumnMaskChanged;
+import org.pangrova.spi.security.event.SecurityPolicyChangeEvent.RlsPolicyChanged;
+import org.pangrova.spi.security.event.SecurityPolicyChangeEvent.RoleAssignmentChanged;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

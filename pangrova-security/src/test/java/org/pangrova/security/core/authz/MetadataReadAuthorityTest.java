@@ -1,6 +1,6 @@
 package org.pangrova.security.core.authz;
 
-import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.spi.security.AuthorizationDeniedException;
 
 import java.time.Instant;
 import java.util.List;
@@ -8,22 +8,22 @@ import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 import org.pangrova.security.core.mask.provider.memory.InMemoryEnrichedColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.api.security.policy.GrantStore;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 
 class MetadataReadAuthorityTest {
     private static final UserIdentity USER = new UserIdentity("reader", Set.of(), Map.of(), Instant.EPOCH);

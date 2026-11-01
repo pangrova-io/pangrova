@@ -107,6 +107,6 @@ class MetadataSchemaBuilderTest {
 
         /** Intentional no-op: test only exercises listCatalogs/listSchemas. */
         @Override
-        public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) { }
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
     }
 }

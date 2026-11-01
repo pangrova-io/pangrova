@@ -2,7 +2,7 @@ package org.pangrova.generation.api.job;
 
 import org.pangrova.generation.api.execution.GenerationStageGraph;
 
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 /**
  * Immutable control-plane values for dispatching Native artifact work.

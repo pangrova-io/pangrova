@@ -9,12 +9,12 @@ import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
 
 import java.io.ByteArrayInputStream;
@@ -177,7 +177,7 @@ class PaimonTableIdentityFenceTest extends PaimonDeleteTestSupport {
         createTable(false, false);
     }
 
-    private org.pangrova.connector.spi.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
+    private org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
         return metadata.getTableHandle(SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
     }
 

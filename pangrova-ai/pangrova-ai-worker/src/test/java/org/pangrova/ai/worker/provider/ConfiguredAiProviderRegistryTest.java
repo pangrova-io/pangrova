@@ -1,9 +1,9 @@
 package org.pangrova.ai.worker.provider;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.invocation.GenerationParameters;
 
 import java.util.List;
 import java.util.Map;
@@ -233,17 +233,17 @@ class ConfiguredAiProviderRegistryTest {
         var deploymentChange = ConfiguredAiProviderRegistry.describeModels(base)
                 .iterator().next();
 
-        assertThat(org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(first))
-                .containsExactly(org.pangrova.ai.api.model.AiModelIdentity
+        assertThat(org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(first))
+                .containsExactly(org.pangrova.spi.ai.model.AiModelIdentity
                         .signatureSha256(credentialRotation));
-        assertThat(org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(first))
-                .isNotEqualTo(org.pangrova.ai.api.model.AiModelIdentity
+        assertThat(org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(first))
+                .isNotEqualTo(org.pangrova.spi.ai.model.AiModelIdentity
                         .signatureSha256(invocationLimitChange));
-        assertThat(org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(first))
-                .isNotEqualTo(org.pangrova.ai.api.model.AiModelIdentity
+        assertThat(org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(first))
+                .isNotEqualTo(org.pangrova.spi.ai.model.AiModelIdentity
                         .signatureSha256(routeChange));
-        assertThat(org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(routeChange))
-                .isNotEqualTo(org.pangrova.ai.api.model.AiModelIdentity
+        assertThat(org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(routeChange))
+                .isNotEqualTo(org.pangrova.spi.ai.model.AiModelIdentity
                         .signatureSha256(deploymentChange));
     }
 
@@ -285,8 +285,8 @@ class ConfiguredAiProviderRegistryTest {
         var second = ConfiguredAiProviderRegistry.describeModels(explicit)
                 .iterator().next();
 
-        assertThat(org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(first))
-                .containsExactly(org.pangrova.ai.api.model.AiModelIdentity
+        assertThat(org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(first))
+                .containsExactly(org.pangrova.spi.ai.model.AiModelIdentity
                         .signatureSha256(second));
     }
 

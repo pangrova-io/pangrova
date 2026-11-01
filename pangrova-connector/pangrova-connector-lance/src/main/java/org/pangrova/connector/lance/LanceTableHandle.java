@@ -1,7 +1,7 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import java.util.List;
 import java.util.Map;
 
@@ -11,11 +11,11 @@ public record LanceTableHandle(String catalog, String tenantId, SchemaTableName 
         byte[] schemaFence, long version, long revision, long rowCount) implements ConnectorTableHandle {
 
     /** Format capabilities this adapter can prove; Lance has no row-level delete path here. */
-    public static final org.pangrova.connector.spi.metadata.table.TableCapabilities CAPABILITIES =
-            new org.pangrova.connector.spi.metadata.table.TableCapabilities(
+    public static final org.pangrova.spi.connector.metadata.table.TableCapabilities CAPABILITIES =
+            new org.pangrova.spi.connector.metadata.table.TableCapabilities(
                     true, false, false, true, true, false,
                     java.util.Set.of(), java.util.Set.of(),
-                    org.pangrova.connector.spi.metadata.table.TableCapabilities.WriterFenceKind
+                    org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
                             .FORMAT_IDENTITY_AND_BASE_VERSION);
 
     public LanceTableHandle {
@@ -55,13 +55,13 @@ public record LanceTableHandle(String catalog, String tenantId, SchemaTableName 
     }
 
     @Override
-    public org.pangrova.connector.spi.metadata.table.TableCapabilities capabilities() {
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities() {
         return CAPABILITIES;
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.spi.metadata.table.TableIdentity> tableIdentity() {
-        return java.util.Optional.of(new org.pangrova.connector.spi.metadata.table.TableIdentity(
+    public java.util.Optional<org.pangrova.spi.connector.metadata.table.TableIdentity> tableIdentity() {
+        return java.util.Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
                 "LANCE", tableId, datasetUri, hex(schemaFence)));
     }
 

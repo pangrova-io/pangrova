@@ -13,8 +13,8 @@
  */
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.function.api.runtime.FunctionFailureProjector;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.function.runtime.FunctionFailureProjector;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
 

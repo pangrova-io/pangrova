@@ -5,10 +5,10 @@ import org.pangrova.indexing.core.registry.IndexEngineRegistry;
 import org.pangrova.indexing.core.config.IndexingConfig;
 import org.pangrova.indexing.core.serde.IndexSerializer;
 import org.pangrova.indexing.core.storage.IndexStorageManager;
-import org.pangrova.connector.spi.index.SnapshotPinProvider;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.connector.index.SnapshotPinProvider;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.time.Instant;
 import java.util.List;

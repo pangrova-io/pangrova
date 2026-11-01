@@ -25,7 +25,7 @@ import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.security.core.authn.AuthenticationManager;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.worker.task.RemoteTaskStatusReporter;
 

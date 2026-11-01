@@ -9,18 +9,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry;
+import org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.common.file.FileSpaceType;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
@@ -39,8 +39,8 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
     Path files;
     private String name;
     private String role;
-    private PersistentRoleStore roles;
-    private PersistentGrantStore grants;
+    private JdbcRoleStore roles;
+    private JdbcGrantStore grants;
     private JdbcFileSpaceRegistry registry;
 
     @Override
@@ -53,11 +53,11 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
     void authority(TestInfo info) {
         name = "files_" + info.getTestMethod().orElseThrow().getName().toLowerCase(java.util.Locale.ROOT);
         role = name + "_role";
-        roles = new PersistentRoleStore(stateStoreDataSource());
+        roles = new JdbcRoleStore(stateStoreDataSource());
         roles.initSchema();
         assertThat(roles.createRole(Role.of(role))).isTrue();
         roles.grantRoleToUser(UserRoleAssignment.of(authenticatedCatalogSession(CATALOG).getUser(), role));
-        grants = new PersistentGrantStore(stateStoreDataSource());
+        grants = new JdbcGrantStore(stateStoreDataSource());
         grant(Privilege.CREATE_VOLUME, "VOLUME");
         grant(Privilege.READ_VOLUME, "VOLUME");
         grant(Privilege.MANAGE_VOLUME, "VOLUME");
@@ -71,8 +71,8 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
 
     private void installAuthority() {
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(stateStoreDataSource())),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(stateStoreDataSource()))));
+                new RowLevelSecurityFilter(new JdbcRowPolicyStore(stateStoreDataSource())),
+                new ColumnMaskingProcessor(new JdbcColumnMaskStore(stateStoreDataSource()))));
     }
 
     @AfterEach
@@ -158,16 +158,16 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
     @Test
     void refreshPublishesWorkerMetadataAndSubpathDeletionThroughSql() throws Exception {
         configureDurableStorageProfiles(true);
-        var profiles = new org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
+        var profiles = new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
         String profile = name + "_profile";
-        assertThat(profiles.createIfAbsent(new org.pangrova.file.api.profile.StorageProfile(profile,
+        assertThat(profiles.createIfAbsent(new org.pangrova.filesystem.api.profile.StorageProfile(profile,
                 org.pangrova.common.storage.StorageType.LOCAL, files.toString(), "", "", "",
                 java.util.Map.of(), java.util.Map.of()))).isTrue();
         try {
             executeDdl("CREATE STAGE " + PREFIX + name + " STORAGE_PROFILE = '" + profile
                     + "' DIRECTORY = (ENABLE = TRUE)");
             var stage = registry.find(FileSpaceType.STAGE, CATALOG, SCHEMA, name).orElseThrow();
-            Path root = files.resolve(org.pangrova.file.api.space.FileSpaceLayout.managedBaseKey(stage));
+            Path root = files.resolve(org.pangrova.spi.file.space.FileSpaceLayout.managedBaseKey(stage));
             Files.createDirectories(root.resolve("images"));
             Files.writeString(root.resolve("images/old.txt"), "old");
             var modified = java.time.Instant.parse("2001-02-03T04:05:06Z");
@@ -175,8 +175,8 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
                     java.nio.file.attribute.FileTime.from(modified));
             Files.writeString(root.resolve("keep.txt"), "keep");
             executeDdl("ALTER STAGE " + PREFIX + name + " REFRESH");
-            var index = new org.pangrova.file.store.jdbc.directory.JdbcFileDirectoryIndex(stateStoreDataSource());
-            assertThat(index.page(stage, null, 100)).extracting(org.pangrova.file.api.directory.FileStat::path)
+            var index = new org.pangrova.persistence.jdbc.file.directory.JdbcFileDirectoryIndex(stateStoreDataSource());
+            assertThat(index.page(stage, null, 100)).extracting(org.pangrova.filesystem.api.object.FileStat::path)
                     .containsExactly("images/old.txt", "keep.txt");
             assertThat(index.page(stage, null, 100).get(0).size()).isEqualTo(3);
             assertThat(index.page(stage, null, 100).get(0).lastModified()).isEqualTo(modified);
@@ -187,7 +187,7 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
             Files.writeString(root.resolve("images/new.txt"), "new bytes");
             executeDdl("ALTER STAGE " + PREFIX + name + " REFRESH SUBPATH = 'images/'");
             installAuthority();
-            assertThat(index.page(stage, null, 100)).extracting(org.pangrova.file.api.directory.FileStat::path)
+            assertThat(index.page(stage, null, 100)).extracting(org.pangrova.filesystem.api.object.FileStat::path)
                     .containsExactly("images/new.txt", "keep.txt");
             grants.revokeGrants(role, Privilege.OWNER, CATALOG, SCHEMA, "*");
             Files.writeString(root.resolve("unauthorized.txt"), "outside new snapshot");
@@ -207,9 +207,9 @@ class FileSpaceDdlE2ETest extends PangrovaE2ETestBase {
     @Test
     void managedRenameKeepsFilesAndNameReuseCannotExposeThem() throws Exception {
         configureDurableStorageProfiles(true);
-        var profiles = new org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
+        var profiles = new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
         String profile = name + "_profile";
-        assertThat(profiles.createIfAbsent(new org.pangrova.file.api.profile.StorageProfile(profile,
+        assertThat(profiles.createIfAbsent(new org.pangrova.filesystem.api.profile.StorageProfile(profile,
                 org.pangrova.common.storage.StorageType.LOCAL, files.toString(), "", "", "",
                 java.util.Map.of(), java.util.Map.of()))).isTrue();
         String original = PREFIX + name;

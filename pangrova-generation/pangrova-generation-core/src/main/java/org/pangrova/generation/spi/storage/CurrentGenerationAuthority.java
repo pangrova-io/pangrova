@@ -2,7 +2,7 @@ package org.pangrova.generation.spi.storage;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import java.util.Set;
 

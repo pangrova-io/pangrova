@@ -5,7 +5,7 @@ import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.api.governancebinding.GovernanceBinding;
 import org.pangrova.table.api.governancebinding.GovernanceBindingType;
 import org.pangrova.table.api.governancebinding.TableControlGovernanceBindingStore;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

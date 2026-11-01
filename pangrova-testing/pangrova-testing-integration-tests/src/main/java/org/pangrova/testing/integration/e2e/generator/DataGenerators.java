@@ -4,8 +4,8 @@ import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Provide;
 
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.testkit.TestDataGenerator;
 import org.pangrova.testing.testkit.TestDataGenerator.ColumnType;
 import org.pangrova.testing.testkit.TestDataGenerator.TableSchema;

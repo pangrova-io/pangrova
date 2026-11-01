@@ -7,7 +7,7 @@ import org.pangrova.governance.api.quality.QualityRuleStore;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.api.policy.TablePolicyAuthority;
 import org.pangrova.table.api.control.TableControlState;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.List;
 import java.util.Objects;

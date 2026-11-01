@@ -35,10 +35,10 @@ import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.CacheEvent;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.coordination.api.DistributedLease;
-import org.pangrova.coordination.api.MaintenanceLeaderAware;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.coordination.MaintenanceLeaderAware;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,7 +59,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>The coordinator performs L0 (min/max metadata) and L1 (native connector)
  * pruning only. L2 evaluation (actual index data loading) is delegated to
- * workers via {@link org.pangrova.indexing.api.eval.IndexEvalHint} objects
+ * workers via {@link org.pangrova.spi.indexing.eval.IndexEvalHint} objects
  * attached to splits.</p>
  *
  * <p>Shutdown: LIFO order via {@link #close()}.</p>
@@ -218,7 +218,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         accessorResolver = new ConnectorAccessorResolver(catalogRegistry);
         var claimHandler = new MetadataBackedBuildClaimHandler(metadataStore);
         var generationChecker = new MetadataBackedGenerationChecker(metadataStore);
-        org.pangrova.connector.spi.index.SnapshotPinProvider snapshotPinProvider =
+        org.pangrova.spi.connector.index.SnapshotPinProvider snapshotPinProvider =
                 new org.pangrova.coordinator.adapter.indexing.ddl.DeferredSnapshotPinProvider(
                         metadataStore, artifactBuildStore, accessorResolver);
         IndexBuildContext buildDeps = new IndexBuildContext(
@@ -398,7 +398,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * Connector callbacks continue to perform one operation only: append the event.
      */
     public java.util.Set<String> registerDurableCommitProcessor(
-            org.pangrova.connector.spi.index.CommitListener additional) {
+            org.pangrova.spi.connector.index.CommitListener additional) {
         if (commitHandler == null || accessorResolver == null || additional == null) {
             return java.util.Set.of();
         }

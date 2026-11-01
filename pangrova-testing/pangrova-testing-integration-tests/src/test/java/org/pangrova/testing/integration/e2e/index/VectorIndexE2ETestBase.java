@@ -13,7 +13,6 @@
  */
 package org.pangrova.testing.integration.e2e.index;
 
-
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
 
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -31,9 +30,9 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 
 import java.nio.file.Files;

@@ -15,21 +15,23 @@
     <!-- Module dependency order: common -> spi -> [protocol, observability] -->
     <modules>
         <module>pangrova-common</module>
+        <module>pangrova-spi</module>
+        <module>pangrova-persistence</module>
         <module>pangrova-config</module>
-        <module>pangrova-function</module>
+
         <module>pangrova-materialization</module>
         <module>pangrova-shuffle</module>
         <module>pangrova-parser</module>
         <module>pangrova-planner</module>
         <module>pangrova-protocol</module>
         <module>pangrova-observability</module>
-        <module>pangrova-query-api</module>
+
         <module>pangrova-generation</module>
         <module>pangrova-query</module>
         <module>pangrova-scheduler</module>
         <module>pangrova-operations</module>
         <module>pangrova-coordination</module>
-        <module>pangrova-storage</module>
+        <module>pangrova-filesystem</module>
         <module>pangrova-worker</module>
         <module>pangrova-table</module>
         <module>pangrova-file</module>
@@ -176,6 +178,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-persistence-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <!-- Core dependencies -->
             <dependency>
                 <groupId>org.apache.calcite</groupId>
@@ -435,12 +442,12 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-coordination-api</artifactId>
+                <artifactId>pangrova-spi</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-coordination-jdbc</artifactId>
+                <artifactId>pangrova-persistence-jdbc</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -453,11 +460,7 @@
                 <artifactId>pangrova-coordination-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-function</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-materialization-core</artifactId>
@@ -483,11 +486,7 @@
                 <artifactId>pangrova-protocol</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-observability-api</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-observability-sdk</artifactId>
@@ -508,11 +507,7 @@
                 <artifactId>pangrova-generation-store-postgresql</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-query-api</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-query</artifactId>
@@ -528,21 +523,13 @@
                 <artifactId>pangrova-table</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-file-api</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-file-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-file-store-jdbc</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-coordination-zookeeper</artifactId>
@@ -578,11 +565,7 @@
                 <artifactId>pangrova-semantic</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-ai-api</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-ai-worker</artifactId>
@@ -595,22 +578,22 @@
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-storage-api</artifactId>
+                <artifactId>pangrova-filesystem-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-storage-filesystem</artifactId>
+                <artifactId>pangrova-filesystem-local</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-storage-s3</artifactId>
+                <artifactId>pangrova-filesystem-s3</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-storage-oss</artifactId>
+                <artifactId>pangrova-filesystem-oss</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -623,11 +606,7 @@
                 <artifactId>pangrova-ai-control</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-connector-spi</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-connector-runtime</artifactId>
@@ -785,11 +764,7 @@
                 <artifactId>pangrova-governance</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>org.pangrova</groupId>
-                <artifactId>pangrova-indexing-api</artifactId>
-                <version>${project.version}</version>
-            </dependency>
+
             <dependency>
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-indexing-core</artifactId>

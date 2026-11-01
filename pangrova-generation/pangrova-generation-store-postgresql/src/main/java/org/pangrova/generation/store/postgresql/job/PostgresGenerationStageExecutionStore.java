@@ -3,7 +3,7 @@ package org.pangrova.generation.store.postgresql.job;
 import org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority;
 import org.pangrova.generation.spi.storage.GenerationStageExecutionStore;
 import org.pangrova.generation.spi.storage.GenerationStageExchangeStore.ExchangeEvidence;
-import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
+import org.pangrova.persistence.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.generation.spi.jdbc.GenerationExecutionTransactionFence;
 
 import org.pangrova.generation.api.job.GenerationJob;
@@ -16,7 +16,7 @@ import org.pangrova.generation.api.GenerationPageKind;
 import org.pangrova.generation.store.postgresql.execution.PostgresCurrentGenerationAuthority;
 import org.pangrova.generation.store.postgresql.exchange.PostgresGenerationStageExchangeStore;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import javax.sql.DataSource;
 import java.time.Instant;

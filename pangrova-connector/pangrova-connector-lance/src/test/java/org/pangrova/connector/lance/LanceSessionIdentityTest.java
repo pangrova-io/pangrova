@@ -1,7 +1,7 @@
 package org.pangrova.connector.lance;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 import java.util.Map;
 import java.util.Optional;
 
@@ -29,14 +29,14 @@ class LanceSessionIdentityTest {
         assertThatThrownBy(() -> metadata.listSchemaNames(session)).isInstanceOf(SecurityException.class);
         assertThatThrownBy(() -> metadata.listTables(session, Optional.empty())).isInstanceOf(SecurityException.class);
         assertThatThrownBy(() -> metadata.getTableHandle(session,
-                new org.pangrova.connector.spi.metadata.table.SchemaTableName("db", "table")))
+                new org.pangrova.spi.connector.metadata.table.SchemaTableName("db", "table")))
                 .isInstanceOf(SecurityException.class);
     }
 
     private static ConnectorSession session(Map<String, String> properties) {
         return new ConnectorSession() {
             @Override
-            public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
                 return java.util.Optional.empty();
             }
 

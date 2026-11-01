@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query;
 
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

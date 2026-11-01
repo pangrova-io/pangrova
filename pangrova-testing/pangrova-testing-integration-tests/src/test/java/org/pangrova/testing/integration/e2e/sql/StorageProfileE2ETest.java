@@ -13,17 +13,17 @@
  */
 package org.pangrova.testing.integration.e2e.sql;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.PangrovaE2ETestBase;
@@ -127,7 +127,7 @@ class StorageProfileE2ETest extends PangrovaE2ETestBase {
     @Test
     @DisplayName("Profile definitions survive dispatcher rebuild and retain exact historical identity")
     void durableProfileRevisionSurvivesDispatcherRebuildAndRecreation() {
-        var registry = new org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
+        var registry = new org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry(stateStoreDataSource());
         try {
             executeDdl("CREATE STORAGE PROFILE " + profileName
                     + " WITH ('type'='S3', 'bucket'='old-bucket', 'prefix'='data/')");
@@ -157,18 +157,18 @@ class StorageProfileE2ETest extends PangrovaE2ETestBase {
     }
 
     private ProfileAuthority enableProfileAuthority() {
-        var roles = new PersistentRoleStore(stateStoreDataSource());
+        var roles = new JdbcRoleStore(stateStoreDataSource());
         roles.initSchema();
         String role = "profile_admin_" + Long.toHexString(System.nanoTime());
         assertThat(roles.createRole(Role.of(role))).isTrue();
         assertThat(roles.grantRoleToUser(UserRoleAssignment.of(
                 authenticatedCatalogSession(CATALOG).getUser(), role))).isTrue();
-        var grants = new PersistentGrantStore(stateStoreDataSource());
+        var grants = new JdbcGrantStore(stateStoreDataSource());
         grants.addGrant(PrivilegeGrant.of(role, Privilege.MANAGE_STORAGE_PROFILE,
                 "STORAGE_PROFILE", "*", null, null, null));
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(stateStoreDataSource())),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(stateStoreDataSource()))));
+                new RowLevelSecurityFilter(new JdbcRowPolicyStore(stateStoreDataSource())),
+                new ColumnMaskingProcessor(new JdbcColumnMaskStore(stateStoreDataSource()))));
         return new ProfileAuthority(role, roles, grants);
     }
 
@@ -187,7 +187,7 @@ class StorageProfileE2ETest extends PangrovaE2ETestBase {
         }
     }
 
-    private record ProfileAuthority(String role, PersistentRoleStore roles, PersistentGrantStore grants) {
+    private record ProfileAuthority(String role, JdbcRoleStore roles, JdbcGrantStore grants) {
         void revokeManage() {
             assertThat(grants.revokeGrants(role, Privilege.MANAGE_STORAGE_PROFILE,
                     "*", null, null)).isEqualTo(1);

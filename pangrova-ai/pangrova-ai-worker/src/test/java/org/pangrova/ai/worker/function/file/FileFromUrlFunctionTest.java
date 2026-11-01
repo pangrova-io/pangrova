@@ -15,7 +15,7 @@ package org.pangrova.ai.worker.function.file;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.connector.spi.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.ColumnValue;
 import org.pangrova.ai.worker.blob.GovernedBlobStore;
 import org.pangrova.ai.worker.blob.HttpsBlobImporter;
 import org.pangrova.ai.worker.blob.BlobTestStores;

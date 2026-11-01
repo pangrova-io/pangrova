@@ -1,6 +1,6 @@
 package org.pangrova.indexing.store.jdbc;
 
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.indexing.state.IndexState;
 
 import static org.pangrova.indexing.store.jdbc.IndexMetadataMapper.placeholders;
 

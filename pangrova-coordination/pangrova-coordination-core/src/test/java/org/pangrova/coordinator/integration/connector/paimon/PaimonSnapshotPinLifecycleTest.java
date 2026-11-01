@@ -18,8 +18,8 @@ import org.pangrova.connector.paimon.PaimonMetadata;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.coordinator.task.TestConnectorQuery;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;

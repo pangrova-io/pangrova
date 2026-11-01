@@ -565,3 +565,37 @@ SPI116零gap、Stable23、manifest、stub、truthfulness、247架构类引用通
 及匹配库不变，无新C++/ASan/Linux资格。OSS FileSpace/COPY与云端资格、LOCAL并发/流契约、
 S3历史语义、Worker JDBC目录adapter、B6/Catalog B0、四SCC、全文件审查及R5/R6继续开放。
 详细失败、日志和范围见执行记录48。
+
+## 49. 新基础模块与LOCAL并发（进行中）
+
+目标改为Filesystem api/local/s3/oss、Persistence api/jdbc、中央SPI，旧领域API/store落位
+不再作为最终架构。首批真实移动与调用/POM/descriptor同步：物理文件契约归Filesystem，
+领域通用契约归SPI，File/Query/Coordination/Security持久化端口归Persistence API，File/
+Coordination/Security JDBC归实现。QueryId移出Protocol而wire-specific AiTaskLifecycle保留
+Protocol，切断合并循环；NoOp观测实现归SDK。SQL资源字节和canonical proto/Native源码未改。
+
+LOCAL先红后绿：receipt不再读发布后的并发替代物，条件删除持有mutation lease，upload id
+持久绑定key；uncertain complete不能重放，abort不能复活part。进程admission先于OS channel
+打开，独立JVM证明关闭等待者不释放holder锁；跨classloader/重叠root、Arabic locale重启、
+Error清理/suppression、bounded EOF均覆盖。旧session拒绝完成，需要一致writer升级cohort。
+同主机协作结果不外推为网络FS/云端资格。
+
+已通过Common298、FS API10、SPI515、SDK227、Persistence API2、JDBC129、LOCAL49、S361、
+OSS19及相应static；受影响九个消费者模块测试/static通过。Worker首次1257有TLS403→404
+一项失败，独立3项和第二轮1257/static通过，保留未归因记录；shared HTTP/SQL/smoke41/
+static通过。正确AI image-id是前置参数，漏传造成的首次启动失败未通过测试fallback掩盖。
+
+Module7/包图14/引用3和enum/naming通过；Python62、annotation150零gap、Stable24。
+原四组SCC仍失败且成员不变。中央SPI/wiring全部纳入，真实ServiceLoader helper使用AST
+确认参数并拒绝动态不明调用；不会把全体provider视为可达。五个store实现及一个旧调度器
+仍报未触达，无新豁免。所有store/剩余通用API迁移与这些语义整合继续进行。
+
+独立Native owner、最终cohort JAR与最近回归结果以执行记录49追加终态为准；本节没有宣称
+全仓审查、所有store迁移、全部CI或生产资格完成。证据与失败日志前缀见执行记录49。
+
+本检查点追加：最终68reactor＝51Java＋1资源＋16聚合，3612主源/696包/2397测试源；台账精确
+匹配，333个持久化候选继续逐文件确认。角色CSV codec归JDBC而非API。五个独立Native owner
+分别5/3/1/1/4通过，最终cohort shared HTTP/SQL/smoke41/static通过；最近Worker16、Bridge13、
+ServiceLoader6/static通过。当前52main JAR与526迁移类型、16个Docker runtime owner检查通过，
+无旧类型/重复类型/service残留，schema字节未改。原四SCC、五store/一调度器未触达、首次TLS
+异常归因及全量迁移/云端资格继续开放；未将检查点写成全部目标完成。

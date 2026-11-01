@@ -1,7 +1,7 @@
 package org.pangrova.materialization.port;
 
 import java.util.OptionalLong;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
 
 /**
  * Outcome of one data-plane execution.

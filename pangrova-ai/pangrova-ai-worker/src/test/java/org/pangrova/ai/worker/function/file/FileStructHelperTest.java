@@ -14,8 +14,8 @@
 package org.pangrova.ai.worker.function.file;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.connector.spi.data.value.ColumnValue;
+import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.connector.data.value.ColumnValue;
 
 import java.time.LocalDateTime;
 import java.util.List;

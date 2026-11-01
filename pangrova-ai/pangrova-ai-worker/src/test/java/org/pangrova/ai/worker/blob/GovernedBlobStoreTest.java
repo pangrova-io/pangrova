@@ -1,13 +1,13 @@
 package org.pangrova.ai.worker.blob;
 
-import org.pangrova.storage.api.blob.BlobObjectId;
+import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.error.AiInvocationException;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.AiTestTaskAuthority;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
@@ -35,8 +35,8 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.storage.api.blob.BlobStorage;
-import org.pangrova.storage.filesystem.blob.FileSystemBlobStorage;
+import org.pangrova.filesystem.api.blob.BlobStorage;
+import org.pangrova.filesystem.local.blob.FileSystemBlobStorage;
 
 class GovernedBlobStoreTest {
 

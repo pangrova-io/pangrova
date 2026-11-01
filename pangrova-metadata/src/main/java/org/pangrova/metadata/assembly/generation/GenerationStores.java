@@ -9,9 +9,9 @@ import org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence;
 import org.pangrova.metadata.adapter.generation.MetadataGenerationTransactionAuthority;
 import org.pangrova.metadata.adapter.generation.MetadataGenerationPublicationCandidates;
 import org.pangrova.generation.spi.jdbc.GenerationPublicationCandidates;
-import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
+import org.pangrova.persistence.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.security.store.jdbc.JdbcCurrentDirectRoleReader;
+import org.pangrova.persistence.jdbc.security.policy.JdbcCurrentDirectRoleReader;
 
 import org.pangrova.generation.store.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.generation.store.postgresql.job.PostgresGenerationStageExecutionStore;

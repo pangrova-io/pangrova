@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.clustering;
 
-import org.pangrova.connector.spi.clustering.ClusteringResult;
+import org.pangrova.spi.connector.clustering.ClusteringResult;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;

@@ -1,8 +1,8 @@
 package org.pangrova.security.core.mask.provider.empty;
 
 import java.util.List;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 
 /**
  * No-op ColumnMaskStore that returns empty masks. Used when column masking is not configured.

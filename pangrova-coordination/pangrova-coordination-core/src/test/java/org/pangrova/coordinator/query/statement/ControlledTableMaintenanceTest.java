@@ -23,26 +23,26 @@ import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.parser.ast.Identifier;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.audit.AuditEventWriter;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
-import org.pangrova.coordination.api.DistributedLease;
-import org.pangrova.coordination.api.LeaseEntry;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventWriter;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 
 import java.time.Clock;
@@ -305,7 +305,7 @@ class ControlledTableMaintenanceTest {
     void procedureCannotWeakenRetentionOrPassUnrecognizedArguments() {
         registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
                 Optional.of(identity("orders")), Optional.of(version()));
-        var ref = new org.pangrova.connector.spi.metadata.table.QualifiedTableName(
+        var ref = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
                 "test_cat", "default", "orders");
         assertThatThrownBy(() -> maintenance.executeProcedure("expire_snapshots", ref,
                 Map.of("arg0", "default.orders", "arg1", "1"), context()))
@@ -324,7 +324,7 @@ class ControlledTableMaintenanceTest {
         var record = registry.tableControl().registerCreated("test_cat", "default", "orders", "alice",
                 Optional.of(identity("orders")), Optional.of(version())).orElseThrow();
         maintenance.executeProcedure("expire_snapshots",
-                new org.pangrova.connector.spi.metadata.table.QualifiedTableName("test_cat", "default", "orders"),
+                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("test_cat", "default", "orders"),
                 Map.of("arg0", "default.orders", "arg1", "20",
                         "arg2", String.valueOf(NOW.minus(Duration.ofDays(30)).toEpochMilli()), "arg3", "true"), context());
         assertThat(metadata.procedureCalls).containsExactly("expire_snapshots|default.orders|20");

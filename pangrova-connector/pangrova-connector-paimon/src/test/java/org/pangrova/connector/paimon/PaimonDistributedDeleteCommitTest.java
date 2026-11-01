@@ -2,12 +2,12 @@ package org.pangrova.connector.paimon;
 
 import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -57,7 +57,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
 
         assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, fragments, context,
                 (schema, name, added, removed, snapshot, event, fingerprint) -> notifications.incrementAndGet()))
-                .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                 .hasStackTraceContaining("Exception occurs when committing snapshot");
         assertThat(publications).hasValue(1);
         assertThat(notifications).hasValue(0);
@@ -194,7 +194,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         assertThat(snapshotId()).isEqualTo(-1L);
     }
 
-    private org.pangrova.connector.spi.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
+    private org.pangrova.spi.connector.metadata.table.ConnectorTableHandle handle(PaimonMetadata metadata) {
         return metadata.getTableHandle(SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
     }
 

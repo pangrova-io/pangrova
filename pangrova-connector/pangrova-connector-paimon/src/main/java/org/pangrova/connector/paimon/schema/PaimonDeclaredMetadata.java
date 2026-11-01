@@ -11,8 +11,8 @@ import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VectorType;
 import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.connector.spi.data.type.TypeSignature;
-import org.pangrova.connector.spi.data.type.DeclaredType;
+import org.pangrova.spi.connector.data.type.TypeSignature;
+import org.pangrova.spi.connector.data.type.DeclaredType;
 
 /** Immutable complete SDK type metadata for the unified physical write contract. */
 final class PaimonDeclaredMetadata {

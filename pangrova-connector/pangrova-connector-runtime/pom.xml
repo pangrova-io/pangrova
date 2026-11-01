@@ -25,7 +25,7 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
 
         <dependency>

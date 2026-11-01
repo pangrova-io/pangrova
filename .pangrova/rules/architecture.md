@@ -9,7 +9,13 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 |--------|---------------|
 | `pangrova-common` | Shared utilities and base types |
 | `pangrova-config` | Configuration management |
-| `pangrova-connector/pangrova-connector-spi` | Connector contract surface: catalog, metadata, split, page/type, write, index eval, materialization source |
+| `pangrova-spi` | Shared domain/capability contracts for connectors, functions, indexing, observability, security, AI, queries, coordination and File control; no protocol or implementation dependency |
+| `pangrova-filesystem/pangrova-filesystem-api` | Common/JDK-only blob/object transfer, locations, immutable profiles and provider lifecycle contracts |
+| `pangrova-filesystem/pangrova-filesystem-local` | Confined local blob/object transfer, durable staging and cooperating-process mutation exclusion |
+| `pangrova-filesystem/pangrova-filesystem-s3` | S3 blob/object transfer, cancellation, SDK clients and presigners |
+| `pangrova-filesystem/pangrova-filesystem-oss` | OSS blob publication, owned SDK/transport and encryption; OSS object/COPY support remains pending |
+| `pangrova-persistence/pangrova-persistence-api` | Store ports and storage facts, organized by domain/capability; initially File, Query, Coordination and Security |
+| `pangrova-persistence/pangrova-persistence-jdbc` | JDBC backend implementations; initially File, Coordination and Security transaction gate |
 | `pangrova-materialization/pangrova-materialization-core` | Unified Dynamic Table / Materialized View domain kernel: definitions, generations, attempts, publication protocol, scheduling, and extension ports |
 | `pangrova-materialization/pangrova-materialization-store-jdbc` | Relational materialization repositories for deployments that externalize state; never imported by the kernel |
 | `pangrova-shuffle/pangrova-shuffle-core` | Shuffle contract and engine-side exchange orchestration |
@@ -17,31 +23,20 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-parser` | SQL parsing (Calcite dialect extensions) |
 | `pangrova-planner` | Calcite logical plan → physical plan conversion |
 | `pangrova-protocol` | Network protocol layer (gRPC / Arrow Flight) |
-| `pangrova-observability/pangrova-observability-api` | Metrics/tracing/logging contracts and API-owned no-op implementations (no SDK dependency) |
 | `pangrova-observability/pangrova-observability-sdk` | OpenTelemetry providers, SDK configuration, and transport adapters |
-| `pangrova-query-api` | Query-owned execution anchors, journal/lineage facts, audit and recovery ports; never depends on Query runtime/store implementations |
 | `pangrova-generation/pangrova-generation-core` | Generation-job contracts, storage SPI and immutable evidence, canonical codecs, pure construction factories and publication routing; no JDBC transaction/provider dependency |
 | `pangrova-generation/pangrova-generation-transaction-spi` | Internal borrowed-connection authority, submission, input-reading, candidate and execution-fence contracts; callers retain transaction ownership |
 | `pangrova-generation/pangrova-generation-store-postgresql` | PostgreSQL job/page/stage/exchange state, route/fence and fresh authority resolution; implements core and transaction ports |
-| `pangrova-query` | Query runtime services, profiling/audit orchestration, journal factories and JDBC/in-memory state stores; implements `pangrova-query-api` |
+| `pangrova-query` | Query runtime services, profiling/audit orchestration, journal factories and JDBC/in-memory state stores; consumes Query SPI and Persistence API |
 | `pangrova-operations` | DDL/DML operation execution |
-| `pangrova-coordination/pangrova-coordination-api` | SDK-free lease, coordinator/worker registry and immutable topology contracts for applications and independent providers |
-| `pangrova-coordination/pangrova-coordination-jdbc` | Independent PostgreSQL-backed lease and registry implementations over Coordination API; no Coordinator or Metadata dependency |
 | `pangrova-coordination/pangrova-coordination-inmemory` | Process-local lease and registry implementations over Coordination API; suitable for single-process use and tests |
 | `pangrova-coordination/pangrova-coordination-core` | Control plane only: parse, bind, authorize, admit, schedule, fence, validate terminal metadata and audit |
-| `pangrova-coordination/pangrova-coordination-zookeeper` | Optional quorum provider over coordination-api; never depends on the Coordinator process artifact |
+| `pangrova-coordination/pangrova-coordination-zookeeper` | Optional quorum provider over Persistence API and Coordination SPI; never depends on the Coordinator process artifact |
 | `pangrova-worker/pangrova-worker-core` | Worker node process, JNI loading entry, task scheduling |
 | `pangrova-schema-migrations` | Resource-only canonical PostgreSQL migration sequence; preserves historical names, versions and bytes; no Java code or runtime providers |
 | `pangrova-metadata` | Metadata storage and Catalog management; adapters over the Table owner |
 | `pangrova-table` | Table control, maintenance, statistics and governance-binding owner; acyclic foundation for metadata/coordinator adapters |
-| `pangrova-file/pangrova-file-api` | Common/JDK-only Volume/Stage, object transfer, storage profile, directory index and COPY claim contracts; no Security, JDBC, runtime or cloud SDK dependency |
-| `pangrova-file/pangrova-file-core` | File access/URL/directory orchestration, Worker HTTP client adapter and internal current-authority SPI; consumes File API and Security, never a File store implementation |
-| `pangrova-file/pangrova-file-store-jdbc` | PostgreSQL File registries, current authority, directory snapshots, COPY claims and source-read admissions; implements File contracts and consumes Query/Security transaction ports |
-| `pangrova-storage/pangrova-storage-api` | SDK-free blob identity, publication and admitted managed-storage ports shared by Worker COPY and the AI FILE layer |
-| `pangrova-storage/pangrova-storage-filesystem` | Filesystem content publication over Storage API and confined object transfer over File API; no cloud SDK or process dependency |
-| `pangrova-storage/pangrova-storage-s3` | S3 publication/managed storage over Storage API; object transfer and owned SDK clients/presigners over File API |
-| `pangrova-storage/pangrova-storage-oss` | Alibaba OSS publication over Storage API with its own client, cancellation, encryption and never-versioned bucket policy; not a COPY source/managed adapter |
-| `pangrova-ai/pangrova-ai-api` | Shared AI model, capability, invocation, embedding descriptors and the Worker↔AI runtime ports |
+| `pangrova-file/pangrova-file-core` | File access/URL/directory orchestration and Worker HTTP client adapter; consumes shared SPI, Filesystem API and Persistence API, never a JDBC implementation |
 | `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Generation contracts without exposing this dependency through AI API |
 | `pangrova-ai/pangrova-ai-worker` | Optional Worker-side AI execution plane: governed provider invocation, AI SQL functions and ServiceLoader runtime adapters |
 | `pangrova-connector-*` | Data source connector providers (Iceberg / Paimon / Lance) |
@@ -49,7 +44,6 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-security` | Authentication and authorization |
 | `pangrova-streaming` | Streaming query support, CDC formats/writers, JDBC checkpoint/offset/watermark stores and the `adapter.coordinator` stream scheduler/DDL/Kafka adapter |
 | `pangrova-governance` | Catalog/tag/classification, lineage providers, quality store/executors and the commit-blocking quality gate |
-| `pangrova-indexing/pangrova-indexing-api` | Index descriptors, lifecycle state, evaluation/pruning contracts and publication ports shared by Coordinator, Worker and connectors |
 | `pangrova-indexing/pangrova-indexing-core` | Index metadata/store, generation/publication/GC persistence, engine providers, planner extension and build orchestration; the Coordinator only adapts it under `coordinator.adapter.indexing` |
 | `pangrova-transport` | Transport layer abstraction; also hosts the client REST/HTTP and Arrow/Flight result transport (`org.pangrova.client.transport`) |
 | `pangrova-client/pangrova-client-core` | Framework-free public client contract: query/catalog DTOs, errors, session configuration, result consumer |
@@ -132,7 +126,27 @@ pangrova-worker (Java)
 
 ## Module Dependency Policy
 
-Storage API must not depend on any provider or cloud SDKs, including on its test classpath.
+The target foundations are `pangrova-filesystem` (api/local/s3/oss),
+`pangrova-persistence` (api/jdbc) and `pangrova-spi`. Generic filesystem operations
+belong to Filesystem; authorization, SQL, transfer budgets and domain orchestration
+remain with callers. Shared contracts belong to `org.pangrova.spi.<domain>.<capability>`;
+store ports belong to `org.pangrova.persistence.api.<domain>.<capability>`, and backend
+implementations to `org.pangrova.persistence.jdbc.<domain>.<capability>`.
+New store implementations must use this ownership. Existing domain stores and
+remaining domain-owned general APIs are a migration backlog, not an alternate
+architecture or evidence that the migration is complete. A backend migration must
+preserve transaction ownership, authority checks, codecs and canonical SQL bytes.
+In-memory and quorum providers require explicit backend placement; they must not
+be mixed into the API or called JDBC implementations.
+
+Dependency direction is Common → Filesystem API → SPI → Persistence API → JDBC
+(the arrow means the right-hand artifact may consume the left-hand one).
+Filesystem providers consume Filesystem API without SPI or domain stores. SPI must
+not depend on Protocol: wire-specific `AiTaskLifecycle` stays in Protocol, while
+`QueryId` is a shared SPI value. JDBC must not depend on process, File Core or
+Security runtime implementations. Assembly selects real implementations explicitly.
+
+Filesystem API must not depend on any provider or cloud SDKs, including on its test classpath.
 Governed FILE consumes BlobStorage; COPY preparation consumes ManagedBlobStorage. Process assembly
 selects providers explicitly. An admitted read exposes SDK-free abort semantics; source-version
 authority and caller I/O budgets remain outside the provider. The current COPY source adapter
@@ -141,9 +155,9 @@ sources. Filesystem publication copies and verifies caller staging before an ato
 link, and must never publish a mutable alias of caller-owned bytes.
 OSS owns its official client and cancellable transport, and implements only the content-publication
 port. Its never-versioned bucket policy must not be generalized into COPY source/version authority.
-File API separately owns ObjectStoreAccessorProvider. Filesystem and S3 providers implement it;
+Filesystem API owns ObjectStoreAccessorProvider. LOCAL and S3 providers implement it;
 Worker assembly selects and closes providers, while each provider owns its accessor cache and
-resources. These providers must not depend on Worker, File Core or File JDBC stores. SDK clients
+resources. These providers must not depend on Worker, File Core or Persistence JDBC stores. SDK clients
 must receive a non-owning credential view; only the provider may close an owned default chain.
 Mutable-version S3 deletes require a conditional-delete-capable endpoint. Custom endpoints are
 version-only unless explicitly qualified in local provider assembly; never retry unconditionally.
@@ -173,7 +187,7 @@ on the supplied connection. Ordinary auto-commit reads remain supported; a store
 compiler observation never grants current authority. PostgreSQL SQL and canonical
 input validation stay in the real provider, selected by the composition root.
 
-Coordination backends depend on Coordination API, never on the Coordinator process
+Coordination backends depend on Persistence API and Coordination SPI, never on the Coordinator process
 or Metadata. The process composition root selects and closes providers; in-memory
 leases do not provide inter-process exclusion. JDBC provider owner tests use the
 Testing Kit migration fixture without importing Core or Metadata fixtures.

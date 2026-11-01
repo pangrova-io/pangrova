@@ -13,7 +13,7 @@
  */
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.ai.api.runtime.AiTaskLifecycle;
+import org.pangrova.protocol.execution.AiTaskLifecycle;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskRequest;

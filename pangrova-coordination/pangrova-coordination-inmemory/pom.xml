@@ -17,7 +17,12 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-coordination-api</artifactId>
+            <artifactId>pangrova-persistence-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

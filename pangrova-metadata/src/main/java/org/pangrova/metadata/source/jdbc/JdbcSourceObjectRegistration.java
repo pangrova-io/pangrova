@@ -1,9 +1,9 @@
 package org.pangrova.metadata.source.jdbc;
 
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
-import org.pangrova.connector.spi.metadata.PreparedSourcePublication;
-import org.pangrova.connector.spi.metadata.SourceObjectPage;
-import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
+import org.pangrova.spi.connector.metadata.SourceObjectPage;
+import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
 
 import java.sql.Connection;
 import java.sql.SQLException;

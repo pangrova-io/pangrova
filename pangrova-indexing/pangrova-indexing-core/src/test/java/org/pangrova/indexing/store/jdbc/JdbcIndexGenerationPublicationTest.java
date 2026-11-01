@@ -15,9 +15,9 @@ import org.pangrova.indexing.store.IndexGenerationFormat;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.indexing.store.IndexPublicationRequest;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

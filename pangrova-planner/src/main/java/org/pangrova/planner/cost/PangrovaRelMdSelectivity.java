@@ -1,6 +1,6 @@
 package org.pangrova.planner.cost;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.planner.PlanTable;
 
 import org.apache.calcite.plan.RelOptUtil;

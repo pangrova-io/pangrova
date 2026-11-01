@@ -11,7 +11,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.testkit.TestObservability;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

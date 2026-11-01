@@ -19,10 +19,10 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.file.FileAccessSignature;
 import org.pangrova.common.json.provider.jackson.JsonMapperFactory;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.directory.FileListing;
-import org.pangrova.file.api.directory.FileStat;
-import org.pangrova.file.api.object.MultipartUpload;
-import org.pangrova.file.api.object.UploadedPart;
+import org.pangrova.filesystem.api.object.FileListing;
+import org.pangrova.filesystem.api.object.FileStat;
+import org.pangrova.filesystem.api.object.MultipartUpload;
+import org.pangrova.filesystem.api.object.UploadedPart;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -401,7 +401,7 @@ class FileSpaceFileResourceTest {
     @Test
     void providerUrlCannotOutliveTheAuthorizingGrant() {
         var now = new AtomicLong(System.currentTimeMillis());
-        try (var accessors = new ObjectStoreAccessorFactory(java.util.List.of(new org.pangrova.storage.s3.object.S3ObjectStoreAccessorProvider(
+        try (var accessors = new ObjectStoreAccessorFactory(java.util.List.of(new org.pangrova.filesystem.s3.object.S3ObjectStoreAccessorProvider(
                 software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
                         software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create("test", "test-secret")))))) {
             var worker = owned(new FileSpaceFileResource(accessors, SECRET, mapper, now::get));
@@ -430,12 +430,12 @@ class FileSpaceFileResourceTest {
         var grant = descriptor("private.bin", "read");
         String url = "https://storage.invalid/key?signature=private";
         var atBoundary = FileSpaceFileResource.admitProviderUrl(grant,
-                new org.pangrova.file.api.object.PresignedObjectUrl(url, grant.expiresAtEpochMillis()), 1_000);
+                new org.pangrova.filesystem.api.object.PresignedObjectUrl(url, grant.expiresAtEpochMillis()), 1_000);
         assertThat(atBoundary.expiresAtEpochMillis()).isEqualTo(grant.expiresAtEpochMillis());
         assertThat(atBoundary.toString()).doesNotContain("signature", "private");
         for (long expiry : new long[]{1_000, grant.expiresAtEpochMillis() + 1}) {
             assertThatThrownBy(() -> FileSpaceFileResource.admitProviderUrl(grant,
-                    new org.pangrova.file.api.object.PresignedObjectUrl(url, expiry), 1_000))
+                    new org.pangrova.filesystem.api.object.PresignedObjectUrl(url, expiry), 1_000))
                     .isInstanceOfSatisfying(PangrovaException.class, failure ->
                             assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED));
         }

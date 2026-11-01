@@ -14,9 +14,9 @@ import org.pangrova.materialization.domain.TenantId;
 import org.pangrova.materialization.port.MaterializationCatalog;
 import org.pangrova.materialization.port.PublishedMaterialization;
 import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -192,7 +192,7 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
 
     private static boolean readsReferencedTable(PublishedMaterialization published,
             Set<String> referencedTables) {
-        for (org.pangrova.connector.spi.materialization.SourceRef source : published.sources()) {
+        for (org.pangrova.spi.connector.materialization.SourceRef source : published.sources()) {
             String name = (source.catalog() + "." + source.schema() + "." + source.table())
                     .toLowerCase(Locale.ROOT);
             if (referencedTables.contains(name)) {

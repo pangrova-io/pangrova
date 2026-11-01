@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.v2.SourceObjectPurpose;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import java.nio.file.Files;
 import java.nio.file.Path;

@@ -1,10 +1,10 @@
 package org.pangrova.ai.worker.provider.governed;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.invocation.AiInvocationRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
-import org.pangrova.ai.api.invocation.GenerationParameters;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.invocation.AiInvocationRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
+import org.pangrova.spi.ai.invocation.GenerationParameters;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 
@@ -241,14 +241,14 @@ final class AiInvocationRequests {
 
     private static void updateContentPart(
             MessageDigest digest,
-            org.pangrova.ai.api.invocation.ContentPart part) {
-        if (part instanceof org.pangrova.ai.api.invocation.ContentPart.Text text) {
+            org.pangrova.spi.ai.invocation.ContentPart part) {
+        if (part instanceof org.pangrova.spi.ai.invocation.ContentPart.Text text) {
             update(digest, "text-part");
             update(digest, text.text());
-        } else if (part instanceof org.pangrova.ai.api.invocation.ContentPart.FileRef file) {
+        } else if (part instanceof org.pangrova.spi.ai.invocation.ContentPart.FileRef file) {
             update(digest, "file-part");
             updateBlob(digest, file.reference());
-        } else if (part instanceof org.pangrova.ai.api.invocation.ContentPart.InlineImage image) {
+        } else if (part instanceof org.pangrova.spi.ai.invocation.ContentPart.InlineImage image) {
             update(digest, "inline-image-part");
             update(digest, image.mimeType());
             update(digest, image.data());
@@ -257,7 +257,7 @@ final class AiInvocationRequests {
 
     private static void updateBlob(
             MessageDigest digest,
-            org.pangrova.ai.api.embedding.BlobReference reference) {
+            org.pangrova.spi.ai.embedding.BlobReference reference) {
         update(digest, reference.uri());
         update(digest, reference.mimeType());
         update(digest, Long.toString(reference.size()));

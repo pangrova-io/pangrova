@@ -8,9 +8,9 @@ import org.pangrova.planner.type.ConnectorColumnTypeMapper;
 import org.pangrova.planner.type.PlannerTypeFactory;
 import org.pangrova.planner.type.StorageVectorRelDataType;
 import org.pangrova.protocol.v2.LogicalType;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.NullOnlyType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.NullOnlyType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 import java.util.HashSet;
 import java.util.List;

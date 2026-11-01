@@ -2,8 +2,8 @@ package org.pangrova.testing.integration.e2e;
 
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,13 +1,15 @@
 package org.pangrova.security.api.authz;
 
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
 
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.StringLength;
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +19,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.spi.security.policy.Privilege;
 
 class DeferredAuthorizationScopeTest {
     private static final QualifiedTableName TABLE = new QualifiedTableName("lake", "sales", "facts");

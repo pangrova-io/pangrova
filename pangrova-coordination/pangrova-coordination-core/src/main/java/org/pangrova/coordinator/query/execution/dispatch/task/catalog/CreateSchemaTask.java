@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.statement.DdlExecutor;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes CREATE SCHEMA by delegating to {@link DdlExecutor#executeCreateSchema}.

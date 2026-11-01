@@ -10,9 +10,9 @@ import org.pangrova.materialization.domain.InternalNamespace;
 import org.pangrova.materialization.domain.PartitionAlignment;
 import org.pangrova.materialization.domain.PhysicalTableRef;
 import org.pangrova.materialization.domain.SourceVector;
-import org.pangrova.connector.spi.materialization.ChangeProof;
-import org.pangrova.connector.spi.materialization.ChangeSetPlan;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.ChangeProof;
+import org.pangrova.spi.connector.materialization.ChangeSetPlan;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 /**
  * Input for refresh strategy validation and planning.

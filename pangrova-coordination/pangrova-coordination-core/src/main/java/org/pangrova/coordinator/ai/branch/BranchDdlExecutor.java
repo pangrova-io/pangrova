@@ -9,14 +9,14 @@ import org.pangrova.parser.ast.statement.CreateBranchStatement;
 import org.pangrova.parser.ast.statement.CreateTagStatement;
 import org.pangrova.parser.ast.statement.DropBranchStatement;
 import org.pangrova.parser.ast.statement.DropTagStatement;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +50,7 @@ public final class BranchDdlExecutor {
 
         try {
             metadata.createBranch(session, tableHandle, stmt.branchName(),
-                    new org.pangrova.connector.spi.metadata.BranchCreationOptions(
+                    new org.pangrova.spi.connector.metadata.BranchCreationOptions(
                             stmt.fromSnapshot(), stmt.fromTag(), java.util.OptionalLong.empty()));
         } catch (UnsupportedOperationException e) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_DDL_FAILED,

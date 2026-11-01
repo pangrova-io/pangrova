@@ -3,10 +3,10 @@ package org.pangrova.metadata.adapter.security;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.api.policy.TablePolicyAuthority;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.mask.ColumnMaskRecord;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.mask.ColumnMaskRecord;
 
 import java.util.List;
 import java.util.Objects;

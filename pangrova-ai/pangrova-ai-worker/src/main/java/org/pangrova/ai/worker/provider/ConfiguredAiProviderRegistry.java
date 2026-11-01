@@ -14,15 +14,15 @@
 package org.pangrova.ai.worker.provider;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.model.AiModelConfigParser;
-import org.pangrova.ai.api.model.AiModelDescriptor;
-import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.ai.api.invocation.EmbeddingProvider;
-import org.pangrova.security.api.secret.SecretResolver;
-import org.pangrova.ai.api.invocation.InferenceProvider;
-import org.pangrova.ai.api.invocation.RerankingProvider;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.model.AiModelConfigParser;
+import org.pangrova.spi.ai.model.AiModelDescriptor;
+import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.invocation.EmbeddingProvider;
+import org.pangrova.spi.security.secret.SecretResolver;
+import org.pangrova.spi.ai.invocation.InferenceProvider;
+import org.pangrova.spi.ai.invocation.RerankingProvider;
 import org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.worker.embedding.provider.openai.OpenAiEmbeddingConfig;
 import org.pangrova.ai.worker.inference.provider.openai.OpenAiCompatibleInferenceProvider;
@@ -265,7 +265,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 delegate,
                 model.name(),
                 model.version(),
-                org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(model),
+                org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(model),
                 capabilities);
     }
 
@@ -296,7 +296,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 delegate,
                 model.name(),
                 model.version(),
-                org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(model),
+                org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(model),
                 capabilities);
     }
 
@@ -315,7 +315,7 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
                 delegate,
                 model.name(),
                 model.version(),
-                org.pangrova.ai.api.model.AiModelIdentity.signatureSha256(model),
+                org.pangrova.spi.ai.model.AiModelIdentity.signatureSha256(model),
                 capabilitiesFor(
                         model, AiCapabilityDescriptor.Operation.RERANKING));
     }

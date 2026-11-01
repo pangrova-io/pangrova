@@ -2,10 +2,10 @@ package org.pangrova.ai.worker.embedding.provider.openai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 
 import java.time.Duration;

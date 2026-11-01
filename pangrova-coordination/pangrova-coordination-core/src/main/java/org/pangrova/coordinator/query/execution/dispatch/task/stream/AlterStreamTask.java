@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.streaming.adapter.coordinator.StreamDdlExecutor;
 import org.pangrova.parser.ast.statement.stream.AlterStreamStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes ALTER STREAM by delegating to {@link StreamDdlExecutor#alter}.

@@ -9,7 +9,7 @@ import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Generates TPC-H schema test data for integration and validation testing.

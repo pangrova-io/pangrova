@@ -4,14 +4,14 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.statement.StatementTestSessions;
 import org.pangrova.parser.SqlParser;
-import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.spi.security.AuthorizationDeniedException;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
 import org.pangrova.security.core.authz.InMemoryRoleStore;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
 import org.pangrova.security.core.authz.StaticGrantStore;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
@@ -89,7 +89,7 @@ class PermissionCheckerAuthorizationTest {
                 "INSERT INTO secured.source_schema.__pg_dt_spoof VALUES (1)",
                 "ALTER TABLE secured.source_schema.docs RENAME TO __pg_dt_spoof"}) {
             assertThatThrownBy(() -> PermissionChecker.check(new SqlParser().parse(sql), SESSION, broad))
-                    .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class)
+                    .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
                     .hasMessageContaining("reserved");
         }
     }

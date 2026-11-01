@@ -11,7 +11,7 @@ import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQuality
 import org.pangrova.governance.core.quality.GovernanceStatementHandler;
 import org.pangrova.governance.core.quality.InMemoryQualityRuleStore;
 import org.pangrova.governance.core.quality.CronScheduler;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.provider.memory.InMemoryEnrichedColumnMaskStore;
 import org.pangrova.governance.api.classification.TagChangedEvent;
 import org.junit.jupiter.api.AfterEach;
@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * ColumnTagService emits event → TagBasedSecurityPolicy receives it → mask applied.
  */
 class TagChangedEventWiringTest {
-    private static final java.util.Map<org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID>
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
             tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
 
     private GovernanceContext wiring;

@@ -5,9 +5,9 @@ import org.pangrova.coordinator.query.execution.dispatch.*;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.statement.DropTableStatement;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

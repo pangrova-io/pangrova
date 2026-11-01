@@ -2764,3 +2764,115 @@ C++/ASan/Linux资格结果。
 COPY与真实OSS云权限/KMS/多Worker资格仍开放；LOCAL同key并发/流契约、S3历史版本删除语义、
 Worker directory JDBC adapter、B6/Catalog B0、四SCC、逐文件审查及R5/R6继续推进。本批不代表
 全部Storage语义或全仓生产验收。
+
+## 49. Filesystem、Persistence与中央SPI基础模块（进行中）
+
+按新的明确目标调整最终架构，原先领域各自持有API/store的落位不能继续作为保留理由。
+本节是首批基础迁移和LOCAL根因修复，不代表所有store、通用API或逐文件审查已经完成。
+
+- `pangrova-filesystem` 提供真实api/local/s3/oss子模块。Blob/object传输、不可变profile、
+  列举与multipart DTO/provider生命周期归Filesystem API；LOCAL/S3/OSS物理实现各自独立。
+  Worker保留HTTP授权、期限、预算及领域执行适配，File Core保留访问/URL/directory编排。
+  OSS当前仍只有Blob能力，不能把模块存在称为OSS FileSpace/COPY已经实现。
+- `pangrova-persistence` 提供api/jdbc子模块。首批API包含File、Query、Coordination、Security
+  持久化端口与存储事实；实现包含File、Coordination和Security JDBC。Security的角色、授权、
+  tenant、row policy、mask、audit实现按能力分包，`Persistent*`在实际JDBC owner中改为`Jdbc*`。
+  SQL读取与Security的权限判断、row/mask渲染拆开；借用Connection的端口不取得事务所有权。
+  现有security schema资源迁移前后SHA-256为
+  `15bd6bd64c193b9d24a471ff809e90f8234b21bed43955abf26966ced99e052e`，字节未改。
+- `pangrova-spi` 汇入Connector、Function、Indexing、Observability、AI、File控制、Query与
+  Coordination值/生命周期以及Security通用契约，按domain/capability组织。物理文件API和
+  store端口分别归Filesystem/Persistence API。`QueryId`归SPI；依赖协议消息的
+  `AiTaskLifecycle`归Protocol，避免把SPI与Protocol合并成环。没有修改canonical proto。
+  十个明确禁用的观测实现仍使用`NoOp*`名称，归Observability SDK，遵守C8；SPI不反向依赖SDK。
+
+三个基础层次只向下依赖：Common → Filesystem API → SPI → Persistence API → JDBC。
+Filesystem providers不依赖SPI、Worker或领域store；JDBC不依赖Security/File Core/进程实现。
+Scheduler原Connector SPI禁区改用现有friendExports限制中央SPI包，未放开Connector能力。
+旧API/store制品和旧包没有转发类；应用与connector插件需按新制品/descriptor重新构建同一cohort。
+
+### 49.1 LOCAL并发、持久化与流契约
+
+在旧实现先得到并发用例红8（7 failure/1 error），以及跨locale part缺失和OS锁探针失败。
+修复包括：PUT/complete receipt来自封存candidate而非发布后HEAD；conditional delete持有
+目录mutation lease直至完成比较和删除；canonical父目录让重叠root、classloader和JVM协作。
+
+特别复现了“等待者先打开FileChannel后关闭，释放另一个holder的POSIX锁”的问题：独立JVM
+探针在Java仍持有锁对象时读到`free`。Common的有界`ProcessResourceLocks`先取得进程内
+admission，再打开唯一参与channel并取得OS锁；关闭顺序相反。没有轮询或不安全fallback。
+Common注册表由共享父classloader持有，不把File或SDK类型带入Common。
+
+Multipart durable marker绑定upload id与对象key。complete先消费marker再发布；发布或清理
+结果不确定时不能重放覆盖后续writer。abort不能复活part，并发abort幂等。保留private draft/
+staging/lock路径隐藏、force与目录持久化、Error/TWR清理和suppressed原始失败；part名使用
+Locale.ROOT，截断的bounded read抛EOF，零长度read与参数校验遵守InputStream契约。
+
+升级必须drain/abort旧multipart并部署一致writer cohort；旧无绑定session拒绝完成。普通对象
+字节格式未改。测试证明同一主机上的协作JVM；没有据此宣称网络文件系统或非协作writer合格。
+详见`docs/architecture/file-storage.md`及Worker/Volume/Stage操作文档。
+
+### 49.2 验证和未完成项
+
+已执行：Common 298、Filesystem API 10、SPI 515、Observability SDK 227、Persistence API 2、
+JDBC 129、LOCAL 49、S3 61、OSS 19均零failure/error/skip；对应static通过。JDBC首次全量129
+通过后只有import/Override检查失败，修正后只补static，没有把补跑称作第二次全量数据库测试。
+SPI/SDK分离后的完整515/227与三API最终四项隔离/static均通过。
+
+消费者Config166、Observability SDK219（后续SDK分离227覆盖）、Security328、Query74、
+InMemory41、Connector Runtime28、Indexing202、ZooKeeper16、AI Worker215与static通过。
+Worker首轮1257有1项TLS plaintext期望403实得404；单独3项与static通过，增加端口/响应诊断后
+第二轮完整1257与static通过。未改断言、未加重试，首次失败未复现不等于根因已修复。后续
+NoOp实现归位后的最近Worker/Bridge验证仍按实际终态补记。
+
+shared FILE HTTP/SQL与真实activation smoke 41项/static通过。首次命令遗漏AI镜像JVM参数
+造成4组启动错误，正确传入immutable image-id后重跑通过；未修改夹具来绕过模型资格。
+独立Worker启动最初5项均因默认hostname解析失败后advertise localhost被真实Coordinator
+拒绝。测试网络地址选择提取到Kit，复用SQL/独立进程现有网卡选择，显式注入真实IPv4；没有
+放宽生产注册校验，后续五个Native owner分别使用独立JVM验证，终态另记。
+
+中央SPI同时纳入annotation/stability/enum/naming/wiring门禁。两项Python回归证明遗漏标注
+或只有test实现的Stable接口会失败；最终annotation150零gap、Stable24。Python工具62项通过。
+Module依赖7、包图14、引用边界3与enum/naming通过。包环门禁保留失败：原四组成员不变，
+见更新后的`package-cycles.txt`。ServiceLoader可达性从固定两个loader扩展为真实load调用与
+源码AST的class参数，结合字节码解析类型；多行、构造器、无关literal和动态参数均有验证，
+未知/动态调用失败而非把所有provider加为root。原runtime prototype/DeadCode规则未改变，
+没有新增baseline豁免。
+
+扩展wiring扫描仍发现5个未触达实现：Security JDBC tenant、Query JDBC audit、Security
+InMemoryRoleStore/StaticGrantStore/EmptyRowPolicyStore；Bootstrap仍有ResultExpirationScheduler
+未触达。实际callback/failure-projector已被真实ServiceLoader边识别。上述存储重复/遗留实现
+及调度器留作下一批语义整合，不能用新增Experimental/DeadCode或baseline使门禁变绿。
+
+当前全store候选清单见`project-structure-refactoring/persistence-migration-inventory.md`；文件名/
+包命中只是候选，不是全部完成发现或审查的证明。Query实现、Generation、Materialization、
+Table、Metadata、Indexing、AI、Semantic、Governance、Streaming、Operations及其余运行时
+store仍须归Persistence，剩余领域通用API仍须归中央SPI；非JDBC后端须明确独立落位。
+四SCC、B6/Catalog B0、OSS FileSpace/COPY和云端权限/KMS/多Worker资格、TLS首次异常归因及
+R5/R6继续开放。没有新C++/ASan/Linux生产镜像或真实云资格结果。
+
+本节日志为`/tmp/pangrova-local-*`及`/tmp/pangrova-foundations-*`。clean构建、当前POM定位的
+主JAR、API/provider classpath与Docker runtime inventory使用实际制品检查；旧target缓存不
+当作当前reactor制品。最终统计与独立owner结果在下面追加，不抹去中间失败记录。
+
+### 49.3 当前检查点的最终终态
+
+最终reactor为68项：51个Java叶子、1个资源JAR、16个聚合；3,612主源文件、696主源包、
+2,397测试源文件。全包台账逐包匹配，Persistence候选333个（含非store候选，仍须语义确认）。
+最终clean install包含全部主源和测试源编译，跳过测试执行；不称为全仓测试通过。
+角色CSV codec最后归JDBC的`security.codec`，API不承载后端编码实现；格式未改变。
+
+五个独立Native owner均完成、各用独立JVM：WorkerBootstrap5、ExternalExchange3、
+ShuffleAdmission1、COPY确切版本/managed重启1、LOCAL SQL4，均零failure/error/skip。
+网卡选择夹具使用现有非回环IPv4语义，生产拒绝loopback规则未改。修正后的最终cohort
+shared FILE HTTP/SQL/smoke再次41/static通过；NoOp归位后最近Worker16、Bridge13、
+ServiceLoader实际参数/注册发现6与static通过。上述最近范围不伪称又一次完整Worker1257。
+
+最终当前POM定位52个main JAR，526个原迁移类型均归正确owner，无旧/重复类型及残留service；
+包括排除初次迁移产生的中间SPI disabled类型。Docker显式16个runtime owner、Module-Name
+与RUN shell语法通过，没有构建生产镜像。Native dylib与既有同源合格库SHA-256一致：
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`。
+
+最终门禁的已知失败仍单列：原四SCC（成员不变）、五个未触达store实现和一个旧调度器。
+不增加baseline或注解隐藏它们。Module依赖、API隔离、annotation/stability、命名/enum、
+包图与源码引用、stub及工具回归按本节日志保留终态；本检查点没有使所有CI变绿，也没有
+完成全store/全API/全文件审查或云端生产验收。下一批继续Query及其后续领域持久化整合。

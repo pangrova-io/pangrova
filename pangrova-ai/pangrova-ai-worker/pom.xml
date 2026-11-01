@@ -25,39 +25,32 @@
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-ai-api</artifactId>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-protocol</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-function</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-security</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-api</artifactId>
+            <artifactId>pangrova-filesystem-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-s3</artifactId>
+            <artifactId>pangrova-filesystem-s3</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-filesystem</artifactId>
+            <artifactId>pangrova-filesystem-local</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-storage-oss</artifactId>
+            <artifactId>pangrova-filesystem-oss</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>

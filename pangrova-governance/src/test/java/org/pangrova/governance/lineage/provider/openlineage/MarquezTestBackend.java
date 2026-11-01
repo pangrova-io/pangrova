@@ -31,7 +31,7 @@ public final class MarquezTestBackend implements AutoCloseable {
             var input = new DatasetRef(namespace, "readiness.source", List.of());
             var source = new DatasetRef.SourceColumnRef(namespace, "readiness.source", "value");
             var columns = java.util.Arrays.stream(
-                    org.pangrova.observability.api.event.QueryLineageMetadata.DerivationKind.values())
+                    org.pangrova.spi.observability.event.QueryLineageMetadata.DerivationKind.values())
                     .map(kind -> new DatasetRef.ColumnLineage(kind.name(), List.of(source), kind)).toList();
             var output = new DatasetRef(namespace, "readiness.target", columns);
             transport.send(new LineageEvent(LineageEvent.EventType.START, runId, "fixture-readiness",

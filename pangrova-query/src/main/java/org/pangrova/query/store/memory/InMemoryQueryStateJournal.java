@@ -7,11 +7,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.query.api.state.StateJournalConfig;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.query.state.StateJournalConfig;
+import org.pangrova.spi.query.state.TaskStateEvent;
 
 /** Bounded instance-owned journal. NONE retains process-local facts, never durable or HA state. */
 @ThreadSafe

@@ -3,10 +3,10 @@ package org.pangrova.metadata.service;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.table.api.control.TableControlState;
 import org.pangrova.table.api.policy.TablePolicyAuthority;
-import org.pangrova.security.api.rowfilter.IdentityRowPolicyStore;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.api.rowfilter.RowPolicyStore;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.persistence.api.security.rowfilter.IdentityRowPolicyStore;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.List;
 import java.util.Objects;

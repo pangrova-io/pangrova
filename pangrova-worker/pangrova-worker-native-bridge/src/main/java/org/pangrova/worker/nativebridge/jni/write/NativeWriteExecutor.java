@@ -5,12 +5,12 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.protocol.batch.ColumnarBatch;
 import org.pangrova.protocol.batch.ColumnarPageSink;
-import org.pangrova.connector.spi.ConnectorTransactionHandle;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.page.Page;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.worker.nativebridge.jni.NativeRuntimeException;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -527,7 +527,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
 
     private static ConnectorPageSink createPageSink(
             ConnectorPageSinkProvider sinkProvider,
-            org.pangrova.connector.spi.ConnectorSession session,
+            org.pangrova.spi.connector.ConnectorSession session,
             ConnectorOutputTableHandle outputHandle,
             WriteDescriptor.DmlOperation dmlOperation) {
         return switch (dmlOperation) {

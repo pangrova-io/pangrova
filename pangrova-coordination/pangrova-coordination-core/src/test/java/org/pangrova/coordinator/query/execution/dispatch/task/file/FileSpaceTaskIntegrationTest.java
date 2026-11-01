@@ -11,29 +11,29 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.file.api.storage.FileStorageException;
-import org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry;
+import org.pangrova.spi.file.storage.FileStorageException;
+import org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.Statement;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventType;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
 import org.pangrova.security.core.authz.InMemoryRoleStore;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
 import org.pangrova.security.core.authz.StaticGrantStore;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.space.FileSpaceDefinition;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.file.space.FileSpaceDefinition;
 import org.pangrova.common.file.FileSpaceType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -57,7 +57,7 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
     private static final String ROLE = "file-admin";
 
     private final List<AuditEvent> events = new CopyOnWriteArrayList<>();
-    private PersistentGrantStore grants;
+    private JdbcGrantStore grants;
     private JdbcFileSpaceRegistry registry;
     private MetadataExecutionFactory factory;
     private AuditEventEmitter auditBackend;
@@ -65,13 +65,13 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
     @BeforeEach
     void setUp() throws Exception {
         DataSource source = SharedPostgresContainer.migratedDataSource("file_space_tasks");
-        new PersistentRoleStore(source).initSchema();
+        new JdbcRoleStore(source).initSchema();
         try (var connection = source.getConnection()) {
             connection.setAutoCommit(false);
             AuthorizationTransactionGate.initialize(connection);
             connection.commit();
         }
-        grants = new PersistentGrantStore(source);
+        grants = new JdbcGrantStore(source);
         grants.addGrant(grant(Privilege.CREATE_VOLUME, FileSpaceType.VOLUME, "media", "raw", null));
         grants.addGrant(grant(Privilege.CREATE_EXTERNAL_VOLUME,
                 FileSpaceType.VOLUME, "media", "raw", null));

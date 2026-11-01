@@ -4,10 +4,10 @@ import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
-import org.pangrova.connector.spi.coordination.WriteCommitFingerprint;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
-import org.pangrova.connector.spi.coordination.NativeWriteFinalization;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
+import org.pangrova.spi.connector.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.spi.connector.coordination.NativeWriteFinalization;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.util.List;
@@ -226,7 +226,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
     private static WriteCommitEntry pending(String queryId, long timestampMs) {
         var fragments = List.of(new byte[]{1, 2, 3});
         String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.connector.spi.coordination.WriteCommitFingerprint.Intent(
+                new org.pangrova.spi.connector.coordination.WriteCommitFingerprint.Intent(
                         queryId,
                         "tenant-a",
                         "iceberg",

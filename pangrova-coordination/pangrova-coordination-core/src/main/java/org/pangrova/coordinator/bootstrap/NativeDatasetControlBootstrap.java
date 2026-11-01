@@ -4,7 +4,7 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.coordinator.metadata.NativeDatasetControlClient;
 import org.pangrova.coordinator.metadata.WorkerNativeDatasetControl;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
-import org.pangrova.connector.spi.metadata.NativeDatasetControlPlane;
+import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 
 import java.util.Optional;
@@ -39,15 +39,15 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
         return Optional.of(new WorkerNativeDatasetControl(catalog, dependencies, client, sourceCatalog(catalog)));
     }
 
-    synchronized Optional<org.pangrova.connector.spi.metadata.ManagedSourceCatalog> sourceForCatalog(
+    synchronized Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> sourceForCatalog(
             CatalogDescriptor catalog) {
         if (closed) throw new IllegalStateException("Native metadata control bootstrap is closed");
         return Optional.of(sourceCatalog(catalog));
     }
 
-    private org.pangrova.connector.spi.metadata.ManagedSourceCatalog sourceCatalog(CatalogDescriptor catalog) {
+    private org.pangrova.spi.connector.metadata.ManagedSourceCatalog sourceCatalog(CatalogDescriptor catalog) {
         return new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(metadataDataSource,
-                new org.pangrova.connector.spi.metadata.ManagedSourceCatalog.Deployment(
+                new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
                         catalog.name(), catalog.incarnationId(), catalog.revision()),
                 executionId -> requireStarted(dependencies.fencer().get()).currentAnchor(executionId),
                 new org.pangrova.query.store.jdbc.anchor.JdbcExecutionTransactionFence(), modelAuthority);

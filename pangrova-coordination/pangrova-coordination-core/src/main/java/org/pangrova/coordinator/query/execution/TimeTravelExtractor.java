@@ -11,7 +11,7 @@ import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.LiteralValue;
 import org.pangrova.parser.ast.TableRef;
 import org.pangrova.parser.ast.TimeTravelSpec;
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.ArrayList;
 import java.util.HashMap;

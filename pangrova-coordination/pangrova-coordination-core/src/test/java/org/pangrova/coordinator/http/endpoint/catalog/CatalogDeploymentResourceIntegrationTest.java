@@ -21,7 +21,7 @@ import org.pangrova.metadata.api.catalog.CatalogType;
 import org.pangrova.metadata.service.DefaultMetadataService;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.security.api.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
 import org.pangrova.security.core.authn.provider.oauth2.OAuth2Authenticator;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.worker.nativebridge.jni.write.catalog.CatalogDeploymentClient;

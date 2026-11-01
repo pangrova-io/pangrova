@@ -1,20 +1,20 @@
 package org.pangrova.metadata.source.jdbc;
 
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
-import org.pangrova.query.api.coordination.jdbc.ExecutionTransactionFence;
+import org.pangrova.persistence.api.query.transaction.ExecutionTransactionFence;
 import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
 import org.pangrova.metadata.tenant.JdbcTenantStore;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
-import org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot;
-import org.pangrova.connector.spi.coordination.DistributedWriteCommitContext;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
-import org.pangrova.connector.spi.coordination.NativeWriteFinalization;
-import org.pangrova.connector.spi.metadata.PreparedSourcePublication;
-import org.pangrova.connector.spi.metadata.SourcePublicationReservation;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.connector.spi.coordination.WriteCommitEntry;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
+import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
+import org.pangrova.spi.connector.coordination.DistributedWriteCommitContext;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.spi.connector.coordination.NativeWriteFinalization;
+import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
+import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.connector.coordination.WriteCommitEntry;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -191,7 +191,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         });
     }
 
-    @Override public org.pangrova.connector.spi.metadata.SourcePrepareInvocation issuePreparation(
+    @Override public org.pangrova.spi.connector.metadata.SourcePrepareInvocation issuePreparation(
         SourcePublicationReservation reservation, int pageIndex, String afterPath, String workerEndpoint,
         byte[] requestSha256) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
@@ -206,7 +206,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
     }
 
     @Override public void acknowledgePreparation(SourcePublicationReservation reservation,
-        org.pangrova.connector.spi.metadata.SourcePrepareInvocation invocation, byte[] responseSha256) {
+        org.pangrova.spi.connector.metadata.SourcePrepareInvocation invocation, byte[] responseSha256) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         preparationTransaction(reservation, expected, connection -> {
             requireReservation(connection, reservation, true);
@@ -235,7 +235,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
 
     @Override public void registerObjects(SourcePublicationReservation reservation,
         PreparedSourcePublication publication,
-        org.pangrova.connector.spi.metadata.SourceObjectPage page) {
+        org.pangrova.spi.connector.metadata.SourceObjectPage page) {
         requireCandidateReference(reservation, publication);
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         transaction(connection -> {
@@ -331,7 +331,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         });
     }
 
-    @Override public Optional<org.pangrova.connector.spi.metadata.SourceCleanupBatch> reserveCleanup(
+    @Override public Optional<org.pangrova.spi.connector.metadata.SourceCleanupBatch> reserveCleanup(
         SourcePublicationReservation reservation) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         return preparationTransaction(reservation, expected, connection -> {
@@ -342,7 +342,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
     }
 
     @Override public void completeCleanup(SourcePublicationReservation reservation,
-        org.pangrova.connector.spi.metadata.SourceCleanupBatch batch) {
+        org.pangrova.spi.connector.metadata.SourceCleanupBatch batch) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         preparationTransaction(reservation, expected, connection -> {
             String state = requireReservation(connection, reservation, true);
@@ -354,7 +354,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         });
     }
 
-    @Override public org.pangrova.connector.spi.metadata.DistributedWriteAbortReceipt abort(
+    @Override public org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abort(
         SourcePublicationReservation reservation) {
         ExecutionAnchor expected = currentOwner.apply(reservation.executionId());
         return transaction(connection -> {
@@ -391,7 +391,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
             }
             JdbcWriteCommitJournal.abortIntent(connection, intent);
             requireExecutionOwner(connection, expected);
-            return new org.pangrova.connector.spi.metadata.DistributedWriteAbortReceipt(
+            return new org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt(
                 reservation.executionId(), reservation.fingerprint());
         });
     }
@@ -701,7 +701,7 @@ public final class JdbcManagedSourceCatalog implements ManagedSourceCatalog {
         if (current == null || !current.key().equals(expected.key()) || !current.tableId().equals(expected.tableId())
             || !current.datasetUri().equals(expected.datasetUri()) || current.generation() != expected.generation()
             || !Arrays.equals(current.schemaSha256(), expected.schemaSha256())) {
-            throw new org.pangrova.connector.spi.metadata
+            throw new org.pangrova.spi.connector.metadata
                 .SourceTableUnavailableException("Source table was dropped, replaced or changed generation");
         }
     }

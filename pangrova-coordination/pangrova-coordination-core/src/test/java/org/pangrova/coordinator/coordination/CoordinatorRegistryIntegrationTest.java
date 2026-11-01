@@ -2,7 +2,7 @@ package org.pangrova.coordinator.coordination;
 
 import java.util.Optional;
 
-import org.pangrova.coordination.api.CoordinatorSnapshot;
+import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.pangrova.coordination.inmemory.InMemoryCoordinatorRegistry;
 import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
 import org.junit.jupiter.api.AfterEach;

@@ -15,7 +15,7 @@ package org.pangrova.planner;
 
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

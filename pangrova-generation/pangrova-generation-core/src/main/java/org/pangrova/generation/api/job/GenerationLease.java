@@ -21,7 +21,7 @@ public record GenerationLease(
         String leaseOwner,
         long ownerEpoch,
         Instant expiresAt,
-        org.pangrova.query.api.coordination.ExecutionAnchor executionAnchor) {
+        org.pangrova.spi.query.coordination.ExecutionAnchor executionAnchor) {
 
     public GenerationLease {
         requireIdentity(tenantId, jobId, pageId, leaseOwner);

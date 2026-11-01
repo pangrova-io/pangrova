@@ -373,7 +373,7 @@ public class CoordinatorTaskTracker {
     }
 
     /** Opens the sole issuance authority before planning. */
-    public org.pangrova.connector.spi.ConnectorQueryAuthority openQueryIssuance(String queryId) {
+    public org.pangrova.spi.connector.ConnectorQueryAuthority openQueryIssuance(String queryId) {
         return taskIdentityStore.openQuery(queryId);
     }
 
@@ -523,7 +523,7 @@ public class CoordinatorTaskTracker {
     }
 
     /** Returns the original issued scheduled fact, preserving event identity and producer time on retry. */
-    public org.pangrova.query.api.state.TaskStateEvent scheduledJournalEvent(String taskId) {
+    public org.pangrova.spi.query.state.TaskStateEvent scheduledJournalEvent(String taskId) {
         return taskIdentityStore.scheduledEvent(taskId);
     }
 

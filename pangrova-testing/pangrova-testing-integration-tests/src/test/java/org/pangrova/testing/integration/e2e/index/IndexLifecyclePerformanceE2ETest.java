@@ -13,7 +13,7 @@
  */
 package org.pangrova.testing.integration.e2e.index;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,7 +97,7 @@ class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
                     return false;
                 });
         var descriptor = findIndex(indexName, fqn);
-        if (descriptor.indexType() == org.pangrova.indexing.api.descriptor.IndexType.VECTOR) {
+        if (descriptor.indexType() == org.pangrova.spi.indexing.descriptor.IndexType.VECTOR) {
             awaitPublishedVectorIndex(indexName, fqn);
         }
     }

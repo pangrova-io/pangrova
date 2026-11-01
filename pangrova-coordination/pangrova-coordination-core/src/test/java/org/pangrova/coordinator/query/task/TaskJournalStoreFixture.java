@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.task;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.query.api.state.StateJournalConfig;
+import org.pangrova.spi.query.state.StateJournalConfig;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import javax.sql.DataSource;

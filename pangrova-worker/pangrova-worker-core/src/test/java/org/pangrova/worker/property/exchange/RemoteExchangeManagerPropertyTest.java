@@ -15,8 +15,8 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.connector.spi.data.page.BatchFormat;
-import org.pangrova.connector.spi.data.page.NativePage;
+import org.pangrova.spi.connector.data.page.BatchFormat;
+import org.pangrova.spi.connector.data.page.NativePage;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
 import org.pangrova.shuffle.exchange.ExchangeChannelContext;

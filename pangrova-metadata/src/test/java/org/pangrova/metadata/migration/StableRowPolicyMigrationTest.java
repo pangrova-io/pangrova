@@ -3,8 +3,8 @@ package org.pangrova.metadata.migration;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,7 +17,7 @@ class StableRowPolicyMigrationTest {
     void upgradePreservesUnboundPoliciesAndReplacesTheHistoricalNameConstraint() throws Exception {
         var source = SharedPostgresContainer.isolatedDataSource("row_policy_upgrade");
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target("99").load().migrate();
-        new PersistentRowPolicyStore(source).initSchema();
+        new JdbcRowPolicyStore(source).initSchema();
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             statement.execute("DROP INDEX row_policy_scoped_identity");
             statement.execute("DROP INDEX row_policy_unbound_name");
@@ -35,7 +35,7 @@ class StableRowPolicyMigrationTest {
             revisionBefore = row.getLong(1);
         }
         Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
-        var store = new PersistentRowPolicyStore(source);
+        var store = new JdbcRowPolicyStore(source);
         assertThat(store.getPolicies("cat", "db", "orders")).singleElement().satisfies(policy -> {
             assertThat(policy.tableId()).isNull();
             assertThat(policy.filterExpression()).isEqualTo("id > 0");

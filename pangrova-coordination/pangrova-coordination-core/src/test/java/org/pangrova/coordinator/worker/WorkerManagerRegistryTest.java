@@ -8,7 +8,7 @@ import java.util.List;
 
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.coordination.api.WorkerSnapshot;
+import org.pangrova.spi.coordination.WorkerSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

@@ -1,2 +1,2 @@
-/** Query runtime services and factories; public values and ports live in pangrova-query-api. */
+/** Query runtime services and factories; public values and ports live in SPI and Persistence API. */
 package org.pangrova.query.core;

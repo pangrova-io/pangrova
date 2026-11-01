@@ -12,9 +12,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.audit.AuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventWriter;
 
 /**
  * Tests for {@link AuditEventEmitter} graceful shutdown, event rejection after close,

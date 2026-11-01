@@ -317,13 +317,13 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
                         compiler, null, null, null,
                         new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                                new org.pangrova.observability.api.noop.NoOpTracingProvider()),
+                                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
                         scheduler,
                         new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.coordination.inmemory.InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
                         null, null, null, 0L),
                 null, null);
         return new QueryManager(QueryManagerContext.minimal(dispatcher,
-                new org.pangrova.observability.api.noop.NoOpTracingProvider()));
+                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()));
     }
 }

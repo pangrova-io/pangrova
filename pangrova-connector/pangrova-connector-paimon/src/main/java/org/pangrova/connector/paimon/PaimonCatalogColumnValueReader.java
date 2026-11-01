@@ -8,7 +8,7 @@ import org.apache.paimon.fs.Path;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.pangrova.connector.paimon.fs.PaimonColumnValueReader;
-import org.pangrova.connector.spi.index.ColumnValueReader;
+import org.pangrova.spi.connector.index.ColumnValueReader;
 
 import java.io.IOException;
 import java.util.Iterator;

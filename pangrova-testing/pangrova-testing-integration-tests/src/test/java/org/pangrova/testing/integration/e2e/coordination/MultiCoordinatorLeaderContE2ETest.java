@@ -1,8 +1,8 @@
 package org.pangrova.testing.integration.e2e.coordination;
 
 import org.pangrova.coordinator.adapter.indexing.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.coordination.api.DistributedLease;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.TestLeaseNamespace;
@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.pangrova.coordination.api.LeaseEntry;
+import org.pangrova.spi.coordination.LeaseEntry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

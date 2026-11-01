@@ -7,8 +7,8 @@ import org.pangrova.protocol.v2.DeleteFileType;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IcebergReadMode;
-import org.pangrova.connector.spi.metadata.table.ColumnMapping;
-import org.pangrova.connector.spi.metadata.table.TypePromotion;
+import org.pangrova.spi.connector.metadata.table.ColumnMapping;
+import org.pangrova.spi.connector.metadata.table.TypePromotion;
 
 import java.util.List;
 import java.util.Map;

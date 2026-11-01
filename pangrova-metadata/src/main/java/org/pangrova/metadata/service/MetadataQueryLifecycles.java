@@ -1,8 +1,8 @@
 package org.pangrova.metadata.service;
 
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.connector.spi.ConnectorQueryAuthority;
-import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
 import org.pangrova.common.concurrent.ThreadSafe;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

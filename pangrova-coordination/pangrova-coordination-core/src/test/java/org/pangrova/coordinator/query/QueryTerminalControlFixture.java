@@ -14,7 +14,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
 import org.pangrova.testing.testkit.TestObservability;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,8 +43,8 @@ final class QueryTerminalControlFixture implements AutoCloseable {
         state.tryTransition(QueryStateMachine.State.PLANNING);
         state.tryTransition(QueryStateMachine.State.SCHEDULING);
         state.tryTransition(QueryStateMachine.State.RUNNING);
-        manager.getStateJournal().appendQueryEventSync(new org.pangrova.query.api.state.QueryStateEvent(
-                org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), null),
+        manager.getStateJournal().appendQueryEventSync(new org.pangrova.spi.query.state.QueryStateEvent(
+                org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), null),
                 id, null, null, "RUNNING"));
         manager.registerStateMachine(id, state);
         return id;

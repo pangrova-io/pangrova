@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.session;
 
 import org.pangrova.metadata.service.MetadataSessionContext;
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -126,7 +126,7 @@ public final class SessionContextConverter {
             Optional<String> catalog,
             Optional<String> schema,
             Map<String, String> properties,
-            Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> queryAuthority
+            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority
     ) implements ConnectorSession {
 
         ConnectorSessionAdapter {
@@ -154,7 +154,7 @@ public final class SessionContextConverter {
         }
 
         @Override
-        public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return queryAuthority;
         }
     }

@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.bootstrap;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
@@ -22,8 +21,8 @@ import org.pangrova.generation.api.job.GenerationJobState;
 import org.pangrova.generation.api.GenerationDependencySet;
 import org.pangrova.generation.api.GenerationEmptyPartitionPolicy;
 import org.pangrova.generation.api.GenerationExecutionKind;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.time.Duration;

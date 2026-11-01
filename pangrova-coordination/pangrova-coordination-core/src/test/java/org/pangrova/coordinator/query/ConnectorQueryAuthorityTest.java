@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
+import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;

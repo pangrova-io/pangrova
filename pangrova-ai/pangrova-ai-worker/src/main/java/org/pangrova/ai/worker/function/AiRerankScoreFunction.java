@@ -13,10 +13,10 @@
  */
 package org.pangrova.ai.worker.function;
 
-import org.pangrova.ai.api.invocation.RerankingProvider;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.function.api.scalar.BatchableScalarFunction;
-import org.pangrova.function.api.metadata.FunctionMetadata;
+import org.pangrova.spi.ai.invocation.RerankingProvider;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.function.scalar.BatchableScalarFunction;
+import org.pangrova.spi.function.metadata.FunctionMetadata;
 import org.pangrova.ai.worker.context.AiExecutionContext;
 import org.pangrova.ai.worker.context.BoundAiInvocation;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
@@ -131,7 +131,7 @@ public final class AiRerankScoreFunction implements BatchableScalarFunction {
         binding.requireExactProvider(
                 provider.modelName(), provider.modelVersion(),
                 provider.modelSignatureSha256(),
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.RERANKING);
+                org.pangrova.spi.ai.capability.AiCapabilityDescriptor.Operation.RERANKING);
         return provider;
     }
 
@@ -149,7 +149,7 @@ public final class AiRerankScoreFunction implements BatchableScalarFunction {
         String query = decoded.nullableText("query");
         String document = decoded.nullableText("document");
         BoundAiInvocation binding = decoded.binding(
-                org.pangrova.ai.api.capability.AiCapabilityDescriptor.Operation.RERANKING);
+                org.pangrova.spi.ai.capability.AiCapabilityDescriptor.Operation.RERANKING);
         return query == null || document == null
                 ? null
                 : new Values(model, query, document, binding);

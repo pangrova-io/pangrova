@@ -2,9 +2,9 @@ package org.pangrova.connector.runtime.discovery;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.plugin.ConnectorContext;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.plugin.ConnectorContext;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
 
 import java.util.List;
 import java.util.Map;

@@ -1,10 +1,10 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.function.api.aggregate.AggregateFunction;
-import org.pangrova.function.api.registry.FunctionFactory;
-import org.pangrova.function.api.runtime.FunctionCallbackScope;
-import org.pangrova.function.api.runtime.FunctionFailureProjector;
-import org.pangrova.function.api.scalar.ScalarFunction;
+import org.pangrova.spi.function.aggregate.AggregateFunction;
+import org.pangrova.spi.function.registry.FunctionFactory;
+import org.pangrova.spi.function.runtime.FunctionCallbackScope;
+import org.pangrova.spi.function.runtime.FunctionFailureProjector;
+import org.pangrova.spi.function.scalar.ScalarFunction;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionBridge;
 import org.pangrova.worker.nativebridge.jni.NativeFunctionConfig;

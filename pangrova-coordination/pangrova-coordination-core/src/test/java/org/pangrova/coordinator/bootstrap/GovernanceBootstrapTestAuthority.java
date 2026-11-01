@@ -38,7 +38,7 @@ final class GovernanceBootstrapTestAuthority {
                 name -> new org.pangrova.table.api.control.CatalogDeploymentIdentity(
                         descriptor.incarnationId(), descriptor.revision()));
         var owner = control.registerCreated("quality_catalog", "default", "quality_source", "quality-owner",
-                java.util.Optional.of(new org.pangrova.connector.spi.metadata.table.TableIdentity(
+                java.util.Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
                         "ICEBERG", "quality-bootstrap-owner", "s3://test/quality-source", "schema")),
                 java.util.Optional.empty()).orElseThrow();
         var store = new org.pangrova.governance.store.jdbc.JdbcQualityRuleStore(source);

@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.Map;
 import java.util.Set;
 
-import org.pangrova.connector.spi.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
 
 /**
  * Property-based tests for PaimonTypeMapper bidirectional type mapping.

@@ -22,7 +22,7 @@ public interface GenerationJobStore {
 
     Optional<GenerationLease> claimNextPage(
             String tenantId, String jobId,
-            org.pangrova.query.api.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            org.pangrova.spi.query.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now);
 
     boolean renewPage(GenerationLease lease, Duration leaseDuration, Instant now);
@@ -84,7 +84,7 @@ public interface GenerationJobStore {
     /** Claims the metadata-only publication lease for a job whose every page succeeded. */
     Optional<GenerationJob> claimReadyForPublication(
             String tenantId, String jobId,
-            org.pangrova.query.api.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            org.pangrova.spi.query.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now);
 
     /**

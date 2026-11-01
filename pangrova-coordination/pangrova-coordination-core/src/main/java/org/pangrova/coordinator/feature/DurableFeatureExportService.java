@@ -48,11 +48,11 @@ import org.pangrova.planner.generation.TabularExportPlanBuilder;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.protocol.DeferredAuthorizationScopeCodec;
-import org.pangrova.security.api.policy.Privilege;
+import org.pangrova.spi.security.policy.Privilege;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -106,7 +106,7 @@ public final class DurableFeatureExportService {
                 || !requestedBy.equals(connectorSession.getUser())
                 || compiled.sources().size() != 1
                 || !compiled.sources().get(0).qualifiedName().equals(source.toString())) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Feature export must bind the current authenticated principal, tenant and exact compiled source");
         }
         sourceSchemaVerifier.verify(source, sourceSnapshot, connectorSession, compiled);
@@ -201,7 +201,7 @@ public final class DurableFeatureExportService {
         Set<String> columns = Set.copyOf(source.tableColumns());
         var observed = compiled.observedPolicies().get(source.qualifiedName());
         if (columns.isEmpty() || observed == null || !observed.columnMasks().keySet().containsAll(columns)) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Feature export requires the actual complete policy observation from secure compilation");
         }
         var read = new DeferredAuthorizationScope.TablePermission(
@@ -256,13 +256,13 @@ public final class DurableFeatureExportService {
         return output.build();
     }
 
-    private static org.pangrova.connector.spi.metadata.table.QualifiedTableName parseSource(
+    private static org.pangrova.spi.connector.metadata.table.QualifiedTableName parseSource(
             String source) {
         String[] parts = source.split("\\.", -1);
         if (parts.length != 3 || java.util.Arrays.stream(parts).anyMatch(String::isBlank)) {
             throw validation("Feature source must be catalog.schema.table");
         }
-        return new org.pangrova.connector.spi.metadata.table.QualifiedTableName(
+        return new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
                 parts[0], parts[1], parts[2]);
     }
 

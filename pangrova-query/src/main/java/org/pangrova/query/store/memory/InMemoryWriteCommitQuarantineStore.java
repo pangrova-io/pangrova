@@ -1,7 +1,7 @@
 package org.pangrova.query.store.memory;
 
-import org.pangrova.query.api.transaction.QuarantinedWriteCommit;
-import org.pangrova.query.api.transaction.WriteCommitQuarantineStore;
+import org.pangrova.spi.query.transaction.QuarantinedWriteCommit;
+import org.pangrova.persistence.api.query.transaction.WriteCommitQuarantineStore;
 
 import java.util.Map;
 import java.util.Optional;

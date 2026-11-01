@@ -1,6 +1,6 @@
 package org.pangrova.indexing.engine.hash.serializer;
 
-import org.pangrova.indexing.api.data.HashIndexData;
+import org.pangrova.spi.indexing.data.HashIndexData;
 import org.pangrova.indexing.core.serde.SerdeCodec;
 import org.pangrova.indexing.core.serde.TypeSerializer;
 

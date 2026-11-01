@@ -33,7 +33,7 @@ import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Property test for CoordinatorTaskTracker registration after dispatch.

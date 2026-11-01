@@ -1,12 +1,12 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.nio.file.Path;
 import java.time.Instant;

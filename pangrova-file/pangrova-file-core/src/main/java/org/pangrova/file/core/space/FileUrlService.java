@@ -2,8 +2,8 @@ package org.pangrova.file.core.space;
 
 import java.util.Objects;
 
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.access.FileUrlClient;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.file.access.FileUrlClient;
 
 /**
  * Delivers a time-limited provider URL for one Volume or Stage object.
@@ -52,7 +52,7 @@ public final class FileUrlService {
         FileUrlClient.FileUrl url = client.presign(grant, read, ttl);
         if (url.expiresAtEpochMillis() <= clock.getAsLong()
                 || url.expiresAtEpochMillis() > grant.expiresAtEpochMillis()) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Worker URL expiry is outside its authorizing grant");
         }
         access.urlIssued(authorized, read, ttl);

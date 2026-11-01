@@ -1,7 +1,7 @@
 package org.pangrova.indexing.engine.sparse.serializer;
 
-import org.pangrova.indexing.api.data.spatial.SparseEntry;
-import org.pangrova.indexing.api.data.spatial.SparseIndexData;
+import org.pangrova.spi.indexing.data.spatial.SparseEntry;
+import org.pangrova.spi.indexing.data.spatial.SparseIndexData;
 
 import java.util.ArrayList;
 import org.pangrova.indexing.core.serde.SerdeCodec;

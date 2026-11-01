@@ -9,7 +9,6 @@ import org.pangrova.table.api.maintenance.MaintenanceRunState;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
 
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

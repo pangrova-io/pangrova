@@ -9,8 +9,8 @@ import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.api.audit.AuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEventWriter;
 
 /**
  * Asynchronous emitter that delegates audit writes to a background thread.

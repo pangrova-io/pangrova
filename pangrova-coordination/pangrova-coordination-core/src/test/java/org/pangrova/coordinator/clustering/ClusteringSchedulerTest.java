@@ -1,14 +1,14 @@
 package org.pangrova.coordinator.clustering;
 
-import org.pangrova.connector.spi.clustering.ClusteringCapability;
-import org.pangrova.connector.spi.clustering.ClusteringDescriptor;
-import org.pangrova.connector.spi.clustering.ClusteringMode;
-import org.pangrova.connector.spi.clustering.ClusteringRequest;
-import org.pangrova.connector.spi.clustering.ClusteringResult;
-import org.pangrova.connector.spi.clustering.ClusteringState;
-import org.pangrova.connector.spi.clustering.ClusteringTableRef;
-import org.pangrova.connector.spi.clustering.ColumnMinMax;
-import org.pangrova.connector.spi.clustering.FileClusteringStats;
+import org.pangrova.spi.connector.clustering.ClusteringCapability;
+import org.pangrova.spi.connector.clustering.ClusteringDescriptor;
+import org.pangrova.spi.connector.clustering.ClusteringMode;
+import org.pangrova.spi.connector.clustering.ClusteringRequest;
+import org.pangrova.spi.connector.clustering.ClusteringResult;
+import org.pangrova.spi.connector.clustering.ClusteringState;
+import org.pangrova.spi.connector.clustering.ClusteringTableRef;
+import org.pangrova.spi.connector.clustering.ColumnMinMax;
+import org.pangrova.spi.connector.clustering.FileClusteringStats;
 import org.pangrova.coordination.inmemory.InMemoryDistributedLease;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;

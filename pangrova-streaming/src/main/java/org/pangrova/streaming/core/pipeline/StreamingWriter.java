@@ -1,12 +1,12 @@
 package org.pangrova.streaming.core.pipeline;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.write.model.WriteContext;
-import org.pangrova.connector.spi.data.write.model.WriteMode;
-import org.pangrova.connector.spi.data.write.TableWriter;
-import org.pangrova.connector.spi.data.write.model.WriteRecord;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.write.model.WriteContext;
+import org.pangrova.spi.connector.data.write.model.WriteMode;
+import org.pangrova.spi.connector.data.write.TableWriter;
+import org.pangrova.spi.connector.data.write.model.WriteRecord;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

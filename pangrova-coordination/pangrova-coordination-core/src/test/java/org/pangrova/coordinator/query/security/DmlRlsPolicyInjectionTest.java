@@ -11,7 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
-import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;

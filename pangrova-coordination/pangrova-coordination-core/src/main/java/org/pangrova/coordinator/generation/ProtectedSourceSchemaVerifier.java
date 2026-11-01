@@ -6,9 +6,9 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.util.Objects;
 

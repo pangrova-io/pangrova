@@ -1,6 +1,6 @@
 package org.pangrova.governance.core.lineage;
 
-import org.pangrova.query.api.lineage.QueryLineageOutbox;
+import org.pangrova.persistence.api.query.lineage.QueryLineageOutbox;
 import org.pangrova.governance.lineage.provider.log.LogLineageBackend;
 import org.pangrova.governance.lineage.provider.openlineage.OpenLineageHttpTransport;
 

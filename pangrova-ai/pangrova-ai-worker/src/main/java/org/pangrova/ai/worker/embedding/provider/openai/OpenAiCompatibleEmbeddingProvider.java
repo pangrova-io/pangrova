@@ -6,11 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.embedding.EmbeddingBatchResult;
-import org.pangrova.ai.api.invocation.EmbeddingProvider;
-import org.pangrova.ai.api.embedding.EmbeddingBatchRequest;
-import org.pangrova.ai.api.embedding.EmbeddingPurpose;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchResult;
+import org.pangrova.spi.ai.invocation.EmbeddingProvider;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.ai.worker.context.AiHttpTransport;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 

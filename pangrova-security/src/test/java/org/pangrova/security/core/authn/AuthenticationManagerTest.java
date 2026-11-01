@@ -12,14 +12,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.time.Instant;
 
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
-import org.pangrova.security.api.authn.AuthenticatorHealthStatus;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
+import org.pangrova.spi.security.authn.AuthenticatorHealthStatus;
 import org.pangrova.security.core.authn.provider.bypass.BypassAuthenticator;
 import org.pangrova.security.core.authn.provider.ldap.LdapAuthenticator;
 import org.pangrova.security.core.authn.provider.oauth2.OAuth2Authenticator;

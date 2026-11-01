@@ -10,8 +10,8 @@ import java.util.Objects;
  * Represents {@code GRANT privilege ON [catalog.]schema.table TO role [WITH GRANT OPTION]}.
  *
  * <p>Part of the RBAC DDL surface (G-SEC-03 fix). The coordinator's
- * security statement handler routes this to {@link org.pangrova.security.api.policy.GrantStore#addGrant}
- * and publishes a {@link org.pangrova.security.api.event.SecurityPolicyChangeEvent.GrantChanged}.
+ * security statement handler routes this to {@link org.pangrova.persistence.api.security.policy.GrantStore#addGrant}
+ * and publishes a {@link org.pangrova.spi.security.event.SecurityPolicyChangeEvent.GrantChanged}.
  *
  * @param privilege       privilege keyword (SELECT, INSERT, ALL, etc.)
  * @param objectType      TABLE, SCHEMA, or CATALOG

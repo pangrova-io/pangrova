@@ -10,11 +10,11 @@ import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ReadMode;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.TablePermission;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ReadMode;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.TablePermission;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -36,7 +36,7 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
     static WritePolicyObservation capture(ObservedPlan observed, SqlCompiler compiler, Statement statement) {
         var schemas = AuthorizedRelationSchemas.extract(observed.plan().serializeValidated(compiler));
         if (!schemas.keySet().equals(observed.policies().keySet())) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Write source policy observations are incomplete");
         }
         var tables = new java.util.HashMap<String, QualifiedTableName>();
@@ -56,7 +56,7 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
                 // Policy masks are keyed by top-level SDK columns, unlike flattened nested schema names.
                 Set<String> columns = policies.columnMasks().keySet();
                 if (columns.isEmpty() || schema.getStruct().getTypesCount() != columns.size()) {
-                    throw new org.pangrova.security.api.AccessDeniedException(
+                    throw new org.pangrova.spi.security.AccessDeniedException(
                             "Write read columns lack exact policy evidence");
                 }
                 var scan = java.util.Objects.requireNonNull(tables.get(name));
@@ -69,7 +69,7 @@ public record WritePolicyObservation(List<TablePermission> reads, Set<Privilege>
             }
         });
         var declaration = observed.plan().dmlWriteTarget().flatMap(org.pangrova.planner.DmlWriteTarget::declaration)
-                .orElseThrow(() -> new org.pangrova.security.api.AccessDeniedException(
+                .orElseThrow(() -> new org.pangrova.spi.security.AccessDeniedException(
                         "Write target lacks its compiled connector declaration"));
         return new WritePolicyObservation(reads, actions(statement), declaration);
     }

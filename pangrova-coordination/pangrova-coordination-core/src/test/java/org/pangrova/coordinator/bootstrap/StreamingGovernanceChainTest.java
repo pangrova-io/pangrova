@@ -15,12 +15,12 @@ import org.pangrova.governance.quality.executor.unconfigured.UnconfiguredQuality
 import org.pangrova.governance.core.quality.GovernanceStatementHandler;
 import org.pangrova.governance.core.quality.InMemoryQualityRuleStore;
 import org.pangrova.governance.core.quality.CronScheduler;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
-import org.pangrova.observability.api.noop.NoOpMetricsProvider;
-import org.pangrova.connector.spi.data.*;
-import org.pangrova.connector.spi.data.write.*;
-import org.pangrova.connector.spi.data.write.model.*;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
+import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
+import org.pangrova.spi.connector.data.*;
+import org.pangrova.spi.connector.data.write.*;
+import org.pangrova.spi.connector.data.write.model.*;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcOperation;
 import org.pangrova.streaming.api.watermark.WatermarkStore;
@@ -55,7 +55,7 @@ import static org.assertj.core.api.Assertions.*;
  */
 @Tag("streaming-governance-component")
 class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
-    private static final java.util.Map<org.pangrova.connector.spi.metadata.table.QualifiedTableName, java.util.UUID>
+    private static final java.util.Map<org.pangrova.spi.connector.metadata.table.QualifiedTableName, java.util.UUID>
             tagTableIdentities = new java.util.concurrent.ConcurrentHashMap<>();
 
 

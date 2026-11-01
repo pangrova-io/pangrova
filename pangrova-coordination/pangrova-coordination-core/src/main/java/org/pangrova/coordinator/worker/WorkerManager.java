@@ -11,10 +11,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.coordination.api.HeartbeatSnapshot;
-import org.pangrova.coordination.api.WorkerRegistry;
-import org.pangrova.coordination.api.WorkerSnapshot;
-import org.pangrova.observability.api.LongCounter;
+import org.pangrova.spi.coordination.HeartbeatSnapshot;
+import org.pangrova.persistence.api.coordination.WorkerRegistry;
+import org.pangrova.spi.coordination.WorkerSnapshot;
+import org.pangrova.spi.observability.LongCounter;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -55,7 +55,7 @@ public final class WorkerManager {
             double cpuUtilization,
             int runningTaskCount,
             long availableMemoryBytes,
-            org.pangrova.coordination.api.CacheCatalogSummary cacheSummary,
+            org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary,
             Map<String, org.pangrova.protocol.rest.worker.TenantUsageSnapshot> tenantUsage) {
 
         public HeartbeatData {
@@ -72,7 +72,7 @@ public final class WorkerManager {
         /** Convenience constructor including the cache catalog summary. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
                              int runningTaskCount, long availableMemoryBytes,
-                             org.pangrova.coordination.api.CacheCatalogSummary cacheSummary) {
+                             org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary) {
             this(pressure, cpuUtilization, runningTaskCount,
                     availableMemoryBytes, cacheSummary, Map.of());
         }
@@ -309,7 +309,7 @@ public final class WorkerManager {
 
     private static WorkerInfo buildUpdatedWorker(WorkerInfo existing, HeartbeatData data) {
         // F-CHAIN-CACHE-02: refresh cacheSummary on every heartbeat.
-        org.pangrova.coordination.api.CacheCatalogSummary newSummary =
+        org.pangrova.spi.coordination.CacheCatalogSummary newSummary =
                 data.cacheSummary() != null ? data.cacheSummary() : existing.cacheSummary();
         return new WorkerInfo(
                 existing.workerId(), existing.host(),

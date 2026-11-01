@@ -1,7 +1,7 @@
 package org.pangrova.observability.sdk.metrics.jvm;
 
-import org.pangrova.observability.api.noop.NoOpMetricsProvider;
-import org.pangrova.observability.api.ObservableDoubleGauge;
+import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
+import org.pangrova.spi.observability.ObservableDoubleGauge;
 import org.junit.jupiter.api.Test;
 
 import java.lang.management.GarbageCollectorMXBean;

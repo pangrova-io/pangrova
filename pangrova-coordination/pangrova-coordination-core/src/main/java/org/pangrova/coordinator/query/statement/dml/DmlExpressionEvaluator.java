@@ -16,8 +16,8 @@ import org.pangrova.parser.ast.expression.ArrayConstructor;
 import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.expression.MapConstructor;
 import org.pangrova.parser.ast.expression.StructConstructor;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

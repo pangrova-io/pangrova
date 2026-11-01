@@ -11,7 +11,7 @@ import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.scheduler.api.placement.HealthState;
 import org.pangrova.scheduler.api.placement.PlacementWorker;
-import org.pangrova.coordination.api.CacheCatalogSummary;
+import org.pangrova.spi.coordination.CacheCatalogSummary;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

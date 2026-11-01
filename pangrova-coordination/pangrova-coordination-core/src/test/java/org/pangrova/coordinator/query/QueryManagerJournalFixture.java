@@ -18,9 +18,9 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.query.store.jdbc.anchor.JdbcExecutionAnchorStore;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.scheduler.core.admission.InMemoryClusterConcurrencySlots;
 import org.pangrova.scheduler.core.admission.TenantQuotaAdmissionController;
 import org.pangrova.security.core.tenant.InMemoryTenantStore;
@@ -65,8 +65,8 @@ final class QueryManagerJournalFixture implements AutoCloseable {
     void retry() { clock.addAndGet(TimeUnit.SECONDS.toNanos(31)); manager.retryPendingTerminalCompletions(); }
 
     QueryStateMachine running(String queryId) {
-        store.journal().appendQueryEventSync(new org.pangrova.query.api.state.QueryStateEvent(
-                org.pangrova.query.api.state.JournalEventContext.create(System.currentTimeMillis(), "journal-local"),
+        store.journal().appendQueryEventSync(new org.pangrova.spi.query.state.QueryStateEvent(
+                org.pangrova.spi.query.state.JournalEventContext.create(System.currentTimeMillis(), "journal-local"),
                 queryId, null, null, "RUNNING"));
         var state = new QueryStateMachine();
         state.tryTransition(QueryStateMachine.State.PLANNING);

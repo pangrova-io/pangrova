@@ -2,9 +2,9 @@ package org.pangrova.worker.task;
 
 import org.pangrova.worker.task.state.TaskState;
 
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.SpanKind;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.worker.result.ResultTransport;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.shuffle.api.ShuffleServerHandle;

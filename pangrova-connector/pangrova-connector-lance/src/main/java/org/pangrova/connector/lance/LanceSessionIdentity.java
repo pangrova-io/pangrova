@@ -1,6 +1,6 @@
 package org.pangrova.connector.lance;
 
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 
 /** Enforces tenant identity on every directory and split operation. */
 final class LanceSessionIdentity {

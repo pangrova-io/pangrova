@@ -2,7 +2,7 @@ package org.pangrova.materialization.domain;
 
 import java.time.Instant;
 import java.util.Optional;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
 
 /**
  * One durable refresh attempt.

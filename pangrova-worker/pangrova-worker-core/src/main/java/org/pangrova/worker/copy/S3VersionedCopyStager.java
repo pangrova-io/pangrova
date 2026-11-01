@@ -1,11 +1,11 @@
 package org.pangrova.worker.copy;
 
-import org.pangrova.storage.api.blob.BlobObjectId;
+import org.pangrova.filesystem.api.blob.BlobObjectId;
 
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.storage.api.blob.ManagedBlobStorage;
+import org.pangrova.filesystem.api.blob.ManagedBlobStorage;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -287,7 +287,7 @@ final class S3VersionedCopyStager {
         }
     }
 
-    private static void abortOnFailure(org.pangrova.storage.api.blob.BlobInputStream input, Throwable failure) {
+    private static void abortOnFailure(org.pangrova.filesystem.api.blob.BlobInputStream input, Throwable failure) {
         try {
             input.abort();
         } catch (RuntimeException abortFailure) {

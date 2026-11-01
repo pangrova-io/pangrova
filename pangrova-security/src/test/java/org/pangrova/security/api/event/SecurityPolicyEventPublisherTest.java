@@ -1,5 +1,8 @@
 package org.pangrova.security.api.event;
 
+import org.pangrova.spi.security.event.SecurityPolicyChangeEvent;
+import org.pangrova.spi.security.event.SecurityPolicyEventPublisher;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

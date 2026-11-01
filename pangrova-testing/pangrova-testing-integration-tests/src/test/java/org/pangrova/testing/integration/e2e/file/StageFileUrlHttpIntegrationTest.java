@@ -1,6 +1,6 @@
 package org.pangrova.testing.integration.e2e.file;
 
-import org.pangrova.file.api.access.FileAccessGrant;
+import org.pangrova.spi.file.access.FileAccessGrant;
 
 import java.net.ProxySelector;
 import java.net.URI;
@@ -38,31 +38,31 @@ import org.pangrova.coordinator.http.endpoint.AuthenticationFilter;
 import org.pangrova.coordinator.http.endpoint.CoordinatorExceptionMapper;
 import org.pangrova.coordinator.http.endpoint.file.FileSpaceFilesResource;
 import org.pangrova.coordinator.query.audit.FileSpaceAuditEmitter;
-import org.pangrova.file.store.jdbc.space.JdbcFileSpaceRegistry;
-import org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry;
+import org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceRegistry;
+import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
 import org.pangrova.metadata.store.jdbc.catalog.SchemaMigrationRunner;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.space.FileSpace;
-import org.pangrova.file.api.space.FileSpaceDefinition;
-import org.pangrova.file.api.space.FileSpaceLayout;
+import org.pangrova.spi.file.space.FileSpace;
+import org.pangrova.spi.file.space.FileSpaceDefinition;
+import org.pangrova.spi.file.space.FileSpaceLayout;
 import org.pangrova.common.file.FileSpaceType;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.worker.file.FileSpaceFileResource;
@@ -89,7 +89,7 @@ class StageFileUrlHttpIntegrationTest {
     Path root;
     private PGSimpleDataSource source;
     private JdbcFileSpaceRegistry spaces;
-    private PersistentGrantStore grants;
+    private JdbcGrantStore grants;
     private FileSpace stage;
     private Server coordinator;
     private Server worker;
@@ -112,21 +112,21 @@ class StageFileUrlHttpIntegrationTest {
         SchemaMigrationRunner.migrate(source);
         var tenants = new org.pangrova.metadata.tenant.JdbcTenantStore(source);
         tenants.initSchema();
-        tenants.createTenant(new org.pangrova.security.api.tenant.Tenant("tenant-a", "HTTP file tests",
-                org.pangrova.security.api.tenant.TenantStatus.ACTIVE,
-                new org.pangrova.security.api.tenant.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
+        tenants.createTenant(new org.pangrova.spi.security.tenant.Tenant("tenant-a", "HTTP file tests",
+                org.pangrova.spi.security.tenant.TenantStatus.ACTIVE,
+                new org.pangrova.spi.security.tenant.ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
                 List.of(), List.of(), "", Map.of(), Instant.EPOCH, "fixture"));
         for (String principal : List.of("alice", "bob")) {
-            tenants.addUserToTenant("tenant-a", principal, org.pangrova.security.api.tenant.TenantRole.MEMBER);
+            tenants.addUserToTenant("tenant-a", principal, org.pangrova.spi.security.tenant.TenantRole.MEMBER);
         }
-        grants = new PersistentGrantStore(source);
+        grants = new JdbcGrantStore(source);
         grants.initSchema();
-        var roles = new PersistentRoleStore(source);
+        var roles = new JdbcRoleStore(source);
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
         var rbac = new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(new PersistentRowPolicyStore(source)),
-                new ColumnMaskingProcessor(new PersistentColumnMaskStore(source)));
+                new RowLevelSecurityFilter(new JdbcRowPolicyStore(source)),
+                new ColumnMaskingProcessor(new JdbcColumnMaskStore(source)));
         spaces = new JdbcFileSpaceRegistry(source);
         stage = spaces.create(definition("landing", false), false);
         grant("landing", Privilege.READ_STAGE);
@@ -139,7 +139,7 @@ class StageFileUrlHttpIntegrationTest {
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class));
         var context = FileSpaceAccessService.FileSpaceAccessContext.of("local",
                 () -> List.of(base(worker).toString()), new FileSpaceAuditEmitter(null), SECRET,
-                new org.pangrova.file.store.jdbc.space.JdbcFileSpaceAuthority(source,
+                new org.pangrova.persistence.jdbc.file.space.JdbcFileSpaceAuthority(source,
                         new org.pangrova.metadata.tenant.JdbcTenantStore(source)));
         var access = new FileSpaceAccessService(spaces, profiles, rbac, context);
         authentication = new AuthenticationManager(List.of(new TestAuthenticator()));
@@ -248,7 +248,7 @@ class StageFileUrlHttpIntegrationTest {
                 grant(name, privilege);
             }
         }
-        new PersistentRoleStore(source).grantRoleToUser(UserRoleAssignment.of("bob", "reader"));
+        new JdbcRoleStore(source).grantRoleToUser(UserRoleAssignment.of("bob", "reader"));
         var original = accessGrant("external", "alice", "write");
         var mapper = JsonMapperFactory.create();
         URI endpoint = base(worker).resolve("v1/file-space/");
@@ -262,7 +262,7 @@ class StageFileUrlHttpIntegrationTest {
         var renewed = accessGrant("renamed_upload", "alice", "write");
         var resumed = multipartPart(endpoint, renewed, session.uploadId());
         assertThat(resumed.statusCode()).as(resumed.body()).isEqualTo(200);
-        var part = mapper.readValue(resumed.body(), org.pangrova.file.api.object.UploadedPart.class);
+        var part = mapper.readValue(resumed.body(), org.pangrova.filesystem.api.object.UploadedPart.class);
         spaces.drop(FileSpaceType.STAGE, "media", "raw", "renamed_upload", false);
         spaces.create(definition("external", true), false);
         for (Privilege privilege : List.of(Privilege.USAGE_STAGE, Privilege.READ_STAGE, Privilege.WRITE_STAGE)) {

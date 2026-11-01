@@ -1,11 +1,11 @@
 package org.pangrova.coordinator.adapter.indexing.ddl;
 
 import org.pangrova.generation.api.job.GenerationJobStore;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.Map;
 import java.util.Optional;
@@ -65,7 +65,7 @@ final class DeferredIndexAuthorityResolver {
     private record DeferredIndexSession(String principal, String tenantId, QualifiedTableName table)
             implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

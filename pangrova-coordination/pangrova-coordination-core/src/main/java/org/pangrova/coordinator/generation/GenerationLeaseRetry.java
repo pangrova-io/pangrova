@@ -3,7 +3,7 @@ package org.pangrova.coordinator.generation;
 import org.pangrova.generation.api.job.GenerationLease;
 import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
-import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.spi.security.AuthorizationDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

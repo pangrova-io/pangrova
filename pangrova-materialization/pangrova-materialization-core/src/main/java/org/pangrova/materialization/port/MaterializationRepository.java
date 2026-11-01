@@ -21,7 +21,7 @@ import org.pangrova.materialization.domain.RefreshAttempt;
 import org.pangrova.materialization.domain.Schedule;
 import org.pangrova.materialization.domain.SourcePin;
 import org.pangrova.materialization.domain.TenantId;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
 
 /**
  * Durable authority of the materialization kernel.

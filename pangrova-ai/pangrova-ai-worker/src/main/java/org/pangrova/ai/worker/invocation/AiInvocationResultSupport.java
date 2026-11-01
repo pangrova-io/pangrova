@@ -1,9 +1,9 @@
 package org.pangrova.ai.worker.invocation;
 
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.invocation.AiInvocationRequest;
-import org.pangrova.ai.api.invocation.AiInvocationResult;
-import org.pangrova.ai.api.invocation.InferenceResult;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.invocation.AiInvocationRequest;
+import org.pangrova.spi.ai.invocation.AiInvocationResult;
+import org.pangrova.spi.ai.invocation.InferenceResult;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;

@@ -8,8 +8,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 
 import org.pangrova.indexing.core.storage.IndexCache;
-import org.pangrova.indexing.api.data.HashIndexData;
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.indexing.data.HashIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
 
 import java.util.HashMap;
 import java.util.HashSet;

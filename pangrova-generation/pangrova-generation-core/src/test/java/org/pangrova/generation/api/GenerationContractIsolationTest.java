@@ -2,10 +2,10 @@ package org.pangrova.generation.api;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 import java.lang.reflect.Type;
 import java.net.URL;
@@ -40,7 +40,7 @@ class GenerationContractIsolationTest {
                         && !name.startsWith("org.pangrova.generation.api.")
                         && !name.startsWith("org.pangrova.generation.spi.storage."))
                         || (name.startsWith("org.pangrova.security.")
-                        && !name.startsWith("org.pangrova.security.api."))) {
+                        && !name.startsWith("org.pangrova.spi.security."))) {
                     throw new ClassNotFoundException("Implementation unavailable: " + name);
                 }
                 return super.loadClass(name, resolve);
@@ -156,7 +156,7 @@ class GenerationContractIsolationTest {
     private static void requireStorageValuesWithoutJdbc(ClassLoader loader) throws Exception {
         var keyType = loader.loadClass("org.pangrova.generation.api.job.GenerationJobKey");
         Object key = keyType.getConstructor(String.class, String.class).newInstance("tenant", "job");
-        var anchorType = loader.loadClass("org.pangrova.query.api.coordination.ExecutionAnchor");
+        var anchorType = loader.loadClass("org.pangrova.spi.query.coordination.ExecutionAnchor");
         Instant now = Instant.parse("2026-10-01T00:00:00Z");
         Object anchor = anchorType.getConstructor(String.class, String.class, String.class, long.class,
                 Instant.class, Instant.class).newInstance(keyType.getMethod("executionId").invoke(key),

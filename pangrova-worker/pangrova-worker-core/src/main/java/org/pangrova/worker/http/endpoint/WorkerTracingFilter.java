@@ -8,9 +8,9 @@ import jakarta.ws.rs.container.ContainerResponseContext;
 import jakarta.ws.rs.container.ContainerResponseFilter;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
-import org.pangrova.observability.api.Scope;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.TextMapGetter;
+import org.pangrova.spi.observability.Scope;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.TextMapGetter;
 
 /**
  * JAX-RS request/response filter that extracts the W3C trace context injected by the

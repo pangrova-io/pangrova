@@ -20,12 +20,12 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.ShowStorageProfilesStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.file.api.profile.StorageProfileRegistry;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
 
 /**
  * Executes {@code SHOW STORAGE PROFILES} by listing all registered profiles.

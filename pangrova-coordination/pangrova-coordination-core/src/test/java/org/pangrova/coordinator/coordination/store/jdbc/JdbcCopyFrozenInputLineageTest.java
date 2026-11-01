@@ -3,10 +3,10 @@ package org.pangrova.coordinator.coordination.store.jdbc;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordination.jdbc.JdbcDistributedLease;
+import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.file.store.jdbc.copy.JdbcCopySourceReadAdmissions;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.persistence.jdbc.file.copy.JdbcCopySourceReadAdmissions;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.sql.SQLException;
 import java.time.Duration;
@@ -155,7 +155,7 @@ class JdbcCopyFrozenInputLineageTest {
         var scope = fixture.scope();
         String tenant = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                 .digest(("copy\0" + scope.tenantId()).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-        var order = new java.util.ArrayList<>(new org.pangrova.security.api.UserIdentity("alice",
+        var order = new java.util.ArrayList<>(new org.pangrova.spi.security.UserIdentity("alice",
                 java.util.Set.of("alpha", "beta"), java.util.Map.of(), java.time.Instant.now()).groups());
         java.util.Collections.reverse(order);
         String groups = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(order);

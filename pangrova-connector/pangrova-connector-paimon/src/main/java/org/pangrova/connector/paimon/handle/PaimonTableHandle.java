@@ -4,8 +4,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.SnapshotRange;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SnapshotRange;
 
 /**
  * Immutable handle referencing a Paimon table by schema, name, and metadata snapshot.
@@ -43,14 +43,14 @@ public record PaimonTableHandle(
     public static final long NO_LIMIT = 0L;
 
     /** Format capabilities this adapter can prove. */
-    public static final org.pangrova.connector.spi.metadata.table.TableCapabilities CAPABILITIES =
-            new org.pangrova.connector.spi.metadata.table.TableCapabilities(
+    public static final org.pangrova.spi.connector.metadata.table.TableCapabilities CAPABILITIES =
+            new org.pangrova.spi.connector.metadata.table.TableCapabilities(
                     true, true, true, true, true, true,
                     java.util.Set.of("files", "branches", "snapshots", "tags", "options",
                             "schemas"),
                     java.util.Set.of("COMPACT", "OPTIMIZE", "VACUUM", "EXPIRE_SNAPSHOTS",
                             "REMOVE_ORPHAN_FILES"),
-                    org.pangrova.connector.spi.metadata.table.TableCapabilities.WriterFenceKind
+                    org.pangrova.spi.connector.metadata.table.TableCapabilities.WriterFenceKind
                             .FORMAT_IDENTITY_AND_BASE_VERSION);
 
     /** Evidence captured from the selected SDK source, never a query-wide mutable pin. */
@@ -91,13 +91,13 @@ public record PaimonTableHandle(
     }
 
     @Override
-    public org.pangrova.connector.spi.metadata.table.TableCapabilities capabilities() {
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities capabilities() {
         return CAPABILITIES;
     }
 
     @Override
-    public Optional<org.pangrova.connector.spi.metadata.table.TableIdentity> tableIdentity() {
-        return Optional.of(new org.pangrova.connector.spi.metadata.table.TableIdentity(
+    public Optional<org.pangrova.spi.connector.metadata.table.TableIdentity> tableIdentity() {
+        return Optional.of(new org.pangrova.spi.connector.metadata.table.TableIdentity(
                 "PAIMON", tableUuid, tableLocation, schemaFingerprint));
     }
 

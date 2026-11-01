@@ -16,8 +16,8 @@ import org.apache.paimon.io.DataFileMetaSerializer;
 import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
-import org.pangrova.connector.spi.metadata.NativePhysicalFileAllocation;
-import org.pangrova.connector.spi.metadata.NativePhysicalWriteAllocation;
+import org.pangrova.spi.connector.metadata.NativePhysicalFileAllocation;
+import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
 
 /** Captures real SDK path, schema, snapshot and sequence metadata before a Native object exists. */
 public final class PaimonPhysicalWriteAllocations {

@@ -6,13 +6,13 @@ import org.pangrova.table.core.control.TableControlService;
 import org.pangrova.table.api.statistics.TableControlStatistics;
 import org.pangrova.table.core.statistics.TableControlStatisticsService;
 import org.pangrova.parser.ast.statement.maintenance.AnalyzeStatement;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,12 +47,12 @@ public final class AnalyzeExecutor {
 
         TableControlService control = catalogs.tableControl();
         if (!control.enabled()) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "ANALYZE requires the table control plane: without ownership records "
                             + "no table can be proven safe to analyze");
         }
         var record = control.find(ref.catalog(), ref.schema(), ref.table())
-                .orElseThrow(() -> new org.pangrova.security.api.AccessDeniedException(
+                .orElseThrow(() -> new org.pangrova.spi.security.AccessDeniedException(
                     "ANALYZE rejected: " + ref
                             + " is OBSERVED; run ALTER TABLE ... ADOPT before ANALYZE"));
 
@@ -116,7 +116,7 @@ public final class AnalyzeExecutor {
     private static String observeFresh(ConnectorMetadata metadata,
             ConnectorSession session, QualifiedTableName ref) {
         ConnectorTableHandle fresh = metadata.getTableHandle(
-                session, new org.pangrova.connector.spi.metadata.table.SchemaTableName(
+                session, new org.pangrova.spi.connector.metadata.table.SchemaTableName(
                         ref.schema(), ref.table()));
         if (fresh == null) {
             return "";

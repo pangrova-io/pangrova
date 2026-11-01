@@ -8,14 +8,14 @@ import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ScanPartitionDetail;
-import org.pangrova.connector.spi.metadata.NativeDatasetScanPage;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.NativeDatasetScanPage;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
 import java.util.Map;
 
 /** Canonical dataset split pinned to the catalog-visible Lance version. */
 public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Partition partition,
         byte[] serializedCatalogBinding, byte[] manifestSha256,
-        org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot snapshot) implements ConnectorSplit {
+        org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot) implements ConnectorSplit {
     public LanceDataSplit {
         if (table.version() <= 0) throw new IllegalArgumentException("Lance scan requires a published version");
         if (snapshot.version() != table.version() || !snapshot.tableId().equals(table.tableId())

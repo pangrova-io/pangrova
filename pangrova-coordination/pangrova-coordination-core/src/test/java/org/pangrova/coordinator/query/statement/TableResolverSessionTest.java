@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.statement;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.util.List;
 import java.util.Map;

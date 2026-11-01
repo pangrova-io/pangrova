@@ -8,14 +8,14 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.parser.ast.statement.ReclusterTableStatement;
 import org.pangrova.parser.ast.statement.SetClusteringOrderStatement;
 import org.pangrova.parser.ast.statement.ShowClusteringStatusStatement;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.clustering.ClusteringCapability;
-import org.pangrova.connector.spi.clustering.ClusteringDescriptor;
-import org.pangrova.connector.spi.clustering.ClusteringMode;
-import org.pangrova.connector.spi.clustering.ClusteringState;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.clustering.ClusteringCapability;
+import org.pangrova.spi.connector.clustering.ClusteringDescriptor;
+import org.pangrova.spi.connector.clustering.ClusteringMode;
+import org.pangrova.spi.connector.clustering.ClusteringState;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -145,9 +145,9 @@ public final class ClusteringDdlExecutor {
         }
     }
 
-    private static org.pangrova.connector.spi.clustering.ClusteringTableRef toSpiTableName(
+    private static org.pangrova.spi.connector.clustering.ClusteringTableRef toSpiTableName(
             QualifiedTableName ref) {
-        return new org.pangrova.connector.spi.clustering.ClusteringTableRef(
+        return new org.pangrova.spi.connector.clustering.ClusteringTableRef(
                 ref.catalog(), ref.schema(), ref.table());
     }
 }

@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.feature;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.protocol.GenerationStageGraphCodec;
@@ -45,26 +44,26 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
-import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.security.core.secret.SecretResolverRegistry;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.connector.spi.ConnectorQueryAuthority;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import javax.sql.DataSource;
 import java.nio.file.Path;
@@ -95,8 +94,8 @@ class FeatureViewSqlIntegrationTest {
     private CoordinatorTaskTracker taskTracker;
     private int statementNumber;
     private AiInfrastructureStores infrastructure;
-    private org.pangrova.security.api.rowfilter.RowPolicyStore policies;
-    private org.pangrova.security.api.mask.EnrichedColumnMaskStore masks;
+    private org.pangrova.persistence.api.security.rowfilter.RowPolicyStore policies;
+    private org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore masks;
     private final AtomicReference<StatementResult> completed = new AtomicReference<>();
     private final AtomicReference<AuthorizedRelation> observedCompile = new AtomicReference<>();
     private final AtomicReference<ConnectorQueryAuthority> observedLifetime = new AtomicReference<>();
@@ -108,18 +107,18 @@ class FeatureViewSqlIntegrationTest {
                 ModelAuthorityFixtures.artifacts().builds(dataSource));
         var store = new JdbcMetadataStore(dataSource);
         initializeSourceCatalog(store);
-        var roles = new PersistentRoleStore(dataSource);
+        var roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of("feature-role"));
         roles.grantRoleToUser(UserRoleAssignment.of(USER.principal(), "feature-role"));
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.ALL, "SCHEMA", "lake", "sales", null, null));
         grants.addGrant(PrivilegeGrant.of("feature-role", Privilege.SELECT, "TABLE", "lake", "raw", "customers", null));
         policies = new org.pangrova.metadata.service.TableControlRowPolicyStore(
                 new org.pangrova.metadata.service.RegistryTablePolicyAuthority(
                         metadata.catalogRegistry()),
-                new PersistentRowPolicyStore(dataSource));
-        var persistedMasks = new PersistentColumnMaskStore(dataSource);
+                new JdbcRowPolicyStore(dataSource));
+        var persistedMasks = new JdbcColumnMaskStore(dataSource);
         persistedMasks.initSchema();
         masks = new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
                 new org.pangrova.metadata.service.RegistryTablePolicyAuthority(
@@ -280,9 +279,9 @@ class FeatureViewSqlIntegrationTest {
     @Test
     void globalRelationFreezesTheProtectedDagExactPinnedPagesAndClosedConsumerBarrier() throws Exception {
         long snapshot = commitSourceRows();
-        var target = new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "sales", "global_limit");
-        var scope = org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "raw", "customers"),
+        var target = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "sales", "global_limit");
+        var scope = org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "raw", "customers"),
                 Set.of("customer_id", "event_ts", "secret"), target);
         org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures.provision(
                 dataSource, TENANT, USER.principal(), scope);
@@ -395,7 +394,7 @@ class FeatureViewSqlIntegrationTest {
         try {
             authority.beginMetadata("lake", () -> metadata.catalogRegistry().getCatalog("lake").getMetadata(actor));
             return new SnapshotGenerationSplitPlanner(metadata.catalogRegistry()).enumerate(
-                    new org.pangrova.connector.spi.metadata.table.QualifiedTableName("lake", "raw", "customers"),
+                    new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "raw", "customers"),
                     Long.toString(snapshot), actor);
         } finally {
             state.tryTransition(QueryStateMachine.State.CANCELLED);

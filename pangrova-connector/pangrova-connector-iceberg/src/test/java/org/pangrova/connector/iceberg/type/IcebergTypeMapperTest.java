@@ -1,9 +1,9 @@
 package org.pangrova.connector.iceberg.type;
 
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.NullOnlyType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.NullOnlyType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -27,7 +27,7 @@ class IcebergTypeMapperTest {
 
     @Test
     void uuidSdkSchemasRetainScalarAndNestedTypeIdentity() {
-        var uuid = org.pangrova.connector.spi.data.type.primitive.UuidType.INSTANCE;
+        var uuid = org.pangrova.spi.connector.data.type.primitive.UuidType.INSTANCE;
         Schema schema = new Schema(
                 Types.NestedField.optional(1, "id", Types.UUIDType.get()),
                 Types.NestedField.optional(2, "ids", Types.ListType.ofOptional(3, Types.UUIDType.get())),
@@ -39,12 +39,12 @@ class IcebergTypeMapperTest {
         assertThat(columns.get(0).type()).isEqualTo(PangrovaType.UUID);
         assertThat(columns.get(0).parameterizedType()).isEqualTo(uuid);
         assertThat(columns.get(1).parameterizedType())
-                .isEqualTo(new org.pangrova.connector.spi.data.type.ArrayType(uuid));
+                .isEqualTo(new org.pangrova.spi.connector.data.type.ArrayType(uuid));
         assertThat(columns.get(2).parameterizedType())
-                .isEqualTo(new org.pangrova.connector.spi.data.type.MapType(uuid, uuid));
+                .isEqualTo(new org.pangrova.spi.connector.data.type.MapType(uuid, uuid));
         assertThat(columns.get(3).parameterizedType())
-                .isEqualTo(new org.pangrova.connector.spi.data.type.RowType(List.of(
-                        new org.pangrova.connector.spi.data.type.RowField("id", uuid))));
+                .isEqualTo(new org.pangrova.spi.connector.data.type.RowType(List.of(
+                        new org.pangrova.spi.connector.data.type.RowField("id", uuid))));
     }
 
     @Test
@@ -274,7 +274,7 @@ class IcebergTypeMapperTest {
         Type listFloat = Types.ListType.ofRequired(1, Types.FloatType.get());
         Map<String, String> props = Map.of("pangrova.vector.dimension.embedding", "768");
 
-        org.pangrova.connector.spi.data.type.Type result =
+        org.pangrova.spi.connector.data.type.Type result =
                 IcebergTypeMapper.toParameterizedType(listFloat, "embedding", props);
 
         assertThat(result).isInstanceOf(VectorType.class);
@@ -288,7 +288,7 @@ class IcebergTypeMapperTest {
         Type listDouble = Types.ListType.ofRequired(1, Types.DoubleType.get());
         Map<String, String> props = Map.of("pangrova.vector.dimension.emb", "384");
 
-        org.pangrova.connector.spi.data.type.Type result =
+        org.pangrova.spi.connector.data.type.Type result =
                 IcebergTypeMapper.toParameterizedType(listDouble, "emb", props);
 
         assertThat(result).isInstanceOf(VectorType.class);

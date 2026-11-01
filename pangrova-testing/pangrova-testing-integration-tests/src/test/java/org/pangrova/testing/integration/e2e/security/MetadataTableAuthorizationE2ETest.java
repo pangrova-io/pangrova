@@ -8,18 +8,18 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.security.core.authz.DynamicRbacAccessControl;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.api.mask.ColumnMask;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.spi.security.mask.ColumnMask;
 import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
@@ -35,10 +35,10 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
     private List<String> suffixes;
     private final java.util.Map<String, Long> metadataCounts = new java.util.LinkedHashMap<>();
     private final java.util.Map<String, Integer> showCounts = new java.util.LinkedHashMap<>();
-    private PersistentRoleStore roles;
-    private PersistentGrantStore grants;
-    private PersistentRowPolicyStore policies;
-    private PersistentColumnMaskStore masks;
+    private JdbcRoleStore roles;
+    private JdbcGrantStore grants;
+    private JdbcRowPolicyStore policies;
+    private JdbcColumnMaskStore masks;
     private String role;
     private String table;
     private String qualified;
@@ -77,14 +77,14 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
         for (String kind : showKinds()) {
             showCounts.put(kind, sqlRunner.execute("SHOW " + kind + " FROM " + qualified).size());
         }
-        roles = new PersistentRoleStore(stateStoreDataSource());
+        roles = new JdbcRoleStore(stateStoreDataSource());
         roles.initSchema();
         role = "metadata_reader_" + UUID.randomUUID();
         roles.createRole(Role.of(role));
         roles.grantRoleToUser(UserRoleAssignment.of(authenticatedCatalogSession(catalog).getUser(), role));
-        grants = new PersistentGrantStore(stateStoreDataSource());
-        policies = new PersistentRowPolicyStore(stateStoreDataSource());
-        masks = new PersistentColumnMaskStore(stateStoreDataSource());
+        grants = new JdbcGrantStore(stateStoreDataSource());
+        policies = new JdbcRowPolicyStore(stateStoreDataSource());
+        masks = new JdbcColumnMaskStore(stateStoreDataSource());
     }
 
     @AfterEach

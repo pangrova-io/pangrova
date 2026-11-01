@@ -13,8 +13,8 @@
  */
 package org.pangrova.ai.worker.provider.env;
 
-import org.pangrova.security.api.secret.SecretProvider;
-import org.pangrova.security.api.secret.SecretReference;
+import org.pangrova.spi.security.secret.SecretProvider;
+import org.pangrova.spi.security.secret.SecretReference;
 
 import java.util.Objects;
 import java.util.function.Function;

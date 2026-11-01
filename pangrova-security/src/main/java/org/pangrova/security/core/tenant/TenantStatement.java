@@ -1,6 +1,6 @@
 package org.pangrova.security.core.tenant;
 
-import org.pangrova.security.api.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantRole;
 
 import java.util.Map;
 import java.util.Objects;

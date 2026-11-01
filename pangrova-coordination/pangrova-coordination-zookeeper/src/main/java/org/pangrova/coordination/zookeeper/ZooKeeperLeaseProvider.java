@@ -13,9 +13,9 @@
  */
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.coordination.api.CoordinationProvider;
-import org.pangrova.coordination.api.CoordinatorRegistry;
-import org.pangrova.coordination.api.DistributedLease;
+import org.pangrova.persistence.api.coordination.CoordinationProvider;
+import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
+import org.pangrova.persistence.api.coordination.DistributedLease;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;

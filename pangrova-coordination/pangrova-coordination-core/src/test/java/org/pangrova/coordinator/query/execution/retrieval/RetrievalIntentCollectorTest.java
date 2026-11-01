@@ -10,8 +10,8 @@ import org.pangrova.planner.rerank.FullTextScoringNode;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.indexing.core.planner.vector.VectorSearchNode;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.indexing.api.vector.DistanceMetric;
-import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy;
+import org.pangrova.spi.indexing.vector.DistanceMetric;
+import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

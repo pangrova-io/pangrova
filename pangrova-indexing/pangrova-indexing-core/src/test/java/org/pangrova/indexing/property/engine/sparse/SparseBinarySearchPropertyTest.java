@@ -9,9 +9,9 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.indexing.engine.sparse.provider.SparseStrategyProvider;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.connector.spi.index.predicate.RangeQuery;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.connector.index.predicate.RangeQuery;
 
 import java.util.ArrayList;
 import java.util.Collections;

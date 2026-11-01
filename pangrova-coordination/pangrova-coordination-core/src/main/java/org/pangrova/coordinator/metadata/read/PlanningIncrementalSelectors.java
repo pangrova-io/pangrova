@@ -4,8 +4,8 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.SnapshotRange;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.SnapshotRange;
 
 /**
  * Carries trusted append-only snapshot ranges into the authenticated session planner.
@@ -51,7 +51,7 @@ public final class PlanningIncrementalSelectors {
 
     private record SelectedSession(String user, Optional<String> catalog, Optional<String> schema,
             Map<String, String> properties,
-            Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> queryAuthority)
+            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority)
             implements ConnectorSession {
         @Override
         public String getUser() {
@@ -74,7 +74,7 @@ public final class PlanningIncrementalSelectors {
         }
 
         @Override
-        public Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return queryAuthority;
         }
     }

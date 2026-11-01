@@ -68,7 +68,7 @@ public interface MetadataService {
      *
      * @param authority the same closed query lifetime retained during begin
      */
-    void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority);
+    void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority);
 
     // ── Column governance tags (delegated to ColumnTagService) ──
 

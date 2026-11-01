@@ -5,7 +5,7 @@ import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.catalog.MetadataChange;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -58,7 +58,7 @@ class CachingFederatedCatalogTest {
 
         // Trigger the three SPI methods in sequence as the planner would
         var session = StubConnectorSession.INSTANCE;
-        var schemaTable = new org.pangrova.connector.spi.metadata.table.SchemaTableName("public", "orders");
+        var schemaTable = new org.pangrova.spi.connector.metadata.table.SchemaTableName("public", "orders");
         var handle = connector.getTableHandle(session, schemaTable);
         connector.getTableMetadata(session, handle);
         connector.getColumnHandles(session, handle);
@@ -184,11 +184,11 @@ class CachingFederatedCatalogTest {
         }
     }
 
-    private enum StubConnectorSession implements org.pangrova.connector.spi.ConnectorSession {
+    private enum StubConnectorSession implements org.pangrova.spi.connector.ConnectorSession {
         INSTANCE;
 
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

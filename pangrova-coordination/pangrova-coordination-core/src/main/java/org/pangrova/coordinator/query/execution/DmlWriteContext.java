@@ -15,7 +15,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * @param partitionSpec canonical static partition bindings encoded as {@code name=value}
  */
 public record DmlWriteContext(
-        org.pangrova.connector.spi.metadata.table.QualifiedTableName targetTable,
+        org.pangrova.spi.connector.metadata.table.QualifiedTableName targetTable,
         String writeMode,
         java.util.List<String> partitionSpec,
         java.util.Optional<WritePolicyObservation> policyObservation) {

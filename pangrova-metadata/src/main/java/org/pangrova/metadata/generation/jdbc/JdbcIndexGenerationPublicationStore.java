@@ -13,8 +13,8 @@ import org.pangrova.generation.api.manifest.GenerationManifest;
 import org.pangrova.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.metadata.exception.MetastoreException;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

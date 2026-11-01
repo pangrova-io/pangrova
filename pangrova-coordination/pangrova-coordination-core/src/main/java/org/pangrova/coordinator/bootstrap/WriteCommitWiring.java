@@ -8,13 +8,13 @@ import org.pangrova.coordinator.query.task.DefaultWriteCommitReconciler;
 import org.pangrova.query.store.memory.InMemoryWriteCommitQuarantineStore;
 import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitQuarantineStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
-import org.pangrova.query.api.transaction.WriteCommitQuarantineStore;
+import org.pangrova.persistence.api.query.transaction.WriteCommitQuarantineStore;
 import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandle;
 import org.pangrova.query.store.jdbc.transaction.JdbcWriteCommitJournal;
-import org.pangrova.connector.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.connector.coordination.WriteCommitJournal;
 
 /**
  * Wires the distributed write-commit path: the commit journal, startup recovery of intents a
@@ -93,7 +93,7 @@ final class WriteCommitWiring {
         }
 
         @Override
-        public org.pangrova.query.api.coordination.ExecutionAnchor currentAnchor(
+        public org.pangrova.spi.query.coordination.ExecutionAnchor currentAnchor(
                 String executionId) {
             return hac.requireExecutionAnchor(executionId);
         }

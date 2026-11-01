@@ -7,8 +7,8 @@ import java.util.Set;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.rowfilter.RowPolicy;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -16,7 +16,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.planner.PlanFragment;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
 import org.pangrova.protocol.rest.config.ShuffleConfig;
@@ -27,7 +27,7 @@ import org.pangrova.shuffle.api.ShuffleAccess;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 class RemoteShuffleTaskBindingTest {

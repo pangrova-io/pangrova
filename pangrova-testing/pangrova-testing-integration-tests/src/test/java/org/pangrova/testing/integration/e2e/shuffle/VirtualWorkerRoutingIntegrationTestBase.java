@@ -20,7 +20,7 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.client.core.protocol.ResultEndpoint;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;

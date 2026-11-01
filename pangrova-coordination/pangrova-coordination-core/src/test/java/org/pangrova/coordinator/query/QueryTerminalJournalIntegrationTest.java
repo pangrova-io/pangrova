@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

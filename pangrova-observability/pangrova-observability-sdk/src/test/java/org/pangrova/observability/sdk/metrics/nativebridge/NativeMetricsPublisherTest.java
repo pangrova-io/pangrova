@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.metrics.nativebridge;
 
-import org.pangrova.observability.api.noop.NoOpMetricsProvider;
+import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
@@ -155,7 +155,7 @@ class NativeMetricsPublisherTest {
         final List<String> registeredGaugeNames = new ArrayList<>();
 
         @Override
-        public org.pangrova.observability.api.ObservableDoubleGauge createGauge(
+        public org.pangrova.spi.observability.ObservableDoubleGauge createGauge(
                 String name, String description, String unit, Supplier<Double> supplier) {
             registeredGaugeNames.add(name);
             return super.createGauge(name, description, unit, supplier);

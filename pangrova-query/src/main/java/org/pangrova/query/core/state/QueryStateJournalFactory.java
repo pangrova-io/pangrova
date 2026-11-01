@@ -4,8 +4,8 @@ import javax.sql.DataSource;
 
 import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
 import org.pangrova.query.store.memory.InMemoryQueryStateJournal;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.query.api.state.StateJournalConfig;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.query.state.StateJournalConfig;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 

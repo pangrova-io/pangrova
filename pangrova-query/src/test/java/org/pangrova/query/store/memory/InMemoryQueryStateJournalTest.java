@@ -2,10 +2,10 @@ package org.pangrova.query.store.memory;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.pangrova.query.api.state.JournalEventContext;
-import org.pangrova.connector.spi.coordination.JournalWriteException;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.state.JournalEventContext;
+import org.pangrova.spi.connector.coordination.JournalWriteException;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.spi.query.state.TaskStateEvent;
 
 import static org.junit.jupiter.api.Assertions.*;
 

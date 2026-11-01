@@ -16,7 +16,7 @@ package org.pangrova.planner;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot;
+import org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot;
 
 /**
  * Identifies the write target of a DML operation extracted from the compiled plan.

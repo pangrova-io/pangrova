@@ -7,7 +7,7 @@ import org.pangrova.generation.api.execution.GenerationStageGraph.Purpose;
 import org.pangrova.generation.api.job.GenerationPage;
 import org.pangrova.generation.api.execution.template.GenerationStageTemplate;
 import org.pangrova.generation.api.GenerationPageKind;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.util.ArrayList;
 import java.util.List;

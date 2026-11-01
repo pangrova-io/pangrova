@@ -20,7 +20,7 @@ import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.common.value.MemoryPressure;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import java.time.Instant;
 import java.util.List;
 

@@ -12,12 +12,12 @@ import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.SerializedConnectorOutputHandle;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.plugin.ConnectorContext;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
-import org.pangrova.connector.spi.ConnectorSecretResolver;
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.plugin.ConnectorContext;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.ConnectorSecretResolver;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 
 import java.security.MessageDigest;
 import java.util.LinkedHashMap;
@@ -572,7 +572,7 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
 
     private static final class WorkerConnectorContext implements ConnectorContext {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.metadata.NativeDatasetControlPlane>
+        public java.util.Optional<org.pangrova.spi.connector.metadata.NativeDatasetControlPlane>
                 nativeDatasetControlPlane() {
             return java.util.Optional.empty();
         }

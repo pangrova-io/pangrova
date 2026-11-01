@@ -58,7 +58,7 @@ public interface WorkerSelector {
     default org.pangrova.protocol.v2.ModelAvailability resolveExactModel(
             String modelName,
             org.pangrova.protocol.v2.CapabilityRef capability,
-            org.pangrova.security.api.UserIdentity user) {
+            org.pangrova.spi.security.UserIdentity user) {
         throw new org.pangrova.scheduler.core.failure.NoAvailableWorkerException(
                 "Worker selector cannot resolve exact model deployments");
     }

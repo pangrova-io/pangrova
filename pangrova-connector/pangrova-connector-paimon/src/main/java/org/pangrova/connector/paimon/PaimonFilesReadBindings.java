@@ -18,11 +18,11 @@ import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.paimon.handle.PaimonFilesTableHandle;
 import org.pangrova.protocol.v2.PaimonFilesReadContext;
 import org.pangrova.protocol.v2.PinnedMetadataObject;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;

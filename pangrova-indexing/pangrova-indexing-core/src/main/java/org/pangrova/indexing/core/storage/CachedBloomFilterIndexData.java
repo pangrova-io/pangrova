@@ -2,9 +2,9 @@ package org.pangrova.indexing.core.storage;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.BloomFilterIndexData;
-import org.pangrova.indexing.api.data.IndexData;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.BloomFilterIndexData;
+import org.pangrova.spi.indexing.data.IndexData;
 
 /**
  * Cache-aware wrapper that carries a pre-deserialized {@link SplitBlockBloomFilter}

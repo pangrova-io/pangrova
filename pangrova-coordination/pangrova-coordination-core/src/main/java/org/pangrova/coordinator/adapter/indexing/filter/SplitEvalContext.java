@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.adapter.indexing.filter;
 
-import org.pangrova.connector.spi.index.NativeIndexCapability;
-import org.pangrova.connector.spi.index.NativeIndexEvaluator;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.index.NativeIndexCapability;
+import org.pangrova.spi.connector.index.NativeIndexEvaluator;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 
 import java.util.List;
 import java.util.Map;

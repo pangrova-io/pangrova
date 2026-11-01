@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.logging.provider.mdc;
 
-import org.pangrova.observability.api.Logger;
+import org.pangrova.spi.observability.Logger;
 
 import java.util.Map;
 

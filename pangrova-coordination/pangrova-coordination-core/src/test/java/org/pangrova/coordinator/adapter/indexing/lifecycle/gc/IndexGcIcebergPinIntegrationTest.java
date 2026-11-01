@@ -29,11 +29,11 @@ import org.pangrova.metadata.core.catalog.handle.connector.ConnectorCatalogHandl
 import org.pangrova.indexing.store.jdbc.JdbcIndexMetadataStore;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.nio.file.Path;
 import java.nio.file.Files;

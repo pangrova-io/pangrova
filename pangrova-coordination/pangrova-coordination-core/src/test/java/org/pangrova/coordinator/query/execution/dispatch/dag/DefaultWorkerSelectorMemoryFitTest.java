@@ -10,7 +10,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.core.scoring.WorkerPerformanceScorer;
 import org.pangrova.common.value.MemoryPressure;
 import org.pangrova.coordination.inmemory.InMemoryWorkerRegistry;
-import org.pangrova.coordination.api.CacheCatalogSummary;
+import org.pangrova.spi.coordination.CacheCatalogSummary;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

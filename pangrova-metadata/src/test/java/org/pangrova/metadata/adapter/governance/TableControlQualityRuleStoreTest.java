@@ -17,7 +17,7 @@ import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
 import org.pangrova.metadata.service.RegistryTablePolicyAuthority;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
 
 import javax.sql.DataSource;
 import java.time.Instant;

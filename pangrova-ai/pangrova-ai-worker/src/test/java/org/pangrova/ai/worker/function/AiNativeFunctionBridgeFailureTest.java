@@ -3,11 +3,11 @@ package org.pangrova.ai.worker.function;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.spi.ai.error.AiInvocationException;
 import org.pangrova.ai.worker.embedding.provider.openai.OpenAiCompatibleEmbeddingProvider;
 import org.pangrova.ai.worker.embedding.provider.openai.OpenAiEmbeddingConfig;
 import org.pangrova.ai.worker.invocation.AiTransportTestAdmission;
-import org.pangrova.connector.spi.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.ColumnValue;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

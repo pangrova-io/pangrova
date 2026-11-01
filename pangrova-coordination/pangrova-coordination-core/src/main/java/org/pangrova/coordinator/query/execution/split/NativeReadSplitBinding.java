@@ -5,11 +5,11 @@ import org.pangrova.coordinator.metadata.CatalogExecutionBindings;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.api.catalog.CatalogState;
 import org.pangrova.protocol.v2.DataSplit;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.connector.spi.metadata.SplitConstraint;
-import org.pangrova.connector.spi.metadata.SplitProperties;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.SplitConstraint;
+import org.pangrova.spi.connector.metadata.SplitProperties;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.util.List;
 import java.util.Map;

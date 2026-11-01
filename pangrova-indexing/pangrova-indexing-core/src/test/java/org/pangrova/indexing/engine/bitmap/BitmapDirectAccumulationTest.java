@@ -1,11 +1,11 @@
 package org.pangrova.indexing.engine.bitmap;
 
-import org.pangrova.connector.spi.index.IndexEvalResult;
+import org.pangrova.spi.connector.index.IndexEvalResult;
 import org.pangrova.indexing.engine.bitmap.provider.BitmapStrategyProvider;
 import org.pangrova.indexing.engine.bitmap.serializer.RoaringBitmapCodec;
-import org.pangrova.indexing.api.data.bitmap.BitmapIndexData;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.predicate.InList;
+import org.pangrova.spi.indexing.data.bitmap.BitmapIndexData;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.predicate.InList;
 
 import org.junit.jupiter.api.Test;
 

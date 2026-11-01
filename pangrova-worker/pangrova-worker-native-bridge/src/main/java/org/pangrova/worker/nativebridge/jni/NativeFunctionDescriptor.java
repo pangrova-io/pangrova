@@ -37,7 +37,7 @@ public record NativeFunctionDescriptor(
     public NativeFunctionDescriptor(String name, String returnType, List<String> argumentTypes,
                                     FunctionType functionType, boolean deterministic) {
         this(name, returnType, argumentTypes, functionType, deterministic,
-                new org.pangrova.function.api.metadata.FunctionMetadata(name, returnType, argumentTypes)
+                new org.pangrova.spi.function.metadata.FunctionMetadata(name, returnType, argumentTypes)
                         .defaultNullBehavior());
     }
 

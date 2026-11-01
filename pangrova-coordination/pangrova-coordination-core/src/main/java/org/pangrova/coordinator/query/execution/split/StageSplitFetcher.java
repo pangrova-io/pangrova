@@ -10,7 +10,7 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.planner.StagePlanAccess;
-import org.pangrova.connector.spi.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.Constraint;
 
 /** Fetches stage splits with snapshot and index-aware query constraints. */
 public final class StageSplitFetcher {

@@ -1,6 +1,6 @@
 package org.pangrova.streaming.core.aggregation;
 
-import org.pangrova.connector.spi.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.value.ColumnValue;
 
 /**
  * Accumulator for streaming aggregation with retraction support.

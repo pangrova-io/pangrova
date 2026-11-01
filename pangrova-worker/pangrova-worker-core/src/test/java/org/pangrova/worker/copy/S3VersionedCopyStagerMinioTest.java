@@ -1,16 +1,16 @@
 package org.pangrova.worker.copy;
 
-import org.pangrova.storage.api.blob.BlobObjectId;
+import org.pangrova.filesystem.api.blob.BlobObjectId;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.testing.testkit.ContainerTestBase;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.storage.s3.blob.S3BlobStorage;
+import org.pangrova.filesystem.s3.blob.S3BlobStorage;
 import org.testcontainers.containers.GenericContainer;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;

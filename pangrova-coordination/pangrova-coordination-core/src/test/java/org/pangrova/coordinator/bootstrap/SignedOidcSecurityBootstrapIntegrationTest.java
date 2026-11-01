@@ -3,15 +3,15 @@ package org.pangrova.coordinator.bootstrap;
 import org.junit.jupiter.api.Test;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
-import org.pangrova.security.store.jdbc.PersistentRowPolicyStore;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
+import org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.util.Map;
@@ -25,19 +25,19 @@ class SignedOidcSecurityBootstrapIntegrationTest extends ContainerTestBase {
     @Test
     void signedIdentityAndNamedGrantAreEffectiveAndShutdownFailsClosed() throws Exception {
         var dataSource = SharedPostgresContainer.isolatedDataSource("signed_oidc");
-        new PersistentRowPolicyStore(dataSource).initSchema();
-        var roles = new PersistentRoleStore(dataSource);
+        new JdbcRowPolicyStore(dataSource).initSchema();
+        var roles = new JdbcRoleStore(dataSource);
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
-        var grants = new PersistentGrantStore(dataSource);
+        var grants = new JdbcGrantStore(dataSource);
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "lake", "public", "facts", null));
         try (var issuer = new org.pangrova.coordinator.testinfra.SignedOidcIssuer()) {
             var security = SecurityConfigurationLoader.load(PangrovaConfiguration.fromYaml(Map.of(
                     "security.enabled", "true", "security.auth.type", "OAUTH2",
                     "security.auth.properties.issuer-uri", issuer.uri(),
                     "security.auth.properties.audience", "pangrova")));
-            var bootstrap = new SecurityBootstrap(configWith(security), dataSource, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
+            var bootstrap = new SecurityBootstrap(configWith(security), dataSource, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
             try {
                 bootstrap.start();
                 assertThat(bootstrap.isHealthy()).isTrue();

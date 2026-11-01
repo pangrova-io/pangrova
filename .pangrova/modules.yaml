@@ -51,40 +51,12 @@ artifacts:
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers: {}
 
-  pangrova-function:
-    path: pangrova-function
-    moduleName: org.pangrova.function
-    packageRoots:
-      - org.pangrova.function.api.registry
-      - org.pangrova.function.api.metadata
-      - org.pangrova.function.api.scalar
-      - org.pangrova.function.api.aggregate
-      - org.pangrova.function.api.table
-      - org.pangrova.function.api.runtime
-    exports:
-      - org.pangrova.function.api.registry
-      - org.pangrova.function.api.metadata
-      - org.pangrova.function.api.scalar
-      - org.pangrova.function.api.aggregate
-      - org.pangrova.function.api.table
-      - org.pangrova.function.api.runtime
-    allowedImports: [pangrova-common, pangrova-connector-spi]
-    forbiddenImports:
-      - pangrova-planner
-      - pangrova-metadata
-      - pangrova-coordination-core
-      - pangrova-worker-core
-      - pangrova-connector-iceberg
-      - pangrova-connector-lance
-      - pangrova-connector-paimon
-    providers: {}
-
   pangrova-protocol:
     path: pangrova-protocol
     moduleName: org.pangrova.protocol
     packageRoots: [org.pangrova.protocol]
     exports: [org.pangrova.protocol]
-    allowedImports: [pangrova-client-core, pangrova-common, pangrova-function, pangrova-connector-spi, pangrova-indexing-api]
+    allowedImports: [pangrova-client-core, pangrova-common, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -101,7 +73,7 @@ artifacts:
     moduleName: org.pangrova.materialization
     packageRoots: [org.pangrova.materialization]
     exports: [org.pangrova.materialization]
-    allowedImports: [pangrova-common, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-spi]
     forbiddenImports:
       - pangrova-planner
       - pangrova-metadata
@@ -117,7 +89,7 @@ artifacts:
     moduleName: org.pangrova.materialization.store.jdbc
     packageRoots: [org.pangrova.materialization.store.jdbc]
     exports: [org.pangrova.materialization.store.jdbc]
-    allowedImports: [pangrova-common, pangrova-connector-spi, pangrova-materialization-core]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-materialization-core]
     forbiddenImports:
       - pangrova-planner
       - pangrova-metadata
@@ -130,7 +102,7 @@ artifacts:
     moduleName: org.pangrova.parser
     packageRoots: [org.pangrova.parser]
     exports: [org.pangrova.parser]
-    allowedImports: [pangrova-common, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-spi]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers: {}
 
@@ -139,15 +111,7 @@ artifacts:
     moduleName: org.pangrova.planner
     packageRoots: [org.pangrova.planner]
     exports: [org.pangrova.planner]
-    allowedImports:
-      - pangrova-ai-api
-      - pangrova-connector-spi
-      - pangrova-connector-spi
-      - pangrova-common
-      - pangrova-function
-      - pangrova-parser
-      - pangrova-security
-      - pangrova-shuffle-core
+    allowedImports: [pangrova-spi, pangrova-common, pangrova-parser, pangrova-security, pangrova-shuffle-core]
     forbiddenImports:
       - pangrova-materialization-core
       - pangrova-metadata
@@ -157,48 +121,27 @@ artifacts:
         milestone: M4
         reason: planner plan fragments still carry protocol.v2 exchange/type DTOs; the protocol boundary migration replaces them with planner-owned types
 
-  pangrova-observability-api:
-    path: pangrova-observability/pangrova-observability-api
-    moduleName: org.pangrova.observability.api
-    packageRoots: [org.pangrova.observability.api]
-    exports: [org.pangrova.observability.api]
-    allowedImports: [pangrova-common]
-    forbiddenImports:
-      - pangrova-coordination-core
-      - pangrova-worker-core
-      - pangrova-observability-sdk
-    providers: {}
-
   pangrova-observability-sdk:
     path: pangrova-observability/pangrova-observability-sdk
     moduleName: org.pangrova.observability.sdk
     packageRoots: [org.pangrova.observability.sdk]
     exports: [org.pangrova.observability.sdk]
-    allowedImports: [pangrova-common, pangrova-config, pangrova-observability-api]
+    allowedImports: [pangrova-common, pangrova-config, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
       - pangrova-parser
       - pangrova-planner
     providers:
-      org.pangrova.observability.api.Context$TaskWrapping:
+      org.pangrova.spi.observability.Context$TaskWrapping:
         - org.pangrova.observability.sdk.logging.provider.mdc.MdcTaskWrapping
-
-  pangrova-query-api:
-    path: pangrova-query-api
-    moduleName: org.pangrova.query.api
-    packageRoots: [org.pangrova.query.api]
-    exports: [org.pangrova.query.api]
-    allowedImports: [pangrova-common, pangrova-observability-api, pangrova-protocol]
-    forbiddenImports: [pangrova-query, pangrova-metadata, pangrova-coordination-core, pangrova-worker-core, pangrova-planner, pangrova-security]
-    providers: {}
 
   pangrova-generation-core:
     path: pangrova-generation/pangrova-generation-core
     moduleName: org.pangrova.generation.core
     packageRoots: [org.pangrova.generation.api, org.pangrova.generation.protocol, org.pangrova.generation.assembly, org.pangrova.generation.core.publication, org.pangrova.generation.spi.storage]
     exports: [org.pangrova.generation.api, org.pangrova.generation.protocol, org.pangrova.generation.assembly, org.pangrova.generation.spi.storage]
-    allowedImports: [pangrova-common, pangrova-query-api, pangrova-security]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-security]
     forbiddenImports: [pangrova-generation-transaction-spi, pangrova-generation-store-postgresql, pangrova-metadata, pangrova-query, pangrova-ai-control, pangrova-indexing-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
     providers: {}
 
@@ -207,7 +150,7 @@ artifacts:
     moduleName: org.pangrova.generation.transaction.spi
     packageRoots: [org.pangrova.generation.spi.jdbc]
     exports: [org.pangrova.generation.spi.jdbc]
-    allowedImports: [pangrova-generation-core, pangrova-common, pangrova-query-api]
+    allowedImports: [pangrova-generation-core, pangrova-common, pangrova-spi]
     forbiddenImports: [pangrova-generation-store-postgresql, pangrova-metadata, pangrova-query, pangrova-ai-control, pangrova-indexing-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
     providers: {}
 
@@ -216,7 +159,7 @@ artifacts:
     moduleName: org.pangrova.generation.store.postgresql
     packageRoots: [org.pangrova.generation.store.postgresql.job, org.pangrova.generation.store.postgresql.query, org.pangrova.generation.store.postgresql.execution, org.pangrova.generation.store.postgresql.exchange]
     exports: [org.pangrova.generation.store.postgresql.job, org.pangrova.generation.store.postgresql.query, org.pangrova.generation.store.postgresql.execution, org.pangrova.generation.store.postgresql.exchange]
-    allowedImports: [pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-common, pangrova-query-api, pangrova-security]
+    allowedImports: [pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-common, pangrova-spi, pangrova-security, pangrova-persistence-api]
     forbiddenImports: [pangrova-metadata, pangrova-query, pangrova-ai-control, pangrova-indexing-core, pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
     providers: {}
 
@@ -225,7 +168,7 @@ artifacts:
     moduleName: org.pangrova.query
     packageRoots: [org.pangrova.query.core, org.pangrova.query.store, org.pangrova.query.adapter]
     exports: [org.pangrova.query.core, org.pangrova.query.store, org.pangrova.query.adapter]
-    allowedImports: [pangrova-query-api, pangrova-common, pangrova-connector-spi, pangrova-observability-api, pangrova-protocol, pangrova-security]
+    allowedImports: [pangrova-spi, pangrova-common, pangrova-protocol, pangrova-security, pangrova-persistence-api]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -239,17 +182,19 @@ artifacts:
     moduleName: org.pangrova.scheduler
     packageRoots: [org.pangrova.scheduler]
     exports: [org.pangrova.scheduler]
-    allowedImports: [pangrova-common, pangrova-config, pangrova-observability-api, pangrova-protocol, pangrova-query, pangrova-security, pangrova-shuffle-core]
+    allowedImports: [pangrova-common, pangrova-config, pangrova-spi, pangrova-protocol, pangrova-query, pangrova-security, pangrova-shuffle-core, pangrova-persistence-api]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
       - pangrova-metadata
       - pangrova-planner
-      - pangrova-connector-spi
       - pangrova-connector-runtime
       - pangrova-connector-iceberg
       - pangrova-connector-paimon
       - pangrova-connector-lance
+    # Preserve the former Connector SPI ban after consolidating shared API artifacts.
+    friendExports:
+      pangrova-spi: [org.pangrova.spi.observability, org.pangrova.spi.query, org.pangrova.spi.security]
     providers: {}
 
   pangrova-table:
@@ -257,11 +202,7 @@ artifacts:
     moduleName: org.pangrova.table
     packageRoots: [org.pangrova.table]
     exports: [org.pangrova.table]
-    allowedImports:
-      - pangrova-common
-      - pangrova-connector-spi
-      - pangrova-observability-api
-      - pangrova-security
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-security, pangrova-persistence-jdbc]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -270,44 +211,13 @@ artifacts:
       - pangrova-scheduler
     providers: {}
 
-  pangrova-file-api:
-    path: pangrova-file/pangrova-file-api
-    moduleName: org.pangrova.file.api
-    packageRoots: [org.pangrova.file.api]
-    exports: [org.pangrova.file.api]
-    allowedImports: [pangrova-common]
-    forbiddenImports: [pangrova-file-core, pangrova-file-store-jdbc, pangrova-security,
-                       pangrova-coordination-core, pangrova-worker-core, pangrova-metadata]
-    providers: {}
-
   pangrova-file-core:
     path: pangrova-file/pangrova-file-core
     moduleName: org.pangrova.file.core
-    packageRoots: [org.pangrova.file.core, org.pangrova.file.adapter.worker, org.pangrova.file.spi.authority]
-    exports: [org.pangrova.file.core, org.pangrova.file.adapter.worker, org.pangrova.file.spi.authority]
-    allowedImports: [pangrova-common, pangrova-file-api, pangrova-security]
-    forbiddenImports: [pangrova-file-store-jdbc, pangrova-coordination-core, pangrova-worker-core, pangrova-metadata]
-    providers: {}
-
-  pangrova-file-store-jdbc:
-    path: pangrova-file/pangrova-file-store-jdbc
-    moduleName: org.pangrova.file.store.jdbc
-    packageRoots: [org.pangrova.file.store.jdbc]
-    exports: [org.pangrova.file.store.jdbc]
-    allowedImports:
-      - pangrova-common
-      - pangrova-file-api
-      - pangrova-file-core
-      - pangrova-query-api
-      - pangrova-security
-    forbiddenImports:
-      - pangrova-coordination-core
-      - pangrova-worker-core
-      - pangrova-metadata
-      - pangrova-planner
-      - pangrova-parser
-      - pangrova-table
-      - pangrova-governance
+    packageRoots: [org.pangrova.file.core, org.pangrova.file.adapter.worker]
+    exports: [org.pangrova.file.core, org.pangrova.file.adapter.worker]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-filesystem-api, pangrova-persistence-api]
+    forbiddenImports: [pangrova-persistence-jdbc, pangrova-coordination-core, pangrova-worker-core, pangrova-metadata]
     providers: {}
 
   pangrova-operations:
@@ -315,7 +225,7 @@ artifacts:
     moduleName: org.pangrova.operations
     packageRoots: [org.pangrova.operations]
     exports: [org.pangrova.operations]
-    allowedImports: [pangrova-common, pangrova-observability-api, pangrova-shuffle-core]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-shuffle-core]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers: {}
 
@@ -336,7 +246,7 @@ artifacts:
       - org.pangrova.shuffle.provider
       - org.pangrova.shuffle.scheduling
       - org.pangrova.shuffle.spool
-    allowedImports: [pangrova-common, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-spi]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers:
       org.pangrova.shuffle.spool.SpoolStoreFactory:
@@ -365,20 +275,7 @@ artifacts:
     moduleName: org.pangrova.metadata
     packageRoots: [org.pangrova.metadata]
     exports: [org.pangrova.metadata]
-    allowedImports:
-      - pangrova-generation-core
-      - pangrova-generation-transaction-spi
-      - pangrova-generation-store-postgresql
-      - pangrova-connector-spi
-      - pangrova-common
-      - pangrova-governance
-      - pangrova-indexing-api
-      - pangrova-observability-api
-      - pangrova-query
-      - pangrova-query-api
-      - pangrova-security
-      - pangrova-streaming
-      - pangrova-table
+    allowedImports: [pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-generation-store-postgresql, pangrova-spi, pangrova-common, pangrova-governance, pangrova-query, pangrova-security, pangrova-streaming, pangrova-table, pangrova-persistence-api, pangrova-persistence-jdbc]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     friendExports:
       pangrova-generation-store-postgresql: [org.pangrova.generation.store.postgresql.job, org.pangrova.generation.store.postgresql.query, org.pangrova.generation.store.postgresql.execution, org.pangrova.generation.store.postgresql.exchange]
@@ -389,38 +286,12 @@ artifacts:
     moduleName: org.pangrova.semantic
     packageRoots: [org.pangrova.semantic]
     exports: [org.pangrova.semantic]
-    allowedImports: [pangrova-common, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
       - pangrova-planner
       - pangrova-metadata
-    providers: {}
-
-  pangrova-ai-api:
-    path: pangrova-ai/pangrova-ai-api
-    moduleName: org.pangrova.ai.api
-    packageRoots:
-      - org.pangrova.ai.api.capability
-      - org.pangrova.ai.api.embedding
-      - org.pangrova.ai.api.error
-      - org.pangrova.ai.api.invocation
-      - org.pangrova.ai.api.model
-      - org.pangrova.ai.api.runtime
-    exports:
-      - org.pangrova.ai.api.capability
-      - org.pangrova.ai.api.embedding
-      - org.pangrova.ai.api.error
-      - org.pangrova.ai.api.invocation
-      - org.pangrova.ai.api.model
-      - org.pangrova.ai.api.runtime
-    allowedImports: [pangrova-common, pangrova-protocol]
-    forbiddenImports:
-      - pangrova-ai-control
-      - pangrova-ai-worker
-      - pangrova-coordination-core
-      - pangrova-planner
-      - pangrova-worker-core
     providers: {}
 
   pangrova-ai-worker:
@@ -428,68 +299,57 @@ artifacts:
     moduleName: org.pangrova.ai.worker
     packageRoots: [org.pangrova.ai.worker]
     exports: [org.pangrova.ai.worker]
-    allowedImports:
-      - pangrova-ai-api
-      - pangrova-common
-      - pangrova-connector-spi
-      - pangrova-function
-      - pangrova-protocol
-      - pangrova-security
-      - pangrova-storage-api
-      - pangrova-storage-s3
-      - pangrova-storage-filesystem
-      - pangrova-storage-oss
-      - pangrova-worker-native-bridge
+    allowedImports: [pangrova-spi, pangrova-common, pangrova-protocol, pangrova-security, pangrova-filesystem-api, pangrova-filesystem-s3, pangrova-filesystem-local, pangrova-filesystem-oss, pangrova-worker-native-bridge]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-metadata
       - pangrova-planner
       - pangrova-worker-core
     providers:
-      org.pangrova.function.api.runtime.FunctionCallbackScope:
+      org.pangrova.spi.function.runtime.FunctionCallbackScope:
         - org.pangrova.ai.worker.context.WorkerAiCallbackScope
-      org.pangrova.function.api.runtime.FunctionFailureProjector:
+      org.pangrova.spi.function.runtime.FunctionFailureProjector:
         - org.pangrova.ai.worker.function.AiFunctionFailureProjector
-      org.pangrova.ai.api.runtime.AiTaskLifecycle:
+      org.pangrova.protocol.execution.AiTaskLifecycle:
         - org.pangrova.ai.worker.invocation.WorkerAiTaskLifecycle
-      org.pangrova.ai.api.runtime.AiModelCatalog:
+      org.pangrova.spi.ai.runtime.AiModelCatalog:
         - org.pangrova.ai.worker.provider.WorkerAiModelCatalog
-      org.pangrova.function.api.registry.FunctionFactory:
+      org.pangrova.spi.function.registry.FunctionFactory:
         - org.pangrova.ai.worker.function.AiFunctionFactory
 
-  pangrova-storage-api:
-    path: pangrova-storage/pangrova-storage-api
-    moduleName: org.pangrova.storage.api
-    packageRoots: [org.pangrova.storage.api.blob]
-    exports: [org.pangrova.storage.api.blob]
+  pangrova-filesystem-api:
+    path: pangrova-filesystem/pangrova-filesystem-api
+    moduleName: org.pangrova.filesystem.api
+    packageRoots: [org.pangrova.filesystem.api]
+    exports: [org.pangrova.filesystem.api]
     allowedImports: [pangrova-common]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 
-  pangrova-storage-filesystem:
-    path: pangrova-storage/pangrova-storage-filesystem
-    moduleName: org.pangrova.storage.filesystem
-    packageRoots: [org.pangrova.storage.filesystem.blob, org.pangrova.storage.filesystem.object]
-    exports: [org.pangrova.storage.filesystem.blob, org.pangrova.storage.filesystem.object]
-    allowedImports: [pangrova-storage-api, pangrova-file-api, pangrova-common]
+  pangrova-filesystem-local:
+    path: pangrova-filesystem/pangrova-filesystem-local
+    moduleName: org.pangrova.filesystem.local
+    packageRoots: [org.pangrova.filesystem.local.blob, org.pangrova.filesystem.local.object]
+    exports: [org.pangrova.filesystem.local.blob, org.pangrova.filesystem.local.object]
+    allowedImports: [pangrova-filesystem-api, pangrova-common]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 
-  pangrova-storage-s3:
-    path: pangrova-storage/pangrova-storage-s3
-    moduleName: org.pangrova.storage.s3
-    packageRoots: [org.pangrova.storage.s3.blob, org.pangrova.storage.s3.object]
-    exports: [org.pangrova.storage.s3.blob, org.pangrova.storage.s3.object]
-    allowedImports: [pangrova-storage-api, pangrova-file-api, pangrova-common]
+  pangrova-filesystem-s3:
+    path: pangrova-filesystem/pangrova-filesystem-s3
+    moduleName: org.pangrova.filesystem.s3
+    packageRoots: [org.pangrova.filesystem.s3.blob, org.pangrova.filesystem.s3.object]
+    exports: [org.pangrova.filesystem.s3.blob, org.pangrova.filesystem.s3.object]
+    allowedImports: [pangrova-filesystem-api, pangrova-common]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 
-  pangrova-storage-oss:
-    path: pangrova-storage/pangrova-storage-oss
-    moduleName: org.pangrova.storage.oss
-    packageRoots: [org.pangrova.storage.oss.blob]
-    exports: [org.pangrova.storage.oss.blob]
-    allowedImports: [pangrova-storage-api, pangrova-common]
+  pangrova-filesystem-oss:
+    path: pangrova-filesystem/pangrova-filesystem-oss
+    moduleName: org.pangrova.filesystem.oss
+    packageRoots: [org.pangrova.filesystem.oss.blob]
+    exports: [org.pangrova.filesystem.oss.blob]
+    allowedImports: [pangrova-filesystem-api, pangrova-common]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 
@@ -498,7 +358,7 @@ artifacts:
     moduleName: org.pangrova.ai.control
     packageRoots: [org.pangrova.ai.control]
     exports: [org.pangrova.ai.control]
-    allowedImports: [pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-common, pangrova-ai-api, pangrova-security]
+    allowedImports: [pangrova-common, pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-persistence-api, pangrova-persistence-jdbc, pangrova-security, pangrova-spi]
     forbiddenImports:
       - pangrova-metadata
       - pangrova-coordination-core
@@ -506,31 +366,13 @@ artifacts:
       - pangrova-planner
     providers: {}
 
-  pangrova-coordination-api:
-    path: pangrova-coordination/pangrova-coordination-api
-    moduleName: org.pangrova.coordination.api
-    packageRoots: [org.pangrova.coordination.api]
-    exports: [org.pangrova.coordination.api]
-    allowedImports: [pangrova-common]
-    forbiddenImports: [pangrova-coordination-core, pangrova-coordination-jdbc, pangrova-coordination-inmemory, pangrova-coordination-zookeeper, pangrova-worker-core, pangrova-metadata]
-    providers: {}
-
-  pangrova-coordination-jdbc:
-    path: pangrova-coordination/pangrova-coordination-jdbc
-    moduleName: org.pangrova.coordination.jdbc
-    packageRoots: [org.pangrova.coordination.jdbc]
-    exports: [org.pangrova.coordination.jdbc]
-    allowedImports: [pangrova-common, pangrova-coordination-api]
-    forbiddenImports: [pangrova-coordination-core, pangrova-coordination-inmemory, pangrova-coordination-zookeeper, pangrova-metadata]
-    providers: {}
-
   pangrova-coordination-inmemory:
     path: pangrova-coordination/pangrova-coordination-inmemory
     moduleName: org.pangrova.coordination.inmemory
     packageRoots: [org.pangrova.coordination.inmemory]
     exports: [org.pangrova.coordination.inmemory]
-    allowedImports: [pangrova-common, pangrova-coordination-api]
-    forbiddenImports: [pangrova-coordination-core, pangrova-coordination-jdbc, pangrova-coordination-zookeeper, pangrova-metadata]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-persistence-api]
+    forbiddenImports: [pangrova-coordination-core, pangrova-persistence-jdbc, pangrova-coordination-zookeeper, pangrova-metadata]
     providers: {}
 
   pangrova-coordination-zookeeper:
@@ -538,7 +380,7 @@ artifacts:
     moduleName: org.pangrova.coordination.zookeeper
     packageRoots: [org.pangrova.coordination.zookeeper]
     exports: [org.pangrova.coordination.zookeeper]
-    allowedImports: [pangrova-common, pangrova-coordination-api]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-persistence-api]
     forbiddenImports: [pangrova-coordination-core]
     providers: {}
 
@@ -547,7 +389,7 @@ artifacts:
     moduleName: org.pangrova.security
     packageRoots: [org.pangrova.security]
     exports: [org.pangrova.security]
-    allowedImports: [pangrova-common, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-persistence-api, pangrova-persistence-jdbc]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -560,7 +402,7 @@ artifacts:
     moduleName: org.pangrova.governance
     packageRoots: [org.pangrova.governance]
     exports: [org.pangrova.governance]
-    allowedImports: [pangrova-common, pangrova-observability-api, pangrova-security, pangrova-connector-spi, pangrova-query-api]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-security, pangrova-persistence-api, pangrova-persistence-jdbc]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -568,28 +410,19 @@ artifacts:
       - pangrova-planner
     providers: {}
 
-  pangrova-indexing-api:
-    path: pangrova-indexing/pangrova-indexing-api
-    moduleName: org.pangrova.indexing.api
-    packageRoots: [org.pangrova.indexing.api]
-    exports: [org.pangrova.indexing.api]
-    allowedImports: [pangrova-common, pangrova-connector-spi]
-    forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-planner]
-    providers: {}
-
   pangrova-indexing-core:
     path: pangrova-indexing/pangrova-indexing-core
     moduleName: org.pangrova.indexing
     packageRoots: [org.pangrova.indexing]
     exports: [org.pangrova.indexing]
-    allowedImports: [pangrova-common, pangrova-connector-spi, pangrova-metadata, pangrova-planner, pangrova-indexing-api, pangrova-query, pangrova-security, pangrova-observability-api]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-metadata, pangrova-planner, pangrova-query, pangrova-security, pangrova-persistence-jdbc]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     baselineViolations:
       - target: pangrova-protocol
         milestone: M4
         reason: indexing planner extension carries protocol.v2 retrieval capability refs; the protocol boundary migration replaces them with indexing-owned types
     providers:
-      org.pangrova.indexing.api.IndexStrategyProvider:
+      org.pangrova.spi.indexing.IndexStrategyProvider:
         - org.pangrova.indexing.engine.bloom.provider.BloomFilterStrategyProvider
         - org.pangrova.indexing.engine.btree.provider.BTreeStrategyProvider
         - org.pangrova.indexing.engine.gin.provider.GinStrategyProvider
@@ -599,7 +432,7 @@ artifacts:
         - org.pangrova.indexing.engine.rtree.provider.RTreeStrategyProvider
         - org.pangrova.indexing.engine.sparse.provider.SparseStrategyProvider
         - org.pangrova.indexing.engine.bitmap.provider.BitmapStrategyProvider
-      org.pangrova.indexing.api.eval.IndexFileEvaluatorFactory:
+      org.pangrova.spi.indexing.eval.IndexFileEvaluatorFactory:
         - org.pangrova.indexing.core.eval.defaults.DefaultIndexFileEvaluatorFactory
 
   pangrova-streaming:
@@ -607,7 +440,7 @@ artifacts:
     moduleName: org.pangrova.streaming
     packageRoots: [org.pangrova.streaming]
     exports: [org.pangrova.streaming]
-    allowedImports: [pangrova-common, pangrova-observability-api, pangrova-connector-spi, pangrova-parser]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-parser]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers: {}
 
@@ -616,7 +449,7 @@ artifacts:
     moduleName: org.pangrova.transport
     packageRoots: [org.pangrova.transport, org.pangrova.client.transport]
     exports: [org.pangrova.transport, org.pangrova.client.transport]
-    allowedImports: [pangrova-client-core, pangrova-common, pangrova-protocol, pangrova-connector-spi]
+    allowedImports: [pangrova-client-core, pangrova-common, pangrova-protocol, pangrova-spi]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers: {}
 
@@ -625,44 +458,7 @@ artifacts:
     moduleName: org.pangrova.coordinator
     packageRoots: [org.pangrova.coordinator]
     exports: [org.pangrova.coordinator]
-    allowedImports:
-      - pangrova-coordination-api
-      - pangrova-coordination-jdbc
-      - pangrova-coordination-inmemory
-      - pangrova-generation-core
-      - pangrova-generation-transaction-spi
-      - pangrova-ai-api
-      - pangrova-ai-control
-      - pangrova-client-core
-      - pangrova-common
-      - pangrova-config
-      - pangrova-governance
-      - pangrova-indexing-core
-      - pangrova-indexing-api
-      - pangrova-materialization-core
-      - pangrova-materialization-store-jdbc
-      - pangrova-metadata
-      - pangrova-observability-api
-      - pangrova-observability-sdk
-      - pangrova-operations
-      - pangrova-parser
-      - pangrova-planner
-      - pangrova-protocol
-      - pangrova-query
-      - pangrova-query-api
-      - pangrova-scheduler
-      - pangrova-security
-      - pangrova-semantic
-      - pangrova-shuffle-core
-      - pangrova-streaming
-      - pangrova-transport
-      - pangrova-worker-core
-      - pangrova-connector-spi
-      - pangrova-table
-      - pangrova-file-api
-      - pangrova-file-core
-      - pangrova-file-store-jdbc
-      - pangrova-connector-runtime
+    allowedImports: [pangrova-spi, pangrova-persistence-jdbc, pangrova-coordination-inmemory, pangrova-generation-core, pangrova-generation-transaction-spi, pangrova-ai-control, pangrova-client-core, pangrova-common, pangrova-config, pangrova-governance, pangrova-indexing-core, pangrova-materialization-core, pangrova-materialization-store-jdbc, pangrova-metadata, pangrova-observability-sdk, pangrova-operations, pangrova-parser, pangrova-planner, pangrova-protocol, pangrova-query, pangrova-scheduler, pangrova-security, pangrova-semantic, pangrova-shuffle-core, pangrova-streaming, pangrova-transport, pangrova-worker-core, pangrova-table, pangrova-file-core, pangrova-connector-runtime, pangrova-filesystem-api, pangrova-persistence-api]
     forbiddenImports: [pangrova-connector-iceberg, pangrova-connector-paimon]
     friendExports:
       pangrova-worker-core: [org.pangrova.worker.transport]
@@ -674,26 +470,7 @@ artifacts:
     packageRoots: [org.pangrova.worker]
     testPackageRoots: [org.pangrova.testing.nativefixture]
     exports: [org.pangrova.worker]
-    allowedImports:
-      - pangrova-ai-api
-      - pangrova-client-core
-      - pangrova-common
-      - pangrova-config
-      - pangrova-function
-      - pangrova-observability-api
-      - pangrova-observability-sdk
-      - pangrova-operations
-      - pangrova-protocol
-      - pangrova-security
-      - pangrova-shuffle-core
-      - pangrova-connector-spi
-      - pangrova-connector-runtime
-      - pangrova-file-api
-      - pangrova-indexing-api
-      - pangrova-storage-api
-      - pangrova-storage-s3
-      - pangrova-storage-filesystem
-      - pangrova-worker-native-bridge
+    allowedImports: [pangrova-spi, pangrova-client-core, pangrova-common, pangrova-config, pangrova-observability-sdk, pangrova-operations, pangrova-protocol, pangrova-security, pangrova-shuffle-core, pangrova-connector-runtime, pangrova-filesystem-api, pangrova-filesystem-s3, pangrova-filesystem-local, pangrova-worker-native-bridge, pangrova-persistence-api]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-metadata
@@ -707,14 +484,7 @@ artifacts:
     packageRoots: [org.pangrova.worker.nativebridge]
     testPackageRoots: [org.pangrova.worker.nativebridge.jni]
     exports: [org.pangrova.worker.nativebridge]
-    allowedImports:
-      - pangrova-common
-      - pangrova-connector-runtime
-      - pangrova-connector-spi
-      - pangrova-function
-      - pangrova-observability-api
-      - pangrova-protocol
-      - pangrova-security
+    allowedImports: [pangrova-common, pangrova-connector-runtime, pangrova-spi, pangrova-protocol, pangrova-security]
     forbiddenImports:
       - pangrova-ai-control
       - pangrova-ai-worker
@@ -733,26 +503,12 @@ artifacts:
     forbiddenImports: []
     providers: {}
 
-  pangrova-connector-spi:
-    path: pangrova-connector/pangrova-connector-spi
-    moduleName: org.pangrova.connector.spi
-    packageRoots: [org.pangrova.connector.spi]
-    exports: [org.pangrova.connector.spi]
-    allowedImports: [pangrova-common]
-    forbiddenImports:
-      - pangrova-coordination-core
-      - pangrova-worker-core
-      - pangrova-planner
-      - pangrova-metadata
-      - pangrova-connector-runtime
-    providers: {}
-
   pangrova-connector-runtime:
     path: pangrova-connector/pangrova-connector-runtime
     moduleName: org.pangrova.connector.runtime
     packageRoots: [org.pangrova.connector.runtime]
     exports: [org.pangrova.connector.runtime]
-    allowedImports: [pangrova-common, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -768,7 +524,7 @@ artifacts:
     moduleName: org.pangrova.connector.iceberg
     packageRoots: [org.pangrova.connector.iceberg]
     exports: [org.pangrova.connector.iceberg]
-    allowedImports: [pangrova-common, pangrova-protocol, pangrova-connector-spi, pangrova-indexing-api]
+    allowedImports: [pangrova-common, pangrova-protocol, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -776,7 +532,7 @@ artifacts:
       - pangrova-metadata
       - pangrova-materialization-core
     providers:
-      org.pangrova.connector.spi.plugin.ConnectorFactory:
+      org.pangrova.spi.connector.plugin.ConnectorFactory:
         - org.pangrova.connector.iceberg.IcebergConnectorFactory
 
   pangrova-connector-lance:
@@ -784,7 +540,7 @@ artifacts:
     moduleName: org.pangrova.connector.lance
     packageRoots: [org.pangrova.connector.lance]
     exports: [org.pangrova.connector.lance]
-    allowedImports: [pangrova-common, pangrova-protocol, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-protocol, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -792,7 +548,7 @@ artifacts:
       - pangrova-metadata
       - pangrova-materialization-core
     providers:
-      org.pangrova.connector.spi.plugin.ConnectorFactory:
+      org.pangrova.spi.connector.plugin.ConnectorFactory:
         - org.pangrova.connector.lance.LanceConnectorFactory
 
   pangrova-connector-paimon:
@@ -801,7 +557,7 @@ artifacts:
     packageRoots: [org.pangrova.connector.paimon]
     testPackageRoots: [org.pangrova.testfixtures.tableformat]
     exports: [org.pangrova.connector.paimon]
-    allowedImports: [pangrova-common, pangrova-protocol, pangrova-connector-spi]
+    allowedImports: [pangrova-common, pangrova-protocol, pangrova-spi]
     forbiddenImports:
       - pangrova-coordination-core
       - pangrova-worker-core
@@ -809,7 +565,7 @@ artifacts:
       - pangrova-metadata
       - pangrova-materialization-core
     providers:
-      org.pangrova.connector.spi.plugin.ConnectorFactory:
+      org.pangrova.spi.connector.plugin.ConnectorFactory:
         - org.pangrova.connector.paimon.PaimonConnectorFactory
 
   pangrova-client-core:
@@ -825,7 +581,7 @@ artifacts:
       - pangrova-metadata
       - pangrova-protocol
       - pangrova-transport
-      - pangrova-connector-spi
+      - pangrova-spi
     providers: {}
 
   pangrova-client-cli:
@@ -833,11 +589,7 @@ artifacts:
     moduleName: org.pangrova.client.cli
     packageRoots: [org.pangrova.client.cli]
     exports: []
-    allowedImports:
-      - pangrova-client-core
-      - pangrova-common
-      - pangrova-protocol
-      - pangrova-transport
+    allowedImports: [pangrova-client-core, pangrova-common, pangrova-protocol, pangrova-transport]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers: {}
 
@@ -846,11 +598,7 @@ artifacts:
     moduleName: org.pangrova.client.jdbc
     packageRoots: [org.pangrova.client.jdbc]
     exports: [org.pangrova.client.jdbc]
-    allowedImports:
-      - pangrova-client-core
-      - pangrova-common
-      - pangrova-protocol
-      - pangrova-transport
+    allowedImports: [pangrova-client-core, pangrova-common, pangrova-protocol, pangrova-transport]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core]
     providers:
       "java.sql.Driver":
@@ -863,13 +611,7 @@ artifacts:
     packageRoots: [org.pangrova.testing.testkit]
     testPackageRoots: [org.pangrova.testing.property]
     exports: [org.pangrova.testing.testkit]
-    allowedImports:
-      - pangrova-connector-spi
-      - pangrova-common
-      - pangrova-observability-api
-      - pangrova-observability-sdk
-      - pangrova-protocol
-      - pangrova-shuffle-core
+    allowedImports: [pangrova-spi, pangrova-common, pangrova-observability-sdk, pangrova-protocol, pangrova-shuffle-core]
     forbiddenImports: []
     providers: {}
 
@@ -880,17 +622,7 @@ artifacts:
     packageRoots: [org.pangrova.testing.integration.chaos, org.pangrova.testing.integration.e2e, org.pangrova.testing.integration.smoke]
     testPackageRoots: [org.pangrova.testing.integration.control]
     exports: []
-    allowedImports:
-      - pangrova-common
-      - pangrova-connector-spi
-      - pangrova-function
-      - pangrova-indexing-api
-      - pangrova-metadata
-      - pangrova-observability-api
-      - pangrova-observability-sdk
-      - pangrova-query
-      - pangrova-table
-      - pangrova-testing-kit
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-metadata, pangrova-observability-sdk, pangrova-query, pangrova-table, pangrova-testing-kit]
     forbiddenImports: []
     providers: {}
 
@@ -913,4 +645,30 @@ artifacts:
     exports: []
     allowedImports: [pangrova-common, pangrova-testing-kit]
     forbiddenImports: []
+    providers: {}
+  pangrova-spi:
+    path: pangrova-spi
+    moduleName: org.pangrova.spi
+    packageRoots: [org.pangrova.spi]
+    exports: [org.pangrova.spi]
+    allowedImports: [pangrova-common, pangrova-filesystem-api]
+    forbiddenImports: [pangrova-protocol, pangrova-persistence-api, pangrova-persistence-jdbc, pangrova-security, pangrova-coordination-core, pangrova-worker-core, pangrova-planner, pangrova-metadata]
+    providers: {}
+
+  pangrova-persistence-api:
+    path: pangrova-persistence/pangrova-persistence-api
+    moduleName: org.pangrova.persistence.api
+    packageRoots: [org.pangrova.persistence.api]
+    exports: [org.pangrova.persistence.api]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-filesystem-api]
+    forbiddenImports: [pangrova-persistence-jdbc, pangrova-protocol, pangrova-security, pangrova-coordination-core, pangrova-worker-core, pangrova-metadata, pangrova-file-core]
+    providers: {}
+
+  pangrova-persistence-jdbc:
+    path: pangrova-persistence/pangrova-persistence-jdbc
+    moduleName: org.pangrova.persistence.jdbc
+    packageRoots: [org.pangrova.persistence.jdbc]
+    exports: [org.pangrova.persistence.jdbc]
+    allowedImports: [pangrova-common, pangrova-spi, pangrova-filesystem-api, pangrova-persistence-api]
+    forbiddenImports: [pangrova-protocol, pangrova-security, pangrova-coordination-core, pangrova-worker-core, pangrova-metadata, pangrova-file-core, pangrova-planner]
     providers: {}

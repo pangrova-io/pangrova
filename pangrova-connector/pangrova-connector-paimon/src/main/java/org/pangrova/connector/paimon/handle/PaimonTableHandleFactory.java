@@ -2,7 +2,7 @@ package org.pangrova.connector.paimon.handle;
 
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.connector.spi.base.ConnectorException;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataType;

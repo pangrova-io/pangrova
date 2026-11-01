@@ -16,7 +16,7 @@ import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

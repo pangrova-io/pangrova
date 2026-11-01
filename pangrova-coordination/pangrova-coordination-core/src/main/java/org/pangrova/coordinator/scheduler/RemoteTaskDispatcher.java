@@ -33,7 +33,7 @@ import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

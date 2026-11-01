@@ -104,7 +104,7 @@ public final class DynamicFilterBinder {
                         .setUpper(typedString(type.name(), filter.rawMax().toString()));
             }
             case VARCHAR, DATE, TIME, TIMESTAMP, TIMESTAMP_TZ, TIMESTAMP_NS, UUID -> {
-                entry.setScope(type == org.pangrova.connector.spi.data.type.PangrovaType.VARCHAR
+                entry.setScope(type == org.pangrova.spi.connector.data.type.PangrovaType.VARCHAR
                         ? RuntimeFilterScope.RUNTIME_FILTER_SCOPE_BOTH
                         : RuntimeFilterScope.RUNTIME_FILTER_SCOPE_PARTITION_PRUNING);
                 range.setLower(typedString(type.name(), filter.rawMin().toString()))

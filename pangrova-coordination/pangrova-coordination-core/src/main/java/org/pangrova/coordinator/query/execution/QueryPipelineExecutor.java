@@ -19,14 +19,14 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.observability.sdk.tracing.QueryTracer;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.DeleteStatement;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.PlannerException;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.observability.api.Span;
+import org.pangrova.spi.observability.Span;
 import org.pangrova.planner.PlannedQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -194,7 +194,7 @@ final class QueryPipelineExecutor {
     private static void requireAuthorizedSession(CoordinatorSessionContext session) {
         if (session == null || session.userIdentity() == null
                 || session.tenantId() == null || session.tenantId().isBlank()) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Protected compilation requires an authenticated tenant context");
         }
     }
@@ -448,7 +448,7 @@ final class QueryPipelineExecutor {
                     if (parts.size() != 3) {
                         throw new IllegalArgumentException("Distributed write target requires three name components");
                     }
-                    var tableName = new org.pangrova.connector.spi.metadata.table.QualifiedTableName(
+                    var tableName = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
                             parts.get(0), parts.get(1), parts.get(2));
                     return ctx.withDmlWriteContext(new DmlWriteContext(
                             tableName, target.operation().name(), List.of(), Optional.empty()));
@@ -457,7 +457,7 @@ final class QueryPipelineExecutor {
     }
 
     private org.pangrova.planner.MetadataTableQuery resolveMetadataListing(java.util.List<String> parts,
-            org.pangrova.connector.spi.metadata.MetadataTableKind kind, CoordinatorSessionContext context) {
+            org.pangrova.spi.connector.metadata.MetadataTableKind kind, CoordinatorSessionContext context) {
         if (catalogRegistry == null) {
             throw new IllegalStateException("SHOW metadata requires the query catalog registry");
         }

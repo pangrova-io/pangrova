@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventType;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Actual task exit receipts, not simulated dispatch or cleanup exceptions; one real Worker process. */

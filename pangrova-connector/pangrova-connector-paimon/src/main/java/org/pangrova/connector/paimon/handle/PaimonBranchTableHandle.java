@@ -6,9 +6,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 /** A directory-backed Paimon $branches relation, separate from JSON metadata objects. */
 public record PaimonBranchTableHandle(

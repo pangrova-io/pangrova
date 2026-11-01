@@ -8,7 +8,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;

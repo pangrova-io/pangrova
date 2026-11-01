@@ -21,11 +21,13 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-connector-spi</artifactId>
+            <artifactId>pangrova-persistence-api</artifactId>
+            <scope>test</scope>
         </dependency>
+
         <dependency>
             <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-indexing-api</artifactId>
+            <artifactId>pangrova-spi</artifactId>
         </dependency>
 
         <!-- Internal modules -->
@@ -137,11 +139,7 @@
             <artifactId>pangrova-testing-kit</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-file-api</artifactId>
-            <scope>test</scope>
-        </dependency>
+
     </dependencies>
 
 </project>

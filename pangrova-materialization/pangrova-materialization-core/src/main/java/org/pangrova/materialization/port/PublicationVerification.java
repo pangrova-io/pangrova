@@ -2,7 +2,7 @@ package org.pangrova.materialization.port;
 
 import org.pangrova.materialization.domain.Generation;
 import org.pangrova.materialization.domain.RefreshAttempt;
-import org.pangrova.connector.spi.materialization.CommitEvidence;
+import org.pangrova.spi.connector.materialization.CommitEvidence;
 
 /**
  * Verification input for a publication decision.

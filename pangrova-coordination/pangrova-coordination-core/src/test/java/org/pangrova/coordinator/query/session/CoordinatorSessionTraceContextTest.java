@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
 import org.pangrova.observability.sdk.tracing.ExecutionTraceContext;
 import org.pangrova.observability.sdk.tracing.adapter.nativebridge.NativeTraceExporter;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.Map;

@@ -6,7 +6,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.Principal;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 /**
  * Observed facts a rewrite guard evaluates.

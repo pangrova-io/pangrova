@@ -33,10 +33,10 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.coordination.api.WorkerRegistry;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.persistence.api.coordination.WorkerRegistry;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
 import org.apache.arrow.memory.BufferAllocator;
 import org.slf4j.Logger;
@@ -60,7 +60,7 @@ final class QueryBootstrap {
     private final StreamingBootstrap streamingBootstrap;
     private final HighAvailabilityCoordinationService coordinationService;
     private final QueryDurableRecoveryWiring durableRecovery;
-    private final org.pangrova.security.api.secret.SecretResolver secretResolver;
+    private final org.pangrova.spi.security.secret.SecretResolver secretResolver;
     private final org.pangrova.ai.control.assembly.AiInfrastructureStores aiInfrastructureStores;
     private final CurrentModelAuthority modelAuthority;
     private final GenerationStores artifactStores;
@@ -100,10 +100,10 @@ final class QueryBootstrap {
             materializationMaintenance;
     private org.pangrova.observability.sdk.metrics.CoordinatorMetrics coordinatorMetrics;
     private QueryDispatcher queryDispatcher;
-    private org.pangrova.query.api.state.QueryStateJournal stateJournal;
+    private org.pangrova.persistence.api.query.state.QueryStateJournal stateJournal;
     private QueryExecutionBootstrap executionWiring;
     private org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker;
-    private org.pangrova.connector.spi.coordination.WriteCommitJournal writeCommitJournal;
+    private org.pangrova.spi.connector.coordination.WriteCommitJournal writeCommitJournal;
     private org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService
             writeCommitRecoveryService;
     private SelfIntelligenceBootstrap selfIntelligence;
@@ -128,7 +128,7 @@ final class QueryBootstrap {
                    MetadataBootstrap metadataBootstrap, ModuleIntegrationBootstrap moduleWiring,
                    javax.sql.DataSource metadataDataSource, StreamingBootstrap streamingBootstrap,
                    HighAvailabilityCoordinationService coordinationService,
-                   org.pangrova.security.api.secret.SecretResolver secretResolver,
+                   org.pangrova.spi.security.secret.SecretResolver secretResolver,
                    org.pangrova.ai.control.assembly.AiInfrastructureStores aiInfrastructureStores,
                    CurrentModelAuthority modelAuthority) {
         this.config = config;
@@ -517,7 +517,7 @@ final class QueryBootstrap {
     }
 
     java.util.Set<String> recoverWriteCommitIntents(
-            java.util.List<org.pangrova.query.api.coordination.ExecutionAnchor> claimed,
+            java.util.List<org.pangrova.spi.query.coordination.ExecutionAnchor> claimed,
             HighAvailabilityCoordinationService service) {
         return durableRecovery.recover(claimed, service, writeCommitRecoveryService);
     }
@@ -529,7 +529,7 @@ final class QueryBootstrap {
      */
     private TaskStatusReceiver createTaskStatusReceiver(
             CatalogRegistry catalog, StageCompletionCallback stageCallback,
-            org.pangrova.connector.spi.coordination.WriteCommitJournal journal) {
+            org.pangrova.spi.connector.coordination.WriteCommitJournal journal) {
         boolean speculative = config.speculationEnabled() && speculativeTaskLauncher != null;
         org.pangrova.coordinator.query.task.report.GenerationWorkReportSink artifactSink =
                 artifactBuildStore == null
@@ -568,7 +568,7 @@ final class QueryBootstrap {
 
     WorkerManager workerManager() { return workerManager; }
     AuditEventEmitter auditEmitter() { return auditEmitter; }
-    org.pangrova.connector.spi.coordination.WriteCommitJournal writeCommitJournal() { return writeCommitJournal; }
+    org.pangrova.spi.connector.coordination.WriteCommitJournal writeCommitJournal() { return writeCommitJournal; }
     QueryManager queryManager() { return queryManager; }
     org.pangrova.observability.sdk.metrics.CoordinatorMetrics coordinatorMetrics() { return coordinatorMetrics; }
     TaskStatusReceiver taskStatusReceiver() { return taskStatusReceiver; }

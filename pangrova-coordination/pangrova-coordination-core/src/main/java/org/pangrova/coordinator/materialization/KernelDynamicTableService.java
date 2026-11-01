@@ -40,7 +40,7 @@ import org.pangrova.parser.ast.statement.AlterDynamicTableStatement;
 import org.pangrova.parser.ast.statement.DescribeDynamicTableStatement;
 import org.pangrova.parser.ast.statement.DropDynamicTableStatement;
 import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Dynamic Table DDL and manual refresh served exclusively by the unified

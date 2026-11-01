@@ -3,7 +3,7 @@ package org.pangrova.indexing.core.planner.vector;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.CapabilityRef;
-import org.pangrova.indexing.api.vector.DistanceMetric;
+import org.pangrova.spi.indexing.vector.DistanceMetric;
 
 import java.util.ArrayList;
 

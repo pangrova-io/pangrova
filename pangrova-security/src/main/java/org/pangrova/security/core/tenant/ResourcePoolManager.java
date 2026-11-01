@@ -1,8 +1,8 @@
 package org.pangrova.security.core.tenant;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.security.api.tenant.ResourcePool;
-import org.pangrova.security.api.tenant.Tenant;
+import org.pangrova.spi.security.tenant.ResourcePool;
+import org.pangrova.spi.security.tenant.Tenant;
 
 import java.util.List;
 import java.util.Map;

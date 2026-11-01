@@ -4,8 +4,8 @@ import org.pangrova.security.core.mask.ColumnMaskingProcessor;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 import org.pangrova.security.core.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.core.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,13 +18,13 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.GroupRoleMapping;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.RoleStore;
-import org.pangrova.security.api.policy.UserRoleAssignment;
+import org.pangrova.persistence.api.security.policy.GrantStore;
+import org.pangrova.spi.security.policy.GroupRoleMapping;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.persistence.api.security.policy.RoleStore;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
 
 /**
  * End-to-end test for the role-resolved, dynamic RBAC introduced by F-SEC-04

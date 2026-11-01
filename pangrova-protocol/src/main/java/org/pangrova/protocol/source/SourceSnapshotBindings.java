@@ -4,8 +4,8 @@ import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.AcceptedSourceSnapshotRef;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.connector.spi.metadata.AcceptedSourceSnapshot;
-import org.pangrova.connector.spi.metadata.ManagedSourceCatalog;
+import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
 
 /** Canonical source membership encoding shared by write allocation, metadata RPC and physical split readers. */
 public final class SourceSnapshotBindings {

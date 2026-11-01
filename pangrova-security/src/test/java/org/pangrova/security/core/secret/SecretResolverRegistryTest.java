@@ -1,9 +1,9 @@
 package org.pangrova.security.core.secret;
 
 import org.pangrova.common.exception.ConfigurationException;
-import org.pangrova.security.api.secret.SecretProvider;
-import org.pangrova.security.api.secret.SecretReference;
-import org.pangrova.security.api.secret.SecretTemplates;
+import org.pangrova.spi.security.secret.SecretProvider;
+import org.pangrova.spi.security.secret.SecretReference;
+import org.pangrova.spi.security.secret.SecretTemplates;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

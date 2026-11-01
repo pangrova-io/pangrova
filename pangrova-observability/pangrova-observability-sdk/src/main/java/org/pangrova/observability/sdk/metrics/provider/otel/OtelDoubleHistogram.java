@@ -1,7 +1,7 @@
 package org.pangrova.observability.sdk.metrics.provider.otel;
 
-import org.pangrova.observability.api.DoubleHistogram;
-import org.pangrova.observability.api.MetricAttributes;
+import org.pangrova.spi.observability.DoubleHistogram;
+import org.pangrova.spi.observability.MetricAttributes;
 
 /**
  * Wraps {@link io.opentelemetry.api.metrics.DoubleHistogram} behind Pangrova's SPI.

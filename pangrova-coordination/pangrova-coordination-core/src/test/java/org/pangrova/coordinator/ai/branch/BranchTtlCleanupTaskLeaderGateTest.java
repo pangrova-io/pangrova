@@ -10,17 +10,17 @@ import org.pangrova.metadata.api.catalog.MetadataStore;
 import org.pangrova.metadata.api.catalog.SyncResult;
 import org.pangrova.metadata.api.object.TableMetadata;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.connector.spi.plugin.Connector;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSourceProvider;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSplitManager;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
-import org.pangrova.connector.spi.metadata.SnapshotReference;
-import org.pangrova.connector.spi.metadata.ConditionalBranchDropResult;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.plugin.Connector;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.spi.connector.metadata.SnapshotReference;
+import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -219,15 +219,15 @@ class BranchTtlCleanupTaskLeaderGateTest {
         }
 
         @Override
-        public java.util.Map<String, org.pangrova.connector.spi.metadata.table.ColumnHandle> getColumnHandles(
+        public java.util.Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(
                 ConnectorSession session, ConnectorTableHandle table) {
             return Map.of();
         }
 
         @Override
-        public org.pangrova.connector.spi.metadata.table.TableStatistics getTableStatistics(
+        public org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(
                 ConnectorSession session, ConnectorTableHandle table) {
-            return org.pangrova.connector.spi.metadata.table.TableStatistics.UNKNOWN;
+            return org.pangrova.spi.connector.metadata.table.TableStatistics.UNKNOWN;
         }
 
         @Override

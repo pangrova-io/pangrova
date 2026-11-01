@@ -6,7 +6,7 @@ import java.util.Optional;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.statement.StatementClassifier;
 import org.pangrova.parser.ast.Statement;
-import org.pangrova.coordination.api.CoordinatorRegistry;
+import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

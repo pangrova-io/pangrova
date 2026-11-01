@@ -2,13 +2,13 @@ package org.pangrova.indexing.engine.btree.provider;
 
 import org.pangrova.indexing.engine.btree.evaluator.BTreeSearcher;
 import org.pangrova.indexing.engine.btree.evaluator.CompositeKey;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.IndexStrategyProvider;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.data.BTreeIndexData;
-import org.pangrova.indexing.api.data.BTreePage;
-import org.pangrova.indexing.api.data.IndexData;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.IndexStrategyProvider;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.data.BTreeIndexData;
+import org.pangrova.spi.indexing.data.BTreePage;
+import org.pangrova.spi.indexing.data.IndexData;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
 
 import java.util.ArrayList;
 import java.util.Arrays;

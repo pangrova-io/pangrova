@@ -1,6 +1,6 @@
 package org.pangrova.observability.sdk.metrics;
 
-import org.pangrova.observability.api.MetricsProvider;
+import org.pangrova.spi.observability.MetricsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

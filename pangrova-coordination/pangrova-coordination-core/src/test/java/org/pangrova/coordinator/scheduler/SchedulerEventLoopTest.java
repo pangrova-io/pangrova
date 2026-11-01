@@ -2,7 +2,6 @@ package org.pangrova.coordinator.scheduler;
 
 import org.pangrova.scheduler.core.admission.SchedulerEventLoop;
 
-
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;

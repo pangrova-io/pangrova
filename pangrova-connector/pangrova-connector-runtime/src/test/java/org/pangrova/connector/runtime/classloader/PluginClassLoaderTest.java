@@ -16,13 +16,13 @@ class PluginClassLoaderTest {
 
     @Test
     void spiClassesDelegateToSpiClassLoader() throws ClassNotFoundException {
-        // org.pangrova.connector.spi.plugin.Connector is an SPI class — must always
+        // org.pangrova.spi.connector.plugin.Connector is an SPI class — must always
         // be loaded from the SPI classloader regardless of policy.
         PluginClassLoader cl = new PluginClassLoader(
                 "test", EMPTY_URLS, getClass().getClassLoader());
 
-        Class<?> loaded = cl.loadClass("org.pangrova.connector.spi.plugin.Connector");
-        assertThat(loaded).isSameAs(org.pangrova.connector.spi.plugin.Connector.class);
+        Class<?> loaded = cl.loadClass("org.pangrova.spi.connector.plugin.Connector");
+        assertThat(loaded).isSameAs(org.pangrova.spi.connector.plugin.Connector.class);
     }
 
     @Test

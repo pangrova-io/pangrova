@@ -41,7 +41,7 @@ class TypeMapperTest {
         assertThat(type.getScale()).isZero();
         assertThat(typeMapper.map(type)).isEqualTo(TypeCreator.REQUIRED.decimal(10, 0));
         assertThat(typeMapper.toPangrovaParameterizedType(type))
-                .isEqualTo(new org.pangrova.connector.spi.data.type.primitive.DecimalType(10, 0));
+                .isEqualTo(new org.pangrova.spi.connector.data.type.primitive.DecimalType(10, 0));
     }
 
     private TypeMapper typeMapper;

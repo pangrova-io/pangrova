@@ -15,7 +15,7 @@ import org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement;
 import org.pangrova.parser.ast.statement.dml.InsertSelectStatement;
 import org.pangrova.parser.ast.statement.dml.MergeStatement;
 import org.pangrova.parser.ast.statement.dml.UpdateStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -131,14 +131,14 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
                     org.pangrova.common.exception.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "INSERT VALUES requires at least one row");
         }
-        org.pangrova.connector.spi.metadata.table.QualifiedTableName ref =
+        org.pangrova.spi.connector.metadata.table.QualifiedTableName ref =
                 TableNameExtractor.extractQualified(statement, coordinatorSession);
-        org.pangrova.connector.spi.ConnectorSession session =
+        org.pangrova.spi.connector.ConnectorSession session =
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                         coordinatorSession, ref.catalog(), ref.schema());
-        org.pangrova.connector.spi.metadata.ConnectorMetadata metadata =
+        org.pangrova.spi.connector.metadata.ConnectorMetadata metadata =
                 catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
-        org.pangrova.connector.spi.metadata.table.ConnectorTableHandle table =
+        org.pangrova.spi.connector.metadata.table.ConnectorTableHandle table =
                 org.pangrova.coordinator.query.statement.TableResolver.requireTableHandle(
                         metadata, session, ref);
         java.util.List<String> columns =
@@ -155,17 +155,17 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
         if (statement instanceof DeleteStatement || catalogRegistry == null) {
             return;
         }
-        org.pangrova.connector.spi.metadata.table.QualifiedTableName ref =
+        org.pangrova.spi.connector.metadata.table.QualifiedTableName ref =
                 TableNameExtractor.extractQualified(statement, session);
         if (ref == null) {
             return;
         }
-        org.pangrova.connector.spi.ConnectorSession connectorSession =
+        org.pangrova.spi.connector.ConnectorSession connectorSession =
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                         session, ref.catalog(), ref.schema());
-        org.pangrova.connector.spi.metadata.ConnectorMetadata metadata =
+        org.pangrova.spi.connector.metadata.ConnectorMetadata metadata =
                 catalogRegistry.getCatalog(ref.catalog()).getMetadata(connectorSession);
-        org.pangrova.connector.spi.metadata.table.ConnectorTableHandle tableHandle =
+        org.pangrova.spi.connector.metadata.table.ConnectorTableHandle tableHandle =
                 org.pangrova.coordinator.query.statement.TableResolver.requireTableHandle(
                         metadata, connectorSession, ref);
         org.pangrova.coordinator.query.statement.dml.GeneratedColumnWriteGuard

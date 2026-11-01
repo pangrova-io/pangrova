@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.util.List;
 
-import org.pangrova.coordination.api.CoordinatorRole;
-import org.pangrova.coordination.api.CoordinatorSnapshot;
+import org.pangrova.spi.coordination.CoordinatorRole;
+import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.junit.jupiter.api.Test;
 
 /**

@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.connector.spi.index.statistics.DataFileStatistics;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.index.statistics.DataFileStatistics;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;

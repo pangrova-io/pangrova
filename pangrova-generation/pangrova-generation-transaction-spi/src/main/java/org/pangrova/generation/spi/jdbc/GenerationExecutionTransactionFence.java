@@ -2,7 +2,7 @@ package org.pangrova.generation.spi.jdbc;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;

@@ -1,12 +1,12 @@
 package org.pangrova.testing.testkit;
 
-import org.pangrova.observability.api.noop.NoOpLoggingProvider;
-import org.pangrova.observability.api.noop.NoOpMetricsProvider;
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
+import org.pangrova.observability.sdk.noop.NoOpLoggingProvider;
+import org.pangrova.observability.sdk.noop.NoOpMetricsProvider;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
 import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
-import org.pangrova.observability.api.LoggingProvider;
-import org.pangrova.observability.api.MetricsProvider;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.LoggingProvider;
+import org.pangrova.spi.observability.MetricsProvider;
+import org.pangrova.spi.observability.TracingProvider;
 
 /**
  * Centralized NoOp observability singletons for test code.

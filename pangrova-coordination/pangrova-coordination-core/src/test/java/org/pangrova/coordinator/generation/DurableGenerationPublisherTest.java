@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.generation;
 
-
 import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
@@ -58,9 +57,9 @@ class DurableGenerationPublisherTest {
                 "durable_artifact_publisher");
         store = ModelAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures(dataSource);
-        var source = new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items");
+        var source = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items");
         org.pangrova.coordinator.testinfra.CoordinatorGenerationAuthorityFixtures.provision(
-                dataSource, TENANT, "principal-1", org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
+                dataSource, TENANT, "principal-1", org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
                         source, java.util.Set.of("embedding"), source));
         clock = new MutableClock(START);
     }
@@ -195,10 +194,10 @@ class DurableGenerationPublisherTest {
                                         GenerationPageKind.SOURCE_MAP, List.of(GenerationSplit.of(
                                                 "source-1", "canonical-split".getBytes(StandardCharsets.UTF_8))), List.of(), 3)), java.util.List.of()),
                         TENANT, "principal-1",
-                        org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                                new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items"),
+                        org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items"),
                                 java.util.Set.of("embedding"),
-                                new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items")),
+                                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items")),
                         new GenerationDispatchSpec.ResourceGrant(
                                 1024, 1, 1024, 60_000)),
                 List.of(new GenerationPage(

@@ -5,9 +5,9 @@ import org.pangrova.generation.spi.jdbc.GenerationExecutionTransactionFence;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.api.execution.GenerationExecutionOwnerLostException;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.coordination.ExecutionOwnerLostException;
-import org.pangrova.query.api.coordination.jdbc.ExecutionTransactionFence;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionOwnerLostException;
+import org.pangrova.persistence.api.query.transaction.ExecutionTransactionFence;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

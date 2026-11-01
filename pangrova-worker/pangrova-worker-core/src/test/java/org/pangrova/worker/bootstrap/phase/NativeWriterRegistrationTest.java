@@ -1,14 +1,14 @@
 package org.pangrova.worker.bootstrap.phase;
 
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.ConnectorPageSinkProvider;
-import org.pangrova.connector.spi.data.page.Page;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.page.Page;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.pangrova.worker.bootstrap.ownership.WorkerComponentRefs;
 import org.pangrova.worker.nativebridge.connector.spi.CatalogResourceResolver;
 import org.pangrova.worker.nativebridge.jni.write.NativeWriteExecutor;
@@ -151,13 +151,13 @@ class NativeWriterRegistrationTest {
         }
 
         @Override
-        public org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata getTableMetadata(
+        public org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata getTableMetadata(
                 ConnectorSession session, ConnectorTableHandle table) {
             return null;
         }
 
         @Override
-        public java.util.Map<String, org.pangrova.connector.spi.metadata.table.ColumnHandle> getColumnHandles(
+        public java.util.Map<String, org.pangrova.spi.connector.metadata.table.ColumnHandle> getColumnHandles(
                 ConnectorSession session, ConnectorTableHandle table) {
             return java.util.Map.of();
         }
@@ -185,7 +185,7 @@ class NativeWriterRegistrationTest {
 
     private static final class StubSession implements ConnectorSession {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

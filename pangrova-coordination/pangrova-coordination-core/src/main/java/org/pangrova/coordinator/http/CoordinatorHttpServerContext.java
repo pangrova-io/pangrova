@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.http.endpoint.copy.CopySourceReadResource;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.service.MetadataService;
-import org.pangrova.observability.api.profiling.ProfilerEndpoint;
+import org.pangrova.spi.observability.profiling.ProfilerEndpoint;
 import org.pangrova.query.core.profiling.QueryProfileService;
 import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;

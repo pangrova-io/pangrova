@@ -1,9 +1,9 @@
 package org.pangrova.scheduler.core.admission;
 
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantStatus;
-import org.pangrova.security.api.tenant.TenantStore;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantStatus;
+import org.pangrova.persistence.api.security.tenant.TenantStore;
 import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 import org.pangrova.scheduler.api.resource.ClusterAdmissionController;

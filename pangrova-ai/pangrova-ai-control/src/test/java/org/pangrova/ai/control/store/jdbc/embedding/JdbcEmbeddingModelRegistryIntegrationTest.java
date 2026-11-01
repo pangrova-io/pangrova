@@ -23,14 +23,14 @@ import org.pangrova.ai.control.embedding.ModelDropUnavailableException;
 import org.pangrova.ai.control.embedding.ModelNotFoundException;
 import org.pangrova.ai.control.embedding.ModelUpdateRequest;
 import org.pangrova.ai.control.embedding.VersionConflictException;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import javax.sql.DataSource;
 
@@ -65,12 +65,12 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
 
     private JdbcEmbeddingModelRegistry registry;
     private DataSource dataSource;
-    private PersistentRoleStore roles;
+    private JdbcRoleStore roles;
 
     @BeforeEach
     void setUp() throws Exception {
         dataSource = MigratedPostgres.create();
-        roles = new PersistentRoleStore(dataSource);
+        roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of(ADMIN_GROUP));
         roles.createRole(Role.of(USAGE_GROUP));
@@ -110,7 +110,7 @@ class JdbcEmbeddingModelRegistryIntegrationTest extends ContainerTestBase {
 
         org.flywaydb.core.Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration").load().migrate();
-        roles = new PersistentRoleStore(dataSource);
+        roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of(ADMIN_GROUP));
         roles.grantRoleToUser(UserRoleAssignment.of(ADMIN.principal(), ADMIN_GROUP));

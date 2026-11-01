@@ -12,11 +12,11 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
-import org.pangrova.observability.api.event.QueryState;
-import org.pangrova.observability.api.event.QueryCompletedEvent;
-import org.pangrova.observability.api.event.QueryStatistics;
-import org.pangrova.observability.api.event.SplitCompletedEvent;
-import org.pangrova.observability.api.event.QueryEventListener;
+import org.pangrova.spi.observability.event.QueryState;
+import org.pangrova.spi.observability.event.QueryCompletedEvent;
+import org.pangrova.spi.observability.event.QueryStatistics;
+import org.pangrova.spi.observability.event.SplitCompletedEvent;
+import org.pangrova.spi.observability.event.QueryEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

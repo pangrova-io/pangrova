@@ -10,11 +10,11 @@ import org.pangrova.materialization.domain.MaterializationId;
 import org.pangrova.materialization.domain.PhysicalTableRef;
 import org.pangrova.materialization.port.PhysicalGenerationStore;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Connector-backed physical generation lifecycle for garbage collection.

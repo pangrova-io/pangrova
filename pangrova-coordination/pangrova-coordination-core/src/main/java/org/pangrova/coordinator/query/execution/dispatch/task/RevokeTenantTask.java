@@ -8,7 +8,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionConte
 import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.parser.ast.statement.RevokeTenantStatement;
 import org.pangrova.security.core.tenant.TenantLifecycleManager;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes REVOKE TENANT by delegating to {@link TenantLifecycleManager#revokeTenant}.

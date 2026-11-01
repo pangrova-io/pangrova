@@ -1,17 +1,17 @@
 package org.pangrova.security.core.authz;
 
-import org.pangrova.security.api.policy.SqlIdentifierValidator;
-import org.pangrova.security.api.event.SecurityPolicyChangeEvent;
-import org.pangrova.security.api.event.SecurityPolicyEventPublisher;
+import org.pangrova.spi.security.policy.SqlIdentifierValidator;
+import org.pangrova.spi.security.event.SecurityPolicyChangeEvent;
+import org.pangrova.spi.security.event.SecurityPolicyEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import org.pangrova.security.api.policy.GrantStore;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
+import org.pangrova.persistence.api.security.policy.GrantStore;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
 
 /**
  * Handles GRANT and REVOKE DDL statements by mutating the backing {@link GrantStore}

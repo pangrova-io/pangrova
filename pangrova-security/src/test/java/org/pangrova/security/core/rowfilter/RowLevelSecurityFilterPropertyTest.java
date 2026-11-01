@@ -4,10 +4,10 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.StringLength;
-import org.pangrova.security.api.rowfilter.ParameterizedFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.api.rowfilter.RowPolicyStore;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.rowfilter.ParameterizedFilter;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.time.Instant;
 import java.util.ArrayList;

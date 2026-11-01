@@ -7,7 +7,7 @@ import org.pangrova.connector.runtime.classloader.ConnectorClassLoaderFactory;
 import org.pangrova.connector.runtime.classloader.DefaultConnectorClassLoaderFactory;
 import org.pangrova.connector.runtime.classloader.PluginClassLoader;
 import org.pangrova.connector.runtime.discovery.ConnectorFactoryRegistry;
-import org.pangrova.connector.spi.plugin.ConnectorFactory;
+import org.pangrova.spi.connector.plugin.ConnectorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

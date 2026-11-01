@@ -3,8 +3,8 @@ package org.pangrova.indexing.core.lifecycle;
 import org.pangrova.indexing.core.storage.IndexCache;
 import org.pangrova.indexing.core.storage.IndexStorageLayout;
 import org.pangrova.indexing.core.storage.IndexStorageManager;
-import org.pangrova.connector.spi.index.FileSystemAccessor;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

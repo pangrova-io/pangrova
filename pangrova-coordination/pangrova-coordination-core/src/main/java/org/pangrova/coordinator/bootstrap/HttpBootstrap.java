@@ -10,13 +10,13 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.query.adapter.audit.LogAuditStore;
 import org.pangrova.query.core.audit.QueryAuditService;
-import org.pangrova.observability.api.noop.DisabledNativeProfiler;
-import org.pangrova.observability.api.profiling.ProfilerEndpoint;
+import org.pangrova.observability.sdk.noop.NoOpNativeProfiler;
+import org.pangrova.spi.observability.profiling.ProfilerEndpoint;
 import org.pangrova.query.core.profiling.QueryProfileService;
 import org.pangrova.observability.sdk.tracing.adapter.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
 import org.pangrova.security.core.authn.AuthenticationManager;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,7 +101,7 @@ final class HttpBootstrap {
     }
 
     private static ProfilerEndpoint buildProfilerEndpoint() {
-        return new ProfilerEndpoint(new DisabledNativeProfiler());
+        return new ProfilerEndpoint(new NoOpNativeProfiler());
     }
 
     private static QueryProfileService buildQueryProfileService() {

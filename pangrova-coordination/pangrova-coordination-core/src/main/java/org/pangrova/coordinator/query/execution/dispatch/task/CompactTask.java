@@ -9,7 +9,7 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
 import org.pangrova.coordinator.query.execution.dispatch.TableNameExtractor;
 import org.pangrova.coordinator.query.statement.MaintenanceExecutor;
 import org.pangrova.parser.ast.statement.maintenance.CompactStatement;
-import org.pangrova.connector.spi.data.value.TypedRow;
+import org.pangrova.spi.connector.data.value.TypedRow;
 
 /**
  * Executes COMPACT TABLE by delegating to {@link MaintenanceExecutor#executeCompact}.

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.observability.api.noop.NoOpTracingProvider;
-import org.pangrova.security.api.audit.AuditEvent;
-import org.pangrova.security.api.audit.AuditEventType;
+import org.pangrova.observability.sdk.noop.NoOpTracingProvider;
+import org.pangrova.spi.security.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEventType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.SharedPostgres;
 

@@ -43,10 +43,10 @@ import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.protocol.rest.config.WriteConfig;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -193,7 +193,7 @@ final class QuerySchedulingEngine {
             var connectorSession = org.pangrova.coordinator.query.session.SessionContextConverter
                     .toConnectorSession(session, catalog, schema);
             var metadata = catalogHandle.getMetadata(connectorSession);
-            var qualifiedName = new org.pangrova.connector.spi.metadata.table.QualifiedTableName(
+            var qualifiedName = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
                     catalog, schema, table);
             var tableHandle = org.pangrova.coordinator.query.statement.TableResolver
                     .requireTableHandle(metadata, connectorSession, qualifiedName);
@@ -216,7 +216,7 @@ final class QuerySchedulingEngine {
                     tableHandle, dmlCtx, catalogHandle, deferredAuthority, allocationIntent));
             LOG.info("event=write_context_auto_registered queryId={} table={} writeMode={}",
                     queryId, targetTable, dmlCtx.writeMode());
-        } catch (org.pangrova.security.api.AccessDeniedException denied) {
+        } catch (org.pangrova.spi.security.AccessDeniedException denied) {
             throw denied;
         } catch (Exception e) {
             throw new IllegalStateException(
@@ -228,7 +228,7 @@ final class QuerySchedulingEngine {
     private record WriteAdmission(String queryId, String catalogName, ConnectorSession session,
             ConnectorMetadata metadata, ConnectorTableHandle table, DmlWriteContext context,
             org.pangrova.metadata.api.catalog.CatalogHandle catalogHandle,
-            org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt authority,
+            org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt authority,
             WriteAllocationIntent intent) {}
 
     private void allocateReservedWrite(
@@ -249,7 +249,7 @@ final class QuerySchedulingEngine {
         }
     }
 
-    private static java.util.Optional<org.pangrova.connector.spi.metadata.table.TableIdentity>
+    private static java.util.Optional<org.pangrova.spi.connector.metadata.table.TableIdentity>
             resolveTableIdentity(ConnectorMetadata metadata, ConnectorSession session,
                     ConnectorTableHandle handle) {
         try {
@@ -271,30 +271,30 @@ final class QuerySchedulingEngine {
     }
 
     private static void requireSameAdmittedWrite(NativeWriteCommitTracker.WriteCommitState existing,
-            ConnectorSession current, org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt authority,
+            ConnectorSession current, org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt authority,
             WriteAllocationIntent allocationIntent) {
         if (!existing.authorizationReceipt().equals(authority)
                 || !existing.allocationIntent().equals(allocationIntent)
                 || !existing.session().getUser().equals(current.getUser())
                 || !java.util.Objects.equals(existing.session().getProperties().get("tenant_id"),
                         current.getProperties().get("tenant_id"))) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "A query write context cannot be reused with different authority or declaration");
         }
     }
 
-    private org.pangrova.connector.spi.coordination.WriteAuthorizationReceipt resolveGeneratedWriteAuthority(
-            org.pangrova.connector.spi.metadata.table.QualifiedTableName table,
+    private org.pangrova.spi.connector.coordination.WriteAuthorizationReceipt resolveGeneratedWriteAuthority(
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName table,
             ConnectorMetadata metadata, ConnectorTableHandle handle,
             ConnectorSession session, String writeMode, WritePolicyObservation observation,
             boolean internalMaterializationExecution) {
         var currentMetadata = metadata.getTableMetadata(session, handle);
         var definitions = org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec.decode(
                 currentMetadata.properties());
-        var currentDeclaration = org.pangrova.connector.spi.coordination.WriteDeclarationSnapshot.capture(
+        var currentDeclaration = org.pangrova.spi.connector.coordination.WriteDeclarationSnapshot.capture(
                 table, currentMetadata, definitions.toByteArray(), definitions.getDefinitionsCount() != 0);
         if (!currentDeclaration.equals(observation.declaration())) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "Compiled write declaration changed before admission");
         }
         return GeneratedWriteAuthorityAdmission.resolve(
@@ -310,7 +310,7 @@ final class QuerySchedulingEngine {
      */
     private static void requireWriteCapability(ConnectorMetadata metadata,
             ConnectorSession session, ConnectorTableHandle table, String writeMode,
-            org.pangrova.connector.spi.metadata.table.QualifiedTableName target) {
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName target) {
         var capabilities = metadata.getTableCapabilities(session, table);
         String mode = writeMode == null ? "" : writeMode.toUpperCase(java.util.Locale.ROOT);
         boolean requiresDelete = mode.equals("DELETE") || mode.equals("UPDATE")

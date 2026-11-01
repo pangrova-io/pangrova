@@ -13,20 +13,20 @@ import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.MetadataTableKind;
-import org.pangrova.connector.spi.metadata.MetadataTableListing;
-import org.pangrova.connector.spi.metadata.ConnectorMetadata;
-import org.pangrova.connector.spi.metadata.ConnectorSystemTable;
-import org.pangrova.connector.spi.metadata.SnapshotReference;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.connector.spi.metadata.table.TableVersionToken;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.MetadataTableKind;
+import org.pangrova.spi.connector.metadata.MetadataTableListing;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.spi.connector.metadata.SnapshotReference;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableVersionToken;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +63,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     /** Registers a query so that subsequent snapshot pinning applies to it. */
     @Override
-    public void beginQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+    public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         try (var operation = authority.enterOperation()) {
             pinManager.beginQuery(authority.queryId());
         }
@@ -82,7 +82,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     /** Unpins the snapshot for the query and releases index evaluator caches. */
     @Override
-    public void cleanupQuery(org.pangrova.connector.spi.ConnectorQueryAuthority authority) {
+    public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         if (!authority.isClosed()) throw new IllegalStateException("Iceberg cleanup requires closed query admission");
         authority.requireDrained();
         pinManager.cleanupQuery(authority.queryId());
@@ -140,11 +140,11 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     }
 
     @Override
-    public org.pangrova.connector.spi.metadata.table.TableCapabilities getTableCapabilities(
+    public org.pangrova.spi.connector.metadata.table.TableCapabilities getTableCapabilities(
             ConnectorSession session, ConnectorTableHandle table) {
         return table instanceof IcebergTableHandle
                 ? IcebergTableHandle.CAPABILITIES
-                : org.pangrova.connector.spi.metadata.table.TableCapabilities.UNSUPPORTED;
+                : org.pangrova.spi.connector.metadata.table.TableCapabilities.UNSUPPORTED;
     }
 
     private static org.apache.iceberg.TableMetadata currentMetadata(Table table) {
@@ -254,14 +254,14 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     }
 
     @Override
-    public org.pangrova.connector.spi.metadata.table.ConnectorReadBinding bindRead(
+    public org.pangrova.spi.connector.metadata.table.ConnectorReadBinding bindRead(
             ConnectorSession session, ConnectorTableHandle table) {
         return IcebergReadBindings.bind(catalogTables, table);
     }
 
     @Override
     public void validateReadBinding(ConnectorSession session,
-            org.pangrova.connector.spi.metadata.table.ConnectorReadBinding binding) {
+            org.pangrova.spi.connector.metadata.table.ConnectorReadBinding binding) {
         IcebergReadBindings.validate(catalogTables, binding);
     }
 

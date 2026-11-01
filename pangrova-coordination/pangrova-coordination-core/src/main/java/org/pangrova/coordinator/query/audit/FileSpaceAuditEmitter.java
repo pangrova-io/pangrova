@@ -8,12 +8,12 @@ import java.util.UUID;
 
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.file.api.space.FileOperationAudit;
-import org.pangrova.security.api.audit.AccessedObject;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.file.space.FileOperationAudit;
+import org.pangrova.spi.security.audit.AccessedObject;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.file.space.FileSpace;
 import org.pangrova.common.file.FileSpaceType;
 
 /**

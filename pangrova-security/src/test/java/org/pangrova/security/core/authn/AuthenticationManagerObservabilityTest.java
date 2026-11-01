@@ -9,10 +9,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import org.pangrova.security.api.authn.AuthenticationRequest;
-import org.pangrova.security.api.authn.AuthenticationResult;
-import org.pangrova.security.api.authn.Authenticator;
-import org.pangrova.security.api.authn.AuthenticatorHealthStatus;
+import org.pangrova.spi.security.authn.AuthenticationRequest;
+import org.pangrova.spi.security.authn.AuthenticationResult;
+import org.pangrova.spi.security.authn.Authenticator;
+import org.pangrova.spi.security.authn.AuthenticatorHealthStatus;
 import org.pangrova.security.core.authn.provider.bypass.BypassAuthenticator;
 
 /**
@@ -97,7 +97,7 @@ class AuthenticationManagerObservabilityTest {
                     throw new RuntimeException("backend down");
                 }
                 return AuthenticationResult.success(
-                        new org.pangrova.security.api.UserIdentity("user", java.util.Set.of(), Map.of(), java.time.Instant.now()));
+                        new org.pangrova.spi.security.UserIdentity("user", java.util.Set.of(), Map.of(), java.time.Instant.now()));
             }
             @Override public boolean supports(AuthenticationRequest r) { return true; }
             @Override public boolean isHealthy() { return !shouldFail.get(); }

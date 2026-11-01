@@ -1,8 +1,8 @@
 package org.pangrova.indexing.store;
 
 import org.pangrova.metadata.exception.IndexAlreadyExistsException;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 
 import java.time.Instant;
 import java.util.List;
@@ -500,7 +500,7 @@ public interface IndexMetadataStore {
     /** Atomically replaces each complete file/snapshot statistics set within the exact tenant and table. */
     default void batchInsertFileStatistics(
             String tenantId, String catalog, String schema, String table,
-            List<org.pangrova.connector.spi.index.statistics.DataFileStatistics> statistics) {}
+            List<org.pangrova.spi.connector.index.statistics.DataFileStatistics> statistics) {}
 
     /**
      * Deletes file column statistics for the specified data file paths.
@@ -520,7 +520,7 @@ public interface IndexMetadataStore {
      * Returns dataFilePath → list of column statistics for the exact tenant and source snapshot only.
      * Unscoped historical rows are not query authority and must not be returned.
      */
-    default Map<String, List<org.pangrova.connector.spi.index.statistics.FileColumnStatistics>> getFileStatistics(
+    default Map<String, List<org.pangrova.spi.connector.index.statistics.FileColumnStatistics>> getFileStatistics(
             String tenantId, String catalog, String schema, String table, String snapshotId,
             List<String> dataFilePaths, List<String> columns) {
         return Map.of();

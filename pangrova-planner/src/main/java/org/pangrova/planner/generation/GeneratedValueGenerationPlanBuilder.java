@@ -151,7 +151,7 @@ public final class GeneratedValueGenerationPlanBuilder {
                 List.of(
                         stringLiteral(logicalModelName),
                         input,
-                        stringLiteral(org.pangrova.ai.api.embedding.EmbeddingPurpose.DOCUMENT.name()),
+                        stringLiteral(org.pangrova.spi.ai.embedding.EmbeddingPurpose.DOCUMENT.name()),
                         stringLiteral(MODEL_INVOCATION_ID)));
     }
 

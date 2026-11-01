@@ -1,9 +1,9 @@
 package org.pangrova.ai.control.store.jdbc.embedding;
 
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
-import org.pangrova.security.spi.jdbc.CurrentDirectRoleReader;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
+import org.pangrova.persistence.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.security.spi.jdbc.CurrentModelAuthority;
 import org.pangrova.common.api.annotation.Internal;
 

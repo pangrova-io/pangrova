@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 import jakarta.ws.rs.BadRequestException;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.file.api.directory.FileStat;
+import org.pangrova.filesystem.api.object.FileStat;
 
 /** Evaluates strong HTTP entity tags independently from provider version identifiers. */
 final class FileReadPreconditions {

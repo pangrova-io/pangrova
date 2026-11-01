@@ -3,7 +3,6 @@ package org.pangrova.coordinator.speculation;
 import org.pangrova.scheduler.core.speculation.SpeculationConfig;
 import org.pangrova.scheduler.core.speculation.StragglerDetector;
 
-
 import org.pangrova.scheduler.api.placement.TaskDuration;
 import org.junit.jupiter.api.Test;
 

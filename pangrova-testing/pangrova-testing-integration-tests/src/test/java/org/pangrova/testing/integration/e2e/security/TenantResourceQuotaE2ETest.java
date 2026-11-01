@@ -1,18 +1,18 @@
 package org.pangrova.testing.integration.e2e.security;
 
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.tenant.TenantRole;
-import org.pangrova.security.api.tenant.TenantStatus;
+import org.pangrova.spi.security.tenant.ResourceQuota;
+import org.pangrova.spi.security.tenant.Tenant;
+import org.pangrova.spi.security.tenant.TenantRole;
+import org.pangrova.spi.security.tenant.TenantStatus;
 import org.pangrova.security.core.tenant.QuotaCheckResult;
 import org.pangrova.security.core.tenant.QuotaChecker;
 import org.pangrova.security.core.tenant.TenantUsage;
 import org.pangrova.security.core.tenant.TenantResolver;
 import org.pangrova.security.core.tenant.TenantLifecycleManager;
 import org.pangrova.security.core.tenant.InMemoryTenantStore;
-import org.pangrova.security.api.tenant.ResolvedTenantContext;
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.tenant.ResolvedTenantContext;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;

@@ -37,16 +37,16 @@ import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.lineage.ColumnDerivation;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
-import org.pangrova.connector.spi.materialization.ChangeSetMode;
-import org.pangrova.connector.spi.materialization.MaterializationCapabilities;
-import org.pangrova.connector.spi.materialization.MaterializationSourceException;
-import org.pangrova.connector.spi.materialization.SourceProvider;
-import org.pangrova.connector.spi.materialization.SourceRef;
-import org.pangrova.connector.spi.materialization.SourceSnapshotRef;
-import org.pangrova.security.api.AccessControl;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.materialization.ChangeSetMode;
+import org.pangrova.spi.connector.materialization.MaterializationCapabilities;
+import org.pangrova.spi.connector.materialization.MaterializationSourceException;
+import org.pangrova.spi.connector.materialization.SourceProvider;
+import org.pangrova.spi.connector.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.SourceSnapshotRef;
+import org.pangrova.spi.security.AccessControl;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Production definition planner for the materialization kernel.

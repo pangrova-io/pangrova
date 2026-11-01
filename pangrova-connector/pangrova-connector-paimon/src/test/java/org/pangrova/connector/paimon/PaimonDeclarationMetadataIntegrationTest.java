@@ -20,11 +20,11 @@ import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -41,7 +41,7 @@ class PaimonDeclarationMetadataIntegrationTest {
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -127,17 +127,17 @@ class PaimonDeclarationMetadataIntegrationTest {
 
     private static void assertGeneratedAdmissionRejected(PaimonMetadata metadata, PaimonTableHandle handle) {
         assertThatThrownBy(() -> metadata.beginInsert(SESSION, handle))
-                .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                 .hasMessageContaining("atomic declaration-and-snapshot commit gate");
         assertThatThrownBy(() -> metadata.beginOverwrite(SESSION, handle))
-                .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                 .hasMessageContaining("atomic declaration-and-snapshot commit gate");
         var declared = metadata.getTableMetadata(SESSION, handle);
-        var create = new org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata(
+        var create = new org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata(
                 new SchemaTableName("db", "rejected"), declared.columns(), declared.typedColumns(),
                 declared.properties());
         assertThatThrownBy(() -> metadata.createTable(SESSION, create))
-                .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                 .hasMessageContaining("atomic declaration-and-snapshot commit gate");
         assertThat(metadata.getTableHandle(SESSION, new SchemaTableName("db", "rejected"))).isNull();
     }

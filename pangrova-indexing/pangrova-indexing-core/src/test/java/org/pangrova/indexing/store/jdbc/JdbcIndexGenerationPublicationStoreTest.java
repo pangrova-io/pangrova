@@ -1,6 +1,5 @@
 package org.pangrova.indexing.store.jdbc;
 
-
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 
 import org.pangrova.generation.assembly.GenerationDispatchSpecFactory;
@@ -22,9 +21,9 @@ import org.pangrova.generation.api.job.GenerationSplit;
 import org.pangrova.generation.api.job.GenerationPageCompletion;
 import org.pangrova.generation.api.GenerationOutputTypeIds;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -306,10 +305,10 @@ class JdbcIndexGenerationPublicationStoreTest {
                 "job-1", org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
                         "substrait-plan".getBytes(StandardCharsets.UTF_8), "operator-binding".getBytes(StandardCharsets.UTF_8), pages, java.util.List.of()),
                 TENANT, "principal-1",
-                org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items"),
+                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items"),
                         java.util.Set.of("embedding"),
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items")),
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items")),
                 new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
     }
 

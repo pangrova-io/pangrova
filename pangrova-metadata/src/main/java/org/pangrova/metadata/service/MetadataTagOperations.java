@@ -30,7 +30,7 @@ final class MetadataTagOperations {
         Objects.requireNonNull(value, "value");
         if ("pii_type".equals(tagKey) && org.pangrova.governance.core.classification.TagBasedSecurityPolicy
                 .piiTypeToMaskExpression(value) == null) {
-            throw new org.pangrova.security.api.AccessDeniedException("Unknown PII tag value");
+            throw new org.pangrova.spi.security.AccessDeniedException("Unknown PII tag value");
         }
         String reference = reference(column, tagKey);
         TableControlRecord record = current(admitted);
@@ -127,7 +127,7 @@ final class MetadataTagOperations {
         var current = catalogs.tableGovernance().requireBindable(
                 admitted.catalog(), admitted.schema(), admitted.table());
         if (!current.tableId().equals(admitted.tableId())) {
-            throw new org.pangrova.security.api.AccessDeniedException("Column tag target was replaced after admission");
+            throw new org.pangrova.spi.security.AccessDeniedException("Column tag target was replaced after admission");
         }
         return admitted;
     }

@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -612,20 +611,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     private static Inet4Address routableHostAddress() throws IOException {
-        var interfaces = NetworkInterface.getNetworkInterfaces();
-        while (interfaces.hasMoreElements()) {
-            var network = interfaces.nextElement();
-            if (!network.isUp() || network.isLoopback() || network.isVirtual()) continue;
-            var addresses = network.getInetAddresses();
-            while (addresses.hasMoreElements()) {
-                var address = addresses.nextElement();
-                if (address instanceof Inet4Address ipv4 && !ipv4.isLoopbackAddress()
-                        && !ipv4.isLinkLocalAddress() && !ipv4.isAnyLocalAddress()) {
-                    return ipv4;
-                }
-            }
-        }
-        throw new IllegalStateException("No routable local IPv4 address for Worker registration");
+        return org.pangrova.testing.testkit.network.TestNetworkAddresses.routableIpv4();
     }
 
     private static String tail(Path path) {

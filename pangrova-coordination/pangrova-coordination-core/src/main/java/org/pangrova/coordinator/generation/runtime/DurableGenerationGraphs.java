@@ -7,7 +7,7 @@ import org.pangrova.generation.api.job.GenerationJobKey;
 import org.pangrova.generation.api.job.GenerationJobStore;
 import org.pangrova.generation.api.execution.GenerationStageGraph;
 import org.pangrova.common.api.annotation.Internal;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
 
 import java.time.Clock;
 import java.time.Duration;

@@ -1,7 +1,7 @@
 package org.pangrova.ai.worker.context;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.capability.AiRequestConstraints;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.capability.AiRequestConstraints;
 
 import java.util.Arrays;
 
@@ -123,8 +123,8 @@ public record BoundAiInvocation(
                 || actualSignature == null
                 || !Arrays.equals(modelSignatureSha256, actualSignature)
                 || operation != actualOperation) {
-            throw new org.pangrova.ai.api.error.AiInvocationException(
-                    org.pangrova.ai.api.error.AiInvocationException.Category.CAPABILITY_MISMATCH,
+            throw new org.pangrova.spi.ai.error.AiInvocationException(
+                    org.pangrova.spi.ai.error.AiInvocationException.Category.CAPABILITY_MISMATCH,
                     false,
                     "Provider execution identity differs from the exact OperatorBinding");
         }

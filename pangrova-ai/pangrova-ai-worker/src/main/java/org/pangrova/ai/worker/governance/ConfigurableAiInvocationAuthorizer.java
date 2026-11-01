@@ -13,10 +13,10 @@
  */
 package org.pangrova.ai.worker.governance;
 
-import org.pangrova.ai.api.capability.AiCapabilityDescriptor;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.invocation.AiInvocationRequest;
-import org.pangrova.ai.api.invocation.ContentPart;
+import org.pangrova.spi.ai.capability.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.invocation.AiInvocationRequest;
+import org.pangrova.spi.ai.invocation.ContentPart;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;

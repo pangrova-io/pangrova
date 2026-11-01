@@ -3,7 +3,7 @@ package org.pangrova.worker.task.index;
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
-import org.pangrova.indexing.api.eval.IndexEvalHint;
+import org.pangrova.spi.indexing.eval.IndexEvalHint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

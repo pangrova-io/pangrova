@@ -4,14 +4,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope.ModelSnapshot;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.JdbcCurrentDirectRoleReader;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope.ModelSnapshot;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcCurrentDirectRoleReader;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 
@@ -34,7 +34,7 @@ class JdbcCurrentModelAuthorityTest extends ContainerTestBase {
     private static final String SIGNATURE = "04" + "00".repeat(31);
     private static final UserIdentity ADMIN = new UserIdentity("model_owner", Set.of(), Map.of(), Instant.EPOCH);
     private DataSource dataSource;
-    private PersistentRoleStore roles;
+    private JdbcRoleStore roles;
     private JdbcEmbeddingModelRegistry registry;
     private final JdbcCurrentModelAuthority authority =
             new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
@@ -42,7 +42,7 @@ class JdbcCurrentModelAuthorityTest extends ContainerTestBase {
     @BeforeEach
     void setUp() throws Exception {
         dataSource = MigratedPostgres.create();
-        roles = new PersistentRoleStore(dataSource);
+        roles = new JdbcRoleStore(dataSource);
         roles.initSchema();
         roles.createRole(Role.of(ADMIN_ROLE));
         roles.createRole(Role.of(USAGE_ROLE));

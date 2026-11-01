@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.SettableDynamicFilter;
-import org.pangrova.connector.spi.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

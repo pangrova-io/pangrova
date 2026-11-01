@@ -18,8 +18,8 @@ import org.pangrova.metadata.service.DefaultMetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.security.store.jdbc.PersistentColumnMaskStore;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import javax.sql.DataSource;
@@ -63,7 +63,7 @@ class DdlColumnTagGovernanceSdkIntegrationTest extends ContainerTestBase {
             ColumnTagService tagService = new ColumnTagService(name -> fixture.bootstrap.catalogRegistry()
                     .tableGovernance().requireBindable(name.catalog(), name.schema(), name.table()).tableId());
             metadataService.setColumnTagService(tagService);
-            PersistentColumnMaskStore maskStore = new PersistentColumnMaskStore(maskAuthority);
+            JdbcColumnMaskStore maskStore = new JdbcColumnMaskStore(maskAuthority);
             maskStore.initSchema();
             var boundMasks = new org.pangrova.metadata.adapter.security.TableControlColumnMaskStore(
                     new org.pangrova.metadata.service.RegistryTablePolicyAuthority(

@@ -2,9 +2,9 @@ package org.pangrova.metadata.service;
 
 import org.pangrova.table.api.control.OwnershipMode;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import java.util.Optional;
 import java.util.UUID;

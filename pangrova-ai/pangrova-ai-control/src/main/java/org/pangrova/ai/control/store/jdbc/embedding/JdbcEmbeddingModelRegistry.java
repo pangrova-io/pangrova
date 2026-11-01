@@ -21,9 +21,9 @@ import org.pangrova.ai.control.embedding.ModelAlreadyExistsException;
 import org.pangrova.ai.control.embedding.ModelDropUnavailableException;
 import org.pangrova.ai.control.embedding.ModelNotFoundException;
 import org.pangrova.ai.control.embedding.VersionConflictException;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.store.jdbc.AuthorizationTransactionGate;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.persistence.jdbc.security.transaction.AuthorizationTransactionGate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

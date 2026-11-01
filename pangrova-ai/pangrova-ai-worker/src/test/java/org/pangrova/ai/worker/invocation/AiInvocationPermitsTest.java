@@ -2,7 +2,7 @@ package org.pangrova.ai.worker.invocation;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.ai.api.error.AiInvocationException;
+import org.pangrova.spi.ai.error.AiInvocationException;
 import org.pangrova.ai.worker.context.AiTestTaskAuthority;
 
 import java.time.Duration;

@@ -1,9 +1,9 @@
 package org.pangrova.worker.clustering;
 
-import org.pangrova.connector.spi.clustering.ClusteringCapability;
-import org.pangrova.connector.spi.clustering.ClusteringRequest;
-import org.pangrova.connector.spi.clustering.ClusteringResult;
-import org.pangrova.connector.spi.clustering.ReclusterTask;
+import org.pangrova.spi.connector.clustering.ClusteringCapability;
+import org.pangrova.spi.connector.clustering.ClusteringRequest;
+import org.pangrova.spi.connector.clustering.ClusteringResult;
+import org.pangrova.spi.connector.clustering.ReclusterTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

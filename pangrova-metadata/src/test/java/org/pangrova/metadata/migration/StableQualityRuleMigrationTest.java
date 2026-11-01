@@ -4,7 +4,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.pangrova.governance.store.jdbc.JdbcQualityRuleStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
 
 import javax.sql.DataSource;
 
@@ -16,7 +16,7 @@ class StableQualityRuleMigrationTest {
     void populatedUpgradeKeepsLegacyFactsAndDoesNotAdvanceUnchangedAuthorization() throws Exception {
         var source = SharedPostgresContainer.isolatedDataSource("quality_table_upgrade");
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target("100").load().migrate();
-        new PersistentGrantStore(source).initSchema();
+        new JdbcGrantStore(source).initSchema();
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             statement.execute("INSERT INTO quality_rules (rule_id,rule_name,catalog_name,schema_name,table_name,"
                     + "check_expression,severity,enabled,created_at,updated_at,execution_principal,execution_tenant) "

@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.adapter.indexing;
 
-import org.pangrova.observability.api.DoubleHistogram;
-import org.pangrova.observability.api.LongCounter;
-import org.pangrova.observability.api.MetricsProvider;
+import org.pangrova.spi.observability.DoubleHistogram;
+import org.pangrova.spi.observability.LongCounter;
+import org.pangrova.spi.observability.MetricsProvider;
 
 import java.util.List;
 

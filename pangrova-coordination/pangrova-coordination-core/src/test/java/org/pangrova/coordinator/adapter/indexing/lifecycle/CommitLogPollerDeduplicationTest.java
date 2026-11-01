@@ -4,9 +4,9 @@ import org.pangrova.indexing.store.CommitEventRequest;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.store.CommitLogEntry;
 import org.pangrova.indexing.store.IndexFileMapping;
-import org.pangrova.connector.spi.index.CommitEventType;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.state.IndexState;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -84,7 +84,7 @@ class CommitLogPollerDeduplicationTest {
         var handler = new IndexCommitHandler(
                 stubContext(store), null, leaderElection, 16);
         try {
-            var event = new org.pangrova.connector.spi.index.CommitEvent(
+            var event = new org.pangrova.spi.connector.index.CommitEvent(
                     "tenant-a", "cat", "sch", "tbl",
                     List.of("file1.parquet"), List.of(),
                     Instant.now(), "snap-1", CommitEventType.APPEND, "a".repeat(64));
@@ -117,7 +117,7 @@ class CommitLogPollerDeduplicationTest {
         store.failWrites = true;
         var handler = new IndexCommitHandler(stubContext(store), null, 16);
         try {
-            var event = new org.pangrova.connector.spi.index.CommitEvent(
+            var event = new org.pangrova.spi.connector.index.CommitEvent(
                     "tenant-a", "cat", "sch", "tbl",
                     List.of("s3://bucket/path,with,commas.parquet"), List.of(),
                     Instant.now(), "snap-1", CommitEventType.APPEND, null);
@@ -135,7 +135,7 @@ class CommitLogPollerDeduplicationTest {
         var store = new IndexCommitHandlerStatisticsTest.RecordingMetadataStore();
         var handler = new IndexCommitHandler(stubContext(store), null, 16);
         try {
-            var event = new org.pangrova.connector.spi.index.CommitEvent(
+            var event = new org.pangrova.spi.connector.index.CommitEvent(
                     "tenant-a", "cat", "sch", "tbl", List.of(), List.of(),
                     Instant.now(), "snap-1", CommitEventType.APPEND, "b".repeat(64));
             assertThatThrownBy(() -> handler.onCommit(event))

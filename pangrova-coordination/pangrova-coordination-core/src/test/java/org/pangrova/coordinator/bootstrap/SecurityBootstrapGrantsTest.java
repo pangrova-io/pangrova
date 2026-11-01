@@ -5,20 +5,20 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
-import org.pangrova.file.store.jdbc.profile.JdbcStorageProfileRegistry;
+import org.pangrova.persistence.jdbc.file.profile.JdbcStorageProfileRegistry;
 import org.pangrova.common.lifecycle.BootstrapFailedException;
-import org.pangrova.security.api.AuthorizationDeniedException;
-import org.pangrova.security.api.policy.GroupRoleMapping;
-import org.pangrova.security.api.policy.Privilege;
-import org.pangrova.security.api.policy.PrivilegeGrant;
-import org.pangrova.security.api.policy.Role;
-import org.pangrova.security.api.policy.UserRoleAssignment;
-import org.pangrova.security.store.jdbc.PersistentGrantStore;
-import org.pangrova.security.store.jdbc.PersistentRoleStore;
+import org.pangrova.spi.security.AuthorizationDeniedException;
+import org.pangrova.spi.security.policy.GroupRoleMapping;
+import org.pangrova.spi.security.policy.Privilege;
+import org.pangrova.spi.security.policy.PrivilegeGrant;
+import org.pangrova.spi.security.policy.Role;
+import org.pangrova.spi.security.policy.UserRoleAssignment;
+import org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore;
+import org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore;
 import org.pangrova.parser.ast.statement.ShowStorageProfilesStatement;
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.file.api.profile.StorageProfile;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.filesystem.api.profile.StorageProfile;
 import org.pangrova.common.storage.StorageType;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -35,18 +35,18 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
     @Test
     void droppedProfileRevokesReadGrantBeforeSameNameRecreation() throws Exception {
         var source = SharedPostgresContainer.migratedDataSource("profile_read_recreation");
-        var roles = new PersistentRoleStore(source);
+        var roles = new JdbcRoleStore(source);
         roles.initSchema();
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
-        var grants = new PersistentGrantStore(source);
+        var grants = new JdbcGrantStore(source);
         var registry = new JdbcStorageProfileRegistry(source);
         registry.createIfAbsent(new StorageProfile("incoming", StorageType.S3,
                 "old-bucket", "", "", "", Map.of(), Map.of()));
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.READ_STORAGE_PROFILE,
                 "STORAGE_PROFILE", "incoming", null, null, null));
-        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
+        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
         try {
             bootstrap.start();
             var alice = user("alice", Set.of());
@@ -65,11 +65,11 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
     @Test
     void profileVisibilityReadsPersistentGrantsAndPropagatesAuthorityOutage() throws Exception {
         var source = SharedPostgresContainer.migratedDataSource("profile_visibility");
-        var roles = new PersistentRoleStore(source);
+        var roles = new JdbcRoleStore(source);
         roles.initSchema();
         roles.createRole(Role.of("profile-viewer"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "profile-viewer"));
-        var grants = new PersistentGrantStore(source);
+        var grants = new JdbcGrantStore(source);
         var registry = new JdbcStorageProfileRegistry(source);
         assertThat(registry.createIfAbsent(new StorageProfile("visible", StorageType.S3,
                 "visible-bucket", "", "", "", Map.of(), Map.of()))).isTrue();
@@ -77,8 +77,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
                 "hidden-bucket", "", "", "", Map.of(), Map.of()))).isTrue();
         grants.addGrant(PrivilegeGrant.of("profile-viewer", Privilege.VIEW_STORAGE_PROFILE,
                 "STORAGE_PROFILE", "visible", null, null, null));
-        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
+        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
         try {
             bootstrap.start();
             var session = new CoordinatorSessionContext("profile-show", Map.of(), user("alice", Set.of()), "tenant-a");
@@ -129,17 +129,17 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
     @Test
     void directRolesAndExplicitGroupMappingsReadCurrentGrantsAcrossCoordinators() throws Exception {
         var source = SharedPostgresContainer.isolatedDataSource("rbac_bootstrap");
-        var roles = new PersistentRoleStore(source);
+        var roles = new JdbcRoleStore(source);
         roles.initSchema();
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
         roles.mapGroupToRole(GroupRoleMapping.of("directory-analysts", "reader"));
-        var grants = new PersistentGrantStore(source);
+        var grants = new JdbcGrantStore(source);
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "lake", "public", "facts", null));
-        var first = new SecurityBootstrap(config(), source, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
-        var second = new SecurityBootstrap(config(), source, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
+        var first = new SecurityBootstrap(config(), source, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
+        var second = new SecurityBootstrap(config(), source, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
         try {
             first.start();
             second.start();
@@ -165,8 +165,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
 
     @Test
     void missingDatasourceFailsStartupAndClearsAuthentication() {
-        var bootstrap = new SecurityBootstrap(config(), null, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
+        var bootstrap = new SecurityBootstrap(config(), null, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
         assertThatThrownBy(bootstrap::start).isInstanceOf(BootstrapFailedException.class)
                 .hasRootCauseMessage("Security requires the authoritative PostgreSQL datasource");
         assertThat(bootstrap.isHealthy()).isFalse();
@@ -177,14 +177,14 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
     @Test
     void storeReadFailureCannotRetainAnEarlierGrant() throws Exception {
         var source = SharedPostgresContainer.isolatedDataSource("rbac_read_failure");
-        var roles = new PersistentRoleStore(source);
+        var roles = new JdbcRoleStore(source);
         roles.initSchema();
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
-        new PersistentGrantStore(source).addGrant(
+        new JdbcGrantStore(source).addGrant(
                 PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "lake", "public", "facts", null));
-        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
+        var bootstrap = new SecurityBootstrap(config(), source, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
         try {
             bootstrap.start();
             var alice = user("alice", Set.of());
@@ -203,8 +203,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
 
     @Test
     void securityDisabledHasNoAuthority() {
-        var bootstrap = new SecurityBootstrap(CoordinatorBootstrapConfig.withDefaults("unsecured", 0), null, org.pangrova.security.store.jdbc.PersistentColumnMaskStore::new,
-                    org.pangrova.security.store.jdbc.PersistentRowPolicyStore::new);
+        var bootstrap = new SecurityBootstrap(CoordinatorBootstrapConfig.withDefaults("unsecured", 0), null, org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore::new,
+                    org.pangrova.persistence.jdbc.security.rowfilter.JdbcRowPolicyStore::new);
         bootstrap.start();
         assertThat(bootstrap.accessControl()).isNull();
     }

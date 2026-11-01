@@ -472,3 +472,11 @@ The Worker credentials must permit metadata lookup for that returned version.
 If metadata verification fails after acknowledgement, the write has already
 committed; the accessor reports that context without replaying it. Durable
 operation-outcome reconciliation remains an open transfer-lifecycle gate.
+
+LOCAL object mutation and multipart durability use the
+[Filesystem provider protocol](../../architecture/file-storage.md). Providers cooperate
+across JVMs on the same host; this does not qualify network filesystems. Before
+upgrading LOCAL writers, drain or abort existing multipart sessions and deploy a
+consistent writer cohort. Legacy unbound sessions cannot complete. An uncertain
+completion must not be replayed over a later writer; inspect the published object
+and start a new authorized upload when needed.

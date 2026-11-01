@@ -22,7 +22,7 @@ package org.pangrova.streaming.core.cdc;
  *
  * <h2>Implementations</h2>
  * <ul>
- *   <li>Production: backed by {@link org.pangrova.coordination.api.DistributedLease},
+ *   <li>Production: backed by {@link org.pangrova.persistence.api.coordination.DistributedLease},
  *       reading the current epoch from the lease store.</li>
  *   <li>Test: {@link #NOOP} for pipelines that do not require fencing.</li>
  * </ul>

@@ -36,18 +36,18 @@ import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.DeleteFilter;
-import org.pangrova.connector.spi.data.type.ArrayType;
-import org.pangrova.connector.spi.data.type.MapType;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.data.type.RowField;
-import org.pangrova.connector.spi.data.type.RowType;
-import org.pangrova.connector.spi.data.type.VectorType;
-import org.pangrova.connector.spi.data.type.primitive.BigIntType;
-import org.pangrova.connector.spi.data.type.primitive.VarcharType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.DeleteFilter;
+import org.pangrova.spi.connector.data.type.ArrayType;
+import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.data.type.primitive.BigIntType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.io.IOException;
@@ -72,7 +72,7 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
     private static final TableIdentifier ID = TableIdentifier.of("db", "events");
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

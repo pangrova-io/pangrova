@@ -8,19 +8,19 @@ import org.pangrova.coordinator.adapter.indexing.ddl.ConnectorAccessorResolver;
 import org.pangrova.indexing.store.IndexMetadataStore;
 import org.pangrova.indexing.core.eval.IndexEvaluationFailures;
 import org.pangrova.indexing.core.planner.IndexHint;
-import org.pangrova.connector.spi.index.NativeIndexCapability;
-import org.pangrova.connector.spi.index.NativeIndexEvaluator;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.connector.spi.index.IndexEvalResult;
-import org.pangrova.indexing.api.descriptor.IndexType;
-import org.pangrova.indexing.api.eval.IndexEvalHint;
-import org.pangrova.indexing.api.eval.IndexEvaluatedSplit;
-import org.pangrova.indexing.api.eval.SplitIndexEvalResult;
-import org.pangrova.connector.spi.index.predicate.EqualTo;
-import org.pangrova.connector.spi.index.predicate.IndexPredicate;
-import org.pangrova.connector.spi.index.predicate.InList;
-import org.pangrova.connector.spi.index.statistics.FileColumnStatistics;
+import org.pangrova.spi.connector.index.NativeIndexCapability;
+import org.pangrova.spi.connector.index.NativeIndexEvaluator;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.connector.index.IndexEvalResult;
+import org.pangrova.spi.indexing.descriptor.IndexType;
+import org.pangrova.spi.indexing.eval.IndexEvalHint;
+import org.pangrova.spi.indexing.eval.IndexEvaluatedSplit;
+import org.pangrova.spi.indexing.eval.SplitIndexEvalResult;
+import org.pangrova.spi.connector.index.predicate.EqualTo;
+import org.pangrova.spi.connector.index.predicate.IndexPredicate;
+import org.pangrova.spi.connector.index.predicate.InList;
+import org.pangrova.spi.connector.index.statistics.FileColumnStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -220,7 +220,7 @@ public final class IndexSplitFilter implements AutoCloseable {
                         catalogName);
             }
             return evaluator;
-        } catch (org.pangrova.security.api.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             IndexEvaluationFailures.propagateIfTerminal(e);
@@ -238,7 +238,7 @@ public final class IndexSplitFilter implements AutoCloseable {
             String catalogName, ConnectorAccessorResolver resolver) {
         try {
             return resolver.resolveNativeCapabilities(catalogName);
-        } catch (org.pangrova.security.api.AccessDeniedException | SecurityException authorityFailure) {
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
             IndexEvaluationFailures.propagateIfTerminal(e);

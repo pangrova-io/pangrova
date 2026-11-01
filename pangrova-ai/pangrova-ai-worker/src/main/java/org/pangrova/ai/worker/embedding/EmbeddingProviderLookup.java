@@ -1,6 +1,6 @@
 package org.pangrova.ai.worker.embedding;
 
-import org.pangrova.ai.api.invocation.EmbeddingProvider;
+import org.pangrova.spi.ai.invocation.EmbeddingProvider;
 
 /**
  * Resolves a registered model name to its corresponding embedding provider instance.

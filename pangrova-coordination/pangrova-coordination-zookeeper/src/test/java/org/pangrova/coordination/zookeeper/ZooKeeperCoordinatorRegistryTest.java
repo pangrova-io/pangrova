@@ -13,8 +13,8 @@
  */
 package org.pangrova.coordination.zookeeper;
 
-import org.pangrova.coordination.api.CoordinatorRole;
-import org.pangrova.coordination.api.CoordinatorSnapshot;
+import org.pangrova.spi.coordination.CoordinatorRole;
+import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.RetryOneTime;

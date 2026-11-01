@@ -7,7 +7,7 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.protocol.source.SourceSnapshotBindings;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.LanceWriteOperation;
-import org.pangrova.connector.spi.metadata.PreparedSourcePublication;
+import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;

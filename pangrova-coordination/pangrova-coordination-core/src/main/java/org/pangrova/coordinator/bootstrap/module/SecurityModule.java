@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap.module;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

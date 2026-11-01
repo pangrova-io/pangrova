@@ -7,7 +7,7 @@ import org.pangrova.table.api.maintenance.MaintenanceRunState;
 import org.pangrova.table.api.maintenance.TableControlMaintenanceStore;
 import org.pangrova.table.api.maintenance.TableMaintenancePolicy;
 import org.pangrova.table.api.maintenance.TableMaintenanceRun;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.security.AccessDeniedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

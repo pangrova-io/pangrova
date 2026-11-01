@@ -127,7 +127,7 @@ class QueryManagerCleanupTest {
     private static QueryManager buildQueryManager() {
         QueryDispatcher orchestrator = buildOrchestrator();
         return new QueryManager(QueryManagerContext.minimal(orchestrator,
-                new org.pangrova.observability.api.noop.NoOpTracingProvider()));
+                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()));
     }
 
     private static QueryDispatcher buildOrchestrator() {
@@ -140,7 +140,7 @@ class QueryManagerCleanupTest {
                         compiler, null, null, null,
                         new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
                                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
-                                new org.pangrova.observability.api.noop.NoOpTracingProvider()),
+                                new org.pangrova.observability.sdk.noop.NoOpTracingProvider()),
                         scheduler,
                         new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),

@@ -3,8 +3,8 @@ package org.pangrova.coordinator.coordination;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.coordination.ExecutionAnchorStore;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.query.coordination.ExecutionAnchorStore;
 
 import java.time.Duration;
 import java.util.Objects;

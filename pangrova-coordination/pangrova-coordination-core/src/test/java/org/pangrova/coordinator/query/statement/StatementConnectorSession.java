@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.connector.spi.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.Map;
 import java.util.Optional;
@@ -10,7 +10,7 @@ import java.util.Optional;
  */
 public record StatementConnectorSession(String catalog, String schema) implements ConnectorSession {
     @Override
-    public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+    public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
         return java.util.Optional.empty();
     }
 

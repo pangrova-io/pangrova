@@ -1,7 +1,7 @@
 package org.pangrova.streaming.core.cdc;
 
-import org.pangrova.connector.spi.data.value.TypedRow;
-import org.pangrova.connector.spi.data.write.model.WriteRecord;
+import org.pangrova.spi.connector.data.value.TypedRow;
+import org.pangrova.spi.connector.data.write.model.WriteRecord;
 import org.pangrova.streaming.api.cdc.CdcEnvelope;
 import org.pangrova.streaming.api.cdc.CdcOperation;
 import org.pangrova.streaming.api.cdc.CdcRow;

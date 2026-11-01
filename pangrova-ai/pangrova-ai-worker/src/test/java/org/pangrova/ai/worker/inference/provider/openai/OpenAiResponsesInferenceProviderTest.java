@@ -6,11 +6,11 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.ai.api.error.AiInvocationException;
-import org.pangrova.ai.api.embedding.BlobReference;
-import org.pangrova.ai.api.invocation.ContentPart;
-import org.pangrova.ai.api.invocation.GenerationParameters;
-import org.pangrova.ai.api.invocation.MultimodalPrompt;
+import org.pangrova.spi.ai.error.AiInvocationException;
+import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.invocation.ContentPart;
+import org.pangrova.spi.ai.invocation.GenerationParameters;
+import org.pangrova.spi.ai.invocation.MultimodalPrompt;
 import org.pangrova.ai.worker.context.AiProviderCallContext;
 
 import java.io.IOException;

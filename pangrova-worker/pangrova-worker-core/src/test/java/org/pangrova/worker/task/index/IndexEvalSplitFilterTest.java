@@ -1,6 +1,6 @@
 package org.pangrova.worker.task.index;
 
-import org.pangrova.connector.spi.index.IndexEvalResult;
+import org.pangrova.spi.connector.index.IndexEvalResult;
 
 import java.util.List;
 

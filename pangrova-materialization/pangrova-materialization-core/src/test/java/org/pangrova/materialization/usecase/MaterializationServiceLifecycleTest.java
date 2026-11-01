@@ -54,8 +54,8 @@ import org.pangrova.materialization.port.MaterializationEventType;
 import org.pangrova.materialization.port.PlannedDefinition;
 import org.pangrova.materialization.port.PlanningRequest;
 import org.pangrova.materialization.port.PublishedMaterialization;
-import org.pangrova.connector.spi.materialization.MaterializationSourceException;
-import org.pangrova.connector.spi.materialization.SourceRef;
+import org.pangrova.spi.connector.materialization.MaterializationSourceException;
+import org.pangrova.spi.connector.materialization.SourceRef;
 
 class MaterializationServiceLifecycleTest {
 

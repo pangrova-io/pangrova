@@ -21,8 +21,8 @@ import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
-import org.pangrova.ai.api.embedding.EmbeddingModelDescriptor;
-import org.pangrova.ai.api.embedding.EmbeddingModelBindingIdentity;
+import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
+import org.pangrova.spi.ai.embedding.EmbeddingModelBindingIdentity;
 
 import java.util.HexFormat;
 import java.util.List;

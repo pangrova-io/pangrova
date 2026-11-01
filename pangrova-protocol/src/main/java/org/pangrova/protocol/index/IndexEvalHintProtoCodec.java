@@ -4,9 +4,9 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IndexEvalHintDetail;
-import org.pangrova.indexing.api.eval.IndexEvalHint;
-import org.pangrova.indexing.api.eval.IndexEvaluatedSplit;
-import org.pangrova.indexing.api.eval.SplitIndexEvalResult;
+import org.pangrova.spi.indexing.eval.IndexEvalHint;
+import org.pangrova.spi.indexing.eval.IndexEvaluatedSplit;
+import org.pangrova.spi.indexing.eval.SplitIndexEvalResult;
 import java.util.List;
 import java.util.Map;
 
@@ -91,7 +91,7 @@ public final class IndexEvalHintProtoCodec {
     private static IndexEvalHint fromProto(IndexEvalHintDetail proto) {
         return new IndexEvalHint(
                 proto.getIndexId(),
-                org.pangrova.indexing.api.descriptor.IndexType.valueOf(proto.getIndexType()),
+                org.pangrova.spi.indexing.descriptor.IndexType.valueOf(proto.getIndexType()),
                 IndexPredicateProtoConverter.fromProto(proto.getPredicate()),
                 proto.getIndexFilePath(),
                 proto.getGeneration());

@@ -1,9 +1,9 @@
 package org.pangrova.coordinator.metadata.read;
 
 import org.pangrova.table.core.statistics.TableControlStatisticsService;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.planner.stats.StatisticsCollector.ConnectorStatisticsProvider;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

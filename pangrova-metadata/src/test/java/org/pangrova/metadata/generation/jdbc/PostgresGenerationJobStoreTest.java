@@ -703,10 +703,10 @@ class PostgresGenerationJobStoreTest {
                 "job-1", org.pangrova.generation.assembly.GenerationStageGraphFactory.forArtifactPages(
                         "canonical-plan".getBytes(StandardCharsets.UTF_8), "binding-template".getBytes(StandardCharsets.UTF_8), pages, java.util.List.of()),
                 tenantId, "principal-" + tenantId,
-                org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items"),
+                org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items"),
                         java.util.Set.of("embedding"),
-                        new org.pangrova.connector.spi.metadata.table.QualifiedTableName("catalog", "schema", "items")),
+                        new org.pangrova.spi.connector.metadata.table.QualifiedTableName("catalog", "schema", "items")),
                 new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
     }
 
@@ -755,7 +755,7 @@ class PostgresGenerationJobStoreTest {
 
     @Test
     void injectedAuthorityFailureAbortsCreationWithoutDurableRows() {
-        var denied = new org.pangrova.security.api.AuthorizationDeniedException("authority backend denied admission");
+        var denied = new org.pangrova.spi.security.AuthorizationDeniedException("authority backend denied admission");
         var authority = new org.pangrova.generation.spi.jdbc.GenerationTransactionAuthority() {
             @Override
             public GenerationDispatchSpec requireCurrent(java.sql.Connection connection, String tenant, String job) {
@@ -802,7 +802,7 @@ class PostgresGenerationJobStoreTest {
                     GenerationStores.publicationCandidates());
             assertThatThrownBy(() -> guardedSubmissions.createJob(
                     caller, job(1), dispatchSpec(TENANT, pages(1)), pages(1)))
-                    .isInstanceOf(org.pangrova.security.api.AuthorizationDeniedException.class);
+                    .isInstanceOf(org.pangrova.spi.security.AuthorizationDeniedException.class);
             assertThat(calls).hasValue(1);
             assertThat(caller.getAutoCommit()).isFalse();
             caller.rollback();
@@ -860,7 +860,7 @@ class PostgresGenerationJobStoreTest {
                     .isSameAs(failure);
             var miswired = new org.pangrova.generation.store.postgresql.execution.PostgresGenerationExecutionFence(
                     (connection, executionId, ownerId, incarnation, token) ->
-                            new org.pangrova.query.api.coordination.ExecutionAnchor(
+                            new org.pangrova.spi.query.coordination.ExecutionAnchor(
                                     "another-execution", ownerId, incarnation, token,
                                     anchor.acquiredAt(), anchor.expiresAt()));
             assertThatThrownBy(() -> miswired.requireCurrent(caller, TENANT, "job-1", expected))

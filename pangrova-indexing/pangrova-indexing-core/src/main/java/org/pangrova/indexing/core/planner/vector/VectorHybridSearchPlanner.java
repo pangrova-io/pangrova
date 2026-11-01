@@ -1,7 +1,7 @@
 package org.pangrova.indexing.core.planner.vector;
 
-import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy;
-import org.pangrova.indexing.api.vector.VectorHybridSearchStrategy.Mode;
+import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy;
+import org.pangrova.spi.indexing.vector.VectorHybridSearchStrategy.Mode;
 
 /**
  * Selects the hybrid search strategy based on estimated filter selectivity.

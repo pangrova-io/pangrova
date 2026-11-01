@@ -6,7 +6,7 @@ import java.util.UUID;
 import javax.sql.DataSource;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.query.store.jdbc.journal.JdbcQueryStateJournal;
-import org.pangrova.query.api.state.StateJournalConfig;
+import org.pangrova.spi.query.state.StateJournalConfig;
 import org.postgresql.ds.PGSimpleDataSource;
 
 /** Real migrated PostgreSQL journal, permission faults and committed-write observations. */
@@ -51,15 +51,15 @@ final class QueryTerminalJournalFixture implements AutoCloseable {
     JdbcQueryStateJournal journal() { return journal; }
     DataSource administrator() { return administrator; }
 
-    java.util.List<org.pangrova.query.api.state.QueryStateEvent> committedEvents(String queryId) throws SQLException {
+    java.util.List<org.pangrova.spi.query.state.QueryStateEvent> committedEvents(String queryId) throws SQLException {
         try (var connection = administrator.getConnection(); var statement = connection.prepareStatement(
                 "SELECT event_id, timestamp_ms, coordinator_id, query_id, sql_text, session_json, state "
                         + "FROM terminal_writes WHERE query_id = ? ORDER BY id ASC")) {
             statement.setString(1, queryId);
             try (var rows = statement.executeQuery()) {
-                var result = new java.util.ArrayList<org.pangrova.query.api.state.QueryStateEvent>();
-                while (rows.next()) result.add(new org.pangrova.query.api.state.QueryStateEvent(
-                        new org.pangrova.query.api.state.JournalEventContext(rows.getObject(1, UUID.class),
+                var result = new java.util.ArrayList<org.pangrova.spi.query.state.QueryStateEvent>();
+                while (rows.next()) result.add(new org.pangrova.spi.query.state.QueryStateEvent(
+                        new org.pangrova.spi.query.state.JournalEventContext(rows.getObject(1, UUID.class),
                                 rows.getLong(2), rows.getString(3)), rows.getString(4), rows.getString(5),
                         rows.getString(6), rows.getString(7)));
                 return java.util.List.copyOf(result);

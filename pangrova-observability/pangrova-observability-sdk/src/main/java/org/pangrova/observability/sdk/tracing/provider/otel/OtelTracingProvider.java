@@ -3,12 +3,12 @@ package org.pangrova.observability.sdk.tracing.provider.otel;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
 import io.opentelemetry.context.propagation.TextMapPropagator;
-import org.pangrova.observability.api.Context;
-import org.pangrova.observability.api.Span;
-import org.pangrova.observability.api.SpanKind;
-import org.pangrova.observability.api.TextMapGetter;
-import org.pangrova.observability.api.TextMapSetter;
-import org.pangrova.observability.api.TracingProvider;
+import org.pangrova.spi.observability.Context;
+import org.pangrova.spi.observability.Span;
+import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.TextMapGetter;
+import org.pangrova.spi.observability.TextMapSetter;
+import org.pangrova.spi.observability.TracingProvider;
 
 /**
  * OpenTelemetry-backed {@link TracingProvider} implementation.

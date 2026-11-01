@@ -1,10 +1,10 @@
 package org.pangrova.security.core.mask;
 
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.spi.security.AuthorizationDeniedException;
 import org.pangrova.security.core.authz.DeferredSubjectContext;
 
 import java.time.Instant;
@@ -15,8 +15,8 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import org.pangrova.security.api.mask.ColumnMask;
-import org.pangrova.security.api.mask.EnrichedColumnMaskStore;
+import org.pangrova.spi.security.mask.ColumnMask;
+import org.pangrova.persistence.api.security.mask.EnrichedColumnMaskStore;
 import org.pangrova.security.core.mask.provider.empty.EmptyColumnMaskStore;
 
 /**

@@ -1,11 +1,11 @@
 package org.pangrova.worker.copy;
 
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
-import org.pangrova.security.api.AccessDeniedException;
-import org.pangrova.file.api.copy.CopySourceEndpointPolicy;
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.storage.api.blob.ManagedBlobStorage;
-import org.pangrova.storage.s3.blob.CopyS3ClientPolicy;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.pangrova.spi.file.copy.CopySourceEndpointPolicy;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.filesystem.api.blob.ManagedBlobStorage;
+import org.pangrova.filesystem.s3.blob.CopyS3ClientPolicy;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;

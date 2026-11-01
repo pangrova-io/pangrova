@@ -1,12 +1,12 @@
 package org.pangrova.security.core.authz;
 
-import org.pangrova.security.api.AuthorizationDeniedException;
+import org.pangrova.spi.security.AuthorizationDeniedException;
 
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 /** Identifies a persisted principal whose ephemeral authentication context is unavailable. */
 public final class DeferredSubjectContext {

@@ -15,7 +15,7 @@ import org.pangrova.protocol.v2.ModelBinding;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.RetryClass;
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 
 import java.util.Objects;
 import java.util.List;

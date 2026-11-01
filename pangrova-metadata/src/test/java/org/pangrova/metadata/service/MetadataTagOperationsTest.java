@@ -13,7 +13,7 @@ import org.pangrova.table.core.control.TableControlSettings;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
 import org.pangrova.metadata.store.jdbc.catalog.JdbcMetadataStore;
 import org.pangrova.metadata.testinfra.SharedPostgresContainer;
-import org.pangrova.connector.spi.metadata.table.TableIdentity;
+import org.pangrova.spi.connector.metadata.table.TableIdentity;
 
 import java.util.Map;
 import java.util.Optional;
@@ -130,12 +130,12 @@ class MetadataTagOperationsTest {
 
     @Test
     void independentMaskReadersSeeCanonicalTagsWithoutEventDelivery() {
-        var persisted = new org.pangrova.security.store.jdbc.PersistentColumnMaskStore(source);
+        var persisted = new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source);
         persisted.initSchema();
         tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
         var first = new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(catalogs), persisted);
         var peer = new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(catalogs),
-                new org.pangrova.security.store.jdbc.PersistentColumnMaskStore(source));
+                new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source));
         assertThat(first.getColumnMasks("cat", "db", "orders", "email")).singleElement()
                 .satisfies(mask -> assertThat(mask.maskExpression()).isEqualTo("CASE WHEN {column} IS NULL THEN NULL ELSE '***@***' END"));
         assertThat(peer.getColumnMasks("cat", "db", "orders", "email"))
@@ -153,7 +153,7 @@ class MetadataTagOperationsTest {
         tags.setColumnTagService(events);
         assertThatThrownBy(() -> tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice"))
                 .hasMessage("notification failed");
-        var persisted = new org.pangrova.security.store.jdbc.PersistentColumnMaskStore(source);
+        var persisted = new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source);
         persisted.initSchema();
         assertThat(new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(catalogs), persisted)
                 .getColumnMasks("cat", "db", "orders", "email")).singleElement()
@@ -162,10 +162,10 @@ class MetadataTagOperationsTest {
 
     @Test
     void authoredMasksBindAtWriteAndNeverFollowAReusedName() {
-        var persisted = new org.pangrova.security.store.jdbc.PersistentColumnMaskStore(source);
+        var persisted = new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source);
         persisted.initSchema();
         var masks = new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(catalogs), persisted);
-        masks.saveColumnMask(new org.pangrova.security.api.mask.ColumnMask(0, "manual", "cat", "db", "orders",
+        masks.saveColumnMask(new org.pangrova.spi.security.mask.ColumnMask(0, "manual", "cat", "db", "orders",
                 "email", "'private'", java.util.List.of(), java.util.List.of(), true, null));
         var original = control.find("cat", "db", "orders").orElseThrow();
         var captured = masks.getColumnMasks("cat", "db", "orders", "email").get(0);
@@ -174,7 +174,7 @@ class MetadataTagOperationsTest {
         create("orders");
         assertThat(masks.getTableMasks("cat", "db", "orders")).isEmpty();
         assertThatThrownBy(() -> masks.saveColumnMask(captured)).hasMessageContaining("replaced");
-        masks.saveColumnMask(new org.pangrova.security.api.mask.ColumnMask(0, "manual", "cat", "db", "orders",
+        masks.saveColumnMask(new org.pangrova.spi.security.mask.ColumnMask(0, "manual", "cat", "db", "orders",
                 "email", "'new'", java.util.List.of(), java.util.List.of(), true, null));
         for (var stale : persisted.getMasks(original.tableId(), "cat", "db", "orders", "email")) {
             masks.deleteMask(stale.maskId());
@@ -185,13 +185,13 @@ class MetadataTagOperationsTest {
 
     @Test
     void mandatoryClassificationCannotBeBypassedByAnAuthoredMaskExemption() {
-        var persisted = new org.pangrova.security.store.jdbc.PersistentColumnMaskStore(source);
+        var persisted = new org.pangrova.persistence.jdbc.security.mask.JdbcColumnMaskStore(source);
         persisted.initSchema();
         var masks = new TableControlColumnMaskStore(new RegistryTablePolicyAuthority(catalogs), persisted);
-        masks.saveColumnMask(new org.pangrova.security.api.mask.ColumnMask(0, "authored", "cat", "db", "orders",
+        masks.saveColumnMask(new org.pangrova.spi.security.mask.ColumnMask(0, "authored", "cat", "db", "orders",
                 "email", "{column}", java.util.List.of(), java.util.List.of("reader"), true, null));
         tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
-        var user = new org.pangrova.security.api.UserIdentity("alice", Set.of(), Map.of(), java.time.Instant.now());
+        var user = new org.pangrova.spi.security.UserIdentity("alice", Set.of(), Map.of(), java.time.Instant.now());
         assertThat(new org.pangrova.security.core.mask.ColumnMaskingProcessor(masks)
                 .getMask(user, Set.of("reader"), "cat", "db", "orders", "email"))
                 .hasValueSatisfying(expression -> assertThat(expression).contains("***@***"));
@@ -207,15 +207,15 @@ class MetadataTagOperationsTest {
 
     @Test
     void deferredRawReadsCannotBypassCanonicalTagsWithoutAnEventProjection() throws Exception {
-        var roles = new org.pangrova.security.store.jdbc.PersistentRoleStore(source);
+        var roles = new org.pangrova.persistence.jdbc.security.policy.JdbcRoleStore(source);
         roles.initSchema();
-        roles.createRole(org.pangrova.security.api.policy.Role.of("reader"));
-        roles.grantRoleToUser(org.pangrova.security.api.policy.UserRoleAssignment.of("alice", "reader"));
-        var grants = new org.pangrova.security.store.jdbc.PersistentGrantStore(source);
-        grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("reader",
-                org.pangrova.security.api.policy.Privilege.ALL, "TABLE", "cat", "db", "orders", null));
-        var table = new org.pangrova.connector.spi.metadata.table.QualifiedTableName("cat", "db", "orders");
-        var scope = org.pangrova.security.api.authz.DeferredAuthorizationScope.raw(table, Set.of("email"), table);
+        roles.createRole(org.pangrova.spi.security.policy.Role.of("reader"));
+        roles.grantRoleToUser(org.pangrova.spi.security.policy.UserRoleAssignment.of("alice", "reader"));
+        var grants = new org.pangrova.persistence.jdbc.security.policy.JdbcGrantStore(source);
+        grants.addGrant(org.pangrova.spi.security.policy.PrivilegeGrant.of("reader",
+                org.pangrova.spi.security.policy.Privilege.ALL, "TABLE", "cat", "db", "orders", null));
+        var table = new org.pangrova.spi.connector.metadata.table.QualifiedTableName("cat", "db", "orders");
+        var scope = org.pangrova.spi.security.authz.DeferredAuthorizationScope.raw(table, Set.of("email"), table);
         try (var transaction = source.getConnection()) {
             transaction.setAutoCommit(false);
             TableControlDeferredPolicy.requireCurrent(transaction, "alice", scope);

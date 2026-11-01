@@ -4,8 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.RowLocatorContract;
-import org.pangrova.connector.spi.data.type.PangrovaType;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 import java.util.List;
 

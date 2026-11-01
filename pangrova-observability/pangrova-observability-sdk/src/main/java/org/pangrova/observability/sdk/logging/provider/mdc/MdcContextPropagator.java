@@ -4,7 +4,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 
-import org.pangrova.observability.api.Context;
+import org.pangrova.spi.observability.Context;
 
 /**
  * Propagates MDC context from the submitting thread to async executing threads.

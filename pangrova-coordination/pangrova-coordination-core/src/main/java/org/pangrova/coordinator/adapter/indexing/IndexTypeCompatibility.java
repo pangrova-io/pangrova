@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.adapter.indexing;
 
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import java.util.Map;
 import java.util.Set;

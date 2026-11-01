@@ -13,10 +13,9 @@ import org.pangrova.table.core.control.TableControlSettings;
 import org.pangrova.table.store.memory.control.InMemoryTableControlStatisticsStore;
 import org.pangrova.table.store.memory.control.InMemoryTableControlStore;
 
-
 import org.junit.jupiter.api.Test;
-import org.pangrova.connector.spi.metadata.table.TableStatistics;
-import org.pangrova.security.api.AccessDeniedException;
+import org.pangrova.spi.connector.metadata.table.TableStatistics;
+import org.pangrova.spi.security.AccessDeniedException;
 
 import java.time.Clock;
 import java.time.Instant;

@@ -1,7 +1,7 @@
 package org.pangrova.connector.paimon.handle;
 
-import org.pangrova.connector.spi.metadata.ConnectorOutputHandleCodec;
-import org.pangrova.connector.spi.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

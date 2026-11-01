@@ -1,10 +1,10 @@
 package org.pangrova.connector.iceberg;
 
 import org.apache.hadoop.conf.Configuration;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.index.CommitEventType;
-import org.pangrova.connector.spi.metadata.DeleteFilter;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.index.CommitEventType;
+import org.pangrova.spi.connector.metadata.DeleteFilter;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -20,7 +20,7 @@ import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.types.Types;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.protocol.metadata.GeneratedColumnMetadataCodec;
-import org.pangrova.connector.spi.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -60,7 +60,7 @@ class IcebergDeleteByFilterCommitPathTest {
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 
@@ -168,7 +168,7 @@ class IcebergDeleteByFilterCommitPathTest {
         assertThatThrownBy(() -> restCommitter.deleteByFilter(
                 table, (org.pangrova.connector.iceberg.handle.IcebergTableHandle) handle,
                 new DeleteFilter.All(), "test-tenant"))
-                .isInstanceOf(org.pangrova.connector.spi.base.ConnectorException.class)
+                .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
                 .hasMessageContaining("whole-metadata CAS has not been verified");
         table.refresh();
         assertThat(table.currentSnapshot().snapshotId()).isEqualTo(snapshotBefore);
@@ -223,7 +223,7 @@ class IcebergDeleteByFilterCommitPathTest {
                 SESSION, new SchemaTableName(NAMESPACE, "missing_tenant_test"));
         ConnectorSession missingTenant = new ConnectorSession() {
         @Override
-        public java.util.Optional<org.pangrova.connector.spi.ConnectorQueryAuthority> getQueryAuthority() {
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
             return java.util.Optional.empty();
         }
 

@@ -1,8 +1,8 @@
 package org.pangrova.security.core.rowfilter;
 
-import org.pangrova.security.api.UserIdentity;
+import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.security.core.authz.DeferredSubjectContext;
-import org.pangrova.security.api.rowfilter.RowFilterSource;
+import org.pangrova.spi.security.rowfilter.RowFilterSource;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -12,9 +12,9 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.pangrova.security.api.rowfilter.ParameterizedFilter;
-import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.security.api.rowfilter.RowPolicyStore;
+import org.pangrova.spi.security.rowfilter.ParameterizedFilter;
+import org.pangrova.spi.security.rowfilter.RowPolicy;
+import org.pangrova.persistence.api.security.rowfilter.RowPolicyStore;
 
 /**
  * Evaluates row-level security policies for a given user and table,

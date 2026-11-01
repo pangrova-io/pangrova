@@ -20,7 +20,7 @@ import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
 import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.planner.stats.StatisticsCollector;
-import org.pangrova.security.api.AccessControl;
+import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +73,7 @@ final class PlannerWiring {
     }
 
     private PangrovaPlanner buildMetadataAwarePlanner(RuntimeFilterRegistry reg,
-            org.pangrova.connector.spi.ConnectorSession session, QueryResultCache cache) {
+            org.pangrova.spi.connector.ConnectorSession session, QueryResultCache cache) {
         var readBindings = new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
                 metadataBootstrap.catalogRegistry(), session);
         var rootSchema = metadataBootstrap.buildCalciteSchema(session, readBindings);
@@ -106,7 +106,7 @@ final class PlannerWiring {
      * schema all participate; the catalog is cheap and reads published state lazily.
      */
     private MaterializedViewRewriteCatalog buildMaterializedViewRewriteCatalog(
-            org.pangrova.connector.spi.ConnectorSession session) {
+            org.pangrova.spi.connector.ConnectorSession session) {
         var materializations = metadataBootstrap.materializationCatalog();
         if (materializations == null) {
             return null;
@@ -119,7 +119,7 @@ final class PlannerWiring {
     /** Leases every published generation this admitted query resolves for execution. */
     private java.util.function.Consumer<
             org.pangrova.materialization.port.PublishedMaterialization> readerPin(
-                    org.pangrova.connector.spi.ConnectorSession session) {
+                    org.pangrova.spi.connector.ConnectorSession session) {
         var authority = session.getQueryAuthority().orElse(null);
         if (readerPins == null || authority == null) {
             return published -> { };

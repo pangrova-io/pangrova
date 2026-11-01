@@ -15,8 +15,8 @@ package org.pangrova.coordinator.adapter.indexing.ai.lifecycle;
 
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.CapabilityRef;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
-import org.pangrova.indexing.api.descriptor.IndexType;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.descriptor.IndexType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

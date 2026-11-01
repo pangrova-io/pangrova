@@ -1,8 +1,8 @@
 package org.pangrova.security.core.tenant;
 
-import org.pangrova.security.api.UserIdentity;
-import org.pangrova.security.api.tenant.ResolvedTenantContext;
-import org.pangrova.security.api.tenant.TenantStore;
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.spi.security.tenant.ResolvedTenantContext;
+import org.pangrova.persistence.api.security.tenant.TenantStore;
 
 import java.util.List;
 import java.util.Optional;

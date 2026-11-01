@@ -14,10 +14,10 @@ import org.pangrova.query.adapter.audit.LogAuditStore;
 import org.pangrova.query.core.audit.QueryAuditService;
 import org.pangrova.testing.testkit.TestObservability;
 import org.pangrova.planner.PangrovaPlanner;
-import org.pangrova.security.api.audit.AuditEvent;
+import org.pangrova.spi.security.audit.AuditEvent;
 import org.pangrova.security.core.audit.AuditEventEmitter;
-import org.pangrova.security.api.audit.AuditEventType;
-import org.pangrova.security.api.audit.AuditEventWriter;
+import org.pangrova.spi.security.audit.AuditEventType;
+import org.pangrova.spi.security.audit.AuditEventWriter;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
@@ -154,7 +154,7 @@ class QueryManagerAuditTest {
         CoordinatorSessionContext session = new CoordinatorSessionContext("q-audit-5", Map.of(), null, null);
 
         assertThatThrownBy(() -> qm.submitQuery("q-audit-5", "SELECT 1", session))
-                .isInstanceOf(org.pangrova.security.api.AccessDeniedException.class);
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
         awaitEvents(captured, 2, 5);
 
         assertThat(captured.get(0).principal()).isEqualTo("anonymous");

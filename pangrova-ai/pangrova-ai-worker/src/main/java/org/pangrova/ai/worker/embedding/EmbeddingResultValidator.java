@@ -15,7 +15,7 @@ package org.pangrova.ai.worker.embedding;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.ai.api.invocation.EmbeddingProvider;
+import org.pangrova.spi.ai.invocation.EmbeddingProvider;
 
 import java.util.ArrayList;
 import java.util.List;

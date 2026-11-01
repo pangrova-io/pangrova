@@ -8,7 +8,7 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.connector.spi.metadata.ConnectorSplit;
+import org.pangrova.spi.connector.metadata.ConnectorSplit;
 
 /** One child manifest whose parent list and own bytes are pinned for a Native $files scan. */
 public record IcebergFileTableSplit(IcebergFileTableHandle selection,

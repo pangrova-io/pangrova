@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.clustering;
 
-import org.pangrova.connector.spi.clustering.ClusteringMode;
-import org.pangrova.connector.spi.clustering.ClusteringState;
+import org.pangrova.spi.connector.clustering.ClusteringMode;
+import org.pangrova.spi.connector.clustering.ClusteringState;
 
 import java.time.Instant;
 import java.util.List;

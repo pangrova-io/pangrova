@@ -1,11 +1,11 @@
 package org.pangrova.worker.nativebridge.jni;
 
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.function.api.aggregate.AggregateFunction;
-import org.pangrova.function.api.runtime.FunctionCallbackScope;
-import org.pangrova.function.api.scalar.BatchableScalarFunction;
-import org.pangrova.function.api.metadata.FunctionMetadata;
-import org.pangrova.function.api.scalar.ScalarFunction;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.function.aggregate.AggregateFunction;
+import org.pangrova.spi.function.runtime.FunctionCallbackScope;
+import org.pangrova.spi.function.scalar.BatchableScalarFunction;
+import org.pangrova.spi.function.metadata.FunctionMetadata;
+import org.pangrova.spi.function.scalar.ScalarFunction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

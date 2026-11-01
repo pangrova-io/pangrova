@@ -1,9 +1,9 @@
 package org.pangrova.worker.nativebridge.jni.write;
 
 import org.pangrova.protocol.batch.ColumnarBatch;
-import org.pangrova.connector.spi.data.value.ColumnValue;
-import org.pangrova.connector.spi.data.ConnectorPageSink;
-import org.pangrova.connector.spi.data.page.Page;
+import org.pangrova.spi.connector.data.value.ColumnValue;
+import org.pangrova.spi.connector.data.ConnectorPageSink;
+import org.pangrova.spi.connector.data.page.Page;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.BatchSink;
 import org.pangrova.worker.nativebridge.jni.write.WriteBatchFixtures.RowSink;
 import org.junit.jupiter.api.Test;

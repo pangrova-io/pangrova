@@ -3,10 +3,10 @@ package org.pangrova.coordinator.metadata.read;
 import org.pangrova.metadata.core.catalog.registry.CatalogRegistry;
 import org.pangrova.table.api.control.TableControlRecord;
 import org.pangrova.metadata.exception.MetadataResolutionException;
-import org.pangrova.connector.spi.ConnectorSession;
-import org.pangrova.connector.spi.metadata.ConnectorMetadataScope;
-import org.pangrova.connector.spi.metadata.table.ConnectorReadBinding;
-import org.pangrova.connector.spi.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadataScope;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
+import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -113,7 +113,7 @@ public final class PlanningReadBindings {
         var current = control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
                 : Optional.<TableControlRecord>empty();
         if (!expected.map(TableControlRecord::tableId).equals(current.map(TableControlRecord::tableId))) {
-            throw new org.pangrova.security.api.AccessDeniedException(
+            throw new org.pangrova.spi.security.AccessDeniedException(
                     "SQL table ownership changed during read binding; resolve the table again");
         }
         expected.ifPresent(record -> control.requireReadOwner(record, "Cached SQL read binding"));

@@ -1,7 +1,7 @@
 package org.pangrova.ai.worker.provider.env;
 
-import org.pangrova.security.api.secret.SecretReference;
-import org.pangrova.security.api.secret.SecretResolver;
+import org.pangrova.spi.security.secret.SecretReference;
+import org.pangrova.spi.security.secret.SecretResolver;
 
 import java.util.Base64;
 

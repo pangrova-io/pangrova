@@ -12,10 +12,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.query.api.state.QueryStateEvent;
-import org.pangrova.query.api.state.QueryStateJournal;
-import org.pangrova.query.api.state.StateJournalConfig;
-import org.pangrova.query.api.state.TaskStateEvent;
+import org.pangrova.spi.query.state.QueryStateEvent;
+import org.pangrova.persistence.api.query.state.QueryStateJournal;
+import org.pangrova.spi.query.state.StateJournalConfig;
+import org.pangrova.spi.query.state.TaskStateEvent;
 
 /** PostgreSQL journal with one query-fair, per-query ordered commit owner and retryable actual SQL drain. */
 @ThreadSafe

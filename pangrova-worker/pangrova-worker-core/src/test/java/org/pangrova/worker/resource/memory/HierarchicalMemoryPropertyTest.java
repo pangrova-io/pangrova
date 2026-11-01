@@ -1,6 +1,5 @@
 package org.pangrova.worker.resource.memory;
 
-
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;

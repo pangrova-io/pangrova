@@ -3,7 +3,7 @@ package org.pangrova.indexing.store.jdbc;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.indexing.store.IndexFileMapping;
 import org.pangrova.indexing.store.IndexFileSelection;
-import org.pangrova.indexing.api.state.IndexState;
+import org.pangrova.spi.indexing.state.IndexState;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

@@ -12,9 +12,9 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.pangrova.connector.spi.metadata.Constraint;
-import org.pangrova.connector.spi.metadata.Domain;
-import org.pangrova.connector.spi.metadata.table.ColumnHandle;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.Domain;
+import org.pangrova.spi.connector.metadata.table.ColumnHandle;
 
 import java.util.Map;
 import java.util.Set;

@@ -3,7 +3,6 @@ package org.pangrova.table.store.jdbc.control;
 import org.pangrova.table.api.governancebinding.GovernanceBinding;
 import org.pangrova.table.api.governancebinding.GovernanceBindingType;
 
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

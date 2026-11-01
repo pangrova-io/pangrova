@@ -1,8 +1,8 @@
 package org.pangrova.testing.integration.e2e.fixture;
 
-import org.pangrova.coordination.jdbc.JdbcDistributedLease;
-import org.pangrova.coordination.api.DistributedLease;
-import org.pangrova.coordination.api.LeaseEntry;
+import org.pangrova.persistence.jdbc.coordination.JdbcDistributedLease;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
 
 import javax.sql.DataSource;
 import java.time.Duration;

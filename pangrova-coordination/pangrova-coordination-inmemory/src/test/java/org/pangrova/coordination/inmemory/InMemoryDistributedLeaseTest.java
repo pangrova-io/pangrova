@@ -1,7 +1,7 @@
 package org.pangrova.coordination.inmemory;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordination.api.LeaseEntry;
+import org.pangrova.spi.coordination.LeaseEntry;
 
 import java.time.Clock;
 import java.time.Duration;

@@ -2,10 +2,10 @@ package org.pangrova.generation.spi.jdbc;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.connector.spi.metadata.table.QualifiedTableName;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.security.api.authz.DeferredAuthorizationScope;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.spi.security.authz.DeferredAuthorizationScope;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -32,7 +32,7 @@ class GenerationTransactionContractIsolationTest {
                 if (name.startsWith("org.pangrova.metadata.")
                         || name.startsWith("org.pangrova.generation.store.")
                         || (name.startsWith("org.pangrova.security.")
-                        && !name.startsWith("org.pangrova.security.api."))) {
+                        && !name.startsWith("org.pangrova.spi.security."))) {
                     throw new ClassNotFoundException("Domain implementation unavailable: " + name);
                 }
                 return super.loadClass(name, resolve);

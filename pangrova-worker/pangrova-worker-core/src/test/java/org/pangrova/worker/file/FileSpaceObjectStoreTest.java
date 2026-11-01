@@ -1,8 +1,8 @@
 package org.pangrova.worker.file;
 
-import org.pangrova.storage.s3.object.S3ObjectStoreAccessor;
+import org.pangrova.filesystem.s3.object.S3ObjectStoreAccessor;
 
-import org.pangrova.storage.filesystem.object.LocalObjectStoreAccessor;
+import org.pangrova.filesystem.local.object.LocalObjectStoreAccessor;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -15,14 +15,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.file.api.profile.StorageProfile;
-import org.pangrova.file.api.profile.StorageProfileRegistry;
-import org.pangrova.file.api.profile.StorageProfileRevision;
+import org.pangrova.filesystem.api.profile.StorageProfile;
+import org.pangrova.persistence.api.file.profile.StorageProfileRegistry;
+import org.pangrova.persistence.api.file.profile.StorageProfileRevision;
 import org.pangrova.common.storage.StorageType;
-import org.pangrova.file.api.space.FileSpace;
+import org.pangrova.spi.file.space.FileSpace;
 import org.pangrova.common.file.FileSpaceType;
-import org.pangrova.file.api.object.ObjectLocation;
-import org.pangrova.file.api.object.ObjectStoreAccessor;
+import org.pangrova.filesystem.api.object.ObjectLocation;
+import org.pangrova.filesystem.api.object.ObjectStoreAccessor;
 
 import java.nio.file.Path;
 

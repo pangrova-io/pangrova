@@ -2,7 +2,7 @@ package org.pangrova.coordinator.adapter.indexing;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.indexing.store.IndexMetadataStore;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.spi.indexing.descriptor.IndexDescriptor;
 
 import java.time.Duration;
 import java.util.HashMap;

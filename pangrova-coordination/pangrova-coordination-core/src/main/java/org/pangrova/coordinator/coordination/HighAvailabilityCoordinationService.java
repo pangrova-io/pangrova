@@ -11,12 +11,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.coordination.api.CoordinatorRegistry;
-import org.pangrova.coordination.api.CoordinatorRole;
-import org.pangrova.coordination.api.DistributedLease;
-import org.pangrova.query.api.coordination.ExecutionAnchor;
-import org.pangrova.query.api.coordination.ExecutionAnchorStore;
-import org.pangrova.coordination.api.LeaseEntry;
+import org.pangrova.persistence.api.coordination.CoordinatorRegistry;
+import org.pangrova.spi.coordination.CoordinatorRole;
+import org.pangrova.persistence.api.coordination.DistributedLease;
+import org.pangrova.spi.query.coordination.ExecutionAnchor;
+import org.pangrova.persistence.api.query.coordination.ExecutionAnchorStore;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.pangrova.query.store.memory.InMemoryExecutionAnchorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
