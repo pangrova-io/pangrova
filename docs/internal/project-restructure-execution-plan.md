@@ -4,7 +4,7 @@
 
 状态：执行中，尚未完成全模块语义审查和全链验证。审计起点：2026-10-31 当前工作区（包括既有暂存和未暂存迁移）。本文是执行清单；长期蓝图中的历史数量、M 编号和“done”不能代替当前验收证据。
 
-**最新源码快照（第45节 LOCAL FILE SQL 验证）**：70 个 Maven reactor 项目、55 个 Java 代码叶子、1 个纯资源 JAR、3,583 个 Java 主源文件、663 个主源包、2,380 个测试源文件。全图仍有4组 SCC；模块7项、包结构2项通过，无环项真实失败。70项 clean reactor 编译通过（skipTests）；本批测试与静态检查见第45节，各历史章节保留当批事实。
+**最新源码快照（第46节独立OSS provider与装配）**：71 个 Maven reactor 项目、56 个 Java 代码叶子、1 个纯资源 JAR、3,589 个 Java 主源文件、664 个主源包、2,384 个测试源文件。全图仍有4组 SCC；模块7项、包结构2项通过，无环项真实失败。71项 clean reactor 编译通过（skipTests）；本批验证见第46节，各历史章节保留当批事实。
 
 ## 1. 已核实的现状和设计判断
 
@@ -2517,3 +2517,78 @@ ASan或Linux生产镜像。当前70 reactor、55Java叶子、1资源制品、14�
 OSS provider、source-version/managed authority 多后端扩展、B6/Catalog B0、四SCC、全文件语义
 审查与R5/R6继续开放。OSS SDK初审确认versioned/suspended bucket的forbid-overwrite不生效；
 后续实现必须独立验证发布、版本和加密约束，不把MinIO或S3 endpoint当作真实OSS验收。
+
+## 46. 独立OSS provider、取消与装配
+
+第45节保存为检查点 `2a51480b`。本批新增非空制品 `pangrova-storage-oss`：独立官方SDK
+`com.aliyun:alibabacloud-oss-v2:0.6.1`、内容发布、上传快照、内容流校验、HTTPS transport与配置
+解析共6份主源，只有一个能力包 `storage.oss.blob`。API没有增加OSS类型或依赖；OSS只实现
+BlobStorage，不提供COPY managed fingerprint、source version或权限authority。公共FileSpace
+的对象访问adapter也没有因此自动获得OSS实现。
+
+### 46.1 发布、版本和资源边界
+
+OSS的forbid-overwrite在版本控制启用或暂停时都不生效，不能照搬S3 If-None-Match语义。
+provider每次发布先检查bucket从未启用versioning，再PUT forbid-overwrite；只有精确
+409/FileAlreadyExists才进入winner验证，其他409、403、500不重试、不转成功。所有返回的
+version id（含字面量null）拒绝。管理员必须维持dedicated bucket和namespace配置；preflight
+不能原子fence管理员并发启用versioning，不声称已解决这一外部竞态。依据见官方
+[PutObject](https://www.alibabacloud.com/help/en/oss/developer-reference/putobject)及
+[固定版本源包](https://repo.maven.apache.org/maven2/com/aliyun/alibabacloud-oss-v2/0.6.1/alibabacloud-oss-v2-0.6.1-sources.jar)。
+
+发布先复制调用方staging到provider私有有界snapshot，完整验证长度/SHA-256，再上传；
+Content-MD5只承担OSS传输校验，身份始终用SHA-256，SDK上传CRC64检查保留。上传体使用Long
+length，不调用SDK只接收Integer的contentLength setter；本地上限5GiB，FILE还受其原有64MiB
+默认上限和当前任务grant约束。HEAD验证size/hash metadata、AES256或精确KMS key；已有winner
+另完整读取并hash，不能被伪造metadata掩盖损坏body。正常/异常结束删除私有snapshot；突发进程
+死亡可能遗留不可寻址的系统临时文件，未新增自动GC或崩溃清理证明。
+
+实际HTTPS失败测试复现官方默认Apache5 transport的abort仍graceful-close并drain未读body，
+2秒内不返回。现由OSS制品独占同步transport和SDK client，先cancel socket、解绑已取消entity，
+再close response；没有反射或修改vendor源码。第一版cancel后仍close已关闭entity得到Socket
+closed，解绑后同一未读body回归在1字节及64KiB均通过，并可继续读取新对象。所有大小对象
+都在headers后返回stream，不保留SDK默认的小body预读。连接/读/pool等待有界、64连接、
+64KiB control-response上限，无redirect、隐藏retry、cookie或解压。socket timeout不等于总请求
+deadline；没有借此声称COPY admitted I/O/deadline已经支持OSS。
+
+### 46.2 生产入口与验证
+
+FILE工厂显式选择oss，只有完整OSS配置才构造provider，不读取S3别名。默认官方环境凭据
+缺失时在创建pool/staging前失败；可嵌入传入refreshing CredentialsProvider及TLS trust，
+transport仍由provider持有，不能注入另一条不受控SDK transport。配置选项、Worker显式转发、
+Maven/BOM/manifest与Docker runtime JAR清单同步。入口新回归先得到缺失OSS bucket参数的
+红1；修复后完整Worker owner包含该用例。原unknown-backend测试改用确实不支持的字符串，
+保留其拒绝断言。
+
+独立JVM的生产工厂probe用临时测试环境凭据，实际完成OSS FILE注册、staging创建与SDK关闭，
+没有对象请求、SQL结果替身或对真实云端写入。源码只新增一个测试probe文件；71项clean reactor
+执行在该probe加入前，加入后AI完整测试再次编译并运行通过，不重记一次未发生的clean。
+
+| 验证 | 本批结果 |
+|---|---|
+| OSS完整 owner | 最终19项，真实官方SDK/HTTPS签名、conditional PUT、metadata/SSE/KMS、版本拒绝、CRC失败、损坏winner、取消和控制响应超时均通过，零failure/error/skip；最终static/install通过 |
+| Storage API | 3项及static通过；实际测试classpath/未过滤最小loader同时拒绝AWS、Alibaba、JDBC与provider |
+| OSS独立runtime | Maven runtime依赖对应的15个未过滤URL实际加载7个类型，包含方法、构造、record、annotation；AWS/JDBC/其他provider/Kit不可见 |
+| AI / Config | AI完整214+static通过；新增独立JVM注册probe后完整215项通过。Config完整166+static通过，均零failure/error/skip |
+| Worker完整 owner | 1299项+static通过，零failure/error/skip；含真实5GiB HTTP、注册/启动、Native property、YAML新入口。耗时9分51秒，未中断或以局部代替 |
+| 71项clean reactor | 全部通过（skipTests），只记主源及当时测试源编译，不记为全仓测试 |
+| 真SQL/JNI受影响链 | S3 FILE6+smoke3及Integration static、独立LOCAL4、独立COPY私有票据/精确版本/managed重启1通过，全部零failure/error/skip |
+| Kit / 结构 | 完整112项有111过、唯一无环断言仍失败；模块7、包结构2、SPI/边界等其余通过；四SCC成员与源码见证逐字节不变，报告仅总包数664变化 |
+| 其他门禁 / 部署清单 | manifest、SPI106公共类型零gap、Stable23有生产实现、stub、truthfulness、架构245类引用通过；Docker RUN语法与12个显式runtime JAR存在性通过，未构建Linux镜像 |
+
+Worker console逐suite合计1299，与Surefire summary一致。最终223份XML仅保留1288项：JUnit/
+jqwik对同名类输出同一报告名，部分报告被覆盖；没有把XML少计或property tries当作额外通过。
+所有console suite均为零failure/error/skip。原始日志前缀 `/tmp/pangrova-storage-oss-*`；
+`http-second`保留SDK drain红灯，`http-third`保留cancel收尾错误，`http-final`为追加CRC后的18项，`final-install`为最终19项及static/install，
+`ai-final`为215项，`worker-owner`为完整1299与static，`kit-owner`保留唯一SCC失败。
+
+首次classpath审计误用Maven参数mdep.includeScope，实际拿到test classpath并因JDBC/Kit可见
+而失败。检查固定插件元数据后改用includeScope=runtime，同一未过滤loader通过；未通过删除
+依赖或blacklist伪造隔离。最初编译的Long/Integer错误、BeforeAll临时目录初始化错误、静态
+格式/复杂度诊断均保留日志并修正，没有新增豁免。
+
+当前71 reactor＝56Java叶子＋1资源制品＋14聚合，3589主源、664包、2384测试源；台账集合与
+每包文件数精确一致。Native/protocol输入与合格库hash仍为
+`8343c6cfd4da8d08bad2dd4b27c20aec1a17b87a9f111357bcba4a297984b4f3`，未重做C++/ASan或
+Linux生产镜像。真实云端OSS SQL、RAM/KMS、多Worker资格，FileSpace/COPY的OSS adapter与
+source/managed authority，B6/Catalog B0、四SCC及R5/R6仍开放；本批不代表全存储或全仓生产验收。

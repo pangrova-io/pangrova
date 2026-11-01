@@ -1,6 +1,6 @@
 # 项目结构审查证据
 
-审查日期：2026-11-01。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“45. LOCAL FILE SQL 与部署夹具边界”，不同批次检查结果不混用。
+审查日期：2026-11-01。来源为工作区，不是 HEAD，也不是历史实施日志。前文保留初审快照；最新状态见末节“46. 独立OSS provider、取消与装配”，不同批次检查结果不混用。
 
 ## 范围和方法
 
@@ -476,3 +476,28 @@ LOCAL新增独立JVM owner选择并接入CI第五项；原四项、镜像身份�
 及匹配库未变，没有新C++/ASan/Linux镜像结果。当前3583主源、663包、2380测试源，主源台账
 不变。详细日志和边界见执行记录45；OSS、多后端source authority、B6、Catalog B0、四SCC及
 R5/R6继续开放。
+
+## 46. 独立OSS provider、取消与装配
+
+新增pangrova-storage-oss，6主源/1包/3测试源，官方SDK0.6.1而非AWS endpoint替代。
+只实现BlobStorage；never-versioned bucket、私有有界上传snapshot、长度/SHA-256、传输
+MD5/CRC64、SSE/KMS及真实winner读取校验归此制品。API没有云SDK依赖；COPY与FileSpace
+的OSS权限/版本/adapter仍开放。YAML、Worker转发、FILE工厂、BOM和12个Docker显式runtime
+JAR清单同步；配置转发先红1，修复后完整Worker包含新入口。
+
+官方默认Apache5 abort的graceful drain在HTTPS夹具2秒超时复现；独立transport先取消socket、
+解绑entity再close，同一1字节/64KiB未读body回归通过。最终OSS19项及static/install、API3项及static通过；包含新增CRC与控制响应超时。实际runtime15个未过滤URL加载7类型，无AWS/JDBC/
+其他provider/Kit；初次错误Maven scope参数带入test classpath的审计失败单独保留。
+
+AI214+static通过，增加真实子进程工厂注册/关闭probe后完整215通过；Config166+static通过。
+Worker完整1299+static、S3 FILE SQL6+smoke3及Integration static、独立LOCAL4、独立COPY1
+通过，零failure/error/skip。Worker console合计1299；JUnit/jqwik同类XML覆盖后剩1288，
+不把报告覆盖或property tries换算成新测试。71项clean reactor通过（skipTests），其后新增
+probe仅由AI最终完整测试补编译，不冒称又做了一次clean。
+
+Kit完整112有111过，唯一SCC断言仍失败；四组成员和源码见证不变，仅包总数664变化。
+SPI106/Stable23、manifest、stub、truthfulness、245架构类引用、Docker RUN语法/JAR清单通过。
+当前71 reactor、56Java叶子、1资源制品、14聚合；3589主源、664包、2384测试源。Native/
+protocol和匹配hash未变，没有新C++/ASan/Linux生产镜像证据。详细边界、失败和日志见执行
+记录46；真实OSS云端SQL/权限/KMS/多Worker、FileSpace/COPY、多后端authority、B6、Catalog
+B0、四SCC与R5/R6继续开放。

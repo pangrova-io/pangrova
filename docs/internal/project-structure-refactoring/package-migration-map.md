@@ -1,6 +1,6 @@
 # 全部主源包的迁移台账
 
-当前台账：2026-11-01，第45节 LOCAL FILE SQL 验证工作区；主源与第44节相同，新增三份测试源。663 包 / 55 Java 叶子 / 3,583 主源文件 / 2,380 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
+当前台账：2026-11-01，第46节独立OSS provider与装配工作区。664 包 / 56 Java 叶子 / 3,589 主源文件 / 2,384 测试源文件；每个当前主源包只登记一次。统计包含 `package-info.java`，不含 `target` 生成源；测试源文件数不是测试用例数。此表是迁移设计，未把“保留”视为语义验收通过。实现仍须完成入口、调用者、装配、事务、异常和资源所有权检查。
 
 初审为 649 包 / 3,540 文件，计划交付时为 649 包 / 3,542 文件，历史证据保留在审查记录。第 30 节新增 Query 事务 fence 包与 Artifact execution store 包；拆除 Metadata 原 fence 和 File 重复的租约端口。第 31 节迁入通用 build/exchange/context，新增 Security 当前 direct-role 事务读取端口；Metadata 保留领域 publication 和跨域读 adapter。下面按当前源码更新文件数和新增包，迁移状态以执行记录为准。
 
@@ -49,7 +49,7 @@
 
 ## pangrova-ai-worker
 
-路径：`pangrova-ai/pangrova-ai-worker`。主源文件 93，主源包 17，本叶子测试源文件 52（不是测试用例数）。
+路径：`pangrova-ai/pangrova-ai-worker`。主源文件 93，主源包 17，本叶子测试源文件 53（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
@@ -906,7 +906,15 @@
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|
-| [org.pangrova.storage.s3.blob](../../../pangrova-storage/pangrova-storage-s3/src/main/java/org/pangrova/storage/s3/blob) | 4 | 保留 / P7 | `pangrova-storage-s3`：`org.pangrova.storage.s3.blob` | 第44节：AWS SDK、加密、配置与后端指纹，COPY I/O grant 与取消边界；OSS 仍待独立 provider/装配验证 |
+| [org.pangrova.storage.s3.blob](../../../pangrova-storage/pangrova-storage-s3/src/main/java/org/pangrova/storage/s3/blob) | 4 | 保留 / P7 | `pangrova-storage-s3`：`org.pangrova.storage.s3.blob` | 第44节：AWS SDK、加密、配置与后端指纹，COPY I/O grant 与取消边界；OSS 独立归下一制品，不以endpoint替换混用 |
+
+## pangrova-storage-oss
+
+路径：`pangrova-storage/pangrova-storage-oss`。主源文件 6，主源包 1，本叶子测试源文件 3（不是测试用例数）。
+
+| 当前 package | 文件数 | 动作 / 批次 | 目标 owner / package | 审查重点 |
+|---|---:|---|---|---|
+| [org.pangrova.storage.oss.blob](../../../pangrova-storage/pangrova-storage-oss/src/main/java/org/pangrova/storage/oss/blob) | 6 | 保留 / P7 | `pangrova-storage-oss`：`org.pangrova.storage.oss.blob` | 第46节：独立官方SDK、private upload snapshot、never-versioned发布、SSE与流式校验、真实HTTPS取消；云端OSS SQL与多Worker资格仍开放 |
 
 ## pangrova-streaming
 
@@ -977,7 +985,7 @@
 
 ## pangrova-testing-integration-tests
 
-路径：`pangrova-testing/pangrova-testing-integration-tests`。主源文件 22，主源包 7，本叶子测试源文件 399（不是测试用例数）。
+路径：`pangrova-testing/pangrova-testing-integration-tests`。主源文件 22，主源包 7，本叶子测试源文件 402（不是测试用例数）。
 
 | 当前包 | 文件数 | 动作 / 批次 | 目标制品与包 | 拆分依据与验收重点 |
 |---|---:|---|---|---|

@@ -218,18 +218,21 @@ token, cost or billing statistics.
 The governed FILE runtime is disabled when `storage-backend` is absent or blank,
 so ordinary and text-only AI Workers do not require object-storage configuration.
 Enabling FILE, or configuring a model with a multimodal capability that requires
-governed blob loading, requires the complete S3 configuration below and fails
-Worker startup if any required value is missing or invalid. The runtime has no
-local-filesystem production mode. Every FILE-enabled Worker must use the same
-S3-compatible bucket, prefix, region, encryption policy and capability secret
-reference. Local staging is per Worker and may be ephemeral; published objects
-are durable and content addressed. S3 credentials come only from the AWS SDK
-workload-identity/default credential chain. Static access keys are not accepted
-as FILE configuration.
+governed blob loading, requires complete configuration for the selected `s3`,
+`local` or `oss` backend. Missing or invalid required settings fail Worker
+function registration. Workers resolving the same FILE references must share
+the published namespace and capability secret. Local staging is per Worker and
+may be ephemeral; published objects must be persistent and content addressed.
+S3 credentials use the AWS SDK default chain. OSS uses `OSS_ACCESS_KEY_ID`,
+`OSS_ACCESS_KEY_SECRET` and optional `OSS_SESSION_TOKEN` from the official SDK
+environment provider; this provider snapshots environment credentials at startup.
+Environment-token rotation requires a Worker restart before expiry. Static access
+keys are not accepted as YAML FILE configuration. Embedded applications may supply
+a refreshing official OSS `CredentialsProvider` directly to the provider.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `worker.ai.file.storage-backend` | string | — | Explicit FILE enablement switch: `s3` or `local`. Unsupported values or incomplete configuration fail Worker function registration |
+| `worker.ai.file.storage-backend` | string | — | Explicit FILE enablement switch: `s3`, `local` or `oss`. Unsupported values or incomplete configuration fail Worker function registration |
 | `worker.ai.file.storage.local.root` | path | — | Required for `local`: persistent administrator-controlled object root. Workers resolving the same FILE references must share this filesystem namespace. The COPY stage listener still requires managed S3 |
 | `worker.ai.file.storage-staging-root` | path | — | Required Worker-local bounded staging directory; incomplete writes are never published and abandoned files are age/count scavenged |
 | `worker.ai.file.capability-secret-reference` | string | — | Required external secret reference resolved at startup. The value must be canonical base64 decoding to at least 32 bytes and must be identical across Workers; it is never persisted locally |
@@ -241,6 +244,15 @@ as FILE configuration.
 | `worker.ai.file.storage.s3.kms-key-id` | string | — | Required for `aws:kms`; aliases are rejected because returned object metadata cannot prove alias identity |
 | `worker.ai.file.storage.s3.expected-bucket-owner` | string | empty | Optional AWS account owner guard applied to PUT, HEAD and GET |
 | `worker.ai.file.storage.s3.path-style-access` | bool | `false` | Enable only for an S3-compatible service that requires path-style addressing |
+| `worker.ai.file.storage.oss.bucket` | string | — | Required for OSS: dedicated bucket that has never enabled versioning; enabled and suspended versioning are rejected before PUT |
+| `worker.ai.file.storage.oss.region` | string | — | Required OSS signing region, for example `cn-hangzhou` |
+| `worker.ai.file.storage.oss.endpoint` | HTTPS origin | — | Required OSS origin; credentials, path, query and fragment are rejected |
+| `worker.ai.file.storage.oss.prefix` | string | `pangrova/ai-files` | Canonical relative object prefix; absolute paths, dot segments and repeated separators are rejected |
+| `worker.ai.file.storage.oss.sse` | string | — | Required `AES256` or `KMS`; HEAD/GET must prove the configured policy |
+| `worker.ai.file.storage.oss.kms-key-id` | string | empty | Exact key id required for `KMS`; must be empty for `AES256` |
+| `worker.ai.file.storage.oss.path-style-access` | bool | `false` | Select OSS path-style addressing when required by the configured deployment |
+| `worker.ai.file.storage.oss.connect-timeout-ms` | long | `5000` | Positive connect timeout, at most Integer.MAX_VALUE milliseconds |
+| `worker.ai.file.storage.oss.read-timeout-ms` | long | `20000` | Positive socket read timeout with the same limit; not a total operation deadline |
 | `worker.ai.file.max-bytes` | long | `67108864` | Worker hard ceiling for one persisted FILE; task/model media grants may lower it |
 | `worker.ai.file.allowed-mime-types` | CSV | images, PDF, text, audio, MP4 | MIME allowlist applied before persistence |
 | `worker.ai.file.url.allowed-hosts` | CSV | empty | Exact HTTPS import host allowlist; empty disables URL import |

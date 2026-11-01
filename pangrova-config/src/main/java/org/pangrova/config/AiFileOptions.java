@@ -40,6 +40,25 @@ public final class AiFileOptions {
     public static final ConfigOption<Long> MAX_BYTES = longOption(
             "worker.ai.file.max-bytes", 64L * 1024 * 1024,
             "Maximum decoded bytes accepted for one governed FILE");
+    public static final ConfigOption<String> OSS_BUCKET = stringOption(
+            "worker.ai.file.storage.oss.bucket", null, "Governed FILE OSS never-versioned bucket");
+    public static final ConfigOption<String> OSS_REGION = stringOption(
+            "worker.ai.file.storage.oss.region", null, "Governed FILE OSS signing region");
+    public static final ConfigOption<String> OSS_ENDPOINT = stringOption(
+            "worker.ai.file.storage.oss.endpoint", null, "Explicit OSS HTTPS origin");
+    public static final ConfigOption<String> OSS_PREFIX = stringOption(
+            "worker.ai.file.storage.oss.prefix", "pangrova/ai-files", "Tenant-partitioned FILE OSS object prefix");
+    public static final ConfigOption<String> OSS_SSE = stringOption(
+            "worker.ai.file.storage.oss.sse", null, "Required OSS server-side encryption: AES256 or KMS");
+    public static final ConfigOption<String> OSS_KMS_KEY_ID = stringOption(
+            "worker.ai.file.storage.oss.kms-key-id", "", "Exact OSS KMS key id");
+    public static final ConfigOption<Boolean> OSS_PATH_STYLE_ACCESS =
+            ConfigOptions.key("worker.ai.file.storage.oss.path-style-access").booleanType().defaultValue(false)
+                    .withDescription("Use path-style OSS addressing").build();
+    public static final ConfigOption<Long> OSS_CONNECT_TIMEOUT_MS = longOption(
+            "worker.ai.file.storage.oss.connect-timeout-ms", 5_000L, "OSS connection timeout in milliseconds");
+    public static final ConfigOption<Long> OSS_READ_TIMEOUT_MS = longOption(
+            "worker.ai.file.storage.oss.read-timeout-ms", 20_000L, "OSS socket read timeout in milliseconds");
     public static final ConfigOption<String> ALLOWED_MIME_TYPES = stringOption(
             "worker.ai.file.allowed-mime-types",
             "image/jpeg,image/png,image/webp,application/pdf,text/plain,"

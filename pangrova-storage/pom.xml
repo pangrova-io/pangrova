@@ -10,10 +10,11 @@
     <artifactId>pangrova-storage</artifactId>
     <packaging>pom</packaging>
     <name>Pangrova Storage</name>
-    <description>Blob contracts and independently selected filesystem and S3 providers</description>
+    <description>Blob contracts and independently selected filesystem, S3 and OSS providers</description>
     <modules>
         <module>pangrova-storage-api</module>
         <module>pangrova-storage-filesystem</module>
         <module>pangrova-storage-s3</module>
+        <module>pangrova-storage-oss</module>
     </modules>
 </project>

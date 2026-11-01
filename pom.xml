@@ -130,6 +130,7 @@
         <!-- Infrastructure -->
         <tomcat-annotations-api.version>6.0.53</tomcat-annotations-api.version>
         <awssdk.version>2.25.16</awssdk.version>
+        <oss-sdk.version>0.6.1</oss-sdk.version>
         <findsecbugs.version>1.13.0</findsecbugs.version>
 
         <!-- Resilience4j -->
@@ -596,6 +597,16 @@
                 <groupId>org.pangrova</groupId>
                 <artifactId>pangrova-storage-s3</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-storage-oss</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun</groupId>
+                <artifactId>alibabacloud-oss-v2</artifactId>
+                <version>${oss-sdk.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.pangrova</groupId>

@@ -118,10 +118,56 @@ class AiFunctionFactoryTest {
             assertTrue(missingRoot.getMessage().contains("file.storage.local.root is required"));
             var unsupported = assertThrows(IllegalArgumentException.class,
                     () -> production.getScalarFunctions(Map.of(
-                            "file.storage-backend", "oss",
+                            "file.storage-backend", "unsupported-backend",
                             "file.storage-staging-root", drafts.toString(),
                             "file.capability-secret-reference", "test://file-capability")));
             assertTrue(unsupported.getMessage().contains("Unsupported FILE storage backend"));
+            assertFalse(java.nio.file.Files.exists(drafts));
+        }
+    }
+
+    @Test
+    void productionOssRegistrationOwnsAndClosesItsRealSdkWithoutRequestingObjects() throws Exception {
+        Path drafts = temporaryDirectory.resolve("oss-startup-drafts");
+        Path output = temporaryDirectory.resolve("oss-startup-output.log");
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        var builder = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-Xmx256m", "-cp", classpath, AiFunctionFactoryOssStartupProbe.class.getName(), drafts.toString())
+                .redirectErrorStream(true).redirectOutput(output.toFile());
+        builder.environment().put("OSS_ACCESS_KEY_ID", "test-id");
+        builder.environment().put("OSS_ACCESS_KEY_SECRET", "test-secret");
+        builder.environment().put("OSS_SESSION_TOKEN", "");
+        Process process = builder.start();
+        try {
+            assertTrue(process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS), "OSS factory child did not exit");
+            assertEquals(0, process.exitValue(), () -> {
+                try { return java.nio.file.Files.readString(output); }
+                catch (java.io.IOException failure) { return failure.toString(); }
+            });
+            assertTrue(java.nio.file.Files.readString(output).contains("OSS_FACTORY_REGISTERED_AND_CLOSED"));
+            assertTrue(java.nio.file.Files.isDirectory(drafts));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw interrupted;
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                assertTrue(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS), "OSS factory child is still owned");
+            }
+        }
+    }
+
+    @Test
+    void ossRequiresItsOwnConfigurationBeforeOpeningStaging() throws Exception {
+        Path drafts = temporaryDirectory.resolve("oss-drafts");
+        try (var production = new AiFunctionFactory()) {
+            var missingBucket = assertThrows(IllegalArgumentException.class,
+                    () -> production.getScalarFunctions(Map.of(
+                            "file.storage-backend", "oss",
+                            "file.storage.s3.bucket", "must-not-be-used",
+                            "file.storage-staging-root", drafts.toString(),
+                            "file.capability-secret-reference", "test://file-capability")));
+            assertTrue(missingBucket.getMessage().contains("file.storage.oss.bucket is required"));
             assertFalse(java.nio.file.Files.exists(drafts));
         }
     }

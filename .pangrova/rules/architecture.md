@@ -38,6 +38,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-storage/pangrova-storage-api` | SDK-free blob identity, publication and admitted managed-storage ports shared by Worker COPY and the AI FILE layer |
 | `pangrova-storage/pangrova-storage-filesystem` | Independent filesystem content publication over Storage API; no cloud SDK dependency |
 | `pangrova-storage/pangrova-storage-s3` | S3 publication, encryption, backend identity and bounded transport over Storage API |
+| `pangrova-storage/pangrova-storage-oss` | Alibaba OSS publication over Storage API with its own client, cancellation, encryption and never-versioned bucket policy; not a COPY source/managed adapter |
 | `pangrova-ai/pangrova-ai-api` | Shared AI model, capability, invocation, embedding descriptors and the Worker↔AI runtime ports |
 | `pangrova-ai/pangrova-ai-control` | Governed model/evaluation/feature state and the atomic catalog-export association adapter; consumes Generation contracts without exposing this dependency through AI API |
 | `pangrova-ai/pangrova-ai-worker` | Optional Worker-side AI execution plane: governed provider invocation, AI SQL functions and ServiceLoader runtime adapters |
@@ -129,13 +130,15 @@ pangrova-worker (Java)
 
 ## Module Dependency Policy
 
-Storage API must not depend on either provider or cloud SDKs, including on its test classpath.
+Storage API must not depend on any provider or cloud SDKs, including on its test classpath.
 Governed FILE consumes BlobStorage; COPY preparation consumes ManagedBlobStorage. Process assembly
 selects providers explicitly. An admitted read exposes SDK-free abort semantics; source-version
 authority and caller I/O budgets remain outside the provider. The current COPY source adapter
 still requires exact S3 versions; a generic managed-storage port does not authorize LOCAL or OSS
 sources. Filesystem publication copies and verifies caller staging before an atomic no-replace
 link, and must never publish a mutable alias of caller-owned bytes.
+OSS owns its official client and cancellable transport, and implements only the content-publication
+port. Its never-versioned bucket policy must not be generalized into COPY source/version authority.
 
 The authoritative per-artifact allow-list (`packageRoots`, `exports`,
 `allowedImports`, `forbiddenImports`, `friendExports`, declared `providers`) lives

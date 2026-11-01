@@ -241,6 +241,37 @@ class PangrovaWorkerMainTest {
     }
 
     @Test
+    void buildBootstrapConfigForwardsIndependentOssStoragePolicy(@TempDir Path directory) {
+        var source = PangrovaConfiguration.fromYaml(Map.ofEntries(
+                Map.entry("worker.ai.file.storage-backend", "oss"),
+                Map.entry("worker.ai.file.storage-staging-root", directory.toString()),
+                Map.entry("worker.ai.file.capability-secret-reference", "env://FILE_KEY"),
+                Map.entry("worker.ai.file.storage.oss.bucket", "governed-files"),
+                Map.entry("worker.ai.file.storage.oss.region", "cn-hangzhou"),
+                Map.entry("worker.ai.file.storage.oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com"),
+                Map.entry("worker.ai.file.storage.oss.prefix", "files"),
+                Map.entry("worker.ai.file.storage.oss.sse", "KMS"),
+                Map.entry("worker.ai.file.storage.oss.kms-key-id", "exact-key-id"),
+                Map.entry("worker.ai.file.storage.oss.path-style-access", "true"),
+                Map.entry("worker.ai.file.storage.oss.connect-timeout-ms", "1234"),
+                Map.entry("worker.ai.file.storage.oss.read-timeout-ms", "5678")));
+        assertThat(PangrovaWorkerMain.buildBootstrapConfig(source)
+                .nativeFunctionConfig().configForPlugin("ai-inference"))
+                .containsEntry("file.storage-backend", "oss")
+                .containsEntry("file.storage-staging-root", directory.toString())
+                .containsEntry("file.capability-secret-reference", "env://FILE_KEY")
+                .containsEntry("file.storage.oss.bucket", "governed-files")
+                .containsEntry("file.storage.oss.region", "cn-hangzhou")
+                .containsEntry("file.storage.oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com")
+                .containsEntry("file.storage.oss.prefix", "files")
+                .containsEntry("file.storage.oss.sse", "KMS")
+                .containsEntry("file.storage.oss.kms-key-id", "exact-key-id")
+                .containsEntry("file.storage.oss.path-style-access", "true")
+                .containsEntry("file.storage.oss.connect-timeout-ms", "1234")
+                .containsEntry("file.storage.oss.read-timeout-ms", "5678");
+    }
+
+    @Test
     void buildBootstrapConfigWiresDistributedFileStorageWithoutSecrets() {
         PangrovaConfiguration source = PangrovaConfiguration.fromYaml(Map.ofEntries(
                 Map.entry("worker.ai.file.storage-backend", "s3"),

@@ -194,6 +194,15 @@ public final class PangrovaWorkerMain {
         copyAiOption(target, config, AiFileOptions.S3_KMS_KEY_ID);
         copyAiOption(target, config, AiFileOptions.S3_EXPECTED_BUCKET_OWNER);
         copyAiOption(target, config, AiFileOptions.S3_PATH_STYLE_ACCESS);
+        copyAiOption(target, config, AiFileOptions.OSS_BUCKET);
+        copyAiOption(target, config, AiFileOptions.OSS_REGION);
+        copyAiOption(target, config, AiFileOptions.OSS_ENDPOINT);
+        copyAiOption(target, config, AiFileOptions.OSS_PREFIX);
+        copyAiOption(target, config, AiFileOptions.OSS_SSE);
+        copyAiOption(target, config, AiFileOptions.OSS_KMS_KEY_ID);
+        copyAiOption(target, config, AiFileOptions.OSS_PATH_STYLE_ACCESS);
+        copyAiOption(target, config, AiFileOptions.OSS_CONNECT_TIMEOUT_MS);
+        copyAiOption(target, config, AiFileOptions.OSS_READ_TIMEOUT_MS);
         copyAiOption(target, config, AiFileOptions.MAX_BYTES);
         copyAiOption(target, config, AiFileOptions.ALLOWED_MIME_TYPES);
         copyAiOption(target, config, AiFileOptions.URL_ALLOWED_HOSTS);

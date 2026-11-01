@@ -417,6 +417,7 @@ artifacts:
       - pangrova-storage-api
       - pangrova-storage-s3
       - pangrova-storage-filesystem
+      - pangrova-storage-oss
       - pangrova-worker-native-bridge
     forbiddenImports:
       - pangrova-coordination-core
@@ -459,6 +460,15 @@ artifacts:
     packageRoots: [org.pangrova.storage.s3.blob]
     exports: [org.pangrova.storage.s3.blob]
     allowedImports: [pangrova-storage-api]
+    forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
+    providers: {}
+
+  pangrova-storage-oss:
+    path: pangrova-storage/pangrova-storage-oss
+    moduleName: org.pangrova.storage.oss
+    packageRoots: [org.pangrova.storage.oss.blob]
+    exports: [org.pangrova.storage.oss.blob]
+    allowedImports: [pangrova-storage-api, pangrova-common]
     forbiddenImports: [pangrova-coordination-core, pangrova-worker-core, pangrova-ai-worker, pangrova-ai-control]
     providers: {}
 

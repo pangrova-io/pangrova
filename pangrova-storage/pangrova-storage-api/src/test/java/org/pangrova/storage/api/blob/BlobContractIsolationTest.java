@@ -16,6 +16,7 @@ class BlobContractIsolationTest {
     @Test
     void actualApiClasspathAndMinimalLoaderContainNoSdkOrProvider() throws Exception {
         List<String> unavailable = List.of("software.amazon.awssdk.services.s3.S3Client",
+                "com.aliyun.sdk.service.oss2.OSSClient", "org.pangrova.storage.oss.blob.OssBlobStorage",
                 "com.fasterxml.jackson.databind.ObjectMapper", "org.postgresql.Driver",
                 "org.pangrova.storage.s3.blob.S3BlobStorage",
                 "org.pangrova.storage.filesystem.blob.FileSystemBlobStorage");

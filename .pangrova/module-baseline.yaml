@@ -127,6 +127,7 @@ artifacts:
       pangrova-security: compile
       pangrova-storage-api: compile
       pangrova-storage-filesystem: compile
+      pangrova-storage-oss: compile
       pangrova-storage-s3: compile
       pangrova-testing-kit: test
       pangrova-worker-native-bridge: compile
@@ -140,6 +141,7 @@ artifacts:
         - pangrova-security
         - pangrova-storage-api
         - pangrova-storage-filesystem
+        - pangrova-storage-oss
         - pangrova-storage-s3
         - pangrova-worker-native-bridge
       test:
@@ -2001,6 +2003,26 @@ artifacts:
         - pangrova-storage-api
     exportedPackages:
       - org.pangrova.storage.filesystem.blob
+    providers:
+      {}
+  pangrova-storage-oss:
+    path: pangrova-storage/pangrova-storage-oss
+    mainPackages:
+      - org.pangrova.storage.oss.blob
+    pomDependencies:
+      pangrova-common: compile
+      pangrova-storage-api: compile
+      pangrova-testing-kit: test
+    imports:
+      main:
+        - pangrova-common
+        - pangrova-storage-api
+      test:
+        - pangrova-common
+        - pangrova-storage-api
+        - pangrova-testing-kit
+    exportedPackages:
+      - org.pangrova.storage.oss.blob
     providers:
       {}
   pangrova-storage-s3:

@@ -14,12 +14,20 @@ class AiFileOptionsTest {
         assertThat(AiFileOptions.S3_BUCKET.hasDefaultValue()).isFalse();
         assertThat(AiFileOptions.S3_REGION.hasDefaultValue()).isFalse();
         assertThat(AiFileOptions.S3_SSE.hasDefaultValue()).isFalse();
+        assertThat(AiFileOptions.OSS_BUCKET.hasDefaultValue()).isFalse();
+        assertThat(AiFileOptions.OSS_REGION.hasDefaultValue()).isFalse();
+        assertThat(AiFileOptions.OSS_ENDPOINT.hasDefaultValue()).isFalse();
+        assertThat(AiFileOptions.OSS_SSE.hasDefaultValue()).isFalse();
     }
 
     @Test
     void boundedTransportAndStorageDefaultsAreTyped() {
         assertThat(AiFileOptions.S3_PREFIX.defaultValue()).isEqualTo("pangrova/ai-files");
         assertThat(AiFileOptions.S3_PATH_STYLE_ACCESS.defaultValue()).isFalse();
+        assertThat(AiFileOptions.OSS_PREFIX.defaultValue()).isEqualTo("pangrova/ai-files");
+        assertThat(AiFileOptions.OSS_PATH_STYLE_ACCESS.defaultValue()).isFalse();
+        assertThat(AiFileOptions.OSS_CONNECT_TIMEOUT_MS.defaultValue()).isEqualTo(5_000L);
+        assertThat(AiFileOptions.OSS_READ_TIMEOUT_MS.defaultValue()).isEqualTo(20_000L);
         assertThat(AiFileOptions.MAX_BYTES.defaultValue()).isEqualTo(64L * 1024 * 1024);
         assertThat(AiFileOptions.URL_MAX_CONNECTIONS.defaultValue()).isEqualTo(256);
         assertThat(AiFileOptions.URL_MAX_CONNECTIONS_PER_ROUTE.defaultValue()).isEqualTo(32);

@@ -36,6 +36,8 @@ import org.pangrova.storage.s3.blob.S3BlobStorage;
 import org.pangrova.storage.api.blob.BlobStorage;
 import org.pangrova.storage.filesystem.blob.FileSystemBlobStorage;
 import org.pangrova.storage.s3.blob.S3BlobStorageSettingsParser;
+import org.pangrova.storage.oss.blob.OssBlobStorage;
+import org.pangrova.storage.oss.blob.OssBlobStorageSettingsParser;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -402,6 +404,7 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
         return switch (required(config, "file.storage-backend")) {
             case "s3" -> new S3BlobStorage(S3BlobStorageSettingsParser.parse(config));
             case "local" -> new FileSystemBlobStorage(Path.of(required(config, "file.storage.local.root")));
+            case "oss" -> new OssBlobStorage(OssBlobStorageSettingsParser.parse(config));
             default -> throw new IllegalArgumentException("Unsupported FILE storage backend");
         };
     }
