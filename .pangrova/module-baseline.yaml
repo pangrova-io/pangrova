@@ -38,7 +38,6 @@ artifacts:
   pangrova-ai-control:
     path: pangrova-ai/pangrova-ai-control
     mainPackages:
-      - org.pangrova.ai.control
       - org.pangrova.ai.control.api
       - org.pangrova.ai.control.assembly
       - org.pangrova.ai.control.embedding
@@ -79,7 +78,6 @@ artifacts:
   pangrova-ai-worker:
     path: pangrova-ai/pangrova-ai-worker
     mainPackages:
-      - org.pangrova.ai.worker
       - org.pangrova.ai.worker.blob
       - org.pangrova.ai.worker.config
       - org.pangrova.ai.worker.context
@@ -161,7 +159,6 @@ artifacts:
   pangrova-client-core:
     path: pangrova-client/pangrova-client-core
     mainPackages:
-      - org.pangrova.client.core
       - org.pangrova.client.core.api
       - org.pangrova.client.core.error
       - org.pangrova.client.core.protocol
@@ -376,7 +373,6 @@ artifacts:
   pangrova-connector-runtime:
     path: pangrova-connector/pangrova-connector-runtime
     mainPackages:
-      - org.pangrova.connector.runtime
       - org.pangrova.connector.runtime.classloader
       - org.pangrova.connector.runtime.discovery
       - org.pangrova.connector.runtime.lifecycle
@@ -489,7 +485,6 @@ artifacts:
       - org.pangrova.coordinator.scheduler
       - org.pangrova.coordinator.scheduler.ft
       - org.pangrova.coordinator.semantic
-      - org.pangrova.coordinator.speculation
       - org.pangrova.coordinator.storage
       - org.pangrova.coordinator.task
       - org.pangrova.coordinator.transport
@@ -668,7 +663,6 @@ artifacts:
     path: pangrova-file/pangrova-file-core
     mainPackages:
       - org.pangrova.file.adapter.worker
-      - org.pangrova.file.core
       - org.pangrova.file.core.directory
       - org.pangrova.file.core.space
     pomDependencies:
@@ -692,7 +686,6 @@ artifacts:
   pangrova-filesystem-api:
     path: pangrova-filesystem/pangrova-filesystem-api
     mainPackages:
-      - org.pangrova.filesystem.api
       - org.pangrova.filesystem.api.blob
       - org.pangrova.filesystem.api.object
       - org.pangrova.filesystem.api.profile
@@ -798,7 +791,6 @@ artifacts:
   pangrova-governance:
     path: pangrova-governance
     mainPackages:
-      - org.pangrova.governance
       - org.pangrova.governance.api.audit
       - org.pangrova.governance.api.catalog
       - org.pangrova.governance.api.classification
@@ -849,7 +841,6 @@ artifacts:
   pangrova-indexing-core:
     path: pangrova-indexing/pangrova-indexing-core
     mainPackages:
-      - org.pangrova.indexing
       - org.pangrova.indexing.adapter.fs
       - org.pangrova.indexing.assembly.serde
       - org.pangrova.indexing.core.build
@@ -945,7 +936,6 @@ artifacts:
   pangrova-materialization-core:
     path: pangrova-materialization/pangrova-materialization-core
     mainPackages:
-      - org.pangrova.materialization
       - org.pangrova.materialization.domain
       - org.pangrova.materialization.extension
       - org.pangrova.materialization.port
@@ -995,7 +985,6 @@ artifacts:
   pangrova-metadata:
     path: pangrova-metadata
     mainPackages:
-      - org.pangrova.metadata
       - org.pangrova.metadata.adapter
       - org.pangrova.metadata.adapter.generation
       - org.pangrova.metadata.adapter.governance
@@ -1096,7 +1085,6 @@ artifacts:
   pangrova-observability-sdk:
     path: pangrova-observability/pangrova-observability-sdk
     mainPackages:
-      - org.pangrova.observability.sdk
       - org.pangrova.observability.sdk.alerting
       - org.pangrova.observability.sdk.config
       - org.pangrova.observability.sdk.logging
@@ -1202,7 +1190,6 @@ artifacts:
   pangrova-persistence-api:
     path: pangrova-persistence/pangrova-persistence-api
     mainPackages:
-      - org.pangrova.persistence.api
       - org.pangrova.persistence.api.coordination
       - org.pangrova.persistence.api.file.claim
       - org.pangrova.persistence.api.file.directory
@@ -1264,9 +1251,7 @@ artifacts:
   pangrova-persistence-jdbc:
     path: pangrova-persistence/pangrova-persistence-jdbc
     mainPackages:
-      - org.pangrova.persistence.jdbc
       - org.pangrova.persistence.jdbc.coordination
-      - org.pangrova.persistence.jdbc.file
       - org.pangrova.persistence.jdbc.file.claim
       - org.pangrova.persistence.jdbc.file.copy
       - org.pangrova.persistence.jdbc.file.directory
@@ -1335,7 +1320,6 @@ artifacts:
   pangrova-persistence-memory:
     path: pangrova-persistence/pangrova-persistence-memory
     mainPackages:
-      - org.pangrova.persistence.memory
       - org.pangrova.persistence.memory.coordination
       - org.pangrova.persistence.memory.query.audit
       - org.pangrova.persistence.memory.query.coordination
@@ -1452,7 +1436,6 @@ artifacts:
   pangrova-protocol:
     path: pangrova-protocol
     mainPackages:
-      - org.pangrova.protocol
       - org.pangrova.protocol.batch
       - org.pangrova.protocol.capability
       - org.pangrova.protocol.capability.inventory
@@ -1484,7 +1467,6 @@ artifacts:
       - org.pangrova.protocol.retrieval
       - org.pangrova.protocol.source
       - org.pangrova.protocol.substrait
-      - org.pangrova.protocol.substrait.generated
       - org.pangrova.protocol.task
       - org.pangrova.protocol.transport
       - org.pangrova.protocol.type
@@ -1543,10 +1525,8 @@ artifacts:
   pangrova-query:
     path: pangrova-query
     mainPackages:
-      - org.pangrova.query.assembly
       - org.pangrova.query.assembly.audit
       - org.pangrova.query.assembly.state
-      - org.pangrova.query.core
       - org.pangrova.query.core.audit
       - org.pangrova.query.core.profiling
     pomDependencies:
@@ -1579,7 +1559,6 @@ artifacts:
   pangrova-scheduler:
     path: pangrova-scheduler
     mainPackages:
-      - org.pangrova.scheduler
       - org.pangrova.scheduler.api.placement
       - org.pangrova.scheduler.api.quota
       - org.pangrova.scheduler.api.resource
@@ -1637,7 +1616,6 @@ artifacts:
   pangrova-security:
     path: pangrova-security
     mainPackages:
-      - org.pangrova.security
       - org.pangrova.security.adapter.kms
       - org.pangrova.security.assembly.audit
       - org.pangrova.security.core.audit
@@ -1699,7 +1677,6 @@ artifacts:
   pangrova-semantic:
     path: pangrova-semantic
     mainPackages:
-      - org.pangrova.semantic
       - org.pangrova.semantic.api.view
       - org.pangrova.semantic.core.view
       - org.pangrova.semantic.store.jdbc
@@ -1725,7 +1702,6 @@ artifacts:
       - org.pangrova.shuffle.api
       - org.pangrova.shuffle.core
       - org.pangrova.shuffle.exchange
-      - org.pangrova.shuffle.provider
       - org.pangrova.shuffle.provider.spool
       - org.pangrova.shuffle.scheduling
       - org.pangrova.shuffle.spool
@@ -1782,7 +1758,6 @@ artifacts:
   pangrova-spi:
     path: pangrova-spi
     mainPackages:
-      - org.pangrova.spi
       - org.pangrova.spi.ai.capability
       - org.pangrova.spi.ai.embedding
       - org.pangrova.spi.ai.error
@@ -1813,7 +1788,6 @@ artifacts:
       - org.pangrova.spi.connector.metadata.table
       - org.pangrova.spi.connector.plugin
       - org.pangrova.spi.coordination
-      - org.pangrova.spi.file
       - org.pangrova.spi.file.access
       - org.pangrova.spi.file.authority
       - org.pangrova.spi.file.copy
@@ -1847,7 +1821,6 @@ artifacts:
       - org.pangrova.spi.observability
       - org.pangrova.spi.observability.event
       - org.pangrova.spi.observability.profiling
-      - org.pangrova.spi.query
       - org.pangrova.spi.query.audit
       - org.pangrova.spi.query.coordination
       - org.pangrova.spi.query.identity
@@ -1976,7 +1949,6 @@ artifacts:
   pangrova-streaming:
     path: pangrova-streaming
     mainPackages:
-      - org.pangrova.streaming
       - org.pangrova.streaming.adapter.coordinator
       - org.pangrova.streaming.api.aggregation
       - org.pangrova.streaming.api.cdc
@@ -2040,7 +2012,6 @@ artifacts:
   pangrova-table:
     path: pangrova-table
     mainPackages:
-      - org.pangrova.table
       - org.pangrova.table.api.control
       - org.pangrova.table.api.governancebinding
       - org.pangrova.table.api.maintenance
@@ -2251,7 +2222,6 @@ artifacts:
   pangrova-transport:
     path: pangrova-transport
     mainPackages:
-      - org.pangrova.client.transport
       - org.pangrova.client.transport.http
       - org.pangrova.client.transport.security
       - org.pangrova.transport
@@ -2405,13 +2375,11 @@ artifacts:
   pangrova-worker-native-bridge:
     path: pangrova-worker/pangrova-worker-native-bridge
     mainPackages:
-      - org.pangrova.worker.nativebridge
       - org.pangrova.worker.nativebridge.connector.session
       - org.pangrova.worker.nativebridge.connector.spi
       - org.pangrova.worker.nativebridge.jni
       - org.pangrova.worker.nativebridge.jni.write
       - org.pangrova.worker.nativebridge.jni.write.catalog
-      - org.pangrova.worker.nativebridge.jni.write.secret
       - org.pangrova.worker.nativebridge.jni.write.secret.env
       - org.pangrova.worker.nativebridge.memory
     pomDependencies:

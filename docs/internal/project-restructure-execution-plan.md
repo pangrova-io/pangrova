@@ -3111,3 +3111,40 @@ Metadata61及Coordinator55测试均通过，随后static发现长行：Metadata�
 
 用户随后新增“清理所有空包和package-info”的要求；下一独立检查点处理该清理及对应
 门禁/政策/台账，不将此前的package-info要求继续当作目标，也不擅自删除包级运行时语义。
+
+## 53. 空包、package-info 与退役模块清理（2026-11-01）
+
+按新增要求删除全部201个package-info.java（197主源、4测试源）。逐文件确认它们只有
+注释和package声明，无import、包级注解或其他编译/运行时语义。实际类型、方法契约及
+领域架构说明保留；归属/导出/允许调用者由modules.yaml管理，不再要求源码占位文件。
+清理323个空Java包目录；扫描也确认没有只留非Java文件而无Java子孙源码的包目录。
+实际清单见`/tmp/pangrova-package-cleanup-inventory.json`。
+
+原导出包文档门禁按新要求替换为禁止空包和package-info，不忽略测试。新门禁在清理前
+真实失败，`/tmp/pangrova-package-cleanup-red.log`为1项1失败；清理后`green.log`31项及
+static通过。新增POM职责门禁后`modules.log`32项及static通过：聚合POM的子项必须存在；
+无子项的源码空POM只允许承担已验证平台分类打包职责的Native Bundle，并检查资源和
+打包execution。规则及蓝图中的旧要求/目录模板同步更新。解析器的临时包注解fixture
+保留以验证Java解析能力，没有在仓库恢复package-info源文件。
+
+当前66个POM具有实际职责：49个Java叶子、1个Schema资源JAR、15个聚合POM、1个Native
+分类打包POM，没有空占位POM。另删除32个已退役模块目录：事先确认无POM或Git跟踪文件，
+只余target、测试种子缓存、生成的dependency-reduced-pom和空目录，没有未知用户文件。
+`/tmp/pangrova-retired-module-cleanup.json`及同前缀log记录具体目录和完成结果。
+
+Native Bundle实际生成osx-aarch_64分类JAR，`/tmp/pangrova-package-cleanup-native-bundle.log`
+通过。包内dylib与第51节已验证文件的SHA-256完全一致；这证明其打包职责，不把无Java源
+误判为空module，也不声称重新完成C++/ASan验证。
+
+`/tmp/pangrova-package-cleanup-reactor.log`66项clean install通过，主源/测试源编译完成，
+使用skipTests。50个当前main JAR均无package-info.class，并保留Automatic-Module-Name；
+Generation的53个迁移类型仍各只有一个新定义。生产Java差异只有包文档删除，schema、
+Native、Proto未改。`artifacts-final.log`保存检查结果；首轮临时审计脚本误将rg无匹配码1
+当作错误，修正退出码判断后验证通过，原`artifacts.log`保留。
+
+模块manifest及8项工具回归通过（同一cleanup日志前缀的`manifest.log`/`tooling.log`）。
+clean后模块7项再通过，包无环1项仍失败（`gates-final.log`）；随后新增POM职责门禁及
+其他检查合计32项通过。当前668包原始图仍仅原四SCC且成员不变，没有把目录删除当作解环。
+台账为3,427主源文件、668主源包、2,396测试源文件、49 Java叶子；331个Store候选继续
+逐文件处理。完整Store/API整合、五个未接线对象、Native fixture前置条件、Worker TLS
+首次异常归因及真实云端生产资格仍开放，整体目标未完成。

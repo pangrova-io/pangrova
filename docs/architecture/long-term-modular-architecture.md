@@ -1332,7 +1332,7 @@ standalone ──friend──> coordinator.embedding + worker.embedding
 | 依据 | 可验证事实 | Pangrova 决策 |
 |---|---|---|
 | Java Language Specification | 包名层次本身没有访问语义，父包对子包没有额外可见性；模块只对显式 export 的 package 开放[^jls-packages] | 一个叶子独占一个领域 root；同 artifact 内仍以 `.api/.core/.store` 和 ArchUnit 建立逻辑可见性 |
-| JLS 命名与 package 文档 | 反向域名形成唯一前缀，模块名应与主要导出 package 对应；`package-info.java` 是 package 注解和文档的唯一位置[^jls-names] | 统一使用 `org.pangrova`；artifact 对应 principal root，公开 package 必须有 `package-info.java` |
+| JLS 命名与 package 文档 | 反向域名形成唯一前缀，模块名应与主要导出 package 对应；包层次不自动提供访问隔离[^jls-names] | 统一使用 `org.pangrova`；artifact 对应 principal root；按最新要求删除 `package-info.java`，归属/导出由 manifest 校验，语义约束写入 docs |
 | Iceberg / Paimon | 按真正公共 API、引擎集成、service/bundle 与重依赖边界选择性拆 artifact[^iceberg-modules][^paimon-modules] | 学习边界依据，不机械照抄 API/Core 每层一 JAR；Pangrova 内部 Domain API 默认是 owner artifact 的 exported package |
 | Trino | 插件只依赖窄 SPI，并以独立 classloader 隔离依赖[^trino-spi] | Connector plugin 只能面向 `connector-spi`，不得 import Coordinator、Metadata Core 或 execution implementation |
 | Spring Modulith | 只有声明的 API/named interface 可被外部模块使用，internal package 禁止外部依赖[^spring-modulith] | 在未全面启用 JPMS 前，由 manifest + ArchUnit 实现 default-deny exports/friend exports |
@@ -1426,7 +1426,6 @@ standalone ──friend──> coordinator.embedding + worker.embedding
     │   ├── id/           # stable identifiers
     │   ├── event/        # producer-owned immutable event payload
     │   └── usecase/      # small stable use-case ports where necessary
-    └── package-info.java # owner、stability、allowed consumers
 
 ├── org.pangrova.<domain>.core
     ├── <capability>/     # capability-first，禁止横向大包
@@ -2495,7 +2494,7 @@ Query 运行时拥有不重叠的 `.core/.store/.adapter`，依赖 Query API；A
 5. 每个 package declaration 必须落入所属 leaf 的 `packageRoots`，root 之间不得相等或互为前缀；
 6. Java import 必须同时满足 POM dependency、source `allowedImports` 与 target package `exports/friendExports`；Planner 对 Metadata 只能使用 `.api.binding` value；
 7. 多叶子 family root、default package、跨 artifact split package 数量为 0；检查 main/test/generated/shaded/plugin runtime classpath；
-8. 每个 owned/exported root 都有 `package-info.java`，每个 code-bearing JAR 都有唯一 `Automatic-Module-Name`；
+8. 不保留空 Java package 或 `package-info.java`；归属与导出由 manifest 定义，每个 code-bearing JAR 都有唯一 `Automatic-Module-Name`；
 9. 新增横向 `service/manager/util/impl/model/store` package 数量为 0，历史基线只能下降；
 10. 只有 Coordinator、Worker、Integration Tests 允许高 fan-out；Standalone 只能使用两个 embedding friend export；
 11. Exported API/SPI package 不得依赖同 artifact 的 Core/Store package；
@@ -2527,7 +2526,7 @@ Query 运行时拥有不重叠的 `.core/.store/.adapter`，依赖 Query API；A
 | exact/prefix package owner overlap | 0 |
 | undeclared cross-module package import | 0 |
 | multi-leaf family root class | 0 |
-| missing package-info / Automatic-Module-Name | 0 |
+| 空 Java package / package-info 源文件 / 缺少 Automatic-Module-Name | 0 |
 | 无 owner migration | 0 |
 | Coordinator 对 Worker implementation import | 0 |
 | Connector 对 Coordinator/Worker import | 0 |

@@ -169,22 +169,60 @@ class ModuleDependencyPropertyTest {
     }
 
     @Test
-    void exportedRootsHavePackageDocumentation() {
-        for (Policy policy : MODEL.policies().values()) {
-            if (policy.testSurface()) {
-                continue;
+    void pomOnlyModulesHaveConcreteBuildRoles() {
+        MODEL.aggregators.forEach((artifactId, path) -> {
+            Element project = parseXml(ROOT.resolve(path).resolve("pom.xml")).getDocumentElement();
+            List<Element> children = childElements(project, "modules").stream()
+                    .flatMap(modules -> childElements(modules, "module").stream()).toList();
+            if (!children.isEmpty()) {
+                for (Element child : children) {
+                    assertThat(ROOT.resolve(path).resolve(child.getTextContent().trim()).resolve("pom.xml"))
+                            .as("%s must aggregate an existing child", artifactId).isRegularFile();
+                }
+            } else {
+                // This source-less POM produces the platform classifier consumed by native-runtime.
+                assertThat(artifactId).as("Remove empty POM modules without a concrete build role")
+                        .isEqualTo("pangrova-native-bundle");
+                assertThat(project.getElementsByTagName("resource").getLength()).isPositive();
+                var executions = project.getElementsByTagName("execution");
+                boolean packagesNativeClassifier = false;
+                for (int index = 0; index < executions.getLength(); index++) {
+                    var execution = (Element) executions.item(index);
+                    packagesNativeClassifier |= "package-native-classifier".equals(childText(execution, "id"))
+                            && "package".equals(childText(execution, "phase"));
+                }
+                assertThat(packagesNativeClassifier).as("Native bundle must retain classifier packaging").isTrue();
             }
-            for (String root : policy.exports()) {
-                Path packageInfo = ROOT.resolve(policy.path())
-                        .resolve("src/main/java")
-                        .resolve(root.replace('.', '/'))
-                        .resolve("package-info.java");
-                assertThat(packageInfo)
-                        .as("%s exports %s but the package has no package-info.java",
-                                policy.artifactId(), root)
-                        .isRegularFile();
+        });
+    }
+
+    @Test
+    void sourceTreesHaveNoEmptyPackagesOrPackageInfo() throws IOException {
+        List<String> placeholders = new ArrayList<>();
+        for (Policy policy : MODEL.policies().values()) {
+            for (String sourceSet : List.of("main", "test")) {
+                Path source = ROOT.resolve(policy.path()).resolve("src").resolve(sourceSet).resolve("java");
+                if (!Files.isDirectory(source)) {
+                    continue;
+                }
+                try (Stream<Path> paths = Files.walk(source)) {
+                    for (Path path : paths.toList()) {
+                        if (path.getFileName().toString().equals("package-info.java")) {
+                            placeholders.add(ROOT.relativize(path).toString());
+                        } else if (!path.equals(source) && Files.isDirectory(path)) {
+                            try (Stream<Path> children = Files.list(path)) {
+                                if (children.findAny().isEmpty()) {
+                                    placeholders.add(ROOT.relativize(path) + "/ (empty package)");
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+        assertThat(placeholders)
+                .as("Remove empty Java packages and package-info sources; ownership belongs in modules.yaml/docs")
+                .isEmpty();
     }
 
     @Test

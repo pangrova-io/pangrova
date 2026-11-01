@@ -123,9 +123,13 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
   `planner.substrait`; they must not appear in domain or public API packages.
 - `internal` is documentation, not a Java access boundary. Architecture tests
   must reject imports of internal packages from any other leaf.
-- Every owned root and every exported/friend-exported package must contain a
-  `package-info.java` documenting its owner, stability, allowed consumers, and
-  prohibited responsibilities.
+- Keep package ownership, exports and allowed consumers in `.pangrova/modules.yaml`;
+  document semantic boundaries and prohibited responsibilities in the relevant
+  `docs/` content or module README. Do not add `package-info.java` or placeholder
+  source packages. Remove empty Java package directories after moves or deletions.
+- Remove empty modules after their code/resources move. Aggregator POMs must have
+  real child modules. The source-less Native Bundle is an explicit classifier
+  packaging job, not a placeholder; retain its resource and packaging checks.
 - Tests inside a production leaf may mirror that leaf's package to exercise
   package-private behavior. Reusable test utilities belong under an exclusive
   testing root such as `org.pangrova.testing.testkit`; they must not create a
